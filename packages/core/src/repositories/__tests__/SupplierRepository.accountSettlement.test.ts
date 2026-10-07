@@ -577,6 +577,45 @@ describe("SupplierRepository.settleAccount()", () => {
     ).supplier_id;
   }
 
+  // Owner decision 2026-10-07: every transaction row saves the rate the
+  // cashier ACTUALLY used. The settle sheet sends it as `exchange_rate`;
+  // the money still settles per currency (no conversion) — only the
+  // SUPPLIER_SETTLEMENT row's stamp changes.
+  it("stamps the settle sheet's hand-typed rate on the SUPPLIER_SETTLEMENT row", () => {
+    const { ipickId } = seedOmtAccount();
+    const ipickLedgerId = seedLedgerEntry(db, {
+      supplierId: ipickId,
+      entryType: "TOP_UP",
+      amountUsd: 200,
+    });
+    repo.settleAccount({
+      account_supplier_id: supplierIdOfAccountParent(ipickId),
+      direction: "PAY",
+      selections: [{ kind: "LEDGER", id: ipickLedgerId }],
+      amount_usd: 200,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 0,
+      created_by: 1,
+      exchange_rate: 87_000,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 200 }],
+    });
+    const row = db
+      .prepare(
+        `SELECT exchange_rate FROM transactions WHERE type = 'SUPPLIER_SETTLEMENT'`,
+      )
+      .get() as { exchange_rate: number | null };
+    expect(row.exchange_rate).toBe(87_000);
+  });
+
+  function supplierIdOfAccountParent(childId: number): number {
+    return (
+      db
+        .prepare(`SELECT account_supplier_id FROM suppliers WHERE id = ?`)
+        .get(childId) as { account_supplier_id: number }
+    ).account_supplier_id;
+  }
+
   // ── Full settle of a mixed account ──────────────────────────────────────
 
   it("full settle: OMT counter debt + iPick debt + OMT App debt net EVERY child to 0, one settlement transaction, commission credited on OMT only", () => {
@@ -975,8 +1014,10 @@ describe("SupplierRepository.settleAccount()", () => {
     // preview total an operator would see summing the selected rows' own
     // fields must equal the settlement's real recognised profit, per
     // currency.
-    const previewTotalUsd = previewUsd.commission_usd + previewLbp.commission_usd;
-    const previewTotalLbp = previewUsd.commission_lbp + previewLbp.commission_lbp;
+    const previewTotalUsd =
+      previewUsd.commission_usd + previewLbp.commission_usd;
+    const previewTotalLbp =
+      previewUsd.commission_lbp + previewLbp.commission_lbp;
 
     const result = repo.settleAccount({
       account_supplier_id: omtId,
@@ -1026,7 +1067,11 @@ describe("SupplierRepository.settleAccount()", () => {
   });
 
   it("rejects one entered commission figure spanning two commission-eligible members", () => {
-    const omtId = seedSupplier(db, { name: "OMT", provider: "OMT", isSystem: 1 });
+    const omtId = seedSupplier(db, {
+      name: "OMT",
+      provider: "OMT",
+      isSystem: 1,
+    });
     const katshId = seedSupplier(db, {
       name: "Katsh",
       provider: "Katsh",
@@ -1118,9 +1163,9 @@ describe("SupplierRepository.settleAccount()", () => {
       // Nothing moved — the whole write rolled back atomically.
       expect(ledgerSum(db, ipickId).usd).toBeCloseTo(100);
       expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer);
-      expect(
-        repo.getAccountUnsettled(omtId).some((r) => r.id === debtId),
-      ).toBe(true);
+      expect(repo.getAccountUnsettled(omtId).some((r) => r.id === debtId)).toBe(
+        true,
+      );
     });
 
     it("rejects an underpaid CASH leg — a partial tender is not silently accepted as a full settlement", () => {
@@ -1449,9 +1494,9 @@ describe("SupplierRepository.settleAccount()", () => {
       // Nothing moved — rejected before the write transaction opened.
       expect(ledgerSum(db, ipickId).usd).toBeCloseTo(100);
       expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer);
-      expect(
-        repo.getAccountUnsettled(omtId).some((r) => r.id === debtId),
-      ).toBe(true);
+      expect(repo.getAccountUnsettled(omtId).some((r) => r.id === debtId)).toBe(
+        true,
+      );
     });
 
     it("rejects an all-CUSTOMER_ACCOUNT leg set — the worst case, zero dollars would leave the drawer", () => {
@@ -1871,9 +1916,9 @@ describe("SupplierRepository.settleAccount()", () => {
           // step 0's validation and this write — no longer equal to the
           // shop's base system ("OMT"), so a CASH leg should no longer route
           // to the primary cash drawer (OMT_System) once re-read live.
-          db.prepare(`UPDATE suppliers SET provider = 'WHISH' WHERE id = ?`).run(
-            omtId,
-          );
+          db.prepare(
+            `UPDATE suppliers SET provider = 'WHISH' WHERE id = ?`,
+          ).run(omtId);
           return original(fsIds, ledgerIds, memberIds, accountId, tid);
         });
 
@@ -2195,7 +2240,9 @@ describe("SupplierRepository.settleAccount()", () => {
       expect(ledgerSum(db, omtId).usd).toBeCloseTo(0);
       expect(ledgerSum(db, ipickId).usd).toBeCloseTo(0);
       expect(fsRow(db, fsId).is_settled).toBe(1);
-      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer - 299.75);
+      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(
+        preDrawer - 299.75,
+      );
 
       const txnId = ledgerRow(db, result.id).transaction_id as number;
       const preVoidProfit = settlementTxnFor(db, txnId).profit_usd;
@@ -2288,7 +2335,9 @@ describe("SupplierRepository.settleAccount()", () => {
       expect(ledgerSum(db, omtId).usd).toBeCloseTo(0);
       expect(ledgerSum(db, ipickId).usd).toBeCloseTo(0);
       expect(fsRow(db, fsId).is_settled).toBe(1);
-      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer - 299.75);
+      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(
+        preDrawer - 299.75,
+      );
 
       const txnId = ledgerRow(db, result.id).transaction_id as number;
       expect(settlementTxnFor(db, txnId).profit_usd).toBeCloseTo(0.25);

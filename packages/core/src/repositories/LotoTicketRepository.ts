@@ -351,10 +351,12 @@ export class LotoTicketRepository {
         // Commission plus kept change (T3 KC-3, tender-native per currency).
         profit_usd: data.kept_change_usd ?? 0,
         profit_lbp: data.commission_amount + (data.kept_change_lbp ?? 0),
-        // Session sales inject the operator rate; a direct sale leaves it
-        // undefined so createTransaction snapshots the shop's LBP market rate
-        // (LIRA-185 loto lead 9 — was a hardcoded 100,000).
-        exchange_rate: data.exchange_rate,
+        // Session sales inject the operator rate; a direct sale stamps the
+        // rate its payment input converted at (`tender_exchange_rate`, owner
+        // decision 2026-10-07: the row saves the rate the cashier actually
+        // used). With neither, createTransaction snapshots the shop's LBP
+        // market rate (LIRA-185 loto lead 9 — was a hardcoded 100,000).
+        exchange_rate: data.exchange_rate ?? data.tender_exchange_rate,
         client_id: data.clientId ?? null,
         // For-partner tickets label the row with the partner (owner ask: the
         // transactions table shows "<partner> [partner]").

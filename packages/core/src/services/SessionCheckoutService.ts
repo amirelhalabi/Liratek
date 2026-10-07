@@ -34,6 +34,7 @@ import {
   type SessionCartItem,
 } from "../repositories/CustomerSessionRepository.js";
 import { getTransactionRepository } from "../repositories/TransactionRepository.js";
+import { cashierRateStamp } from "../repositories/moneyPosting.js";
 import { getClientRepository } from "../repositories/ClientRepository.js";
 import { clientLogger } from "../utils/logger.js";
 import { isSessionPooledFeeReceive } from "../utils/sessionFeeOnTop.js";
@@ -770,6 +771,10 @@ export class SessionCheckoutService {
             amount_lbp: 0,
             profit_usd: keptUsd,
             profit_lbp: keptLbp,
+            // Owner decision 2026-10-07: the row saves the rate the cashier
+            // actually used — the basket's checkout rate (never the `1`
+            // placeholder recordBasketPayment gets above when none is sent).
+            ...cashierRateStamp(exchangeRate),
             client_id: sessionClientId ?? null,
             // LIRA-230: every OTHER cart item in this basket gets
             // `sessionCustomerName` injected into its own formData above

@@ -62,6 +62,7 @@
 - Desktop app: insurance services now start their fulfilment tracking (Ordered → Issued → Received → Delivered) like on the web app — before, the desktop app dropped it.
 - Whish App receive: a fee typed while the amount was in dollars is no longer charged after switching to LBP, where the fee field is hidden. Switching between USD and LBP now clears the fee on OMT App and Whish App. From now on; receives already recorded keep their fee.
 - When you settle a supplier and the payment you entered doesn't match the amount due, the error now tells you in plain words whether you paid too little or too much.
+- Suppliers: Pay / Receive, Settle and OMT account Settle now use the rate you type in the payment box and save it with the transaction. On Pay / Receive, an LBP payment's share of your purchases is now worked out at that rate.
 
 ## 🏠 Dashboard
 
@@ -74,6 +75,7 @@
   or "WHISH APP" in the partner's history, instead of looking like a regular OMT or Whish transfer.
   From now on only.
 - From now on, partner payments count against what the partner still owes after refunds, so profit on later partner sales is no longer held back by refunded ones.
+- Settling a partner now saves the rate shown in the payment box with the transaction.
 
 ## 🧾 Transactions
 
@@ -90,6 +92,8 @@
 - The up/down arrows on voids and refunds now point the way the money actually moved.
 - A basket that was voided or refunded as a whole shows its original payment and the reversal on separate lines.
 - OMT/Whish supplier rows now say "Owed to OMT increased/reduced by …" instead of "Supplier TOP_UP".
+- For items paid as part of a customer basket, the "@ rate" now shows the rate the customer actually paid at, not the rate when the item was added to the basket. Kept-change rows no longer show a rate on their own.
+- From now on, change kept at session checkout is saved at the checkout's rate.
 
 ## 🔧 Maintenance
 
@@ -141,6 +145,7 @@
 - A Loto ticket paid in dollars is now accepted at the till's exchange rate.
 - "Settle All" on the Loto page now records one payment covering all open checkpoints, and
   "Create Checkpoint & Settle" asks for the correct amount.
+- Selling a ticket and settling with Loto now use the rate you type in the payment box: the payment is checked at that rate and the rate is saved with the transaction.
 
 ## 💱 Exchange
 
@@ -203,6 +208,7 @@
 - Expenses: search and pick any inventory item or Katsh / iPick / Whish App product to record using it for the shop — it comes out of stock at its cost, no cash moves.
 - Desktop app: an expense entered with an earlier date and time now keeps that time (it was saved as "now").
 - Recording an expense now has a separate Bill amount. If you hand the vendor more than the bill, enter the change you got back — it goes back into your drawer, and any change the vendor kept is added to the expense. From now on.
+- From now on, an expense saves the exchange rate shown in its payment box, including one you type by hand, instead of the day's market rate.
 
 ## ⚙️ Settings
 

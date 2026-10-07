@@ -18,22 +18,34 @@
  * payload shape fails here rather than only in a human review.
  */
 
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AccountSettleSheet } from "../AccountSettleSheet";
-import type { AccountBalance, AccountUnsettledRow } from "../../hooks/useSuppliers";
+import type {
+  AccountBalance,
+  AccountUnsettledRow,
+} from "../../hooks/useSuppliers";
+import { supplierSettleAccountSchema } from "@liratek/core";
 
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
+const mockApi = {
+  settleSupplierAccount: mockSettleSupplierAccount,
+  getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
+};
 
 jest.mock("@liratek/ui", () => {
   const actual = jest.requireActual("@liratek/ui");
   return {
     ...actual,
-    useApi: () => ({
-      settleSupplierAccount: mockSettleSupplierAccount,
-      getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
-    }),
+    // Rule 25: ONE stable object, never a fresh literal per useApi() call.
+    useApi: () => mockApi,
   };
 });
 
@@ -149,7 +161,11 @@ function renderSheet(
   const onSettled = overrides.onSettled ?? jest.fn();
   render(
     <QueryClientProvider client={queryClient}>
-      <AccountSettleSheet account={ACCOUNT} onClose={onClose} onSettled={onSettled} />
+      <AccountSettleSheet
+        account={ACCOUNT}
+        onClose={onClose}
+        onSettled={onSettled}
+      />
     </QueryClientProvider>,
   );
   return { onClose, onSettled };
@@ -186,7 +202,8 @@ describe("AccountSettleSheet (LIRA-189)", () => {
     // selected total = |1050| + |175| + |-100.10| = 1325.10
     await waitFor(() => {
       expect(
-        screen.getByTestId("supplier-account-settle-selected-total").textContent,
+        screen.getByTestId("supplier-account-settle-selected-total")
+          .textContent,
       ).toBe("$1325.10");
     });
     // net = 1050 + 175 - 100.10 = 1124.90, positive => PAY
@@ -201,14 +218,17 @@ describe("AccountSettleSheet (LIRA-189)", () => {
   it("unticking the cashout row drops it from both the selected total and the net", async () => {
     renderSheet([ROW_OMT, ROW_IPICK, ROW_CASHOUT]);
     const rows = await screen.findAllByTestId("supplier-account-settle-row");
-    const cashoutRow = rows.find((r) => r.getAttribute("data-row-id") === "20")!;
+    const cashoutRow = rows.find(
+      (r) => r.getAttribute("data-row-id") === "20",
+    )!;
     fireEvent.click(
       within(cashoutRow).getByTestId("supplier-account-settle-row-toggle"),
     );
 
     await waitFor(() => {
       expect(
-        screen.getByTestId("supplier-account-settle-selected-total").textContent,
+        screen.getByTestId("supplier-account-settle-selected-total")
+          .textContent,
       ).toBe("$1225.00");
     });
     expect(screen.getByTestId("supplier-account-settle-net").textContent).toBe(
@@ -247,7 +267,9 @@ describe("AccountSettleSheet (LIRA-189)", () => {
       screen.getByTestId("supplier-account-settle-direction-collect"),
     ).toHaveClass("bg-green-600");
 
-    fireEvent.click(screen.getByTestId("supplier-account-settle-direction-pay"));
+    fireEvent.click(
+      screen.getByTestId("supplier-account-settle-direction-pay"),
+    );
     expect(
       screen.getByTestId("supplier-account-settle-direction-pay"),
     ).toHaveClass("bg-red-600");
@@ -267,7 +289,8 @@ describe("AccountSettleSheet (LIRA-189)", () => {
     await waitFor(() => {
       expect(mockSettleSupplierAccount).toHaveBeenCalledTimes(1);
     });
-    const [accountSupplierId, payload] = mockSettleSupplierAccount.mock.calls[0];
+    const [accountSupplierId, payload] =
+      mockSettleSupplierAccount.mock.calls[0];
     expect(accountSupplierId).toBe(1);
     expect(payload.direction).toBe("PAY");
     expect(payload.selections).toEqual([
@@ -360,5 +383,31 @@ describe("AccountSettleSheet (LIRA-189)", () => {
     expect(payload.payments).toEqual([
       { method: "CASH", currency_code: "USD", amount: 1225 },
     ]);
+  });
+
+  // Owner decision 2026-10-07: a rate the cashier types by hand is sent and
+  // stamped on the SUPPLIER_SETTLEMENT row. The server settles per currency
+  // with no conversion, so the rate is stamp-only; the on-screen target is
+  // left at the shop's rate (re-keying the payment input on a typed rate
+  // would remount it and throw the typed rate away).
+  it("sends a hand-typed rate as exchange_rate", async () => {
+    renderSheet([ROW_OMT, ROW_IPICK]);
+    await screen.findAllByTestId("supplier-account-settle-row");
+    const submit = await screen.findByTestId("supplier-account-settle-submit");
+    await waitFor(() => expect(submit).not.toBeDisabled());
+
+    fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
+      target: { value: "87000" },
+    });
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(mockSettleSupplierAccount).toHaveBeenCalled());
+    const [accountSupplierId, payload] =
+      mockSettleSupplierAccount.mock.calls[0];
+    const parsed = supplierSettleAccountSchema.parse({
+      account_supplier_id: accountSupplierId,
+      ...payload,
+    });
+    expect(parsed.exchange_rate).toBe(87000);
   });
 });

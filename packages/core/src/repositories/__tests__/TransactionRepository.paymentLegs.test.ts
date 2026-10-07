@@ -86,7 +86,17 @@ function createTestDb(): Database.Database {
       amount_usd             REAL NOT NULL DEFAULT 0,
       amount_lbp             REAL NOT NULL DEFAULT 0,
       tenant_id              INTEGER NOT NULL DEFAULT 1,
-      created_at             TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at             TEXT DEFAULT CURRENT_TIMESTAMP,
+      -- v186: the basket's checkout rate (getRecent's display_exchange_rate).
+      paid_exchange_rate     REAL
+    );
+
+    -- getRecent's display_exchange_rate reads a session SALE's checkout
+    -- snapshot; only needs to exist here.
+    CREATE TABLE IF NOT EXISTS sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      exchange_rate_snapshot REAL
     );
 
     CREATE TABLE debt_ledger (
@@ -779,9 +789,9 @@ describe("TransactionRepository.getRecent — CUSTOMER_ACCOUNT method leg", () =
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
     expect(row.account_payments ?? []).toHaveLength(0);
-    expect(
-      (row.session_account_payments ?? []).map((l) => l.method),
-    ).toEqual(["CUSTOMER_ACCOUNT"]);
+    expect((row.session_account_payments ?? []).map((l) => l.method)).toEqual([
+      "CUSTOMER_ACCOUNT",
+    ]);
     expect(row.session_account_payments![0]).toMatchObject({
       amount: 900_000,
       currency_code: "LBP",

@@ -140,9 +140,17 @@ export function SummaryCell({
             // · change $0.50"); every other type keeps "in: … · out: …".
             const legs =
               cashMovementLine(row) ?? formatPaymentLegs(cashLegsFor(row));
-            const rate = row.exchange_rate
-              ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
-              : null;
+            // Owner decision 2026-10-07: show the rate the customer PAID at
+            // — a basket member's checkout rate (`display_exchange_rate`,
+            // core's DISPLAY_EXCHANGE_RATE_SQL), else the row's own stamp.
+            // A row that moves no amount and has no legs (a session's
+            // KEPT_CHANGE profit row) shows no lone "@ rate".
+            const shownRate = row.display_exchange_rate ?? row.exchange_rate;
+            const movesNothing = !legs && !row.amount_usd && !row.amount_lbp;
+            const rate =
+              shownRate && !movesNothing
+                ? `@ ${Math.round(shownRate).toLocaleString()}`
+                : null;
             const text = [legs, rate].filter(Boolean).join(" · ");
             if (!text) return null;
             return (
@@ -502,14 +510,14 @@ export function ActionsCell({
                 SESSION_ITEM_REFUNDABLE_TYPES.has(
                   row.type as TransactionType,
                 ) && (
-                <button
-                  onClick={() => handlers.onRefundSessionItem(row)}
-                  title="Refund just this item — reduces the customer's account first, then hands back any remainder."
-                  className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
-                >
-                  Refund item
-                </button>
-              )}
+                  <button
+                    onClick={() => handlers.onRefundSessionItem(row)}
+                    title="Refund just this item — reduces the customer's account first, then hands back any remainder."
+                    className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
+                  >
+                    Refund item
+                  </button>
+                )}
             </>
           ) : (
             <>

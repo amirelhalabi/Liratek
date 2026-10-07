@@ -84,7 +84,17 @@ function createTestDb(): Database.Database {
       session_id             INTEGER NOT NULL,
       unified_transaction_id INTEGER,
       amount_usd             REAL NOT NULL DEFAULT 0,
-      amount_lbp             REAL NOT NULL DEFAULT 0
+      amount_lbp             REAL NOT NULL DEFAULT 0,
+      -- v186: the basket's checkout rate (getRecent's display_exchange_rate).
+      paid_exchange_rate     REAL
+    );
+
+    -- getRecent's display_exchange_rate reads a session SALE's checkout
+    -- snapshot; only needs to exist here.
+    CREATE TABLE IF NOT EXISTS sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      exchange_rate_snapshot REAL
     );
 
     -- Only needs to exist for _attachPaymentLegs()'s CUSTOMER_ACCOUNT leg
@@ -212,7 +222,9 @@ describe("TransactionRepository.getRecent — typeFilters union (multi-select Ty
     seedTxn(db, { tenantId: 1, type: "SALE", sourceId: 1 });
     seedTxn(db, { tenantId: 1, type: "EXPENSE", sourceId: 2 });
 
-    const rows = runWithTenant(1, () => repo.getRecent(50, { typeFilters: [] }));
+    const rows = runWithTenant(1, () =>
+      repo.getRecent(50, { typeFilters: [] }),
+    );
     expect(rows).toHaveLength(2);
   });
 

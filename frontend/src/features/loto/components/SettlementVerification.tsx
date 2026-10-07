@@ -65,6 +65,10 @@ export function SettlementVerification({
   // Payments use the BUY rate (owner decision 2026-07-06): every
   // MultiPaymentInput converts LBP↔USD at buyRate.
   const { buyRate: exchangeRate } = useSellRate();
+  // Owner decision 2026-10-07: the rate the cashier actually used — the
+  // payment input's header rate, hand-edited or not (reported via
+  // onExchangeRateChange, also on mount).
+  const [paymentRate, setPaymentRate] = useState<number | undefined>();
   const [showDialog, setShowDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -128,8 +132,10 @@ export function SettlementVerification({
         // a date range after the last checkpoint missed tickets sold after a
         // checkpoint taken today and counted voided tickets.
         const ticketsResult = await api.loto.getUncheckpointed();
-        const tickets: Array<{ sale_amount: number; commission_amount: number }> =
-          ticketsResult.tickets || [];
+        const tickets: Array<{
+          sale_amount: number;
+          commission_amount: number;
+        }> = ticketsResult.tickets || [];
 
         const sales = tickets.reduce((sum, t) => sum + t.sale_amount, 0);
         const commission = tickets.reduce(
@@ -209,10 +215,11 @@ export function SettlementVerification({
         amount: sign * Math.abs(p.amount),
       }));
       // LIRA-258 G23: the rate MultiPaymentInput converted cross-currency
-      // legs at (BUY rate) — the repository reconciles the legs against the
-      // net settlement at it. Omitted if not positive (schema would refuse).
-      const tenderRate =
-        exchangeRate > 0 ? { tender_exchange_rate: exchangeRate } : {};
+      // legs at (BUY rate, or the one the cashier typed) — the repository
+      // reconciles the legs against the net settlement at it and stamps it
+      // on LOTO_SETTLEMENT. Omitted if not positive (schema would refuse).
+      const usedRate = paymentRate ?? exchangeRate;
+      const tenderRate = usedRate > 0 ? { tender_exchange_rate: usedRate } : {};
 
       // If there's unchecked activity but no checkpoints, create a checkpoint first
       if (unsettledCheckpoints.length === 0 && uncheckedActivity) {
@@ -696,6 +703,7 @@ export function SettlementVerification({
                       { code: "LBP", symbol: "LBP" },
                     ]}
                     exchangeRate={exchangeRate}
+                    onExchangeRateChange={setPaymentRate}
                   />
                 </div>
               </div>

@@ -10,6 +10,7 @@ import { decodeJwtPayload } from "@/shared/utils/jwt";
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
+import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
 // LIRA-267 — sign-up / invite payloads and views, derived from the core
 // schemas (rule 21). The `*BodyInput`/`*Input` aliases are `z.input<…>`
 // computed inside core, against core's own zod major.
@@ -29,10 +30,7 @@ import type {
   SsoExchangeInput,
 } from "@liratek/core";
 // Debts write payloads derived from the core schemas (rule 21).
-import type {
-  AddRepaymentPayload,
-  DebtCashOutPayload,
-} from "@liratek/core";
+import type { AddRepaymentPayload, DebtCashOutPayload } from "@liratek/core";
 import { messageFrom } from "./apiError";
 import { localDay } from "@/shared/utils/localDay";
 import type {
@@ -1804,7 +1802,8 @@ export async function partnersRecordTransaction(payload: any) {
   );
 }
 
-export async function partnersSettle(payload: any) {
+// Payload derived from the core partnerSettleSchema (rule 21).
+export async function partnersSettle(payload: PartnerSettleInput) {
   return ipcOrHttp(
     async () => getElectronApi().partners.settle(payload),
     async () =>
@@ -3144,37 +3143,8 @@ export async function getUnsettledTransactions(provider: string) {
   );
 }
 
-export async function settleTransactions(data: {
-  supplier_id: number;
-  financial_service_ids: number[];
-  amount_usd: number;
-  amount_lbp: number;
-  commission_usd: number;
-  commission_lbp: number;
-  // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — entry mode + audit snapshot of the
-  // rate/count used for a new-model (commission_model=1) batch. Ignored for
-  // a legacy batch.
-  entry_mode?: "LUMP" | "RATE";
-  commission_rate?: number;
-  commission_unit_count?: number;
-  /** Owner follow-up (2026-08-13) — bills-only batch only: 'TOP_UP'
-   *  (default) credits the provider's own drawer, 'OTHER_PAYMENT' means
-   *  `payments` below carries the real collection legs instead. See
-   *  SupplierRepository.SettleTransactionsData for the full contract. */
-  commission_collection_mode?: "TOP_UP" | "OTHER_PAYMENT";
-  /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
-  drawer_name?: string;
-  note?: string;
-  // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.5 (rule-12 completeness gap): typed in
-  // electron.d.ts but missing here — closed alongside settleSupplierAccount
-  // below (LIRA-189's collect direction needs a leg markable OUT).
-  payments?: Array<{
-    method: string;
-    currency_code: string;
-    amount: number;
-    direction?: "IN" | "OUT";
-  }>;
-}) {
+// Payload derived from the core supplierSettleSchema (rule 21).
+export async function settleTransactions(data: SupplierSettleInput) {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.settleTransactions(data),
     async () =>
@@ -7958,9 +7928,10 @@ export interface UserInvitationList {
 
 export async function listUserEmails(): Promise<UserEmailView[]> {
   assertWebOnly("Listing user emails");
-  const res = await requestJson<AccountRouteResult<{ users: UserEmailView[] }>>(
-    "/api/user-email",
-  );
+  const res =
+    await requestJson<AccountRouteResult<{ users: UserEmailView[] }>>(
+      "/api/user-email",
+    );
   if (!res.success || !res.data) {
     throw new Error(messageFrom(res.error, "Failed to load user emails"));
   }
@@ -8168,7 +8139,11 @@ export async function googleAuthStatus() {
 export async function googleLinkStatus() {
   assertWebOnly("Google sign-in");
   return requestJson<
-    GoogleRouteResult<{ enabled: boolean; linked: boolean; email: string | null }>
+    GoogleRouteResult<{
+      enabled: boolean;
+      linked: boolean;
+      email: string | null;
+    }>
   >("/api/auth/google/link");
 }
 

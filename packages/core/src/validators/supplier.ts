@@ -104,6 +104,10 @@ export const supplierSettleSchema = z.object({
   drawer_name: z.string().optional(),
   note: z.string().optional(),
   payments: z.array(supplierPaymentLegSchema).optional(),
+  // Owner decision 2026-10-07: the rate the Settle sheet's payment input
+  // showed (hand-typed or the buy rate), stamped on the SUPPLIER_SETTLEMENT
+  // transaction. Stamp-only — legs reconcile per currency, never converted.
+  exchange_rate: z.number().positive().optional(),
 });
 
 /** Pay a supplier / record a supplier paying us, via payment-method legs. */
@@ -149,7 +153,7 @@ export const supplierSettleAccountSchema = z.object({
       z.object({
         kind: z.enum(["FINANCIAL_SERVICE", "LEDGER"]),
         id: z.number().int().positive(),
-      })
+      }),
     )
     .min(1),
   amount_usd: z.number(),

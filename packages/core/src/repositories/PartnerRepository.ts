@@ -19,6 +19,7 @@ import { allocateFifo } from "../utils/fifoCoverage.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import {
   applyDrawerDelta,
+  cashierRateStamp,
   insertPaymentRow,
   buildCounterpartyDiscountPosting,
 } from "./moneyPosting.js";
@@ -549,6 +550,10 @@ export class PartnerRepository extends BaseRepository<Partner> {
      *  UNsigned (positive); the direction sign is derived once from
      *  `entry.direction`, same as the legacy single-leg `signed` below. */
     legs?: Array<{ method: string; currency_code: string; amount: number }>,
+    /** Owner decision 2026-10-07 — the rate the cashier's settle modal
+     *  showed; stamped on the transaction when sent, else createTransaction's
+     *  market-rate snapshot. Never converts an amount. */
+    exchangeRate?: number,
   ): number {
     const tenantId = getCurrentTenantId();
     const method = entry.settlement_method ?? "CASH";
@@ -591,6 +596,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
         amount_lbp: entry.currency === "LBP" ? signed : 0,
         profit_usd: 0,
         profit_lbp: 0,
+        ...cashierRateStamp(exchangeRate),
         client_id: null,
         summary: `${
           txnType === TRANSACTION_TYPES.PARTNER_PAYMENT

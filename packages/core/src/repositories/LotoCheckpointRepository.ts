@@ -17,6 +17,7 @@ import {
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {
   applyDrawerDelta,
+  cashierRateStamp,
   insertPaymentRow,
   reconcileLegs,
 } from "./moneyPosting.js";
@@ -63,7 +64,10 @@ function assertSettlementLegsReconcile(
         `${context}: payment method "${leg.method}" moves no drawer — a settlement must be paid from a drawer`,
       );
     }
-    if (leg.amount !== 0 && Math.sign(leg.amount) !== Math.sign(netSettlement)) {
+    if (
+      leg.amount !== 0 &&
+      Math.sign(leg.amount) !== Math.sign(netSettlement)
+    ) {
       throw new Error(
         netSettlement < 0
           ? `${context}: payment direction does not match — the shop pays LOTO here, so every leg must be a payment out`
@@ -353,8 +357,10 @@ export class LotoCheckpointRepository {
       // 1. Create unified transaction for settlement. LOTO_SETTLEMENT stays in
       // NON_REVERSIBLE_TRANSACTION_TYPES: the checkpoint's totals and its
       // is_settled/settlement_id stamps are frozen once settled, so there is
-      // no safe generic reversal. `exchange_rate` omitted → the market-rate
-      // snapshot every other loto flow stamps (was a hard-coded 100,000).
+      // no safe generic reversal. Rate (owner decision 2026-10-07): the
+      // rate the Settle dialog's payment input converted at, when sent —
+      // the row records what the cashier actually used; otherwise omitted →
+      // the market-rate snapshot (was a hard-coded 100,000).
       const txnRepo = getTransactionRepository();
       const txnId = txnRepo.createTransaction({
         type: TRANSACTION_TYPES.LOTO_SETTLEMENT,
@@ -363,6 +369,7 @@ export class LotoCheckpointRepository {
         user_id: userId,
         amount_usd: 0,
         amount_lbp: netSettlement,
+        ...cashierRateStamp(tenderExchangeRate),
         summary: `Loto settlement for checkpoint #${id}`,
         metadata_json: {
           total_sales: totalSales,
@@ -538,8 +545,8 @@ export class LotoCheckpointRepository {
       // Same LOTO supplier lookup/create as the ticket sale (no `|| 1`).
       const supplierId = resolveLotoSupplierId(this.db, tenantId);
 
-      // 1. Create unified transaction (non-reversible + market-rate snapshot:
-      // see settleCheckpoint).
+      // 1. Create unified transaction (non-reversible; stamps the cashier's
+      // rate when sent, else the market-rate snapshot: see settleCheckpoint).
       const txnRepo = getTransactionRepository();
       const txnId = txnRepo.createTransaction({
         type: TRANSACTION_TYPES.LOTO_SETTLEMENT,
@@ -548,6 +555,7 @@ export class LotoCheckpointRepository {
         user_id: userId,
         amount_usd: 0,
         amount_lbp: netSettlement,
+        ...cashierRateStamp(tenderExchangeRate),
         summary: `Loto batch settlement for ${checkpointIds.length} checkpoint(s)`,
         metadata_json: {
           checkpoint_ids: checkpointIds,

@@ -793,6 +793,9 @@ contextBridge.exposeInMainWorld("api", {
       // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.5 (rule-12 completeness gap): typed
       // in electron.d.ts but missing here — closed alongside settleAccount
       // below (LIRA-189's collect direction needs a leg markable OUT).
+      /** Owner decision 2026-10-07 — the Settle sheet's payment-input
+       *  rate, stamped on SUPPLIER_SETTLEMENT (supplierSettleSchema). */
+      exchange_rate?: number;
       payments?: Array<{
         method: string;
         currency_code: string;

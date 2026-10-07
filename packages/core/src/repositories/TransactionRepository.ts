@@ -94,10 +94,7 @@ import { getSalesRepository } from "./SalesRepository.js";
 // imports `getTransactionRepository` at its own top level, and neither class
 // touches the other's import at module-evaluation time, only from inside a
 // method body.
-import {
-  getDebtRepository,
-  readRepaymentCoverage,
-} from "./DebtRepository.js";
+import { getDebtRepository, readRepaymentCoverage } from "./DebtRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 // LIRA-258 / G17 — the shared repayment-coverable type list (rule 14/20),
 // same lazy circular-import pattern as above (only read inside a method).
@@ -510,7 +507,10 @@ export function dayRateFallback(): number | null {
 export function resolveBookedRate(
   recordedRate: number | null | undefined,
   sourceIfPresent: "sale" | "transaction",
-): { bookedRate: number; bookedRateSource: "sale" | "transaction" | "fallback" } {
+): {
+  bookedRate: number;
+  bookedRateSource: "sale" | "transaction" | "fallback";
+} {
   if (recordedRate != null && recordedRate > 0) {
     return { bookedRate: recordedRate, bookedRateSource: sourceIfPresent };
   }
@@ -725,7 +725,9 @@ export function validateRefundLegOverrideAmounts(
       overrideValueUsd += override * toUsd;
     }
     const originalValueUsd = Math.abs(originalNetValueUsd);
-    if (Math.abs(originalValueUsd - overrideValueUsd) > REFUND_VALUE_TOLERANCE_USD) {
+    if (
+      Math.abs(originalValueUsd - overrideValueUsd) > REFUND_VALUE_TOLERANCE_USD
+    ) {
       throw new DatabaseError(
         `Refund method override: refund legs do not match the original payment's value at rate ${exchangeRate} — ` +
           `original value $${originalValueUsd.toFixed(2)}, refund legs value $${overrideValueUsd.toFixed(2)}`,
@@ -934,9 +936,37 @@ export interface DailySummary {
   void_lbp: number;
 }
 
+/**
+ * Owner decision 2026-10-07 — the rate a row's customer actually PAID at,
+ * for the Transactions table's "@ rate". A session-basket member reads the
+ * basket's checkout rate: a SALE its `sales.exchange_rate_snapshot`
+ * (back-filled by `markSalePaid`), every other member
+ * `customer_session_transactions.paid_exchange_rate` (v186) — each falling
+ * back to the row's own `transactions.exchange_rate`, which is also what a
+ * row outside any basket shows. This is the SQL twin of the preference
+ * order `refundSessionItem` resolves in TypeScript ("checkoutRate"), so the
+ * rate a refund defaults to and the rate the table shows cannot disagree.
+ * Expects `t` = transactions and `cst` = its (LEFT JOINed) session
+ * membership row, as `getRecent` aliases them.
+ */
+export const DISPLAY_EXCHANGE_RATE_SQL = `CASE
+  WHEN cst.id IS NULL THEN t.exchange_rate
+  WHEN t.type = 'SALE' AND t.source_table = 'sales' THEN COALESCE(
+    (SELECT s.exchange_rate_snapshot FROM sales s
+      WHERE s.id = t.source_id AND s.tenant_id = t.tenant_id),
+    t.exchange_rate)
+  ELSE COALESCE(cst.paid_exchange_rate, t.exchange_rate)
+END`;
+
 export interface TransactionWithUser extends TransactionEntity {
   username: string;
   client_name: string | null;
+  /**
+   * The rate to SHOW for this row ("@ rate"): see
+   * `DISPLAY_EXCHANGE_RATE_SQL`. `exchange_rate` itself stays the stored
+   * stamp (amount sort, profit conversion and refunds read that).
+   */
+  display_exchange_rate?: number | null;
   /**
    * The customer session this transaction belongs to (basket payment), or null.
    * Resolved via customer_session_transactions.unified_transaction_id = t.id.
@@ -1514,6 +1544,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       `SELECT t.id, t.type, t.status, t.source_table, t.source_id,
               t.user_id, t.amount_usd, t.amount_lbp, t.profit_usd, t.profit_lbp,
               t.exchange_rate,
+              ${DISPLAY_EXCHANGE_RATE_SQL} AS display_exchange_rate,
               t.client_id, t.client_phone,
               t.reverses_id, t.summary, t.metadata_json,
               t.device_id, t.created_at,
@@ -2115,7 +2146,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // written) when every member was already refunded item by item; see
     // `isSessionBasketFullyRefunded`'s own doc.
     if (this.isSessionBasketFullyRefunded(sessionId)) {
-      throw new BusinessRuleError(SESSION_BASKET_ALREADY_FULLY_REFUNDED_MESSAGE);
+      throw new BusinessRuleError(
+        SESSION_BASKET_ALREADY_FULLY_REFUNDED_MESSAGE,
+      );
     }
     // Finding #4 (BLOCKER, adversarial review) — `cst.transaction_type =
     // 'session_item_refund'` rows are NOT basket members to reverse; they
@@ -2189,7 +2222,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // written) when every member was already refunded item by item; see
     // `isSessionBasketFullyRefunded`'s own doc.
     if (this.isSessionBasketFullyRefunded(sessionId)) {
-      throw new BusinessRuleError(SESSION_BASKET_ALREADY_FULLY_REFUNDED_MESSAGE);
+      throw new BusinessRuleError(
+        SESSION_BASKET_ALREADY_FULLY_REFUNDED_MESSAGE,
+      );
     }
     // Finding #4 (BLOCKER) — see `voidSessionBasket`'s identical exclusion
     // above: a 'session_item_refund' cst row links a PRIOR item refund's own
@@ -2499,7 +2534,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       return weights.map(() => 0);
     }
     const totalUnits = Math.round(roundedTotal / unit);
-    const rawUnits = weights.map((w) => (roundedTotal * (w / sumWeights)) / unit);
+    const rawUnits = weights.map(
+      (w) => (roundedTotal * (w / sumWeights)) / unit,
+    );
     const floorUnits = rawUnits.map((r) => Math.floor(r));
     const allocatedUnits = floorUnits.reduce((a, b) => a + b, 0);
     let leftoverUnits = totalUnits - allocatedUnits;
@@ -2562,7 +2599,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // as "already handled by the pool", under-reversing the pool by exactly
     // that amount and stranding it in the drawer — see this file's
     // "round-2 finding #1" test for the measured $40 stuck in General.
-    const alreadyReturned = this._priorSessionItemRefundPoolAttributed(sessionId);
+    const alreadyReturned =
+      this._priorSessionItemRefundPoolAttributed(sessionId);
     const alreadyReturnedByCurrency: Record<string, number> = {
       USD: alreadyReturned.usd,
       LBP: alreadyReturned.lbp,
@@ -2612,7 +2650,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // sub-unit remainder); with nothing subtracted, reverse the leg's
       // exact stored amount, unrounded.
       const negatedAmount =
-        reduceBy > 0 ? -this._roundToUnit(p.amount - reduceBy, unit) : -p.amount;
+        reduceBy > 0
+          ? -this._roundToUnit(p.amount - reduceBy, unit)
+          : -p.amount;
       // Round-3 finding #7 (LOW) — never write a zero-amount reversal leg —
       // a pooled leg an item refund already fully consumed has nothing
       // left to reverse (the pre-fix code always wrote a 0-amount 'Basket
@@ -2779,7 +2819,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 10.10 + 20.20 charged on account nets to -3.552713678800501e-15
       // instead of exactly 0), which `findClientHistory`'s exact `= 0`
       // filter (below) then fails to recognize as a zero-amount row.
-      const netUsd = this._roundToUnit(Math.max(0, d.amount_usd - takeUsd), 0.01);
+      const netUsd = this._roundToUnit(
+        Math.max(0, d.amount_usd - takeUsd),
+        0.01,
+      );
       const netLbp = this._roundToUnit(Math.max(0, d.amount_lbp - takeLbp), 1);
       // Written even when this row's own net is 0 (fully attributed away by
       // prior item refunds) — the row itself is the idempotency marker.
@@ -2860,7 +2903,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     preferredRate?: number | null,
   ): number | null {
     void sessionId;
-    if (preferredRate != null && preferredRate > 0 && Number.isFinite(preferredRate)) {
+    if (
+      preferredRate != null &&
+      preferredRate > 0 &&
+      Number.isFinite(preferredRate)
+    ) {
       return preferredRate;
     }
     return this._dayRateFallback();
@@ -2879,7 +2926,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    *  defaulting to a guessed rate (the pre-fix behavior — a hardcoded
    *  89500 — could move money at a rate nobody set). LIRA-236 —
    *  `preferredRate` threads through to `_crossCurrencyRateForBasket`. */
-  private _requireBuyRate(sessionId: number, preferredRate?: number | null): number {
+  private _requireBuyRate(
+    sessionId: number,
+    preferredRate?: number | null,
+  ): number {
     const rate = this._crossCurrencyRateForBasket(sessionId, preferredRate);
     if (!rate || !(rate > 0)) {
       throw new DatabaseError(
@@ -2901,7 +2951,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   private _bookedRateFor(
     recordedRate: number | null | undefined,
     sourceIfPresent: "sale" | "transaction",
-  ): { bookedRate: number; bookedRateSource: "sale" | "transaction" | "fallback" } {
+  ): {
+    bookedRate: number;
+    bookedRateSource: "sale" | "transaction" | "fallback";
+  } {
     return resolveBookedRate(recordedRate, sourceIfPresent);
   }
 
@@ -3056,7 +3109,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // ($15.056 pool share) followed by a $5 sale, both capped against the
     // SAME gross $20 pool independently, handed back $20.056 total — $0.056
     // more than the pool ever held.
-    const priorPoolSplit = this._priorSessionItemRefundPoolAttributed(sessionId);
+    const priorPoolSplit =
+      this._priorSessionItemRefundPoolAttributed(sessionId);
     const poolNetUsd =
       totalUsd - this._sessionPooledOutLegsTotal(sessionId, "USD");
     const poolNetLbp =
@@ -3105,7 +3159,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       return {
         usd: 0,
         lbp: Math.min(
-          Math.round(usdEquivAmount * this._requireBuyRate(sessionId, preferredRate)),
+          Math.round(
+            usdEquivAmount * this._requireBuyRate(sessionId, preferredRate),
+          ),
           availableLbp,
         ),
       };
@@ -3399,7 +3455,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         const acc = result.get(row.session_id);
         if (!acc || !row.metadata_json) continue;
         try {
-          const meta = JSON.parse(row.metadata_json) as Record<string, number | undefined>;
+          const meta = JSON.parse(row.metadata_json) as Record<
+            string,
+            number | undefined
+          >;
           acc.usd += meta[usdKey] ?? 0;
           acc.lbp += meta[lbpKey] ?? 0;
         } catch {
@@ -3700,10 +3759,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }
     }
 
-    const positiveByCurrencyBySession = new Map<
-      number,
-      Map<string, number>
-    >();
+    const positiveByCurrencyBySession = new Map<number, Map<string, number>>();
     const needsPositiveCheckIds: number[] = [];
     for (const sid of noDebtIds) {
       const legs = pooledLegsBySession.get(sid) ?? [];
@@ -3840,7 +3896,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         ...chunk,
         tenantId,
       );
-      for (const row of rows) remainingBySale.set(row.sale_id, row.remaining ?? 0);
+      for (const row of rows)
+        remainingBySale.set(row.sale_id, row.remaining ?? 0);
     }
     for (const member of needsSaleCheck) {
       const remaining = remainingBySale.get(member.source_id!) ?? 0;
@@ -3999,7 +4056,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
 
     const isSaleMember =
-      original.source_table === "sales" && original.type === TRANSACTION_TYPES.SALE;
+      original.source_table === "sales" &&
+      original.type === TRANSACTION_TYPES.SALE;
     if (input.saleItemId != null && !isSaleMember) {
       throw new DatabaseError("saleItemId is only valid for a SALE member", {
         entityId: transactionId,
@@ -4028,8 +4086,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // a future caller ever wants them to diverge (see the return type's own
     // doc).
     const checkoutRate = isSaleMember
-      ? this._saleExchangeRateSnapshot(original.source_id) ?? original.exchange_rate
-      : membership.paid_exchange_rate ?? original.exchange_rate;
+      ? (this._saleExchangeRateSnapshot(original.source_id) ??
+        original.exchange_rate)
+      : (membership.paid_exchange_rate ?? original.exchange_rate);
     const { bookedRate, bookedRateSource } = this._bookedRateFor(
       checkoutRate,
       isSaleMember ? "sale" : "transaction",
@@ -4245,8 +4304,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // A_account[c] — same-currency attribution first, then a cross-currency
     // step (Q3's buy-rate rule) if the item still has leftover in one
     // currency while the OTHER currency's charge remainder is nonzero.
-    let accountAttributedUsd = Math.min(itemAmountUsd, basketChargeRemainingUsd);
-    let accountAttributedLbp = Math.min(itemAmountLbp, basketChargeRemainingLbp);
+    let accountAttributedUsd = Math.min(
+      itemAmountUsd,
+      basketChargeRemainingUsd,
+    );
+    let accountAttributedLbp = Math.min(
+      itemAmountLbp,
+      basketChargeRemainingLbp,
+    );
     let leftoverItemUsd = itemAmountUsd - accountAttributedUsd;
     let leftoverItemLbp = itemAmountLbp - accountAttributedLbp;
     let leftoverChargeUsd = basketChargeRemainingUsd - accountAttributedUsd;
@@ -4344,8 +4409,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       Math.min(accountAttributedLbp, availableLbp),
       1,
     );
-    const repaidBackUsd = Math.max(0, accountAttributedUsd - accountReductionUsd);
-    const repaidBackLbp = Math.max(0, accountAttributedLbp - accountReductionLbp);
+    const repaidBackUsd = Math.max(
+      0,
+      accountAttributedUsd - accountReductionUsd,
+    );
+    const repaidBackLbp = Math.max(
+      0,
+      accountAttributedLbp - accountReductionLbp,
+    );
     // How much of THIS call's own accountReduction drew from the
     // pre-existing bucket specifically (consumption order: the genuinely
     // still-owed bucket first, then pre-existing) — persisted so a LATER
@@ -4431,10 +4502,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * `_defaultSessionRefundLegs`'s own no-pool fallback already uses (rule
    * 14 — one "default cash drawer" constant, not a second literal).
    */
-  private _repaidBackLegs(
-    usd: number,
-    lbp: number,
-  ): TransactionPaymentLeg[] {
+  private _repaidBackLegs(usd: number, lbp: number): TransactionPaymentLeg[] {
     const drawerName = paymentMethodToDrawerName("CASH");
     const legs: TransactionPaymentLeg[] = [];
     if (usd > 0.005) {
@@ -4706,19 +4774,20 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         // under a different sale" when an undo is later attempted).
         const allRestoredUnitIds: number[] = [];
         for (const line of lines) {
-          const { restoredUnitIds } = getSalesRepository().applySaleItemReversalForSession({
-            saleId: saleId!,
-            saleItemId: line.saleItemId,
-            refundQuantity: line.quantity,
-            userId,
-            refundTxnId,
-            // 2026-09-26 owner decision (NEW API CONTRACT) — the "Returned
-            // phones" defective/warranty override applies on every refund
-            // path, including this one. Validated per-line against THIS
-            // line's own linked units inside applySaleItemReversalForSession
-            // itself (rule 14 — one validator, `validateRefundUnitExtras`).
-            unitExtras: unitExtrasByLine?.get(line.saleItemId),
-          });
+          const { restoredUnitIds } =
+            getSalesRepository().applySaleItemReversalForSession({
+              saleId: saleId!,
+              saleItemId: line.saleItemId,
+              refundQuantity: line.quantity,
+              userId,
+              refundTxnId,
+              // 2026-09-26 owner decision (NEW API CONTRACT) — the "Returned
+              // phones" defective/warranty override applies on every refund
+              // path, including this one. Validated per-line against THIS
+              // line's own linked units inside applySaleItemReversalForSession
+              // itself (rule 14 — one validator, `validateRefundUnitExtras`).
+              unitExtras: unitExtrasByLine?.get(line.saleItemId),
+            });
           allRestoredUnitIds.push(...restoredUnitIds);
         }
         if (allRestoredUnitIds.length > 0) {
@@ -4781,7 +4850,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         -itemAmountUsd,
         -itemAmountLbp,
         // Same stamp as the REFUND row itself, incl. refund kept change.
-        (isSaleMember ? -lines.reduce((sum, l) => sum + l.profitUsd, 0) : -original.profit_usd) + keptUsd,
+        (isSaleMember
+          ? -lines.reduce((sum, l) => sum + l.profitUsd, 0)
+          : -original.profit_usd) + keptUsd,
         (isSaleMember ? 0 : -original.profit_lbp) + keptLbp,
       );
 
@@ -4995,8 +5066,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const stockBatchRepo = getStockBatchRepository();
     for (const line of lines) {
       const item = db
-        .prepare(`SELECT refunded_quantity FROM sale_items WHERE id = ? AND tenant_id = ?`)
-        .get(line.saleItemId, tenantId) as { refunded_quantity: number } | undefined;
+        .prepare(
+          `SELECT refunded_quantity FROM sale_items WHERE id = ? AND tenant_id = ?`,
+        )
+        .get(line.saleItemId, tenantId) as
+        | { refunded_quantity: number }
+        | undefined;
       if (!item) {
         throw new NotFoundError("sale_item", line.saleItemId);
       }
@@ -5005,7 +5080,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           "This item's refunded quantity no longer matches this refund — cannot undo it safely.",
         );
       }
-      if (!stockBatchRepo.canUnrestoreForSaleItem(line.saleItemId, line.quantity)) {
+      if (
+        !stockBatchRepo.canUnrestoreForSaleItem(line.saleItemId, line.quantity)
+      ) {
         throw new DatabaseError(
           "This refund can't be undone — the stock it restored has already been consumed by other activity since.",
         );
@@ -5101,7 +5178,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           `SELECT id, client_id, amount_usd, amount_lbp, session_id FROM debt_ledger
            WHERE transaction_id = ? AND transaction_type = ? AND tenant_id = ?`,
         )
-        .all(params.refundTransactionId, SESSION_ITEM_REFUND_CREDIT_TYPE, tenantId) as {
+        .all(
+          params.refundTransactionId,
+          SESSION_ITEM_REFUND_CREDIT_TYPE,
+          tenantId,
+        ) as {
         id: number;
         client_id: number;
         amount_usd: number;
@@ -5161,7 +5242,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // Sale status — flip back from 'refunded' if this undo leaves
       // anything un-refunded again.
       const saleIdRow = db
-        .prepare(`SELECT sale_id FROM sale_items WHERE id = ? AND tenant_id = ?`)
+        .prepare(
+          `SELECT sale_id FROM sale_items WHERE id = ? AND tenant_id = ?`,
+        )
         .get(lines[0].saleItemId, tenantId) as { sale_id: number } | undefined;
       if (saleIdRow) {
         const sale = db
@@ -6238,8 +6321,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       throw new NotFoundError("transactions", transactionId);
     }
     const isSale =
-      original.source_table === "sales" && original.type === TRANSACTION_TYPES.SALE;
-    return this._bookedRateFor(original.exchange_rate, isSale ? "sale" : "transaction");
+      original.source_table === "sales" &&
+      original.type === TRANSACTION_TYPES.SALE;
+    return this._bookedRateFor(
+      original.exchange_rate,
+      isSale ? "sale" : "transaction",
+    );
   }
 
   /**

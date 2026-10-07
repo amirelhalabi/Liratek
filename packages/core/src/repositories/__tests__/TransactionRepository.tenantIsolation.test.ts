@@ -95,7 +95,17 @@ function createTestDb(): Database.Database {
       session_id             INTEGER NOT NULL,
       unified_transaction_id INTEGER,
       amount_usd             REAL NOT NULL DEFAULT 0,
-      amount_lbp             REAL NOT NULL DEFAULT 0
+      amount_lbp             REAL NOT NULL DEFAULT 0,
+      -- v186: the basket's checkout rate (getRecent's display_exchange_rate).
+      paid_exchange_rate     REAL
+    );
+
+    -- getRecent's display_exchange_rate reads a session SALE's checkout
+    -- snapshot; only needs to exist here.
+    CREATE TABLE IF NOT EXISTS sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      exchange_rate_snapshot REAL
     );
 
     CREATE TABLE debt_ledger (

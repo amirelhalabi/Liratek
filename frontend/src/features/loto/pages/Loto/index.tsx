@@ -102,6 +102,12 @@ export function LotoPage() {
   // Payments use the BUY rate (owner decision 2026-07-06): every
   // MultiPaymentInput converts LBP↔USD at buyRate.
   const { buyRate: exchangeRate } = useSellRate();
+  // Owner decision 2026-10-07: the rate the cashier actually used — the
+  // payment input's header rate, hand-edited or not (MultiPaymentInput
+  // reports it via onExchangeRateChange, also on mount). Sent as
+  // tender_exchange_rate, so the server reconciles at it and stamps it.
+  const [tenderRate, setTenderRate] = useState<number | undefined>();
+  const usedRate = tenderRate ?? exchangeRate;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const { methods } = usePaymentMethods();
@@ -318,12 +324,12 @@ export function LotoPage() {
             })),
           ],
       // LIRA-258 G14: the rate MultiPaymentInput converted cross-currency
-      // tender at (the BUY rate) — the repository reconciles the legs
+      // tender at (the BUY rate, or the one the cashier typed) — the repository reconciles the legs
       // against the ticket at this rate instead of the sell rate. Omitted
       // in partner mode (no legs) and if the rate is somehow not positive
       // (the schema would refuse the whole sale).
-      ...(!forPartner && exchangeRate > 0
-        ? { tender_exchange_rate: exchangeRate }
+      ...(!forPartner && usedRate > 0
+        ? { tender_exchange_rate: usedRate }
         : {}),
       transaction_time: transactionTime,
       // T3 keep-change: kept amounts join the ticket's profit stamp. Never
@@ -673,6 +679,7 @@ export function LotoPage() {
                         { code: "LBP", symbol: "LBP" },
                       ]}
                       exchangeRate={exchangeRate}
+                      onExchangeRateChange={setTenderRate}
                       initialMethod={initialPaymentMethod}
                       // GIFT_CARD lines pick the selected client's voucher
                       // (same wiring as POS/Recharge); the code rides on the

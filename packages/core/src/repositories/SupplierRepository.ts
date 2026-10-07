@@ -27,6 +27,7 @@ import { allocateFifo } from "../utils/fifoCoverage.js";
 import { allocateProportional } from "../utils/largestRemainder.js";
 import {
   applyDrawerDelta,
+  cashierRateStamp,
   insertPaymentRow,
   buildCounterpartyDiscountPosting,
 } from "./moneyPosting.js";
@@ -371,6 +372,10 @@ export interface SettleTransactionsData {
     amount: number;
     direction?: "IN" | "OUT";
   }>;
+  /** Owner decision 2026-10-07 — the rate the Settle sheet's payment input
+   *  showed; stamped on the SUPPLIER_SETTLEMENT transaction when sent.
+   *  Stamp-only: legs reconcile per currency, nothing converts at it. */
+  exchange_rate?: number;
 }
 
 /**
@@ -428,7 +433,9 @@ export interface SupplierCashflowData {
   note?: string;
   created_by: number;
   /** Exchange rate (1 USD = X LBP) used to convert LBP legs to USD when
-   *  applying FIFO coverage to supplier_purchases. Defaults to 89 000. */
+   *  applying FIFO coverage to supplier_purchases. Defaults to 89 000.
+   *  Also stamped on the SUPPLIER_PAYMENT transaction when sent (owner
+   *  decision 2026-10-07 — the rate the cashier actually used). */
   exchange_rate?: number;
   /** CQ-10 — bundled discount: "owed X, paid Y, discount Z". ONLY valid on
    *  PAY direction (a supplier can't simultaneously pay the shop AND forgive
@@ -703,9 +710,11 @@ export interface SettleAccountData {
   commission_unit_count?: number;
   note?: string;
   created_by: number;
-  /** Unused by `settleAccount` today — §8.3: "no exchange rate is involved
-   *  anywhere in this flow." Kept for type parity with the sibling
-   *  cashflow/settlement payloads (contract §2.1). */
+  /** §8.3: "no exchange rate is involved anywhere in this flow" — the
+   *  money settles per currency with no conversion. Since owner decision
+   *  2026-10-07 it is STAMPED on the SUPPLIER_SETTLEMENT transaction (the
+   *  rate the cashier actually used on the settle sheet); it never changes
+   *  any amount. */
   exchange_rate?: number;
   /**
    * Payment-method legs for the net cash — required whenever
@@ -1044,7 +1053,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * for the ledger half on a connection that predates v176's
    * `settlement_id` column, matching every other guard in this file.
    */
-  private _countOpenUnsettledRows(supplierId: number, tenantId: number): number {
+  private _countOpenUnsettledRows(
+    supplierId: number,
+    tenantId: number,
+  ): number {
     let count = 0;
 
     const supplierRow = this.db
@@ -1248,7 +1260,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       } else if (SYSTEM_SUPPLIER_PROVIDERS.has(provider)) {
         const seeded = seedSystemSuppliers(this.db, tenantId);
         financialLogger.warn(
-          { provider, inserted: seeded.inserted, skippedByName: seeded.skippedByName },
+          {
+            provider,
+            inserted: seeded.inserted,
+            skippedByName: seeded.skippedByName,
+          },
           "Seeded system suppliers: an automatic supplier posting found none",
         );
       }
@@ -1525,7 +1541,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           // PAYMENT's ledger sign is the force-negated bookkeeping convention
           // applied above, not the event's natural value — show the paid
           // magnitude, same as the drawer-based PAYMENT branch above.
-          const showMagnitude = isSupplierCredit || data.entry_type === "PAYMENT";
+          const showMagnitude =
+            isSupplierCredit || data.entry_type === "PAYMENT";
           const journalUsd = showMagnitude ? Math.abs(amountUsd) : amountUsd;
           const journalLbp = showMagnitude ? Math.abs(amountLbp) : amountLbp;
 
@@ -1760,8 +1777,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     try {
       const tenantId = getCurrentTenantId();
       const note =
-        data.note?.trim() ||
-        `Debt recorded — products to be attached later`;
+        data.note?.trim() || `Debt recorded — products to be attached later`;
 
       const run = this.db.transaction(() => {
         const stmt = this.db.prepare(`
@@ -2970,6 +2986,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           user_id: data.created_by,
           amount_usd: data.amount_usd,
           amount_lbp: data.amount_lbp,
+          // Owner decision 2026-10-07: the rate the cashier actually used
+          // (stamp-only; else createTransaction's market snapshot).
+          ...cashierRateStamp(data.exchange_rate),
           // LIRA-158_COMMISSION_REPORTING_PLAN.md §2/§3 Phase 1 (D14, option
           // C) — widened from `isBillsOnlyBatch` to `batchModel === 1` so
           // EVERY new-model settlement (not just a bills-only one) stamps the
@@ -4601,7 +4620,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     // ── 7. Anchor selection (§1.1 — "no parent row to anchor to") ─────────
     const memberIds = Array.from(byMember.keys());
     let anchorSupplierId: number;
-    if (commissionSupplierId != null && memberIds.includes(commissionSupplierId)) {
+    if (
+      commissionSupplierId != null &&
+      memberIds.includes(commissionSupplierId)
+    ) {
       anchorSupplierId = commissionSupplierId;
     } else if (memberIds.includes(data.account_supplier_id)) {
       anchorSupplierId = data.account_supplier_id;
@@ -4711,7 +4733,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         );
         const memberLedgerRowId = new Map<number, number>();
         const note =
-          data.note ?? `Account settlement: ${freshParent.name} (${data.direction})`;
+          data.note ??
+          `Account settlement: ${freshParent.name} (${data.direction})`;
 
         // ── A. Anchor member's own row (transaction_id linked after create) ──
         const anchorNet = memberNet.get(anchorSupplierId)!;
@@ -4761,6 +4784,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           amount_lbp: data.amount_lbp,
           profit_usd: profitUsd,
           profit_lbp: profitLbp,
+          // Owner decision 2026-10-07: the row saves the rate the cashier
+          // actually used (the settle sheet's rate); stamp-only — the money
+          // above still settles per currency with no conversion.
+          ...cashierRateStamp(data.exchange_rate),
           summary,
           metadata_json: {
             account_supplier_id: data.account_supplier_id,
@@ -5164,6 +5191,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           user_id: data.created_by,
           amount_usd: usd,
           amount_lbp: lbp,
+          // Owner decision 2026-10-07: the row saves the rate the cashier
+          // actually used — the same `exchange_rate` FIFO coverage converts
+          // at below. Never the 89,000 fallback: with no rate sent,
+          // createTransaction keeps its market-rate snapshot.
+          ...cashierRateStamp(data.exchange_rate),
           summary,
           metadata_json: {
             supplier_id: data.supplier_id,

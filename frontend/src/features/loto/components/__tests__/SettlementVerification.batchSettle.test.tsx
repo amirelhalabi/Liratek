@@ -47,6 +47,7 @@ const mockApi = {
   },
 };
 
+const TYPED_RATE = 87000;
 let stubLines: PaymentLine[] = [];
 let lastPaymentTotals: Array<{ amount: number; currency: string }> = [];
 
@@ -58,13 +59,23 @@ jest.mock("@liratek/ui", () => {
     appEvents: { emit: jest.fn(), on: jest.fn(() => () => {}) },
     MultiPaymentInput: (p: {
       onChange: (l: PaymentLine[]) => void;
+      onExchangeRateChange?: (r: number) => void;
       totals: Array<{ amount: number; currency: string }>;
     }) => {
       lastPaymentTotals = p.totals;
       return (
-        <button type="button" onClick={() => p.onChange(stubLines)}>
-          stub-pay
-        </button>
+        <>
+          <button type="button" onClick={() => p.onChange(stubLines)}>
+            stub-pay
+          </button>
+          {/* The cashier hand-types a rate in the payment input. */}
+          <button
+            type="button"
+            onClick={() => p.onExchangeRateChange?.(TYPED_RATE)}
+          >
+            stub-type-rate
+          </button>
+        </>
       );
     },
   };
@@ -131,7 +142,10 @@ describe("SettlementVerification — settle-all posts the payment once", () => {
     // Combined net = -551,050 → the shop pays 551,050.
     mockGetUnsettled.mockResolvedValue({
       success: true,
-      checkpoints: [cp(1, 1_000_000, 44_500, 0), cp(2, 100_000, 4_450, 500_000)],
+      checkpoints: [
+        cp(1, 1_000_000, 44_500, 0),
+        cp(2, 100_000, 4_450, 500_000),
+      ],
     });
     stubLines = [
       { id: "a", method: "CASH", currencyCode: "LBP", amount: 106_050 },
@@ -158,6 +172,29 @@ describe("SettlementVerification — settle-all posts the payment once", () => {
       { method: "CASH", currency_code: "LBP", amount: -106_050 },
       { method: "CASH", currency_code: "USD", amount: -5 },
     ]);
+  });
+
+  // Owner decision 2026-10-07: a rate the cashier types by hand is sent —
+  // the server reconciles at it and stamps it on LOTO_SETTLEMENT.
+  it("settle-all sends a hand-typed rate as tender_exchange_rate", async () => {
+    mockGetUnsettled.mockResolvedValue({
+      success: true,
+      checkpoints: [cp(5, 200_000, 8_900, 0), cp(6, 300_000, 13_350, 0)],
+    });
+    stubLines = [
+      { id: "a", method: "CASH", currencyCode: "LBP", amount: 477_750 },
+    ];
+
+    await openDialog();
+    fireEvent.click(screen.getByText("stub-pay"));
+    fireEvent.click(screen.getByText("stub-type-rate"));
+    fireEvent.click(screen.getByRole("button", { name: /settle all \(2\)/i }));
+
+    await waitFor(() => expect(mockSettleBatch).toHaveBeenCalledTimes(1));
+    const parsed = lotoCheckpointsSettleBatchSchema.parse(
+      mockSettleBatch.mock.calls[0][0],
+    );
+    expect(parsed.tender_exchange_rate).toBe(TYPED_RATE);
   });
 
   it("settling with no payment lines still sends one batch call (no legs)", async () => {
@@ -202,7 +239,9 @@ describe("SettlementVerification — settle-all posts the payment once", () => {
 
     await waitFor(() => expect(mockSettle).toHaveBeenCalledTimes(1));
     expect(mockSettleBatch).not.toHaveBeenCalled();
-    const parsed = lotoCheckpointSettleSchema.parse(mockSettle.mock.calls[0][0]);
+    const parsed = lotoCheckpointSettleSchema.parse(
+      mockSettle.mock.calls[0][0],
+    );
     expect(parsed.id).toBe(9);
     expect(parsed.tender_exchange_rate).toBe(BUY_RATE);
     expect(parsed.payments).toEqual([

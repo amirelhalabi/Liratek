@@ -102,7 +102,17 @@ function createTestDb(): Database.Database {
       amount_usd             REAL NOT NULL DEFAULT 0,
       amount_lbp             REAL NOT NULL DEFAULT 0,
       tenant_id              INTEGER NOT NULL DEFAULT 1,
-      created_at             TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at             TEXT DEFAULT CURRENT_TIMESTAMP,
+      -- v186: the basket's checkout rate (getRecent's display_exchange_rate).
+      paid_exchange_rate     REAL
+    );
+
+    -- getRecent's display_exchange_rate reads a session SALE's checkout
+    -- snapshot; only needs to exist here.
+    CREATE TABLE IF NOT EXISTS sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      exchange_rate_snapshot REAL
     );
 
     CREATE TABLE recharges (

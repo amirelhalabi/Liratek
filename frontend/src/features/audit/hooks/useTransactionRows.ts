@@ -17,7 +17,9 @@ import type { TransactionPaymentLeg } from "../cashFlow";
 /** One element of `TransactionFiltersParam.typeFilters` — derived from the
  *  adapter's own type rather than hand-written, so it can never drift from
  *  what the REST route/repository actually accept (rule 21). */
-type TypeFilterTuple = NonNullable<TransactionFiltersParam["typeFilters"]>[number];
+type TypeFilterTuple = NonNullable<
+  TransactionFiltersParam["typeFilters"]
+>[number];
 
 /**
  * Loading, filtering and window-widening for the transactions table.
@@ -45,6 +47,10 @@ export type TransactionRow = {
   amount_usd: number;
   amount_lbp: number;
   exchange_rate: number | null;
+  /** The rate to SHOW ("@ rate"): a session member's basket checkout rate,
+   *  else `exchange_rate` (core `DISPLAY_EXCHANGE_RATE_SQL`). Optional for
+   *  rows from an older backend. */
+  display_exchange_rate?: number | null;
   client_id: number | null;
   reverses_id: number | null;
   summary: string | null;
@@ -430,7 +436,8 @@ export function useTransactionRows({
   // as correct as a dedicated fetch and costs no extra round trip — the
   // widening-loop tests below rely on `getRecentTransactions` being called
   // exactly once per `load()` in that unfiltered case.
-  const hasActiveFilter = selectedFilters.length > 0 || from !== "" || to !== "";
+  const hasActiveFilter =
+    selectedFilters.length > 0 || from !== "" || to !== "";
 
   // A dedicated, always-unfiltered-by-page-state REFUND-only fetch, run ONLY
   // while `hasActiveFilter` is true. Deliberately has NO dependency on

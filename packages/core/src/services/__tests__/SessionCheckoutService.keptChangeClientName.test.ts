@@ -554,6 +554,44 @@ describe("LIRA-230 — SessionCheckoutService KEPT_CHANGE client_name stamping",
     expect(unnamedWalkin?.profit_usd ?? 0).toBeCloseTo(0, 5);
   });
 
+  // Owner decision 2026-10-07: every transaction row saves the rate the
+  // cashier ACTUALLY used. The KEPT_CHANGE row is part of the basket, so it
+  // stamps the basket's checkout rate — not the market snapshot (this
+  // fixture has no exchange_rates table, so the snapshot would be NULL).
+  it("the KEPT_CHANGE row stamps the basket's checkout rate", async () => {
+    const sessionId = sessionRepo.createSession({
+      customer_name: "Rate Check",
+      started_by: "admin",
+      user_id: 1,
+    });
+    const result = await service.checkout(
+      {
+        sessionId,
+        cartItems: [financialCartItem()],
+        exchangeRate: 87000,
+        userId: 1,
+        payments: [
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 102,
+            direction: "IN",
+          },
+        ],
+        kept_change_usd: 2,
+      },
+      { username: "admin" },
+    );
+    expect(result.success).toBe(true);
+    const row = db
+      .prepare(
+        `SELECT exchange_rate FROM transactions
+          WHERE type = 'KEPT_CHANGE' AND source_table = 'customer_sessions' AND source_id = ?`,
+      )
+      .get(sessionId) as { exchange_rate: number | null };
+    expect(row.exchange_rate).toBe(87000);
+  });
+
   it("a saved client (client_id resolved by phone) propagates client_id onto the KEPT_CHANGE row", async () => {
     const clientId = Number(
       db

@@ -1949,6 +1949,9 @@ export interface ElectronAPI {
       /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
       drawer_name?: string;
       note?: string;
+      /** Owner decision 2026-10-07 — the Settle sheet's payment-input
+       *  rate, stamped on SUPPLIER_SETTLEMENT (supplierSettleSchema). */
+      exchange_rate?: number;
       payments?: Array<{
         method: string;
         currency_code: string;
@@ -4083,6 +4086,9 @@ export interface ElectronAPI {
         currency_code: string;
         amount: number;
       }>;
+      /** Owner decision 2026-10-07 — the settle modal's payment-input rate,
+       *  stamped on PARTNER_SETTLEMENT (partnerSettleSchema). */
+      exchange_rate?: number;
     }) => Promise<{
       success: boolean;
       data?: PartnerLedgerEntry;

@@ -54,6 +54,7 @@ import * as api from "./backendApi";
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
+import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
 
 export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
@@ -515,7 +516,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.addSupplierLedgerEntry(supplierId, data);
   getUnsettledTransactions = (provider: string) =>
     api.getUnsettledTransactions(provider);
-  settleTransactions = (data: any) => api.settleTransactions(data);
+  // Payload derived from the core supplierSettleSchema (rule 21).
+  settleTransactions = (data: SupplierSettleInput) =>
+    api.settleTransactions(data);
   recordSupplierCashflow = (data: {
     supplier_id: number;
     direction: "PAY" | "RECEIVE";
@@ -1058,20 +1061,8 @@ export class ElectronApiAdapter implements ApiAdapter {
       direction: "DEBIT" | "CREDIT";
       notes?: string;
     }) => api.partnersRecordTransaction(data),
-    settle: (data: {
-      partnerId: number;
-      amount: number;
-      currency: string;
-      settlementMethod: string;
-      notes?: string;
-      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-      /** CQ-11 — split-leg settlement (MultiPaymentInput). */
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-      }>;
-    }) => api.partnersSettle(data),
+    // Payload derived from the core partnerSettleSchema (rule 21).
+    settle: (data: PartnerSettleInput) => api.partnersSettle(data),
     writeOff: (data: {
       partnerId: number;
       amount_usd: number;

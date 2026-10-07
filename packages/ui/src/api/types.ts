@@ -90,6 +90,10 @@ import type {
   CreateExpenseRequest,
   // Session basket checkout payload, derived from the core schema (rule 21).
   SessionCheckoutPayload,
+  // Partner settle payload, derived from partnerSettleSchema (rule 21).
+  PartnerSettleInput,
+  // Supplier settle payload, derived from supplierSettleSchema (rule 21).
+  SupplierSettleInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -1675,37 +1679,12 @@ export type ApiAdapter = {
     },
   ) => Promise<ApiResult & { id?: number }>;
   getUnsettledTransactions: (provider: string) => Promise<any[]>;
-  settleTransactions: (data: {
-    supplier_id: number;
-    financial_service_ids: number[];
-    amount_usd: number;
-    amount_lbp: number;
-    commission_usd: number;
-    commission_lbp: number;
-    // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — entry mode + audit snapshot of
-    // the rate/count used for a new-model (commission_model=1) batch.
-    // Ignored for a legacy batch.
-    entry_mode?: "LUMP" | "RATE";
-    commission_rate?: number;
-    commission_unit_count?: number;
-    /** Owner follow-up (2026-08-13) — bills-only batch only: 'TOP_UP'
-     *  (default) credits the provider's own drawer, 'OTHER_PAYMENT' means
-     *  `payments` below carries the real collection legs instead. See
-     *  SupplierRepository.SettleTransactionsData for the full contract. */
-    commission_collection_mode?: "TOP_UP" | "OTHER_PAYMENT";
-    /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
-    drawer_name?: string;
-    note?: string;
-    // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.5 (rule-12 completeness gap): typed
-    // in electron.d.ts but missing here — closed alongside settleSupplierAccount
-    // below (LIRA-189's collect direction needs a leg markable OUT).
-    payments?: Array<{
-      method: string;
-      currency_code: string;
-      amount: number;
-      direction?: "IN" | "OUT";
-    }>;
-  }) => Promise<ApiResult & { id?: number }>;
+  /** Payload derived from the core `supplierSettleSchema` (rule 21) —
+   *  includes the Settle sheet's `exchange_rate` (owner decision
+   *  2026-10-07, stamped on SUPPLIER_SETTLEMENT). */
+  settleTransactions: (
+    data: SupplierSettleInput,
+  ) => Promise<ApiResult & { id?: number }>;
   /** Pay a supplier down / record a supplier paying us, via payment legs. */
   recordSupplierCashflow: (data: {
     supplier_id: number;
@@ -2327,24 +2306,13 @@ export type ApiAdapter = {
       direction: "DEBIT" | "CREDIT";
       notes?: string;
     }) => Promise<{ success: boolean; data?: any; error?: string }>;
-    settle: (data: {
-      partnerId: number;
-      amount: number;
-      currency: string;
-      settlementMethod: string;
-      notes?: string;
-      /** CQ-10: bundled discount — forgives part of what the partner owes
-       *  alongside the settlement. Posts a signed-profit 'DISCOUNT' row. */
-      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-      /** CQ-11 — split-leg settlement (MultiPaymentInput); supersedes
-       *  `settlementMethod` for money movement when present. Every leg's
-       *  currency_code must match `currency` and legs must sum to `amount`. */
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-      }>;
-    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    /** Payload derived from the core `partnerSettleSchema` (rule 21):
+     *  CQ-10 bundled `discount`, CQ-11 split `payments[]` (legs locked to
+     *  `currency`), and the settle modal's `exchange_rate` (owner decision
+     *  2026-10-07 — stamped on the PARTNER_SETTLEMENT row). */
+    settle: (
+      data: PartnerSettleInput,
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
     /** CQ-10: standalone partner write-off (admin-only) — we forgive what
      *  the partner owes us; capped server-side at the outstanding balance
      *  per currency. */
@@ -2681,9 +2649,7 @@ export type ApiAdapter = {
   /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
    *  `bookedRateSource` default (the transaction's own recorded rate, else
    *  the day's fallback). Read-only, no write. */
-  getRefundBookedRate: (
-    id: number,
-  ) => Promise<
+  getRefundBookedRate: (id: number) => Promise<
     | {
         success: true;
         bookedRate: number;

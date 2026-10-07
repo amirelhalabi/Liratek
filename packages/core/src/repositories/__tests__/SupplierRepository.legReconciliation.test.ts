@@ -32,6 +32,7 @@
 
 import Database from "better-sqlite3";
 import { SupplierRepository } from "../SupplierRepository";
+import { supplierSettleSchema } from "../../validators/supplier";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -669,9 +670,7 @@ describe("SupplierRepository.settleTransactions() — leg reconciliation (LIRA-1
         commission_usd: 0,
         commission_lbp: 0,
         created_by: 1,
-        payments: [
-          { method: "CASH", currency_code: "LBP", amount: 900_000 },
-        ],
+        payments: [{ method: "CASH", currency_code: "LBP", amount: 900_000 }],
       });
 
       const drawerDelta = drawerBalance(db, "General", "LBP") - preDrawer;
@@ -943,9 +942,7 @@ describe("SupplierRepository.recordSupplierCashflow() — leg reconciliation (LI
         supplier_id: supplierId,
         direction: "RECEIVE",
         created_by: 1,
-        payments: [
-          { method: "CASH", currency_code: "LBP", amount: 200_000 },
-        ],
+        payments: [{ method: "CASH", currency_code: "LBP", amount: 200_000 }],
       });
 
       const drawerDelta = drawerBalance(db, "General", "LBP") - preDrawer;
@@ -955,5 +952,91 @@ describe("SupplierRepository.recordSupplierCashflow() — leg reconciliation (LI
       expect(ledger.entry_type).toBe("SUPPLIER_PAYS_US");
       expect(drawerDelta).toBeCloseTo(ledger.amount_lbp);
     });
+  });
+});
+
+// Owner decision 2026-10-07: every transaction row saves the rate the
+// cashier ACTUALLY used. The Pay/Receive form sends it as `exchange_rate`
+// (the same field FIFO coverage already converts at); the SUPPLIER_PAYMENT
+// row must stamp it instead of the market snapshot.
+describe("SupplierRepository.recordSupplierCashflow() — stamps the cashier's rate", () => {
+  let db: Database.Database;
+  let repo: SupplierRepository;
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    repo = new SupplierRepository();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function cashflowTxnRate(ledgerId: number): number | null {
+    return (
+      db
+        .prepare(
+          `SELECT exchange_rate FROM transactions
+           WHERE type = 'SUPPLIER_PAYMENT' AND source_table = 'supplier_ledger' AND source_id = ?`,
+        )
+        .get(ledgerId) as { exchange_rate: number | null }
+    ).exchange_rate;
+  }
+
+  it("PAY with a hand-typed rate stamps that rate on the SUPPLIER_PAYMENT row", () => {
+    const supplierId = seedSupplier(db, "Katsh");
+    const result = repo.recordSupplierCashflow({
+      supplier_id: supplierId,
+      direction: "PAY",
+      created_by: 1,
+      exchange_rate: 87_000,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 50 }],
+    });
+    expect(cashflowTxnRate(result.id)).toBe(87_000);
+  });
+});
+
+// Owner decision 2026-10-07: every transaction row saves the rate the
+// cashier ACTUALLY used. The single-supplier Settle sheet sends its payment
+// input's rate; it must survive the shared `supplierSettleSchema` (both
+// transports validate with it — rule 23: Zod strips unknown keys) and land
+// on the SUPPLIER_SETTLEMENT row. Stamp-only: legs reconcile per currency.
+describe("SupplierRepository.settleTransactions() — stamps the cashier's rate", () => {
+  let db: Database.Database;
+  let repo: SupplierRepository;
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    repo = new SupplierRepository();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("a hand-typed rate survives supplierSettleSchema and is stamped on SUPPLIER_SETTLEMENT", () => {
+    const supplierId = seedSupplier(db, "Katsh");
+    const fsId = seedFs(db, { provider: "Katsh", amount: 100 });
+    const parsed = supplierSettleSchema.parse({
+      supplier_id: supplierId,
+      financial_service_ids: [fsId],
+      amount_usd: 100,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 0,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 100 }],
+      exchange_rate: 87_000,
+    });
+    repo.settleTransactions({ ...parsed, created_by: 1 });
+    const row = db
+      .prepare(
+        `SELECT exchange_rate FROM transactions WHERE type = 'SUPPLIER_SETTLEMENT'`,
+      )
+      .get() as { exchange_rate: number | null };
+    expect(row.exchange_rate).toBe(87_000);
   });
 });

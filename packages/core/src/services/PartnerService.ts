@@ -215,6 +215,10 @@ export class PartnerService {
      *  CLIENT_ACCOUNT leg) — re-checked here too since the service can be
      *  (and is, in tests) called directly, bypassing Zod. */
     payments?: Array<{ method: string; currency_code: string; amount: number }>;
+    /** Owner decision 2026-10-07 — the rate the settle modal showed,
+     *  stamped on the PARTNER_SETTLEMENT transaction (never converts an
+     *  amount: legs are locked to `currency`). */
+    exchange_rate?: number;
   }): PartnerLedgerEntry {
     try {
       if (
@@ -324,6 +328,7 @@ export class PartnerService {
           undefined,
           data.discount,
           data.payments,
+          data.exchange_rate,
         );
 
         // CQ-10 — bundled discount: ONE more partner_ledger row, SAME direction

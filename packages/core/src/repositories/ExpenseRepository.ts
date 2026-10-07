@@ -17,6 +17,7 @@ import {
 import { TOP_UP_PROVIDER_DRAWERS } from "../constants/rechargeProviders.js";
 import {
   applyDrawerDelta,
+  cashierRateStamp,
   insertPaymentRow,
   resolveStampedExchangeRate,
   sumLegsByCurrency,
@@ -483,6 +484,11 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       user_id: userId,
       amount_usd: -amountUsd,
       amount_lbp: -amountLbp,
+      // Owner decision 2026-10-07: the row saves the rate the cashier
+      // actually used — the Expenses form's `tender_exchange_rate`. Writers
+      // that send none (SMS_Transfer_Fee, Line_Usage) keep the market-rate
+      // snapshot createTransaction takes on its own.
+      ...cashierRateStamp(data.tender_exchange_rate),
       summary: `Expense: ${data.category} - ${data.description}`,
       metadata_json: {
         ...(data.extra_metadata ?? {}),

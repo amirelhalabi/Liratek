@@ -437,6 +437,23 @@ describe("LotoTicketRepository — G14 leg integrity", () => {
     });
   });
 
+  it("stamps the till's rate on the LOTO transaction row (owner decision 2026-10-07: the rate the cashier actually used)", () => {
+    // Market rate in this fixture is 89,500. A hand-typed 87,000 must be
+    // what the row saves — refunds and the "@ rate" column read it back.
+    const typed = 87_000;
+    const usd = Math.round((SALE / typed) * 100) / 100;
+    const ticket = repo.createTicket({
+      ...base,
+      payment_method: "CASH",
+      tender_exchange_rate: typed,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: usd }],
+    });
+    const row = db
+      .prepare(`SELECT exchange_rate FROM transactions WHERE id = ?`)
+      .get(lotoTxnId(db, ticket.id)) as { exchange_rate: number | null };
+    expect(row.exchange_rate).toBe(typed);
+  });
+
   it("control: the same USD payment WITHOUT the till's rate is compared at the sell rate and refused", () => {
     // Pins why the Loto page must send `tender_exchange_rate`: without it the
     // ticket reconciles at the 90,000 sell rate and the $0.06 spread gap is

@@ -125,6 +125,14 @@ export function AccountSettleSheet({
 }: AccountSettleSheetProps) {
   const { methods } = usePaymentMethods();
   const { buyRate: exchangeRate } = useSellRate();
+  // Owner decision 2026-10-07: the rate the cashier actually used on the
+  // payment input (hand-edited or not; reported via onExchangeRateChange,
+  // also on mount). Sent as `exchange_rate` and stamped on the
+  // SUPPLIER_SETTLEMENT row — stamp-only, the server settles per currency.
+  // Deliberately NOT fed into the target/collapse below: the payment
+  // input is keyed on the target, so re-deriving it from a typed rate would
+  // remount the input and discard the rate the cashier just typed.
+  const [paymentRate, setPaymentRate] = useState<number | undefined>();
 
   // `refetchOnMount: "always"` — this sheet decides how much money changes
   // hands, so it must never work off a cached queue that predates a change
@@ -278,7 +286,7 @@ export function AccountSettleSheet({
         amount_lbp: Math.abs(totals.netLbp),
         commission_usd: commissionUsd,
         commission_lbp: commissionLbp,
-        exchange_rate: exchangeRate,
+        exchange_rate: paymentRate ?? exchangeRate,
         ...(trimmedNote ? { note: trimmedNote } : {}),
         ...(activeLines.length > 0
           ? {
@@ -572,11 +580,11 @@ export function AccountSettleSheet({
                   data-testid="supplier-account-settle-surplus-note"
                 >
                   Paying {formatMoney(targetAmount, collapsedNet.currency)}{" "}
-                  total — the {formatMoney(surplusAmount, collapsedNet.currency)}{" "}
-                  above the selected rows will be recorded as an account
-                  credit ({account.account_name} will owe the shop), applied
-                  manually at a future settlement — it is never applied
-                  automatically.
+                  total — the{" "}
+                  {formatMoney(surplusAmount, collapsedNet.currency)} above the
+                  selected rows will be recorded as an account credit (
+                  {account.account_name} will owe the shop), applied manually at
+                  a future settlement — it is never applied automatically.
                 </p>
               )}
             </div>
@@ -629,7 +637,9 @@ export function AccountSettleSheet({
           {hasTarget && (
             <MultiPaymentInput
               key={multiPaymentKey}
-              totals={[{ amount: targetAmount, currency: collapsedNet.currency }]}
+              totals={[
+                { amount: targetAmount, currency: collapsedNet.currency },
+              ]}
               totalAmountCurrency={collapsedNet.currency}
               currency={collapsedNet.currency}
               onChange={setPaymentLines}
@@ -641,6 +651,7 @@ export function AccountSettleSheet({
                 { code: "LBP", symbol: "LBP" },
               ]}
               exchangeRate={exchangeRate}
+              onExchangeRateChange={setPaymentRate}
             />
           )}
 

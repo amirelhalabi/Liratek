@@ -105,6 +105,12 @@ export const partnerSettleSchema = z
     // partner_ledger row itself; omitting `payments` entirely keeps the
     // legacy single-leg behavior byte-identical.
     payments: z.array(partnerSettlementLegSchema).min(1).optional(),
+    // Owner decision 2026-10-07: the rate the settle modal's payment input
+    // showed (hand-typed or the buy rate), stamped on the PARTNER_SETTLEMENT
+    // transaction so the row saves the rate the cashier actually used.
+    // Stamp-only — the refine below locks every leg to `currency`, so no
+    // amount is ever converted at it.
+    exchange_rate: z.number().positive().optional(),
   })
   .refine(
     (d) =>

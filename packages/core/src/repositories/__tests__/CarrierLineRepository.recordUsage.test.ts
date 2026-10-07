@@ -205,7 +205,17 @@ function createTestDb(): Database.Database {
       amount_usd             REAL NOT NULL DEFAULT 0,
       amount_lbp             REAL NOT NULL DEFAULT 0,
       tenant_id              INTEGER NOT NULL DEFAULT 1,
-      created_at             TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at             TEXT DEFAULT CURRENT_TIMESTAMP,
+      -- v186: the basket's checkout rate (getRecent's display_exchange_rate).
+      paid_exchange_rate     REAL
+    );
+
+    -- getRecent's display_exchange_rate reads a session SALE's checkout
+    -- snapshot; only needs to exist here.
+    CREATE TABLE IF NOT EXISTS sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      exchange_rate_snapshot REAL
     );
   `);
   return db;
@@ -331,18 +341,24 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
    * upsert — there is nothing left for it to do.
    */
   function seedMtcShop(): { primary: number; other: number } {
-    const primary = repo.createLine({
-      carrier: "mtc",
-      phone_number: "03111111",
-      label: "Counter SIM",
-      credits: 100,
-      validity_expires_at: FUTURE_EXPIRY,
-    }, 1);
-    const other = repo.createLine({
-      carrier: "mtc",
-      phone_number: "03222222",
-      credits: 25,
-    }, 1);
+    const primary = repo.createLine(
+      {
+        carrier: "mtc",
+        phone_number: "03111111",
+        label: "Counter SIM",
+        credits: 100,
+        validity_expires_at: FUTURE_EXPIRY,
+      },
+      1,
+    );
+    const other = repo.createLine(
+      {
+        carrier: "mtc",
+        phone_number: "03222222",
+        credits: 25,
+      },
+      1,
+    );
     return { primary: primary.id, other: other.id };
   }
 
@@ -492,11 +508,14 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
     });
 
     it("omits the label and the note from the description when the line has no label and no note was given", () => {
-      const line = repo.createLine({
-        carrier: "alfa",
-        phone_number: "03999999",
-        credits: 40,
-      }, USER_ID);
+      const line = repo.createLine(
+        {
+          carrier: "alfa",
+          phone_number: "03999999",
+          credits: 40,
+        },
+        USER_ID,
+      );
 
       const result = repo.recordUsage(
         { carrierLineId: line.id, newCredits: 30 },
@@ -519,11 +538,14 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
     });
 
     it("snaps a sub-cent input to cents on entry and preserves the drawer==credits-sum invariant EXACTLY", () => {
-      const line = repo.createLine({
-        carrier: "mtc",
-        phone_number: "03333333",
-        credits: 1.5,
-      }, USER_ID);
+      const line = repo.createLine(
+        {
+          carrier: "mtc",
+          phone_number: "03333333",
+          credits: 1.5,
+        },
+        USER_ID,
+      );
 
       // Snapshot the OFFSET between the carrier drawer and the credits sum
       // (not the absolute values — this line's drawer wasn't seeded to
@@ -881,11 +903,14 @@ describe("CarrierLineRepository.recordUsage (LIRA-145)", () => {
       seedMtcShop();
 
       const result = runWithTenant(2, () => {
-        const line = repo.createLine({
-          carrier: "mtc",
-          phone_number: "03444444",
-          credits: 60,
-        }, USER_ID);
+        const line = repo.createLine(
+          {
+            carrier: "mtc",
+            phone_number: "03444444",
+            credits: 60,
+          },
+          USER_ID,
+        );
         return repo.recordUsage(
           { carrierLineId: line.id, newCredits: 20 },
           USER_ID,

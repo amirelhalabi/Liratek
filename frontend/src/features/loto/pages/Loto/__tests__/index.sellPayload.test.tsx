@@ -35,6 +35,7 @@ const mockFetchClientVouchers = jest.fn();
 let lastPaymentProps: Record<string, unknown> = {};
 
 const BUY_RATE = 89000;
+const TYPED_RATE = 87000;
 
 // Rule 25: ONE stable object, never a fresh literal per useApi() call.
 const mockApi = {
@@ -71,12 +72,25 @@ jest.mock("@liratek/ui", () => {
     MultiPaymentInput: (p: Record<string, unknown>) => {
       lastPaymentProps = p;
       return (
-        <button
-          type="button"
-          onClick={() => (p.onChange as (l: PaymentLine[]) => void)(LINES)}
-        >
-          stub-pay
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => (p.onChange as (l: PaymentLine[]) => void)(LINES)}
+          >
+            stub-pay
+          </button>
+          {/* The cashier hand-types a rate in the payment input. */}
+          <button
+            type="button"
+            onClick={() =>
+              (p.onExchangeRateChange as ((r: number) => void) | undefined)?.(
+                TYPED_RATE,
+              )
+            }
+          >
+            stub-type-rate
+          </button>
+        </>
       );
     },
   };
@@ -186,6 +200,23 @@ describe("LotoPage — sell payload (LIRA-258 G14 rollout)", () => {
     const parsed = lotoSellSchema.parse(raw);
     expect(parsed.tender_exchange_rate).toBe(BUY_RATE);
     expect(lastPaymentProps.exchangeRate).toBe(BUY_RATE);
+  });
+
+  // Owner decision 2026-10-07: a rate the cashier types by hand is sent —
+  // the server reconciles at it and stamps it on the LOTO row.
+  it("sends a hand-typed rate as tender_exchange_rate", async () => {
+    render(<LotoPage />);
+    fireEvent.click(screen.getByText("pick-client"));
+    fireEvent.change(screen.getByLabelText("sale-amount"), {
+      target: { value: "570000" },
+    });
+    fireEvent.click(screen.getByText("stub-pay"));
+    fireEvent.click(screen.getByText("stub-type-rate"));
+    const sellButtons = screen.getAllByRole("button", { name: /sell ticket/i });
+    fireEvent.click(sellButtons[sellButtons.length - 1]);
+    await waitFor(() => expect(mockSell).toHaveBeenCalledTimes(1));
+    const parsed = lotoSellSchema.parse(mockSell.mock.calls[0][0]);
+    expect(parsed.tender_exchange_rate).toBe(TYPED_RATE);
   });
 
   it("keeps voucherCode on a GIFT_CARD leg through the schema", async () => {

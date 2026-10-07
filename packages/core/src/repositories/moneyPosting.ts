@@ -158,11 +158,7 @@ function preferTenderRate(
   referenceRate: number,
   tenderRate: number | null | undefined,
 ): number {
-  if (
-    tenderRate == null ||
-    !Number.isFinite(tenderRate) ||
-    !(tenderRate > 0)
-  ) {
+  if (tenderRate == null || !Number.isFinite(tenderRate) || !(tenderRate > 0)) {
     return referenceRate;
   }
   return tenderRate;
@@ -199,6 +195,24 @@ export function resolveStampedExchangeRate(
   tenderRate: number | undefined,
 ): number {
   return preferTenderRate(serverRate, tenderRate);
+}
+
+/**
+ * Owner decision 2026-10-07 — every transaction row saves the rate the
+ * cashier ACTUALLY used. For a `createTransaction` call whose flow has no
+ * server rate of its own to fall back to: spreads `{ exchange_rate }` when
+ * the cashier's rate is a positive finite number, and NOTHING otherwise, so
+ * `createTransaction`'s own market-rate snapshot still applies (passing
+ * `exchange_rate: null`/`undefined` explicitly would write NULL / trip
+ * exactOptionalPropertyTypes). Same validity test as `preferTenderRate`
+ * (rule 14).
+ */
+export function cashierRateStamp(rate: number | null | undefined): {
+  exchange_rate?: number;
+} {
+  return rate != null && Number.isFinite(rate) && rate > 0
+    ? { exchange_rate: rate }
+    : {};
 }
 
 /**

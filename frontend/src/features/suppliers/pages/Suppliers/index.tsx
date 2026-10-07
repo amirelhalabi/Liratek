@@ -360,13 +360,18 @@ function formatOwedCell(
   const absFee = Math.abs(fee as number);
   const op = absOwed > absAmount ? "+" : "−";
   const fmt = (n: number) =>
-    money === "LBP" ? Math.round(n).toLocaleString() : String(Number(n.toFixed(2)));
+    money === "LBP"
+      ? Math.round(n).toLocaleString()
+      : String(Number(n.toFixed(2)));
   const breakdown = `${fmt(absAmount)} ${op} ${fmt(absFee)} fee`;
   return { main, breakdown };
 }
 
 /** G40 (LIRA-258): a voided/refunded history row — owes nothing. */
-function isVoidedTxn(t: { fifo_status: string; is_refunded?: number }): boolean {
+function isVoidedTxn(t: {
+  fifo_status: string;
+  is_refunded?: number;
+}): boolean {
   return t.fifo_status === "voided" || !!t.is_refunded;
 }
 
@@ -470,7 +475,8 @@ function SupplierAccountCard({
   }, [unsettled]);
 
   const parentChild = account.children.find((c) => c.is_parent);
-  const testIdSuffix = parentChild?.provider ?? String(account.account_supplier_id);
+  const testIdSuffix =
+    parentChild?.provider ?? String(account.account_supplier_id);
   const isParentSelected = selectedSupplierId === account.account_supplier_id;
 
   return (
@@ -547,7 +553,8 @@ function SupplierAccountCard({
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") onSelect(child.supplier_id);
+                if (e.key === "Enter" || e.key === " ")
+                  onSelect(child.supplier_id);
               }}
               className={`flex items-center justify-between rounded px-2 py-1.5 text-xs cursor-pointer ${
                 childSelected ? "bg-slate-600" : "hover:bg-slate-700/60"
@@ -654,10 +661,7 @@ function AccountLedgerTable({
               <div className="col-span-2 flex items-center gap-1">
                 <EntryTypeBadge
                   type={row.entry_type}
-                  direction={ledgerRowDirection(
-                    row.amount_usd,
-                    row.amount_lbp,
-                  )}
+                  direction={ledgerRowDirection(row.amount_usd, row.amount_lbp)}
                 />
                 {!!row.is_refunded && (
                   <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
@@ -745,6 +749,12 @@ export default function SuppliersPage() {
   // payCurrency, no per-currency split needed.
   const [cashflowDiscount, setCashflowDiscount] = useState(0);
   const [cashflowDiscountReason, setCashflowDiscountReason] = useState("");
+  // Owner decision 2026-10-07: the rate the cashier actually used on the
+  // Pay/Receive payment input (hand-edited or not — MultiPaymentInput
+  // reports it via onExchangeRateChange, also on every remount). Sent as
+  // `exchange_rate`: the server converts LBP legs for purchase coverage at
+  // it and stamps it on the SUPPLIER_PAYMENT row.
+  const [cashflowRate, setCashflowRate] = useState<number | undefined>();
 
   // SUPPLIER_STOCK_INTAKE_PLAN.md owner decision D8: the standalone
   // "Write off" modal (CQ-10) is REMOVED — the bundled Pay-form discount
@@ -806,6 +816,11 @@ export default function SuppliersPage() {
   const [settlePaymentLines, setSettlePaymentLines] = useState<PaymentLine[]>(
     [],
   );
+  // Owner decision 2026-10-07: the rate the cashier actually used on the
+  // Settle sheet's payment input (reported via onExchangeRateChange, also on
+  // every remount). Sent as `exchange_rate` and stamped on the
+  // SUPPLIER_SETTLEMENT row — stamp-only, legs reconcile per currency.
+  const [settleRate, setSettleRate] = useState<number | undefined>();
   const [settleNote, setSettleNote] = useState("");
   const [settleSubmitting, setSettleSubmitting] = useState(false);
   const [settleKey, setSettleKey] = useState(0);
@@ -879,8 +894,7 @@ export default function SuppliersPage() {
   const allTxns = (allTxnsQuery.data ?? []) as SupplierTxn[];
   const unsettledTxns = (unsettledQuery.data ??
     []) as UnsettledSupplierTransaction[];
-  const accountBalances = (accountBalancesQuery.data ??
-    []) as AccountBalance[];
+  const accountBalances = (accountBalancesQuery.data ?? []) as AccountBalance[];
 
   // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188, D6) — `account_supplier_id`
   // (parent id) → its rolled-up AccountBalance, and the set of supplier ids
@@ -1185,7 +1199,7 @@ export default function SuppliersPage() {
         currency_code: p.currencyCode,
         amount: p.amount,
       })),
-      exchange_rate: exchangeRate,
+      exchange_rate: cashflowRate ?? exchangeRate,
       // Omit `note` entirely when empty (exactOptionalPropertyTypes: the field is
       // `note?: string`, so it must be absent rather than explicitly undefined).
       ...(trimmedNote ? { note: trimmedNote } : {}),
@@ -1686,6 +1700,10 @@ export default function SuppliersPage() {
         ...(trimmedNote
           ? { note: trimmedNote }
           : { note: `Settlement: ${selectedSettleIds.size} txns` }),
+        // Only when the sheet showed a payment input to type it into.
+        ...(activeLines.length > 0 && (settleRate ?? exchangeRate) > 0
+          ? { exchange_rate: settleRate ?? exchangeRate }
+          : {}),
         ...(activeLines.length > 0
           ? {
               payments: activeLines.map((p) => ({
@@ -2608,6 +2626,7 @@ export default function SuppliersPage() {
                       { code: "LBP", symbol: "LBP" },
                     ],
                     exchangeRate: exchangeRate,
+                    onExchangeRateChange: setCashflowRate,
                   }}
                   onConfirm={handleCashflow}
                   confirmLabel={
@@ -2664,39 +2683,39 @@ export default function SuppliersPage() {
                   typeOptions={ledgerTypeOptions}
                 />
               ) : (
-              <div className="mt-6">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
-                  Payments
-                </h3>
-                <div className="border border-slate-700 rounded-xl overflow-hidden">
-                  <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
-                    <div className="col-span-2">Type</div>
-                    <div className="col-span-2 text-right">USD</div>
-                    <div className="col-span-2 text-right">LBP</div>
-                    <div className="col-span-4">Note</div>
-                    <div className="col-span-2">Date</div>
-                  </div>
-                  <div className="max-h-[30vh] overflow-y-auto">
-                    {ledger.map((row) => (
-                      <div
-                        key={row.id}
-                        className={`grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center ${row.is_refunded ? "opacity-60" : ""}`}
-                      >
-                        <div className="col-span-2 flex items-center gap-1">
-                          <EntryTypeBadge
-                            type={row.entry_type}
-                            direction={ledgerRowDirection(
-                              row.amount_usd,
-                              row.amount_lbp,
+                <div className="mt-6">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
+                    Payments
+                  </h3>
+                  <div className="border border-slate-700 rounded-xl overflow-hidden">
+                    <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
+                      <div className="col-span-2">Type</div>
+                      <div className="col-span-2 text-right">USD</div>
+                      <div className="col-span-2 text-right">LBP</div>
+                      <div className="col-span-4">Note</div>
+                      <div className="col-span-2">Date</div>
+                    </div>
+                    <div className="max-h-[30vh] overflow-y-auto">
+                      {ledger.map((row) => (
+                        <div
+                          key={row.id}
+                          className={`grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center ${row.is_refunded ? "opacity-60" : ""}`}
+                        >
+                          <div className="col-span-2 flex items-center gap-1">
+                            <EntryTypeBadge
+                              type={row.entry_type}
+                              direction={ledgerRowDirection(
+                                row.amount_usd,
+                                row.amount_lbp,
+                              )}
+                            />
+                            {!!row.is_refunded && (
+                              <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
+                                VOIDED
+                              </span>
                             )}
-                          />
-                          {!!row.is_refunded && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
-                              VOIDED
-                            </span>
-                          )}
-                        </div>
-                        {/* BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up — a
+                          </div>
+                          {/* BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up — a
                             bills-only SETTLEMENT row is contractually
                             amount_usd = amount_lbp = 0 (the commission goes
                             straight into the provider's own drawer via a
@@ -2709,80 +2728,82 @@ export default function SuppliersPage() {
                             a row with a real amount (whose commission is
                             already visible via the adjacent SUPPLIER_PAYS_US
                             row) keeps rendering its own amount, unchanged. */}
-                        {(() => {
-                          const isZeroRow =
-                            row.amount_usd === 0 && row.amount_lbp === 0;
-                          const commissionUsd =
-                            row.settlement_commission_usd ?? 0;
-                          const commissionLbp =
-                            row.settlement_commission_lbp ?? 0;
-                          const showUsdCommission =
-                            isZeroRow && commissionUsd > 0;
-                          const showLbpCommission =
-                            isZeroRow && commissionLbp > 0;
-                          const commissionTitle =
-                            "Commission collected at settlement — does not change the balance";
-                          return (
-                            <>
-                              <div
-                                className={`col-span-2 text-right font-mono ${
-                                  row.is_refunded
-                                    ? "line-through text-slate-500"
+                          {(() => {
+                            const isZeroRow =
+                              row.amount_usd === 0 && row.amount_lbp === 0;
+                            const commissionUsd =
+                              row.settlement_commission_usd ?? 0;
+                            const commissionLbp =
+                              row.settlement_commission_lbp ?? 0;
+                            const showUsdCommission =
+                              isZeroRow && commissionUsd > 0;
+                            const showLbpCommission =
+                              isZeroRow && commissionLbp > 0;
+                            const commissionTitle =
+                              "Commission collected at settlement — does not change the balance";
+                            return (
+                              <>
+                                <div
+                                  className={`col-span-2 text-right font-mono ${
+                                    row.is_refunded
+                                      ? "line-through text-slate-500"
+                                      : showUsdCommission
+                                        ? "text-emerald-400"
+                                        : balanceColor(row.amount_usd)
+                                  }`}
+                                  title={
+                                    showUsdCommission
+                                      ? commissionTitle
+                                      : undefined
+                                  }
+                                >
+                                  {row.amount_usd !== 0
+                                    ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
                                     : showUsdCommission
-                                      ? "text-emerald-400"
-                                      : balanceColor(row.amount_usd)
-                                }`}
-                                title={
-                                  showUsdCommission
-                                    ? commissionTitle
-                                    : undefined
-                                }
-                              >
-                                {row.amount_usd !== 0
-                                  ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
-                                  : showUsdCommission
-                                    ? commissionUsd.toFixed(2)
-                                    : "—"}
-                              </div>
-                              <div
-                                className={`col-span-2 text-right font-mono ${
-                                  row.is_refunded
-                                    ? "line-through text-slate-500"
+                                      ? commissionUsd.toFixed(2)
+                                      : "—"}
+                                </div>
+                                <div
+                                  className={`col-span-2 text-right font-mono ${
+                                    row.is_refunded
+                                      ? "line-through text-slate-500"
+                                      : showLbpCommission
+                                        ? "text-emerald-400"
+                                        : balanceColor(row.amount_lbp)
+                                  }`}
+                                  title={
+                                    showLbpCommission
+                                      ? commissionTitle
+                                      : undefined
+                                  }
+                                >
+                                  {row.amount_lbp !== 0
+                                    ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
                                     : showLbpCommission
-                                      ? "text-emerald-400"
-                                      : balanceColor(row.amount_lbp)
-                                }`}
-                                title={
-                                  showLbpCommission
-                                    ? commissionTitle
-                                    : undefined
-                                }
-                              >
-                                {row.amount_lbp !== 0
-                                  ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
-                                  : showLbpCommission
-                                    ? Math.round(commissionLbp).toLocaleString()
-                                    : "—"}
-                              </div>
-                            </>
-                          );
-                        })()}
-                        <div className="col-span-4 text-slate-300 truncate text-xs">
-                          {row.note || ""}
+                                      ? Math.round(
+                                          commissionLbp,
+                                        ).toLocaleString()
+                                      : "—"}
+                                </div>
+                              </>
+                            );
+                          })()}
+                          <div className="col-span-4 text-slate-300 truncate text-xs">
+                            {row.note || ""}
+                          </div>
+                          <div className="col-span-2 text-slate-400 text-xs">
+                            {parseDbDate(row.created_at).toLocaleString()}
+                          </div>
                         </div>
-                        <div className="col-span-2 text-slate-400 text-xs">
-                          {parseDbDate(row.created_at).toLocaleString()}
+                      ))}
+                      {ledger.length === 0 && (
+                        <div className="text-slate-500 text-sm p-3">
+                          No payment entries yet.
                         </div>
-                      </div>
-                    ))}
-                    {ledger.length === 0 && (
-                      <div className="text-slate-500 text-sm p-3">
-                        No payment entries yet.
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
               )}
             </>
           )}
@@ -3035,8 +3056,7 @@ export default function SuppliersPage() {
                   !(
                     (parseFloat(recordDebtAmountUsd.replace(/,/g, "")) || 0) >
                       0 ||
-                    (parseFloat(recordDebtAmountLbp.replace(/,/g, "")) || 0) >
-                      0
+                    (parseFloat(recordDebtAmountLbp.replace(/,/g, "")) || 0) > 0
                   )
                 }
                 onClick={handleRecordDebt}
@@ -3349,6 +3369,7 @@ export default function SuppliersPage() {
                       { code: "LBP", symbol: "LBP" },
                     ],
                     exchangeRate: exchangeRate,
+                    onExchangeRateChange: setSettleRate,
                   }
                 : null
               : {
@@ -3373,6 +3394,7 @@ export default function SuppliersPage() {
                     { code: "LBP", symbol: "LBP" },
                   ],
                   exchangeRate: exchangeRate,
+                  onExchangeRateChange: setSettleRate,
                 }
           }
         >

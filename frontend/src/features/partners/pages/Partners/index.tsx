@@ -406,6 +406,12 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   // legs are locked to one currency, but kept real (not the 89000 fallback)
   // for consistency and safety if that ever changes.
   const { buyRate: exchangeRate } = useSellRate();
+  // Owner decision 2026-10-07: the rate the cashier actually used — the
+  // payment input's rate box, hand-edited or not (reported via
+  // onExchangeRateChange, also on mount). Sent as `exchange_rate` and
+  // stamped on the PARTNER_SETTLEMENT row; never converts an amount.
+  const [paymentRate, setPaymentRate] = useState<number | undefined>();
+  const usedRate = paymentRate ?? exchangeRate;
 
   const validLines = settleLines.filter((l) => l.amount > 0);
   const legsAmount = validLines.reduce((s, l) => s + l.amount, 0);
@@ -483,6 +489,10 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
         currency,
         settlementMethod,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        // Paper (CLIENT_ACCOUNT) settles show no payment input — no rate.
+        ...(!useClientAccount && usedRate > 0
+          ? { exchange_rate: usedRate }
+          : {}),
         ...(!useClientAccount && validLines.length > 0
           ? {
               payments: validLines.map((l) => ({
@@ -639,6 +649,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
                   : { code: "LBP", symbol: "LBP" },
               ],
               exchangeRate,
+              onExchangeRateChange: setPaymentRate,
             }
       }
       discountSlot={

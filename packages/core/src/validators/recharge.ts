@@ -129,8 +129,10 @@ export const createRechargeSchema = z
     // Payment-Legs Integrity plan (false-reject fix, 2026-07-2x): the USD→LBP
     // rate MultiPaymentInput actually converted the customer's tender at (may
     // differ from the stamped sell-rate-of-record — see RechargeRepository's
-    // `tender_exchange_rate` doc). Used ONLY for leg reconciliation, never to
-    // stamp `transactions.exchange_rate`.
+    // `tender_exchange_rate` doc). Used for leg reconciliation AND stamped on
+    // `transactions.exchange_rate` (via `resolveStampedExchangeRate`, owner
+    // decision 2026-08-08 / LIRA-240 — the row saves the rate the cashier
+    // actually used); the sell rate is only the fallback when omitted.
     tender_exchange_rate: z.number().positive().optional(),
     // NOTE — `deferPayment` is deliberately NOT accepted over the wire, on
     // either transport. It tells the repository "the session basket owns the

@@ -26,10 +26,7 @@ import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext";
-import {
-  snapshotLedgers,
-  expectPostings,
-} from "../testHelpers/postingAssert";
+import { snapshotLedgers, expectPostings } from "../testHelpers/postingAssert";
 
 jest.mock("../../db/connection", () => {
   let _db: Database.Database | null = null;
@@ -326,12 +323,19 @@ describe("LotoCheckpointRepository — G23 settlement integrity", () => {
     setup();
     const cp1 = mkCheckpoint(repo);
     const cp2 = mkCheckpoint(repo);
-    repo.settleCheckpoints([cp1.id, cp2.id], 2 * SALES, 2 * COMMISSION, undefined, 1, {
-      method: "CASH",
-      drawer_name: "General",
-      currency_code: "LBP",
-      amount: 2 * NET,
-    });
+    repo.settleCheckpoints(
+      [cp1.id, cp2.id],
+      2 * SALES,
+      2 * COMMISSION,
+      undefined,
+      1,
+      {
+        method: "CASH",
+        drawer_name: "General",
+        currency_code: "LBP",
+        amount: 2 * NET,
+      },
+    );
 
     const txn = settlementTxn(db);
     expect(settlementRow(db).transaction_id).toBe(txn.id);
@@ -474,10 +478,75 @@ describe("LotoCheckpointRepository — G23 settlement integrity", () => {
     const cp1 = mkCheckpoint(repo);
     const cp2 = mkCheckpoint(repo);
     expect(() =>
-      repo.settleCheckpoints([cp1.id, cp2.id], 2 * SALES, 2 * COMMISSION, undefined, 1, [
-        { method: "CASH", currency_code: "LBP", amount: NET },
-      ]),
+      repo.settleCheckpoints(
+        [cp1.id, cp2.id],
+        2 * SALES,
+        2 * COMMISSION,
+        undefined,
+        1,
+        [{ method: "CASH", currency_code: "LBP", amount: NET }],
+      ),
     ).toThrow(/do not reconcile/);
     expect(rowCount(db, "loto_settlements")).toBe(0);
+  });
+});
+
+// Owner decision 2026-10-07: every transaction row saves the rate the
+// cashier ACTUALLY used. When the Settle dialog sends the rate its payment
+// input converted at (`tenderExchangeRate`), LOTO_SETTLEMENT stamps THAT
+// rate; only when none is sent does it keep the market-rate snapshot (the
+// two cases above).
+describe("LotoCheckpointRepository — settlement stamps the cashier's rate", () => {
+  const TYPED_RATE = 87_000;
+  let db: Database.Database;
+  let repo: LotoCheckpointRepository;
+
+  beforeEach(() => {
+    db = createTestDb({ withLotoSupplier: true });
+    setDb(db);
+    initFixedTenantContext(1);
+    resetTransactionRepository();
+    resetPaymentMethodRepository();
+    resetRateRepository();
+    repo = new LotoCheckpointRepository(db);
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+    resetTransactionRepository();
+    resetPaymentMethodRepository();
+    resetRateRepository();
+  });
+
+  it("single settle with a typed rate stamps that rate, not the market rate", () => {
+    const cp = mkCheckpoint(repo);
+    repo.settleCheckpoint(
+      cp.id,
+      SALES,
+      COMMISSION,
+      0,
+      0,
+      undefined,
+      1,
+      [{ method: "CASH", currency_code: "LBP", amount: NET }],
+      TYPED_RATE,
+    );
+    expect(settlementTxn(db).exchange_rate).toBe(TYPED_RATE);
+  });
+
+  it("batch settle with a typed rate stamps that rate, not the market rate", () => {
+    const cp1 = mkCheckpoint(repo);
+    const cp2 = mkCheckpoint(repo);
+    repo.settleCheckpoints(
+      [cp1.id, cp2.id],
+      2 * SALES,
+      2 * COMMISSION,
+      undefined,
+      1,
+      [{ method: "CASH", currency_code: "LBP", amount: 2 * NET }],
+      TYPED_RATE,
+    );
+    expect(settlementTxn(db).exchange_rate).toBe(TYPED_RATE);
   });
 });

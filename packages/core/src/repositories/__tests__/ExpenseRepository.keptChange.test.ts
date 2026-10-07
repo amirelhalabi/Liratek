@@ -395,3 +395,57 @@ describe("ExpenseRepository — bill amount + change back (payer = shop)", () =>
     },
   );
 });
+
+// Owner decision 2026-10-07: every transaction row saves the rate the
+// cashier ACTUALLY used. The Expenses form sends the rate its payment input
+// converted at as `tender_exchange_rate`; the EXPENSE row must stamp it.
+// Writers that send none (SMS fee, Line_Usage) keep the market snapshot.
+describe("ExpenseRepository — EXPENSE row stamps the cashier's rate", () => {
+  let db: Database.Database;
+  let repo: ExpenseRepository;
+  const MARKET = 89500; // create_db.sql seed
+  const TYPED = 87000;
+
+  beforeEach(() => {
+    resetAll();
+    db = buildDb();
+    (globalThis as Record<string, unknown>).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
+    repo = new ExpenseRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
+
+  function stampedRate(expenseId: number): number | null {
+    return (
+      db
+        .prepare(
+          `SELECT exchange_rate FROM transactions
+           WHERE source_table = 'expenses' AND source_id = ? AND reverses_id IS NULL`,
+        )
+        .get(expenseId) as { exchange_rate: number | null }
+    ).exchange_rate;
+  }
+
+  it("a hand-typed rate is what the row saves", () => {
+    const id = repo.createExpense(
+      payload(
+        { lbp: 870000 },
+        {
+          payments: [{ method: "CASH", currencyCode: "USD", amount: 10 }],
+          tender_exchange_rate: TYPED,
+        },
+      ),
+      USER_ID,
+    );
+    expect(stampedRate(id)).toBe(TYPED);
+  });
+
+  it("no rate sent keeps today's market-rate snapshot", () => {
+    const id = repo.createExpense(payload({ usd: 5 }), USER_ID);
+    expect(stampedRate(id)).toBe(MARKET);
+  });
+});

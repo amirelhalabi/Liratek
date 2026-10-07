@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
+import type { SupplierSettleInput } from "@liratek/core";
 
 // ── OMT open-credit account types (LIRA-187/188) ───────────────────────────
 //
@@ -159,9 +160,8 @@ export function useSupplierAccountBalancesQuery() {
   const api = useApi();
   return useQuery({
     queryKey: SUPPLIER_KEYS.accountBalances,
-    queryFn: () => api.getSupplierAccountBalances() as Promise<
-      AccountBalance[]
-    >,
+    queryFn: () =>
+      api.getSupplierAccountBalances() as Promise<AccountBalance[]>,
   });
 }
 
@@ -568,33 +568,8 @@ export function useSettleTransactionsMutation(
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: {
-      supplier_id: number;
-      financial_service_ids: number[];
-      amount_usd: number;
-      amount_lbp: number;
-      commission_usd: number;
-      commission_lbp: number;
-      // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — entry mode + audit snapshot of
-      // the rate/count used for a new-model (commission_model=1) batch.
-      // Ignored for a legacy batch.
-      entry_mode?: "LUMP" | "RATE";
-      commission_rate?: number;
-      commission_unit_count?: number;
-      /** Owner follow-up (2026-08-13) — bills-only batch only: 'TOP_UP'
-       *  (default) credits the provider's own drawer, 'OTHER_PAYMENT' means
-       *  `payments` below carries the real collection legs instead. See
-       *  SupplierRepository.SettleTransactionsData for the full contract. */
-      commission_collection_mode?: "TOP_UP" | "OTHER_PAYMENT";
-      /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
-      drawer_name?: string;
-      note?: string;
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-      }>;
-    }) => api.settleTransactions(data),
+    // Payload derived from the core supplierSettleSchema (rule 21).
+    mutationFn: (data: SupplierSettleInput) => api.settleTransactions(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
@@ -716,7 +691,9 @@ export function useSettleSupplierAccountMutation(
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       queryClient.invalidateQueries({ queryKey: ["supplier-ledger"] });
       queryClient.invalidateQueries({ queryKey: ["supplier-unsettled"] });
-      queryClient.invalidateQueries({ queryKey: ["supplier-all-transactions"] });
+      queryClient.invalidateQueries({
+        queryKey: ["supplier-all-transactions"],
+      });
       invalidateAccountQueries(queryClient);
     },
   });

@@ -18,6 +18,7 @@ import Database from "better-sqlite3";
 import { PartnerRepository } from "../../repositories/PartnerRepository";
 import { PartnerService } from "../PartnerService";
 import { resetTransactionRepository } from "../../repositories/TransactionRepository";
+import { partnerSettleSchema } from "../../validators/partner";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -180,6 +181,29 @@ describe("PartnerService.settle() — CQ-11 split payment legs", () => {
     ).__LIRATEK_TEST_DB__;
     db.close();
     resetTransactionRepository();
+  });
+
+  // Owner decision 2026-10-07: every transaction row saves the rate the
+  // cashier ACTUALLY used. The settle modal sends its rate; it must survive
+  // the shared schema (both transports validate with it — rule 23: Zod
+  // strips unknown keys) and land on the PARTNER_SETTLEMENT row. Stamp-only:
+  // legs are locked to the settlement currency, so no amount converts.
+  it("a hand-typed rate survives partnerSettleSchema and is stamped on the PARTNER_SETTLEMENT row", () => {
+    const parsed = partnerSettleSchema.parse({
+      partnerId: 1,
+      amount: 100,
+      currency: "USD",
+      settlementMethod: "CASH",
+      payments: [{ method: "CASH", currency_code: "USD", amount: 100 }],
+      exchange_rate: 87_000,
+    });
+    service.settle({ ...parsed, userId: 1 });
+    const row = db
+      .prepare(
+        `SELECT exchange_rate FROM transactions WHERE type = 'PARTNER_SETTLEMENT'`,
+      )
+      .get() as { exchange_rate: number | null };
+    expect(row.exchange_rate).toBe(87_000);
   });
 
   // ── Rejections (re-checked at the service layer) ─────────────────────────
