@@ -47,6 +47,15 @@ import logger from "@/utils/logger";
 // [auth-D] Google sign-up (LIRA-280): its own form, for `?google=<ticket>`.
 import GoogleSignupForm from "@/features/auth/components/GoogleSignupForm";
 import GoogleSignInButton from "@/features/auth/components/GoogleSignInButton";
+// Creating a shop lives on www, not on a shop's own address (2026-10-07).
+import {
+  platformSignupUrl,
+  resolveHostMode,
+} from "@/features/auth/utils/hostMode";
+import {
+  currentHostname,
+  navigateAway,
+} from "@/features/auth/utils/browserNavigation";
 
 /**
  * Mirror of the server's slug rule so the field can be corrected before a
@@ -93,6 +102,9 @@ export default function Signup() {
   const dark = theme === "dark";
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get("invite")?.trim() || null;
+  // [auth-D] `?google=<ticket>`: Google already proved the email, so the
+  // Google form replaces every other mode (no emailed link, no Turnstile).
+  const googleTicket = searchParams.get("google")?.trim() || null;
 
   const [entry, setEntry] = useState<Entry>({ kind: "loading" });
 
@@ -166,6 +178,17 @@ export default function Signup() {
     publicAuthInfo()
       .then((res) => {
         const data = res.success ? res.data : undefined;
+        // On a shop's own address, creating a shop happens on www: leave for
+        // it and stay on "loading" so no form flashes here meanwhile. An
+        // invite link never reaches this branch, so it keeps working on
+        // whichever address it was opened.
+        const mode = resolveHostMode(data, currentHostname());
+        // A Google sign-up ticket is mid-flow too: its form replaces this page
+        // wherever it was opened, so it is never sent elsewhere.
+        if (mode.kind === "shop" && !googleTicket) {
+          navigateAway(platformSignupUrl(mode.baseDomain));
+          return;
+        }
         // LIRA-278: the switch alone decides; Turnstile is shown only when
         // the server hands over a site key.
         setEntry(
@@ -176,7 +199,9 @@ export default function Signup() {
       })
       // A backend that cannot answer cannot sign anyone up either.
       .catch(() => setEntry({ kind: "unavailable" }));
-  }, [inviteToken]);
+    // googleTicket only gates the redirect; the ref above keeps the decision
+    // to once per link either way.
+  }, [inviteToken, googleTicket]);
 
   // Start the form clock when the request form is first shown — not while
   // the page is still loading the status.
@@ -318,10 +343,8 @@ export default function Signup() {
       : "bg-white border-gray-300 text-gray-900",
   );
 
-  // [auth-D] `?google=<ticket>`: Google already proved the email, so the
-  // Google form replaces every other mode (no emailed link, no Turnstile).
-  // After all hooks above, so the hook order never changes.
-  const googleTicket = searchParams.get("google")?.trim() || null;
+  // [auth-D] The Google form (ticket read above). After all hooks above, so
+  // the hook order never changes.
   if (googleTicket) return <GoogleSignupForm ticket={googleTicket} />;
 
   if (created) {
@@ -471,8 +494,7 @@ export default function Signup() {
         <form onSubmit={handleRequest} className={cardClass}>
           <h1 className={clsx(headingClass, "mb-1")}>Create your shop</h1>
           <p className={clsx(subtleClass, "mb-6")}>
-            Enter your email and we&apos;ll send you a link to set up your
-            shop.
+            Enter your email and we&apos;ll send you a link to set up your shop.
           </p>
 
           {/* Honeypot (LIRA-278): off-screen rather than display:none, out of

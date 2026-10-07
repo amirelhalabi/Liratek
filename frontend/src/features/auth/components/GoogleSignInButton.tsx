@@ -33,11 +33,19 @@ interface GoogleSignInButtonProps {
   /** Rendered instead of the button once the backend says Google is off
    * (dormant, or unreachable). Nothing is rendered while it is asked. */
   fallback?: ReactNode;
+  /**
+   * intent "login" only: whether to offer "Create a shop with Google" under
+   * the button. Default true (the combined page). False on a shop's own
+   * address, which never offers creating a shop, and on www, whose login page
+   * has its own "Create your shop" (owner UX change 2026-10-07).
+   */
+  offerShopCreation?: boolean;
 }
 
 export default function GoogleSignInButton({
   intent = "login",
   fallback = null,
+  offerShopCreation = true,
 }: GoogleSignInButtonProps = {}) {
   // undefined = still asking; null = Google is not available here.
   const [links, setLinks] = useState<Links | null | undefined>(() =>
@@ -98,7 +106,7 @@ export default function GoogleSignInButton({
         </span>
         Continue with Google
       </a>
-      {intent === "login" && (
+      {intent === "login" && offerShopCreation && (
         <p className="text-center text-xs text-slate-500">
           Or{" "}
           <a
