@@ -6530,10 +6530,18 @@ Settings → Users → "Invite by email" (email + role). The person opens `/#/jo
 
 ## LIRA-285: Checkpoint window opens after sign-in again; invites refused while a shop is lapsed — DONE (owner decisions 2026-10-07)
 
+Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all drawers" window lists every visible drawer (General first). Each drawer has its own fields and its own Save (same checkpoint save as the single-drawer window); saved or already-counted drawers show "Counted today ✓" with Re-count; the window stays open until closed. Shown only while at least one drawer is not counted today. The dashboard clipboard icon still opens one drawer.
+
 - After a real sign-in (password or Google, not a page refresh), an admin gets the Checkpoint window for the first drawer not counted today (General first), when checkpoints are on. Once per sign-in; closing it does not reopen it. Skipped right after the setup wizard (it has just counted every drawer). Per-drawer check, not the old "anything counted today" check.
 - A user invite opened while the shop's subscription has lapsed (read-only) is refused with "This shop is not active right now. Ask the shop owner to renew, then use the link again." The invite is kept, so the same link works after renewal, before it expires. Grace-period shops still accept invites.
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
+
+## LIRA-286: separate the www front door from each shop's sign-in page — DONE (owner decision 2026-10-07)
+
+www.liratek.shop asks "Sign in to your shop" (shop address → that shop's login), plus Continue with Google, Forgot password, "Create your shop", and a "Platform admin sign in" button for super admins. A shop's own address (e.g. cornertech.liratek.shop) shows only its sign-in (username/password, Forgot password, Continue with Google) — no create-a-shop links — and /signup there goes to www. Invite and Google sign-up links keep working. Detection from signup-status (`platformHost`, `shopName`); localhost, previews and desktop keep the combined page.
+
+**What users will notice:** a shop's sign-in page no longer offers to create a new shop; www.liratek.shop asks which shop you want to sign in to.
 
 ## LIRA-282: API rate limit can lock out a shop's tills — HIGH — DONE (owner: per user + clear message, 2026-10-07)
 
