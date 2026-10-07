@@ -216,7 +216,8 @@ The foundation commit (migration **v196**) builds the shared pieces. Features **
   - Neither `target_tenant_id` nor `user_id` has a foreign key.
 - `email_outbox_id` is a plain INTEGER everywhere, with **no foreign key**. The outbox is platform-only and is deleted from every `tenants/<id>.db`, so a foreign key would fail that file's `foreign_key_check`.
 - `user_identities` uniqueness:
-  - `UNIQUE(provider, subject, tenant_id)`: one Google account can be linked in several shops, but to only one user per shop.
+  - `UNIQUE(provider, subject, tenant_id)`: at most one user per shop.
+  - **One Google account = one shop (owner decision 2026-10-07, supersedes "several shops"):** a Google account may be linked to one user in one shop, platform-wide. Enforced in `UserIdentityRepository.link` (check + insert in one IMMEDIATE transaction), not by a `(provider, subject)` unique index, because production already holds one account linked in two shops. Those existing links are kept and sign in through the chooser. Google sign-up is refused for an account linked anywhere (`isLinkedToAnyShop`, checked at the callback and at `POST /signup`). Same per-tenant DB mode limitation as `findBySubjectAllTenants`.
   - `UNIQUE(user_id, provider)`: one Google account per user.
   - The first index also serves the by-subject lookup.
 - Case-insensitivity: emails are stored trimmed and lowercased.

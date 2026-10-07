@@ -22,6 +22,7 @@
  *             several   -> https://www.<base>/#/auth/google?choose=<ticket>
  *             none      -> https://www.<base>/#/auth/google?error=no_account
  *     signup            -> https://www.<base>/#/signup?google=<ticket>
+ *             already linked anywhere -> …/#/auth/google?error=already_connected
  *     link              -> https://<slug>.<base>/#/settings?tab=devices&google=…
  *   POST /choose        the chooser's pick -> { redirectUrl } (hand-off)
  *   POST /sso-exchange  on the shop's host: hand-off -> the SAME session
@@ -29,6 +30,12 @@
  *
  * Sign-in matches ONLY by the linked Google `sub` — never by email (owner
  * decision 2026-10-07); accounts are linked from Settings (link/start).
+ *
+ * ONE GOOGLE ACCOUNT = ONE SHOP (owner decision 2026-10-07): a link to an
+ * account already connected in another shop comes back as
+ * `google=in_other_shop`; a sign-up with an account connected anywhere is
+ * refused (`error=already_connected`). Links made before the decision may
+ * still open several shops, so the chooser stays.
  *
  * PER-TENANT DB MODE LIMITATION: the login lookup
  * (`findBySubjectAllTenants`) only sees every shop in SHARED mode. Before the
@@ -39,6 +46,7 @@
 import express, { type Request, type Response } from "express";
 import {
   GOOGLE_NOT_CONFIGURED,
+  GoogleAccountInOtherShopError,
   GoogleAuthService,
   GoogleTokenError,
   IdentityAlreadyLinkedError,
@@ -258,7 +266,12 @@ router.post("/start", (req, res): void => {
 
 // ── GET /callback ────────────────────────────────────────────────────────
 
-type LinkResult = "linked" | "already_linked" | "error" | "cancelled";
+type LinkResult =
+  | "linked"
+  | "already_linked"
+  | "in_other_shop"
+  | "error"
+  | "cancelled";
 
 /** Where the browser goes when a LINK attempt ends (the shop's Settings, on
  * the tab that hosts the Google panel). */
@@ -368,6 +381,9 @@ function linkIdentity(
     });
     return linkResultUrl(config, tenantId, "linked");
   } catch (error) {
+    if (error instanceof GoogleAccountInOtherShopError) {
+      return linkResultUrl(config, tenantId, "in_other_shop");
+    }
     if (error instanceof IdentityAlreadyLinkedError) {
       return linkResultUrl(config, tenantId, "already_linked");
     }
@@ -447,6 +463,17 @@ router.get("/callback", async (req, res): Promise<void> => {
         res.redirect(302, signInRedirect(config, claims, state.shop, now));
         return;
       case "signup": {
+        // One Google account = one shop: an account already connected to a
+        // shop signs in instead. Checked first, so an existing owner is never
+        // told the daily limit was reached; re-checked at POST /signup.
+        if (
+          runWithoutTenant(() =>
+            getGoogleAuthService().isLinkedToAnyShop(claims.sub),
+          )
+        ) {
+          res.redirect(302, errorUrl(config, "already_connected"));
+          return;
+        }
         // The one public sign-up daily cap (email requests + Google
         // sign-ups). Checked here so nobody fills in the form for nothing;
         // the authoritative check is when the shop is created.

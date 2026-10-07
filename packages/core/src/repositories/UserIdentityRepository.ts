@@ -2,26 +2,38 @@
  * User Identity Repository — TENANT-scoped (v196, LIRA-280).
  *
  * Links a user to an external sign-in identity (today only Google, keyed by
- * Google's stable `sub`, stored as `subject`). Uniqueness, enforced by the
- * schema:
- *   - UNIQUE (provider, subject, tenant_id): one Google account may be linked
- *     in SEVERAL shops (one owner running several shops) but to at most ONE
- *     user per shop — otherwise signing in to that shop would be ambiguous.
+ * Google's stable `sub`, stored as `subject`).
+ *
+ * ONE GOOGLE ACCOUNT = ONE SHOP (owner decision 2026-10-07): a Google account
+ * may be linked to one user in one shop, platform-wide. Enforced by `link()`
+ * — a check and the insert inside one IMMEDIATE transaction — NOT by a unique
+ * index on (provider, subject): production already holds links made before
+ * the decision (one account in two shops), which such an index could not be
+ * built over, and those existing links keep working (sign-in shows the shop
+ * chooser) until the owner disconnects one. The schema still enforces:
+ *   - UNIQUE (provider, subject, tenant_id): at most one user per shop.
  *   - UNIQUE (user_id, provider): one Google account per user.
- * Owner decision (2026-10-07): links are created from Settings only, while
- * signed in — never automatically by matching an email.
+ * Owner decision (2026-10-07): links are created from Settings (or by a
+ * Google sign-up) only — never automatically by matching an email.
  *
  * Scoping: `link`, `findByUser`, `unlink` run in the CURRENT shop.
  * `findBySubjectInTenant` takes an explicit shop. `findBySubjectAllTenants`
- * is the www "which shops can this Google account open?" lookup and is
- * deliberately cross-tenant — it only sees every shop in SHARED DB mode. In
- * per-tenant mode each shop's rows live in its own file, so that lookup would
- * need a platform-level index (follow-up; documented in the plan's contracts).
+ * (the www "which shops can this Google account open?" lookup) and
+ * `findLinksBySubject` (the one-shop check) are deliberately cross-tenant —
+ * they only see every shop in SHARED DB mode. In per-tenant mode each shop's
+ * rows live in its own file, so both lookups — and therefore the one-shop
+ * rule — need a platform-level (provider, subject) index before that split
+ * goes live (follow-up; documented in the plan's contracts §D).
  */
 
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { DatabaseError, IdentityAlreadyLinkedError } from "../utils/errors.js";
+import {
+  AppError,
+  DatabaseError,
+  GoogleAccountInOtherShopError,
+  IdentityAlreadyLinkedError,
+} from "../utils/errors.js";
 import { normalizeEmail } from "./UserRepository.js";
 
 export type IdentityProvider = "google";
@@ -46,6 +58,12 @@ export interface LinkUserIdentityData {
   email: string | null;
   /** UTC ISO — written to created_at/updated_at. */
   now: string;
+}
+
+/** Where an identity is linked — every link, whatever the user's state. */
+export interface IdentityLink {
+  user_id: number;
+  tenant_id: number;
 }
 
 /** One shop a provider identity can open (by-subject lookups). */
@@ -96,14 +114,21 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
   }
 
   /**
-   * Links an identity to a user of the CURRENT shop. Throws
-   * `IdentityAlreadyLinkedError` (IDENTITY_ALREADY_LINKED) when the account
-   * is already linked to another user here, or the user already has one;
-   * a `DatabaseError` when the user is not in the current shop.
+   * Links an identity to a user of the CURRENT shop. Linking the same
+   * account to the same user again is a no-op that returns the existing row.
+   * Throws:
+   *   - `GoogleAccountInOtherShopError` (GOOGLE_ACCOUNT_IN_OTHER_SHOP) when
+   *     the account is already linked in ANOTHER shop (one account = one
+   *     shop; a deactivated user's link counts too);
+   *   - `IdentityAlreadyLinkedError` (IDENTITY_ALREADY_LINKED) when it is
+   *     linked to another user here, or the user already has another one;
+   *   - `DatabaseError` when the user is not in the current shop.
    */
   link(data: LinkUserIdentityData): UserIdentityEntity {
     const tenantId = getCurrentTenantId();
-    try {
+    // IMMEDIATE: the write lock is taken before the check, so no other
+    // writer can link the same account between the check and the insert.
+    const linkOnce = this.db.transaction((): UserIdentityEntity => {
       // Refuse a user of another shop up front: the FK alone would accept
       // any existing user id.
       const owner = this.db
@@ -113,6 +138,17 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
         throw new DatabaseError("User not found in this shop", {
           entityId: data.userId,
         });
+      }
+      const links = this.findLinksBySubject(data.provider, data.subject);
+      const own = links.find(
+        (l) => l.tenant_id === tenantId && l.user_id === data.userId,
+      );
+      if (own) {
+        const existing = this.findByUser(data.userId, data.provider);
+        if (existing) return existing;
+      }
+      if (links.some((l) => l.tenant_id !== tenantId)) {
+        throw new GoogleAccountInOtherShopError();
       }
       const result = this.db
         .prepare(
@@ -134,11 +170,32 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
         throw new DatabaseError("Created identity could not be reloaded");
       }
       return created;
+    });
+    try {
+      return linkOnce.immediate();
     } catch (error) {
       if (isUniqueViolation(error)) throw new IdentityAlreadyLinkedError();
-      if (error instanceof DatabaseError) throw error;
+      if (error instanceof AppError) throw error;
       throw new DatabaseError("Failed to link identity", { cause: error });
     }
+  }
+
+  /**
+   * Every link of this identity, in every shop, whatever the user's state —
+   * the one-account-one-shop check (`link`, and the Google sign-up refusal).
+   * Cross-tenant by design; SHARED DB mode only (see header).
+   */
+  findLinksBySubject(
+    provider: IdentityProvider,
+    subject: string,
+  ): IdentityLink[] {
+    return this.db
+      .prepare(
+        `SELECT user_id, tenant_id FROM user_identities /* tenant-exempt: one Google account = one shop is a platform-wide rule */
+          WHERE provider = ? AND subject = ?
+          ORDER BY tenant_id, user_id`,
+      )
+      .all(provider, subject) as IdentityLink[];
   }
 
   /** A CURRENT-shop user's link for one provider, or null. */

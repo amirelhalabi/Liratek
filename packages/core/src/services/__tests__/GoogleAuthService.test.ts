@@ -17,7 +17,10 @@ import {
   GoogleTokenError,
   type FetchLike,
 } from "../GoogleAuthService.js";
-import { IDENTITY_ALREADY_LINKED } from "../../utils/errors.js";
+import {
+  GOOGLE_ACCOUNT_IN_OTHER_SHOP,
+  IDENTITY_ALREADY_LINKED,
+} from "../../utils/errors.js";
 
 type TestGlobal = typeof globalThis & {
   __LIRATEK_TEST_DB__?: Database.Database;
@@ -301,12 +304,21 @@ describe("identities, hand-off and session", () => {
 
   it("matches sign-ins by Google sub only, across shops, active users only", () => {
     linkIn(2, 20);
-    linkIn(3, 31); // inactive user: never a match
+    // Inactive user: never a match. Seeded raw — linkIdentity now refuses a
+    // second shop (one Google account = one shop).
+    db.exec(
+      `INSERT INTO user_identities (user_id, tenant_id, provider, subject) VALUES (31, 3, 'google', 'google-sub-1')`,
+    );
     expect(runWithoutTenant(() => svc().findSignInMatches("google-sub-1"))).toEqual([
       expect.objectContaining({ tenant_id: 2, user_id: 20 }),
     ]);
     runWithTenant(3, () => svc().unlinkIdentity(31));
-    linkIn(3, 30, "google-sub-1");
+    // A link made before one-account-one-shop (owner decision 2026-10-07):
+    // linkIdentity no longer creates it, so it is seeded raw. Such existing
+    // duplicates keep signing in through the shop chooser.
+    db.exec(
+      `INSERT INTO user_identities (user_id, tenant_id, provider, subject) VALUES (30, 3, 'google', 'google-sub-1')`,
+    );
     expect(
       runWithoutTenant(() => svc().findSignInMatches("google-sub-1")).map(
         (m) => m.tenant_id,
@@ -318,6 +330,27 @@ describe("identities, hand-off and session", () => {
     expect(
       runWithoutTenant(() => svc().findMatchInTenant("google-sub-1", 3))?.user_id,
     ).toBe(30);
+  });
+
+  it("one Google account = one shop: a link in another shop refuses the link and is reported for sign-up", () => {
+    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-1"))).toBe(false);
+    linkIn(2, 20);
+    let code: string | undefined;
+    try {
+      linkIn(3, 30);
+    } catch (error) {
+      code = (error as { code?: string }).code;
+    }
+    expect(code).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
+    // Same user again: idempotent, no error.
+    expect(() => linkIn(2, 20)).not.toThrow();
+    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-1"))).toBe(true);
+    // A deactivated user's link still counts (it is a link).
+    linkIn(3, 31, "google-sub-2");
+    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-2"))).toBe(true);
+    // Disconnected: free again.
+    runWithTenant(2, () => svc().unlinkIdentity(20));
+    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-1"))).toBe(false);
   });
 
   it("a hand-off token works once, stores only its hash, and names its shop", () => {

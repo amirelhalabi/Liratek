@@ -3,9 +3,10 @@
  * (LIRA-280). Web only; the backend sends the browser here in two cases:
  *
  *   ?error=<code>   the sign-in did not go through. Codes, never message text
- *                   (GOOGLE_AUTH_ERRORS): no_account, cancelled, expired,
- *                   failed, not_configured.
- *   ?choose=<ticket> the Google account is connected in several shops. The
+ *                   (GOOGLE_AUTH_ERRORS): no_account, already_connected,
+ *                   signup_limit, cancelled, expired, failed, not_configured.
+ *   ?choose=<ticket> the Google account is connected in several shops (only
+ *                   links made before one-account-one-shop, 2026-10-07). The
  *                   ticket is signed by the server and lists them; the page
  *                   only DISPLAYS it (decoded without verification) — the
  *                   choice goes back to the server, which verifies the
@@ -29,6 +30,8 @@ import {
 const ERROR_TEXT: Record<GoogleAuthErrorCode, string> = {
   no_account:
     "No LiraTek account is connected to this Google account. Sign in with your username and password, then connect Google in Settings — or create a new shop.",
+  already_connected:
+    "This Google account is already connected to a LiraTek shop. Sign in with Google instead, or use a different Google account to create a new shop.",
   signup_limit:
     "Today's limit for new shops has been reached. Please try again tomorrow. If you already have a shop, sign in instead.",
   cancelled: "Google sign-in was cancelled.",

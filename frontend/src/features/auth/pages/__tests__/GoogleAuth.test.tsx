@@ -60,6 +60,14 @@ it("explains that today's limit for new shops was reached", () => {
   expect(screen.getByText(/limit for new shops/i)).toBeInTheDocument();
 });
 
+it("explains that this Google account already has a shop (one Google account = one shop) and offers sign-in", () => {
+  renderAt("#/auth/google?error=already_connected");
+  expect(
+    screen.getByText(/already connected to a LiraTek shop/i),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /sign in/i })).toBeInTheDocument();
+});
+
 it("explains a cancelled or failed sign-in", () => {
   renderAt("#/auth/google?error=cancelled");
   expect(screen.getByText(/cancelled/i)).toBeInTheDocument();

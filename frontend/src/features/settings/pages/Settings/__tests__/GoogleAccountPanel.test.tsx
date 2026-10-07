@@ -103,3 +103,18 @@ it("reports the result of a link that just came back from Google", async () => {
   ).toBeInTheDocument();
   expect(window.location.hash).toBe("#/settings?tab=devices");
 });
+
+it("explains that the Google account is connected to another shop (one Google account = one shop)", async () => {
+  window.history.replaceState(null, "", "/#/settings?tab=devices&google=in_other_shop");
+  googleLinkStatus.mockResolvedValue({
+    success: true,
+    data: { enabled: true, linked: false, email: null },
+  });
+  render(<GoogleAccountPanel />);
+  expect(
+    await screen.findByText(
+      /already connected to another LiraTek shop\. Disconnect it there first, or use a different Google account/i,
+    ),
+  ).toBeInTheDocument();
+  expect(window.location.hash).toBe("#/settings?tab=devices");
+});

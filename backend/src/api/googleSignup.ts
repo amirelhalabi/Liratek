@@ -17,6 +17,10 @@
  *     unique index throws EMAIL_ALREADY_HAS_SHOP, answered like the invite
  *     route answers it. That index is also what stops one ticket from
  *     creating a second shop;
+ *   - one Google account = one shop (owner decision 2026-10-07): an account
+ *     already linked to any user in any shop is refused before anything is
+ *     created (GOOGLE_ACCOUNT_IN_OTHER_SHOP) — the callback checked it too,
+ *     this re-check covers a link made while the form was open;
  *   - after provisioning, the new admin is linked to the Google `sub`, so
  *     "Continue with Google" opens this shop from then on.
  *
@@ -30,6 +34,7 @@ import {
   AppError,
   EMAIL_ALREADY_HAS_SHOP,
   ErrorCodes,
+  GOOGLE_ACCOUNT_IN_OTHER_SHOP,
   GOOGLE_NOT_CONFIGURED,
   SIGNUP_DAILY_CAP,
   SIGNUP_DAILY_CAP_MESSAGE,
@@ -55,6 +60,10 @@ import {
   verifyTicket,
 } from "../security/googleOAuth.js";
 import { logger } from "../server.js";
+
+/** The account already belongs to a shop: sign in with it instead. */
+const GOOGLE_ACCOUNT_HAS_SHOP_MESSAGE =
+  "This Google account is already connected to a LiraTek shop. Sign in with Google instead, or use a different Google account.";
 
 const GOOGLE_SIGNUP_INVALID =
   "This Google sign-up has expired. Please continue with Google again.";
@@ -110,6 +119,25 @@ function handleGoogleSignup(req: Request, res: Response): void {
   const ticket = readSignupTicket(verifyTicket("signup", body.googleTicket));
   if (!ticket) {
     res.status(403).json(createErrorResponse(ErrorCodes.FORBIDDEN, GOOGLE_SIGNUP_INVALID));
+    return;
+  }
+
+  // One Google account = one shop. Checked before the cap, like the
+  // callback. A link made between here and the link step below is still
+  // refused by the repository; the shop is then created without a Google
+  // link (logged), and its admin keeps the password.
+  if (
+    runWithoutTenant(() => getGoogleAuthService().isLinkedToAnyShop(ticket.sub))
+  ) {
+    logger.warn(
+      { slug: body.slug },
+      "Google sign-up refused: this Google account is already connected to a shop",
+    );
+    res.json({
+      success: false,
+      error: GOOGLE_ACCOUNT_HAS_SHOP_MESSAGE,
+      code: GOOGLE_ACCOUNT_IN_OTHER_SHOP,
+    });
     return;
   }
 

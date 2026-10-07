@@ -32,6 +32,9 @@ export const GOOGLE_AUTH_ERRORS = [
   "not_configured",
   "signup_limit",
   "no_account",
+  // Sign-up refused: this Google account is already connected to a shop
+  // (one Google account = one shop, owner decision 2026-10-07).
+  "already_connected",
   "cancelled",
   "expired",
   "failed",

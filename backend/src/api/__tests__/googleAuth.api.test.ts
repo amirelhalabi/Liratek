@@ -101,6 +101,7 @@ const svc = {
   linkIdentity: jest.fn<(input: Record<string, unknown>) => void>(),
   unlinkIdentity: jest.fn<(userId: number) => boolean>(),
   getLinkedEmail: jest.fn<(userId: number) => { linked: boolean; email: string | null }>(),
+  isLinkedToAnyShop: jest.fn<(sub: string) => boolean>(),
 };
 
 const provisionTenant = jest.fn<(input: Record<string, unknown>) => unknown>();
@@ -163,6 +164,7 @@ import express, { type Express } from "express";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import {
+  GoogleAccountInOtherShopError,
   GoogleTokenError,
   IdentityAlreadyLinkedError,
   GOOGLE_NOT_CONFIGURED,
@@ -196,6 +198,7 @@ beforeEach(() => {
   baseDomain = "liratek.shop";
   selfServe = false;
   capReached.mockReturnValue(false);
+  svc.isLinkedToAnyShop.mockReturnValue(false);
   svc.createHandoff.mockReturnValue("handoff-token");
   svc.exchangeCodeForClaims.mockResolvedValue({
     sub: "g-sub",
@@ -787,6 +790,32 @@ describe("Google sign-up: always open when configured, inside the one daily cap"
     );
   });
 
+  it("one Google account = one shop: an account already connected anywhere is refused at the callback, before the cap", async () => {
+    enable();
+    svc.isLinkedToAnyShop.mockReturnValue(true);
+    capReached.mockReturnValue(true);
+    const url = await signInFlow(buildApp(), "intent=signup");
+    expect(url.origin).toBe("https://www.liratek.shop");
+    expect(url.hash).toContain("error=already_connected");
+    expect(url.hash).not.toContain("google=");
+    expect(svc.isLinkedToAnyShop).toHaveBeenCalledWith("g-sub");
+  });
+
+  it("one Google account = one shop: re-checked when the form is submitted (connected meanwhile), nothing created", async () => {
+    enable();
+    const app = buildApp();
+    const googleTicket = hashParams(await signInFlow(app, "intent=signup")).get("google")!;
+    expect(googleTicket).toBeTruthy();
+    svc.isLinkedToAnyShop.mockReturnValue(true);
+    const res = await request(app).post("/api/auth/signup").send({ ...shopFields, googleTicket });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.code).toBe("GOOGLE_ACCOUNT_IN_OTHER_SHOP");
+    expect(String(res.body.error)).toMatch(/already connected/i);
+    expect(provisionTenant).not.toHaveBeenCalled();
+    expect(svc.linkIdentity).not.toHaveBeenCalled();
+  });
+
   it("sign-in with Google is never subject to the sign-up cap", async () => {
     enable();
     capReached.mockReturnValue(true);
@@ -836,6 +865,16 @@ describe("link / unlink from Settings", () => {
     });
     const url = await linkFlow(buildApp());
     expect(hashParams(url).get("google")).toBe("already_linked");
+  });
+
+  it("one Google account = one shop: an account connected in another shop comes back as google=in_other_shop", async () => {
+    enable();
+    svc.linkIdentity.mockImplementationOnce(() => {
+      throw new GoogleAccountInOtherShopError();
+    });
+    const url = await linkFlow(buildApp());
+    expect(url.origin).toBe("https://two.liratek.shop");
+    expect(hashParams(url).get("google")).toBe("in_other_shop");
   });
 
   it("refuses impersonation sessions and the platform super admin", async () => {

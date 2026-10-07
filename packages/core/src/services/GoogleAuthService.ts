@@ -18,15 +18,21 @@
  * Sign-in matches ONLY through a linked Google `sub` (owner decision
  * 2026-10-07): there is no lookup by email anywhere in this file.
  *
+ * ONE GOOGLE ACCOUNT = ONE SHOP (owner decision 2026-10-07): `linkIdentity`
+ * refuses an account already linked in another shop, and a Google sign-up is
+ * refused for an account linked anywhere (`isLinkedToAnyShop`). Links made
+ * before that decision (one account in two shops) are kept, so sign-in can
+ * still return several matches and the shop chooser stays.
+ *
  * Scoping is the caller's job, per method (the route knows which shop):
- *   - `findSignInMatches`, `findMatchInTenant`, `createHandoff`,
- *     `consumeHandoff`: inside `runWithoutTenant`.
+ *   - `findSignInMatches`, `findMatchInTenant`, `isLinkedToAnyShop`,
+ *     `createHandoff`, `consumeHandoff`: inside `runWithoutTenant`.
  *   - `openSession`, `linkIdentity`, `unlinkIdentity`, `getLinkedEmail`:
  *     inside `runWithTenant(<the shop>)`.
  *
- * PER-TENANT DB MODE LIMITATION: `findSignInMatches` relies on
- * `UserIdentityRepository.findBySubjectAllTenants`, which only sees every shop
- * in SHARED mode. In per-tenant mode each shop's identities live in its own
+ * PER-TENANT DB MODE LIMITATION: `findSignInMatches`, `isLinkedToAnyShop`
+ * and the one-shop check inside `linkIdentity` rely on cross-tenant lookups
+ * of `user_identities`, which only see every shop in SHARED mode. In per-tenant mode each shop's identities live in its own
  * file, so a platform-level (provider, subject) -> (tenant, user) index is
  * needed before that split goes live (known follow-up, plan contracts §D).
  */
@@ -342,8 +348,17 @@ export class GoogleAuthService {
     return this.identityRepo.findBySubjectInTenant(PROVIDER, subject, tenantId);
   }
 
-  /** Links Google to a user of the CURRENT shop. Throws
-   * `IdentityAlreadyLinkedError` (IDENTITY_ALREADY_LINKED). */
+  /** Is this Google account linked to any user, in any shop (whatever the
+   * user's state)? The Google sign-up refusal. Cross-tenant; SHARED DB mode
+   * only — see the header. Call inside `runWithoutTenant`. */
+  isLinkedToAnyShop(subject: string): boolean {
+    return this.identityRepo.findLinksBySubject(PROVIDER, subject).length > 0;
+  }
+
+  /** Links Google to a user of the CURRENT shop; the same link again is a
+   * no-op. Throws `GoogleAccountInOtherShopError`
+   * (GOOGLE_ACCOUNT_IN_OTHER_SHOP) or `IdentityAlreadyLinkedError`
+   * (IDENTITY_ALREADY_LINKED). */
   linkIdentity(input: {
     userId: number;
     subject: string;

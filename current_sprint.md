@@ -6518,6 +6518,10 @@ Switched on 2026-10-07: Google Cloud project "Liratek", OAuth client "LiraTek we
 
 **What users will notice:** on the web app, "Continue with Google" on the login page signs you in; "Connect Google" in Settings links your account first. New shops can also be created with Google. Signing in with your username and password still works.
 
+**One Google account = one shop (owner decision 2026-10-07).** "Connect Google" refuses an account already connected to any user in any other shop (`GOOGLE_ACCOUNT_IN_OTHER_SHOP`, Settings shows `google=in_other_shop`); creating a shop with Google refuses an account connected anywhere (callback `error=already_connected`, re-checked at `POST /signup`); reconnecting the same account to the same user is a no-op. Enforced in `UserIdentityRepository.link` (check + insert in one IMMEDIATE transaction), NOT by a unique index: production already has one account in two shops, which an index could not be built over. Those existing links are kept and still sign in through the shop chooser until one is disconnected. A link held by a deactivated user, or in a suspended shop, also blocks (owner may want to revisit). Per-tenant DB mode: the check only sees every shop in shared mode (same follow-up as `findBySubjectAllTenants`).
+
+**What users will notice (one account = one shop):** on the web app, a Google account can be connected to one shop only; connecting it to a second shop, or creating a new shop with it, explains that it is already connected and how to fix it.
+
 ## LIRA-281: invite users to a shop by email — DONE (deployed 2026-10-07)
 
 Settings → Users → "Invite by email" (email + role). The person opens `/#/join?invite=…` on the shop's address and picks their username and password; their email is already confirmed. Pending invitations can be resent or revoked. Lapsed (read-only) shops cannot send invites; an invite opened while the shop is lapsed is refused until renewed (owner decision 2026-10-07, being built).

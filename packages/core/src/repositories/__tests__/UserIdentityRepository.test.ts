@@ -1,8 +1,10 @@
 /**
  * UserIdentityRepository (v196, LIRA-280) — Google sign-in links.
  *
- * One Google account (`subject`) may be linked in several shops but to one
- * user per shop; one user has at most one Google link.
+ * One Google account (`subject`) = one user in one shop, platform-wide
+ * (owner decision 2026-10-07; enforced in `link()`, not by an index — see the
+ * repository header). One user has at most one Google link. Links made
+ * before that decision (the same account in two shops) keep working.
  */
 
 import fs from "node:fs";
@@ -11,7 +13,10 @@ import Database from "better-sqlite3";
 import { runMigrations } from "../../db/migrations/index.js";
 import { runWithTenant } from "../../db/tenantContext.js";
 import { UserIdentityRepository } from "../UserIdentityRepository.js";
-import { IDENTITY_ALREADY_LINKED } from "../../utils/errors.js";
+import {
+  GOOGLE_ACCOUNT_IN_OTHER_SHOP,
+  IDENTITY_ALREADY_LINKED,
+} from "../../utils/errors.js";
 
 type TestGlobal = typeof globalThis & {
   __LIRATEK_TEST_DB__?: Database.Database;
@@ -80,14 +85,45 @@ describe("UserIdentityRepository", () => {
     });
   });
 
-  it("one Google account may be linked in several shops", () => {
-    link(2, 20);
-    link(3, 30);
+  it("links made before one-account-one-shop (same account in two shops) still list both shops", () => {
+    // Legacy duplicates are seeded raw: link() no longer creates them.
+    db.exec(`
+      INSERT INTO user_identities (user_id, tenant_id, provider, subject) VALUES
+        (20, 2, 'google', 'sub-1'), (30, 3, 'google', 'sub-1');
+    `);
     const matches = repo.findBySubjectAllTenants("google", "sub-1");
     expect(matches.map((m) => [m.tenant_id, m.user_id])).toEqual([
       [2, 20],
       [3, 30],
     ]);
+  });
+
+  it("refuses a Google account already linked in ANOTHER shop with GOOGLE_ACCOUNT_IN_OTHER_SHOP, and writes nothing", () => {
+    link(2, 20);
+    expect(codeOf(() => link(3, 30))).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
+    expect(
+      repo.findLinksBySubject("google", "sub-1").map((l) => [l.tenant_id, l.user_id]),
+    ).toEqual([[2, 20]]);
+  });
+
+  it("a link held by a DEACTIVATED user in another shop still counts", () => {
+    link(3, 31);
+    expect(codeOf(() => link(2, 20))).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
+  });
+
+  it("re-linking the same account to the same user is idempotent", () => {
+    const first = link(2, 20);
+    const again = link(2, 20);
+    expect(again.id).toBe(first.id);
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS n FROM user_identities`).get() as { n: number }).n,
+    ).toBe(1);
+  });
+
+  it("after disconnecting in one shop, the account can be connected in another", () => {
+    link(2, 20);
+    runWithTenant(2, () => expect(repo.unlink(20, "google")).toBe(true));
+    expect(link(3, 30).tenant_id).toBe(3);
   });
 
   it("refuses a second user in the SAME shop, and a second Google link on one user, with IDENTITY_ALREADY_LINKED", () => {
