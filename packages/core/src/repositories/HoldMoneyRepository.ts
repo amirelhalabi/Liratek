@@ -26,6 +26,7 @@ import {
   resolveStampedExchangeRate,
   type ReconciliationLeg,
 } from "./moneyPosting.js";
+import { resolveKeptChange } from "./keptChange.js";
 import { paymentMethodToDrawerName, partitionLegs } from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import type {
@@ -334,12 +335,19 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
 
   /**
    * Collect (return) part or all of a held amount — a PAYOUT: the shop pays
-   * the customer, so a leg's default ("IN") direction is payout composition
-   * (debits the drawer) and an "OUT"-tagged leg is money the customer hands
-   * BACK to the shop (credits it back) — same convention `postPayoutLegs`
-   * uses for a RECEIVE cashout. Supports a partial pickup (migration v183):
-   * `data.usd_amount`/`data.lbp_amount` default to the hold's full
+   * the customer, so every leg is payout composition and debits its drawer.
+   * A pickup never carries an OUT (change) leg (owner decision 2026-10-07 —
+   * `payer="payout"`; refused below). Supports a partial pickup (migration
+   * v183): `data.usd_amount`/`data.lbp_amount` default to the hold's full
    * remaining balance in that currency when omitted.
+   *
+   * Kept change (owner decision 2026-10-07): on a ONE-currency pickup the
+   * cashier may hand out a round figure (held $50.12, hands $50); the
+   * leftover is shop profit, capped below PAYOUT_KEEP_CHANGE_MAX in that
+   * currency, verified by `resolveKeptChange` (payer "payout") and stamped
+   * on the HOLD_MONEY_COLLECT row's own profit_usd/profit_lbp. The pickup
+   * still records the FULL portion, so the held balance clears completely.
+   * A pickup returning both USD and LBP must be paid out exactly.
    */
   collectHold(
     data: HoldMoneyCollectInput,
@@ -347,12 +355,27 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
   ): HoldMoneyResult {
     try {
       const legs: HoldMoneyPaymentLegInput[] = data.payments ?? [];
-      const { inLegs, outLegs } = partitionLegs(legs.map(toReconciliationLeg));
+      const reconLegs = legs.map(toReconciliationLeg);
+      const { inLegs, outLegs } = partitionLegs(reconLegs);
       const sellRate = getUsdLbpSellRate(this.db);
       const stampedRate = resolveStampedExchangeRate(
         sellRate,
         data.exchange_rate,
       );
+      const claimedKept = {
+        usd: data.kept_change_usd ?? 0,
+        lbp: data.kept_change_lbp ?? 0,
+      };
+      const claimsKept = claimedKept.usd > 0 || claimedKept.lbp > 0;
+      // Lines were sent but every one is 0 (the cashier cleared the amount):
+      // refuse. `resolveKeptChange` drops zero legs and would reconcile
+      // nothing, and the CASH fallback below only runs when NO lines were
+      // sent — together they would clear the hold with no drawer movement.
+      if (legs.length > 0 && !legs.some((l) => Math.abs(l.amount) > 0)) {
+        throw new Error(
+          "Hold Money pickup: no payout amount entered — enter what you hand to the customer",
+        );
+      }
 
       const result = this.db.transaction(() => {
         const tenantId = getCurrentTenantId();
@@ -384,20 +407,60 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           throw new Error("Nothing to collect — the amount is zero");
         }
 
-        if (legs.length > 0) {
-          reconcileLegs({
-            inLegs,
-            outLegs,
-            expectedTotals: { usd: portionUsd, lbp: portionLbp },
+        // Verify the payout legs (and any kept-change claim) BEFORE any
+        // write. One-currency pickup → `resolveKeptChange` (payer "payout"):
+        // refuses OUT legs, checks paid = owed − kept, the cap, the
+        // currency and a phantom claim. Two-currency pickup → no kept change
+        // (the payout helper owes ONE currency); OUT legs refused with the
+        // same rule, then the plain S2 reconcile over both currencies.
+        const context = "Hold Money pickup";
+        const returnsUsd = portionUsd > USD_EPSILON;
+        const returnsLbp = portionLbp > LBP_EPSILON;
+        let keptUsd = 0;
+        let keptLbp = 0;
+        if (returnsUsd && returnsLbp) {
+          if (claimsKept) {
+            throw new Error(
+              `${context}: keeping change works only when returning one currency — pay out the exact amount`,
+            );
+          }
+          if (outLegs.length > 0) {
+            throw new Error(
+              `${context}: a payout cannot carry change (OUT) legs — the shop hands out money, it never receives change`,
+            );
+          }
+          if (legs.length > 0) {
+            reconcileLegs({
+              inLegs,
+              expectedTotals: { usd: portionUsd, lbp: portionLbp },
+              exchangeRate: sellRate,
+              tenderExchangeRate: data.exchange_rate,
+              context,
+            });
+          }
+        } else if (legs.length > 0 || claimsKept) {
+          const owedCurrency = returnsLbp ? "LBP" : "USD";
+          const kept = resolveKeptChange({
+            payer: "payout",
+            owed: owedCurrency === "LBP" ? portionLbp : portionUsd,
+            owedCurrency,
+            payoutLegs: reconLegs,
+            claimedKept,
             exchangeRate: sellRate,
-            tenderExchangeRate: data.exchange_rate,
-            context: "Hold Money pickup",
+            ...(data.exchange_rate !== undefined
+              ? { tenderExchangeRate: data.exchange_rate }
+              : {}),
+            context,
           });
+          keptUsd = kept.keptUsd;
+          keptLbp = kept.keptLbp;
         }
 
         const noteText = `Hold Collected: ${hold.client_name}`;
 
-        // 1. Unified transaction row (cash out, no profit)
+        // 1. Unified transaction row (cash out). Profit = the verified kept
+        // change only (0 on an exact pickup) — in the row's OWN stamp, per
+        // currency, so voidPickup negates it (rule 20).
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.HOLD_MONEY_COLLECT,
           source_table: "hold_money",
@@ -405,8 +468,8 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           user_id: collectedBy,
           amount_usd: portionUsd,
           amount_lbp: portionLbp,
-          profit_usd: 0,
-          profit_lbp: 0,
+          profit_usd: keptUsd,
+          profit_lbp: keptLbp,
           exchange_rate: stampedRate,
           client_id: hold.client_id,
           // Surface the customer in the Transactions/Audit viewer (rule 11).
@@ -421,20 +484,22 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
             kind: "collect",
             partial: portionUsd < remainingUsd - USD_EPSILON ||
               portionLbp < remainingLbp - LBP_EPSILON,
+            ...(keptUsd > 0 || keptLbp > 0
+              ? { kept_change_usd: keptUsd, kept_change_lbp: keptLbp }
+              : {}),
           },
           transaction_time: data.transaction_time,
         });
 
-        // 2. Post the payout legs — ONE pass, same rule-16 shape as
-        // createHold above. Falls back to a single CASH leg for the full
-        // portion when no legs were sent.
+        // 2. Post the payout legs — ONE pass, every leg debits its drawer
+        // (OUT legs were refused above). Falls back to a single CASH leg for
+        // the full portion when no legs were sent.
         if (legs.length > 0) {
           for (const leg of legs) {
             const amt = Math.abs(leg.amount);
             if (amt === 0) continue;
-            const isReturn = leg.direction === "OUT";
             const drawer = paymentMethodToDrawerName(leg.method);
-            const signed = isReturn ? amt : -amt;
+            const signed = -amt;
             insertPaymentRow(this.db, {
               transactionId: txnId,
               method: leg.method,
@@ -575,6 +640,21 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
 
         const noteText = `Hold Pickup #${pickup.id} voided (${hold.client_name})`;
 
+        // Kept change lives in the pickup row's own profit stamp — the void
+        // row carries its exact negation (REFUND convention) so the pair
+        // nets profit to 0 per currency (rule 20). `0 - x` (not `-x`) keeps
+        // an exact pickup's void at +0, never -0.
+        const original =
+          pickup.transaction_id != null
+            ? (this.db
+                .prepare(
+                  `SELECT profit_usd, profit_lbp FROM transactions WHERE id = ? AND tenant_id = ?`,
+                )
+                .get(pickup.transaction_id, tenantId) as
+                | { profit_usd: number | null; profit_lbp: number | null }
+                | undefined)
+            : undefined;
+
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.HOLD_MONEY_COLLECT_VOID,
           source_table: "hold_money_pickups",
@@ -582,8 +662,8 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           user_id: voidedBy,
           amount_usd: pickup.usd_amount,
           amount_lbp: pickup.lbp_amount,
-          profit_usd: 0,
-          profit_lbp: 0,
+          profit_usd: 0 - (original?.profit_usd ?? 0),
+          profit_lbp: 0 - (original?.profit_lbp ?? 0),
           client_id: hold.client_id,
           client_name: hold.client_name,
           client_phone: hold.phone_number,

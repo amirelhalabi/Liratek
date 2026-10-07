@@ -43,7 +43,10 @@ import {
   assertPartnerIdRequired,
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
+  type KeptChange,
+  type ReconciliationLeg,
 } from "./moneyPosting.js";
+import { resolveKeptChange } from "./keptChange.js";
 
 // =============================================================================
 // Types
@@ -160,7 +163,9 @@ export interface SaleRequest {
   change_given_usd?: number;
   change_given_lbp?: number;
   /** T3 keep-change: per-currency amounts the shop keeps instead of returning
-   *  as change (no OUT legs accompany them). Added to the sale transaction's
+   *  as change (a partial keep also sends the returned part as
+   *  change_given_*). Checked by `resolveKeptChange` (G42), then added to the
+   *  sale transaction's
    *  profit stamp — the generic full void negates the stamp, so the kept
    *  amounts reverse with it; per-item refunds deliberately keep it (a
    *  partial return does not hand the kept change back). */
@@ -491,6 +496,93 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const paymentLbp = sale.payments
           ? derived["LBP"] || 0
           : sale.payment_lbp;
+
+        // The legs this sale posts. If sale.payments is not provided, infer
+        // CASH lines from the legacy totals. Built once, here, so the kept-
+        // change check below and the posting block read the SAME lines.
+        const paymentLines: PaymentLine[] = sale.payments?.length
+          ? sale.payments
+          : [
+              ...(paymentUsd
+                ? [
+                    {
+                      method: "CASH" as const,
+                      currency_code: "USD",
+                      amount: paymentUsd,
+                    },
+                  ]
+                : []),
+              ...(paymentLbp
+                ? [
+                    {
+                      method: "CASH" as const,
+                      currency_code: "LBP",
+                      amount: paymentLbp,
+                    },
+                  ]
+                : []),
+            ];
+
+        // G42 — kept change (payer = customer, docs/FEATURE_GUIDE.md §4.1).
+        // The checkout sends the tender as IN legs, cash change as
+        // change_given_*, and what the cashier did not hand back as
+        // kept_change_*. The claim is never trusted: `resolveKeptChange`
+        // enforces IN − OUT − change − kept = final amount and refuses a
+        // kept above the real excess, a FOR-partner kept, and kept with no
+        // legs. Only the RESOLVED amount joins the profit stamp below. Runs
+        // before the first write so a refusal rolls nothing back. Gated on
+        // a claim: without one, a short payment still books Sale Debt from
+        // the residual exactly as before (not every partial sale sends its
+        // remainder as a leg).
+        let keptProfitUsd = 0;
+        let keptProfitLbp = 0;
+        const claimedKeptUsd = sale.kept_change_usd ?? 0;
+        const claimedKeptLbp = sale.kept_change_lbp ?? 0;
+        if (
+          status === "completed" &&
+          (claimedKeptUsd > 0 || claimedKeptLbp > 0)
+        ) {
+          if (sale.deferPayment) {
+            throw new BusinessRuleError(
+              "Kept change can't be booked on a session basket sale — the session checkout owns the customer's payment.",
+            );
+          }
+          const toLeg = (l: PaymentLine): ReconciliationLeg => ({
+            method: l.method,
+            currencyCode: l.currency_code,
+            amount: l.amount,
+          });
+          const legs = partitionLegs(paymentLines);
+          const cashChange = (
+            [
+              ["USD", Math.abs(sale.change_given_usd || 0)],
+              ["LBP", Math.abs(sale.change_given_lbp || 0)],
+            ] as const
+          )
+            .filter(([, amount]) => amount > 0)
+            .map(
+              ([currencyCode, amount]): ReconciliationLeg => ({
+                method: "CASH",
+                currencyCode,
+                amount,
+                direction: "OUT",
+              }),
+            );
+          const kept = resolveKeptChange({
+            payer: "customer",
+            // POS sales are USD-priced.
+            expected: { usd: sale.final_amount, lbp: 0 },
+            inLegs: legs.inLegs.map(toLeg),
+            outLegs: [...legs.outLegs.map(toLeg), ...cashChange],
+            claimedKept: { usd: claimedKeptUsd, lbp: claimedKeptLbp },
+            isForPartner: sale.partnerMode === "FOR",
+            // The till's own rate (CheckoutModal sends the edited rate here).
+            exchangeRate: sale.exchange_rate,
+            context: "POS sale",
+          });
+          keptProfitUsd = kept.keptUsd;
+          keptProfitLbp = kept.keptLbp;
+        }
 
         let saleId = sale.id;
 
@@ -916,8 +1008,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             // this point saleProfitUsd already carries the FIFO correction
             // applied in the item-processing loop above, so this is the
             // sale's REAL margin, never the early loop's provisional one.
-            profit_usd: saleProfitUsd + (sale.kept_change_usd || 0),
-            profit_lbp: sale.kept_change_lbp || 0,
+            // Kept change: the server-checked amount (G42), never the raw
+            // client claim.
+            profit_usd: saleProfitUsd + keptProfitUsd,
+            profit_lbp: keptProfitLbp,
             exchange_rate: sale.exchange_rate,
             client_id: finalClientId ?? null,
             // Rule 11: keep the walk-in name/phone on the unified row even when
@@ -949,30 +1043,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           });
 
           // Persist payment lines + update running balances (drawer_balances)
-          // - If sale.payments is not provided, we store inferred CASH lines from legacy totals.
+          // — `paymentLines` is built once, above, before any write (the
+          // kept-change check reads the same lines).
           // - Change is treated as CASH (General drawer) outflow.
-          const paymentLines: PaymentLine[] = sale.payments?.length
-            ? sale.payments
-            : [
-                ...(paymentUsd
-                  ? [
-                      {
-                        method: "CASH" as const,
-                        currency_code: "USD",
-                        amount: paymentUsd,
-                      },
-                    ]
-                  : []),
-                ...(paymentLbp
-                  ? [
-                      {
-                        method: "CASH" as const,
-                        currency_code: "LBP",
-                        amount: paymentLbp,
-                      },
-                    ]
-                  : []),
-              ];
 
           const insertPayment = {
             run: (
@@ -1685,6 +1758,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
      *  and stamped onto the REFUND row's own metadata_json. Omitted:
      *  today's per-currency exact-match behavior, unchanged. */
     exchangeRate?: number;
+    /** Owner decision 2026-10-07 — refund kept change (see below). */
+    keptChange?: KeptChange;
   }): number {
     const db = this.db;
     const tenantId = getCurrentTenantId();
@@ -1784,24 +1859,52 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // LIRA-231: validate the operator's chosen return legs (if any) against
     // THIS ITEM's proportional share of the sale's customer-facing net,
     // BEFORE any row is written.
+    //
+    // Owner decision 2026-10-07 — refund kept change: the cash handed back is
+    // short of THIS ITEM's net by a small leftover the shop keeps as profit.
+    // Checked by the SAME gate the whole-sale refund runs
+    // (`resolvePartialRefundKeptChange` → `_resolveRefundKeptChange` →
+    // `resolveKeptChange`, payer "payout": cash only, one currency, under
+    // $1 / 100,000 LBP, FOR-partner refused) — rule 14, never a copy. The
+    // legs are then validated against the net MINUS the checked kept amount.
+    // A claim with no return lines is refused by that gate's own message.
+    // No claim → byte-identical to before.
     const refundLegs = params.refundLegs;
+    const hasLegs = !!refundLegs && refundLegs.length > 0;
+    const claimsKept =
+      (params.keptChange?.usd ?? 0) > 0 || (params.keptChange?.lbp ?? 0) > 0;
     let itemNetByCurrency: Record<string, number> | undefined;
-    if (refundLegs && refundLegs.length > 0) {
+    let kept = { usd: 0, lbp: 0 };
+    if (hasLegs || claimsKept) {
       const originalPaymentRows = txnRepo.getPaymentsByTransactionId(
         originalTxn.id,
       );
       const saleNet = overridableNetByCurrency(originalPaymentRows);
-      itemNetByCurrency = {};
+      const itemNet: Record<string, number> = {};
       for (const [currency, amount] of Object.entries(saleNet)) {
-        itemNetByCurrency[currency] = amount * lineShareOfSale;
+        itemNet[currency] = amount * lineShareOfSale;
       }
-      validateRefundLegOverrideAmounts(
-        itemNetByCurrency,
-        refundLegs,
-        params.saleItemId,
-        params.exchangeRate,
-      );
+      const resolved = txnRepo.resolvePartialRefundKeptChange({
+        originalTxnId: originalTxn.id,
+        owedNet: itemNet,
+        refundLegs: hasLegs ? refundLegs : undefined,
+        claimed: params.keptChange,
+        exchangeRate: params.exchangeRate,
+      });
+      kept = { usd: resolved.keptUsd, lbp: resolved.keptLbp };
+      if (hasLegs) {
+        // The reversal SIGN (`_applySaleItemMoneyBack`) still comes from the
+        // true item net; only the amount check uses the net after kept.
+        itemNetByCurrency = itemNet;
+        validateRefundLegOverrideAmounts(
+          resolved.owedNetAfterKept,
+          refundLegs!,
+          params.saleItemId,
+          params.exchangeRate,
+        );
+      }
     }
+    const hasKept = kept.usd > 0 || kept.lbp > 0;
 
     // 2026-09-26: validate the operator's chosen unit extras (if any) BEFORE
     // any row is written — every unit_id must belong to THIS ITEM's own
@@ -1848,8 +1951,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // refund in currency-split reports.
         amount_usd: -refundAmount,
         amount_lbp: 0,
-        profit_usd: -refundProfitUsd,
-        profit_lbp: 0,
+        // Kept change (checked above) is ADDED to the negated item profit,
+        // per currency — the same −original + kept stamp the whole-sale
+        // refund writes, so "Undo refund" negates it with everything else.
+        profit_usd: -refundProfitUsd + kept.usd,
+        profit_lbp: kept.lbp,
         exchange_rate: originalTxn.exchange_rate,
         client_id: originalTxn.client_id,
         summary: `ITEM REFUND: ${params.refundQuantity}x product ${item.product_id} from Sale #${params.saleId}`,
@@ -1866,6 +1972,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           // field on every untouched (no-override) refund.
           ...((params.exchangeRate ?? originalTxn.exchange_rate) != null
             ? { exchangeRate: params.exchangeRate ?? originalTxn.exchange_rate }
+            : {}),
+          // Same audit stamp the whole-sale refund writes.
+          ...(hasKept
+            ? { kept_change_usd: kept.usd, kept_change_lbp: kept.lbp }
             : {}),
         },
         device_id: originalTxn.device_id ?? undefined,
@@ -2197,7 +2307,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     const refundTxn = db
       .prepare(
         `SELECT id, type, status, source_table, source_id, amount_usd,
-                profit_usd, exchange_rate, client_id, device_id, metadata_json
+                profit_usd, profit_lbp, exchange_rate, client_id, device_id,
+                metadata_json
          FROM transactions WHERE id = ? AND tenant_id = ?`,
       )
       .get(params.refundTransactionId, tenantId) as
@@ -2209,6 +2320,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           source_id: number;
           amount_usd: number;
           profit_usd: number | null;
+          /** Non-zero only when the refund kept LBP change (2026-10-07). */
+          profit_lbp: number | null;
           exchange_rate: number | null;
           client_id: number | null;
           device_id: string | null;
@@ -2371,7 +2484,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         amount_usd: -refundTxn.amount_usd,
         amount_lbp: 0,
         profit_usd: refundTxn.profit_usd != null ? -refundTxn.profit_usd : 0,
-        profit_lbp: 0,
+        // Both currencies: a refund that kept LBP change stamped it here.
+        profit_lbp: refundTxn.profit_lbp ? -refundTxn.profit_lbp : 0,
         exchange_rate: refundTxn.exchange_rate,
         client_id: refundTxn.client_id,
         summary: `UNDO REFUND: ${refundQuantity}x product ${item.product_id} from Sale #${originalSaleId} (undoes refund #${params.refundTransactionId})`,

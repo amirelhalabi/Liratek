@@ -1872,7 +1872,15 @@ export function keptChangeSource(alias: string): string {
   // than widening the debt_ledger branch, so DEBT_REPAYMENT's netting is
   // untouched. A VOIDED kept-change row needs no such branch — `status =
   // 'ACTIVE'` at every call site already drops it.
+  // Kept change (owner decision 2026-10-07): a CREDIT_CASH_OUT row carries
+  // the payout shortfall the shop kept (Debts credit cash-out). Only a row
+  // that actually kept something is a source — older cash-outs (and ones
+  // with nothing kept) stamp 0 and would otherwise list as $0 "not counted"
+  // rows in the Kept Change drill-down. CREDIT_CASH_OUT is NON_REVERSIBLE —
+  // no REFUND sibling exists to net.
   return `((${alias}.source_table = 'debt_ledger' AND ${alias}.type IN ('DEBT_REPAYMENT', 'REFUND'))
+                     OR (${alias}.source_table = 'debt_ledger' AND ${alias}.type = 'CREDIT_CASH_OUT'
+                         AND (${alias}.profit_usd != 0 OR ${alias}.profit_lbp != 0))
                      OR ${alias}.type = 'KEPT_CHANGE'
                      OR (${alias}.type = 'REFUND'
                          AND EXISTS (
@@ -1911,7 +1919,7 @@ export function keptChangeSource(alias: string): string {
  * per-row.
  */
 export function keptChangeCountEligible(alias: string): string {
-  return `${alias}.type IN ('DEBT_REPAYMENT', 'KEPT_CHANGE') AND (${alias}.profit_usd != 0 OR ${alias}.profit_lbp != 0)`;
+  return `${alias}.type IN ('DEBT_REPAYMENT', 'CREDIT_CASH_OUT', 'KEPT_CHANGE') AND (${alias}.profit_usd != 0 OR ${alias}.profit_lbp != 0)`;
 }
 
 /**
@@ -2003,6 +2011,44 @@ export function supplierCommissionCountEligible(alias: string): string {
  */
 export function topupBuybackSource(alias: string): string {
   return `${alias}.type IN ('TELECOM_CREDIT_BUYBACK', 'RECHARGE_TOPUP')`;
+}
+
+/**
+ * Hold Money pickup profit (owner decision 2026-10-07, FEATURE_GUIDE §4.1) —
+ * the ONE list of transaction types that carry a Hold Money kept-change
+ * stamp: the pickup (`HOLD_MONEY_COLLECT`, +kept) and its dedicated reversal
+ * (`HOLD_MONEY_COLLECT_VOID`, the exact negation — `HoldMoneyRepository
+ * .voidPickup`). `voidPickup` leaves the pickup row ACTIVE, so summing BOTH
+ * types over `status = 'ACTIVE'` nets a voided pickup to 0 per currency
+ * (rule 20). Feeds {@link holdMoneyProfitSource}, {@link PROFIT_TXN_TYPES},
+ * and the By Cashier/By Client revenue arms (rule 14).
+ */
+const HOLD_MONEY_PROFIT_TYPES_SQL = [
+  TRANSACTION_TYPES.HOLD_MONEY_COLLECT,
+  TRANSACTION_TYPES.HOLD_MONEY_COLLECT_VOID,
+]
+  .map((t) => `'${t}'`)
+  .join(", ");
+
+/** Is this transactions row a Hold Money profit row (pickup or its void)? */
+export function holdMoneyProfitSource(alias: string): string {
+  return `${alias}.type IN (${HOLD_MONEY_PROFIT_TYPES_SQL})`;
+}
+
+/**
+ * The Hold Money "count event" predicate: a pickup that actually kept change.
+ * A void row is a SOURCE row for the sum but never an event, a voided pickup
+ * is no longer an event either, and an exact pickup (no kept change) books
+ * no profit — none of them count. Same shape as
+ * {@link keptChangeCountEligible}.
+ */
+export function holdMoneyCountEligible(alias: string): string {
+  return `${alias}.type = '${TRANSACTION_TYPES.HOLD_MONEY_COLLECT}' AND (${alias}.profit_usd != 0 OR ${alias}.profit_lbp != 0)
+    AND NOT EXISTS (SELECT 1 FROM transactions hmv
+                    WHERE hmv.reverses_id = ${alias}.id
+                      AND hmv.type = '${TRANSACTION_TYPES.HOLD_MONEY_COLLECT_VOID}'
+                      AND hmv.status = 'ACTIVE'
+                      AND hmv.tenant_id = ${alias}.tenant_id)`;
 }
 
 /**
@@ -2305,7 +2351,7 @@ export function keptChangeRecognizedCount(matchCondition: string): string {
               SELECT COUNT(*)
               FROM transactions kc
               WHERE ${keptChangeRecognitionGates("kc")}
-                AND kc.type IN ('DEBT_REPAYMENT', 'KEPT_CHANGE')
+                AND kc.type IN ('DEBT_REPAYMENT', 'CREDIT_CASH_OUT', 'KEPT_CHANGE')
                 AND ${matchCondition}
                 AND (kc.profit_usd <> 0 OR kc.profit_lbp <> 0)
             ), 0)`;
@@ -2840,8 +2886,14 @@ function providerStockDrawersSql(): string {
 // itself (comment above): without this, undoing a refund would correctly
 // restore the drawer/stock/debt but leave profit permanently short by the
 // refund's negative stamp, since nothing would ever net it back.
+// Hold Money (owner decision 2026-10-07): the pickup's kept change and its
+// void's exact negation — appended from the ONE list
+// (HOLD_MONEY_PROFIT_TYPES_SQL, rule 14). getByUser/getByClient give these
+// rows 0 revenue (the payout is the customer's own money going back, never
+// takings) — see their `holdMoneyProfitSource` revenue arms.
 const PROFIT_TXN_TYPES =
-  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'REFUND_UNDO', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP'";
+  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'REFUND_UNDO', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP', " +
+  HOLD_MONEY_PROFIT_TYPES_SQL;
 
 /**
  * LCC-X1/X2 (Round 3 adversarial review, rule 14) — a REFUND row belongs in
@@ -3825,6 +3877,38 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         getCurrentTenantId(),
         getCurrentTenantId(),
       ) as TopupBuybackProfitRow;
+  }
+
+  /**
+   * Hold Money pickup kept change (owner decision 2026-10-07) — the shop
+   * hands out a round figure and keeps the leftover, stamped as
+   * `profit_usd`/`profit_lbp` on the HOLD_MONEY_COLLECT row; a voided pickup
+   * writes a HOLD_MONEY_COLLECT_VOID row with the exact negation and leaves
+   * the pickup ACTIVE, so this sum nets a void to 0 per currency (rule 20).
+   * Profit-only, same shape as {@link getTopupBuybackProfit}: the pickup's
+   * `amount_usd` is the customer's own money handed back, never revenue.
+   * Gated by {@link notDebtPending} like every other PROFIT_TXN_TYPES row
+   * (so this total and By Cashier/By Client agree by construction); a pickup
+   * is paid out of a drawer and never charged to a customer account, so the
+   * gate always passes today. Dated by the row's own
+   * `created_at`, so a void lands on the day it was done (the day close sees
+   * the reversal on the day the drawer was re-credited).
+   */
+  getHoldMoneyProfit(fromDt: string, toDt: string): TopupBuybackProfitRow {
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
+          COALESCE(SUM(CASE WHEN ${holdMoneyCountEligible("t")} THEN 1 ELSE 0 END), 0) AS count
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${holdMoneyProfitSource("t")}
+          AND ${notDebtPending("t.id")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, getCurrentTenantId()) as TopupBuybackProfitRow;
   }
 
   /**
@@ -5964,6 +6048,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     params.push(fromDt, toDt, tenantId); // daily_discounts
     params.push(fromDt, toDt, tenantId); // daily_bills_commission
     params.push(fromDt, toDt, tenantId, tenantId); // daily_topup_buyback (r, t)
+    params.push(fromDt, toDt, tenantId); // daily_hold_money (t)
 
     return this.db
       .prepare(
@@ -6267,6 +6352,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${dateRange("r.created_at")}
             AND r.tenant_id = ? AND t.tenant_id = ?
           GROUP BY ${localDayExpr("r.created_at")}
+        ),
+        daily_hold_money AS (
+          -- Hold Money pickup kept change (+ its void's exact negation) —
+          -- the SAME fragment getHoldMoneyProfit uses (rule 14).
+          SELECT
+            ${localDayExpr("t.created_at")} AS d,
+            COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+            COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+          FROM transactions t
+          WHERE t.status = 'ACTIVE'
+            AND ${holdMoneyProfitSource("t")}
+            AND ${notDebtPending("t.id")}
+            AND ${dateRange("t.created_at")}
+            AND t.tenant_id = ?
+          GROUP BY ${localDayExpr("t.created_at")}
         )
         SELECT
           dates.d AS date,
@@ -6274,17 +6374,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(dc.revenue_lbp, 0) + COALESCE(dr.revenue_lbp, 0) + COALESCE(dcm.revenue_lbp, 0) + COALESCE(dm.revenue_lbp, 0) + COALESCE(dl.revenue_lbp, 0) AS revenue_lbp,
           COALESCE(ds.cost_usd, 0) + COALESCE(dr.cost_usd, 0) + COALESCE(dcm.cost_usd, 0) + COALESCE(dm.cost_usd, 0) + COALESCE(dex.revenue_usd, 0) - COALESCE(dex.profit_usd, 0) AS cost_usd,
           COALESCE(dr.cost_lbp, 0) + COALESCE(dcm.cost_lbp, 0) + COALESCE(dm.cost_lbp, 0) AS cost_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dl.profit_usd, 0) AS profit_usd,
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(dl.profit_usd, 0) AS profit_usd,
           -- PA-3.1: dsp.profit_lbp (a sale's LBP kept change) was missing
           -- from this column entirely. PA-2.2: dkc/ddisc/dbc/dtb are the
           -- four new sources above. LO-V1 (round 2): dl.profit_usd is loto's
           -- USD-side kept change (dc/dr already fold their own off-currency
           -- kept change unconditionally now — see each CTE's own comment).
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) AS profit_lbp,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) AS profit_lbp,
           COALESCE(de.expenses_usd, 0) AS expenses_usd,
           COALESCE(de.expenses_lbp, 0) AS expenses_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dl.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(dl.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
         FROM dates
         LEFT JOIN daily_sales ds ON ds.d = dates.d
         LEFT JOIN daily_sales_profit dsp ON dsp.d = dates.d
@@ -6300,6 +6400,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN daily_discounts ddisc ON ddisc.d = dates.d
         LEFT JOIN daily_bills_commission dbc ON dbc.d = dates.d
         LEFT JOIN daily_topup_buyback dtb ON dtb.d = dates.d
+        LEFT JOIN daily_hold_money dhm ON dhm.d = dates.d
         ORDER BY dates.d DESC`,
       )
       .all(...params) as ProfitByDateRow[];
@@ -7482,6 +7583,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- payout. Its profit contribution is unaffected — that lives in
             -- the profit_usd/profit_lbp CASE below, untouched by this fix.
             WHEN t.source_table = 'supplier_ledger' THEN 0
+            -- Hold Money: a pickup's amount is the customer's own money
+            -- handed back, never takings — profit-only (kept change).
+            WHEN ${holdMoneyProfitSource("t")} THEN 0
             ELSE t.amount_usd * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_usd,
           -- PA-1.2/PA-1.7: revenue_lbp rebuilt as revenue_usd's structural
@@ -7503,6 +7607,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN 0
             -- LCC-V4: see the revenue_usd CASE above — identical branch.
             WHEN t.source_table = 'supplier_ledger' THEN 0
+            -- Hold Money: a pickup's amount is the customer's own money
+            -- handed back, never takings — profit-only (kept change).
+            WHEN ${holdMoneyProfitSource("t")} THEN 0
             ELSE t.amount_lbp * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_lbp,
           SUM(CASE
@@ -7609,6 +7716,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- report instead of guessed at.
           SUM(CASE
             WHEN t.type IN ('REFUND', 'SUPPLIER_SETTLEMENT') THEN 0
+            -- Hold Money: only a live pickup that kept change is an event.
+            WHEN ${holdMoneyProfitSource("t")} THEN (CASE WHEN ${holdMoneyCountEligible("t")} THEN 1 ELSE 0 END)
             WHEN NOT ${notDebtPending("t.id")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN 1 ELSE 0 END
@@ -8156,6 +8265,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             )
             -- LCC-V4 (Round 2): see getByUser's identical revenue_usd branch.
             WHEN t.source_table = 'supplier_ledger' THEN 0
+            -- Hold Money: a pickup's amount is the customer's own money
+            -- handed back, never takings — profit-only (kept change).
+            WHEN ${holdMoneyProfitSource("t")} THEN 0
             ELSE t.amount_usd * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_usd,
           -- PA-1.2/PA-1.7: revenue_lbp rebuilt as revenue_usd's exact
@@ -8177,6 +8289,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN 0
             -- LCC-V4: see the revenue_usd CASE above — identical branch.
             WHEN t.source_table = 'supplier_ledger' THEN 0
+            -- Hold Money: a pickup's amount is the customer's own money
+            -- handed back, never takings — profit-only (kept change).
+            WHEN ${holdMoneyProfitSource("t")} THEN 0
             ELSE t.amount_lbp * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_lbp,
           SUM(CASE
@@ -8257,6 +8372,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- for the full rationale — identical shape here.
           SUM(CASE
             WHEN t.type IN ('REFUND', 'SUPPLIER_SETTLEMENT') THEN 0
+            -- Hold Money: only a live pickup that kept change is an event.
+            WHEN ${holdMoneyProfitSource("t")} THEN (CASE WHEN ${holdMoneyCountEligible("t")} THEN 1 ELSE 0 END)
             WHEN NOT ${notDebtPending("t.id")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN 1 ELSE 0 END

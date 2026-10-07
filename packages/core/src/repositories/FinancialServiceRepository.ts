@@ -56,7 +56,10 @@ import {
   assertNoCustomerAccountLeg,
   postPayoutLegs,
   resolveStampedExchangeRate,
+  type KeptChange,
+  type ReconciliationLeg,
 } from "./moneyPosting.js";
+import { resolveKeptChange } from "./keptChange.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
@@ -2609,6 +2612,101 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.payments = inPayments;
       }
 
+      // ── RECEIVE is a payout (owner decisions 2026-10-07, FEATURE_GUIDE
+      // §4.1 "Kept change") ─────────────────────────────────────────────────
+      // The shop hands the customer money, so there is no change to hand
+      // back: an OUT leg on a RECEIVE used to be debited by
+      // processReturnLegs as "Change returned" — money leaving the drawer a
+      // second time with nothing owed for it. Refused outright (POSTING_MAP
+      // G43). A FOR-partner RECEIVE keeps its own, earlier refusal below; a
+      // session basket item carries no legs at all. A cost/price catalog
+      // checkout (`useCostPriceFlow`) is a customer PAYMENT whatever its
+      // service type — its change legs and customer kept change are handled
+      // by that flow's own reconcile, so it is out of scope here.
+      const isReceivePayout =
+        data.serviceType === "RECEIVE" && !useCostPriceFlow;
+      if (
+        isReceivePayout &&
+        !isForPartner &&
+        !deferPayment &&
+        returnLegs.length > 0
+      ) {
+        throw new Error(
+          `${data.provider} RECEIVE: a payout cannot carry change (OUT) legs — enter only what is handed to the customer`,
+        );
+      }
+      // Payout kept change: the shop hands out a round figure a little SHORT
+      // of what it owes and keeps the leftover as profit. The client's claim
+      // is stamped into profit_usd/profit_lbp above (one stamp, so the
+      // generic void/refund negates it, rule 20); this block guarantees it is
+      // never booked unchecked:
+      //   - refused up front where no payout branch can honour it (the full
+      //     amount would still be paid or credited, so the "kept" profit
+      //     would be invented);
+      //   - verified by `resolveKeptChange` (cap, payout currency, tamper,
+      //     partner) inside the two branches that pay out per leg — the
+      //     system CASH cashout and the wallet (Binance / OMT App / Whish
+      //     App) cashout — which then post legs worth owed − kept;
+      //   - and, fail-closed, refused at the end of the transaction if no
+      //     branch verified it (a branch added later inherits the refusal).
+      const receiveKeptClaim: { usd: number; lbp: number } = {
+        usd: isReceivePayout ? (data.kept_change_usd ?? 0) : 0,
+        lbp: isReceivePayout ? (data.kept_change_lbp ?? 0) : 0,
+      };
+      const receiveKeptClaimed =
+        receiveKeptClaim.usd > 0 || receiveKeptClaim.lbp > 0;
+      let receiveKeptVerified = false;
+      if (receiveKeptClaimed) {
+        const receiveCashout = data.cashoutMethod || "CASH";
+        const isSystemReceive =
+          data.provider === "OMT" || data.provider === "WHISH";
+        const isWalletReceive =
+          data.provider === "BINANCE" ||
+          data.provider === "OMT_APP" ||
+          data.provider === "WHISH_APP";
+        if (isForPartner) {
+          throw new Error(
+            `${data.provider} RECEIVE: a partner transaction cannot keep change — the exact amount is required`,
+          );
+        }
+        const refusal = deferPayment
+          ? "a customer-session item is paid out at the session checkout"
+          : !isSystemReceive && !isWalletReceive
+            ? "this provider has no cash payout to keep it from"
+            : receiveCashout === "CUSTOMER_ACCOUNT"
+              ? "the payout is credited to the customer's account in full"
+              : isSystemReceive && receiveCashout !== "CASH"
+                ? "a wallet payout is sent in full"
+                : null;
+        if (refusal) {
+          throw new Error(
+            `${data.provider} RECEIVE: keeping change is not available here — ${refusal}. Hand out the exact amount.`,
+          );
+        }
+      }
+      const resolveReceiveKept = (
+        owed: number,
+        owedCurrency: string,
+        legs: ReconciliationLeg[] | undefined,
+        context: string,
+      ): KeptChange => {
+        const r = resolveKeptChange({
+          payer: "payout",
+          owed,
+          owedCurrency,
+          payoutLegs: legs,
+          claimedKept: receiveKeptClaim,
+          isForPartner,
+          exchangeRate: stampedExchangeRate,
+          ...(data.tender_exchange_rate !== undefined
+            ? { tenderExchangeRate: data.tender_exchange_rate }
+            : {}),
+          context,
+        });
+        receiveKeptVerified = true;
+        return { usd: r.keptUsd, lbp: r.keptLbp };
+      };
+
       // Shared OUT-leg processor — the ONE loop that debits drawer-affecting
       // OUT legs (rule 16: no flow-specific branch may iterate them again).
       // Legacy path: change handed back to the customer. FOR-partner path:
@@ -3582,13 +3680,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 // legs count toward the payout total but route to store
                 // credit, not a drawer — mirroring the SEND leg loop above.
                 const payoutLegs = data.payments ?? [];
-                reconcileLegs({
-                  inLegs: payoutLegs,
-                  expectedTotals: expectedTotalIn(payoutAmount, cashCurrency),
-                  exchangeRate: stampedExchangeRate,
-                  tenderExchangeRate: data.tender_exchange_rate,
-                  context: `${data.provider} RECEIVE cashout`,
-                });
+                if (receiveKeptClaimed) {
+                  // Payout kept change: the legs must cover owed − kept
+                  // (resolveKeptChange runs the same S2 reconcile against
+                  // the reduced target, plus the cap/currency/tamper checks).
+                  resolveReceiveKept(
+                    payoutAmount,
+                    cashCurrency,
+                    payoutLegs,
+                    `${data.provider} RECEIVE cashout`,
+                  );
+                } else {
+                  reconcileLegs({
+                    inLegs: payoutLegs,
+                    expectedTotals: expectedTotalIn(payoutAmount, cashCurrency),
+                    exchangeRate: stampedExchangeRate,
+                    tenderExchangeRate: data.tender_exchange_rate,
+                    context: `${data.provider} RECEIVE cashout`,
+                  });
+                }
                 if (payoutLegs.length > 0) {
                   const providerLabel =
                     data.provider === "BINANCE" ? "Binance" : data.provider;
@@ -4310,6 +4420,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               // CASH+CUSTOMER_ACCOUNT payout reconciled successfully yet the
               // account was never credited AND the "no legs" fallback then
               // paid the full amount a second time in cash.
+              // Payout kept change (owner decision 2026-10-07): verified
+              // here, then the legs reconcile against owed − kept.
+              const receiveKept = receiveKeptClaimed
+                ? resolveReceiveKept(
+                    payoutAmount,
+                    currency,
+                    data.payments,
+                    `${data.provider} RECEIVE cashout`,
+                  )
+                : undefined;
               postPayoutLegs({
                 db: this.db,
                 legs: data.payments,
@@ -4317,6 +4437,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 currency,
                 exchangeRate: stampedExchangeRate,
                 tenderExchangeRate: data.tender_exchange_rate,
+                ...(receiveKept ? { keptChange: receiveKept } : {}),
                 context: `${data.provider} RECEIVE cashout`,
                 txnId,
                 tenantId,
@@ -4588,6 +4709,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // shared OUT-leg processor, also used by the FOR-partner dispatch).
       processReturnLegs();
 
+      // Fail-closed (see the RECEIVE payout block near partitionLegs): a
+      // claimed payout kept change that no payout branch verified was never
+      // actually withheld from the customer — refuse rather than book it.
+      if (receiveKeptClaimed && !receiveKeptVerified) {
+        throw new Error(
+          `${data.provider} RECEIVE: keeping change is not available for this payout — hand out the exact amount.`,
+        );
+      }
+
       return { id, drawer: legacyDrawerLabel };
     })();
   }
@@ -4639,7 +4769,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Spec §5.2 is silent on supplier-ledger booking for the cost leg (unlike
    * the normal cost/price sale flow, which auto-records a prepaid-units
    * supplier debit) — none is booked here, matching the literal §5.2 leg
-   * table verbatim. Flagged for owner confirmation, not decided unilaterally.
+   * table verbatim. Owner confirmed 2026-10-07: correct — the shop already
+   * owes the supplier from when the wallet was loaded, so booking it again
+   * would double the debt.
    */
   selfChargeTelecomItem(
     data: SelfChargeTelecomItemData,

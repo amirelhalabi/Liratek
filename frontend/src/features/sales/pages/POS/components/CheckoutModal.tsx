@@ -54,10 +54,11 @@ export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
 
 interface CheckoutModalProps {
   items?: CartItem[];
-  /** T3 keep-change opt-in: only flows whose backend accepts kept_change_*
-   *  (POS sales) may show the button — on others (Maintenance shares this
-   *  modal) the fields would be stripped at validation and the change
-   *  silently neither returned nor stamped. Default false. */
+  /** T3 keep-change opt-in: only flows whose backend accepts and checks
+   *  kept_change_* (POS sales and Maintenance checkout, both via
+   *  resolveKeptChange) may wire it — on others the fields would be
+   *  stripped at validation and the change silently neither returned nor
+   *  stamped. Default false. */
   allowKeepChange?: boolean;
   /** PFT-2b "For Partner" opt-in: only flows whose backend accepts
    *  partnerId/partnerMode (POS sales) may show the toggle — on others
@@ -187,8 +188,10 @@ export default function CheckoutModal({
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLines, setReturnLines] = useState<PaymentLine[]>([]);
   // T3 keep-change: per-currency change the operator chose to KEEP as profit
-  // (null = returning change normally). While set, returnLines is [] — the
-  // drawer keeps the full tender and the repo stamps these onto profit.
+  // (null = returning change normally). Keeping is partial: returnLines
+  // still holds whatever cash IS handed back (sent as change_given_*), and
+  // the server checks IN − change − kept = total before stamping the kept
+  // amount onto profit (resolveKeptChange, POSTING_MAP G42).
   const [keptChange, setKeptChange] = useState<{
     usd: number;
     lbp: number;
@@ -513,9 +516,12 @@ export default function CheckoutModal({
       payments: forPartner ? [] : toSnakeLegs(paymentLines),
       change_given_usd: forPartner ? 0 : cashReturnUSD,
       change_given_lbp: forPartner ? 0 : cashReturnLBP,
-      // T3 keep-change: when the operator keeps the change, no OUT legs (and
-      // change_given_* is 0 above); these amounts join the profit stamp.
-      // Never applicable in partner mode (no counter cash to keep).
+      // T3 keep-change: what the cashier did NOT hand back. A partial keep
+      // sends BOTH — the cash returned as change_given_* above and the rest
+      // here. The server checks IN − change − kept = total
+      // (resolveKeptChange, payer = customer) and stamps only the checked
+      // amount onto profit. Never applicable in partner mode (no counter
+      // cash to keep).
       ...(keptChange && !forPartner
         ? {
             kept_change_usd: keptChange.usd,
@@ -1093,6 +1099,9 @@ export default function CheckoutModal({
                       : {})}
                     onChange={setPaymentLines}
                     onReturnChange={setReturnLines}
+                    // The customer pays the shop: kept change is shop
+                    // profit (docs/FEATURE_GUIDE.md §4.1).
+                    payer="customer"
                     {...(allowKeepChange
                       ? { onKeptChange: setKeptChange }
                       : {})}

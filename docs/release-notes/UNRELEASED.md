@@ -49,6 +49,8 @@
 - Voiding an OMT or Whish transfer paid from a wallet with a card/wallet fee now puts the wallet
   back exactly as it was.
 - Suppliers page: a voided transfer now shows as "Voided" in the supplier's transaction history (it used to say "Unpaid"), and it no longer counts toward the unpaid number or the Outstanding total.
+- Services page, OMT/Whish receive: you can now hand out a round amount a little under what's owed (less than $1 or 100,000 LBP) and the shop keeps the difference as profit. The receive payment screen no longer asks for change. From now on.
+- From now on, voiding or refunding a supplier payment also removes the discount you entered with it, so the supplier's balance and your profit go back to exactly where they were. Payments recorded before this update keep their discount after a void.
 
 ## 🏠 Dashboard
 
@@ -65,6 +67,7 @@
 ## 🧾 Transactions
 
 - Refunding a currency exchange now works: the refund simply swaps the money back.
+- When refunding a sale or a debt payment in cash, you can now hand back a round amount: a leftover under $1 (or 100,000 LBP) in the refund's currency is kept as shop profit — for example, refund $20.12, hand back $20. Works on the Transactions page, POS "Refund Sale" and customer-session item refunds.
 
 ## 🔧 Maintenance
 
@@ -74,8 +77,10 @@
 - A walk-in customer's name now shows on the repair's line in Transactions, even with no phone number.
 - From now on, the repair receipt prints the customer's name and phone number.
 - More phone number formats are now accepted on repair jobs, such as "961 70 123 456" or "(03) 123456".
-- An amber warning shows when a part's price is changed from its saved price.
+- An amber warning shows when a part's price is changed from its saved price — also for parts on a saved job.
 - Maintenance: the phone you type is always saved — a job is linked to the client with that phone, or a new client is created, or the phone is kept on the job when no name is entered; picking a client from the search fills in their phone.
+- From now on, change kept at a repair checkout is checked against what the customer actually paid; a checkout where it doesn't add up is refused instead of being booked as profit.
+- A repair paid inside a customer session no longer adds kept change to the repair's profit — the session checkout records it once.
 
 ## 📊 Profits page
 
@@ -92,6 +97,7 @@
   and the lines stay equal. From now on only.
 - iPick, Katsh and Whish App: the touch and Alfa prepaid card tiles now show a picture of the card,
   so you can spot the right one at a glance.
+- Binance cash-outs, OMT App / Whish App receives, MTC/Alfa credit buy-backs and Whish App credit bought from a client: you can hand out a round amount a little under what's owed (less than $1 or 100,000 LBP) and the difference is shop profit. Payouts to a customer's account, from a wallet, for a partner or inside a customer session still need the exact amount.
 
 ## 🎟️ Loto
 
@@ -121,6 +127,19 @@
 - Debts: on a debt repayment, change you don't hand back is now kept as shop profit (the form says so) instead of being counted as extra payment off the customer's debt.
 - Payment form: change you hand back in the other currency (for example LBP change from a dollar payment) while keeping the rest is now recorded as leaving the drawer — before, it was left out. From now on only.
 - Prices: an amber warning now shows when you change a price away from its saved price — on MTC/Alfa credit, the Katsh/iPick "Only Days" days and credit prices, and Services presets and items — showing the saved price next to the new one. It is only a warning: the sale still goes through.
+- POS and customer sessions: from now on, change you keep at checkout is checked against what the customer actually paid; a checkout claiming more kept change than was overpaid is refused instead of being booked as profit.
+- Custom services: from now on, a payment that doesn't add up to the price is refused, and kept change is checked against the real change due. In a customer session, kept change is counted once, at checkout.
+- Desktop app: custom services paid in another currency now save the exchange rate used in the payment window.
+- Payment form: change can be kept as profit only from cash or wallet payments. If the customer paid by account or gift card, hand the change back in full.
+- Payment error messages now start with a plain explanation of what's wrong (for example, "The payment doesn't add up to the total.").
+- POS: when you refund a single item in cash, you can now keep a small leftover (under $1 or 100,000 LBP) as shop profit, the same as when refunding a whole sale. Undoing that item refund removes it again.
+
+## 💳 Debts
+
+- Cashing out a client's credit: if you hand out slightly less than the credit (under $1 or 100,000 LBP), the credit now clears to zero and the difference counts as shop profit on the Profits page.
+- Cashing out a credit now checks that the cash you hand out matches what comes off the client's credit, and only allows cash or wallet methods (not the client's account or a gift card).
+- Repayments where you keep the extra change: from now on the kept amount is checked against what the customer actually paid, and it no longer counts as paying off the client's other items.
+- Hold Money: when you hand back a held amount as a round figure (for example $50 of $50.12), the small leftover (under $1 or 100,000 LBP, same currency) is kept as shop profit and the hold is fully closed. It shows on the Profits page (its own Hold Money card and a By Module row) and in the day close; voiding the pickup takes it back out.
 
 ## 🌐 Web app
 
@@ -133,3 +152,4 @@
 
 - Expenses: search and pick any inventory item or Katsh / iPick / Whish App product to record using it for the shop — it comes out of stock at its cost, no cash moves.
 - Desktop app: an expense entered with an earlier date and time now keeps that time (it was saved as "now").
+- Recording an expense now has a separate Bill amount. If you hand the vendor more than the bill, enter the change you got back — it goes back into your drawer, and any change the vendor kept is added to the expense. From now on.

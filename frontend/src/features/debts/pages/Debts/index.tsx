@@ -85,7 +85,7 @@ export default function Debts() {
   // CQ-10: standalone write-off is admin-only (D4) — bundled repayment
   // discounts stay admin+staff, same as the flow they're attached to.
   const isAdmin = user?.role === "admin";
-  const { allMethods: methods } = usePaymentMethods();
+  const { allMethods: methods, drawerAffectingMethods } = usePaymentMethods();
   // Debt repayment converts LBP↔USD at the BUY rate (owner decision
   // 2026-07-06): payments/repayments use buyRate across every
   // MultiPaymentInput, consistent with TelecomForm / SessionCheckout / Loto.
@@ -595,7 +595,9 @@ export default function Debts() {
       .filter((l) => l.currencyCode === "LBP")
       .reduce((s, l) => s + l.amount, 0);
 
-    // Map frontend PaymentLine[] → backend leg format (include OUT return leg if present)
+    // Map frontend PaymentLine[] → backend leg format (include OUT return leg
+    // if present — repayment only; a cash-out is a payout and never carries
+    // change legs, see the cash-out branch below).
     const paymentLegs = toCamelLegs(validLines, repayReturnLegs);
 
     // CASH OUT (opened via the panel's Cash Out button): the shop pays the
@@ -631,6 +633,14 @@ export default function Debts() {
         );
         return;
       }
+      // Kept change (payer "payout", owner decision 2026-10-07): the sheet
+      // reports a small shortfall (e.g. $101 handed out of a $101.12
+      // credit) only for a single-currency credit. The credit then clears
+      // IN FULL — the shortfall is shop profit, not credit left behind — and
+      // the server checks lines = credit − kept (resolveKeptChange).
+      const cashOutKeptUsd = repayKeptChange?.usd ?? 0;
+      const cashOutKeptLbp = repayKeptChange?.lbp ?? 0;
+      const hasCashOutKept = cashOutKeptUsd > 0 || cashOutKeptLbp > 0;
       let outUsd = Math.min(paidUSD, creditUsd);
       let outLbp = Math.min(paidLBP, creditLbp);
       const leftUsd = paidUSD - outUsd;
@@ -641,15 +651,27 @@ export default function Debts() {
       if (leftLbp > 0) {
         outUsd = Math.min(creditUsd, outUsd + leftLbp / cashOutRate);
       }
+      if (hasCashOutKept) {
+        outUsd = creditUsd;
+        outLbp = creditLbp;
+      }
       try {
+        // ONE payload (rule 22). Payout lines only — a payout never carries
+        // OUT legs (the server refuses them), so the return-leg state is
+        // not read here. The rate is ALWAYS sent: the server reconciles the
+        // lines at it, and without it a cross-currency cash-out converted at
+        // the sheet's buy rate would be checked at the sell rate.
         const result = await api.cashOut({
           clientId: selectedClient.id,
           amountUSD: outUsd,
           amountLBP: outLbp,
-          payments: paymentLegs,
+          payments: toCamelLegs(validLines, []),
           note: repayNote,
-          ...(repayModalRate != null
-            ? { tender_exchange_rate: repayModalRate }
+          ...(Number.isFinite(cashOutRate) && cashOutRate > 0
+            ? { tender_exchange_rate: cashOutRate }
+            : {}),
+          ...(hasCashOutKept
+            ? { keptChangeUSD: cashOutKeptUsd, keptChangeLBP: cashOutKeptLbp }
             : {}),
           ...(repayTransactionTime
             ? { transaction_time: repayTransactionTime }
@@ -784,8 +806,12 @@ export default function Debts() {
         amountLBP: reduceLbp,
         payments: paymentLegs,
         note: repayNote,
-        ...(repayModalRate != null
-          ? { tender_exchange_rate: repayModalRate }
+        // Always sent (not only after an edit): with kept change the server
+        // reconciles the lines at this rate, and the reduction above was
+        // computed at it (buy side) — the sell-rate fallback would falsely
+        // refuse a cross-currency repayment.
+        ...(Number.isFinite(conversionRate) && conversionRate > 0
+          ? { tender_exchange_rate: conversionRate }
           : {}),
         ...keptFields,
         ...discountFields,
@@ -2142,8 +2168,19 @@ export default function Debts() {
                   : []),
               ],
               currency: "USD",
+              // Who pays (FEATURE_GUIDE §4.1): a repayment is the customer
+              // paying the shop; a cash-out is the shop paying the client —
+              // no change/return block, only a small kept shortfall. The
+              // cash-out sheet owes in the credit's own currency when it is
+              // LBP-only, so a kept shortfall is reported in LBP.
+              payer: repayMode === "cashout" ? "payout" : "customer",
+              ...(repayMode === "cashout" && creditUsd <= 0 && creditLbp > 0
+                ? { totalAmountCurrency: "LBP" }
+                : {}),
               onChange: setRepayPaymentLines,
-              onReturnChange: setRepayReturnLegs,
+              ...(repayMode === "repay"
+                ? { onReturnChange: setRepayReturnLegs }
+                : {}),
               showPmFee: false,
               // CQ-10: MultiPaymentInput's built-in discount is a single
               // scalar normalized to ONE target currency — it doesn't map
@@ -2151,17 +2188,22 @@ export default function Debts() {
               // "Discount / forgive" row (discountSlot below) replaces it
               // (repay mode only).
               showDiscount: false,
-              paymentMethods: methods,
+              // A cash-out must take money out of a drawer — account/gift
+              // card lines are refused by the server.
+              paymentMethods:
+                repayMode === "cashout" ? drawerAffectingMethods : methods,
               currencies: [
                 { code: "USD", symbol: "$" },
                 { code: "LBP", symbol: "LBP" },
               ],
               exchangeRate: EXCHANGE_RATE,
               onExchangeRateChange: setRepayModalRate,
-              // T3 keep-change — REPAY mode only: keeping "change" on a
-              // cash-out (shop pays the client) has no defined booking
-              // semantics, so the button stays hidden there (opt-in).
-              ...(repayMode === "repay"
+              // Kept change: repay mode keeps an overpay as profit; cash-out
+              // keeps a small payout shortfall as profit (owner decision
+              // 2026-10-07) — single-currency credits only, since the server
+              // owes a payout in ONE currency and refuses kept on a mixed
+              // USD + LBP credit.
+              ...(repayMode === "repay" || creditUsd > 0 !== creditLbp > 0
                 ? { onKeptChange: setRepayKeptChange }
                 : {}),
             }}

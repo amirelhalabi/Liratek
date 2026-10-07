@@ -1452,6 +1452,7 @@ describe("LIRA-219 — ClosingService.getDailyStatsSnapshot profit parity", () =
       kept_change: {},
       supplier_commission: {},
       topups_buybacks: {},
+      hold_money: {},
       expenses: { total_usd: 12.34, total_lbp: 56789, count: 3 },
       totals: {
         gross_revenue_usd: 0,

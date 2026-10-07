@@ -88,6 +88,26 @@ describe("Hold Money REST routes (LIRA-214)", () => {
     );
   });
 
+  it("POST /:id/collect keeps the kept-change claim through validation (web parity with IPC)", async () => {
+    const spy = jest
+      .spyOn(service, "collectHold")
+      .mockReturnValue({ success: true, id: 89 });
+
+    const res = await request(app)
+      .post("/api/hold-money/5/collect")
+      .set("x-test-role", "staff")
+      .send({
+        payments: [{ method: "CASH", currency_code: "USD", amount: 50 }],
+        kept_change_usd: 0.12,
+      });
+
+    expect(res.body).toEqual({ success: true, id: 89 });
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 5, kept_change_usd: 0.12 }),
+      42,
+    );
+  });
+
   it("POST /:id/collect rejects a malformed body without calling the service", async () => {
     const spy = jest.spyOn(service, "collectHold");
 

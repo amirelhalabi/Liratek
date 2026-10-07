@@ -623,4 +623,35 @@ describe("MaintenanceRepository — parts lifecycle (LIRA-176 phase 8a)", () => 
     expect(jobAfterReprice?.parts_cost_usd).toBeCloseTo(5, 6);
     expect(partsOf(db, jobId)[0].unit_cost_usd).toBeCloseTo(5, 6);
   });
+  // ---------------------------------------------------------------------
+  // 10. LIRA-260 follow-up — the jobs read carries each part's CURRENT
+  //     product price as `catalog_price_usd` so a reopened job can warn
+  //     when the saved part price differs from it.
+  // ---------------------------------------------------------------------
+  it("10. getJobs returns each part's current product selling price as catalog_price_usd (null when the product is gone)", () => {
+    const productA = seedProduct(db, { name: "Screen", costUsd: 5, stock: 10 });
+    const productB = seedProduct(db, { name: "Battery", costUsd: 3, stock: 5 });
+    const jobId = repo.createJob({
+      device_name: "iPhone 13",
+      status: "Received",
+    });
+    repo.syncParts(jobId, [
+      { product_id: productA, quantity: 1, unit_price_usd: 10 },
+      { product_id: productB, quantity: 1, unit_price_usd: 6 },
+    ]);
+
+    db.prepare(`UPDATE products SET selling_price_usd = 12 WHERE id = ?`).run(
+      productA,
+    );
+    db.prepare(`DELETE FROM products WHERE id = ?`).run(productB);
+
+    const job = service.getJobs().find((j) => j.id === jobId);
+    const parts = job?.parts ?? [];
+    const a = parts.find((p) => p.product_id === productA);
+    const b = parts.find((p) => p.product_id === productB);
+    expect(a?.unit_price_usd).toBeCloseTo(10, 6);
+    expect(a?.catalog_price_usd).toBeCloseTo(12, 6);
+    expect(b?.unit_price_usd).toBeCloseTo(6, 6);
+    expect(b?.catalog_price_usd).toBeNull();
+  });
 });

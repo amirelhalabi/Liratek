@@ -398,10 +398,14 @@ describe("CustomServiceRepository.createService() — payout (OWNER_NOTES_REMAIN
     expect(result.error).toMatch(/only valid for a Via-Partner/);
   });
 
-  it("ignores kept_change on a payout — no tender to make change from (I5)", () => {
+  // Was "ignores kept_change on a payout (I5)": a stale kept_change was
+  // silently dropped. POSTING_MAP G42 (owner decisions 2026-10-07) makes the
+  // server refuse it instead — the page never sends kept on a payout, so a
+  // payload carrying it is hand-built, and nothing may be written.
+  it("refuses kept_change on a payout — no tender to make change from (G42)", () => {
     const partnerId = seedPartner(db);
 
-    repo.createService(
+    const result = repo.createService(
       {
         description: "Payout with stale kept_change",
         price_usd: 100,
@@ -414,12 +418,12 @@ describe("CustomServiceRepository.createService() — payout (OWNER_NOTES_REMAIN
       1,
     );
 
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/payout cannot keep change/);
     const txn = db
       .prepare("SELECT * FROM transactions WHERE type = 'CUSTOM_SERVICE'")
-      .get() as any;
-    // Commission stays exactly price - cost ($3) — the stale $5 kept_change
-    // must not inflate it to $8.
-    expect(txn.profit_usd).toBeCloseTo(3, 2);
+      .get();
+    expect(txn).toBeUndefined();
   });
 
   it("passes transaction_time through as the partner ledger row's created_at (I5)", () => {

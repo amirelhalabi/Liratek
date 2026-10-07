@@ -76,7 +76,7 @@ describe("PartPicker — price change warning (LIRA-260)", () => {
     expect(warning).toHaveTextContent("$55.00");
   });
 
-  it("a line loaded from a saved job (no catalog price known) shows no warning", () => {
+  it("a line with no catalog price (product gone) shows no warning", () => {
     render(
       <Harness
         initial={[

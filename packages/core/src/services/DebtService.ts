@@ -394,6 +394,10 @@ export class DebtService {
     /** See `RepaymentData.tender_exchange_rate`'s doc — threaded straight
      *  through to the repository. */
     tender_exchange_rate?: number;
+    /** Kept change claim (payer "payout") — threaded straight through; the
+     *  repository verifies it (resolveKeptChange). */
+    keptChangeUSD?: number;
+    keptChangeLBP?: number;
   }): RepaymentResult {
     const { clientId, amountUSD, amountLBP } = data;
 
@@ -440,6 +444,8 @@ export class DebtService {
         created_by: data.userId,
         transaction_time: data.transaction_time,
         tender_exchange_rate: data.tender_exchange_rate,
+        kept_change_usd: data.keptChangeUSD,
+        kept_change_lbp: data.keptChangeLBP,
       });
 
       debtLogger.info(

@@ -53,6 +53,10 @@ import {
   // LIRA-236 — the cashier-typed exchange rate, shared (rule 14) with every
   // other refund payload schema.
   refundExchangeRateSchema,
+  // Owner decision 2026-10-07 — refund kept change (transactions:refund's
+  // fifth positional argument), shared with the REST route (rule 14).
+  refundKeptChangeSchema,
+  type RefundKeptChangeInput,
   carrierLineCreateSchema,
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
@@ -452,6 +456,23 @@ export const AddExpenseSchema = z.object({
   // manual expense's time on desktop (rule 23). Same literal-mirror pattern
   // as FinancialServiceSchema's transaction_time (LIRA-165).
   transaction_time: z.string().datetime().optional(),
+  // Owner decision 2026-10-07 (payer = "shop") — literal mirror of core's
+  // createExpenseSchema keys (rule 23: without them Zod strips the cash
+  // lines and the vendor's change back on desktop, silently). The amounts
+  // above are the BILL; the server derives the stored cost from these lines.
+  payments: z
+    .array(
+      z.object({
+        method: z.string().min(1),
+        currencyCode: z.string().min(1),
+        amount: z.number().positive(),
+        direction: z.enum(["IN", "OUT"]).optional(),
+      }),
+    )
+    .optional(),
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
+  tender_exchange_rate: z.number().positive().optional(),
 });
 
 // LIRA-262 — core's schema, cast across the zod-major mismatch (core: zod 4,
@@ -991,6 +1012,13 @@ export const RefundUnitExtrasSchema =
 export const RefundExchangeRateSchema =
   refundExchangeRateSchema as unknown as z.ZodSchema<number | undefined>;
 
+// Owner decision 2026-10-07 — refund kept change, riding alongside
+// `refundLegs` on the SAME `transactions:refund` call (fifth positional
+// argument). Shared with the REST route's `keptChange` body key, rule 14.
+// Validated only when present; the repository checks the claim itself.
+export const RefundKeptChangeSchema =
+  refundKeptChangeSchema as unknown as z.ZodSchema<RefundKeptChangeInput>;
+
 // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — refund ONE (or, with
 // saleItemId omitted on a SALE member, every remaining) line of a
 // customer-session basket item. Shared with the REST route the same way —
@@ -1092,6 +1120,10 @@ export const CustomServiceCreateSchema = z
   // desktop path silently strips them.
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
+  // POSTING_MAP G42 — LOCAL duplicate of the core field (same rule-14 trap):
+  // the rate the payment sheet converted at. Without it desktop reconciled
+  // the payment lines at the server's fallback rate, not the till's.
+  exchange_rate: z.coerce.number().positive().optional(),
   transaction_time: z.string().optional(),
   // LIRA-081 — LOCAL duplicate of the core createCustomServiceSchema field
   // (rule-14 debt, same trap documented elsewhere in this file): fields must

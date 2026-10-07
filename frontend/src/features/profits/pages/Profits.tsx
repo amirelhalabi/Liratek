@@ -317,6 +317,15 @@ interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** Hold Money pickups — change the shop kept when handing back a round
+   *  figure, net of voided pickups. Profit-only, already inside
+   *  `totals.gross_profit_*`. Optional so an older cached payload doesn't
+   *  crash the page. */
+  hold_money?: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   /** LO-V1 (round 2, OWNER_NOTES_2026-09-21.md §6) — the shop's total
    *  OTHER-currency kept change across recharges, mobile services and loto
    *  (`recharges.kept_change_usd/_lbp` + `mobile_services.kept_change_usd/
@@ -2007,6 +2016,50 @@ export default function Profits() {
                               summary.topups_buybacks.profit_lbp,
                               "LBP",
                             )}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+              {/* Hold Money pickups — change kept when handing back a round
+                  figure (owner decision 2026-10-07). Same profit-only card
+                  pattern as Top-ups / Buybacks above. */}
+              {summary.hold_money &&
+                (summary.hold_money.count > 0 ||
+                  summary.hold_money.profit_usd !== 0 ||
+                  summary.hold_money.profit_lbp !== 0) && (
+                  <div
+                    data-testid="overview-hold-money-card"
+                    className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">
+                        Hold Money
+                      </span>
+                      <span className="text-xs bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded-full">
+                        {summary.hold_money.count} txns
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      {summary.hold_money.profit_usd !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">USD</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.hold_money.profit_usd)}`}
+                          >
+                            {formatAmount(summary.hold_money.profit_usd, "USD")}
+                          </span>
+                        </div>
+                      )}
+                      {summary.hold_money.profit_lbp !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">LBP</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.hold_money.profit_lbp)}`}
+                          >
+                            {formatAmount(summary.hold_money.profit_lbp, "LBP")}
                           </span>
                         </div>
                       )}

@@ -34,10 +34,16 @@ import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext";
+import { resetPartnerRepository } from "../PartnerRepository";
 import {
   snapshotLedgers,
   expectPostings,
+  expectPostingsMatchRule,
 } from "../testHelpers/postingAssert";
+import {
+  POSTING_RULES,
+  type PostingRuleKey,
+} from "../../constants/postingRules";
 
 jest.mock("../../db/connection", () => {
   let _db: Database.Database | null = null;
@@ -624,4 +630,93 @@ describe("LotoTicketRepository — G14 leg integrity", () => {
     expect(winner?.is_winner).toBe(1);
     expect(winner?.prize_amount).toBe(1_000_000);
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 5 (POSTING_INTEGRITY_PLAN.md §7) — Loto ticket postings read from the
+// posting rules table (constants/postingRules.ts, POSTING_MAP.md §4.4): the
+// LOTO supplier is owed sale − commission in LBP in every mode; walk-in adds
+// the tender drawer +sale, account adds Loto Debt +sale, FOR adds the partner
+// +sale. Each case is voided again: every ledger nets to 0 (rule 20).
+// Characterization of today's code against the map, not a failing-first
+// guard (no fix is involved).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("LotoTicketRepository — postings match POSTING_RULES", () => {
+  let db: Database.Database;
+  let repo: LotoTicketRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    resetTransactionRepository();
+    resetDebtRepository();
+    resetDebtService();
+    resetVoucherRepository();
+    resetPaymentMethodRepository();
+    resetPartnerRepository();
+    repo = new LotoTicketRepository(db);
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+    resetTransactionRepository();
+    resetDebtRepository();
+    resetDebtService();
+    resetVoucherRepository();
+    resetPaymentMethodRepository();
+    resetPartnerRepository();
+  });
+
+  const cases: Array<{
+    rule: PostingRuleKey;
+    extra: Partial<Parameters<LotoTicketRepository["createTicket"]>[0]>;
+  }> = [
+    {
+      rule: "LOTO/ticket/walk-in",
+      extra: {
+        payment_method: "CASH",
+        payments: [{ method: "CASH", currencyCode: "LBP", amount: SALE }],
+      },
+    },
+    {
+      rule: "LOTO/ticket/account",
+      extra: {
+        payment_method: "CUSTOMER_ACCOUNT",
+        clientId: CLIENT_ID,
+        payments: [
+          { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: SALE },
+        ],
+      },
+    },
+    {
+      rule: "LOTO/ticket/FOR",
+      extra: { partnerId: 1, partnerMode: "FOR" },
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.rule}: create posts exactly the rule; void nets to 0`, () => {
+      const before = snapshotLedgers(db);
+      const ticket = repo.createTicket({ ...base, ...c.extra });
+
+      expectPostingsMatchRule(
+        POSTING_RULES[c.rule],
+        before,
+        snapshotLedgers(db),
+        { x: SALE, f: 0, c: COMMISSION, currency: "LBP" },
+        {
+          drawers: { tender: "General" },
+          providerSupplierId: lotoSupplierId(db),
+          partnerId: 1,
+          clientId: CLIENT_ID,
+        },
+      );
+
+      new TransactionRepository().voidTransaction(lotoTxnId(db, ticket.id), 1);
+      expectPostings(before, snapshotLedgers(db), {});
+    });
+  }
 });

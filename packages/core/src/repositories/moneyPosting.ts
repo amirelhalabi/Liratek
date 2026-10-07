@@ -847,6 +847,18 @@ export interface PostPayoutLegsInput {
    * CUSTOMER_ACCOUNT leg is present throws inside `postPayoutLegs` itself.
    */
   onCustomerAccountLeg?: (legAmountUsd: number, legAmountLbp: number) => void;
+  /**
+   * Payout kept change (owner decision 2026-10-07): the small leftover the
+   * shop keeps instead of handing out, in the payout currency. Defaults to
+   * 0 — every existing caller is unchanged. Validate it FIRST with
+   * `resolveKeptChange({ payer: "payout", ... })` (keptChange.ts — cap,
+   * same-currency, partner and tamper checks live there, not here); this
+   * only reconciles the legs against `payoutAmount − kept` and refuses kept
+   * on the no-legs fallback (which posts the FULL amount). Note
+   * `reconcileLegs`' own `keptChange` arg has the overpay sign and is NOT
+   * used for this.
+   */
+  keptChange?: KeptChange;
 }
 
 export function postPayoutLegs(input: PostPayoutLegsInput): void {
@@ -865,14 +877,27 @@ export function postPayoutLegs(input: PostPayoutLegsInput): void {
     note,
     fallbackMethod = "CASH",
     onCustomerAccountLeg,
+    keptChange,
   } = input;
+
+  const keptUsd = keptChange?.usd ?? 0;
+  const keptLbp = keptChange?.lbp ?? 0;
+  if ((keptUsd > 0 || keptLbp > 0) && !(legs ?? []).some((l) => l.amount)) {
+    throw new Error(
+      `${context}: keeping change needs the payout lines — without them the full payout is paid out`,
+    );
+  }
 
   // S2 hard-reject reconciliation (Payment-Legs Integrity plan) — no-ops on
   // an empty/absent `legs` (the no-legs fallback below is still correct for
-  // a legacy/scripted caller).
+  // a legacy/scripted caller). With kept change the legs cover owed − kept.
+  const owedTotals = expectedTotalIn(payoutAmount, currency);
   reconcileLegs({
     inLegs: legs,
-    expectedTotals: expectedTotalIn(payoutAmount, currency),
+    expectedTotals: {
+      usd: owedTotals.usd - keptUsd,
+      lbp: owedTotals.lbp - keptLbp,
+    },
     exchangeRate,
     tenderExchangeRate,
     context,

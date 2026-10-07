@@ -166,9 +166,14 @@ export default function MobileRecharge() {
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   // T3 keep-change (telecom flow): kept change → recharge profit stamp.
+  // `payout` records which mode reported it (credit buy-back = payout): the
+  // payment form does not re-report when a sale flips to a buy-back on the
+  // same sheet, so a sale's kept change must never ride a buy-back (or the
+  // reverse).
   const [keptChange, setKeptChange] = useState<{
     usd: number;
     lbp: number;
+    payout: boolean;
   } | null>(null);
   // Payment-Legs Integrity plan (false-reject fix): the rate the
   // PaymentSheet is ACTUALLY using (default, or the operator's own edit of
@@ -298,6 +303,14 @@ export default function MobileRecharge() {
   useEffect(() => {
     setShopLineBuyback(true);
   }, [phoneNumber, activeProvider, rechargeType]);
+  // Whether the telecom sheet is currently a credit buy-back (a payout) —
+  // the same derivation handleTelecomSubmit uses (rule 14).
+  const telecomIsBuyback =
+    deriveSubmittedRechargeType(
+      rechargeType,
+      isShopLineMatch,
+      shopLineBuyback,
+    ) === "CREDIT_BUYBACK";
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoFeeIncluded, setCryptoFeeIncluded] = useState(false);
@@ -321,10 +334,12 @@ export default function MobileRecharge() {
     [],
   );
   const [cryptoReturnLegs, setCryptoReturnLegs] = useState<PaymentLine[]>([]);
-  // T3 keep-change (crypto flow): kept change → profit stamp.
+  // T3 keep-change (crypto flow): kept change → profit stamp. `payout`
+  // records which mode reported it (RECEIVE = payout) — see `keptChange`.
   const [cryptoKeptChange, setCryptoKeptChange] = useState<{
     usd: number;
     lbp: number;
+    payout: boolean;
   } | null>(null);
   const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
   // Payment-Legs Integrity: the rate the crypto PaymentSheet is ACTUALLY
@@ -894,9 +909,11 @@ export default function MobileRecharge() {
         // `paidBy` state alone, which never advanced past a single-leg
         // self-heal and stayed stale on a split.
         paid_by_method: derivePaidByMethod(paymentLines, paidBy),
+        // A buy-back is a payout: never a change (OUT) leg, even one left in
+        // state by an earlier sale on this tab (owner decisions 2026-10-07).
         payments:
           paymentLines.length > 0
-            ? toCamelLegs(paymentLines, returnLegs)
+            ? toCamelLegs(paymentLines, isBuyback ? [] : returnLegs)
             : undefined,
         // Payment-Legs Integrity plan (false-reject fix): the rate the
         // PaymentSheet actually used for its conversions — falls back to the
@@ -908,8 +925,11 @@ export default function MobileRecharge() {
             : undefined,
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
-        // T3 keep-change: kept amounts join the recharge profit stamp.
-        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+        // T3 keep-change: kept amounts join the recharge profit stamp — only
+        // when reported in the same mode as this submit (sale vs buy-back).
+        ...(keptChange &&
+        keptChange.payout === isBuyback &&
+        (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
               kept_change_usd: keptChange.usd,
               kept_change_lbp: keptChange.lbp,
@@ -1350,7 +1370,9 @@ export default function MobileRecharge() {
         // change the cashier did not hand back joins the recharge profit
         // stamp, same as handleTelecomSubmit. The gift sheet shares the
         // telecom sheet's `keptChange` state (only one is ever mounted).
-        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+        ...(keptChange &&
+        !keptChange.payout &&
+        (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
               kept_change_usd: keptChange.usd,
               kept_change_lbp: keptChange.lbp,
@@ -1456,8 +1478,12 @@ export default function MobileRecharge() {
     // survived), and separately dropped the OUT leg for a single payment +
     // change, so the returned cash never reached the ledger (e.g. Binance
     // SEND: paid $100, got 180,000 LBP).
+    // A RECEIVE (cash-out) is a payout: it never carries a change (OUT) leg,
+    // even one left in state by an earlier SEND on this tab (owner decisions
+    // 2026-10-07). A small shortfall is kept change instead (below).
+    const cryptoChangeLegs = cryptoType === "RECEIVE" ? [] : cryptoReturnLegs;
     const useCryptoStructuredPayments =
-      cryptoPaymentLines.length > 0 || cryptoReturnLegs.length > 0;
+      cryptoPaymentLines.length > 0 || cryptoChangeLegs.length > 0;
 
     // Derive cashout method from payment lines: if DEBT is used, it means Customer Account
     const derivedCashoutMethod =
@@ -1546,7 +1572,7 @@ export default function MobileRecharge() {
         commission: fee,
         paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
         payments: useCryptoStructuredPayments
-          ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
+          ? toCamelLegs(cryptoPaymentLines, cryptoChangeLegs)
           : undefined,
         // The rate the sheet ACTUALLY converted tender at (this page seeds
         // it with the BUY rate — a cross-currency payout leg would
@@ -1573,6 +1599,7 @@ export default function MobileRecharge() {
           : {}),
         // T3 keep-change: kept amounts join the profit stamp.
         ...(cryptoKeptChange &&
+        cryptoKeptChange.payout === (cryptoType === "RECEIVE") &&
         (cryptoKeptChange.usd > 0 || cryptoKeptChange.lbp > 0)
           ? {
               kept_change_usd: cryptoKeptChange.usd,
@@ -1938,7 +1965,11 @@ export default function MobileRecharge() {
             // the same `shopLines` fetch above rather than a second API
             // call (rule 14).
             primaryLine={shopLines.find((l) => l.is_primary === 1) ?? null}
-            onKeptChange={setKeptChange}
+            onKeptChange={(k) =>
+              setKeptChange(
+                k ? { usd: k.usd, lbp: k.lbp, payout: telecomIsBuyback } : null,
+              )
+            }
             onEffectiveRateChange={setTelecomTenderRate}
             onDiscountChange={setTelecomDiscount}
             giftTierKey={giftTierKey}
@@ -2122,7 +2153,24 @@ export default function MobileRecharge() {
             // restricted to CASH/CUSTOMER_ACCOUNT for a RECEIVE payout.
             feePaymentMethods={methods.filter((pm) => pm.code !== "GIFT_CARD")}
             handleCryptoSubmit={handleCryptoSubmit}
-            onKeptChange={setCryptoKeptChange}
+            // A cash-out keeps change only where the server can book it:
+            // not inside a session (the basket pays out) and not when it is
+            // credited to the customer's account (credited in full).
+            {...(cryptoType === "RECEIVE" &&
+            (!!activeSession || cryptoPaidBy === "CUSTOMER_ACCOUNT")
+              ? {}
+              : {
+                  onKeptChange: (k: { usd: number; lbp: number } | null) =>
+                    setCryptoKeptChange(
+                      k
+                        ? {
+                            usd: k.usd,
+                            lbp: k.lbp,
+                            payout: cryptoType === "RECEIVE",
+                          }
+                        : null,
+                    ),
+                })}
             isSubmitting={isSubmitting}
             binanceTransactions={binanceTransactions}
             loadCryptoData={loadBinanceData}

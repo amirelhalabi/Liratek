@@ -199,6 +199,14 @@ export default function TopUpModal({
   const [clientPayoutExchangeRate, setClientPayoutExchangeRate] = useState<
     number | undefined
   >(undefined);
+  // Payout kept change (owner decisions 2026-10-07): the shop hands out a
+  // round figure a little short of the payout target and keeps the leftover
+  // (under $1 / 100,000 LBP, payout currency) as profit. Reported by the
+  // payout-mode MultiPaymentInput below; the server verifies it.
+  const [clientPayoutKept, setClientPayoutKept] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
 
   const providerLabels: Record<TopUpProvider, string> = {
     MTC: "MTC",
@@ -262,6 +270,7 @@ export default function TopUpModal({
       setIncludingFees(false);
       setClientPayoutLines([]);
       setClientPayoutExchangeRate(undefined);
+      setClientPayoutKept(null);
       // D4: OMT credit is the default every time the modal (re)opens.
       setOmtAppFundingMode("credit");
     }
@@ -333,6 +342,15 @@ export default function TopUpModal({
           payments: payoutLegs,
           ...(hasCrossCurrencyLeg && clientPayoutExchangeRate
             ? { exchangeRate: clientPayoutExchangeRate }
+            : {}),
+          // Payout kept change rides the SAME payload as the legs it
+          // shortens (rule 22).
+          ...(clientPayoutKept &&
+          (clientPayoutKept.usd > 0 || clientPayoutKept.lbp > 0)
+            ? {
+                kept_change_usd: clientPayoutKept.usd,
+                kept_change_lbp: clientPayoutKept.lbp,
+              }
             : {}),
           ...(selectedClientId ? { clientId: selectedClientId } : {}),
           ...(trimmedClientName ? { clientName: trimmedClientName } : {}),
@@ -653,7 +671,11 @@ export default function TopUpModal({
                           { code: "LBP", symbol: "LBP" },
                         ]}
                         paymentMethods={clientPayoutMethods}
+                        // The shop pays the client: no change legs ever, and
+                        // a small shortfall is kept as profit.
+                        payer="payout"
                         onChange={setClientPayoutLines}
+                        onKeptChange={setClientPayoutKept}
                         onExchangeRateChange={setClientPayoutExchangeRate}
                         showDiscount={false}
                         requiresClientForDebt={false}

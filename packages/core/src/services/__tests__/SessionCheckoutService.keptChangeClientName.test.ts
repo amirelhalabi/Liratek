@@ -34,9 +34,11 @@
  * (proven to support `getByClient` end to end, rule 14 — reused, not
  * re-derived) plus `customer_sessions`/`customer_session_transactions`
  * (`SessionPaymentService.basket.test.ts`'s shape) for the real session
- * lifecycle. `payments` is deliberately never populated — the checkout
- * request omits `payments` entirely, so `recordBasketPayment` never runs;
- * this ticket is about the `client_name` STAMP, not drawer/leg arithmetic,
+ * lifecycle. G42 update (2026-10-07): each checkout now sends ONE cash IN
+ * leg (item + kept) — kept change is verified server-side against the
+ * tender, and a kept claim with no payment lines is refused. Before G42
+ * `payments` was omitted entirely; this ticket is still about the
+ * `client_name` STAMP, not drawer/leg arithmetic,
  * and every module service call below already books its own ledger/profit
  * rows unconditionally under `deferPayment: true` (see
  * `FinancialServiceRepository` — "these are not payment-collection facts").
@@ -514,6 +516,16 @@ describe("LIRA-230 — SessionCheckoutService KEPT_CHANGE client_name stamping",
         cartItems: [financialCartItem()],
         exchangeRate: 90000,
         userId: 1,
+        // G42: kept change is verified server-side, so it needs the tender
+        // it was kept from ($100 item + $5 kept).
+        payments: [
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 105,
+            direction: "IN",
+          },
+        ],
         kept_change_usd: 5,
       },
       { username: "admin" },
@@ -564,6 +576,16 @@ describe("LIRA-230 — SessionCheckoutService KEPT_CHANGE client_name stamping",
         cartItems: [financialCartItem()],
         exchangeRate: 90000,
         userId: 1,
+        // G42: kept change is verified server-side, so it needs the tender
+        // it was kept from ($100 item + $3 kept).
+        payments: [
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 103,
+            direction: "IN",
+          },
+        ],
         kept_change_usd: 3,
       },
       { username: "admin" },
@@ -593,6 +615,16 @@ describe("LIRA-230 — SessionCheckoutService KEPT_CHANGE client_name stamping",
         cartItems: [financialCartItem()],
         exchangeRate: 90000,
         userId: 1,
+        // G42: kept change is verified server-side, so it needs the tender
+        // it was kept from ($100 item + $2 kept).
+        payments: [
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 102,
+            direction: "IN",
+          },
+        ],
         kept_change_usd: 2,
       },
       { username: "admin" },

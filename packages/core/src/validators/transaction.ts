@@ -117,6 +117,38 @@ export const refundUnitExtraSchema = z.object({
  *  entirely for a plain flip-back-to-stock refund with no flags). */
 export const refundUnitExtrasSchema = z.array(refundUnitExtraSchema).min(1);
 
+/**
+ * Owner decision 2026-10-07 — refund kept change. The ONE shape both refund
+ * payloads use (rule 14): spread flat into `sessionItemRefundSchema`, and
+ * as its own object (`refundKeptChangeSchema`) for `transactions:refund`,
+ * whose IPC channel takes positional arguments (same pattern as
+ * `refundUnitExtrasSchema`). Non-negative amounts only; whether the claim
+ * is real is the repository's call (`resolveKeptChange`), never Zod's.
+ */
+const refundKeptChangeFields = {
+  kept_change_usd: z.number().nonnegative().finite().optional(),
+  kept_change_lbp: z.number().nonnegative().finite().optional(),
+};
+export const refundKeptChangeSchema = z.object(refundKeptChangeFields);
+
+/**
+ * The transaction types whose refund may keep change — the ONE list the
+ * repository gate (`TransactionRepository._resolveRefundKeptChange`) and
+ * the refund popup both read (rule 14). Kept profit lives in the REFUND
+ * row's own profit stamp, so it only reaches the Profits page where that
+ * page sums REFUND rows: sales (`getSalesProfit`: SALE + REFUND) and debt
+ * repayments (`keptChangeSource`: DEBT_REPAYMENT + REFUND). Every other
+ * module's Profits section drops a refunded row and never reads its REFUND
+ * row (measured for an OMT SEND: the stamp was booked, the Profits total
+ * did not move) — kept change there would be profit nobody sees, so it is
+ * refused until those sections count it.
+ */
+export const REFUND_KEPT_CHANGE_TYPES: readonly string[] = [
+  "SALE",
+  "DEBT_REPAYMENT",
+];
+export type RefundKeptChangeInput = z.input<typeof refundKeptChangeSchema>;
+
 export type RefundUnitExtraInput = z.infer<typeof refundUnitExtraSchema>;
 export type RefundUnitExtrasInput = z.infer<typeof refundUnitExtrasSchema>;
 
@@ -157,6 +189,11 @@ export const sessionItemRefundSchema = z
     // `refundLegs`' value-based validation. Omitted: the refunded member's
     // own booked rate, else the day's fallback.
     exchangeRate: refundExchangeRateSchema,
+    // Owner decision 2026-10-07 — refund kept change: the cash handed back
+    // (`refundLegs`) is short of the remainder by a small leftover the shop
+    // keeps as profit. Zod only shapes it; the repository checks it
+    // (`resolveKeptChange`, payer "payout": cap, currency, real shortfall).
+    ...refundKeptChangeFields,
   })
   // Round-2 finding #10a (LOW) — `saleItemId` and `quantity` must be given
   // TOGETHER or BOTH omitted. Omitting BOTH is Q2 ("every remaining line, in

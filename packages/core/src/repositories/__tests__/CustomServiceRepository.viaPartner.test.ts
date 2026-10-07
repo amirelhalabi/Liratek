@@ -381,6 +381,9 @@ describe("CustomServiceRepository.createService() — via-partner (LIRA-154)", (
     const result = repo.createService(
       {
         description: "Via job with change",
+        // The till rate the comment assumes — the repository now reconciles
+        // the legs (POSTING_MAP G42), so the fixture must say which rate.
+        exchange_rate: 90_000,
         cost_usd: 0,
         cost_lbp: 500_000,
         price_usd: 0,
@@ -446,6 +449,9 @@ describe("CustomServiceRepository.createService() — via-partner (LIRA-154)", (
     repo.createService(
       {
         description: "Void me (via partner)",
+        // The till rate the comment assumes — the repository now reconciles
+        // the legs (POSTING_MAP G42), so the fixture must say which rate.
+        exchange_rate: 90_000,
         cost_usd: 3,
         cost_lbp: 500_000,
         price_usd: 0,

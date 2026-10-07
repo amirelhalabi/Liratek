@@ -56,7 +56,13 @@ export function HoldMoneyPickupSheet({
   const [returnUsd, setReturnUsd] = useState(hold.remaining_usd);
   const [returnLbp, setReturnLbp] = useState(hold.remaining_lbp);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
-  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  // Kept change (owner decision 2026-10-07): a pickup is a PAYOUT — handing
+  // out the round figure (held $50.12, hands $50) keeps the leftover as shop
+  // profit, under $1 / 100,000 LBP, reported by MultiPaymentInput.
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   const [effectiveRate, setEffectiveRate] = useState<number | undefined>(
     undefined,
   );
@@ -74,6 +80,18 @@ export function HoldMoneyPickupSheet({
     [methods],
   );
 
+  // Kept change needs ONE payout currency (the server's payout rule owes a
+  // single currency). A pickup returning both USD and LBP is paid out
+  // exactly — `onKeptChange` is not wired then, and any stale value from a
+  // one-currency moment is ignored.
+  const pickupCurrency: "USD" | "LBP" | null =
+    returnUsd > EPS_USD && returnLbp > EPS_LBP
+      ? null
+      : returnLbp > EPS_LBP
+        ? "LBP"
+        : "USD";
+  const keptToSend = pickupCurrency ? keptChange : null;
+
   const isPartial =
     returnUsd < hold.remaining_usd - EPS_USD ||
     returnLbp < hold.remaining_lbp - EPS_LBP;
@@ -85,12 +103,19 @@ export function HoldMoneyPickupSheet({
     if (!canSubmit) return;
     setIsSubmitting(true);
     try {
+      // ONE payload (rule 22). A payout never sends OUT (change) legs.
       const res = await api.holdMoney.collect({
         id: hold.id,
         usd_amount: returnUsd,
         lbp_amount: returnLbp,
-        payments: toHoldMoneyLegs(paymentLines, returnLegs),
+        payments: toHoldMoneyLegs(paymentLines),
         exchange_rate: effectiveRate ?? buyRate,
+        ...(keptToSend && (keptToSend.usd > 0 || keptToSend.lbp > 0)
+          ? {
+              kept_change_usd: keptToSend.usd,
+              kept_change_lbp: keptToSend.lbp,
+            }
+          : {}),
       });
       if (res.success) {
         appEvents.emit(
@@ -229,7 +254,7 @@ export function HoldMoneyPickupSheet({
               Paid Out Via
             </label>
             <MultiPaymentInput
-              key={`${returnUsd}-${returnLbp > 0 ? "lbp" : "no-lbp"}`}
+              key={`${returnUsd}-${returnLbp > 0 ? "lbp" : "no-lbp"}-${pickupCurrency ?? "mixed"}`}
               totals={[
                 ...(returnUsd > EPS_USD
                   ? [{ amount: returnUsd, currency: "USD" }]
@@ -239,10 +264,17 @@ export function HoldMoneyPickupSheet({
                   : []),
               ]}
               side="buy"
-              currency="USD"
-              totalAmountCurrency="USD"
+              payer="payout"
+              currency={pickupCurrency ?? "USD"}
+              totalAmountCurrency={pickupCurrency ?? "USD"}
               onChange={setPaymentLines}
-              onReturnChange={setReturnLegs}
+              {...(pickupCurrency
+                ? {
+                    onKeptChange: (
+                      k: { usd: number; lbp: number } | null,
+                    ) => setKeptChange(k ? { usd: k.usd, lbp: k.lbp } : null),
+                  }
+                : {})}
               showDiscount={false}
               showPmFee={false}
               paymentMethods={allowedMethods}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   MultiPaymentInput,
+  type MultiPaymentPayer,
   type PaymentLine,
   type VoucherOption,
 } from "@liratek/ui";
@@ -68,6 +69,10 @@ export interface PaymentSheetProps {
    *  lines are cash the shop hands OUT (Exchange) — keep-change then keeps
    *  a small SHORTFALL instead of an overpay. Default "payment". */
   direction?: "payment" | "payout";
+  /** Pass-through to MultiPaymentInput's `payer` (who pays on this sheet:
+   *  "customer" | "payout" | "shop" — see MultiPaymentPayer). Wins over
+   *  `direction` when both are passed. */
+  payer?: MultiPaymentPayer;
   onDiscountChange?: (discount: number) => void;
   onPmFeesChange?: (fees: Record<string, number>) => void;
   /** Increment this to remount MultiPaymentInput (e.g. when client is selected) */
@@ -127,6 +132,7 @@ export function PaymentSheet({
   onReturnChange,
   onKeptChange,
   direction,
+  payer,
   onDiscountChange,
   onPmFeesChange,
   paymentInputKey,
@@ -257,6 +263,7 @@ export function PaymentSheet({
               }}
               {...(onKeptChange ? { onKeptChange } : {})}
               {...(direction ? { direction } : {})}
+              {...(payer ? { payer } : {})}
               requiresClientForDebt={requiresClientForDebt}
               hasClient={hasClient}
               autoDebtRemainder={autoDebtRemainder}

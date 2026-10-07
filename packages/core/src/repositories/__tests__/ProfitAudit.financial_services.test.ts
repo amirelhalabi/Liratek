@@ -193,6 +193,10 @@ describe("LIRA-185 profit audit — financial_services", () => {
         commission: 1,
         cashoutMethod: "CASH",
         exchangeRate: 90000,
+        // A payout keeps change only from real payout lines (owed $99 →
+        // $98.75 handed out, $0.25 kept) — a claim with no lines is refused
+        // (resolveKeptChange, owner decision 2026-10-07).
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 98.75 }],
         kept_change_usd: 0.25,
       });
       const svc = new ProfitService();

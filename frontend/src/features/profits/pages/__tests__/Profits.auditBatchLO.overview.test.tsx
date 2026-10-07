@@ -193,6 +193,37 @@ describe("Profits Overview — PA-2.3 Top-ups/Buybacks card", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Hold Money pickup kept change (owner decision 2026-10-07)
+// ---------------------------------------------------------------------------
+
+describe("Profits Overview — Hold Money card", () => {
+  it("renders the pickups' kept change per currency", async () => {
+    mockGetProfitSummary.mockResolvedValueOnce({
+      ...baseSummary(),
+      hold_money: { profit_usd: 0.12, profit_lbp: 50000, count: 2 },
+    });
+
+    await renderOverview();
+
+    const card = await screen.findByTestId("overview-hold-money-card");
+    expect(card.textContent).toContain("Hold Money");
+    expect(card.textContent).toContain("2 txns");
+    expect(card.textContent).toContain("0.12 USD");
+    expect(card.textContent).toContain("50000 LBP");
+  });
+
+  it("is absent when no pickup kept change in the period", async () => {
+    mockGetProfitSummary.mockResolvedValueOnce(baseSummary());
+
+    await renderOverview();
+
+    expect(
+      screen.queryByTestId("overview-hold-money-card"),
+    ).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // PA-2.4 — Financial Services "Commission (at settlement)"
 // ---------------------------------------------------------------------------
 

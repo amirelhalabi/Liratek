@@ -316,6 +316,8 @@ export function registerRechargeHandlers(): void {
         exchangeRate?: number;
         clientName?: string;
         clientId?: number;
+        kept_change_usd?: number;
+        kept_change_lbp?: number;
       },
     ) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);

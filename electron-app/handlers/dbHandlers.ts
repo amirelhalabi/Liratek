@@ -101,15 +101,9 @@ export function registerDatabaseHandlers(): void {
     "db:add-expense",
     (
       e,
-      data: {
-        description: string;
-        category: string;
-        expense_type: string;
-        paid_by_method?: string;
-        amount_usd: number;
-        amount_lbp: number;
-        expense_date: string;
-      },
+      // Validated below; the shape is core's createExpenseSchema input
+      // (bill + cash lines + change back) — see AddExpenseSchema.
+      data: unknown,
     ) => {
       const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };

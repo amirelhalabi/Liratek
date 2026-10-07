@@ -38,6 +38,8 @@ type JobPart = {
   stock_restored: number;
   created_at: string;
   updated_at: string;
+  /** The product's current price (LIRA-260); null when the product is gone. */
+  catalog_price_usd?: number | null;
 };
 
 // LIRA-176 phase 6 — one status transition. Mirrors
@@ -319,6 +321,9 @@ export default function Maintenance() {
         product_name: p.product_name,
         quantity: p.quantity,
         unit_price_usd: p.unit_price_usd,
+        // Display-only: feeds PartPicker's price-change warning; dropped
+        // again by `toPartsPayload` on save.
+        catalog_price_usd: p.catalog_price_usd ?? null,
       })),
     );
   };

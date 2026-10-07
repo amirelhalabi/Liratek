@@ -209,6 +209,8 @@ router.post("/:id/refund", requireRole(["admin"]), (req, res) => {
     refundLegs: req.body?.refundLegs,
     unitExtras: req.body?.unitExtras,
     exchangeRate: req.body?.exchangeRate,
+    // Owner decision 2026-10-07 — refund kept change (same schema as IPC).
+    keptChange: req.body?.keptChange ?? undefined,
   });
   if (!parsed.success) {
     const firstError = parsed.error.issues[0];
@@ -225,6 +227,12 @@ router.post("/:id/refund", requireRole(["admin"]), (req, res) => {
       refundLegs: parsed.data.refundLegs,
       refundUnitExtras: parsed.data.unitExtras,
       exchangeRate: parsed.data.exchangeRate,
+      keptChange: parsed.data.keptChange
+        ? {
+            usd: parsed.data.keptChange.kept_change_usd,
+            lbp: parsed.data.keptChange.kept_change_lbp,
+          }
+        : undefined,
     });
     // Mirrors salesHandlers.ts's sales:refund audit (refund/sale).
     auditRest(req, {
@@ -237,6 +245,7 @@ router.post("/:id/refund", requireRole(["admin"]), (req, res) => {
         refundLegs: parsed.data.refundLegs,
         unitExtras: parsed.data.unitExtras,
         exchangeRate: parsed.data.exchangeRate,
+        keptChange: parsed.data.keptChange,
       },
     });
     res.json({ success: true, refundId });
@@ -265,6 +274,9 @@ router.post("/:id/refund-item", requireRole(["admin"]), (req, res) => {
     refundLegs: req.body?.refundLegs,
     unitExtras: req.body?.unitExtras,
     exchangeRate: req.body?.exchangeRate,
+    // Owner decision 2026-10-07 — refund kept change (same field the IPC
+    // channel takes; built field by field here, so it must be named).
+    keptChange: req.body?.keptChange ?? undefined,
   });
   if (!parsed.success) {
     const firstError = parsed.error.issues[0];
@@ -284,6 +296,12 @@ router.post("/:id/refund-item", requireRole(["admin"]), (req, res) => {
       refundLegs: parsed.data.refundLegs,
       unitExtras: parsed.data.unitExtras,
       exchangeRate: parsed.data.exchangeRate,
+      keptChange: parsed.data.keptChange
+        ? {
+            usd: parsed.data.keptChange.kept_change_usd,
+            lbp: parsed.data.keptChange.kept_change_lbp,
+          }
+        : undefined,
       userId,
     });
     // Mirrors salesHandlers.ts's sales:refund-item audit (refund/sale_item)
@@ -299,6 +317,7 @@ router.post("/:id/refund-item", requireRole(["admin"]), (req, res) => {
         refundLegs: parsed.data.refundLegs,
         unitExtras: parsed.data.unitExtras,
         exchangeRate: parsed.data.exchangeRate,
+        keptChange: parsed.data.keptChange,
       },
     });
     // Rule 19c envelope parity: HTTP 200 even on a business-rule failure —

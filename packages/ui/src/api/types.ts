@@ -14,6 +14,9 @@ import type {
   // Exchange submit payload (incl. payout kept change), derived from the
   // core schema (rule 21).
   ExchangeSubmitPayload,
+  // Debts credit cash-out payload (incl. payout kept change), derived from
+  // the core schema (rule 21).
+  DebtCashOutPayload,
   ProductListFilters,
   DatabaseResetPreview,
   DatabaseResetResult,
@@ -70,6 +73,8 @@ import type {
   // `SaleRefundInput` above already does; imported directly now instead.
   RefundLegInput,
   RefundUnitExtraInput,
+  // Owner decision 2026-10-07 — refund kept change (rule 21).
+  RefundKeptChangeInput,
   // LIRA-252 wave 2 — carrier-line manual-drawer-adjustment read shape,
   // imported directly (rule 21) instead of a hand-typed object literal.
   CarrierLineAdjustmentRecord,
@@ -81,6 +86,7 @@ import type {
   LotoCheckpointsSettleBatchPayload,
   // LIRA-262 — "shop used its own stock" expense payload (rule 21).
   CreateStockExpenseInput,
+  CreateExpenseRequest,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -1124,6 +1130,8 @@ export type ApiAdapter = {
     refundLegs?: SaleRefundInput["refundLegs"],
     unitExtras?: SaleRefundInput["unitExtras"],
     exchangeRate?: number,
+    /** Owner decision 2026-10-07 — refund kept change. */
+    keptChange?: SaleRefundInput["keptChange"],
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
   /** Refund a specific line item off a sale, by quantity (admin only).
    *  LIRA-231: same optional `refundLegs` override, validated against THIS
@@ -1137,6 +1145,8 @@ export type ApiAdapter = {
     refundLegs?: SaleRefundItemInput["refundLegs"],
     unitExtras?: SaleRefundItemInput["unitExtras"],
     exchangeRate?: number,
+    /** Owner decision 2026-10-07 — refund kept change. */
+    keptChange?: SaleRefundItemInput["keptChange"],
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
   /** LIRA-147 — admin-only "Undo refund" for a standalone per-item refund.
    *  `refundTransactionId` is the REFUND row's own transaction id —
@@ -1226,8 +1236,10 @@ export type ApiAdapter = {
     data?: { balance_usd: number; balance_lbp: number };
     error?: string;
   }>;
+  /** Credit cash-out — payload DERIVED from `debtCashOutSchema`'s input
+   *  (rule 21), incl. the payout kept change keptChangeUSD/keptChangeLBP. */
   cashOut: (
-    payload: unknown,
+    payload: DebtCashOutPayload,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
   addAccountEntry: (
     payload: unknown,
@@ -1282,7 +1294,11 @@ export type ApiAdapter = {
   // Expenses
   // ---------------------------------------------------------------------------
   getTodayExpenses: () => Promise<any[]>;
-  addExpense: (payload: any) => Promise<ApiResult & { id?: number }>;
+  /** Manual expense — core's createExpenseSchema input (bill, cash lines,
+   *  change back, not-returned claim). Write envelope. */
+  addExpense: (
+    payload: CreateExpenseRequest,
+  ) => Promise<ApiResult & { id?: number }>;
   deleteExpense: (id: number) => Promise<ApiResult>;
   /** LIRA-262 — record that the shop used one of its own items (inventory
    *  product, or a Katsh / iPick / Whish App catalog item) as an expense at
@@ -2683,6 +2699,9 @@ export type ApiAdapter = {
     refundLegs?: RefundLegInput[],
     unitExtras?: RefundUnitExtraInput[],
     exchangeRate?: number,
+    /** Owner decision 2026-10-07 — refund kept change (only with a
+     *  `refundLegs` override; the server checks it). */
+    keptChange?: RefundKeptChangeInput,
   ) => Promise<ApiResult & { refundId?: number }>;
   /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
    *  `bookedRateSource` default (the transaction's own recorded rate, else

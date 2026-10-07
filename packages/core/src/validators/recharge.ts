@@ -302,6 +302,16 @@ export const topUpFromClientSchema = z.object({
   exchangeRate: z.number().positive().optional(),
   clientName: z.string().optional(),
   clientId: z.number().int().positive().optional(),
+  /**
+   * Payout kept change (owner decisions 2026-10-07, FEATURE_GUIDE §4.1):
+   * the shop hands out a round figure a little short of `amount − fee` and
+   * keeps the leftover as profit — under PAYOUT_KEEP_CHANGE_MAX, in
+   * `currency` only. A CLAIM: `RechargeRepository.topUpFromClient` verifies
+   * it with `resolveKeptChange` before booking it. Same names as every other
+   * kept-change payload.
+   */
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
 });
 
 /**

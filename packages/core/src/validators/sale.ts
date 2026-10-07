@@ -5,7 +5,11 @@ import {
   transactionTimeSchema,
   refundExchangeRateSchema,
 } from "./common.js";
-import { refundLegsSchema, refundUnitExtrasSchema } from "./transaction.js";
+import {
+  refundKeptChangeSchema,
+  refundLegsSchema,
+  refundUnitExtrasSchema,
+} from "./transaction.js";
 
 /**
  * Sales validation schemas
@@ -211,6 +215,11 @@ export const saleRefundSchema = z.object({
   // LIRA-236 (REFUND_EXCHANGE_RATE_PLAN.md §3) — the cashier-typed exchange
   // rate; omitted keeps today's per-currency exact-match behavior.
   exchangeRate: refundExchangeRateSchema,
+  // Owner decision 2026-10-07 — refund kept change: the SAME object shape
+  // `transactions:refund` takes (`refundKeptChangeSchema`, rule 14). The
+  // repository checks the claim (`resolveKeptChange`). The per-item
+  // refund below takes the same field.
+  keptChange: refundKeptChangeSchema.optional(),
 });
 export type SaleRefundInput = z.infer<typeof saleRefundSchema>;
 
@@ -233,6 +242,11 @@ export const saleRefundItemSchema = z.object({
   unitExtras: refundUnitExtrasSchema.optional(),
   // LIRA-236 — see `saleRefundSchema`'s own doc.
   exchangeRate: refundExchangeRateSchema,
+  // Owner decision 2026-10-07 — refund kept change on the per-item refund:
+  // the SAME object `saleRefundSchema` takes (`refundKeptChangeSchema`,
+  // rule 14). Zod only shapes it; `SalesRepository.refundSaleItem` checks
+  // the claim (`resolveKeptChange`, payer "payout").
+  keptChange: refundKeptChangeSchema.optional(),
 });
 export type SaleRefundItemInput = z.infer<typeof saleRefundItemSchema>;
 

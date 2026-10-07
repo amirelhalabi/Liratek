@@ -26,6 +26,8 @@ import {
   // LIRA-236 — the cashier-typed exchange rate, shared (rule 14) with every
   // other refund payload schema.
   refundExchangeRateSchema,
+  // Owner decision 2026-10-07 — refund kept change (POST /:id/refund).
+  refundKeptChangeSchema,
   // Rule 19c sweep — REST path-param variant of `sessionBasketReversalSchema`
   // (z.coerce, same pattern as `saleIdParamSchema`), used by
   // POST /session-basket/:sessionId/void|refund below.
@@ -371,11 +373,34 @@ router.post(
         exchangeRate = parsed.data;
       }
 
+      // Owner decision 2026-10-07 — refund kept change. Same "validate only
+      // when present" discipline and the SAME core schema the IPC handler's
+      // fifth positional argument uses (rule 14); the repository checks the
+      // claim itself (`resolveKeptChange`).
+      let keptChange: { usd?: number; lbp?: number } | undefined;
+      if (req.body?.keptChange !== undefined && req.body?.keptChange !== null) {
+        const parsed = refundKeptChangeSchema.safeParse(req.body.keptChange);
+        if (!parsed.success) {
+          const firstError = parsed.error.issues[0];
+          // Rule 19c — HTTP 200 envelope, like every block above.
+          res.json({
+            success: false,
+            error: firstError?.message ?? "Invalid keptChange",
+          });
+          return;
+        }
+        keptChange = {
+          usd: parsed.data.kept_change_usd,
+          lbp: parsed.data.kept_change_lbp,
+        };
+      }
+
       const txnService = getTransactionService();
       const refundId = txnService.refundTransaction(id, userId, {
         refundLegs,
         refundUnitExtras,
         exchangeRate,
+        keptChange,
       });
       // Mirrors transactionHandlers.ts's transactions:refund audit
       // (refund/transaction) — reaching here means the refund committed
@@ -385,7 +410,13 @@ router.post(
         entity_type: "transaction",
         entity_id: String(id),
         summary: `Refunded transaction #${id}`,
-        metadata: { refundId, refundLegs, refundUnitExtras, exchangeRate },
+        metadata: {
+          refundId,
+          refundLegs,
+          refundUnitExtras,
+          exchangeRate,
+          keptChange,
+        },
       });
       res.json({ success: true, refundId });
     } catch (error) {
@@ -549,6 +580,9 @@ router.post(
         unitExtras: req.body?.unitExtras,
         clientDay: req.body?.clientDay,
         exchangeRate: req.body?.exchangeRate,
+        // Owner decision 2026-10-07 — refund kept change (schema keys).
+        kept_change_usd: req.body?.kept_change_usd,
+        kept_change_lbp: req.body?.kept_change_lbp,
       });
       if (!parsed.success) {
         const firstError = parsed.error.issues[0];

@@ -24,6 +24,7 @@ import {
   TransactionRepository,
   getTransactionRepository,
 } from "../repositories/TransactionRepository.js";
+import type { KeptChange } from "../repositories/moneyPosting.js";
 import logger from "../utils/logger.js";
 
 export class TransactionService {
@@ -219,6 +220,8 @@ export class TransactionService {
       /** LIRA-236 — forwarded verbatim; see `TransactionRepository
        *  .refundBySaleId`'s own doc. */
       exchangeRate?: number;
+      /** Owner decision 2026-10-07 — refund kept change, forwarded. */
+      keptChange?: KeptChange;
     },
   ): number {
     try {
@@ -259,6 +262,9 @@ export class TransactionService {
       /** LIRA-236 — forwarded verbatim; see `TransactionRepository
        *  .refundTransaction`'s own doc. */
       exchangeRate?: number;
+      /** Owner decision 2026-10-07 — refund kept change, forwarded
+       *  verbatim; the repository checks it (`resolveKeptChange`). */
+      keptChange?: KeptChange;
     },
   ): number {
     try {

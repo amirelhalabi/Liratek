@@ -739,7 +739,13 @@ export function CryptoForm({
           paymentInputKey={paymentInputKey}
           initialPaymentMethod={initialPaymentMethod}
           onPaymentChange={onPaymentLinesChange}
-          {...(onReturnChange ? { onReturnChange } : {})}
+          // A cash-out (RECEIVE) is a payout (owner decisions 2026-10-07):
+          // no change (OUT) legs ever; a small shortfall is kept as profit
+          // instead (FinancialServiceRepository verifies it).
+          {...(cryptoType === "RECEIVE" ? { payer: "payout" as const } : {})}
+          {...(onReturnChange && cryptoType !== "RECEIVE"
+            ? { onReturnChange }
+            : {})}
           {...(onKeptChange ? { onKeptChange } : {})}
           // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 — mode C's counter-flow
           // section: the customer's separately-paid fee, independent of the

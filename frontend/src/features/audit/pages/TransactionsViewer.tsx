@@ -66,7 +66,11 @@ import {
 } from "@/shared/utils/serviceReceipt";
 import { ReceiptPreviewModal } from "@/shared/components/ReceiptPreviewModal";
 import { RefundMethodModal } from "../components/RefundMethodModal";
-import { isSwapTransactionType } from "@liratek/core";
+import {
+  isSwapTransactionType,
+  REFUND_KEPT_CHANGE_TYPES,
+  type RefundKeptChangeInput,
+} from "@liratek/core";
 import { RefundQuantityModal } from "../components/RefundQuantityModal";
 import {
   SessionSaleLinePickerModal,
@@ -300,14 +304,21 @@ export default function TransactionsViewer({
       refundLegs?: RefundLegOverride[],
       unitExtras?: RefundUnitExtraOverride[],
       exchangeRate?: number,
+      keptChange?: RefundKeptChangeInput,
     ) => {
       try {
-        const res = await refundTransaction(
-          id,
-          refundLegs,
-          unitExtras,
-          exchangeRate,
-        );
+        // The kept-change argument rides only when present, so a refund
+        // without it keeps the exact pre-existing call shape.
+        const res =
+          keptChange !== undefined
+            ? await refundTransaction(
+                id,
+                refundLegs,
+                unitExtras,
+                exchangeRate,
+                keptChange,
+              )
+            : await refundTransaction(id, refundLegs, unitExtras, exchangeRate);
         if (res.success) load();
         else
           alert(describeActionFailure(res.error, "Refunding a transaction"));
@@ -461,11 +472,18 @@ export default function TransactionsViewer({
       refundLegs: RefundLegOverride[] | undefined,
       unitExtras?: RefundUnitExtraOverride[],
       exchangeRate?: number,
+      keptChange?: RefundKeptChangeInput,
     ) => {
       if (!refundModalRow) return;
       setIsRefunding(true);
       try {
-        await doRefund(refundModalRow.id, refundLegs, unitExtras, exchangeRate);
+        await doRefund(
+          refundModalRow.id,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+        );
       } finally {
         setIsRefunding(false);
         setRefundModalRow(null);
@@ -609,6 +627,7 @@ export default function TransactionsViewer({
         ...(saleItemId != null ? { saleItemId } : {}),
         ...(quantity != null ? { quantity } : {}),
         ...(row.client_name ? { clientLabel: row.client_name } : {}),
+        transactionType: row.type,
       });
     },
     [sessionItemRefund],
@@ -979,6 +998,11 @@ export default function TransactionsViewer({
           // outright (never blocks the popup itself — see `handleRefund`).
           exchangeRate={refundBookedRate?.bookedRate ?? fallbackRate ?? 89000}
           bookedRateSource={refundBookedRate?.bookedRateSource ?? "fallback"}
+          // Refund kept change (owner decision 2026-10-07) — only for the
+          // types the server allows (one shared list, rule 14).
+          allowKeptChange={REFUND_KEPT_CHANGE_TYPES.includes(
+            refundModalRow.type,
+          )}
           isSubmitting={isRefunding}
           onCancel={() => {
             setRefundModalRow(null);
@@ -1051,6 +1075,10 @@ export default function TransactionsViewer({
           // LIRA-236 — re-preview (account reduction + remainder) at the
           // typed rate, debounced inside the hook.
           onRateChange={sessionItemRefund.changeRate}
+          // Refund kept change — same shared type list as above.
+          allowKeptChange={REFUND_KEPT_CHANGE_TYPES.includes(
+            sessionItemRefund.preview.target.transactionType ?? "",
+          )}
           isSubmitting={sessionItemRefund.submitting}
           onCancel={() => {
             setSessionItemRefundUnits([]);

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { CounterpartySettleModal, type PaymentLine } from "@liratek/ui";
 import type { Money } from "@liratek/ui";
+import type { RefundKeptChangeInput } from "@liratek/core";
 import type { TransactionPaymentLeg } from "../cashFlow";
 import {
   buildDefaultRefundLines,
@@ -8,6 +9,7 @@ import {
   linesMatchDefault,
   netByCurrency,
   toRefundLegs,
+  validateRefundKeptChange,
   validateRefundValue,
   type RefundLegOverride,
   type RefundUnitExtraOverride,
@@ -89,6 +91,14 @@ export interface RefundMethodModalProps {
    *  rate (account reduction + remainder legs). Omitted by a caller with
    *  nothing rate-dependent to re-fetch. */
   onRateChange?: (rate: number) => void;
+  /** Owner decision 2026-10-07 — refund kept change: this refund may hand
+   *  back a little less cash than owed (under $1 / 100,000 LBP, same
+   *  currency, cash only) and the shop keeps the leftover as profit. The
+   *  caller decides from the refunded row's type
+   *  (`REFUND_KEPT_CHANGE_TYPES`, the server's own list) — and only a
+   *  caller whose transport carries the kept amount may pass `true`.
+   *  Default false: the exact amount is required, as before. */
+  allowKeptChange?: boolean;
   isSubmitting?: boolean;
   onCancel: () => void;
   /**
@@ -109,11 +119,17 @@ export interface RefundMethodModalProps {
    * TOTAL VALUE at that rate instead of the old per-currency rule. An
    * untouched confirm (`refundLegs === undefined`) never sends a rate
    * either, matching "today's default behaviour is unchanged".
+   *
+   * `keptChange` (owner decision 2026-10-07) is a FOURTH argument, passed
+   * only when the shop keeps a leftover (always alongside a real
+   * `refundLegs` override and the rate). Field names are the core schema's
+   * (`refundKeptChangeSchema`).
    */
   onConfirm: (
     refundLegs: RefundLegOverride[] | undefined,
     unitExtras?: RefundUnitExtraOverride[],
     exchangeRate?: number,
+    keptChange?: RefundKeptChangeInput,
   ) => void;
 }
 
@@ -144,6 +160,7 @@ export function RefundMethodModal({
   bookedRateSource,
   entityLabel = "transaction",
   onRateChange,
+  allowKeptChange = false,
   isSubmitting = false,
   onCancel,
   onConfirm,
@@ -165,6 +182,11 @@ export function RefundMethodModal({
   // rendering AND the confirm-disabled rule on this, so a units-only refund
   // (no legs, but linked phones to flag) can still be confirmed.
   const hasLegsToOverride = defaults.length > 0;
+  // Owner decision 2026-10-07 — refund kept change needs a refund in ONE
+  // currency (the server refuses a mixed one); MultiPaymentInput's payout
+  // mode then reports the small shortfall it keeps.
+  const keptEligible = allowKeptChange && defaults.length === 1;
+  const refundCurrency = defaults[0]?.currencyCode ?? "USD";
 
   const totals: Money[] = useMemo(
     () => defaults.map((d) => ({ currency: d.currencyCode, amount: d.amount })),
@@ -202,13 +224,31 @@ export function RefundMethodModal({
   // immune to that resync — it is set exactly once, the moment the operator
   // types, and nothing after can clear it.
   const rateWasTouchedRef = useRef(false);
+  // What MultiPaymentInput (payout mode) reports the shop keeps — null when
+  // the lines cover the refund, or the shortfall is not a small leftover.
+  const [kept, setKept] = useState<{ usd: number; lbp: number } | null>(null);
 
   const overrideLines = toRefundLegs(currentLines);
-  const validationError = validateRefundValue(
+  const reportedKept = keptEligible ? kept : null;
+  // Payout mode reports ANY small shortfall, including a cross-currency
+  // refund that is a cent or two short — which the value check has always
+  // accepted (LIRA-236 tolerance). So the kept report is used only when it
+  // is keepable (all cash, refund currency); otherwise the plain check
+  // decides, and the cash/currency reason shows only when that fails too.
+  const keptError = validateRefundKeptChange(
+    overrideLines,
+    refundCurrency,
+    reportedKept,
+  );
+  const activeKept = keptError == null ? reportedKept : null;
+  const plainError = validateRefundValue(
     overrideLines,
     originalNet,
     currentRate,
+    activeKept,
   );
+  const validationError =
+    plainError == null ? null : (keptError ?? plainError);
   const isDefault = linesMatchDefault(overrideLines, defaults);
 
   const methodLabel = (code: string): string =>
@@ -221,6 +261,12 @@ export function RefundMethodModal({
         : `${l.amount.toLocaleString()} LBP via ${methodLabel(l.method)}`,
     )
     .join(" + ");
+
+  const setKeptFromMpi = (
+    next: { usd: number; lbp: number } | null,
+  ): void => {
+    setKept(next ? { usd: next.usd, lbp: next.lbp } : null);
+  };
 
   const getUnitFlag = (unitId: number): UnitFlagState =>
     unitFlags[unitId] ?? { isDefective: false, warrantyUntil: "" };
@@ -255,7 +301,15 @@ export function RefundMethodModal({
       finalLegs !== undefined || rateWasTouchedRef.current
         ? currentRate
         : undefined;
-    if (rateArg !== undefined) {
+    const keptArg: RefundKeptChangeInput | undefined =
+      finalLegs !== undefined &&
+      activeKept &&
+      (activeKept.usd > 0 || activeKept.lbp > 0)
+        ? { kept_change_usd: activeKept.usd, kept_change_lbp: activeKept.lbp }
+        : undefined;
+    if (keptArg !== undefined) {
+      onConfirm(finalLegs, unitExtras, rateArg, keptArg);
+    } else if (rateArg !== undefined) {
       onConfirm(finalLegs, unitExtras, rateArg);
     } else if (unitExtras !== undefined) {
       onConfirm(finalLegs, unitExtras);
@@ -312,6 +366,11 @@ export function RefundMethodModal({
               },
               showDiscount: false,
               showPmFee: false,
+              // Refund kept change — the shop hands money OUT, and only a
+              // caller that may keep change wires the report (opt-in).
+              ...(keptEligible
+                ? { payer: "payout" as const, onKeptChange: setKeptFromMpi }
+                : {}),
             }
           : undefined
       }

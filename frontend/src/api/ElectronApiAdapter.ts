@@ -35,6 +35,10 @@ import type {
   // Exchange submit payload (incl. payout kept change), derived from the
   // core schema (rule 21).
   ExchangeSubmitPayload,
+  // Debts repayment / credit cash-out payloads (incl. kept change), derived
+  // from the core schemas (rule 21).
+  AddRepaymentPayload,
+  DebtCashOutPayload,
   // LIRA-258 — loto sell/settle payloads derived from the core schemas
   // (rule 21).
   LotoSellPayload,
@@ -42,6 +46,7 @@ import type {
   LotoCheckpointsSettleBatchPayload,
   // LIRA-262 — "shop used its own stock" expense payload (rule 21).
   CreateStockExpenseInput,
+  CreateExpenseRequest,
 } from "@liratek/core";
 import * as api from "./backendApi";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
@@ -161,7 +166,11 @@ export class ElectronApiAdapter implements ApiAdapter {
     refundLegs?: SaleRefundInput["refundLegs"],
     unitExtras?: SaleRefundInput["unitExtras"],
     exchangeRate?: number,
-  ) => api.refundSale(saleId, refundLegs, unitExtras, exchangeRate);
+    keptChange?: SaleRefundInput["keptChange"],
+  ) =>
+    keptChange !== undefined
+      ? api.refundSale(saleId, refundLegs, unitExtras, exchangeRate, keptChange)
+      : api.refundSale(saleId, refundLegs, unitExtras, exchangeRate);
   /** Refund a specific line item off a sale, by quantity (admin only).
    *  LIRA-231: refundLegs optional. 2026-09-26: unitExtras optional too.
    *  LIRA-236: exchangeRate optional too. */
@@ -172,15 +181,26 @@ export class ElectronApiAdapter implements ApiAdapter {
     refundLegs?: SaleRefundItemInput["refundLegs"],
     unitExtras?: SaleRefundItemInput["unitExtras"],
     exchangeRate?: number,
+    keptChange?: SaleRefundItemInput["keptChange"],
   ) =>
-    api.refundSaleItem(
-      saleId,
-      saleItemId,
-      refundQuantity,
-      refundLegs,
-      unitExtras,
-      exchangeRate,
-    );
+    keptChange !== undefined
+      ? api.refundSaleItem(
+          saleId,
+          saleItemId,
+          refundQuantity,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+          keptChange,
+        )
+      : api.refundSaleItem(
+          saleId,
+          saleItemId,
+          refundQuantity,
+          refundLegs,
+          unitExtras,
+          exchangeRate,
+        );
   /** LIRA-147 — admin-only "Undo refund" for a standalone per-item refund. */
   undoItemRefund = (
     refundTransactionId: SaleUndoItemRefundInput["refundTransactionId"],
@@ -205,7 +225,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   getClientDebtHistory = (clientId: number) =>
     api.getClientDebtHistory(clientId);
   getClientDebtTotal = (clientId: number) => api.getClientDebtTotal(clientId);
-  addRepayment = (payload: any) => api.addRepayment(payload);
+  addRepayment = (payload: AddRepaymentPayload) => api.addRepayment(payload);
   debtWriteOff = (payload: {
     clientId: number;
     amountUSD: number;
@@ -213,7 +233,7 @@ export class ElectronApiAdapter implements ApiAdapter {
     reason?: string;
   }) => api.debtWriteOff(payload);
   getClientBalance = (clientId: number) => api.getClientBalance(clientId);
-  cashOut = (payload: any) => api.debtCashOut(payload);
+  cashOut = (payload: DebtCashOutPayload) => api.debtCashOut(payload);
   addAccountEntry = (payload: any) => api.debtAccountEntry(payload);
   consumeCredit = (payload: {
     clientId: number;
@@ -243,7 +263,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Expenses
   // ---------------------------------------------------------------------------
   getTodayExpenses = () => api.getTodayExpenses();
-  addExpense = (payload: any) => api.addExpense(payload);
+  addExpense = (payload: CreateExpenseRequest) => api.addExpense(payload);
   deleteExpense = (id: number) => api.deleteExpense(id);
   /** LIRA-262 — the shop used one of its own items (expense at cost, no
    *  cash moves). */
@@ -609,11 +629,18 @@ export class ElectronApiAdapter implements ApiAdapter {
   /** LIRA-236 — the Transactions-page refund modal's `bookedRate`/
    *  `bookedRateSource` default. */
   getRefundBookedRate = (id: number) => api.getRefundBookedRate(id);
+  // Forwards EVERY argument the ApiAdapter declares. It used to stop at
+  // `unitExtras`, silently dropping LIRA-236's `exchangeRate` for any caller
+  // going through `useApi()` (a shorter parameter list still satisfies the
+  // interface, so TypeScript never flagged it).
   refundTransaction = (
     id: number,
     refundLegs?: api.RefundLegOverride[],
     unitExtras?: api.RefundUnitExtraOverride[],
-  ) => api.refundTransaction(id, refundLegs, unitExtras);
+    exchangeRate?: number,
+    keptChange?: Parameters<typeof api.refundTransaction>[4],
+  ) =>
+    api.refundTransaction(id, refundLegs, unitExtras, exchangeRate, keptChange);
   voidCheckoutGroup = (groupId: string) => api.voidCheckoutGroup(groupId);
   /** LIRA-201c (OWNER_NOTES_REMAINING_BUILD.md #11-C) — whole-basket
    *  void/refund, replacing the "Basket item — see admin to reverse" dead

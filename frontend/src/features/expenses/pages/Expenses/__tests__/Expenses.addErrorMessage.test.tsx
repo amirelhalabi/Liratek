@@ -76,8 +76,9 @@ jest.mock("@liratek/ui", () => ({
   }: {
     onChange: (lines: { id: string; method: string; currencyCode: string; amount: number }[]) => void;
   }) => {
-    // Fire once on mount with a valid single CASH/USD line so
-    // handleAddExpense's "amount === 0" guard doesn't block the submit.
+    // Fire once on mount with a valid single CASH/USD line (cash handed =
+    // the $25 bill typed below) so handleAddExpense's guards don't block
+    // the submit.
     // eslint-disable-next-line react-hooks/rules-of-hooks
     require("react").useEffect(() => {
       onChange([{ id: "1", method: "CASH", currencyCode: "USD", amount: 25 }]);
@@ -140,6 +141,10 @@ describe("Expenses — add-expense failure is surfaced with the real reason", ()
     fireEvent.change(screen.getByLabelText(/description/i), {
       target: { value: "Office paper" },
     });
+    // Owner decision 2026-10-07: the bill is its own field now.
+    fireEvent.change(screen.getByLabelText(/bill amount/i), {
+      target: { value: "25" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /record expense/i }));
 
     await waitFor(() => {
@@ -161,6 +166,10 @@ describe("Expenses — add-expense failure is surfaced with the real reason", ()
 
     fireEvent.change(screen.getByLabelText(/description/i), {
       target: { value: "Office paper" },
+    });
+    // Owner decision 2026-10-07: the bill is its own field now.
+    fireEvent.change(screen.getByLabelText(/bill amount/i), {
+      target: { value: "25" },
     });
     fireEvent.click(screen.getByRole("button", { name: /record expense/i }));
 

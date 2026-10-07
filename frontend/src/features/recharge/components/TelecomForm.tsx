@@ -1094,7 +1094,14 @@ export function TelecomForm({
                     }
                   }}
                   onDiscountChange={handleDiscountChange}
-                  {...(onReturnChange ? { onReturnChange } : {})}
+                  // Buy-back is a payout (owner decisions 2026-10-07): the
+                  // shop hands the customer money, so no change (OUT) legs
+                  // ever — a small shortfall is kept as profit instead
+                  // (processCreditBuyback verifies it).
+                  {...(isCreditBuyback ? { payer: "payout" as const } : {})}
+                  {...(onReturnChange && !isCreditBuyback
+                    ? { onReturnChange }
+                    : {})}
                   {...(onKeptChange ? { onKeptChange } : {})}
                   hasClient={!!telecomClientId}
                   // Charge flow: shortfall → debt on the resolved client.

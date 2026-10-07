@@ -23,6 +23,7 @@ interface RepaymentPaymentLeg {
   method: string;
   currencyCode: string;
   amount: number;
+  direction?: "IN" | "OUT";
 }
 
 interface RepaymentData {
@@ -40,6 +41,12 @@ interface RepaymentData {
   // Y, discount Z") — see packages/core/src/validators/debt.ts's
   // addRepaymentSchema `discount` field.
   discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+  // Kept change claim (payer "customer") — verified by
+  // DebtRepository.addRepayment (resolveKeptChange) before it is booked.
+  keptChangeUSD?: number;
+  keptChangeLBP?: number;
+  tender_exchange_rate?: number;
+  transaction_time?: string;
 }
 
 export function registerDebtHandlers(): void {
@@ -106,9 +113,15 @@ export function registerDebtHandlers(): void {
           method: string;
           currencyCode: string;
           amount: number;
+          direction?: "IN" | "OUT";
         }>;
         note?: string;
         transaction_time?: string;
+        tender_exchange_rate?: number;
+        /** Kept change claim (payer "payout") — verified by
+         *  DebtRepository.cashOutCredit (resolveKeptChange). */
+        keptChangeUSD?: number;
+        keptChangeLBP?: number;
       },
     ) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);

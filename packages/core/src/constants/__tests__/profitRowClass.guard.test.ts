@@ -79,6 +79,7 @@ describe("classifyProfitModuleRow", () => {
     ["COUNTERPARTY_DISCOUNT", PROFIT_ROW_CLASS.PROFIT_ONLY],
     ["SUPPLIER_COMMISSION", PROFIT_ROW_CLASS.PROFIT_ONLY],
     ["TOPUP_BUYBACK", PROFIT_ROW_CLASS.PROFIT_ONLY],
+    ["HOLD_MONEY", PROFIT_ROW_CLASS.PROFIT_ONLY],
   ])(
     "%s is PROFIT_ONLY (revenue 0 and cost 0 by construction)",
     (module, expected) => {

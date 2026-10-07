@@ -149,6 +149,7 @@ function makeFakeRepo(overrides: FakeOverrides = {}): ProfitRepository {
     getCounterpartyDiscountTotals: () => zeroDiscount,
     getSupplierCommissionTotals: () => zeroSupplierCommission,
     getTopupBuybackProfit: () => zeroTopupBuyback,
+    getHoldMoneyProfit: () => zeroTopupBuyback,
     getExpenseTotals: () => zeroExpense,
     getDeferredProfit: () => zeroDeferred,
     getPendingSaleProfit: (): PendingSaleProfitRow[] => [],
