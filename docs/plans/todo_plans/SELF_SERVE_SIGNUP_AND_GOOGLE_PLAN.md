@@ -5,6 +5,7 @@
 - **LIRA-278:** self-serve sign-up without Turnstile (Phase 1).
 - **LIRA-279:** users get an email address (Phase 2). This is also the prerequisite for LIRA-275 and LIRA-276.
 - **LIRA-280:** Sign in / Sign up with Google (Phase 3).
+- **LIRA-281:** invite users to a shop by email from Settings → Users (Phase 2b).
 
 ---
 
@@ -77,6 +78,22 @@ This is shared groundwork for password reset (LIRA-275 and LIRA-276) and Google 
 - **Settings → Users:** an optional email field per user. Verifying it reuses the LIRA-267 token and outbox: we send a link, and opening it marks the address verified.
 - **Desktop:** the column exists (the schema is shared) but nothing uses it, because email is web-only.
 
+### Phase 2b — invite users by email (LIRA-281, medium)
+
+Settings → **Users** gets **Invite by email** next to the existing **Add user**. Manual accounts with a password keep working as they do now.
+
+- **The invite:** the shop admin enters an **email** and a **role**. The invitee receives a single-use link that expires in 72 hours. It opens `https://<slug>.liratek.shop/#/join?invite=…`, where they choose a **username and password**. Their user is created in **that shop**, with the email filled in and already verified.
+- **A separate table, `user_invitations`.** It is **tenant-scoped**: it has `tenant_id`, and the tenant-scoping check applies to it. `signup_invitations` stays platform-level, because it creates shops.
+  - Columns: `email`, `role`, `token_hash`, `invited_by_user_id`, `expires_at`, `used_at`, `used_by_user_id`, `revoked_at`, `email_outbox_id`, `created_at`, `updated_at`.
+- **Reused from LIRA-267:** `generateToken`/`hashToken`, the email outbox and its retries, the template renderer, and the claim → create → finalize step that makes a link work only once.
+- **A new email template, `user-invite`:** "<Shop name> invited you to LiraTek". The shop name is safe to include here, because only a shop admin can send this invite.
+- **Rules:**
+  - Refuse an email that already belongs to a user in that shop.
+  - Only roles the inviting admin is allowed to grant.
+  - A pending list in the Users tab with revoke and resend, like the platform Invitations list.
+- **Web-only.** Desktop keeps manual accounts. Record this as an exception, like LIRA-267.
+- **Reset password (LIRA-275/276) uses the same email** once a user has one.
+
 ---
 
 ## Phase 3 — Continue with Google (LIRA-280, large: use Spec Kit)
@@ -121,7 +138,8 @@ Shops sign in at their own subdomain (`<slug>.liratek.shop`). Google OAuth requi
 
 ```
 Phase 1 (LIRA-278) ── independent, ship first
-Phase 2 (LIRA-279) ── needed by LIRA-275/276 and by Phase 3
+Phase 2 (LIRA-279) ── needed by LIRA-275/276, LIRA-281 and Phase 3
+Phase 2b (LIRA-281) ── after Phase 2
 Phase 3 (LIRA-280) ── after Phase 2; Spec Kit (/speckit-specify --number 280)
 ```
 
@@ -130,7 +148,10 @@ Phase 3 (LIRA-280) ── after Phase 2; Spec Kit (/speckit-specify --number 280
 1. **Phase 1:**
    - The self-serve daily cap is **20**.
    - Self-serve emails **leave out** the visitor's shop name. It only prefills the form behind the link.
-2. **Phase 2:** open. The recommendation is a user email that is unique per shop.
+2. **Phase 2:**
+   - A user's email is **unique per shop**.
+   - Each shop's **admin account is linked to the email used at sign-up**.
+   - Other users are added in Settings → Users, either by **email invite** (new, LIRA-281) or as a **manual account with a password** (already works).
 3. **Phase 3:**
    - A Google sign-up **still sets a password**.
    - Existing users link Google **from Settings only**, never automatically.
