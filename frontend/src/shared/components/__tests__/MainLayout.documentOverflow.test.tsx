@@ -46,10 +46,14 @@ jest.mock("../layouts/HomeViewLayout", () => ({
   ),
 }));
 
+// Rule 25: one stable adapter object (MainLayout reads useApi() for the
+// after-sign-in Checkpoint window; this suite never signs in, so it is unused).
+const stableApi = {};
 jest.mock("@liratek/ui", () => ({
   __esModule: true,
   NotificationCenter: () => null,
   appEvents: { on: jest.fn(() => jest.fn()) },
+  useApi: () => stableApi,
 }));
 
 jest.mock("@/features/closing/pages/Checkpoint", () => ({

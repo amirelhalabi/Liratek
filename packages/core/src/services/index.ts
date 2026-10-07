@@ -569,6 +569,7 @@ export {
   UserInvitationUsedError,
   UserInviteRateLimitedError,
   UserInvitationNotFoundError,
+  UserInviteShopInactiveError,
   userInviteIdempotencyKey,
   USER_INVITE_CLAIM_STALE_MS,
   USER_INVITE_DAILY_LIMIT,
@@ -577,6 +578,7 @@ export {
   USER_INVITE_TEMPLATE,
   USER_INVITE_URL_KEY,
   USER_INVITE_INVALID_MESSAGE,
+  USER_INVITE_SHOP_INACTIVE_MESSAGE,
 } from "./UserInvitationService.js";
 export type {
   UserInvitationView,

@@ -5,6 +5,7 @@ import HomeViewLayout from "./HomeViewLayout";
 import { NotificationCenter, appEvents } from "@liratek/ui";
 
 import CheckpointModal from "@/features/closing/pages/Checkpoint";
+import { useAutoCheckpointAfterSignIn } from "@/features/closing/hooks/useAutoCheckpointAfterSignIn";
 
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
@@ -118,7 +119,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
     return () => window.removeEventListener("layout-mode-changed", handler);
   }, []);
 
-  // Auto-open Checkpoint after login if opening is required — only when session management is enabled
+  // After a FRESH sign-in (not a refresh), open the Checkpoint window once
+  // for the first drawer not counted today — admins only, and only when the
+  // shop uses checkpoints. See useAutoCheckpointAfterSignIn.
+  useAutoCheckpointAfterSignIn(setCheckpointDrawer);
 
   const layoutContent =
     layoutMode === "page-view" ? (

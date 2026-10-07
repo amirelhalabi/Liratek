@@ -33,6 +33,7 @@ import {
   ErrorCodes,
   USER_INVITE_INVALID_MESSAGE,
   USER_INVITE_TTL_HOURS,
+  UserInviteShopInactiveError,
   type UserInviteSendContext,
 } from "@liratek/core";
 import {
@@ -82,7 +83,10 @@ function genericRefusal(res: express.Response): void {
 // =============================================================================
 
 // POST /check — is this /#/join link usable? Token in the BODY, never the
-// path. Every unusable link gets the same 200 + success:false.
+// path. Every unusable link gets the same 200 + success:false — except an
+// otherwise-valid link into a shop whose subscription has lapsed to
+// read-only, which says so (SHOP_NOT_ACTIVE): that link is not dead, it
+// works again once the shop renews.
 router.post(
   "/check",
   userInviteLinkLimiter,
@@ -104,6 +108,10 @@ router.post(
       }
       res.json(createSuccessResponse(result));
     } catch (error) {
+      if (error instanceof UserInviteShopInactiveError) {
+        res.json(createErrorResponse(error.code, error.message));
+        return;
+      }
       logger.error({ error }, "User invite check failed");
       genericRefusal(res);
     }

@@ -40,6 +40,13 @@ interface AuthContextType {
   logout: () => Promise<void>;
   needsOpening: boolean;
   clearOpeningFlag: () => void;
+  /** True right after a FRESH sign-in (password login, or the boot that
+   * follows a Google hand-off) until something consumes it with
+   * `clearFreshSignIn()`. Never set by a page refresh. MainLayout uses it to
+   * open the Checkpoint window once per sign-in. Deliberately separate from
+   * `needsOpening`, which is false as soon as ANY drawer was counted today. */
+  freshSignIn: boolean;
+  clearFreshSignIn: () => void;
   clearSetupRequired: () => void;
   /** True in a tab that booted from a "Connect as admin" handoff (web-only —
    * see features/admin). Read fresh from sessionStorage on every render, so
@@ -58,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSetupRequired, setIsSetupRequired] = useState(false);
   const [needsOpening, setNeedsOpening] = useState(false);
+  const [freshSignIn, setFreshSignIn] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   // Read fresh every render (sessionStorage, not React state) — correct
@@ -137,7 +145,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               setUser(result.user);
               // A boot right after a Google hand-off is a fresh sign-in:
               // same post-sign-in step as login(). A plain refresh is not.
-              if (consumeFreshSignIn()) await checkOpeningBalance();
+              if (consumeFreshSignIn()) {
+                setFreshSignIn(true);
+                await checkOpeningBalance();
+              }
             }
           } catch {
             // ignore
@@ -176,6 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setSessionToken(null);
       setNeedsOpening(false);
+      setFreshSignIn(false);
       localStorage.removeItem("sessionToken");
     };
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
@@ -232,6 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setSessionToken(null);
       setNeedsOpening(false);
+      setFreshSignIn(false);
       localStorage.removeItem("sessionToken");
     });
 
@@ -254,6 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem("sessionToken", result.sessionToken);
         }
 
+        setFreshSignIn(true);
         // Check if opening balance needs to be set for today.
         await checkOpeningBalance();
 
@@ -299,11 +313,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setSessionToken(null);
     setNeedsOpening(false);
+    setFreshSignIn(false);
     localStorage.removeItem("sessionToken");
   };
 
   const clearOpeningFlag = () => {
     setNeedsOpening(false);
+  };
+
+  const clearFreshSignIn = () => {
+    setFreshSignIn(false);
   };
 
   const clearSetupRequired = () => {
@@ -320,6 +339,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         needsOpening,
+        freshSignIn,
+        clearFreshSignIn,
         clearOpeningFlag,
         clearSetupRequired,
         isImpersonating,

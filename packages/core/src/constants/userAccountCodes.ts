@@ -24,6 +24,9 @@ export const USER_ACCOUNT_CODES = {
   USER_INVITATION_USED: "USER_INVITATION_USED",
   /** No such user / invite in this shop. */
   NOT_FOUND: "NOT_FOUND",
+  /** The invite is otherwise valid, but its shop's subscription has lapsed
+   * to read-only: the link works again once the shop renews. */
+  SHOP_NOT_ACTIVE: "SHOP_NOT_ACTIVE",
 } as const;
 
 export type UserAccountCode =

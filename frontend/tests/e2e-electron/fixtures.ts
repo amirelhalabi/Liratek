@@ -385,6 +385,24 @@ export const test = base.extend<
         await sharedPage.waitForURL((u) => !u.hash.includes("/login"), {
           timeout: 15_000,
         });
+        // A fresh admin sign-in opens the Checkpoint window for the first
+        // drawer not counted today (useAutoCheckpointAfterSignIn); close it
+        // the way a person would, or its backdrop blocks every later click.
+        // Same step as tests/e2e-web/fixtures.ts `closeAutoCheckpoint`.
+        const autoCheckpoint = sharedPage.getByRole("heading", {
+          name: /^Checkpoint — /,
+        });
+        const opened = await autoCheckpoint
+          .waitFor({ state: "visible", timeout: 10_000 })
+          .then(() => true)
+          .catch(() => false);
+        if (opened) {
+          await sharedPage
+            .locator("div.border-b", { has: autoCheckpoint })
+            .getByRole("button")
+            .click();
+          await autoCheckpoint.waitFor({ state: "hidden", timeout: 10_000 });
+        }
       }
       // eslint-disable-next-line react-hooks/rules-of-hooks
       await use(sharedPage);

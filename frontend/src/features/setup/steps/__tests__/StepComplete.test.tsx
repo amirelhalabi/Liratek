@@ -21,6 +21,7 @@ const mockResetWizard = jest.fn();
 const mockSetStep = jest.fn();
 const mockLogin = jest.fn();
 const mockClearSetupRequired = jest.fn();
+const mockClearFreshSignIn = jest.fn();
 const mockCompleteSetup = jest.fn();
 const mockCreateCheckpoint = jest.fn();
 const mockSetDrawerCurrencies = jest.fn();
@@ -39,6 +40,7 @@ jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({
     login: mockLogin,
     clearSetupRequired: mockClearSetupRequired,
+    clearFreshSignIn: mockClearFreshSignIn,
   }),
 }));
 
@@ -87,6 +89,20 @@ describe("StepComplete", () => {
     expect(mockCompleteSetup).toHaveBeenCalledWith(mockPayload);
     expect(mockLogin).toHaveBeenCalledWith("admin", "pw");
     expect(mockSetDrawerCurrencies).not.toHaveBeenCalled();
+  });
+
+  // The setup's own auto-login is not a person signing in, and the setup has
+  // just counted every drawer (the baseline checkpoint) — so it must not
+  // trigger the after-sign-in Checkpoint window.
+  it("consumes the fresh-sign-in signal its own auto-login raised", async () => {
+    render(<StepComplete />);
+    fireEvent.click(screen.getByRole("button", { name: /Launch App/ }));
+
+    await waitFor(() => expect(mockCreateCheckpoint).toHaveBeenCalled());
+    expect(mockClearFreshSignIn).toHaveBeenCalledTimes(1);
+    expect(mockClearFreshSignIn.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockLogin.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("never sends a bare MTC/Alfa row in the initial checkpoint's amounts, even when drawer_amounts somehow carries one", async () => {

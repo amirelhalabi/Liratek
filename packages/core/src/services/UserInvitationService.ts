@@ -66,6 +66,7 @@ import {
   isAppError,
 } from "../utils/errors.js";
 import { USER_ACCOUNT_CODES } from "../constants/userAccountCodes.js";
+import { getSubscriptionService } from "./SubscriptionService.js";
 import { authLogger } from "../utils/logger.js";
 import {
   formatInviteExpiry,
@@ -100,6 +101,14 @@ export const USER_INVITE_URL_KEY = "inviteUrl";
  */
 export const USER_INVITE_INVALID_MESSAGE =
   "This invite link is not valid. Ask the shop for a new invite.";
+
+/**
+ * The refusal for an otherwise-valid link into a shop whose subscription has
+ * lapsed to read-only. Said plainly (not the generic message) because the
+ * link is NOT dead: it works again once the shop renews, before it expires.
+ */
+export const USER_INVITE_SHOP_INACTIVE_MESSAGE =
+  "This shop is not active right now. Ask the shop owner to renew, then use the link again.";
 
 const ROLE_TEXT: Record<UserInvitationRole, string> = {
   admin: "an admin",
@@ -211,6 +220,14 @@ export class UserInviteRateLimitedError extends AppError {
   }
 }
 
+/** SHOP_NOT_ACTIVE: the invite's shop is read-only (lapsed subscription).
+ * The invite is left pending and unclaimed. */
+export class UserInviteShopInactiveError extends AppError {
+  constructor(message: string = USER_INVITE_SHOP_INACTIVE_MESSAGE) {
+    super(USER_ACCOUNT_CODES.SHOP_NOT_ACTIVE, message, 403, true);
+  }
+}
+
 /** NOT_FOUND for an invite id that is not this shop's. */
 export class UserInvitationNotFoundError extends AppError {
   constructor() {
@@ -251,19 +268,28 @@ export class UserInvitationService {
   private outboxRepo: EmailOutboxRepository;
   private tenantRepo: TenantRepository;
   private newToken: () => string;
+  private shopCanWrite: (tenantId: number) => boolean;
 
+  /**
+   * `shopCanWrite` is the subscription question ("is this shop read-only?"),
+   * injected so the service stays free of policy it does not own: the answer
+   * is `SubscriptionService.canWrite`, which is false ONLY in `read_only`
+   * (grace still works) and true when the shop has no subscription row.
+   */
   constructor(
     inviteRepo: UserInvitationRepository,
     userRepo: UserRepository,
     outboxRepo: EmailOutboxRepository,
     tenantRepo: TenantRepository,
     tokenGenerator: () => string = generateToken,
+    shopCanWrite: (tenantId: number) => boolean = () => true,
   ) {
     this.inviteRepo = inviteRepo;
     this.userRepo = userRepo;
     this.outboxRepo = outboxRepo;
     this.tenantRepo = tenantRepo;
     this.newToken = tokenGenerator;
+    this.shopCanWrite = shopCanWrite;
   }
 
   /**
@@ -419,6 +445,10 @@ export class UserInvitationService {
    * What the /#/join page shows, or null for any unusable link (unknown,
    * expired, used, revoked, claimed by an accept in progress, another
    * shop's, or a shop that is not active). Read-only.
+   *
+   * Throws `UserInviteShopInactiveError` for an otherwise-usable link whose
+   * shop has lapsed to read-only — checked LAST, so a bad link never learns
+   * anything about the shop's subscription.
    */
   check(
     token: string,
@@ -439,6 +469,9 @@ export class UserInvitationService {
     }
     const shop = this.shopById(invite.tenant_id);
     if (!shop || shop.status !== "active") return null;
+    if (!this.isShopWritable(invite.tenant_id)) {
+      throw new UserInviteShopInactiveError();
+    }
     return {
       email: invite.email,
       role: invite.role,
@@ -456,6 +489,8 @@ export class UserInvitationService {
    *     with the one generic message);
    *   - USERNAME_TAKEN / EMAIL_TAKEN_IN_SHOP / ValidationError: thrown, the
    *     claim released.
+   *   - SHOP_NOT_ACTIVE (the shop is read-only): thrown, the claim released
+   *     and NO user created, so the link works again once the shop renews.
    */
   accept(params: AcceptUserInvitationParams): AcceptUserInvitationOutcome {
     const username = params.username.trim();
@@ -480,6 +515,14 @@ export class UserInvitationService {
     if (!shop || shop.status !== "active") {
       this.releaseQuietly(invite, params.now);
       return { ok: false };
+    }
+    if (!this.isShopWritable(tenantId)) {
+      this.releaseQuietly(invite, params.now);
+      authLogger.info(
+        { invitationId: invite.id, tenantId },
+        "User invite refused: the shop is read-only",
+      );
+      throw new UserInviteShopInactiveError();
     }
 
     const passwordHash = hashPassword(params.password);
@@ -529,6 +572,22 @@ export class UserInvitationService {
   }
 
   // ---------------------------------------------------------------------------
+
+  /**
+   * Fails OPEN, like every other subscription check: a failed lookup must
+   * not turn a paying shop's invite away (the middleware's reasoning).
+   */
+  private isShopWritable(tenantId: number): boolean {
+    try {
+      return this.shopCanWrite(tenantId);
+    } catch (error) {
+      authLogger.error(
+        { error, tenantId },
+        "Subscription check failed for a user invite; allowing it",
+      );
+      return true;
+    }
+  }
 
   private shopById(tenantId: number): TenantEntity | null {
     return runWithoutTenant(() => this.tenantRepo.getById(tenantId));
@@ -598,6 +657,8 @@ export function getUserInvitationService(): UserInvitationService {
       getUserRepository(),
       getEmailOutboxRepository(),
       getTenantRepository(),
+      generateToken,
+      (tenantId) => getSubscriptionService().canWrite(tenantId),
     );
   }
   return instance;

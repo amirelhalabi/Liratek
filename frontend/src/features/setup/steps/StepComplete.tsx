@@ -8,7 +8,7 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 
 export default function StepComplete() {
   const { payload, resetWizard, setStep } = useSetup();
-  const { login, clearSetupRequired } = useAuth();
+  const { login, clearSetupRequired, clearFreshSignIn } = useAuth();
   const api = useApi();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -41,6 +41,10 @@ export default function StepComplete() {
         setError(loginResult.error ?? "Login after setup failed");
         return;
       }
+      // This auto-login is the wizard's, not a person signing in, and the
+      // baseline checkpoint below counts every drawer — so it must not open
+      // the after-sign-in Checkpoint window (useAutoCheckpointAfterSignIn).
+      clearFreshSignIn();
 
       // Register any currencies the operator added to a drawer at the drawer-
       // amounts step (e.g. EUR) BEFORE the checkpoint, so the currency is

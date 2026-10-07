@@ -25,6 +25,11 @@ interface FeatureFlags {
 
 interface FeatureFlagContextValue {
   flags: FeatureFlags;
+  /** True once the signed-in shop's own settings have loaded. Until then
+   * `flags` are the DEFAULTS (everything on), so anything that acts once —
+   * like the Checkpoint window after sign-in — must wait for this rather
+   * than trust a default that may be about to flip off. */
+  loaded: boolean;
   refreshFlags: () => Promise<void>;
 }
 
@@ -35,6 +40,7 @@ const DEFAULT_FLAGS: FeatureFlags = {
 
 const FeatureFlagContext = createContext<FeatureFlagContextValue>({
   flags: DEFAULT_FLAGS,
+  loaded: false,
   refreshFlags: async () => {},
 });
 
@@ -61,6 +67,7 @@ export function FeatureFlagProvider({
   const apiRef = useRef(api);
   apiRef.current = api;
   const [flags, setFlags] = useState<FeatureFlags>(DEFAULT_FLAGS);
+  const [loaded, setLoaded] = useState(false);
 
   const refreshFlags = useCallback(async () => {
     try {
@@ -75,6 +82,7 @@ export function FeatureFlagProvider({
         sessionManagement: map.get("feature_session_management") !== "disabled",
         customerSessions: map.get("feature_customer_sessions") !== "disabled",
       });
+      setLoaded(true);
     } catch {
       // Keep defaults on error
     }
@@ -92,7 +100,12 @@ export function FeatureFlagProvider({
   // early fetch always succeeded. Same gate CurrencyContext and
   // MobileServiceItemsProvider already use.
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      // Signed out: the next sign-in (maybe another shop) must not act on
+      // this shop's flags before its own have loaded.
+      setLoaded(false);
+      return;
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshFlags();
     const handler = () => refreshFlags();
@@ -101,7 +114,7 @@ export function FeatureFlagProvider({
   }, [refreshFlags, isAuthenticated]);
 
   return (
-    <FeatureFlagContext.Provider value={{ flags, refreshFlags }}>
+    <FeatureFlagContext.Provider value={{ flags, loaded, refreshFlags }}>
       {children}
     </FeatureFlagContext.Provider>
   );

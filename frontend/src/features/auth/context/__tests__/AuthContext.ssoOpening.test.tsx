@@ -10,7 +10,7 @@
  * The one-shot marker is written by useSsoHandoff just before the reload.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const FRESH_SIGN_IN_KEY = "liratek:fresh-sign-in";
 
@@ -36,12 +36,17 @@ jest.mock("@/utils/logger", () => ({
 import { AuthProvider, useAuth } from "../AuthContext";
 
 function Probe() {
-  const { user, isLoading, needsOpening } = useAuth();
+  const { user, isLoading, needsOpening, freshSignIn, clearFreshSignIn, login, logout } =
+    useAuth();
   return (
     <div>
       <span data-testid="loading">{String(isLoading)}</span>
       <span data-testid="user">{user?.username ?? ""}</span>
       <span data-testid="needs-opening">{String(needsOpening)}</span>
+      <span data-testid="fresh-sign-in">{String(freshSignIn)}</span>
+      <button onClick={() => clearFreshSignIn()}>consume</button>
+      <button onClick={() => void login("boss", "pw")}>login</button>
+      <button onClick={() => void logout()}>logout</button>
     </div>
   );
 }
@@ -80,4 +85,55 @@ it("a plain refresh (no marker) restores the session without the check, as befor
   expect(screen.getByTestId("user").textContent).toBe("boss");
   expect(api.hasOpeningBalanceToday).not.toHaveBeenCalled();
   expect(screen.getByTestId("needs-opening").textContent).toBe("false");
+});
+
+// The auto-open Checkpoint window keys off `freshSignIn`, NOT `needsOpening`:
+// needsOpening is false as soon as ANY drawer was counted today, while the
+// window must still open for a drawer that was not.
+describe("freshSignIn — the one-shot 'this is a new sign-in' signal", () => {
+  it("is set by a fresh Google sign-in, and cleared once consumed", async () => {
+    sessionStorage.setItem(FRESH_SIGN_IN_KEY, "1");
+    api.hasOpeningBalanceToday.mockResolvedValue(true);
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("fresh-sign-in").textContent).toBe("true"));
+    // Set even when the shop already has a checkpoint today.
+    expect(screen.getByTestId("needs-opening").textContent).toBe("false");
+    fireEvent.click(screen.getByText("consume"));
+    expect(screen.getByTestId("fresh-sign-in").textContent).toBe("false");
+  });
+
+  it("is NOT set by a plain refresh", async () => {
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading").textContent).toBe("false"));
+    expect(screen.getByTestId("fresh-sign-in").textContent).toBe("false");
+  });
+
+  it("is set by a password login and cleared by logout", async () => {
+    api.me.mockResolvedValue({ success: false });
+    api.login.mockResolvedValue({ success: true, user: { id: 7, username: "boss", role: "admin" } });
+    api.logout.mockResolvedValue({ success: true });
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading").textContent).toBe("false"));
+    expect(screen.getByTestId("fresh-sign-in").textContent).toBe("false");
+    await act(async () => {
+      fireEvent.click(screen.getByText("login"));
+    });
+    await waitFor(() => expect(screen.getByTestId("fresh-sign-in").textContent).toBe("true"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("logout"));
+    });
+    await waitFor(() => expect(screen.getByTestId("fresh-sign-in").textContent).toBe("false"));
+  });
 });

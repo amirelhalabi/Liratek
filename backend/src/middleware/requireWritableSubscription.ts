@@ -92,7 +92,10 @@ const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * `SUBSCRIPTION_GATE_EXEMPT` carves the public token routes and the
  * access-REMOVING actions out of those prefixes: an invitee opening a link
  * in a browser that holds a lapsed shop's token must still get through, and
- * a lapsed admin must still be able to revoke a pending invite.
+ * a lapsed admin must still be able to revoke a pending invite. Note this
+ * middleware only sees the BROWSER's token; whether the INVITE's own shop
+ * has lapsed is decided in `UserInvitationService.check/accept`, which
+ * refuse a read-only shop with SHOP_NOT_ACTIVE and leave the link pending.
  *
  * DELIBERATELY NOT HERE, each for a stated reason — do not "tidy" one of
  * these in just because its name looks similar to an entry above:

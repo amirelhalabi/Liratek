@@ -150,6 +150,8 @@ beforeAll(async () => {
   core.resetEmailOutboxRepository();
   core.resetUserInvitationRepository();
   core.resetUserInvitationService();
+  core.resetSubscriptionRepository();
+  core.resetSubscriptionService();
 
   const authRoutes = (await import("../auth")).default;
   const userInvitationRoutes = (await import("../userInvitations")).default;
@@ -166,7 +168,9 @@ afterAll(() => {
 beforeEach(() => {
   core.resetTenantContext();
   emailConfigured = true;
-  db.exec(`DELETE FROM user_invitations; DELETE FROM email_outbox;`);
+  db.exec(
+    `DELETE FROM user_invitations; DELETE FROM email_outbox; DELETE FROM tenant_subscriptions WHERE tenant_id IN (2, 3);`,
+  );
   db.exec(
     `DELETE FROM users WHERE username NOT IN ('cell_admin','cell_staff','cell_gone','fone_admin')`,
   );
@@ -525,5 +529,96 @@ describe("POST /api/user-invitations/accept (public)", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(false);
     expect(count(`SELECT COUNT(*) AS n FROM users WHERE username = 'weakling'`)).toBe(0);
+  });
+});
+
+// A shop whose subscription has lapsed to read_only must not gain users
+// through an invite sent before the lapse. The link is not spent: once the
+// shop renews (before the link expires) it works again.
+describe("an invite into a LAPSED (read-only) shop", () => {
+  const SHOP_INACTIVE_MESSAGE =
+    "This shop is not active right now. Ask the shop owner to renew, then use the link again.";
+
+  function setSubscription(tenantId: number, status: "active" | "grace" | "read_only") {
+    db.prepare(
+      `INSERT INTO tenant_subscriptions (tenant_id, plan, status) VALUES (?, 'standard', ?)
+       ON CONFLICT(tenant_id) DO UPDATE SET status = excluded.status`,
+    ).run(tenantId, status);
+  }
+
+  async function pendingInvite(email: string): Promise<string> {
+    const admin = await loginToken("cell_admin");
+    expect((await invite(admin, email)).body.success).toBe(true);
+    return tokenFromOutbox(email).token;
+  }
+
+  it("/check reports the link unusable with the renew message", async () => {
+    const token = await pendingInvite("lapse.check@b.co");
+    setSubscription(2, "read_only");
+
+    const res = await request(app)
+      .post(`${BASE}/check`)
+      .set("Host", host("cellcity"))
+      .send({ token });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: false,
+      error: { code: "SHOP_NOT_ACTIVE", message: SHOP_INACTIVE_MESSAGE },
+    });
+  });
+
+  it("/accept is refused, creates no user, and leaves the invite pending and unclaimed", async () => {
+    const token = await pendingInvite("lapse.accept@b.co");
+    setSubscription(2, "read_only");
+
+    const res = await request(app)
+      .post(`${BASE}/accept`)
+      .set("Host", host("cellcity"))
+      .send(acceptBody({ token, username: "lapsed_joiner", password: NEW_PASSWORD }));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: false,
+      error: { code: "SHOP_NOT_ACTIVE", message: SHOP_INACTIVE_MESSAGE },
+    });
+    expect(count(`SELECT COUNT(*) AS n FROM users WHERE username = 'lapsed_joiner'`)).toBe(0);
+    const inv = db
+      .prepare(`SELECT used_at, used_by_user_id, claimed_at, revoked_at FROM user_invitations`)
+      .get() as Record<string, unknown>;
+    expect(inv).toEqual({ used_at: null, used_by_user_id: null, claimed_at: null, revoked_at: null });
+  });
+
+  it("after the shop renews, the SAME link works again", async () => {
+    const token = await pendingInvite("lapse.renew@b.co");
+    setSubscription(2, "read_only");
+    await request(app)
+      .post(`${BASE}/accept`)
+      .send(acceptBody({ token, username: "renewed_joiner", password: NEW_PASSWORD }));
+
+    setSubscription(2, "active");
+    expect((await request(app).post(`${BASE}/check`).send({ token })).body.success).toBe(true);
+    const ok = await request(app)
+      .post(`${BASE}/accept`)
+      .send(acceptBody({ token, username: "renewed_joiner", password: NEW_PASSWORD }));
+    expect(ok.body.success).toBe(true);
+    expect(count(`SELECT COUNT(*) AS n FROM users WHERE username = 'renewed_joiner'`)).toBe(1);
+  });
+
+  it("an unknown token still gets the generic refusal (the lapse is not revealed for a bad link)", async () => {
+    setSubscription(2, "read_only");
+    const res = await request(app)
+      .post(`${BASE}/check`)
+      .set("Host", host("cellcity"))
+      .send({ token: "nope" });
+    expect(res.body.error.message).toBe(core.USER_INVITE_INVALID_MESSAGE);
+  });
+
+  it("a shop in GRACE (still fully working) is unchanged: check and accept succeed", async () => {
+    const token = await pendingInvite("grace@b.co");
+    setSubscription(2, "grace");
+    expect((await request(app).post(`${BASE}/check`).send({ token })).body.success).toBe(true);
+    const ok = await request(app)
+      .post(`${BASE}/accept`)
+      .send(acceptBody({ token, username: "grace_joiner", password: NEW_PASSWORD }));
+    expect(ok.body.success).toBe(true);
   });
 });

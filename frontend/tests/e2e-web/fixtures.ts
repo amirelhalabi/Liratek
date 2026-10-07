@@ -170,9 +170,37 @@ export async function gotoAndSettle(
   }
 }
 
+/**
+ * Close the Checkpoint window the app opens by itself after an admin's FRESH
+ * sign-in (useAutoCheckpointAfterSignIn: the first drawer not counted today,
+ * when checkpoints are on — the default here). Specs in this suite drive
+ * other pages, and the window's backdrop would intercept their clicks.
+ * Closed the way a person would, with its X button.
+ *
+ * Bounded wait, not a hard expectation: it opens only when some drawer was
+ * not counted today. In this suite that is effectively always (no spec
+ * counts every drawer), so the wait normally ends as soon as it appears;
+ * if a run ever leaves every drawer counted, the login just costs the
+ * timeout. Once closed it does not come back for that sign-in.
+ */
+export async function closeAutoCheckpoint(page: Page): Promise<void> {
+  const heading = page.getByRole("heading", { name: /^Checkpoint — / });
+  try {
+    await heading.waitFor({ state: "visible", timeout: 10_000 });
+  } catch {
+    return;
+  }
+  await page
+    .locator("div.border-b", { has: heading })
+    .getByRole("button")
+    .click();
+  await heading.waitFor({ state: "hidden", timeout: 10_000 });
+}
+
 /** Log in as the seeded admin through the real UI form. */
 export async function loginAsAdmin(page: Page): Promise<void> {
   await loginAsUser(page, "admin", "admin123");
+  await closeAutoCheckpoint(page);
 }
 
 /**

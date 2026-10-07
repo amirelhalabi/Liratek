@@ -130,6 +130,32 @@ describe("JoinShop", () => {
     expect(screen.queryByTestId("join-submit")).toBeNull();
   });
 
+  // A shop whose subscription lapsed: the server's own wording reaches the
+  // person, on the check and on the accept (the link is not dead).
+  const SHOP_INACTIVE =
+    "This shop is not active right now. Ask the shop owner to renew, then use the link again.";
+
+  it("a lapsed shop: the check shows the renew message and no form", async () => {
+    checkUserInvitation.mockResolvedValue({
+      success: false,
+      error: { code: USER_ACCOUNT_CODES.SHOP_NOT_ACTIVE, message: SHOP_INACTIVE },
+    });
+    render(<JoinShop />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(SHOP_INACTIVE);
+    expect(screen.queryByTestId("join-submit")).toBeNull();
+  });
+
+  it("a shop that lapsed after the check: the accept shows the renew message", async () => {
+    acceptUserInvitation.mockResolvedValue({
+      success: false,
+      error: { code: USER_ACCOUNT_CODES.SHOP_NOT_ACTIVE, message: SHOP_INACTIVE },
+    });
+    render(<JoinShop />);
+    await screen.findByText(/Cell City/);
+    fillAndSubmit("newbie");
+    expect(await screen.findByRole("alert")).toHaveTextContent(SHOP_INACTIVE);
+  });
+
   it("no invite in the address: generic message, nothing is checked", async () => {
     searchParams = new URLSearchParams("");
     render(<JoinShop />);
