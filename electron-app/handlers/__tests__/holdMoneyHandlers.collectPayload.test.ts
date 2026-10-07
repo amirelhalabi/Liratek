@@ -82,6 +82,23 @@ describe("hold-money:collect / hold-money:void-pickup (LIRA-214)", () => {
     );
   });
 
+  it("collect keeps the kept-change claim through validation (rule 23 — Zod would strip an unknown key)", async () => {
+    mockService.collectHold.mockReturnValue({ success: true, id: 99 });
+    const handler = handlers.get("hold-money:collect")!;
+
+    await handler({ sender: { id: 1 } }, {
+      id: 5,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 50 }],
+      kept_change_usd: 0.12,
+      kept_change_lbp: 0,
+    });
+
+    expect(mockService.collectHold).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 5, kept_change_usd: 0.12, kept_change_lbp: 0 }),
+      3,
+    );
+  });
+
   it("collect rejects a payload missing id", async () => {
     const handler = handlers.get("hold-money:collect")!;
     const result = (await handler({ sender: { id: 1 } }, {

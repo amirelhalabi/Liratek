@@ -17,6 +17,7 @@ export type {
 export { default as MultiPaymentInput } from "./MultiPaymentInput";
 export type {
   MultiPaymentInputProps,
+  MultiPaymentPayer,
   PaymentLine,
   PaymentMethod,
   Currency,

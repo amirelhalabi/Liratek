@@ -11,6 +11,8 @@ import type {
   // single-item refund payload/preview contracts.
   SessionItemRefundInput,
   SessionItemRefundPreviewInput,
+  // Owner decision 2026-10-07 — refund kept change (transactions.refund).
+  RefundKeptChangeInput,
   // LIRA-258 — loto sell/settle payloads, derived from the core schemas
   // (rule 21) so tender_exchange_rate / voucherCode / split settle legs
   // cannot drift from what the handlers validate.
@@ -19,6 +21,8 @@ import type {
   LotoCheckpointsSettleBatchPayload,
   // LIRA-262 — "shop used its own stock" expense payload (rule 21).
   CreateStockExpenseInput,
+  // Manual expense payload — bill + cash lines + change back (rule 21).
+  CreateExpenseRequest,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -62,14 +66,10 @@ contextBridge.exposeInMainWorld("api", {
 
   // Expenses
   expenses: {
-    add: (data: {
-      description: string;
-      category: string;
-      paid_by_method?: string;
-      amount_usd: number;
-      amount_lbp: number;
-      expense_date: string;
-    }) => ipcRenderer.invoke("db:add-expense", data),
+    // Core's createExpenseSchema input (rule 12/21 — bill, cash lines,
+    // change back, not-returned claim, tender rate, transaction_time).
+    add: (data: CreateExpenseRequest) =>
+      ipcRenderer.invoke("db:add-expense", data),
     // LIRA-262 — the shop used its own stock. Payload is core's
     // `createStockExpenseSchema` input — no amount: the server derives the
     // cost.
@@ -217,6 +217,8 @@ contextBridge.exposeInMainWorld("api", {
         warranty_override_until?: string | null;
       }>,
       exchangeRate?: number,
+      /** Owner decision 2026-10-07 — refund kept change. */
+      keptChange?: RefundKeptChangeInput,
     ) =>
       ipcRenderer.invoke(
         "sales:refund",
@@ -224,6 +226,7 @@ contextBridge.exposeInMainWorld("api", {
         refundLegs,
         unitExtras,
         exchangeRate,
+        keptChange,
       ),
     /** LIRA-231: refundLegs is optional — same contract as `refund` above,
      *  validated against this item's PROPORTIONAL share of the sale.
@@ -245,6 +248,8 @@ contextBridge.exposeInMainWorld("api", {
         warranty_override_until?: string | null;
       }>,
       exchangeRate?: number,
+      /** Owner decision 2026-10-07 — refund kept change. */
+      keptChange?: RefundKeptChangeInput,
     ) =>
       ipcRenderer.invoke("sales:refund-item", {
         saleId,
@@ -253,6 +258,7 @@ contextBridge.exposeInMainWorld("api", {
         refundLegs,
         unitExtras,
         exchangeRate,
+        keptChange,
       }),
     /** LIRA-147 — admin-only "Undo refund" for a standalone per-item
      *  refund. `refundTransactionId` is the REFUND row's own transaction
@@ -318,6 +324,9 @@ contextBridge.exposeInMainWorld("api", {
       keptChangeLBP?: number;
       transaction_time?: string;
       tender_exchange_rate?: number;
+      /** CQ-10 bundled discount — the page sends it; addRepaymentSchema
+       *  carries it (rule 12: the binding type lists every field sent). */
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
     }) => ipcRenderer.invoke("debt:add-repayment", data),
     cashOut: (data: {
       clientId: number;
@@ -332,6 +341,10 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
       transaction_time?: string;
       tender_exchange_rate?: number;
+      /** Kept change (payer "payout"): the small shortfall the shop keeps
+       *  as profit — a claim the server verifies (debtCashOutSchema). */
+      keptChangeUSD?: number;
+      keptChangeLBP?: number;
     }) => ipcRenderer.invoke("debt:cash-out", data),
     addAccountEntry: (data: {
       direction: "credit" | "debt";
@@ -692,6 +705,8 @@ contextBridge.exposeInMainWorld("api", {
       exchangeRate?: number;
       clientName?: string;
       clientId?: number;
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
     }) => ipcRenderer.invoke("recharge:top-up-from-client", data),
     updateMetadata: (data: {
       id: number;
@@ -1384,6 +1399,9 @@ contextBridge.exposeInMainWorld("api", {
         warranty_override_until?: string | null;
       }>,
       exchangeRate?: number,
+      /** Owner decision 2026-10-07 — refund kept change: the cash handed
+       *  back is short of the refund by a small leftover the shop keeps. */
+      keptChange?: RefundKeptChangeInput,
     ) =>
       ipcRenderer.invoke(
         "transactions:refund",
@@ -1391,6 +1409,7 @@ contextBridge.exposeInMainWorld("api", {
         refundLegs,
         refundUnitExtras,
         exchangeRate,
+        keptChange,
       ),
     /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
      *  member of a multi-unit split checkout in ONE transaction. */
@@ -1909,6 +1928,8 @@ contextBridge.exposeInMainWorld("api", {
       phone_number?: string;
       note?: string;
       category?: string;
+      transaction_time?: string;
+      voucher_code?: string;
       payments?: Array<{
         method: string;
         currency_code: string;
@@ -1916,6 +1937,12 @@ contextBridge.exposeInMainWorld("api", {
         voucher_code?: string;
         direction?: "IN" | "OUT";
       }>;
+      /** Change the customer left with the shop — checked server-side
+       *  against the payment lines, then booked as profit. */
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
+      /** The rate the payment sheet converted at (reconciles the lines). */
+      exchange_rate?: number;
       partnerId?: number;
       /** LIRA-154: "VIA" is the mirror of "FOR" — the partner performs the
        *  service and we owe them the cost instead. */
@@ -1998,6 +2025,10 @@ contextBridge.exposeInMainWorld("api", {
       }>;
       exchange_rate?: number;
       transaction_time?: string;
+      // Kept change on a one-currency pickup (owner decision 2026-10-07) —
+      // a claim the server verifies (resolveKeptChange, payer "payout").
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
     }) => ipcRenderer.invoke("hold-money:collect", data),
     // Void (reverse) one pickup event — rule-20 reversal owner.
     voidPickup: (pickupId: number) =>

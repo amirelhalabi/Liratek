@@ -797,7 +797,13 @@ export function SessionCheckoutModal({
         payments: allPaymentLegs,
         exchangeRate,
         // T3 keep-change: standalone profit-only row, not linked to any item.
-        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+        // The server verifies it against the basket's net charge (G42). Only
+        // sent while there is a charge to keep it from — when the payment
+        // input is hidden (net charge 0) a stale value from an earlier
+        // render must not ride along and get the checkout refused.
+        ...(keptChange &&
+        (netChargeUsd > 0 || netChargeLbp > 0) &&
+        (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
               kept_change_usd: keptChange.usd,
               kept_change_lbp: keptChange.lbp,
@@ -1149,6 +1155,8 @@ export function SessionCheckoutModal({
                       onChange={setPaymentLines}
                       onReturnChange={setReturnLines}
                       onKeptChange={setKeptChange}
+                      // The customer pays the shop: change kept = profit.
+                      payer="customer"
                       requiresClientForDebt={true}
                       hasClient={hasClient}
                       paymentMethods={paymentMethodOptions}

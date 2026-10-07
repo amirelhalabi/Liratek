@@ -679,4 +679,57 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
       expect(fsTxn.profit_usd).toBeCloseTo(5, 5);
     },
   );
+  // ═══════════════════════════════════════════════════════════════════════
+  // G42 — kept change on a fee-on-top RECEIVE basket. The net charge the
+  // customer's tender pays is the FEE ($5): the $100 payout leg is the
+  // shop paying out, never change. $10 tendered for a $5 fee, $5 kept.
+  // ═══════════════════════════════════════════════════════════════════════
+  function feeOnTopKeptBasket(keptUsd: number) {
+    const { id: fsId } = finRepo.createTransaction({
+      provider: "WHISH",
+      serviceType: "RECEIVE",
+      amount: 100,
+      currency: "USD",
+      commission: 0,
+      whishFee: 5,
+      cashoutMethod: "CASH",
+      includingFees: false,
+      deferPayment: true,
+      exchangeRate: 90000,
+    });
+    const sessionId = 504;
+    linkReceiveItemToSession(db, sessionId, fsId, 100);
+    return service.recordBasketPayment(sessionId, {
+      legs: [
+        { method: "CASH", currencyCode: "USD", amount: 10, direction: "IN" },
+        {
+          method: "CASH",
+          currencyCode: "USD",
+          amount: 100,
+          direction: "OUT",
+          kind: "PAYOUT",
+        },
+      ],
+      exchangeRate: 90000,
+      userId: 1,
+      clientId: 1,
+      feeOnTopReceiveFsIds: [fsId],
+      keptChange: { usd: keptUsd, lbp: 0 },
+    });
+  }
+
+  it("G42: fee-on-top RECEIVE + $5 kept on a $10 tender is accepted — the PAYOUT leg is not change", () => {
+    const result = feeOnTopKeptBasket(5);
+    expect(result.keptUsd).toBeCloseTo(5, 6);
+    expect(result.keptLbp).toBe(0);
+  });
+
+  it("G42: fee-on-top RECEIVE refuses kept above the real overpay — and posts no leg", () => {
+    expect(() => feeOnTopKeptBasket(6)).toThrow(/Session checkout/);
+    // recordBasketPayment does not own the transaction here, so assert the
+    // check ran BEFORE the first leg write.
+    expect(db.prepare("SELECT COUNT(*) as c FROM payments").get()).toEqual({
+      c: 0,
+    });
+  });
 });

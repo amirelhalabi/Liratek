@@ -31,7 +31,11 @@
 
 import { ipcMain } from "electron";
 import { registerSalesHandlers } from "../salesHandlers";
-import { getSalesService, getTransactionService } from "@liratek/core";
+import {
+  getSalesService,
+  getTransactionService,
+  refundKeptChangeSchema,
+} from "@liratek/core";
 import { requireRole } from "../../session";
 import { audit } from "../auditHelper";
 
@@ -224,6 +228,41 @@ describe("sales:refund / sales:refund-item / sales:refund-preview — LIRA-231 o
         userId: 7,
       });
       expect(result).toEqual({ success: true, refundId: 602 });
+    });
+
+    it("forwards keptChange (schema names) as the repository's {usd, lbp} (not proven failing-first)", async () => {
+      // Owner decision 2026-10-07 — refund kept change on the per-item
+      // refund. Rule 23: the schema now carries the key the preload sends,
+      // so Zod no longer strips it.
+      mockSalesService.refundSaleItem.mockReturnValue({
+        success: true,
+        refundId: 603,
+      });
+      const handler = handlers.get("sales:refund-item")!;
+      const keptChange = refundKeptChangeSchema.parse({
+        kept_change_lbp: 50000,
+      });
+
+      const result = await handler(
+        { sender: { id: 1 } },
+        {
+          saleId: 7,
+          saleItemId: 3,
+          refundQuantity: 1,
+          refundLegs: [{ method: "CASH", currencyCode: "LBP", amount: 1740000 }],
+          keptChange,
+        },
+      );
+
+      expect(mockSalesService.refundSaleItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          saleId: 7,
+          saleItemId: 3,
+          keptChange: { usd: undefined, lbp: 50000 },
+          userId: 7,
+        }),
+      );
+      expect(result).toEqual({ success: true, refundId: 603 });
     });
 
     it("a session-linked sale is refused — {success:false}, exact POS message, service still called (repository owns the guard)", async () => {

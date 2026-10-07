@@ -193,6 +193,9 @@ describe("CustomServiceRepository — structured payment legs", () => {
     const res = repo.createService(
       {
         description: "phone unlock",
+        // The 90k the comment above assumes — the repository now reconciles
+        // the legs (POSTING_MAP G42), so the fixture must say which rate.
+        exchange_rate: 90_000,
         cost_usd: 0,
         cost_lbp: 500_000,
         price_usd: 0,

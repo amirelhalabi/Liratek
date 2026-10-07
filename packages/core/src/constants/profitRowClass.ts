@@ -72,6 +72,8 @@ const PROFIT_ONLY_MODULES: ReadonlySet<string> = new Set([
   "COUNTERPARTY_DISCOUNT",
   "SUPPLIER_COMMISSION",
   "TOPUP_BUYBACK",
+  // Hold Money pickup kept change (owner decision 2026-10-07).
+  "HOLD_MONEY",
 ]);
 
 /** `ProfitByModule.module` EXACT values whose revenue is a pass-through

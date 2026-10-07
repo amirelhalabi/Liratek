@@ -38,8 +38,9 @@ export const addRepaymentSchema = z
     payments: z.array(repaymentPaymentLineSchema).optional(),
     // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-2): per-currency
     // change the shop keeps instead of returning. Excluded from the debt
-    // reduction by the caller; stamped as profit on the DEBT_REPAYMENT
-    // transaction ("Other / kept change" profits line).
+    // reduction by the caller; checked server-side against the payment
+    // lines (resolveKeptChange, payer "customer") and stamped as profit on
+    // the DEBT_REPAYMENT transaction ("Other / kept change" profits line).
     keptChangeUSD: z.number().nonnegative().optional(),
     keptChangeLBP: z.number().nonnegative().optional(),
     // CQ-10: a repayment may bundle a forgiven remainder alongside the cash
@@ -108,8 +109,16 @@ export const debtCashOutSchema = z.object({
   transaction_time: z.string().optional(),
   // Owner decision (2026-08-08) — same tendered-rate stamp fix as
   // addRepaymentSchema above; the Debts page's cash-out modal shares the
-  // SAME MultiPaymentInput/rate state as the repayment modal.
+  // SAME MultiPaymentInput/rate state as the repayment modal. Also the rate
+  // the payout lines are reconciled at — send it on every cash-out.
   tender_exchange_rate: z.number().positive().optional(),
+  // Kept change (payer "payout", owner decision 2026-10-07): the shop hands
+  // out slightly LESS than the credit and keeps the shortfall as profit; the
+  // credit still clears by amountUSD/amountLBP. Same names as the
+  // repayment's. A claim only — DebtRepository.cashOutCredit verifies it
+  // with resolveKeptChange (cap PAYOUT_KEEP_CHANGE_MAX, credit's currency).
+  keptChangeUSD: z.number().nonnegative().optional(),
+  keptChangeLBP: z.number().nonnegative().optional(),
 });
 
 // Manual, till-moving account entry from the Accounts (Debts) page.
@@ -188,6 +197,10 @@ export type AddRepaymentInput = z.infer<typeof addRepaymentSchema>;
 export type AddCreditInput = z.infer<typeof addCreditSchema>;
 export type GetDebtorSummaryInput = z.infer<typeof getDebtorSummarySchema>;
 export type DebtCashOutInput = z.infer<typeof debtCashOutSchema>;
+/** What a caller SENDS (rule 21) — the adapters type their payloads with
+ *  these, never with a hand-copied object literal. */
+export type AddRepaymentPayload = z.input<typeof addRepaymentSchema>;
+export type DebtCashOutPayload = z.input<typeof debtCashOutSchema>;
 export type DebtAccountEntryInput = z.infer<typeof debtAccountEntrySchema>;
 export type DebtUseCreditInput = z.infer<typeof debtUseCreditSchema>;
 export type DebtUpdateMetadataInput = z.infer<typeof debtUpdateMetadataSchema>;

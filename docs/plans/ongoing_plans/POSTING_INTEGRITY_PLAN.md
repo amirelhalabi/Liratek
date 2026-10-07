@@ -1,6 +1,6 @@
 # Posting Integrity Plan — close the multi-ledger gaps
 
-> **Status:** IN PROGRESS — batch 1 started 2026-10-06 (LIRA-258). Created 2026-10-06.
+> **Status:** IN PROGRESS — batch 1 started 2026-10-06 (LIRA-258); phase 5 started 2026-10-07 (§7). Created 2026-10-06.
 > **Overlap:** LIRA-257 (another session, same day) already seeds the seven system suppliers for
 > every tenant (`db/systemSuppliers.ts`, migration v191). That covers the "seed on provisioning"
 > half of D2; item 1.3 reuses it for the get-or-create path instead of adding a second definition.
@@ -181,6 +181,103 @@ from individual tests into one typed table, `constants/postingRules.ts`
 and `POSTING_MAP.md` §4 links to it as the source of truth. Optional: a dev-only runtime check
 that a created transaction matched its rule. **Option C (one posting engine)** is reconsidered
 only if this table keeps catching the same class of gap.
+
+### Phase 5 progress — started 2026-10-07 (owner approved option B)
+
+**Built (working tree, not committed):**
+
+- `packages/core/src/constants/postingRules.ts` — `POSTING_RULES` (`satisfies Record<string, PostingRule>`,
+  keys like `"FS_SYSTEM/SEND/FOR"`, `"LOTO/ticket/account"`). Each rule names its `transactionType`,
+  a `mode` label, a `mapRef`, and **all four** ledgers (`drawers`, `supplier`, `partner`, `debt`) as
+  `{ post: "post", lines }` / `{ post: "none" }` / `{ post: "unchecked", reason }`. A line names a
+  **role** (`pcd`, `general`, `tender`, `providerSupplier`, `partner`, `client`), a currency
+  (`"txn"` or fixed) and an amount function of `{ x, f, c, currency }`. Pure leaf, test-only,
+  deliberately **not** re-exported from `constants/index.ts` (rule 29).
+- `POSTING_RULE_EXCLUSIONS` — every transaction type without a rule, tagged `no-money`
+  (CLIENT_*, KEPT_CHANGE), `reversal` (REFUND, REFUND_UNDO, HOLD_MONEY_COLLECT_VOID — guarded as
+  create + reverse nets to 0, rule 20) or `todo-phase5`.
+- `postingAssert.ts` — added `expectedPostingsForRule` and `expectPostingsMatchRule(rule, before,
+  after, inputs, keys)` (full delta per ledger; `unchecked` ledgers skipped). Existing exports
+  unchanged.
+- Guards: `constants/__tests__/postingRules.guard.test.ts` (meta-guard: every TRANSACTION_TYPES value
+  is ruled or excluded, never both, no stale exclusion, every rule declares four ledgers). Rule 17:
+  its first run was against a classification missing the `todo-phase5` block (drafted, then
+  removed before that run) — it failed listing 40 unclassified types (SALE, EXCHANGE, RECHARGE,
+  LOTO_CASH_PRIZE …); the block was added back after. `repositories/__tests__/postingAssert.rules.test.ts`
+  proves the helper fails on a missing posting, a wrong amount and an extra drawer posting.
+- Converted: the item 1.6 OMT/WHISH invariant sweep (`FinancialServiceRepository.partner.test.ts`)
+  now reads its expectations from the table — same supplier and Settle-queue numbers as before
+  (rule 24), plus a full-delta check on drawers/partner/debt and a new basket SEND case (16 cases,
+  was 14). Loto tickets: a table-driven describe in `LotoTicketRepository.legIntegrity.test.ts`
+  (walk-in / account / FOR, each voided back to 0).
+
+- Recharge & carrier batch (2026-10-07, working tree): 14 new rules — `RECHARGE/sale/{walk-in,
+  account,FOR,basket}`, `RECHARGE/DAYS/walk-in`, `TELECOM_CREDIT_BUYBACK/{cash,account}`,
+  `TELECOM_SELF_CHARGE/catalog`, `CARRIER_LINE_ADJUSTMENT/manual`, `RECHARGE_TOPUP/{app,supplier,
+  partner,client}`, `WALLET_CASHOUT/OMT_APP`. New drawer roles `carrier` / `wallet` / `source` and
+  optional inputs `carrierUsd` / `smsUsd` (read through `need()`, which throws if a test forgets
+  one). New exclusion reason `retired` for `MTC_TOPUP` / `ALFA_TOPUP` (their only writer,
+  `topUpFromCustomer`, was deleted in Phase 8.2). Test: `repositories/__tests__/
+  RechargeCarrier.postingRules.test.ts` (real `create_db.sql` schema, 24 cases incl. the MTC/Alfa `topUpApp` refusal): each case asserts
+  one transaction of the rule's type, the full four-ledger delta from the table, line credits ==
+  carrier drawer delta, then voids and asserts every ledger and the lines net to 0 per currency.
+  `CARRIER_LINE_ADJUSTMENT` (NON_REVERSIBLE) instead asserts the void is refused and changes
+  nothing, and that the documented owner (an opposite edit) nets to 0. Characterization, not
+  failing-first: every case passed on first run; three deliberately wrong inputs were then shown
+  to fail (sensitivity check) and restored. The code contradicted three §4.2/§4.3 cells; in each
+  case the code matches an already-recorded fix, so the cells were corrected rather than filed as
+  gaps: DAYS sale lowers line credits by the days cost (30 days at $0.90 → Alfa drawer −0.90 and
+  line −0.90; map said credits unchanged — G15/D4); `topUpApp` refuses MTC/Alfa (map said
+  MTC/Alfa +; refusal tested, nothing posts — G15); `topUpFromSupplier` always books its TOP_UP
+  (map said "only if a supplier row exists" — G10). `topUpFromClient` had no map row (x = 100,
+  fee 5 → General −95, Whish_App +100); one was added to §4.2.
+
+- Drawers & counterparties batch (2026-10-07, working tree): 22 new rules — `DRAWER_TRANSFER/
+  between-drawers`, `DRAWER_TOPUP/{external,from-drawer}`, `DRAWER_CASHOUT/general`,
+  `CHECKPOINT/count`, `SUPPLIER_PAYMENT/{pay,receive,manual-drawer}`, `SUPPLIER_ADJUSTMENT/paper`,
+  `SUPPLIER_STOCK_INTAKE/receive`, `SUPPLIER_RECORDED_DEBT/open`, `SUPPLIER_SETTLEMENT/system-model1`,
+  `PARTNER_SETTLEMENT/{partner-owes,shop-owes,client-account}`, `PARTNER_PAYMENT/{add-debt,
+  add-credit}`, `PARTNER_ADJUSTMENT/paper`, `COUNTERPARTY_DISCOUNT/{client,partner-forgiven,
+  partner-received,supplier}`. New drawer roles `destination` / `counted`; `providerSupplier` now
+  also means "the supplier the operator picked". Test: `repositories/__tests__/
+  DrawersCounterparties.postingRules.test.ts` (real `create_db.sql`, 41 cases, USD and LBP): each
+  case asserts the exact set of NEW transaction rows by type and `is_auto` (rule 15 — not "one
+  row of the type"), the full four-ledger delta (a payment with a bundled discount is asserted
+  against the SUM of its two rules), then voids a reversible type back to 0, or for a
+  NON_REVERSIBLE type asserts the void is refused, nothing moved, and the correction entry nets to
+  0. Characterization, not failing-first: all 41 passed on first run; four deliberately wrong
+  table entries / expectations (partner settle sign, settlement without commission, top-up
+  without its source leg, supplier-discount leftover) then failed 8 cases and were restored. The profit stamp is also read on the client write-off (−x) and the bundled supplier discount (+40); flipping either expectation failed 2 cases. The
+  code contradicted one §4.7 cell, and it follows an already-recorded fix: "Manual supplier entry
+  with drawer — one `payments` row only" (G8: USD 50 + LBP 1,000,000 writes two rows, −50 and
+  −1,000,000). Corrected; five missing §4.7 rows added from the code. **Measured, not decided:**
+  voiding a supplier PAY with a bundled discount ($60 + $40) leaves the supplier at −40 — the
+  DISCOUNT row stays (no link to the payment; COUNTERPARTY_DISCOUNT is NON_REVERSIBLE), unlike a
+  partner settle void, which sweeps its discount. Pinned as today's behaviour and reported as a
+  candidate gap for the owner; not filed in §7 from this batch. Corrections the tests use but no
+  code or decision names: cash-out ↔ external top-up (only top-up → cash-out is documented),
+  from-drawer top-up → reverse `transferBetweenDrawers`, write-offs → an opposite paper entry.
+
+**Covered:** drawers & counterparties (§4.6 cash-out, §4.7: DRAWER_TRANSFER, DRAWER_TOPUP,
+DRAWER_CASHOUT, CHECKPOINT, manual SUPPLIER_PAYMENT, SUPPLIER_SETTLEMENT, SUPPLIER_ADJUSTMENT,
+SUPPLIER_STOCK_INTAKE, SUPPLIER_RECORDED_DEBT, PARTNER_SETTLEMENT, PARTNER_PAYMENT,
+PARTNER_ADJUSTMENT, COUNTERPARTY_DISCOUNT); FINANCIAL_SERVICE — OMT/WHISH system transfers (§4.1, all modes incl. basket);
+LOTO — ticket sale (§4.4: walk-in, customer account, FOR partner); RECHARGE, TELECOM_CREDIT_BUYBACK,
+TELECOM_SELF_CHARGE, RECHARGE_TOPUP (all four writers), WALLET_CASHOUT, CARRIER_LINE_ADJUSTMENT
+(§4.3 and the matching §4.2 rows); MTC_TOPUP / ALFA_TOPUP excluded as `retired`. Not yet encoded in
+this family: `SHOP_LINE_USE` and the other credit-sale types beyond CREDIT_TRANSFER / VOUCHER
+(same code path), change returned as store credit, GIFT_CARD legs, `recordUsage` (`Line_Usage`
+is an EXPENSE — belongs to the expenses batch).
+
+**TODO — move each `todo-phase5` exclusion into a rule (one module per batch):**
+
+- [ ] FINANCIAL_SERVICE other families (§4.2): app wallets, Binance, iPick/Katsh catalog, Katsh BILL, THROUGH app keys
+- [x] Recharge / carrier (§4.3): RECHARGE (walk-in, FOR, account, DAYS, basket), TELECOM_CREDIT_BUYBACK, TELECOM_SELF_CHARGE, RECHARGE_TOPUP, MTC_TOPUP / ALFA_TOPUP (`retired`), CARRIER_LINE_ADJUSTMENT, WALLET_CASHOUT — 2026-10-07
+- [ ] Loto rest (§4.4): LOTO_CASH_PRIZE, LOTO_SETTLEMENT (after 3.6), LOTO_MONTHLY_FEE
+- [ ] POS / debts (§4.5): SALE (walk-in, FOR, account, basket), DEBT_REPAYMENT, CREDIT_CASH_OUT / CREDIT_CASH_IN, DEBT_CASH_OUT, ACCOUNT_ADJUSTMENT
+- [ ] Exchange / custom services / maintenance / expenses / hold money (§4.6): EXCHANGE, WALLET_EXCHANGE, CUSTOM_SERVICE, MAINTENANCE, EXPENSE + EXPENSE_INVENTORY / _KATSH / _IPICK / _WHISH_APP, HOLD_MONEY, HOLD_MONEY_COLLECT
+- [x] Drawers and counterparties: DRAWER_TRANSFER, DRAWER_TOPUP, DRAWER_CASHOUT, CHECKPOINT, SUPPLIER_PAYMENT (manual payment; the auto sibling is covered by each parent's supplier line), SUPPLIER_SETTLEMENT, SUPPLIER_ADJUSTMENT, SUPPLIER_STOCK_INTAKE, SUPPLIER_RECORDED_DEBT, PARTNER_SETTLEMENT, PARTNER_PAYMENT, PARTNER_ADJUSTMENT, COUNTERPARTY_DISCOUNT — 2026-10-07 (not yet: `settleAccount`, bills-only settlement, MTC/Alfa checkpoint, BINANCE/USDT and split legs, top-up extra-currency lots)
+- [ ] Optional (not started): dev-only runtime check that a created transaction matched its rule
 
 ---
 

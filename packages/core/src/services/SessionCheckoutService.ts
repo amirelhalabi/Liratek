@@ -24,7 +24,11 @@ import { getFinancialService } from "./FinancialService.js";
 import { getLotoService } from "./LotoService.js";
 import { getCustomServiceService } from "./CustomServiceService.js";
 import { getMaintenanceService } from "./MaintenanceService.js";
-import { getSessionPaymentService } from "./SessionPaymentService.js";
+import {
+  getSessionPaymentService,
+  hasKeptChangeClaim,
+  resolveBasketKeptChange,
+} from "./SessionPaymentService.js";
 import { getCustomerSessionRepository } from "../repositories/CustomerSessionRepository.js";
 import { getTransactionRepository } from "../repositories/TransactionRepository.js";
 import { getClientRepository } from "../repositories/ClientRepository.js";
@@ -69,7 +73,9 @@ export interface CheckoutRequest {
   exchangeRate?: number;
   clientId?: number;
   clientName?: string;
-  /** T3 keep-change: kept change per currency → standalone KEPT_CHANGE row. */
+  /** T3 keep-change: kept change per currency → standalone KEPT_CHANGE row.
+   *  A CLAIM only — verified server-side against the basket's net charge
+   *  (G42, `resolveBasketKeptChange`) before anything is booked. */
   kept_change_usd?: number;
   kept_change_lbp?: number;
   userId: number;
@@ -301,6 +307,28 @@ export function isFeeOnTopReceiveItem(
   return formData.serviceType === "RECEIVE" && formData.includingFees !== true;
 }
 
+/**
+ * G42 — does the basket hold a FOR-partner item (top level or a batch
+ * sub-item)? A FOR-partner custom/financial service still books its partner
+ * ledger under deferPayment, and the owner rule (2026-10-07) is that a
+ * FOR-partner transaction refuses kept change. Exported for tests.
+ */
+export function basketHasForPartnerItem(
+  cartItems: Array<{ formData: Record<string, unknown> }>,
+): boolean {
+  return cartItems.some((item) => {
+    const fd = item.formData ?? {};
+    if (fd.partnerMode === "FOR") return true;
+    return (
+      fd._batch === true &&
+      Array.isArray(fd.items) &&
+      (fd.items as Array<Record<string, unknown>>).some(
+        (sub) => sub?.partnerMode === "FOR",
+      )
+    );
+  });
+}
+
 /** Resolve the unified transactions.id for a just-created source record. */
 function resolveUnifiedTransactionId(
   sourceTable: string,
@@ -388,6 +416,21 @@ export class SessionCheckoutService {
       }
       if (!sessionResult.session.is_active) {
         return { success: false, error: "Session is already closed" };
+      }
+
+      // G42: a kept-change claim is reconciled at the basket's rate — never
+      // at a silent fallback of 1.
+      const keptClaim = {
+        usd: kept_change_usd ?? 0,
+        lbp: kept_change_lbp ?? 0,
+      };
+      const claimsKept = hasKeptChangeClaim(keptClaim);
+      if (claimsKept && !(exchangeRate && exchangeRate > 0)) {
+        return {
+          success: false,
+          error:
+            "Session checkout: keeping change needs the exchange rate the basket was paid at",
+        };
       }
 
       const repo = getCustomerSessionRepository();
@@ -623,13 +666,39 @@ export class SessionCheckoutService {
         // AFTER all items (deferred mode): record the ONE customer payment for
         // the whole basket — posts each leg to its drawer once, one debt row
         // for the CUSTOMER_ACCOUNT portion, redeems gift cards, back-fills SALEs.
+        // G42: it also verifies the kept-change claim before its first write.
+        let keptUsd = 0;
+        let keptLbp = 0;
         if (payments && payments.length > 0) {
-          getSessionPaymentService().recordBasketPayment(sessionId, {
-            legs: checkoutPaymentsToBasketLegs(payments),
-            exchangeRate: exchangeRate && exchangeRate > 0 ? exchangeRate : 1,
-            userId,
-            clientId: sessionClientId ?? null,
-            feeOnTopReceiveFsIds,
+          const basket = getSessionPaymentService().recordBasketPayment(
+            sessionId,
+            {
+              legs: checkoutPaymentsToBasketLegs(payments),
+              exchangeRate: exchangeRate && exchangeRate > 0 ? exchangeRate : 1,
+              userId,
+              clientId: sessionClientId ?? null,
+              feeOnTopReceiveFsIds,
+              keptChange: claimsKept ? keptClaim : null,
+              basketHasForPartner: claimsKept
+                ? basketHasForPartnerItem(cartItems)
+                : false,
+            },
+          );
+          keptUsd = basket.keptUsd;
+          keptLbp = basket.keptLbp;
+        } else if (claimsKept) {
+          // No payment lines: the helper refuses ("nothing to keep it from").
+          // Called rather than hand-thrown so the refusal text has one source.
+          resolveBasketKeptChange({
+            legs: [],
+            ctx: {
+              chargeTotalUsd: checkoutTotalUsd,
+              chargeTotalLbp: checkoutTotalLbp,
+              payoutTotalUsd: 0,
+              payoutTotalLbp: 0,
+            },
+            claimedKept: keptClaim,
+            exchangeRate: exchangeRate as number,
           });
         }
 
@@ -638,8 +707,7 @@ export class SessionCheckoutService {
         // because the tender is already booked by the basket's payment legs.
         // Non-reversible (see transactionTypes.ts); aggregated by the
         // "Other / kept change" profits bucket alongside debt repayments.
-        const keptUsd = kept_change_usd ?? 0;
-        const keptLbp = kept_change_lbp ?? 0;
+        // Books the VERIFIED kept (G42), never the raw request values.
         if (keptUsd > 0 || keptLbp > 0) {
           const keptTxnId = getTransactionRepository().createTransaction({
             type: "KEPT_CHANGE",

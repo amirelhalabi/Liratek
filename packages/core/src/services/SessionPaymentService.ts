@@ -57,6 +57,8 @@ import {
 } from "../utils/payments.js";
 import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import { closingLogger } from "../utils/logger.js";
+import { resolveKeptChange } from "../repositories/keptChange.js";
+import type { KeptChange } from "../repositories/moneyPosting.js";
 
 // =============================================================================
 // Types
@@ -125,6 +127,15 @@ export interface RecordBasketPaymentInput {
    * totals. Omitted/empty = no fee-on-top RECEIVE items (legacy baskets).
    */
   feeOnTopReceiveFsIds?: number[];
+  /**
+   * G42 — the client's kept-change claim (change the customer left with the
+   * shop). Checked here, against the basket's server-derived net charge,
+   * BEFORE any leg is written (`resolveBasketKeptChange`); the verified
+   * amount comes back as `keptUsd`/`keptLbp` on the result. Omitted = none.
+   */
+  keptChange?: KeptChange | null;
+  /** G42 — the basket holds a FOR-partner item; a kept claim is refused. */
+  basketHasForPartner?: boolean;
 }
 
 /** LIRA-258 / G17 — `allocateBasketAccountDebt`'s sales-first split. */
@@ -166,6 +177,86 @@ export interface RecordBasketPaymentResult {
    */
   giftCardUsd: number;
   giftCardLbp: number;
+  /** G42 — the kept change verified by `resolveBasketKeptChange` (0 when
+   *  none was claimed). The caller books THESE, never the raw claim. */
+  keptUsd: number;
+  keptLbp: number;
+}
+
+// =============================================================================
+// Kept change (G42, FEATURE_GUIDE §4.1)
+// =============================================================================
+
+const SESSION_KEPT_CONTEXT = "Session checkout";
+
+/**
+ * G42 — verify a session basket's kept-change claim with the ONE helper
+ * (`resolveKeptChange`, payer "customer") and return what to book.
+ *
+ * The customer's tender pays the basket's NET charge:
+ *
+ *   IN − CHANGE − kept = netCharge
+ *   netCharge = gross charge − gross payout + Σ(kind:"PAYOUT" OUT legs)
+ *
+ * per currency. Gross charge/payout come from the session's OWN linked items
+ * (`getSessionCashSplitContext` — the same totals the PCD split uses, incl.
+ * a fee-on-top RECEIVE's fee; rule 14), never from client totals. A PAYOUT
+ * leg is the shop paying the customer for a cash-out item, so it is NEVER
+ * passed as change: adding it back into the net charge makes a cash payout
+ * netted against the charge (no leg, or only the excess) and a gross
+ * wallet/account/SYSTEM payout (a full leg) reconcile identically.
+ *
+ * Leg split mirrors `recordBasketPayment`: no `direction` = IN; an OUT leg
+ * without `kind` is change.
+ *
+ * Only called when kept change is claimed (G42 scope — a basket without kept
+ * change is not reconciled here). Throws on refusal; callers run it inside
+ * the checkout transaction before any write.
+ */
+export function resolveBasketKeptChange(input: {
+  legs: BasketPaymentLeg[];
+  ctx: Pick<
+    SessionCashSplitContext,
+    "chargeTotalUsd" | "chargeTotalLbp" | "payoutTotalUsd" | "payoutTotalLbp"
+  >;
+  claimedKept: KeptChange | null | undefined;
+  exchangeRate: number;
+  /** The basket holds a FOR-partner item — kept change refused (owner
+   *  decision 2026-10-07: exact amount required). */
+  isForPartner?: boolean;
+}): { keptUsd: number; keptLbp: number } {
+  const inLegs: BasketPaymentLeg[] = [];
+  const changeLegs: BasketPaymentLeg[] = [];
+  let payoutLegUsd = 0;
+  let payoutLegLbp = 0;
+  for (const leg of input.legs) {
+    if (leg.direction !== "OUT") inLegs.push(leg);
+    else if (leg.kind === "PAYOUT") {
+      const amt = Math.abs(leg.amount);
+      if (leg.currencyCode === "LBP") payoutLegLbp += amt;
+      else payoutLegUsd += amt;
+    } else changeLegs.push(leg);
+  }
+  const { ctx } = input;
+  const { keptUsd, keptLbp } = resolveKeptChange({
+    payer: "customer",
+    context: SESSION_KEPT_CONTEXT,
+    exchangeRate: input.exchangeRate,
+    claimedKept: input.claimedKept,
+    isForPartner: input.isForPartner ?? false,
+    expected: {
+      usd: ctx.chargeTotalUsd - ctx.payoutTotalUsd + payoutLegUsd,
+      lbp: ctx.chargeTotalLbp - ctx.payoutTotalLbp + payoutLegLbp,
+    },
+    inLegs,
+    outLegs: changeLegs,
+  });
+  return { keptUsd, keptLbp };
+}
+
+/** True when the client claimed any kept change. */
+export function hasKeptChangeClaim(k: KeptChange | null | undefined): boolean {
+  return (k?.usd ?? 0) > 0 || (k?.lbp ?? 0) > 0;
 }
 
 // =============================================================================
@@ -337,6 +428,8 @@ export class SessionPaymentService {
       debtLbp: 0,
       giftCardUsd: 0,
       giftCardLbp: 0,
+      keptUsd: 0,
+      keptLbp: 0,
     };
 
     let debtUsd = 0;
@@ -353,6 +446,21 @@ export class SessionPaymentService {
       input.feeOnTopReceiveFsIds ?? [],
     );
     const pcdDrawerName = primaryCashDrawerName(cashSplitCtx.baseSystem);
+
+    // G42: check the kept-change claim against the server-derived net charge
+    // BEFORE the first leg/drawer/voucher write (a throw rolls back the
+    // whole checkout).
+    if (hasKeptChangeClaim(input.keptChange)) {
+      const kept = resolveBasketKeptChange({
+        legs,
+        ctx: cashSplitCtx,
+        claimedKept: input.keptChange,
+        exchangeRate: rate,
+        isForPartner: input.basketHasForPartner ?? false,
+      });
+      result.keptUsd = kept.keptUsd;
+      result.keptLbp = kept.keptLbp;
+    }
 
     for (const leg of legs) {
       const amt = Math.abs(leg.amount);

@@ -11,7 +11,9 @@ import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  type ReconciliationLeg,
 } from "./moneyPosting.js";
+import { resolveKeptChange } from "./keptChange.js";
 import { BusinessRuleError } from "../utils/errors.js";
 import { normalizeMaintenancePhone } from "../validators/maintenance.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
@@ -232,6 +234,14 @@ export interface MaintenancePartRow {
   stock_restored: number;
   created_at: string;
   updated_at: string;
+  /**
+   * Read-only, display-only (LIRA-260 follow-up): the linked product's
+   * CURRENT `selling_price_usd`, so a reopened job can warn when a part's
+   * saved price differs from it. `null` when the product row is gone. Only
+   * `getPartsForJobs` (the jobs-list read) fills it; never persisted and
+   * never part of a save payload.
+   */
+  catalog_price_usd?: number | null;
 }
 
 export interface MaintenanceStatusHistoryRow {
@@ -511,7 +521,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       clientPhone?: string | null;
       changeUsd?: number;
       changeLbp?: number;
-      /** T3 keep-change (KC-3): kept change per currency → profit stamp. */
+      /** T3 keep-change (KC-3): the client's kept-change claim per
+       *  currency. Checked by `resolveKeptChange` (G42) before it joins the
+       *  profit stamp. */
       keptChangeUsd?: number;
       keptChangeLbp?: number;
       note?: string | null;
@@ -559,6 +571,70 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     const partsPriceUsd = opts.partsPriceUsd ?? 0;
     const partsMarginUsd = opts.partsMarginUsd ?? 0;
 
+    // G42 — kept change (payer = customer, docs/FEATURE_GUIDE.md §4.1). The
+    // shared CheckoutModal sends the tender as IN legs, cash change as
+    // changeUsd/changeLbp, and what the cashier did not hand back as
+    // keptChange*. The claim is never trusted: `resolveKeptChange` enforces
+    // IN − change − kept = what the customer owes (labour in the job
+    // currency + parts, always USD) and refuses a kept above the real
+    // excess. Only the RESOLVED amount joins the profit stamp. Runs before
+    // the first write of this method; `MaintenanceService.saveJob` wraps the
+    // job write + this call in one transaction, so a refusal also rolls the
+    // job save back. Gated on a claim: without one, a short payment still
+    // books Maintenance Debt from the residual exactly as before.
+    let keptProfitUsd = 0;
+    let keptProfitLbp = 0;
+    const claimedKeptUsd = opts.keptChangeUsd ?? 0;
+    const claimedKeptLbp = opts.keptChangeLbp ?? 0;
+    if (defer && (claimedKeptUsd > 0 || claimedKeptLbp > 0)) {
+      // Session basket: the basket checkout owns the customer's payment AND
+      // its own kept change (a KEPT_CHANGE row). The Maintenance page still
+      // carries the job's own checkout fields into the cart item, so a claim
+      // can reach here — it is dropped, never booked (booking it would
+      // count kept change the basket never received, or count it twice).
+      // Not refused: refusing would fail the whole basket checkout.
+      maintenanceLogger.warn(
+        { jobId, claimedKeptUsd, claimedKeptLbp },
+        "Ignoring kept change on a session-basket maintenance checkout — the basket owns the payment",
+      );
+    } else if (claimedKeptUsd > 0 || claimedKeptLbp > 0) {
+      const cashChange = (
+        [
+          ["USD", Math.abs(opts.changeUsd || 0)],
+          ["LBP", Math.abs(opts.changeLbp || 0)],
+        ] as const
+      )
+        .filter(([, amount]) => amount > 0)
+        .map(
+          ([currencyCode, amount]): ReconciliationLeg => ({
+            method: "CASH",
+            currencyCode,
+            amount,
+            direction: "OUT",
+          }),
+        );
+      const kept = resolveKeptChange({
+        payer: "customer",
+        expected: isLbp
+          ? { usd: partsPriceUsd, lbp: opts.finalAmount }
+          : { usd: opts.finalAmount + partsPriceUsd, lbp: 0 },
+        inLegs: paymentLines.map(
+          (l): ReconciliationLeg => ({
+            method: l.method,
+            currencyCode: l.currency_code,
+            amount: l.amount,
+          }),
+        ),
+        outLegs: cashChange,
+        claimedKept: { usd: claimedKeptUsd, lbp: claimedKeptLbp },
+        // The till's own rate (CheckoutModal sends the edited rate here).
+        exchangeRate: opts.exchangeRate,
+        context: `Maintenance job #${jobId}`,
+      });
+      keptProfitUsd = kept.keptUsd;
+      keptProfitLbp = kept.keptLbp;
+    }
+
     // Summary line. Existing specs match on the "Maintenance Job #" prefix —
     // keep that. A USD job folds parts straight into the "$" figure (both
     // sides are already USD); an LBP job keeps its "N LBP" figure unchanged
@@ -603,10 +679,10 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       amount_usd: partsPriceUsd + (isLbp ? 0 : opts.finalAmount),
       amount_lbp: isLbp ? opts.finalAmount : 0,
       // Margin: parts margin (always USD) + labour margin (job currency) +
-      // kept change per its own currency (T3).
-      profit_usd:
-        partsMarginUsd + (isLbp ? 0 : profit) + (opts.keptChangeUsd ?? 0),
-      profit_lbp: (isLbp ? profit : 0) + (opts.keptChangeLbp ?? 0),
+      // kept change per its own currency (T3) — the server-checked amount
+      // (G42), never the raw client claim.
+      profit_usd: partsMarginUsd + (isLbp ? 0 : profit) + keptProfitUsd,
+      profit_lbp: (isLbp ? profit : 0) + keptProfitLbp,
       client_id: opts.clientId ?? null,
       // An untouched phone arrives blank on a resave (the page never
       // re-sends the linked client's stored number) — fall back to that
@@ -861,7 +937,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
    * Parts for many jobs in ONE query (no N+1 for a jobs-list view) — a
    * parameterised `IN (...)` list built from placeholders, grouped in
    * memory by `maintenance_id`. Returns an empty Map without touching the
-   * DB for an empty input array.
+   * DB for an empty input array. Each row also carries the product's current
+   * price as `catalog_price_usd` (LEFT JOIN, tenant-scoped — `null` when the
+   * product is gone) for the parts price-change warning (LIRA-260).
    */
   getPartsForJobs(jobIds: number[]): Map<number, MaintenancePartRow[]> {
     const result = new Map<number, MaintenancePartRow[]>();
@@ -871,11 +949,15 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     const placeholders = jobIds.map(() => "?").join(", ");
     const rows = this.db
       .prepare(
-        `SELECT id, maintenance_id, product_id, product_name, quantity, unit_cost_usd, unit_price_usd,
-                stock_restored, created_at, updated_at
-         FROM maintenance_parts
-         WHERE maintenance_id IN (${placeholders}) AND tenant_id = ?
-         ORDER BY id ASC`,
+        `SELECT mp.id, mp.maintenance_id, mp.product_id, mp.product_name, mp.quantity,
+                mp.unit_cost_usd, mp.unit_price_usd, mp.stock_restored,
+                mp.created_at, mp.updated_at,
+                p.selling_price_usd AS catalog_price_usd
+         FROM maintenance_parts mp
+         LEFT JOIN products p
+           ON p.id = mp.product_id AND p.tenant_id = mp.tenant_id
+         WHERE mp.maintenance_id IN (${placeholders}) AND mp.tenant_id = ?
+         ORDER BY mp.id ASC`,
       )
       .all(...jobIds, tenantId) as MaintenancePartRow[];
 

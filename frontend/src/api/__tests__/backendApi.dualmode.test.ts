@@ -238,7 +238,9 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.getDebtors();
     await apiMod.getClientDebtHistory(1);
     await apiMod.getClientDebtTotal(1);
-    await apiMod.addRepayment({});
+    await apiMod.addRepayment(
+      {} as Parameters<typeof apiMod.addRepayment>[0],
+    );
 
     await apiMod.getExchangeRates();
     await apiMod.getCurrenciesList();
@@ -250,7 +252,7 @@ describe("backendApi dual-mode routing", () => {
     );
 
     await apiMod.getTodayExpenses();
-    await apiMod.addExpense({});
+    await apiMod.addExpense({} as Parameters<typeof apiMod.addExpense>[0]);
     await apiMod.deleteExpense(1);
 
     await apiMod.getDashboardStats();

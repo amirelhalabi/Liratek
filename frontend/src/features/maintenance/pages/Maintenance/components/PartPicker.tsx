@@ -21,11 +21,12 @@ export interface PartLine {
   quantity: number;
   unit_price_usd: number;
   /**
-   * Display-only (LIRA-260): the product's `retail_price` at the moment the
-   * line was added, so editing `unit_price_usd` away from it raises the
-   * shared price-change warning. Absent on lines loaded from a saved job
-   * (their rows carry no catalog price), which therefore show no warning.
-   * Never sent — `toPartsPayload` whitelists the backend fields.
+   * Display-only (LIRA-260): the product's `retail_price` — taken when the
+   * line is added, or, for a line loaded from a saved job, the product's
+   * CURRENT price returned by the jobs read — so a `unit_price_usd` that
+   * differs from it raises the shared price-change warning. `null` when the
+   * product is gone (no warning). Never sent — `toPartsPayload` whitelists
+   * the backend fields.
    */
   catalog_price_usd?: number | null;
 }

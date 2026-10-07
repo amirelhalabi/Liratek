@@ -85,7 +85,11 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getSalesService, getTransactionService } from "@liratek/core";
+import {
+  getSalesService,
+  getTransactionService,
+  refundKeptChangeSchema,
+} from "@liratek/core";
 import salesRouter from "../sales.js";
 
 const SESSION_MESSAGE =
@@ -225,6 +229,37 @@ describe("LIRA-231: POS refund-leg-override REST parity", () => {
       unitExtras: [{ unit_id: 9, warranty_override_until: "2027-01-01" }],
       userId: 42,
     });
+  });
+
+  it("POST /:id/refund-item forwards keptChange (schema names) as the repository's {usd, lbp} (not proven failing-first)", async () => {
+    // Owner decision 2026-10-07 — refund kept change on the per-item refund.
+    // The route builds its parse object field by field, so a missing
+    // `keptChange` line would silently drop it on web (rule 23).
+    const refundSpy = jest
+      .spyOn(salesService, "refundSaleItem")
+      .mockReturnValue({ success: true, refundId: 603 });
+    const keptChange = refundKeptChangeSchema.parse({ kept_change_usd: 0.12 });
+
+    const res = await request(app)
+      .post("/api/sales/7/refund-item")
+      .set("x-test-role", "admin")
+      .send({
+        saleItemId: 3,
+        refundQuantity: 1,
+        refundLegs: [{ method: "CASH", currencyCode: "USD", amount: 20 }],
+        keptChange,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, refundId: 603 });
+    expect(refundSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        saleId: 7,
+        saleItemId: 3,
+        keptChange: { usd: 0.12, lbp: undefined },
+        userId: 42,
+      }),
+    );
   });
 
   it("POST /:id/refund-item: a session-linked sale is refused — {success:false}, HTTP 200, exact message", async () => {

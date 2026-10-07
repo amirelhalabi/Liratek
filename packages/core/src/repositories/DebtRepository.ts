@@ -31,7 +31,9 @@ import {
   insertPaymentRow,
   buildCounterpartyDiscountPosting,
   resolveStampedExchangeRate,
+  usdEquivalent,
 } from "./moneyPosting.js";
+import { resolveKeptChange } from "./keptChange.js";
 
 /** CQ-10 — a discount/write-off amount bundled with a settlement, or posted
  *  standalone. amount_usd/amount_lbp are the FORGIVEN amounts (always
@@ -131,9 +133,12 @@ export interface CreateRepaymentData {
    *  drawer routing. Each leg is processed independently with per-leg RESERVE
    *  routing for Service Debt (e.g. WHISH leg → Whish_App → Whish_System). */
   payments?: RepaymentPaymentLine[];
-  /** T3 keep-change: kept (not returned) change per currency. Stamped as
-   *  profit on the DEBT_REPAYMENT transaction (the generic void negates the
-   *  stamp); the caller already excluded these from amount_usd/amount_lbp. */
+  /** T3 keep-change: kept (not returned) change per currency — the client's
+   *  CLAIM. `addRepayment` checks it against the explicit payment lines with
+   *  `resolveKeptChange` (payer "customer": IN − OUT − kept = amount_usd/
+   *  amount_lbp) before stamping it as profit on the DEBT_REPAYMENT
+   *  transaction (the generic void negates the stamp). The caller already
+   *  excluded these from amount_usd/amount_lbp. */
   kept_change_usd?: number;
   kept_change_lbp?: number;
   transaction_time?: string;
@@ -326,6 +331,38 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   addRepayment(data: CreateRepaymentData): { id: number } {
     const tenantId = getCurrentTenantId();
     return this.transaction(() => {
+      // 0. Kept change (owner decision 2026-10-07, POSTING_MAP G42): the
+      //    client only CLAIMS a kept extra — check it against the explicit
+      //    payment lines BEFORE any write, so a refusal rolls nothing back.
+      //    Customer pays the shop: IN − OUT − kept = the debt reduction.
+      //    Only when a kept amount is claimed: a repayment with nothing kept
+      //    keeps today's behaviour (no reconcile — the smart-rounding LBP
+      //    rule can legitimately leave more than the $0.05 epsilon over, see
+      //    README → Business Logic). Synthesized legacy legs are NOT passed:
+      //    a kept claim without real payment lines is refused outright.
+      const claimedKept = {
+        usd: data.kept_change_usd ?? 0,
+        lbp: data.kept_change_lbp ?? 0,
+      };
+      const kept =
+        claimedKept.usd !== 0 || claimedKept.lbp !== 0
+          ? (() => {
+              const explicit = partitionLegs(data.payments);
+              return resolveKeptChange({
+                payer: "customer",
+                expected: { usd: data.amount_usd, lbp: data.amount_lbp },
+                inLegs: explicit.inLegs,
+                outLegs: explicit.outLegs,
+                claimedKept,
+                exchangeRate: getUsdLbpSellRate(this.db),
+                ...(data.tender_exchange_rate !== undefined
+                  ? { tenderExchangeRate: data.tender_exchange_rate }
+                  : {}),
+                context: "Debt repayment",
+              });
+            })()
+          : { keptUsd: 0, keptLbp: 0 };
+
       // 1. Insert debt ledger entry
       const stmt = this.db.prepare(`
         INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
@@ -406,6 +443,32 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         data.tender_exchange_rate,
       );
 
+      // G44 — the amount actually APPLIED to the debt, per currency: the net
+      // tender (IN − OUT) minus the verified kept extra. The kept extra is
+      // shop profit, not repayment budget, so it must not FIFO-cover sales or
+      // module charges, nor be routed into a provider's cash drawer (the
+      // ledger reduction above already excludes it). A currency's remainder
+      // may go negative when the kept extra sits in the other currency's
+      // tender — settled against the other side at the stamped rate before
+      // clamping (same netting as the page's computeRepaymentReduction).
+      // Nothing kept → exactly the old figures (byte-for-byte behaviour).
+      let appliedUSD = totalUSD;
+      let appliedLBP = totalLBP;
+      if (kept.keptUsd > 0 || kept.keptLbp > 0) {
+        appliedUSD -= kept.keptUsd;
+        appliedLBP -= kept.keptLbp;
+        if (appliedUSD < 0) {
+          appliedLBP += appliedUSD * recordExchangeRate;
+          appliedUSD = 0;
+        }
+        if (appliedLBP < 0) {
+          appliedUSD += appliedLBP / recordExchangeRate;
+          appliedLBP = 0;
+        }
+        appliedUSD = Math.max(0, appliedUSD);
+        appliedLBP = Math.max(0, appliedLBP);
+      }
+
       // Create unified transaction row
       const clientName = this._getClientName(data.client_id);
       const txnId = getTransactionRepository().createTransaction({
@@ -417,9 +480,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         amount_lbp: data.amount_lbp,
         // T3 keep-change: the kept extra is the ONLY profit a repayment books
         // ("Other / kept change" profits line). Stamped at create time so the
-        // generic void's stamp negation reverses it symmetrically.
-        profit_usd: data.kept_change_usd || 0,
-        profit_lbp: data.kept_change_lbp || 0,
+        // generic void's stamp negation reverses it symmetrically. Always the
+        // VERIFIED figure from resolveKeptChange, never the raw claim.
+        profit_usd: kept.keptUsd,
+        profit_lbp: kept.keptLbp,
         client_id: data.client_id,
         // note 14 — thin-summary enrichment: client's name appended after
         // the existing "Debt Repayment: $X + Y LBP" prefix.
@@ -603,11 +667,12 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         }
       }
 
-      // Cap total routing per currency at the NET amount the shop actually
-      // kept (gross IN − change OUT): an overpayment handed back as change
-      // must not route more than was retained. totalUSD/totalLBP are that net.
-      let routeRemainingUsd = Math.min(outstandingUsd, Math.max(0, totalUSD));
-      let routeRemainingLbp = Math.min(outstandingLbp, Math.max(0, totalLBP));
+      // Cap total routing per currency at the amount actually APPLIED to the
+      // debt (gross IN − change OUT − kept extra, G44): an overpayment handed
+      // back as change, or kept as shop profit, must not route more than
+      // what settled the debt.
+      let routeRemainingUsd = Math.min(outstandingUsd, Math.max(0, appliedUSD));
+      let routeRemainingLbp = Math.min(outstandingLbp, Math.max(0, appliedLBP));
 
       // Process each customer-paid (IN) leg independently
       for (const leg of inLegs) {
@@ -725,9 +790,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       //    overstates the net kept (see lira-096). Sale debts are
       //    USD-denominated (SalesRepository), so pure-LBP debts never feed
       //    this path.
+      //    G44: the APPLIED amount (kept extra excluded), not the raw net.
       const usdRemainder = this._markSalesPaidFIFO(
         data.client_id,
-        totalUSD || data.amount_usd,
+        appliedUSD || data.amount_usd,
       );
 
       // DBT-1 (owner decision 2026-07-14): client-account SERVICE profit is
@@ -740,7 +806,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       this._coverServiceDebtsFIFO(
         data.client_id,
         usdRemainder,
-        totalLBP || data.amount_lbp,
+        appliedLBP || data.amount_lbp,
       );
 
       // CQ-10 — bundled discount: posted AFTER the repayment's own coverage
@@ -1116,6 +1182,18 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * payout leg's drawer in its own currency — the mirror image of a
    * repayment. amount_usd/amount_lbp are the credit reduction (LBP legs
    * pre-converted by the caller); payments[] are the physical payout legs.
+   *
+   * Kept change (payer "payout", owner decision 2026-10-07): the shop may
+   * hand out slightly LESS than the credit (e.g. $101 of $101.12). The credit
+   * still clears by the full reduction and the shortfall is shop profit,
+   * stamped on the CREDIT_CASH_OUT row's own profit. `resolveKeptChange`
+   * checks every cash-out before any write: payout lines = reduction − kept
+   * (S2 epsilon), kept under PAYOUT_KEEP_CHANGE_MAX in the credit's own
+   * currency, and NO OUT legs (a payout has no change — the old loop debited
+   * an OUT leg as if it were more cash handed out). A mixed USD + LBP credit
+   * cannot keep change (the helper owes in one currency). Every payout line
+   * must move a drawer: a CUSTOMER_ACCOUNT/GIFT_CARD line used to be skipped
+   * silently, reducing the credit with no money leaving the shop.
    */
   cashOutCredit(data: {
     client_id: number;
@@ -1127,11 +1205,96 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     transaction_time?: string;
     /** See `CreateRepaymentData.tender_exchange_rate`'s doc — same
      *  payment-sheet rate concept, same `resolveStampedExchangeRate` stamp
-     *  rule, applied here for CREDIT_CASH_OUT. */
+     *  rule, applied here for CREDIT_CASH_OUT. Also the rate the payout
+     *  lines are reconciled at (rule 27). */
     tender_exchange_rate?: number;
+    /** Kept change CLAIM (shortfall the shop keeps as profit) — verified by
+     *  resolveKeptChange, never trusted as sent. Same names as the
+     *  repayment's (`kept_change_usd`/`kept_change_lbp`). */
+    kept_change_usd?: number;
+    kept_change_lbp?: number;
   }): { id: number } {
     const tenantId = getCurrentTenantId();
     return this.transaction(() => {
+      const reductionUsd = Math.abs(data.amount_usd);
+      const reductionLbp = Math.abs(data.amount_lbp);
+
+      // Payout legs: default to CASH legs matching the reduction PER
+      // CURRENCY. A USD-only default silently skipped the drawer debit on an
+      // LBP cash-out with no explicit legs (credit reduced, till untouched).
+      const legs: RepaymentPaymentLine[] =
+        data.payments && data.payments.length > 0
+          ? data.payments
+          : [
+              ...(reductionUsd > 0
+                ? [
+                    {
+                      method: "CASH",
+                      currencyCode: "USD",
+                      amount: reductionUsd,
+                    },
+                  ]
+                : []),
+              ...(reductionLbp > 0
+                ? [
+                    {
+                      method: "CASH",
+                      currencyCode: "LBP",
+                      amount: reductionLbp,
+                    },
+                  ]
+                : []),
+            ];
+
+      // Server rate-of-record; the stamp and the reconcile both prefer the
+      // till's tender rate (see addRepayment's identical comment).
+      const serverRate = getUsdLbpSellRate(this.db);
+      const recordExchangeRate = resolveStampedExchangeRate(
+        serverRate,
+        data.tender_exchange_rate,
+      );
+
+      // Verify the payout BEFORE any write. The helper owes in ONE currency:
+      // an LBP-only credit owes LBP; otherwise USD (a mixed credit's LBP side
+      // converted at the same rate the reconcile uses — exact, no drift).
+      const claimedKept = {
+        usd: data.kept_change_usd ?? 0,
+        lbp: data.kept_change_lbp ?? 0,
+      };
+      if (
+        (claimedKept.usd > 0 || claimedKept.lbp > 0) &&
+        reductionUsd > 0 &&
+        reductionLbp > 0
+      ) {
+        throw new Error(
+          "Credit cash out: keeping change needs a credit in one currency — pay a mixed USD + LBP credit out exactly",
+        );
+      }
+      const owedCurrency =
+        reductionUsd === 0 && reductionLbp > 0 ? "LBP" : "USD";
+      const kept = resolveKeptChange({
+        payer: "payout",
+        owed:
+          owedCurrency === "LBP"
+            ? reductionLbp
+            : usdEquivalent(reductionUsd, reductionLbp, recordExchangeRate),
+        owedCurrency,
+        payoutLegs: legs,
+        claimedKept,
+        exchangeRate: serverRate,
+        ...(data.tender_exchange_rate !== undefined
+          ? { tenderExchangeRate: data.tender_exchange_rate }
+          : {}),
+        context: "Credit cash out",
+      });
+      for (const leg of legs) {
+        if (Math.abs(leg.amount) > 0 && !isDrawerAffectingMethod(leg.method)) {
+          throw new Error(
+            `Credit cash out: ${leg.method} cannot pay out a credit — choose a method that takes money out of a drawer`,
+          );
+        }
+      }
+
       const stmt = this.db.prepare(`
         INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
         VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
@@ -1147,40 +1310,6 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       );
       const ledgerId = Number(result.lastInsertRowid);
 
-      // Payout legs: default to CASH legs matching the reduction PER
-      // CURRENCY. A USD-only default silently skipped the drawer debit on an
-      // LBP cash-out with no explicit legs (credit reduced, till untouched).
-      const legs: RepaymentPaymentLine[] =
-        data.payments && data.payments.length > 0
-          ? data.payments
-          : [
-              ...(Math.abs(data.amount_usd) > 0
-                ? [
-                    {
-                      method: "CASH",
-                      currencyCode: "USD",
-                      amount: Math.abs(data.amount_usd),
-                    },
-                  ]
-                : []),
-              ...(Math.abs(data.amount_lbp) > 0
-                ? [
-                    {
-                      method: "CASH",
-                      currencyCode: "LBP",
-                      amount: Math.abs(data.amount_lbp),
-                    },
-                  ]
-                : []),
-            ];
-
-      // See addRepayment's identical comment — same owner decision, same
-      // non-throwing stamp rule, no reconcileLegs anchor to preserve here.
-      const recordExchangeRate = resolveStampedExchangeRate(
-        getUsdLbpSellRate(this.db),
-        data.tender_exchange_rate,
-      );
-
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.CREDIT_CASH_OUT,
         source_table: "debt_ledger",
@@ -1188,6 +1317,12 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         user_id: data.created_by,
         amount_usd: Math.abs(data.amount_usd),
         amount_lbp: Math.abs(data.amount_lbp),
+        // Kept change (verified above) is the ONLY profit a cash-out books —
+        // in the transaction's own stamp, per currency, never converted.
+        // CREDIT_CASH_OUT is NON_REVERSIBLE (see transactionTypes.ts), so no
+        // generic void can negate it.
+        profit_usd: kept.keptUsd,
+        profit_lbp: kept.keptLbp,
         client_id: data.client_id,
         summary: `Credit Cash Out: $${Math.abs(data.amount_usd)} + ${Math.abs(
           data.amount_lbp,
@@ -1255,7 +1390,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       for (const leg of legs) {
         const amt = Math.abs(leg.amount);
-        if (amt <= 0 || !isDrawerAffectingMethod(leg.method)) continue;
+        // Every leg here is an IN-direction, drawer-affecting payout line —
+        // resolveKeptChange refused OUT legs and the check above refused
+        // non-drawer methods, both before any write.
+        if (amt <= 0) continue;
         const drawer = paymentMethodToDrawerName(leg.method);
         insertPayment.run(
           txnId,

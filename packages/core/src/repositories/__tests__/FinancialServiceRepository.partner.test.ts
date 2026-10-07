@@ -39,9 +39,15 @@ import {
 } from "../../db/tenantContext";
 import {
   expectPostings,
+  expectPostingsMatchRule,
+  expectedPostingsForRule,
   ledgerDeltas,
   snapshotLedgers,
 } from "../testHelpers/postingAssert";
+import {
+  POSTING_RULES,
+  type PostingRuleKey,
+} from "../../constants/postingRules";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
 
@@ -2200,62 +2206,77 @@ describe("FinancialServiceRepository — partner mode", () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe("LIRA-258 — invariant sweep: every OMT/WHISH mode posts its supplier record", () => {
-    type Mode = "walk-in" | "THROUGH" | "FOR";
+    // Phase 5 (POSTING_INTEGRITY_PLAN.md §7): expectations come from the
+    // posting rules table (constants/postingRules.ts), not hand-coded
+    // lambdas. The supplier numbers are the same ones the hand-coded sweep
+    // asserted (SEND +(x+f), RECEIVE −x, secondary THROUGH 0 — rule 24);
+    // the full-delta check on drawers / partner / debt that the table adds
+    // is characterization of today's code against POSTING_MAP.md §4.1, not
+    // a failing-first guard. Debt "none" holds trivially here: DebtService
+    // is mocked in this file.
+    type Mode = "walk-in" | "THROUGH" | "FOR" | "basket";
     const cases: Array<{
       name: string;
       provider: "OMT" | "WHISH";
       serviceType: "SEND" | "RECEIVE";
       mode: Mode;
-      expectedSupplier: (x: number, f: number) => number;
+      rule: PostingRuleKey;
     }> = [
       {
         name: "walk-in SEND",
         provider: "OMT",
         serviceType: "SEND",
         mode: "walk-in",
-        expectedSupplier: (x, f) => x + f,
+        rule: "FS_SYSTEM/SEND/walk-in",
       },
       {
         name: "walk-in RECEIVE",
         provider: "OMT",
         serviceType: "RECEIVE",
         mode: "walk-in",
-        expectedSupplier: (x) => -x,
+        rule: "FS_SYSTEM/RECEIVE/walk-in",
       },
       {
         name: "THROUGH base SEND",
         provider: "OMT",
         serviceType: "SEND",
         mode: "THROUGH",
-        expectedSupplier: (x, f) => x + f,
+        rule: "FS_SYSTEM/SEND/THROUGH-base",
       },
       {
         name: "THROUGH base RECEIVE",
         provider: "OMT",
         serviceType: "RECEIVE",
         mode: "THROUGH",
-        expectedSupplier: (x) => -x,
+        rule: "FS_SYSTEM/RECEIVE/THROUGH-base",
       },
       {
         name: "FOR SEND",
         provider: "OMT",
         serviceType: "SEND",
         mode: "FOR",
-        expectedSupplier: (x, f) => x + f,
+        rule: "FS_SYSTEM/SEND/FOR",
       },
       {
         name: "FOR RECEIVE",
         provider: "OMT",
         serviceType: "RECEIVE",
         mode: "FOR",
-        expectedSupplier: (x) => -x,
+        rule: "FS_SYSTEM/RECEIVE/FOR",
       },
       {
         name: "THROUGH secondary SEND",
         provider: "WHISH",
         serviceType: "SEND",
         mode: "THROUGH",
-        expectedSupplier: () => 0,
+        rule: "FS_SYSTEM/SEND/THROUGH-secondary",
+      },
+      {
+        name: "basket SEND",
+        provider: "OMT",
+        serviceType: "SEND",
+        mode: "basket",
+        rule: "FS_SYSTEM/SEND/basket",
       },
     ];
     const currencies = [
@@ -2271,7 +2292,10 @@ describe("FinancialServiceRepository — partner mode", () => {
               "INSERT OR IGNORE INTO drawer_balances VALUES (1, 'OMT_System', 'LBP', 0, CURRENT_TIMESTAMP)",
             ).run();
           }
-          const partnerId = c.mode === "walk-in" ? undefined : seedPartner(db);
+          const partnerId =
+            c.mode === "THROUGH" || c.mode === "FOR"
+              ? seedPartner(db)
+              : undefined;
           const isSend = c.serviceType === "SEND";
           const fee = isSend ? cur.f : 0;
           const supplierId = supplierIdByProvider(db, c.provider);
@@ -2296,17 +2320,36 @@ describe("FinancialServiceRepository — partner mode", () => {
                 }
               : {}),
             ...(c.mode === "FOR" ? { payments: [] } : {}),
+            ...(c.mode === "basket" ? { deferPayment: true } : {}),
             ...(!isSend ? { cashoutMethod: "CASH" as const } : {}),
             ...(partnerId
               ? { partnerId, partnerMode: c.mode as "THROUGH" | "FOR" }
               : {}),
           });
 
-          const delta = ledgerDeltas(before, snapshotLedgers(db));
-          const want = c.expectedSupplier(cur.x, cur.f);
+          const rule = POSTING_RULES[c.rule];
+          const inputs = { x: cur.x, f: fee, c: 0, currency: cur.currency };
+          const keys = {
+            drawers: { pcd: "OMT_System", general: "General" },
+            providerSupplierId: supplierId,
+            partnerId,
+          };
+          const after = snapshotLedgers(db);
+
+          // Invariant 1 — the supplier posting is exactly the rule's formula
+          // (same number the hand-coded sweep asserted).
+          const want =
+            expectedPostingsForRule(rule, inputs, keys).expected.supplier?.[
+              `${supplierId}|${cur.currency}`
+            ] ?? 0;
           expect(
-            delta.supplier[`${supplierId}|${cur.currency}`] ?? 0,
+            ledgerDeltas(before, after).supplier[
+              `${supplierId}|${cur.currency}`
+            ] ?? 0,
           ).toBeCloseTo(want, 2);
+
+          // Every ledger, full delta, from the table.
+          expectPostingsMatchRule(rule, before, after, inputs, keys);
 
           // Invariant 2 — the queue owes exactly what the ledger holds.
           const queued = repo.getUnsettledBySupplier(c.provider) as unknown as {

@@ -10,6 +10,7 @@ import {
   RefundLegsSchema,
   RefundUnitExtrasSchema,
   RefundExchangeRateSchema,
+  RefundKeptChangeSchema,
   SessionItemRefundSchema,
   SessionItemRefundPreviewSchema,
   validatePayload,
@@ -143,6 +144,7 @@ export function registerTransactionHandlers(): void {
       refundLegs?: unknown,
       refundUnitExtras?: unknown,
       exchangeRate?: unknown,
+      keptChange?: unknown,
     ) => {
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
@@ -178,11 +180,25 @@ export function registerTransactionHandlers(): void {
           rate = rateV.data;
         }
 
+        // Owner decision 2026-10-07 — refund kept change, same "validate
+        // only when present" discipline; the repository checks the claim
+        // (`resolveKeptChange`), this only shapes it.
+        let kept: { usd?: number; lbp?: number } | undefined;
+        if (keptChange !== undefined && keptChange !== null) {
+          const keptV = validatePayload(RefundKeptChangeSchema, keptChange);
+          if (!keptV.ok) return { success: false, error: keptV.error };
+          kept = {
+            usd: keptV.data.kept_change_usd,
+            lbp: keptV.data.kept_change_lbp,
+          };
+        }
+
         const userId = auth.userId ?? 1;
         const refundId = txnService.refundTransaction(idV.data, userId, {
           refundLegs: legs,
           refundUnitExtras: unitExtras,
           exchangeRate: rate,
+          keptChange: kept,
         });
         audit(e.sender.id, {
           action: "refund",
@@ -194,6 +210,7 @@ export function registerTransactionHandlers(): void {
             refundLegs: legs,
             refundUnitExtras: unitExtras,
             exchangeRate: rate,
+            keptChange: kept,
           },
         });
         return { success: true, refundId };

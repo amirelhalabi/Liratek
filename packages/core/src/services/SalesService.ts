@@ -24,6 +24,7 @@ import {
   type RefundLegOverride,
   type RefundUnitExtra,
   type TransactionPaymentLeg,
+  type KeptChange,
 } from "../repositories/index.js";
 import { salesLogger } from "../utils/logger.js";
 import { getSettingsService } from "./SettingsService.js";
@@ -200,6 +201,9 @@ export class SalesService {
     /** LIRA-236 — forwarded verbatim, see `SalesRepository.refundSaleItem`'s
      *  own doc (rule 13: this service adds no logic of its own). */
     exchangeRate?: number;
+    /** Owner decision 2026-10-07 — refund kept change, forwarded verbatim;
+     *  the repository checks it (`resolveKeptChange`). */
+    keptChange?: KeptChange;
   }): { success: boolean; refundId?: number; error?: string } {
     try {
       const refundTxnId = this.salesRepo.refundSaleItem(params);

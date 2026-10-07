@@ -310,10 +310,14 @@ export default function CustomServices() {
   // service (and so joins its profit stamp). One definition, used by both the
   // submit payload and the Profit preview, so the preview shows exactly what
   // the Profits page will show (LIRA-185). Applies to VIA too; never to FOR
-  // (no counter payment) or a payout (no tender to make change from).
+  // (no counter payment) or a payout (no tender to make change from) — the
+  // server refuses both. Never into a session basket either: the basket
+  // checkout owns the customer's cash and its own kept change, and the
+  // server books no item-level kept for a basket item (POSTING_MAP G42).
   const sentKeptChange =
     !isForPartner &&
     !isPayout &&
+    !activeSession &&
     keptChange &&
     (keptChange.usd > 0 || keptChange.lbp > 0)
       ? keptChange
@@ -1356,7 +1360,16 @@ export default function CustomServices() {
                         totalAmountCurrency={currency}
                         onChange={setPaymentLines}
                         onReturnChange={setReturnLegs}
-                        onKeptChange={setKeptChange}
+                        // The walk-in customer pays the shop: change they
+                        // leave behind is shop profit (checked server-side
+                        // by resolveKeptChange). Payout and FOR never render
+                        // this widget.
+                        payer="customer"
+                        // Unwired in a session: the basket checkout owns
+                        // kept change, so the item sheet offers none.
+                        {...(activeSession
+                          ? {}
+                          : { onKeptChange: setKeptChange })}
                         requiresClientForDebt={true}
                         hasClient={!!clientId || !!clientName}
                         // Auto-debt needs a RESOLVED client here: the submit

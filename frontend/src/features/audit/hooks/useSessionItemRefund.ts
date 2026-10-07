@@ -20,6 +20,7 @@ import type {
   SessionItemRefundInput,
   SessionItemRefundPreviewInput,
   SessionItemRefundPreview,
+  RefundKeptChangeInput,
 } from "@liratek/core";
 import type { BookedRateSource } from "@/api/backendApi";
 import type { TransactionPaymentLeg } from "../cashFlow";
@@ -59,6 +60,10 @@ export interface SessionItemRefundTarget {
   /** e.g. "amir" — the customer whose account balance drops, for the
    *  account-reduction message. */
   clientLabel?: string;
+  /** The basket member's transaction type — decides whether the refund
+   *  popup may keep change (`REFUND_KEPT_CHANGE_TYPES`, owner decision
+   *  2026-10-07). Display-side only; the server re-checks it. */
+  transactionType?: string;
 }
 
 export interface SessionItemRefundPreviewState {
@@ -234,6 +239,7 @@ export function useSessionItemRefund(onRefunded: () => void) {
       refundLegsInput: RefundLegOverride[] | undefined,
       unitExtras?: RefundUnitExtraOverride[],
       exchangeRate?: number,
+      keptChange?: RefundKeptChangeInput,
     ) => {
       if (!preview) return;
       setSubmitting(true);
@@ -262,6 +268,12 @@ export function useSessionItemRefund(onRefunded: () => void) {
         }
         if (exchangeRate !== undefined) {
           payload.exchangeRate = exchangeRate;
+        }
+        // Owner decision 2026-10-07 — refund kept change: the schema's own
+        // flat keys on the SAME payload (rule 22), checked by the server.
+        if (keptChange) {
+          payload.kept_change_usd = keptChange.kept_change_usd;
+          payload.kept_change_lbp = keptChange.kept_change_lbp;
         }
         const res = await apiRef.current.refundSessionBasketItem(payload);
         if (res.success) {

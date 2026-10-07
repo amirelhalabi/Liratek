@@ -3,7 +3,9 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
+  partitionLegs,
 } from "../utils/payments.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import {
   TRANSACTION_TYPES,
@@ -13,12 +15,22 @@ import {
   type TransactionType,
 } from "../constants/transactionTypes.js";
 import { TOP_UP_PROVIDER_DRAWERS } from "../constants/rechargeProviders.js";
-import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  resolveStampedExchangeRate,
+  sumLegsByCurrency,
+  usdEquivalent,
+} from "./moneyPosting.js";
+import { resolveKeptChange } from "./keptChange.js";
 import { isToday } from "./reportingTimeFragments.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { getServiceProviderRepository } from "./ServiceProviderRepository.js";
 import { BusinessRuleError } from "../utils/errors.js";
-import type { CreateStockExpenseData } from "../validators/expense.js";
+import type {
+  CreateStockExpenseData,
+  ExpensePaymentLeg,
+} from "../validators/expense.js";
 
 export interface ExpenseEntity {
   id: number;
@@ -135,7 +147,37 @@ export interface CreateExpenseData {
   transaction_type?: TransactionType;
   /** LIRA-262 — see {@link ExpenseStockItem}. */
   stock_item?: ExpenseStockItem;
+  /**
+   * Manual expense cash lines (owner decision 2026-10-07, payer "shop").
+   * When present (and non-empty), `amount_usd`/`amount_lbp` are read as the
+   * BILL, and the stored cost + drawer legs are derived from these lines:
+   * IN (no direction) = cash handed to the vendor, OUT = change the vendor
+   * handed back into the drawer. See {@link ExpenseRepository.createExpense}.
+   * Internal writers (SMS fee, line usage, stock use) never pass it.
+   */
+  payments?: ExpensePaymentLeg[];
+  /** Client's claim of change the vendor did NOT return (added to the
+   *  cost). Checked by `resolveKeptChange`, never trusted. */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
+  /** The rate the till converted at (rule 27). */
+  tender_exchange_rate?: number;
 }
+
+/**
+ * What a manual expense's cash lines resolve to (payer "shop"): the stored
+ * cost, the gross cash handed per currency (drawer debit) and the change
+ * legs that came back (drawer credit). See `_resolveManualCash`.
+ */
+interface ManualExpenseCash {
+  costUsd: number;
+  costLbp: number;
+  handedUsd: number;
+  handedLbp: number;
+  returned: ExpensePaymentLeg[];
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   constructor() {
@@ -182,6 +224,10 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     const drawerName = paymentMethodToDrawerName(paidBy);
     const tenantId = getCurrentTenantId();
     const hasSourceRef = this._expensesHasSourceRefColumns();
+    const hasCashLines =
+      !data.stock_item &&
+      !data.drawer_override &&
+      (data.payments?.length ?? 0) > 0;
 
     return this.db.transaction(() => {
       // LIRA-262: a stock-use expense is only ever written on a v193 schema
@@ -214,6 +260,14 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
           userId,
           tenantId,
         );
+      }
+      // Manual expense with cash lines: check the lines against the bill and
+      // store the REAL cost (handed − returned) — Profits and closing sum
+      // `expenses.amount_*`, so the bill alone would understate a vendor
+      // who kept the change. Throws before any write.
+      const cash = hasCashLines ? this._resolveManualCash(data, paidBy) : null;
+      if (cash) {
+        data = { ...data, amount_usd: cash.costUsd, amount_lbp: cash.costLbp };
       }
       const stmt = hasSourceRef
         ? this.db.prepare(`
@@ -254,8 +308,127 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         drawerName,
         userId,
         tenantId,
+        cash ?? undefined,
       );
     })();
+  }
+
+  /**
+   * Manual expense, payer "shop" (owner decision 2026-10-07): the operator
+   * typed the BILL (`amount_usd`/`amount_lbp`) and the cash HANDED (IN
+   * legs); change the vendor handed back is OUT legs; the client claims the
+   * change NOT returned as `kept_change_*`. `resolveKeptChange` checks
+   * handed − returned − notReturned = bill (and refuses a claim above the
+   * real excess), so nothing here trusts the client's figures.
+   *
+   * Stored cost = handed − returned per currency. When the change came back
+   * in the OTHER currency one side goes negative (e.g. $20 handed, 100,000
+   * LBP back); an expense row / EXPENSE transaction never carries a negative
+   * amount (it would flip the OUT badge, show a negative total on the
+   * Expenses page and fail the nonnegative schemas), so that case is folded
+   * into the bill's currency at the same rate the reconcile used. The
+   * drawers still move per physical currency (gross legs).
+   */
+  private _resolveManualCash(
+    data: CreateExpenseData,
+    paidBy: string,
+  ): ManualExpenseCash {
+    const context = "Expense";
+    const { inLegs: handed, outLegs: returned } = partitionLegs(data.payments);
+    const billUsd = data.amount_usd || 0;
+    const billLbp = data.amount_lbp || 0;
+    if (billUsd <= 0 && billLbp <= 0) {
+      throw new BusinessRuleError(`${context}: enter the bill amount`);
+    }
+    if (handed.length === 0) {
+      throw new BusinessRuleError(
+        `${context}: enter the cash handed to the vendor`,
+      );
+    }
+    for (const leg of [...handed, ...returned]) {
+      if (leg.currencyCode !== "USD" && leg.currencyCode !== "LBP") {
+        throw new BusinessRuleError(
+          `${context}: only USD and LBP lines are supported`,
+        );
+      }
+    }
+    for (const leg of handed) {
+      if (leg.method !== paidBy) {
+        throw new BusinessRuleError(
+          `${context}: every line must be paid with ${paidBy}`,
+        );
+      }
+    }
+    const isUsdtWallet = paidBy === "BINANCE";
+    if (isUsdtWallet && handed.some((l) => l.currencyCode !== "USD")) {
+      throw new BusinessRuleError(
+        `${context}: a Binance payment is in dollars only`,
+      );
+    }
+    const claimsChange =
+      returned.length > 0 ||
+      (data.kept_change_usd ?? 0) > 0 ||
+      (data.kept_change_lbp ?? 0) > 0;
+    if (claimsChange && (isUsdtWallet || !isDrawerAffectingMethod(paidBy))) {
+      throw new BusinessRuleError(
+        `${context}: change back from the vendor can only be recorded for a payment out of a cash drawer — pay the exact bill`,
+      );
+    }
+    for (const leg of returned) {
+      if (!isDrawerAffectingMethod(leg.method)) {
+        throw new BusinessRuleError(
+          `${context}: change from the vendor must come back into a drawer`,
+        );
+      }
+    }
+
+    const exchangeRate = getUsdLbpSellRate(this.db);
+    const resolved = resolveKeptChange({
+      payer: "shop",
+      bill: { usd: billUsd, lbp: billLbp },
+      handedLegs: handed,
+      returnedLegs: returned,
+      claimedKept: {
+        usd: data.kept_change_usd ?? 0,
+        lbp: data.kept_change_lbp ?? 0,
+      },
+      exchangeRate,
+      ...(data.tender_exchange_rate !== undefined
+        ? { tenderExchangeRate: data.tender_exchange_rate }
+        : {}),
+      context,
+    });
+
+    let costUsd = round2(resolved.costUsd);
+    let costLbp = round2(resolved.costLbp);
+    if (costUsd < 0 || costLbp < 0) {
+      const rate = resolveStampedExchangeRate(
+        exchangeRate,
+        data.tender_exchange_rate,
+      );
+      const costInUsd = usdEquivalent(costUsd, costLbp, rate);
+      if (!(costInUsd > 0)) {
+        throw new BusinessRuleError(
+          `${context}: the change back is more than the cash handed`,
+        );
+      }
+      if (billUsd > 0) {
+        costUsd = round2(costInUsd);
+        costLbp = 0;
+      } else {
+        costUsd = 0;
+        costLbp = Math.round(costInUsd * rate);
+      }
+    }
+
+    const h = sumLegsByCurrency(handed, context);
+    return {
+      costUsd,
+      costLbp,
+      handedUsd: h.usd,
+      handedLbp: h.lbp,
+      returned,
+    };
   }
 
   /**
@@ -271,6 +444,9 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     drawerName: string,
     userId: number,
     tenantId: number,
+    /** Manual expense with cash lines — post the gross handed amounts and
+     *  the change-back legs instead of the stored cost. */
+    cash?: ManualExpenseCash,
   ): number {
     let amountUsd = data.amount_usd || 0;
     let amountLbp = data.amount_lbp || 0;
@@ -383,6 +559,11 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       return expenseId;
     }
 
+    // Cash lines: the drawer moves by what was physically HANDED (the cost
+    // may include change the vendor kept, which never came back).
+    const outUsd = cash ? cash.handedUsd : amountUsd;
+    const outLbp = cash ? cash.handedLbp : amountLbp;
+
     // All expenses affect drawer balances (unless paid by non-drawer-affecting method)
     if (isDrawerAffectingMethod(paidBy)) {
       // Binance is a USDT-denominated wallet: the shop pays the expense out
@@ -394,19 +575,44 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       const isUsdtWallet = paidBy === "BINANCE";
 
       if (isUsdtWallet) {
-        if (amountUsd !== 0) {
-          postOutflow("USDT", amountUsd, drawerName);
+        if (outUsd !== 0) {
+          postOutflow("USDT", outUsd, drawerName);
         }
       } else {
         // USD outflow
-        if (amountUsd !== 0) {
-          postOutflow("USD", amountUsd, drawerName);
+        if (outUsd !== 0) {
+          postOutflow("USD", outUsd, drawerName);
         }
         // LBP outflow
-        if (amountLbp !== 0) {
-          postOutflow("LBP", amountLbp, drawerName);
+        if (outLbp !== 0) {
+          postOutflow("LBP", outLbp, drawerName);
         }
       }
+    }
+
+    // Change the vendor handed back comes INTO its drawer, on the SAME
+    // transaction — so the generic void (`_reversePayments`, which negates
+    // every payments row) takes it back out. `_resolveManualCash` already
+    // refused a return leg on a non-drawer method or a Binance payment.
+    for (const leg of cash?.returned ?? []) {
+      const backDrawer = paymentMethodToDrawerName(leg.method);
+      const delta = Math.abs(leg.amount);
+      insertPaymentRow(this.db, {
+        transactionId: txnId,
+        method: leg.method,
+        drawerName: backDrawer,
+        currencyCode: leg.currencyCode,
+        amount: delta,
+        note: `Change returned: ${note}`,
+        createdBy,
+        tenantId,
+      });
+      applyDrawerDelta(this.db, {
+        drawerName: backDrawer,
+        currencyCode: leg.currencyCode,
+        delta,
+        tenantId,
+      });
     }
 
     return expenseId;

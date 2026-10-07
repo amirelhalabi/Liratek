@@ -27,6 +27,10 @@ import {
 } from "@/features/audit/components/RefundMethodModal";
 import { RefundQuantityModal } from "@/features/audit/components/RefundQuantityModal";
 import { useSessionItemRefund } from "@/features/audit/hooks/useSessionItemRefund";
+import {
+  REFUND_KEPT_CHANGE_TYPES,
+  type RefundKeptChangeInput,
+} from "@liratek/core";
 import type { TransactionPaymentLeg } from "@/features/audit/cashFlow";
 import type {
   RefundLegOverride,
@@ -334,6 +338,7 @@ export default function SaleDetailModal({
           sessionId: preview.sessionId,
           transactionId: preview.sessionTransactionId,
           ...(sale.client_name ? { clientLabel: sale.client_name } : {}),
+          transactionType: "SALE",
         });
         return;
       }
@@ -396,6 +401,7 @@ export default function SaleDetailModal({
           saleItemId: item.id,
           quantity,
           ...(sale?.client_name ? { clientLabel: sale.client_name } : {}),
+          transactionType: "SALE",
         });
         return;
       }
@@ -445,18 +451,26 @@ export default function SaleDetailModal({
     refundLegsInput: RefundLegOverride[] | undefined,
     unitExtras?: RefundUnitExtraOverride[],
     exchangeRate?: number,
+    // Owner decision 2026-10-07 — refund kept change. Both POS refunds
+    // offer it (`allowKeptChange` below); it rides only when present, so a
+    // refund without it makes exactly the call it made before.
+    keptChange?: RefundKeptChangeInput,
   ) => {
     if (!refundTarget) return;
     const refundLegs = refundLegsInput;
     setRefunding(true);
     try {
       if (refundTarget.kind === "sale") {
-        const result = await api.refundSale(
-          saleId,
-          refundLegs,
-          unitExtras,
-          exchangeRate,
-        );
+        const result =
+          keptChange !== undefined
+            ? await api.refundSale(
+                saleId,
+                refundLegs,
+                unitExtras,
+                exchangeRate,
+                keptChange,
+              )
+            : await api.refundSale(saleId, refundLegs, unitExtras, exchangeRate);
         if (result.success) {
           appEvents.emit(
             "notification:show",
@@ -479,14 +493,25 @@ export default function SaleDetailModal({
         }
       } else {
         const { item, quantity } = refundTarget;
-        const result = await api.refundSaleItem(
-          saleId,
-          item.id,
-          quantity,
-          refundLegs,
-          unitExtras,
-          exchangeRate,
-        );
+        const result =
+          keptChange !== undefined
+            ? await api.refundSaleItem(
+                saleId,
+                item.id,
+                quantity,
+                refundLegs,
+                unitExtras,
+                exchangeRate,
+                keptChange,
+              )
+            : await api.refundSaleItem(
+                saleId,
+                item.id,
+                quantity,
+                refundLegs,
+                unitExtras,
+                exchangeRate,
+              );
         if (result.success) {
           appEvents.emit(
             "notification:show",
@@ -961,6 +986,10 @@ export default function SaleDetailModal({
           exchangeRate={refundModalBookedRate}
           bookedRateSource={refundModalBookedRateSource}
           entityLabel="sale"
+          // Refund kept change (owner decision 2026-10-07): both the
+          // whole-sale and the per-item refund take it (a POS sale is always
+          // a `REFUND_KEPT_CHANGE_TYPES` type). The server re-checks it.
+          allowKeptChange
           isSubmitting={refunding}
           onCancel={() => {
             setRefundTarget(null);
@@ -1005,6 +1034,10 @@ export default function SaleDetailModal({
           // LIRA-236 — re-preview (account reduction + remainder) at the
           // typed rate, debounced inside the hook.
           onRateChange={sessionRefund.changeRate}
+          // Refund kept change — same shared type list as the server.
+          allowKeptChange={REFUND_KEPT_CHANGE_TYPES.includes(
+            sessionRefund.preview.target.transactionType ?? "",
+          )}
           isSubmitting={sessionRefund.submitting}
           onCancel={() => {
             sessionRefundKindRef.current = null;

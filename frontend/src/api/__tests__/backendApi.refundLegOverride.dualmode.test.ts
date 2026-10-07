@@ -220,6 +220,68 @@ describe("backendApi refund-leg-override dual-mode routing", () => {
       );
     });
 
+    // Owner decision 2026-10-07 — refund kept change on the per-item refund.
+    // Not proven failing-first (adapter change landed before these cases).
+    it("in Electron mode: forwards keptChange as the 7th arg, schema-named (not proven failing-first)", async () => {
+      const refundItem = jest.fn(async () => ({
+        success: true,
+        refundId: 605,
+      }));
+      (globalThis as any).window.api = { sales: { refundItem } };
+      const { refundKeptChangeSchema } = await import("@liratek/core");
+      const keptChange = refundKeptChangeSchema.parse({ kept_change_usd: 0.12 });
+
+      const apiMod = await import("../backendApi");
+      await apiMod.refundSaleItem(
+        7,
+        3,
+        1,
+        REFUND_LEGS,
+        undefined,
+        90000,
+        keptChange,
+      );
+
+      expect(refundItem).toHaveBeenCalledWith(
+        7,
+        3,
+        1,
+        REFUND_LEGS,
+        undefined,
+        90000,
+        keptChange,
+      );
+    });
+
+    it("in Web mode: POSTs keptChange in the body, schema-named (not proven failing-first)", async () => {
+      delete (globalThis as any).window.api;
+      globalThis.fetch = jest.fn(async () =>
+        okJson({ success: true, refundId: 606 }),
+      ) as any;
+      const { refundKeptChangeSchema } = await import("@liratek/core");
+      const keptChange = refundKeptChangeSchema.parse({ kept_change_usd: 0.12 });
+
+      const apiMod = await import("../backendApi");
+      await apiMod.refundSaleItem(
+        7,
+        3,
+        1,
+        REFUND_LEGS,
+        undefined,
+        90000,
+        keptChange,
+      );
+
+      const [, options] = (globalThis.fetch as jest.Mock).mock.calls[0];
+      expect(JSON.parse(options.body)).toEqual({
+        saleItemId: 3,
+        refundQuantity: 1,
+        refundLegs: REFUND_LEGS,
+        exchangeRate: 90000,
+        keptChange,
+      });
+    });
+
     it("in Web mode: POSTs /api/sales/:id/refund-item with saleItemId/refundQuantity/refundLegs", async () => {
       delete (globalThis as any).window.api;
       globalThis.fetch = jest.fn(async () =>
@@ -400,7 +462,14 @@ describe("backendApi refund-leg-override dual-mode routing", () => {
       const apiMod = await import("../backendApi");
       await apiMod.refundTransaction(9, REFUND_LEGS, undefined, 90000);
 
-      expect(refund).toHaveBeenCalledWith(9, REFUND_LEGS, undefined, 90000);
+      // 5th arg = refund kept change (LIRA-266); absent here, so undefined.
+      expect(refund).toHaveBeenCalledWith(
+        9,
+        REFUND_LEGS,
+        undefined,
+        90000,
+        undefined,
+      );
     });
 
     it("in Web mode: POSTs exchangeRate alongside refundLegs", async () => {

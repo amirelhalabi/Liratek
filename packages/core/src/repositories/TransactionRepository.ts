@@ -46,7 +46,12 @@ import {
   NotFoundError,
 } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  type KeptChange,
+} from "./moneyPosting.js";
+import { resolveKeptChange } from "./keptChange.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
 import {
   isDrawerAffectingMethod,
@@ -64,7 +69,10 @@ import { getProductUnitRepository } from "./ProductUnitRepository.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { restoreMaintenanceJobParts } from "./maintenancePartsStock.js";
 import { restoreExpenseStock } from "./expenseStock.js";
-import type { TransactionTypeFilterInput } from "../validators/transaction.js";
+import {
+  REFUND_KEPT_CHANGE_TYPES,
+  type TransactionTypeFilterInput,
+} from "../validators/transaction.js";
 // LIRA-232 phase 1 — refundSessionBasketItem's SALE branch reuses
 // SalesRepository's per-line item reversal (rule 14). Both files already
 // reference each other's singleton getters lazily (SalesRepository imports
@@ -1145,6 +1153,12 @@ export interface RefundSessionBasketItemInput {
    *  validation. Omitted: the refunded member's own booked rate, else the
    *  day's fallback (`getSessionItemRefundPreview`'s `bookedRate`). */
   exchangeRate?: number;
+  /** Owner decision 2026-10-07 — refund kept change: the cash handed back
+   *  is short of the refund remainder by a small leftover, which the shop
+   *  keeps as profit. Names come from `sessionItemRefundSchema` (the
+   *  handler/route spread the parsed payload in). */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
 }
 
 /** See `SessionItemRefundPreview`'s doc for why every amount below is a
@@ -4565,9 +4579,27 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // `remainderUsd`/`remainderLbp`'s own split.
     const refundLegs = input.refundLegs;
     const hasOverride = !!refundLegs && refundLegs.length > 0;
+    // Owner decision 2026-10-07 — refund kept change on the MONEY BACK
+    // remainder (never on the account-first reduction, which moves no
+    // cash). Same shared check as the whole-transaction refund; no claim →
+    // the remainder is validated exactly as before.
+    const keptResolved = this._resolveRefundKeptChange({
+      owedNet: { USD: remainderUsd, LBP: remainderLbp },
+      refundLegs: hasOverride ? refundLegs : undefined,
+      claimed: { usd: input.kept_change_usd, lbp: input.kept_change_lbp },
+      exchangeRate: this._refundKeptChangeRate(
+        effectiveRate,
+        original.exchange_rate,
+      ),
+      isForPartner: this._isForPartnerTransaction(original),
+      originalType: original.type,
+      entityId: transactionId,
+    });
+    const keptUsd = keptResolved.keptUsd;
+    const keptLbp = keptResolved.keptLbp;
     if (hasOverride) {
       validateRefundLegOverrideAmounts(
-        { USD: remainderUsd, LBP: remainderLbp },
+        keptResolved.owedNetAfterKept,
         refundLegs!,
         transactionId,
         effectiveRate,
@@ -4610,8 +4642,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           user_id: userId,
           amount_usd: -itemAmountUsd,
           amount_lbp: -itemAmountLbp,
-          profit_usd: -lines.reduce((sum, l) => sum + l.profitUsd, 0),
-          profit_lbp: 0,
+          // + refund kept change (owner decision 2026-10-07), 0 when none.
+          profit_usd: -lines.reduce((sum, l) => sum + l.profitUsd, 0) + keptUsd,
+          profit_lbp: keptLbp,
           exchange_rate: original.exchange_rate,
           client_id: clientId,
           summary:
@@ -4631,6 +4664,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               quantity: l.quantity,
             })),
             ...accountAttributionMeta,
+            ...(keptUsd > 0 || keptLbp > 0
+              ? { kept_change_usd: keptUsd, kept_change_lbp: keptLbp }
+              : {}),
           },
           device_id: original.device_id ?? undefined,
         });
@@ -4687,7 +4723,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
             sessionId,
             memberTransactionId: transactionId,
             ...accountAttributionMeta,
+            ...(keptUsd > 0 || keptLbp > 0
+              ? { kept_change_usd: keptUsd, kept_change_lbp: keptLbp }
+              : {}),
           },
+          keptUsd > 0 || keptLbp > 0
+            ? { usd: keptUsd, lbp: keptLbp }
+            : undefined,
         );
         this._applyGenericItemReversal(
           original,
@@ -4722,8 +4764,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         refundTxnId,
         -itemAmountUsd,
         -itemAmountLbp,
-        isSaleMember ? -lines.reduce((sum, l) => sum + l.profitUsd, 0) : -original.profit_usd,
-        isSaleMember ? 0 : -original.profit_lbp,
+        // Same stamp as the REFUND row itself, incl. refund kept change.
+        (isSaleMember ? -lines.reduce((sum, l) => sum + l.profitUsd, 0) : -original.profit_usd) + keptUsd,
+        (isSaleMember ? 0 : -original.profit_lbp) + keptLbp,
       );
 
       // ACCOUNT FIRST — finding #10: credited to `debtClientId` (the client
@@ -5147,6 +5190,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // see the method doc for why cascading through a settled sibling is
     // blocked rather than silently corrupting the settlement's netted math.
     this._assertSupplierSiblingsVoidable(original);
+    // Owner decision 2026-10-07 — a supplier payment's bundled discount is
+    // removed by the payment's void/refund; refuse up front if that
+    // discount was already swept into a settlement.
+    this._assertSupplierBundledDiscountVoidable(original);
     // EXCHANGE_LOT_SETTLEMENT.md Q12 — refuse up-front if this exchange's
     // acquired lot has already been partially/fully sold. No-op for every
     // non-EXCHANGE type.
@@ -5356,6 +5403,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // consumed (the ledger row itself is soft-voided by step 4).
       this._unapplySupplierPurchaseCoverage(original);
 
+      // 7a. Owner decision 2026-10-07, rule 20 — remove the payment's
+      // bundled discount (ledger soft-void, profit negated, its FIFO
+      // coverage given back). No-op without a linked discount.
+      this._reverseSupplierBundledDiscount(original, userId);
+
       return reversalId;
     });
   }
@@ -5401,6 +5453,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       refundUnitExtras?: RefundUnitExtra[];
       /** LIRA-236 — see `refundTransaction`'s own doc. */
       exchangeRate?: number;
+      /** Owner decision 2026-10-07 — refund kept change (POS "Refund
+       *  Sale"); see `_refundTransactionInternal`. */
+      keptChange?: KeptChange;
     },
   ): number {
     const txn = this.queryOne<{ id: number }>(
@@ -5425,6 +5480,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       refundLegs: opts?.refundLegs,
       refundUnitExtras: opts?.refundUnitExtras,
       exchangeRate: opts?.exchangeRate,
+      keptChange: opts?.keptChange,
     });
   }
 
@@ -5486,12 +5542,15 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       refundUnitExtras?: RefundUnitExtra[];
       /** LIRA-236 — see `_refundTransactionInternal`'s own doc. */
       exchangeRate?: number;
+      /** Owner decision 2026-10-07 — see `_refundTransactionInternal`. */
+      keptChange?: KeptChange;
     },
   ): number {
     return this._refundTransactionInternal(id, userId, {
       refundLegs: opts?.refundLegs,
       refundUnitExtras: opts?.refundUnitExtras,
       exchangeRate: opts?.exchangeRate,
+      keptChange: opts?.keptChange,
     });
   }
 
@@ -5515,6 +5574,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
        *  the audit stamp on the REFUND row's own metadata_json. Omitted:
        *  today's per-currency exact-match behavior, unchanged. */
       exchangeRate?: number;
+      keptChange?: KeptChange;
     },
   ): number {
     const original = this.findById(id);
@@ -5532,6 +5592,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // LIRA-091: same up-front settled-sibling guard as voidTransaction — see
     // _assertSupplierSiblingsVoidable's doc.
     this._assertSupplierSiblingsVoidable(original);
+    // Owner decision 2026-10-07 — a supplier payment's bundled discount is
+    // removed by the payment's void/refund; refuse up front if that
+    // discount was already swept into a settlement.
+    this._assertSupplierBundledDiscountVoidable(original);
     // Same up-front settled-lot guard as voidTransaction — see
     // _assertExchangeLotsVoidable's doc. No-op for every non-EXCHANGE type.
     this._assertExchangeLotsVoidable(original);
@@ -5569,6 +5633,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // omitted — this is what keeps every OTHER refund call site (refundBySaleId,
     // scripted callers, tests) unchanged.
     const refundLegs = opts.refundLegs;
+    // Owner decision 2026-10-07 — refund kept change. Checked BEFORE any
+    // write (same discipline as the override validation it feeds). No claim
+    // → zeros and the unchanged path below.
+    let kept: { usd: number; lbp: number } | undefined;
     if (refundLegs && refundLegs.length > 0) {
       if (isSwapTransactionType(original.type)) {
         throw new DatabaseError(
@@ -5576,7 +5644,29 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           { entityId: id },
         );
       }
-      this._validateRefundLegOverride(id, refundLegs, opts.exchangeRate);
+      kept = this._validateRefundLegOverride(
+        id,
+        refundLegs,
+        opts.exchangeRate,
+        { original, claimed: opts.keptChange },
+      );
+    } else if (opts.keptChange) {
+      // No return lines → the default mirror refund hands back everything;
+      // a kept claim is refused with the shared helper's own message.
+      this._resolveRefundKeptChange({
+        owedNet: this._overridableNetByCurrency(
+          this.getPaymentsByTransactionId(id),
+        ),
+        refundLegs: undefined,
+        claimed: opts.keptChange,
+        exchangeRate: this._refundKeptChangeRate(
+          opts.exchangeRate,
+          original.exchange_rate,
+        ),
+        isForPartner: this._isForPartnerTransaction(original),
+        originalType: original.type,
+        entityId: id,
+      });
     }
 
     return this.transaction(() => {
@@ -5587,6 +5677,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         {
           refundUnitExtras: opts.refundUnitExtras,
           exchangeRate: opts.exchangeRate,
+          kept,
         },
       );
 
@@ -5653,6 +5744,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
      *  (the public refund path) omits this and gets byte-identical
      *  behavior to before this parameter existed. */
     extraMetadata?: Record<string, unknown>,
+    /** Refund kept change (owner decision 2026-10-07), already checked by
+     *  `_resolveRefundKeptChange`: ADDED to the negated profit, per
+     *  currency, so the shop keeps it as profit and an undo/void of this
+     *  row negates it with everything else. Omitted → plain negation. */
+    kept?: { usd: number; lbp: number },
   ): number {
     const tenantId = getCurrentTenantId();
     let metadataStr = original.metadata_json;
@@ -5682,8 +5778,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       -original.amount_usd,
       -original.amount_lbp,
       original.exchange_rate,
-      -original.profit_usd,
-      -original.profit_lbp,
+      kept ? -original.profit_usd + kept.usd : -original.profit_usd,
+      kept ? -original.profit_lbp + kept.lbp : -original.profit_lbp,
       original.client_id,
       id,
       `REFUND: ${original.summary ?? original.type}`,
@@ -5698,7 +5794,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     original: TransactionEntity,
     id: number,
     userId: number,
-    opts: { refundUnitExtras?: RefundUnitExtra[]; exchangeRate?: number } = {},
+    opts: {
+      refundUnitExtras?: RefundUnitExtra[];
+      exchangeRate?: number;
+      /** Refund kept change (owner decision 2026-10-07), already checked by
+       *  `_resolveRefundKeptChange` — added to the REFUND row's profit. */
+      kept?: { usd: number; lbp: number };
+    } = {},
   ): number {
     // LIRA-236, contract item 6 — every REFUND row records the rate it used
     // in metadata_json, even when the refund never actually needed to
@@ -5711,8 +5813,25 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // implicitly used), not just the typed one. Omitted entirely only when
     // neither exists (a very old row with no recorded rate at all).
     const rateUsed = opts.exchangeRate ?? original.exchange_rate ?? undefined;
-    const extraMetadata = rateUsed != null ? { exchangeRate: rateUsed } : undefined;
-    const refundId = this._createRefundRow(original, id, userId, extraMetadata);
+    const keptUsd = opts.kept?.usd ?? 0;
+    const keptLbp = opts.kept?.lbp ?? 0;
+    const hasKept = keptUsd > 0 || keptLbp > 0;
+    const extraMetadata =
+      rateUsed != null || hasKept
+        ? {
+            ...(rateUsed != null ? { exchangeRate: rateUsed } : {}),
+            ...(hasKept
+              ? { kept_change_usd: keptUsd, kept_change_lbp: keptLbp }
+              : {}),
+          }
+        : undefined;
+    const refundId = this._createRefundRow(
+      original,
+      id,
+      userId,
+      extraMetadata,
+      opts.kept,
+    );
     this._applyGenericItemReversal(original, id, refundId, userId, opts);
     return refundId;
   }
@@ -5840,6 +5959,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     // 6. Supplier payment: un-apply the FIFO purchase coverage
     this._unapplySupplierPurchaseCoverage(original);
+
+    // 6a. Owner decision 2026-10-07, rule 20 — same bundled-discount
+    // removal as voidTransaction's identical step 7a.
+    this._reverseSupplierBundledDiscount(original, userId);
   }
 
   /**
@@ -6181,15 +6304,34 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     if (!ledger || ledger.entry_type !== "PAYMENT" || ledger.is_auto) return;
 
     const rate = original.exchange_rate || 89000;
-    let remaining =
-      Math.abs(ledger.amount_usd) + Math.abs(ledger.amount_lbp) / rate;
+    this._giveBackSupplierPurchaseCoverage(
+      ledger.supplier_id,
+      Math.abs(ledger.amount_usd) + Math.abs(ledger.amount_lbp) / rate,
+      tenantId,
+    );
+  }
+
+  /**
+   * The ONE reverse-FIFO give-back of `supplier_purchases.paid_usd` (rule
+   * 14) — the inverse of `SupplierRepository._applyPurchaseFifoCoverage`:
+   * newest-covered first, capped at each purchase's `paid_usd`. Shared by a
+   * supplier payment's own coverage (`_unapplySupplierPurchaseCoverage`) and
+   * its bundled discount's (`_reverseSupplierBundledDiscount`), which run
+   * back-to-back — the same walk as one combined budget.
+   */
+  private _giveBackSupplierPurchaseCoverage(
+    supplierId: number,
+    usdEquivalent: number,
+    tenantId: number,
+  ): void {
+    let remaining = usdEquivalent;
     if (remaining <= 0) return;
 
     const covered = this.query<{ id: number; paid_usd: number }>(
       `SELECT id, paid_usd FROM supplier_purchases
        WHERE supplier_id = ? AND paid_usd > 0 AND tenant_id = ?
        ORDER BY created_at DESC, id DESC`,
-      ledger.supplier_id,
+      supplierId,
       tenantId,
     );
     for (const row of covered) {
@@ -6203,6 +6345,149 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       );
       remaining -= giveBack;
     }
+  }
+
+  /**
+   * The bundled 'DISCOUNT' supplier_ledger row a manual supplier payment
+   * (`SupplierRepository.recordSupplierCashflow` PAY + discount) wrote,
+   * found ONLY through the link that payment stamps at create time
+   * (`source_ref_table='supplier_ledger'`, `source_ref_id=<payment's ledger
+   * row>`, `is_auto=0`). A discount written before that link existed has no
+   * way back to its payment and is never guessed at — it stays booked after
+   * the payment's void (correct it with a supplier adjustment). Not-yet-
+   * reversed rows only (idempotent). Null for every other transaction.
+   */
+  private _linkedSupplierDiscount(original: TransactionEntity): {
+    id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    settlement_id: number | null;
+  } | null {
+    if (
+      original.type !== "SUPPLIER_PAYMENT" ||
+      original.source_table !== "supplier_ledger" ||
+      original.source_id == null ||
+      !this._supplierLedgerHasSourceRefColumns()
+    ) {
+      return null;
+    }
+    const hasSettlementId = this._supplierLedgerHasSettlementIdColumn();
+    return (
+      this.queryOne<{
+        id: number;
+        amount_usd: number;
+        amount_lbp: number;
+        settlement_id: number | null;
+      }>(
+        `SELECT id, amount_usd, amount_lbp${hasSettlementId ? ", settlement_id" : ", NULL AS settlement_id"}
+           FROM supplier_ledger
+          WHERE source_ref_table = 'supplier_ledger' AND source_ref_id = ?
+            AND entry_type = 'DISCOUNT' AND is_auto = 0
+            AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?
+          LIMIT 1`,
+        original.source_id,
+        getCurrentTenantId(),
+      ) ?? null
+    );
+  }
+
+  /** Up-front guard (before any write): a bundled discount already swept
+   *  into a supplier settlement cannot be unwound by the payment's void —
+   *  same "blocking beats corrupting" reasoning as
+   *  `_assertSupplierSiblingsVoidable`. */
+  private _assertSupplierBundledDiscountVoidable(
+    original: TransactionEntity,
+  ): void {
+    const discount = this._linkedSupplierDiscount(original);
+    if (discount?.settlement_id != null) {
+      throw new DatabaseError(
+        `Cannot void/refund — its bundled supplier discount has already been included in settlement #${discount.settlement_id}; correct the supplier balance with a manual adjustment instead.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /**
+   * Owner decision 2026-10-07 (rule 20, matching the Partners page's
+   * `_reversePartnerSettlementLedger`) — the reversal OWNER of a supplier
+   * payment's bundled discount is the payment's own void/refund. Runs inside
+   * the caller's db.transaction():
+   *   1. soft-voids the 'DISCOUNT' ledger row (`is_refunded`, the supplier
+   *      ledger's void convention — the balance then excludes it, exactly
+   *      as the payment's own row is excluded by `_markSourceRefunded`);
+   *   2. negates the discount's COUNTERPARTY_DISCOUNT profit with a NEW
+   *      compensating row (`_negateCounterpartyDiscountProfit`, shared with
+   *      the partner sweep — never mutate the original);
+   *   3. gives back the FIFO purchase coverage the discount applied.
+   * Create + void therefore nets supplier, drawers (the discount never
+   * moved one) and profit to 0, per currency.
+   */
+  private _reverseSupplierBundledDiscount(
+    original: TransactionEntity,
+    userId: number,
+  ): void {
+    const discount = this._linkedSupplierDiscount(original);
+    if (!discount) return;
+    const tenantId = getCurrentTenantId();
+    this._markSourceRefunded("supplier_ledger", discount.id);
+    this._negateCounterpartyDiscountProfit(
+      "supplier_ledger",
+      discount.id,
+      `Discount reversed by supplier payment void/refund #${original.id}`,
+      userId,
+    );
+    const supplier = this.queryOne<{ supplier_id: number }>(
+      `SELECT supplier_id FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
+      discount.id,
+      tenantId,
+    );
+    if (!supplier) return;
+    // Same rate convention as the payment's own give-back
+    // (`_unapplySupplierPurchaseCoverage`).
+    const rate = original.exchange_rate || 89000;
+    this._giveBackSupplierPurchaseCoverage(
+      supplier.supplier_id,
+      Math.abs(discount.amount_usd) + Math.abs(discount.amount_lbp) / rate,
+      tenantId,
+    );
+  }
+
+  /**
+   * The ONE way a bundled counterparty discount's profit is taken back
+   * (rule 14 — shared by the partner settlement sweep and the supplier
+   * payment's bundled-discount reversal): a NEW COUNTERPARTY_DISCOUNT row
+   * with the negated stamp, `reverses_id` pointing at the original (which
+   * stays ACTIVE, untouched). The counterparty-discount profit total sums
+   * both rows, so they net to 0. No-op when the discount row has no
+   * transaction.
+   */
+  private _negateCounterpartyDiscountProfit(
+    sourceTable: "partner_ledger" | "supplier_ledger",
+    sourceId: number,
+    summary: string,
+    userId: number,
+  ): void {
+    const discountTxn = this.getBySourceId(sourceTable, sourceId);
+    if (!discountTxn) return;
+    const reversalTxnId = this.createTransaction({
+      type: "COUNTERPARTY_DISCOUNT",
+      source_table: sourceTable,
+      source_id: sourceId,
+      user_id: userId,
+      amount_usd: 0,
+      amount_lbp: 0,
+      profit_usd: -discountTxn.profit_usd,
+      profit_lbp: -discountTxn.profit_lbp,
+      client_id: null,
+      summary,
+      metadata_json: { reversed_discount_txn_id: discountTxn.id },
+    });
+    this.execute(
+      `UPDATE transactions SET reverses_id = ? WHERE id = ? AND tenant_id = ?`,
+      discountTxn.id,
+      reversalTxnId,
+      getCurrentTenantId(),
+    );
   }
 
   /**
@@ -6968,15 +7253,228 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     transactionId: number,
     refundLegs: RefundLegOverride[],
     exchangeRate?: number,
-  ): void {
+    /** Owner decision 2026-10-07 — refund kept change. With a claim, the
+     *  legs are validated against the net MINUS the checked kept amount
+     *  (`_resolveRefundKeptChange`); without one, exactly as before. */
+    keptCtx?: { original: TransactionEntity; claimed?: KeptChange },
+  ): { usd: number; lbp: number } | undefined {
     const originalRows = this.getPaymentsByTransactionId(transactionId);
     const originalNet = this._overridableNetByCurrency(originalRows);
+    const resolved = keptCtx
+      ? this._resolveRefundKeptChange({
+          owedNet: originalNet,
+          refundLegs,
+          claimed: keptCtx.claimed,
+          exchangeRate: this._refundKeptChangeRate(
+            exchangeRate,
+            keptCtx.original.exchange_rate,
+          ),
+          isForPartner: this._isForPartnerTransaction(keptCtx.original),
+          originalType: keptCtx.original.type,
+          entityId: transactionId,
+        })
+      : undefined;
     validateRefundLegOverrideAmounts(
-      originalNet,
+      resolved?.owedNetAfterKept ?? originalNet,
       refundLegs,
       transactionId,
       exchangeRate,
     );
+    return resolved && (resolved.keptUsd > 0 || resolved.keptLbp > 0)
+      ? { usd: resolved.keptUsd, lbp: resolved.keptLbp }
+      : undefined;
+  }
+
+  /**
+   * Owner decision 2026-10-07 — refund kept change. A refund of $20.12
+   * handed back as $20 lets the shop keep the $0.12 as profit. This is the
+   * refund side of `resolveKeptChange` (payer "payout": the shop hands money
+   * to the customer) — the ONE check-and-split every kept-change flow uses
+   * (rule 14); the refund adds only its own preconditions on top:
+   *   - every return line is CASH (kept change is coins not handed back —
+   *     an OMT/Whish/card return has no "change");
+   *   - the refund is in exactly ONE currency (USD or LBP), and every
+   *     return line is in it ("same currency", owner decision);
+   *   - the refund moves money OUT of the shop (a money-IN original — a
+   *     sale, a SEND). Refunding a payout original (a RECEIVE) takes money
+   *     back FROM the customer, where "keeping" a shortfall would be a loss.
+   * The cap (under $1 / 100,000 LBP), the real-shortfall check, and the
+   * FOR-partner refusal are `resolveKeptChange`'s own.
+   *
+   * It is NOT a partial refund: the caller still reverses the item side in
+   * full (stock, REFUND amount, debt); only the cash handed back is short,
+   * and the returned `keptUsd/keptLbp` is ADDED to the REFUND row's own
+   * profit stamp (−original + kept). The returned `owedNetAfterKept` is what
+   * the caller then feeds `validateRefundLegOverrideAmounts`, so the
+   * method/currency gate still runs exactly once.
+   *
+   * Nothing claimed (absent / both 0) → returns the input unchanged without
+   * calling anything — every existing refund stays byte-identical.
+   *
+   * Throws before any write; callers run it before `this.transaction(...)`.
+   */
+  private _resolveRefundKeptChange(args: {
+    /** Signed customer-facing net the refund gives back, per currency
+     *  (positive = money the customer paid IN). */
+    owedNet: Record<string, number>;
+    refundLegs: RefundLegOverride[] | undefined;
+    claimed: KeptChange | undefined;
+    exchangeRate: number;
+    isForPartner: boolean;
+    /** The refunded transaction's type — see `REFUND_KEPT_CHANGE_TYPES`. */
+    originalType: string;
+    entityId: number;
+  }): {
+    keptUsd: number;
+    keptLbp: number;
+    owedNetAfterKept: Record<string, number>;
+  } {
+    const { owedNet, claimed, entityId } = args;
+    const claimedUsd = claimed?.usd ?? 0;
+    const claimedLbp = claimed?.lbp ?? 0;
+    if (claimedUsd === 0 && claimedLbp === 0) {
+      return { keptUsd: 0, keptLbp: 0, owedNetAfterKept: owedNet };
+    }
+    const context = "Refund";
+    if (!REFUND_KEPT_CHANGE_TYPES.includes(args.originalType)) {
+      throw new DatabaseError(
+        `${context}: kept change is not available when refunding this kind of transaction yet — hand back the exact amount`,
+        { entityId },
+      );
+    }
+    const legs = args.refundLegs ?? [];
+    for (const leg of legs) {
+      if (leg.method !== "CASH") {
+        throw new DatabaseError(
+          `${context}: kept change applies only to a cash refund — every return line must be Cash`,
+          { entityId },
+        );
+      }
+    }
+    const currencies = Object.entries(owedNet).filter(
+      ([currency, amount]) =>
+        Math.abs(amount) > (REFUND_LEG_AMOUNT_EPSILON[currency] ?? 0.01),
+    );
+    const only = currencies.length === 1 ? currencies[0] : undefined;
+    if (!only || (only[0] !== "USD" && only[0] !== "LBP")) {
+      throw new DatabaseError(
+        `${context}: kept change applies only to a refund in one currency (USD or LBP)`,
+        { entityId },
+      );
+    }
+    const [currency, net] = only;
+    if (net <= 0) {
+      throw new DatabaseError(
+        `${context}: cannot keep change on a refund that takes money back from the customer`,
+        { entityId },
+      );
+    }
+    for (const leg of legs) {
+      if (leg.currencyCode !== currency) {
+        throw new DatabaseError(
+          `${context}: kept change needs every return line in the refund's currency (${currency})`,
+          { entityId },
+        );
+      }
+    }
+    const result = resolveKeptChange({
+      payer: "payout",
+      owed: net,
+      owedCurrency: currency,
+      payoutLegs: legs.map((l) => ({
+        method: l.method,
+        currencyCode: l.currencyCode,
+        amount: l.amount,
+      })),
+      claimedKept: { usd: claimedUsd, lbp: claimedLbp },
+      exchangeRate: args.exchangeRate,
+      isForPartner: args.isForPartner,
+      context,
+    });
+    const kept = currency === "USD" ? result.keptUsd : result.keptLbp;
+    return {
+      keptUsd: result.keptUsd,
+      keptLbp: result.keptLbp,
+      owedNetAfterKept: { ...owedNet, [currency]: net - kept },
+    };
+  }
+
+  /**
+   * Owner decision 2026-10-07 — refund kept change for a caller OUTSIDE this
+   * repository that refunds part of a transaction: `SalesRepository.
+   * refundSaleItem` (the POS per-item refund). It hands in the item's own
+   * share of the sale's customer-facing net; everything else — the booked
+   * rate fallback, the FOR-partner detection and the check itself — is the
+   * SAME private code the whole-sale refund runs (rule 14: one gate, never
+   * a copy). Nothing claimed → the input back unchanged. Throws before any
+   * write; call it before opening a transaction.
+   */
+  resolvePartialRefundKeptChange(args: {
+    originalTxnId: number;
+    owedNet: Record<string, number>;
+    refundLegs: RefundLegOverride[] | undefined;
+    claimed: KeptChange | undefined;
+    exchangeRate: number | undefined;
+  }): {
+    keptUsd: number;
+    keptLbp: number;
+    owedNetAfterKept: Record<string, number>;
+  } {
+    const claimedUsd = args.claimed?.usd ?? 0;
+    const claimedLbp = args.claimed?.lbp ?? 0;
+    if (claimedUsd === 0 && claimedLbp === 0) {
+      return { keptUsd: 0, keptLbp: 0, owedNetAfterKept: args.owedNet };
+    }
+    const original = this.findById(args.originalTxnId);
+    if (!original) {
+      throw new NotFoundError("transactions", args.originalTxnId);
+    }
+    return this._resolveRefundKeptChange({
+      owedNet: args.owedNet,
+      refundLegs: args.refundLegs,
+      claimed: args.claimed,
+      exchangeRate: this._refundKeptChangeRate(
+        args.exchangeRate,
+        original.exchange_rate,
+      ),
+      isForPartner: this._isForPartnerTransaction(original),
+      originalType: original.type,
+      entityId: args.originalTxnId,
+    });
+  }
+
+  /**
+   * True when this transaction booked a FOR-partner obligation (a
+   * `partner_ledger` `FOR_%` row referencing its source row — the same link
+   * `_reversePartnerLedger` reverses). Kept change is refused on those
+   * (owner decision 2026-10-07: FOR-partner needs the exact amount).
+   */
+  private _isForPartnerTransaction(original: TransactionEntity): boolean {
+    if (!original.source_table || original.source_id == null) return false;
+    if (!this.tableExists("partner_ledger")) return false;
+    const row = this.queryOne<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM partner_ledger
+        WHERE reference_table = ? AND reference_id = ? AND tenant_id = ?
+          AND transaction_type LIKE 'FOR\\_%' ESCAPE '\\'`,
+      original.source_table,
+      original.source_id,
+      getCurrentTenantId(),
+    );
+    return (row?.n ?? 0) > 0;
+  }
+
+  /** A usable rate for kept-change reconciliation: the cashier's typed
+   *  rate, else the transaction's booked rate, else the day's rate. Same
+   *  order `_reverseTransactionItemEffects` stamps (`rateUsed`). The
+   *  refund's return lines are all in the refund's own currency, so the
+   *  rate only scales `resolveKeptChange`'s cent tolerance. */
+  private _refundKeptChangeRate(
+    typed: number | undefined,
+    booked: number | null | undefined,
+  ): number {
+    if (isUsableRefundExchangeRate(typed)) return typed;
+    if (isUsableRefundExchangeRate(booked)) return booked;
+    return dayRateFallback() ?? 89000;
   }
 
   /**
@@ -7601,31 +8099,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // Negate the discount's own COUNTERPARTY_DISCOUNT transaction's
       // profit stamp via a NEW compensating transaction (never mutate the
       // original).
-      const discountTxn = this.getBySourceId(
+      this._negateCounterpartyDiscountProfit(
         "partner_ledger",
         discountEntry.id,
+        `Discount reversed by settlement void/refund #${original.id}`,
+        userId,
       );
-      if (discountTxn) {
-        const reversalTxnId = this.createTransaction({
-          type: "COUNTERPARTY_DISCOUNT",
-          source_table: "partner_ledger",
-          source_id: discountEntry.id,
-          user_id: userId,
-          amount_usd: 0,
-          amount_lbp: 0,
-          profit_usd: -discountTxn.profit_usd,
-          profit_lbp: -discountTxn.profit_lbp,
-          client_id: null,
-          summary: `Discount reversed by settlement void/refund #${original.id}`,
-          metadata_json: { reversed_discount_txn_id: discountTxn.id },
-        });
-        this.execute(
-          `UPDATE transactions SET reverses_id = ? WHERE id = ? AND tenant_id = ?`,
-          discountTxn.id,
-          reversalTxnId,
-          tenantId,
-        );
-      }
     }
 
     // 3. Unwind the combined FIFO coverage both rows applied.

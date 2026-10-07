@@ -167,12 +167,15 @@ export function registerSalesHandlers(): void {
       refundLegs?: unknown,
       unitExtras?: unknown,
       exchangeRate?: unknown,
+      // Owner decision 2026-10-07 — refund kept change (5th positional).
+      keptChange?: unknown,
     ) => {
       const v = validatePayload(SaleRefundSchema, {
         saleId,
         refundLegs,
         unitExtras,
         exchangeRate,
+        keptChange: keptChange ?? undefined,
       });
       if (!v.ok) return { success: false, error: v.error };
       try {
@@ -184,6 +187,12 @@ export function registerSalesHandlers(): void {
           refundLegs: v.data.refundLegs,
           refundUnitExtras: v.data.unitExtras,
           exchangeRate: v.data.exchangeRate,
+          keptChange: v.data.keptChange
+            ? {
+                usd: v.data.keptChange.kept_change_usd,
+                lbp: v.data.keptChange.kept_change_lbp,
+              }
+            : undefined,
         });
         audit(e.sender.id, {
           action: "refund",
@@ -195,6 +204,7 @@ export function registerSalesHandlers(): void {
             refundLegs: v.data.refundLegs,
             unitExtras: v.data.unitExtras,
             exchangeRate: v.data.exchangeRate,
+            keptChange: v.data.keptChange,
           },
         });
         return { success: true, refundId };
@@ -225,6 +235,8 @@ export function registerSalesHandlers(): void {
         refundLegs?: unknown;
         unitExtras?: unknown;
         exchangeRate?: unknown;
+        // Owner decision 2026-10-07 — refund kept change.
+        keptChange?: unknown;
       },
     ) => {
       const v = validatePayload(SaleRefundItemSchema, params);
@@ -244,6 +256,12 @@ export function registerSalesHandlers(): void {
           refundLegs: v.data.refundLegs,
           unitExtras: v.data.unitExtras,
           exchangeRate: v.data.exchangeRate,
+          keptChange: v.data.keptChange
+            ? {
+                usd: v.data.keptChange.kept_change_usd,
+                lbp: v.data.keptChange.kept_change_lbp,
+              }
+            : undefined,
           userId,
         });
         audit(e.sender.id, {
@@ -257,6 +275,7 @@ export function registerSalesHandlers(): void {
             refundLegs: v.data.refundLegs,
             unitExtras: v.data.unitExtras,
             exchangeRate: v.data.exchangeRate,
+            keptChange: v.data.keptChange,
           },
         });
 

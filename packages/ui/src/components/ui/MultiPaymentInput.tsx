@@ -62,6 +62,27 @@ export type TransactionType =
   | "DEBT_PAYMENT"
   | "CUSTOM_SERVICE";
 
+/**
+ * Who pays whom on this sheet — the ONE declaration that decides how kept
+ * change works (owner decisions 2026-10-07; docs/FEATURE_GUIDE.md "Kept
+ * change"). The server half is `resolveKeptChange` in
+ * packages/core/src/repositories/keptChange.ts, which takes the same three
+ * kinds.
+ *
+ * - "customer" (default): the customer pays the shop (POS, recharge sale,
+ *   OMT SEND, debts, …). An overpay shows the change fields; change handed
+ *   back emits OUT legs; change NOT handed back is shop profit.
+ * - "payout": the shop hands money to a customer (OMT/Whish RECEIVE,
+ *   Binance cash-out, credit buy-back, Debts credit cash-out, Exchange). No
+ *   change fields and never an OUT leg; a small shortfall (under
+ *   `PAYOUT_KEEP_CHANGE_MAX`, total's currency) is shop profit.
+ * - "shop": the shop pays an outsider (Expenses). An overpay shows the
+ *   change fields; the change the outsider hands BACK is emitted as OUT
+ *   legs (opposite direction to the main lines — cash coming INTO the
+ *   drawer); change NOT handed back is ADDED TO THE COST, never profit.
+ */
+export type MultiPaymentPayer = "customer" | "payout" | "shop";
+
 export interface MultiPaymentInputProps {
   currency: string;
   /** The currency the summary/aggregate surfaces (total row, return-field
@@ -255,8 +276,18 @@ export interface MultiPaymentInputProps {
    *  out". The overpay Return/Change block never renders in payout mode —
    *  paying out more than owed is a mistake to fix, never change to return
    *  or profit to keep — and no OUT legs are ever emitted. Still OPT-IN via
-   *  `onKeptChange`. */
+   *  `onKeptChange`.
+   *
+   *  @deprecated Alias of `payer`: "payout" ≡ `payer="payout"`, "payment" ≡
+   *  `payer="customer"`. Kept so existing call sites compile unchanged;
+   *  `payer` wins when both are passed. */
   direction?: "payment" | "payout";
+  /** Who pays on this sheet — see {@link MultiPaymentPayer}. Decides
+   *  whether the change fields show, the kept-change math, the note copy
+   *  and what `onKeptChange` reports. Kept change stays OPT-IN via
+   *  `onKeptChange` in every mode. Default: derived from `direction`
+   *  ("customer" unless `direction="payout"`). */
+  payer?: MultiPaymentPayer;
 }
 
 /** Delay before the auto-added debt remainder visually flips the sheet into
@@ -318,8 +349,13 @@ export default function MultiPaymentInput({
   counterFlow,
   allowSplit = true,
   direction = "payment",
+  payer: payerProp,
 }: MultiPaymentInputProps) {
-  const isPayout = direction === "payout";
+  const payer: MultiPaymentPayer =
+    payerProp ?? (direction === "payout" ? "payout" : "customer");
+  const isPayout = payer === "payout";
+  // Shop pays an outsider: change not returned is a COST, never profit.
+  const isShopPayer = payer === "shop";
   // Seeded lines are captured once — the prop is read at mount only.
   const seededLinesRef = useRef<PaymentLine[] | null>(
     initialLines && initialLines.length > 0
@@ -1082,9 +1118,14 @@ export default function MultiPaymentInput({
       ? Math.round(remainingShortfall)
       : Number(remainingShortfall.toFixed(2))
     : 0;
-  const payoutKeptKey = payoutKeepActive
-    ? `${totalAmountCurrency}:${payoutKeptRounded}:${remainingShortfall}`
-    : "off";
+  // `payer` is part of the key so a payer switch WITHOUT a remount re-reports
+  // (null when nothing is kept) instead of leaving the previous mode's kept
+  // figure with the parent — see the payer-switch reset effect below.
+  const payoutKeptKey = `${payer}|${
+    payoutKeepActive
+      ? `${totalAmountCurrency}:${payoutKeptRounded}:${remainingShortfall}`
+      : "off"
+  }`;
   useEffect(() => {
     // Not a payout consumer → the T3 effect below owns onKeptChange.
     if (!isPayout) return;
@@ -1157,6 +1198,26 @@ export default function MultiPaymentInput({
     seedFullSuggestedReturn();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOverpaid, overpaidTarget, totalAmountCurrency, smartSplitOverpay]);
+
+  // Payer switch without a remount (e.g. a form toggling customer ↔ payout,
+  // or Expenses reusing the instance): an under-return typed in one mode
+  // means something else in the next (customer profit vs. shop cost), so the
+  // return fields go back to the full change due — nothing kept until the
+  // cashier lowers them again. Together with `payer` in both kept keys this
+  // makes the active mode re-report, so a stale kept never leaks. Skipped on
+  // first mount and on re-renders with the same payer.
+  const prevPayerRef = useRef(payer);
+  useEffect(() => {
+    if (prevPayerRef.current === payer) return;
+    prevPayerRef.current = payer;
+    if (!isOverpaid) {
+      setReturnAmountUSD("");
+      setReturnAmountLBP("");
+      return;
+    }
+    seedFullSuggestedReturn();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payer]);
 
   // CASH return handlers. Each field holds exactly what the operator typed
   // into IT — editing one never rewrites the other (owner note, 2026-09-24:
@@ -1470,9 +1531,10 @@ export default function MultiPaymentInput({
     : hasCrossReturn
       ? Math.max(0, Math.round(keptLbpExact))
       : Math.max(0, Math.round(fullKeptLbp - keepChangeReturnLBP));
-  const keptKey = keepActive
-    ? `${keptUsd}:${keptLbp}:${keptUsdExact}:${keptLbpExact}`
-    : "off";
+  // `payer` in the key: see payoutKeptKey above.
+  const keptKey = `${payer}|${
+    keepActive ? `${keptUsd}:${keptLbp}:${keptUsdExact}:${keptLbpExact}` : "off"
+  }`;
   useEffect(() => {
     // Payout mode reports through the payout keep-change effect above.
     if (isPayout) return;
@@ -2297,7 +2359,9 @@ export default function MultiPaymentInput({
                 ? payoutKeepActive
                   ? "Change kept (profit)"
                   : "Remaining to pay out"
-                : "Remaining (Debt)"}
+                : isShopPayer
+                  ? "Remaining to pay"
+                  : "Remaining (Debt)"}
             </span>
             <span className="flex items-center gap-2">
               <span
@@ -2340,13 +2404,17 @@ export default function MultiPaymentInput({
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-amber-400 font-medium whitespace-nowrap">
                 {isFullKeepChange
-                  ? // Both fields cleared → the whole change is kept. Same
-                    // copy as the pre-LIRA-084 all-or-nothing keep (lira-107's
-                    // debt-repayment e2e asserts this exact label).
-                    "Change kept (profit)"
-                  : isCashOnlyPayment
-                    ? "Change to return"
-                    : "Return / Change"}
+                  ? isShopPayer
+                    ? "Change not returned (cost)"
+                    : // Both fields cleared → the whole change is kept. Same
+                      // copy as the pre-LIRA-084 all-or-nothing keep (lira-107's
+                      // debt-repayment e2e asserts this exact label).
+                      "Change kept (profit)"
+                  : isShopPayer
+                    ? "Change to get back"
+                    : isCashOnlyPayment
+                      ? "Change to return"
+                      : "Return / Change"}
               </span>
               <div className="flex items-center gap-1.5">
                 {/* No "Keep change" button (owner decision 2026-10-06): an
@@ -2443,18 +2511,30 @@ export default function MultiPaymentInput({
             {/* Owner decision 2026-10-06 — whenever the change handed back
                 is less than the change due, say in green what is kept as
                 profit (the button that used to arm this is gone). */}
-            {keepActive && (keptUsd > 0.005 || keptLbp > 1) && (
-              <p
-                data-testid="keep-change-summary"
-                className="text-[11px] text-emerald-400"
-              >
-                Keeping {dualAmountText(keptTotalTarget)} as profit
-                {keepChangeReturnUSD > 0.005 || keepChangeReturnLBP > 1
-                  ? " — the rest is returned above"
-                  : ""}
-                .
-              </p>
-            )}
+            {keepActive &&
+              (keptUsd > 0.005 || keptLbp > 1) &&
+              (isShopPayer ? (
+                /* payer="shop" (owner decision 2026-10-07): change the
+                   outsider kept is added to the cost, never profit. */
+                <p
+                  data-testid="keep-change-summary"
+                  className="text-[11px] text-amber-300"
+                >
+                  Not returned: {dualAmountText(keptTotalTarget)} — added to
+                  the cost.
+                </p>
+              ) : (
+                <p
+                  data-testid="keep-change-summary"
+                  className="text-[11px] text-emerald-400"
+                >
+                  Keeping {dualAmountText(keptTotalTarget)} as profit
+                  {keepChangeReturnUSD > 0.005 || keepChangeReturnLBP > 1
+                    ? " — the rest is returned above"
+                    : ""}
+                  .
+                </p>
+              ))}
             {/* Fix-round finding #4 (2026-09-24): the two return fields
             never rewrite each other, so nothing else guarantees they still
             add up to the overpaid amount once the operator edits either one
@@ -2467,7 +2547,9 @@ export default function MultiPaymentInput({
                 className="text-[11px] text-red-400 mt-1"
               >
                 {returnMismatch > 0
-                  ? `Returning ${convertSafe(returnMismatch, totalAmountCurrency, "USD").toFixed(2)}$ more than the customer overpaid.`
+                  ? isShopPayer
+                    ? `Getting back ${convertSafe(returnMismatch, totalAmountCurrency, "USD").toFixed(2)}$ more than was overpaid.`
+                    : `Returning ${convertSafe(returnMismatch, totalAmountCurrency, "USD").toFixed(2)}$ more than the customer overpaid.`
                   : `${convertSafe(-returnMismatch, totalAmountCurrency, "USD").toFixed(2)}$ of the change is not covered by these fields yet.`}
               </p>
             )}

@@ -5203,6 +5203,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             data.created_by,
             tenantId,
             rate,
+            // Owner decision 2026-10-07 — link the discount to THIS
+            // payment's ledger row so the payment's void/refund removes it
+            // too (`TransactionRepository._reverseSupplierBundledDiscount`).
+            ledgerEntryId,
           );
         }
 
@@ -5283,31 +5287,59 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * amount_usd/amount_lbp = 0 (no cash moved); profit_usd/profit_lbp =
    * POSITIVE the forgiven amount (D1: a supplier discount is a gain — the
    * shop no longer has to pay that cost).
+   *
+   * Owner decision 2026-10-07 (rule 20) — the discount's reversal owner is
+   * the payment it rode with. Its 'DISCOUNT' ledger row is linked to that
+   * payment's own ledger row (`source_ref_table='supplier_ledger'`,
+   * `source_ref_id=<payment row>` — the same back-link convention as the
+   * settlement commission credit) so voiding/refunding the payment finds
+   * and removes it (`TransactionRepository._reverseSupplierBundledDiscount`).
+   * NOT `is_auto`: the operator typed this discount (rule 26), so it stays
+   * visible and the LIRA-091 auto-sibling cascade never touches it.
    */
   private _postSupplierDiscount(
     supplierId: number,
     discount: SupplierDiscountData,
     createdBy: number,
     tenantId: number,
-    rate = 89000,
+    rate: number,
+    parentLedgerId: number,
   ): number {
     const amountUsd = Math.abs(discount.amount_usd || 0);
     const amountLbp = Math.abs(discount.amount_lbp || 0);
 
-    const ledgerRes = this.db
-      .prepare(
-        `INSERT INTO supplier_ledger
-           (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-         VALUES (?, 'DISCOUNT', ?, ?, ?, ?, ?, datetime('now'))`,
-      )
-      .run(
-        supplierId,
-        -amountUsd,
-        -amountLbp,
-        discount.reason ?? null,
-        createdBy,
-        tenantId,
-      );
+    const linked = this._supplierLedgerHasSourceRefColumns();
+    const ledgerRes = linked
+      ? this.db
+          .prepare(
+            `INSERT INTO supplier_ledger
+               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id,
+                source_ref_table, source_ref_id, created_at)
+             VALUES (?, 'DISCOUNT', ?, ?, ?, ?, ?, 'supplier_ledger', ?, datetime('now'))`,
+          )
+          .run(
+            supplierId,
+            -amountUsd,
+            -amountLbp,
+            discount.reason ?? null,
+            createdBy,
+            tenantId,
+            parentLedgerId,
+          )
+      : this.db
+          .prepare(
+            `INSERT INTO supplier_ledger
+               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+             VALUES (?, 'DISCOUNT', ?, ?, ?, ?, ?, datetime('now'))`,
+          )
+          .run(
+            supplierId,
+            -amountUsd,
+            -amountLbp,
+            discount.reason ?? null,
+            createdBy,
+            tenantId,
+          );
     const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
     const label = this._getSupplierName(supplierId);

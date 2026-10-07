@@ -319,6 +319,13 @@ export function validateRefundValue(
   lines: RefundLegOverride[],
   originalNet: Record<string, number>,
   rate: number,
+  /** Owner decision 2026-10-07 — refund kept change: the small leftover
+   *  the shop keeps when the cash handed back is short. Mirrors the
+   *  server, which validates the legs against the refund value MINUS the
+   *  kept amount (`TransactionRepository._resolveRefundKeptChange` →
+   *  `validateRefundLegOverrideAmounts`). Omitted/null → unchanged. Only a
+   *  SHORTFALL is ever kept, so handing back too much stays blocked. */
+  kept?: { usd: number; lbp: number } | null,
 ): string | null {
   const lineTotals: Record<string, number> = {};
   for (const line of lines) {
@@ -341,12 +348,37 @@ export function validateRefundValue(
     );
     chosenValue += toUsd(lineTotals[currencyCode] ?? 0, currencyCode, rate);
   }
-  const originalValue = Math.abs(originalNetValueUsd);
+  const keptValue = kept
+    ? toUsd(kept.usd, "USD", rate) + toUsd(kept.lbp, "LBP", rate)
+    : 0;
+  const originalValue = Math.abs(originalNetValueUsd) - keptValue;
 
   if (Math.abs(originalValue - chosenValue) > REFUND_VALUE_TOLERANCE_USD) {
     const fmt = (v: number) =>
       `$${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
     return `Return value at the current rate must equal ${fmt(originalValue)} (currently ${fmt(chosenValue)}).`;
+  }
+  return null;
+}
+
+/**
+ * Owner decision 2026-10-07 — refund kept change, client-side mirror of the
+ * server's own preconditions (`TransactionRepository._resolveRefundKeptChange`
+ * stays the authority): every return line is Cash, and every line is in the
+ * refund's one currency. Returns why the kept change cannot be booked, or
+ * null when it can (or when nothing is kept).
+ */
+export function validateRefundKeptChange(
+  lines: RefundLegOverride[],
+  refundCurrency: string,
+  kept: { usd: number; lbp: number } | null,
+): string | null {
+  if (!kept || (kept.usd <= 0 && kept.lbp <= 0)) return null;
+  if (lines.some((l) => l.method !== "CASH")) {
+    return "Keeping change works only when the whole refund is handed back in cash.";
+  }
+  if (lines.some((l) => l.currencyCode !== refundCurrency)) {
+    return `Keeping change works only when the refund is handed back in ${refundCurrency}.`;
   }
   return null;
 }

@@ -305,16 +305,28 @@ export default function Services() {
   // Payment lines (MultiPaymentInput manages single/split internally)
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
-  // Kept change (owner decision 2026-10-06 — automatic, no button): change
-  // the cashier did not hand back on a walk-in SEND, booked as profit by
-  // FinancialServiceRepository's SEND branch (it reconciles the legs against
-  // it). Not wired on RECEIVE (a cashout) or inside a session (the basket
-  // owns the payment).
+  // Kept change (owner decisions 2026-10-06/2026-10-07 — automatic, no
+  // button), booked as profit by FinancialServiceRepository:
+  //  - walk-in SEND (customer pays): change the cashier did not hand back;
+  //  - RECEIVE (a payout, `payer="payout"`): the cashier hands out a round
+  //    figure a little short of the payout (under $1 / 100,000 LBP) — only
+  //    on a cash-family payout, the one the repository can shorten (a
+  //    customer-account credit or a wallet payout is paid in full there,
+  //    and a partner transaction refuses kept change).
+  // Never inside a session (the basket owns the payment).
+  //
+  // `payout` records which mode reported the amount: the payment form does
+  // not re-report when it flips between SEND (customer) and RECEIVE (payout)
+  // mode, so a SEND's kept change would otherwise ride a later RECEIVE.
   const [keptChange, setKeptChange] = useState<{
     usd: number;
     lbp: number;
+    payout: boolean;
   } | null>(null);
-  const keptChangeApplies = serviceType === "SEND" && !activeSession;
+  const keptChangeApplies =
+    !activeSession &&
+    (serviceType === "SEND" ||
+      (serviceType === "RECEIVE" && !forPartner && cashoutMethod === "CASH"));
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: the counter-flow lines
   // collecting a customer-paid fee-on-top on an OMT/WHISH system RECEIVE.
   // Independent of paymentLines (the shop's payout) — never merged into it.
@@ -929,6 +941,10 @@ export default function Services() {
       // paidByMethod — see the payload's legs block below. Same condition
       // as the partnerId/partnerMode spread, so the two cannot disagree.
       const isForPartnerTxn = !!(forPartner && forPartnerId);
+      // A RECEIVE is a payout: it never carries a change (OUT) leg — not
+      // even one left in state by an earlier SEND (owner decisions
+      // 2026-10-07; the repository refuses them).
+      const changeLegs = serviceType === "RECEIVE" ? [] : returnLegs;
 
       // Determine PM fee for non-cash single payments on SEND
       const activePmFeeApplies =
@@ -1109,12 +1125,12 @@ export default function Services() {
                             ? p.amount + multiPmFees[p.id]
                             : p.amount,
                       })),
-                      returnLegs,
+                      changeLegs,
                     ),
                   }
-                : returnLegs.length > 0
+                : changeLegs.length > 0
                   ? {
-                      payments: returnLegs.map((l) => ({
+                      payments: changeLegs.map((l) => ({
                         method: l.method,
                         currencyCode: l.currencyCode,
                         amount: l.amount,
@@ -1127,6 +1143,7 @@ export default function Services() {
               // (rule 22) — walk-in SEND only, see `keptChangeApplies`.
               ...(keptChangeApplies &&
               keptChange &&
+              keptChange.payout === (serviceType === "RECEIVE") &&
               (keptChange.usd > 0 || keptChange.lbp > 0)
                 ? {
                     kept_change_usd: keptChange.usd,
@@ -2430,9 +2447,27 @@ export default function Services() {
                     ]}
                     exchangeRate={exchangeRate}
                     onExchangeRateChange={setEffectiveRate}
-                    onReturnChange={setReturnLegs}
+                    // RECEIVE is a payout (owner decisions 2026-10-07): no
+                    // change (OUT) legs ever; a small shortfall is kept as
+                    // profit instead (see `keptChangeApplies`).
+                    {...(serviceType === "RECEIVE"
+                      ? { payer: "payout" as const }
+                      : { onReturnChange: setReturnLegs })}
                     {...(keptChangeApplies
-                      ? { onKeptChange: setKeptChange }
+                      ? {
+                          onKeptChange: (
+                            k: { usd: number; lbp: number } | null,
+                          ) =>
+                            setKeptChange(
+                              k
+                                ? {
+                                    usd: k.usd,
+                                    lbp: k.lbp,
+                                    payout: serviceType === "RECEIVE",
+                                  }
+                                : null,
+                            ),
+                        }
                       : {})}
                     // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: a WHISH
                     // system RECEIVE with a fee-on-top collects the customer's

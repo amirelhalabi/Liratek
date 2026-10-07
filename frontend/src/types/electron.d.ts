@@ -13,6 +13,9 @@ import type {
   LotoCheckpointsSettleBatchPayload,
   // LIRA-262 — "shop used its own stock" expense payload (core schema input).
   CreateStockExpenseInput,
+  CreateExpenseRequest,
+  // Owner decision 2026-10-07 — refund kept change (core schema input).
+  RefundKeptChangeInput,
 } from "@liratek/core";
 
 /**
@@ -740,15 +743,11 @@ export interface ElectronAPI {
 
   // Expenses
   expenses: {
-    add: (data: {
-      description: string;
-      category: string;
-      paid_by_method?: string;
-      amount_usd: number;
-      amount_lbp: number;
-      expense_date: string;
-      transaction_time?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** Manual expense — core's createExpenseSchema input (bill + cash
+     *  lines + change back; rule 21). */
+    add: (
+      data: CreateExpenseRequest,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     /** LIRA-262 — the shop used one of its own items (expense at cost, no
      *  cash moves). */
     addStockUse: (
@@ -1064,6 +1063,8 @@ export interface ElectronAPI {
         warranty_override_until?: string | null;
       }>,
       exchangeRate?: number,
+      /** Owner decision 2026-10-07 — refund kept change. */
+      keptChange?: RefundKeptChangeInput,
     ) => Promise<{
       success: boolean;
       refundId?: number;
@@ -1084,6 +1085,8 @@ export interface ElectronAPI {
         warranty_override_until?: string | null;
       }>,
       exchangeRate?: number,
+      /** Owner decision 2026-10-07 — refund kept change. */
+      keptChange?: RefundKeptChangeInput,
     ) => Promise<{
       success: boolean;
       refundId?: number;
@@ -1231,6 +1234,10 @@ export interface ElectronAPI {
       }>;
       transaction_time?: string;
       tender_exchange_rate?: number;
+      /** Kept change (payer "customer"): overpay the shop keeps as profit —
+       *  verified server-side against the payment lines. */
+      keptChangeUSD?: number;
+      keptChangeLBP?: number;
       /** CQ-10: bundled discount — forgives part of the debt alongside the
        *  cash payment. Posts a signed-profit 'Debt Discount' ledger row. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
@@ -1262,6 +1269,10 @@ export interface ElectronAPI {
       note?: string;
       transaction_time?: string;
       tender_exchange_rate?: number;
+      /** Kept change (payer "payout"): the small shortfall the shop keeps as
+       *  profit — verified server-side (debtCashOutSchema). */
+      keptChangeUSD?: number;
+      keptChangeLBP?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     addAccountEntry: (data: {
       direction: "credit" | "debt";
@@ -3131,6 +3142,9 @@ export interface ElectronAPI {
         warranty_override_until?: string | null;
       }>,
       exchangeRate?: number,
+      /** Owner decision 2026-10-07 — refund kept change (the server checks
+       *  it against refundLegs). */
+      keptChange?: RefundKeptChangeInput,
     ) => Promise<{
       success: boolean;
       refundId?: number;
@@ -3942,6 +3956,10 @@ export interface ElectronAPI {
       }>;
       exchange_rate?: number;
       transaction_time?: string;
+      // Kept change on a one-currency pickup (owner decision 2026-10-07) —
+      // a claim the server verifies (resolveKeptChange, payer "payout").
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     voidPickup: (
       pickupId: number,

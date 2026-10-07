@@ -29,6 +29,7 @@ import {
   usdEquivalent,
   resolveStampedExchangeRate,
 } from "./moneyPosting.js";
+import { resolveKeptChange } from "./keptChange.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { applyRechargeDiscount } from "../utils/rechargeDiscount.js";
 import { getDebtService } from "../services/DebtService.js";
@@ -1822,6 +1823,39 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const paidByLabel =
         payoutLegs.length > 1 ? "MULTI" : payoutLegs[0]?.method || "CASH";
 
+      // Payout kept change (owner decisions 2026-10-07, FEATURE_GUIDE §4.1):
+      // the shop hands out a round figure a little short of `payoutAmount`
+      // and keeps the leftover (under PAYOUT_KEEP_CHANGE_MAX, payout
+      // currency only). Verified here — never trusted from the client — and
+      // then: the legs reconcile against owed − kept (postPayoutLegs), and
+      // the kept amount is ADDED to the profit stamp below, per currency.
+      // Profit stays `credits − owed` + kept: it is never re-derived from
+      // what was actually paid out, so kept is counted exactly once.
+      const claimedKept = {
+        usd: data.kept_change_usd ?? 0,
+        lbp: data.kept_change_lbp ?? 0,
+      };
+      const kept =
+        claimedKept.usd > 0 || claimedKept.lbp > 0
+          ? resolveKeptChange({
+              payer: "payout",
+              owed: payoutAmount,
+              owedCurrency: currency,
+              payoutLegs,
+              claimedKept,
+              isForPartner: data.partnerMode === "FOR",
+              exchangeRate: sellRate,
+              ...(data.tender_exchange_rate !== undefined
+                ? { tenderExchangeRate: data.tender_exchange_rate }
+                : {}),
+              context: `${data.provider} credit buy-back`,
+            })
+          : null;
+      const keptUsd = kept?.keptUsd ?? 0;
+      const keptLbp = kept?.keptLbp ?? 0;
+      const paidOutAmount =
+        payoutAmount - (currency === "LBP" ? keptLbp : keptUsd);
+
       const result = this.db.transaction(() => {
         const clientName = data.clientId
           ? ((
@@ -1878,11 +1912,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           // spread the retired topUpFromCustomer modal arm booked. Tracked
           // in USD only (credits are always a USD figure), mirroring that
           // arm's own convention.
-          profit_usd: credits - payoutUsd,
-          profit_lbp: 0,
+          // + payout kept change, per currency, unconverted (see `kept`
+          // above) — inside the stamp so the generic void negates it.
+          profit_usd: credits - payoutUsd + keptUsd,
+          profit_lbp: keptLbp,
           client_id: data.clientId ?? null,
           client_name: clientName,
-          summary: `Credit buy-back: ${data.provider} +$${credits} credits — ${currency === "LBP" ? "" : "$"}${payoutAmount.toLocaleString()} ${currency} paid out`,
+          summary: `Credit buy-back: ${data.provider} +$${credits} credits — ${currency === "LBP" ? "" : "$"}${paidOutAmount.toLocaleString()} ${currency} paid out`,
           metadata_json: {
             provider: data.provider,
             type: "CREDIT_BUYBACK",
@@ -1890,6 +1926,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             payoutAmount,
             currency,
             phone: data.phoneNumber,
+            ...(kept
+              ? { kept_change_usd: keptUsd, kept_change_lbp: keptLbp }
+              : {}),
           },
           exchange_rate: recordExchangeRate,
           transaction_time: data.transaction_time,
@@ -1906,6 +1945,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           exchangeRate: sellRate,
           tenderExchangeRate: data.tender_exchange_rate,
           context: `${data.provider} credit buy-back`,
+          ...(kept ? { keptChange: { usd: keptUsd, lbp: keptLbp } } : {}),
           txnId,
           tenantId,
           createdBy,
@@ -2660,6 +2700,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     exchangeRate?: number;
     clientName?: string;
     clientId?: number;
+    /** Payout kept change (owner decisions 2026-10-07): the shop hands out
+     *  a round figure a little short of `amount − fee` and keeps the
+     *  leftover as profit. Verified by `resolveKeptChange` — never trusted. */
+    kept_change_usd?: number;
+    kept_change_lbp?: number;
     userId: number;
   }): { success: boolean; error?: string } {
     try {
@@ -2768,14 +2813,42 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       for (const leg of payoutLegs) {
         assertLegMovesADrawer(leg.method);
       }
-      reconcileLegs({
-        inLegs: payoutLegs,
-        outLegs: [],
-        expectedTotals: expectedTotalIn(payoutTarget, currency),
-        exchangeRate: sellRate,
-        tenderExchangeRate: data.exchangeRate,
-        context: "Client top-up payout",
-      });
+      // Payout kept change (owner decisions 2026-10-07, FEATURE_GUIDE §4.1):
+      // when claimed, `resolveKeptChange` replaces the reconcile — same S2
+      // equation against `payoutTarget − kept`, plus the cap (under
+      // PAYOUT_KEEP_CHANGE_MAX), payout-currency and tamper checks. The kept
+      // amount is ADDED to the fee in the profit stamp below.
+      const claimedKept = {
+        usd: data.kept_change_usd ?? 0,
+        lbp: data.kept_change_lbp ?? 0,
+      };
+      let keptUsd = 0;
+      let keptLbp = 0;
+      if (claimedKept.usd > 0 || claimedKept.lbp > 0) {
+        const kept = resolveKeptChange({
+          payer: "payout",
+          owed: payoutTarget,
+          owedCurrency: currency,
+          payoutLegs,
+          claimedKept,
+          exchangeRate: sellRate,
+          ...(data.exchangeRate !== undefined
+            ? { tenderExchangeRate: data.exchangeRate }
+            : {}),
+          context: "Client top-up payout",
+        });
+        keptUsd = kept.keptUsd;
+        keptLbp = kept.keptLbp;
+      } else {
+        reconcileLegs({
+          inLegs: payoutLegs,
+          outLegs: [],
+          expectedTotals: expectedTotalIn(payoutTarget, currency),
+          exchangeRate: sellRate,
+          tenderExchangeRate: data.exchangeRate,
+          context: "Client top-up payout",
+        });
+      }
 
       // ── Per-leg, per-currency drawer balance guard ──────────────────────
       // BEFORE opening the db transaction (read-then-act inside a
@@ -2832,7 +2905,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       // the "both" vs "in" cash-flow badge (guarded by `cashFlow.test.ts` /
       // `TransactionsViewer.topUpCashFlowDirection.test.tsx`) — derived HERE
       // at the one writer, never hand-maintained a second time downstream.
-      const cashPaid = payoutTarget;
+      // With payout kept change, what actually left the drawers is the
+      // target minus the kept leftover (same currency — resolveKeptChange
+      // refuses kept in the other one).
+      const cashPaid = payoutTarget - (currency === "LBP" ? keptLbp : keptUsd);
       const cashLabel = formatMoneyAmount(cashPaid, currency);
       // Profit IS the fee — native to `currency`, no conversion (this
       // method's doc header). Stamped below as
@@ -2897,8 +2973,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: data.userId,
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
-          profit_usd: currency === "USD" ? fee : 0,
-          profit_lbp: currency === "LBP" ? fee : 0,
+          // Fee + payout kept change, per currency, native (no conversion).
+          profit_usd: (currency === "USD" ? fee : 0) + keptUsd,
+          profit_lbp: (currency === "LBP" ? fee : 0) + keptLbp,
           client_id: data.clientId ?? null,
           client_name: clientName,
           summary: `Whish App top-up from client: +${creditsLabel} credits, -${cashLabel} cash`,
@@ -2907,6 +2984,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             amount,
             fee,
             cashPaid,
+            ...(keptUsd > 0 || keptLbp > 0
+              ? { kept_change_usd: keptUsd, kept_change_lbp: keptLbp }
+              : {}),
             currency,
             clientId: data.clientId ?? null,
             clientName: data.clientName ?? null,

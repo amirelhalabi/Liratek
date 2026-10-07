@@ -207,6 +207,12 @@ test("live smoke — 16 flows", async ({ page }) => {
   try {
     await go(page, "/expenses");
     await ph(page, "e.g., Shop rent, Coffee, Repair", `Smoke expense ${S}`);
+    // Bill amount is its own field (2026-10-07); the payment line is the
+    // cash handed.
+    await page
+      .getByTestId("expense-bill-amount")
+      .fill("1")
+      .catch(() => {});
     await pay(page, 1);
     await btn(page, /record expense|add expense/i);
     await verdict(page, "7. expense");

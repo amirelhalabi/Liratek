@@ -591,6 +591,16 @@ export interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** Hold Money pickups (owner decision 2026-10-07) — the change the shop
+   *  kept when it handed back a round figure (HOLD_MONEY_COLLECT stamp), net
+   *  of any voided pickup's exact negation (HOLD_MONEY_COLLECT_VOID). See
+   *  {@link ProfitRepository.getHoldMoneyProfit}. Profit-only, NETTED into
+   *  `totals` below — the day close reads those totals. */
+  hold_money: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   expenses: { total_usd: number; total_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;
@@ -1007,6 +1017,10 @@ export class ProfitService {
       // debtRepayments/discounts/supplierCommission.
       const topupsBuybacks = this.repo.getTopupBuybackProfit(fromDt, toDt);
 
+      // Hold Money pickup kept change (owner decision 2026-10-07) —
+      // profit-only, pickup + void net to 0 (rule 20).
+      const holdMoney = this.repo.getHoldMoneyProfit(fromDt, toDt);
+
       // 7. Expenses.
       const expenses = this.repo.getExpenseTotals(fromDt, toDt);
 
@@ -1091,7 +1105,8 @@ export class ProfitService {
         debtRepayments.profit_usd +
         discounts.usd +
         supplierCommission.profit_usd +
-        topupsBuybacks.profit_usd;
+        topupsBuybacks.profit_usd +
+        holdMoney.profit_usd;
       const grossProfitLbp =
         sales.profit_lbp +
         finSvc.commission_lbp +
@@ -1108,7 +1123,8 @@ export class ProfitService {
         debtRepayments.profit_lbp +
         discounts.lbp +
         supplierCommission.profit_lbp +
-        topupsBuybacks.profit_lbp;
+        topupsBuybacks.profit_lbp +
+        holdMoney.profit_lbp;
 
       // LO-V1 / LO-R2 — additive visibility roll-up for the Kept Change card
       // (see ProfitSummary.kept_change's own doc comment); already inside
@@ -1154,6 +1170,7 @@ export class ProfitService {
         kept_change: keptChange,
         supplier_commission: supplierCommission,
         topups_buybacks: topupsBuybacks,
+        hold_money: holdMoney,
         expenses,
         totals: {
           gross_revenue_usd: grossRevenueUsd,
@@ -1498,6 +1515,22 @@ export class ProfitService {
           profit_usd: topupsBuyback.profit_usd,
           profit_lbp: topupsBuyback.profit_lbp,
           count: topupsBuyback.count,
+        });
+      }
+
+      // Hold Money pickup kept change (owner decision 2026-10-07).
+      const holdMoney = this.repo.getHoldMoneyProfit(fromDt, toDt);
+      if (holdMoney.profit_usd !== 0 || holdMoney.profit_lbp !== 0) {
+        results.push({
+          module: "HOLD_MONEY",
+          label: "Hold Money",
+          revenue_usd: 0,
+          revenue_lbp: 0,
+          cost_usd: 0,
+          cost_lbp: 0,
+          profit_usd: holdMoney.profit_usd,
+          profit_lbp: holdMoney.profit_lbp,
+          count: holdMoney.count,
         });
       }
 

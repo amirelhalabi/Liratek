@@ -29,6 +29,12 @@
  * A table missing from a hand-rolled test schema contributes nothing.
  */
 import type Database from "better-sqlite3";
+import type {
+  DrawerRole,
+  LedgerExpectation,
+  PostingInputs,
+  PostingRule,
+} from "../../constants/postingRules.js";
 
 export type LedgerName = "drawers" | "supplier" | "partner" | "debt";
 export type LedgerBalances = Record<string, number>;
@@ -147,9 +153,8 @@ export function ledgerDeltas(
     const delta: LedgerBalances = {};
     for (const k of keys) {
       const d =
-        Math.round(
-          ((after[ledger][k] ?? 0) - (before[ledger][k] ?? 0)) * 1e6,
-        ) / 1e6;
+        Math.round(((after[ledger][k] ?? 0) - (before[ledger][k] ?? 0)) * 1e6) /
+        1e6;
       if (d !== 0) delta[k] = d;
     }
     out[ledger] = delta;
@@ -169,4 +174,98 @@ export function expectPostings(
   const want = {} as LedgerSnapshot;
   for (const ledger of LEDGERS) want[ledger] = expected[ledger] ?? {};
   expect(ledgerDeltas(before, after)).toEqual(want);
+}
+
+// ─── Phase 5: assertions read from the posting rules table ──────────────────
+// (POSTING_INTEGRITY_PLAN.md §7, constants/postingRules.ts)
+
+/**
+ * Concrete keys for the roles a rule names. Only the roles the rule actually
+ * uses are required; a missing one fails loudly instead of silently passing.
+ */
+export interface PostingRoleKeys {
+  /** Drawer names, e.g. { pcd: "OMT_System", general: "General", tender: "General" }. */
+  drawers?: Partial<Record<DrawerRole, string>>;
+  providerSupplierId?: number;
+  partnerId?: number;
+  clientId?: number;
+}
+
+function resolveRoleKey(
+  ledger: LedgerName,
+  role: string,
+  keys: PostingRoleKeys,
+): string | number {
+  let k: string | number | undefined;
+  if (ledger === "drawers") k = keys.drawers?.[role as DrawerRole];
+  else if (role === "providerSupplier") k = keys.providerSupplierId;
+  else if (role === "partner") k = keys.partnerId;
+  else if (role === "client") k = keys.clientId;
+  if (k === undefined) {
+    throw new Error(
+      `expectPostingsMatchRule: no key given for ${ledger} role "${role}"`,
+    );
+  }
+  return k;
+}
+
+/**
+ * The exact `ExpectedPostings` a rule implies for these inputs, plus the
+ * ledgers the rule leaves `unchecked`. Lines on the same key are summed.
+ */
+export function expectedPostingsForRule(
+  rule: PostingRule,
+  inputs: PostingInputs,
+  keys: PostingRoleKeys,
+): { expected: ExpectedPostings; unchecked: LedgerName[] } {
+  const expected: ExpectedPostings = {};
+  const unchecked: LedgerName[] = [];
+  for (const ledger of LEDGERS) {
+    const e = rule.ledgers[ledger] as LedgerExpectation<string>;
+    if (e.post === "unchecked") {
+      unchecked.push(ledger);
+      continue;
+    }
+    if (e.post === "none") continue;
+    const out: LedgerBalances = {};
+    for (const line of e.lines) {
+      const currency =
+        line.currency === "txn" ? inputs.currency : line.currency;
+      const key = `${resolveRoleKey(ledger, line.role, keys)}|${currency}`;
+      const sum =
+        Math.round(((out[key] ?? 0) + line.amount(inputs)) * 1e6) / 1e6;
+      if (sum === 0) delete out[key];
+      else out[key] = sum;
+    }
+    if (Object.keys(out).length) expected[ledger] = out;
+  }
+  return { expected, unchecked };
+}
+
+/**
+ * Asserts the delta between two snapshots is EXACTLY what `rule` declares:
+ * `post` ledgers move by their lines and nothing else, `none` ledgers do not
+ * move at all, `unchecked` ledgers are skipped. Same full-delta property as
+ * `expectPostings`, with the expectation taken from the rules table.
+ */
+export function expectPostingsMatchRule(
+  rule: PostingRule,
+  before: LedgerSnapshot,
+  after: LedgerSnapshot,
+  inputs: PostingInputs,
+  keys: PostingRoleKeys,
+): void {
+  const { expected, unchecked } = expectedPostingsForRule(rule, inputs, keys);
+  const actual = ledgerDeltas(before, after);
+  const want = {} as LedgerSnapshot;
+  const got = {} as LedgerSnapshot;
+  for (const ledger of LEDGERS) {
+    if (unchecked.includes(ledger)) continue;
+    want[ledger] = expected[ledger] ?? {};
+    got[ledger] = actual[ledger];
+  }
+  expect({ rule: rule.mode, postings: got }).toEqual({
+    rule: rule.mode,
+    postings: want,
+  });
 }

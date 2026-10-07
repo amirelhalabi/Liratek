@@ -4567,7 +4567,7 @@ invariant it pins is the correct one.
 > These tickets were filed from `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md` (the customer's
 > 29 notes). Three are DONE in this batch; the nine below them were **discovered while building
 > those three** and are new. Next free ID after this block: **LIRA-229** (now taken, with LIRA-230, by the
-> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-265** (LIRA-257 … LIRA-264 filed 2026-10-06), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
+> 2026-09-24 Profits-audit findings at the end of this file; LIRA-231 filed 2026-09-26; LIRA-232..235 filed 2026-09-26; next free: **LIRA-274** (LIRA-257 … LIRA-266 and LIRA-268 … LIRA-273 filed 2026-10-06/07; LIRA-267 taken by the email-invite spec), LIRA-236 filed 2026-09-27, LIRA-237..251 filed 2026-09-28).
 >
 > **Two owner decisions taken 2026-09-23, settled — do not relitigate:**
 >
@@ -6267,7 +6267,7 @@ Interviewed 2026-10-06. Each item ships with a failing-first guard unless noted 
 | Ticket | Item | Owner decision | Status |
 | --- | --- | --- | --- |
 | LIRA-259 | Katsh: handing back less change than due (e.g. card 450,000 LBP, customer pays $6, cashier returns 10,000 instead of ~34,000 LBP) fails | The un-returned part is kept change (shop profit), like partial keep-change elsewhere | DONE — the form never sent the un-returned part, so the server's reconcile refused it; MultiPaymentInput `keepUnreturnedChange` (on for Katsh/iPick). Also fixed globally: with Keep change on, change returned in the other currency was not recorded leaving the drawer. Owner decision pending: whole change kept silently when both change fields are cleared |
-| LIRA-260 | Price-change alert | Any price a cashier changes away from its saved price: amber warning only (saved vs new), sale still goes through | DONE (MTC/Alfa credit, Katsh/iPick Only-Days, Services presets/items, maintenance parts; POS has no editable line price) |
+| LIRA-260 | Price-change alert | Any price a cashier changes away from its saved price: amber warning only (saved vs new), sale still goes through | DONE (MTC/Alfa credit, Katsh/iPick Only-Days, Services presets/items, maintenance parts, including parts on a reopened saved job; POS has no editable line price). What users will notice: reopening a saved maintenance job now shows the price warning on any part whose price differs from the product's current price. |
 | LIRA-261 | Exchange default direction | Opens on USD → LBP | DONE |
 | LIRA-262 | Expense from stock | Search bar (like Services) over inventory + Katsh/iPick/Whish App items; shop uses its own stock: leaves stock / provider balance at cost, no cash moves; one transaction type per source | DONE (uncommitted) — `EXPENSE_INVENTORY` / `EXPENSE_KATSH` / `EXPENSE_IPICK` / `EXPENSE_WHISH_APP`; v193; void/refund restores stock + batches / provider drawer (`ExpenseRepository.stockUse.test.ts`). Not done: web e2e, IMEI-tracked products (refused) |
 | LIRA-263 | Maintenance client number lost | Test the full workflow and fix | DONE — link dropped at the first re-save of a job (draft edit / In progress); kept now through payment, receipt shows the customer. Follow-ups: web route envelope (HTTP 200), typed save payload |
@@ -6297,3 +6297,126 @@ Also from the production test: **G40** — voided supplier history rows read "Un
 **What users will notice (follow-ups):** the Keep change button is gone — less change handed back is kept
 as profit automatically and the form says so; a repair job keeps the phone you type; Exchange kept cents
 appear under "Kept change" on the Profits page.
+
+---
+
+## LIRA-265: add missing Whish App catalog items — URGENT — NEEDS ITEM LIST
+
+| Field    | Value                                        |
+| -------- | -------------------------------------------- |
+| Epic     | Recharge / catalog (Whish App)               |
+| Type     | Feature / data                               |
+| Priority | **URGENT** (owner, 2026-10-07)               |
+| Status   | NEEDS ITEM LIST from owner                   |
+| Modules  | recharge (Whish App catalog items)           |
+
+### Summary
+
+Owner request (2026-10-07): "add missing items and Whish App bills". Interview 2026-10-07 clarified:
+
+- "Bills" means the Whish App **items** shown under the Recharge page's Whish App "Bills" tab (FinancialForm
+  over `mobile_service_items` provider `WHISH_APP`), not utility bill payments. Utility bills are NOT wanted now.
+- Missing items are in the **Whish App catalog grid** only.
+- Each item has a cost and a sell price, exactly like iPick / Katsh items (no "fee").
+
+Where items live today: table `mobile_service_items` (provider `WHISH_APP`), seeded once from the static
+catalog `frontend/src/data/mobileServices.ts` (WHISH_APP block, 34 priced items: Alfa and MTC prepaid cards and
+vouchers) only when the table is empty; existing shops only get catalog changes through a migration. The owner
+can already add/edit Whish App items by hand in Settings → Mobile Services.
+
+Next step: owner sends the list of missing items (category, label, cost, sell — a screenshot of the Whish App
+catalog is fine). Then: add them to the static catalog (new shops) AND a migration inserting them for existing
+shops (`INSERT OR IGNORE` on the UNIQUE(provider, category, subcategory, label) key, never overwriting prices a
+shop edited).
+
+### Acceptance (to finalise after the interview)
+
+- [ ] Missing Whish App items in the static catalog (new shops) and in a migration for existing shops,
+      without overwriting prices a shop edited.
+- [ ] Items visible and searchable in the Whish App grid, sold with the existing cost/sell flow (no new money path).
+- [ ] Release note line.
+
+---
+
+## LIRA-266: kept change built once, used by every payment page — HIGH — IN REVIEW
+
+| Field    | Value                                                                 |
+| -------- | --------------------------------------------------------------------- |
+| Epic     | Payments / Posting integrity                                          |
+| Type     | Feature + bug fixes (POSTING_MAP G42, G43, G44)                       |
+| Priority | High                                                                  |
+| Status   | IN REVIEW (uncommitted, 2026-10-07)                                   |
+| Modules  | pos, maintenance, sessions, debts, custom_services, expenses, omt_whish, recharge, hold money, refunds |
+
+### Owner decisions (2026-10-07)
+
+- One "who pays" setting on the payment form (`payer`: customer / payout / shop) and one server check
+  (`resolveKeptChange`, `packages/core/src/repositories/keptChange.ts`) that every module calls.
+- Customer pays: change not handed back = shop profit. Payout: handing out less (under $1 / 100,000 LBP, same
+  currency) = shop profit. Shop pays an outsider (Expenses): change not returned is added to the cost.
+- Kept profit lives in the transaction's own profit stamp. Partner transactions: kept refused (exact amount).
+- Debts credit cash-out clears to 0. Expenses get a Bill amount field. Hold Money pickup and refunds keep change too.
+- Supplier payment void also removes its bundled discount (same as Partners).
+- iPick self-charge books no supplier entry — confirmed correct.
+
+### What users will notice
+
+On every payment screen, kept change now behaves the same way and is checked by the server: a round payout a
+little under what's owed keeps the cents as profit; at checkout, kept change that doesn't match the money paid is
+refused; on Expenses you type the bill and the cash handed, and change not returned is added to the expense; a
+Debts cash-out of $101.12 paid with $101 clears the credit and shows $0.12 as profit. Refunding a cash sale or debt payment, you can hand back a round figure and the small leftover shows as profit. Voiding a supplier payment that had a discount now puts the supplier back to the full amount owed (payments recorded from now on).
+
+### Open follow-ups
+
+- Hold Money pickup profit is not read by the Profits page or Closing yet (ProfitRepository buckets).
+- Owner questions pending: fold session KEPT_CHANGE row (rec: keep), reconcile every basket/sale, basket-level
+  partner refusal, two-currency Hold Money pickup, block Pay when a payout is over the amount, cost-only custom service.
+
+---
+
+## LIRA-268: Binance profit invisible on the Profits page — MEDIUM — TODO
+
+Found 2026-10-07 by the payouts agent. A Binance transaction's profit stamp has no commission term because
+`fs.currency` is USDT, and the Profits Overview shows neither its commission nor its kept change. Kept change is
+stamped and voids correctly, it just never appears. Fix the USDT bucketing so Binance profit counts.
+
+---
+
+## LIRA-269: discount on Binance / app RECEIVE payout sheets is refused — MEDIUM — TODO
+
+Found 2026-10-07. On the Crypto and OMT/Whish App RECEIVE payout sheets a discount lowers the sheet's target,
+while the server still pays out the full amount, so the payout is refused. Align the target the sheet shows with
+what the server pays.
+
+---
+
+## LIRA-270: session checkout posts stale payment lines on a zero-net basket — HIGH — TODO
+
+Found 2026-10-07 by the sessions agent (probed). When nothing is left to collect, the payment input unmounts but
+`paymentLines` is not cleared, so a stale `IN CASH $105` leg is still sent and posted. The server does not catch it
+because no kept change is claimed. Clear lines on unmount and refuse legs on a zero-net basket server-side.
+
+---
+
+## LIRA-271: session fee-on-top rule differs between client and server — MEDIUM — TODO
+
+Found 2026-10-07. The server's fee-on-top rule (WHISH fees, `isFeeOnTopReceiveItem`, batch sub-items) differs from
+the client's (`omt_system`/`whish_system` only, `omtFee`, top-level formData). It used to skew only the drawer
+split; with the new kept-change check it can refuse an honest kept claim. Make one shared definition.
+
+---
+
+## LIRA-272: kept change on refunds of other modules — OWNER QUESTION — TODO
+
+Found 2026-10-07. Refund kept change works for SALE and DEBT_REPAYMENT refunds only. For OMT/Whish, recharge,
+custom services, maintenance and Loto, the Profits page drops the refunded row and never reads its REFUND row, so
+kept profit there would be invisible; the server refuses kept on those refunds for now. Extending needs a
+ProfitRepository change. Owner to decide whether to extend.
+
+---
+
+## LIRA-273: undoing a session item refund leaves Profits at the refunded level — MEDIUM — TODO
+
+Found 2026-10-07 (pre-existing, no kept change involved). The REFUND_UNDO row is not counted by
+`ProfitService.getSummary`, so after Undo refund the Profits total stays as if the refund still stood. Same for a POS per-item refund's undo (measured: gross 13.12 → 3 after refund, still 3 after undo).
+

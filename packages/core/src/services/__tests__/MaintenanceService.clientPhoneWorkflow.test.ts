@@ -132,6 +132,7 @@ function createTestDb(): Database.Database {
       tenant_id INTEGER DEFAULT 1,
       name TEXT NOT NULL,
       stock_quantity INTEGER NOT NULL DEFAULT 0,
+      selling_price_usd REAL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

@@ -514,7 +514,10 @@ const EXCLUDED_UNITS: ExclusionRule[] = [
   },
   {
     file: "TransactionRepository",
-    method: "getRefundBookedRate",
+    // Mis-attributed boundary: the parser credits private-method SQL to the
+    // last PUBLIC method above it. It was `getRefundBookedRate` until
+    // LIRA-266 added the public `resolvePartialRefundKeptChange` further down.
+    method: "resolvePartialRefundKeptChange",
     sqlContains:
       "SELECT id, provider, service_type, commission, commission_model FROM financial_services WHERE settlement_id IN",
     reason:
@@ -747,7 +750,7 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
   it("LIRA-186: exclusion identity survives an ordinal-label shift that the old unitKey()-keyed Record did not", () => {
     const before: QueryUnit = {
       file: "TransactionRepository",
-      methodName: "getRefundBookedRate",
+      methodName: "resolvePartialRefundKeptChange",
       unitLabel: "(query-like #23)",
       sql:
         "SELECT id, provider, service_type, commission, commission_model " +
@@ -765,7 +768,7 @@ describe("embedded-commission-estimate drift guard (LIRA-159 D3)", () => {
     // shifts — this is what forced the three unrelated hand-edits the
     // ticket and this file's own rationale document.
     const oldStyleKey =
-      "TransactionRepository:getRefundBookedRate:(query-like #23)";
+      "TransactionRepository:resolvePartialRefundKeptChange:(query-like #23)";
     expect(unitKey(before)).toBe(oldStyleKey);
     expect(unitKey(after)).not.toBe(oldStyleKey);
 

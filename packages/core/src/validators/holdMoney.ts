@@ -104,7 +104,9 @@ export type HoldMoneyCreateInput = z.input<typeof holdMoneyCreateSchema>;
  * Collect is now just that default with the new payment-form legs attached).
  * `payments` are the payout's own composition (rule 16 — NOT customer-paid
  * IN legs; a payout the same way `postPayoutLegs`/the RECEIVE cashout sheet
- * already model one). Optional, same backward-compatibility reasoning as
+ * already model one). A pickup never carries an OUT (change) leg — the
+ * repository refuses one; `direction` stays on the shared leg schema only
+ * because the drop-off side still uses it. Optional, same backward-compatibility reasoning as
  * `holdMoneyCreateSchema.payments`: an omitted array posts a single CASH
  * leg for the full portion being collected.
  */
@@ -115,6 +117,14 @@ export const holdMoneyCollectSchema = z.object({
   payments: z.array(holdMoneyPaymentLegSchema).optional(),
   exchange_rate: z.number().positive().optional(),
   transaction_time: z.string().optional(),
+  // Kept change (owner decision 2026-10-07): a pickup is a PAYOUT — when the
+  // cashier hands out the round figure (held $50.12, hands $50) the leftover
+  // stays with the shop as profit, capped below PAYOUT_KEEP_CHANGE_MAX in
+  // the pickup's own currency. A CLAIM only: the repository verifies it with
+  // `resolveKeptChange` (payer "payout") and never books it unchecked.
+  // Refused on a pickup returning both USD and LBP (exact amount required).
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
 });
 
 export type HoldMoneyCollectInput = z.infer<typeof holdMoneyCollectSchema>;

@@ -95,9 +95,13 @@ function OmtWhishAppTransferFormInner({
   const [paymentLines, setPaymentLines] = useState<any[]>([]);
   const [returnLegs, setReturnLegs] = useState<any[]>([]);
   // T3 keep-change: kept change → financial-service profit stamp.
+  // `payout` records which mode reported it (RECEIVE = payout): the payment
+  // form does not re-report when SEND ↔ RECEIVE flips, so a SEND's kept
+  // change must never ride a later RECEIVE (or vice versa).
   const [keptChange, setKeptChange] = useState<{
     usd: number;
     lbp: number;
+    payout: boolean;
   } | null>(null);
   // Payment-Legs Integrity plan (false-reject fix): the rate the
   // PaymentSheet is ACTUALLY using — the `exchangeRate` default above, or
@@ -113,8 +117,13 @@ function OmtWhishAppTransferFormInner({
   // backend's fallback then assumed tender currency == service currency (the
   // owner-reported Whish App LBP-as-USD bug). Also forwards whenever the
   // customer got change back (a return/OUT leg).
+  //
+  // A RECEIVE is a payout (owner decisions 2026-10-07): it never carries a
+  // change (OUT) leg — not even one left in state by an earlier SEND on this
+  // form. A small shortfall is kept change instead (`keptChange`).
+  const changeLegs = serviceType === "RECEIVE" ? [] : returnLegs;
   const useStructuredPayments =
-    paymentLines.length > 0 || returnLegs.length > 0;
+    paymentLines.length > 0 || changeLegs.length > 0;
   const [paidByMethod, setPaidByMethod] = useState("CASH");
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D: the RECEIVE fee-on-top
   // "who pays the fee" choice — replaces the old bare `includingFees`
@@ -368,7 +377,7 @@ function OmtWhishAppTransferFormInner({
         note: `${serviceType} transfer via ${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"}`,
         paidByMethod: paymentMethod,
         payments: useStructuredPayments
-          ? toCamelLegs(paymentLines, returnLegs)
+          ? toCamelLegs(paymentLines, changeLegs)
           : undefined,
         // Bug 6 (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2): how the shop pays
         // the customer out — synced from the single payout line's method
@@ -429,7 +438,9 @@ function OmtWhishAppTransferFormInner({
           ? { tender_exchange_rate: effectiveRate ?? exchangeRate }
           : {}),
         // T3 keep-change: kept amounts join the profit stamp.
-        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+        ...(keptChange &&
+        keptChange.payout === (serviceType === "RECEIVE") &&
+        (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
               kept_change_usd: keptChange.usd,
               kept_change_lbp: keptChange.lbp,
@@ -1219,8 +1230,29 @@ function OmtWhishAppTransferFormInner({
               }
             }
           }}
-          onReturnChange={setReturnLegs}
-          onKeptChange={setKeptChange}
+          // RECEIVE is a payout: no change legs, a small shortfall is kept
+          // as profit (FinancialServiceRepository verifies it).
+          {...(serviceType === "RECEIVE"
+            ? { payer: "payout" as const }
+            : { onReturnChange: setReturnLegs })}
+          // A RECEIVE keeps change only where the server can book it: not
+          // inside a session (the basket pays out) and not when credited to
+          // the customer's account (credited in full).
+          {...(serviceType === "RECEIVE" &&
+          (!!activeSession || cashoutMethod === "CUSTOMER_ACCOUNT")
+            ? {}
+            : {
+                onKeptChange: (k: { usd: number; lbp: number } | null) =>
+                  setKeptChange(
+                    k
+                      ? {
+                          usd: k.usd,
+                          lbp: k.lbp,
+                          payout: serviceType === "RECEIVE",
+                        }
+                      : null,
+                  ),
+              })}
           // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D: mode C's
           // counter-flow section — the customer's separately-paid fee,
           // independent of the payout lines above. Absent (modes A/B, no

@@ -41,6 +41,7 @@
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { createExpenseSchema } from "@liratek/core";
 import Expenses from "../index";
 
 const mockDeleteExpense = jest.fn();
@@ -120,6 +121,11 @@ describe("Expenses — split payment mode is disabled (LIRA-185)", () => {
     fireEvent.change(screen.getByLabelText(/description/i), {
       target: { value: "Delivery fee" },
     });
+    // Owner decision 2026-10-07: the bill is its own field; the payment
+    // line below is the cash handed.
+    fireEvent.change(screen.getByLabelText(/bill amount/i), {
+      target: { value: "25" },
+    });
 
     const methodSelect = await screen.findByTestId(/^payment-method-/);
     fireEvent.change(methodSelect, { target: { value: "WHISH" } });
@@ -129,8 +135,13 @@ describe("Expenses — split payment mode is disabled (LIRA-185)", () => {
     fireEvent.click(screen.getByRole("button", { name: /record expense/i }));
 
     await waitFor(() => expect(mockAddExpense).toHaveBeenCalled());
-    const payload = mockAddExpense.mock.calls[0][0];
+    // Rule 24 — read the payload through the shared core schema, so the
+    // field names asserted are the schema's own.
+    const payload = createExpenseSchema.parse(mockAddExpense.mock.calls[0][0]);
     expect(payload.paid_by_method).toBe("WHISH");
     expect(payload.amount_usd).toBe(25);
+    expect(payload.payments).toEqual([
+      { method: "WHISH", currencyCode: "USD", amount: 25 },
+    ]);
   });
 });

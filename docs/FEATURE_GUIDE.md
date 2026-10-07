@@ -150,6 +150,87 @@ CUSTOMER_ACCOUNT) − sum(OUT change legs) − kept_change = required total`.
   lira-session-basket-payment). See "Carrier `checkoutTotal`" above for how the
   carrier's required total is computed in a multi-unit cart.
 
+### 4.1 Kept change — one prop, one helper (owner decisions 2026-10-07)
+
+Kept change = the cash handed back (or handed out) is **less than due**, and
+the difference stays with someone. It is built ONCE: module pages declare who
+pays, module repositories call one helper. Never re-implement the math in a
+page or a repository.
+
+**UI — `MultiPaymentInput`'s `payer` prop** (`@liratek/ui`;
+`PaymentSheet` and `CounterpartySettleModal` forward it). One declaration
+decides whether the change fields show, the kept math, the note copy, what
+`onKeptChange` reports, and whether OUT legs can exist. Kept change stays
+opt-in: nothing is reported unless the page wires `onKeptChange`.
+`direction="payout"` is a deprecated alias of `payer="payout"`; `payer` wins.
+
+| `payer` | Who pays | Change fields | Kept change means | Note copy |
+| --- | --- | --- | --- | --- |
+| `"customer"` (default) | customer → shop (POS, recharge sale, OMT SEND, debts, …) | on overpay; change back = OUT legs | shop **profit**, uncapped | "Keeping X as profit" / "Change kept (profit)" |
+| `"payout"` | shop → customer (OMT/Whish RECEIVE, Binance cash-out, app RECEIVE, credit buy-back, Debts credit cash-out, Exchange) | never; **no OUT legs ever** | shop **profit**, only a shortfall under `PAYOUT_KEEP_CHANGE_MAX` ($1 / 100,000 LBP), payout currency only | "Keeping X as profit." |
+| `"shop"` | shop → outsider (Expenses) | on overpay; change the outsider hands back = OUT legs (cash coming INTO the drawer) | **added to the cost**, never profit | "Not returned: X — added to the cost." |
+
+**Server — `resolveKeptChange`** (`packages/core/src/repositories/keptChange.ts`,
+Node-only, not exported from `browser.ts`). Same three payer kinds. It
+replaces the flow's own `reconcileLegs` call (it runs the same S2
+equation), checks the client's claim, and returns what to book:
+
+- customer: `IN − OUT − kept = due`; returns `keptUsd/keptLbp` → ADD to the
+  transaction's own `profit_usd`/`profit_lbp` stamp (per currency, never
+  converted, never a separate field — so the generic void/refund negates it).
+- payout: refuses any OUT leg; `paid = owed − kept`; kept below the cap, in
+  the payout currency, only when the lines are really short. Same
+  `keptUsd/keptLbp` → profit stamp. `postPayoutLegs` takes the validated
+  kept as an optional `keptChange` (default 0).
+- shop: `handed − returned − notReturned = bill`; returns `costUsd/costLbp`
+  (= handed − returned per currency) and `notReturned*`; `keptUsd/keptLbp`
+  are always 0.
+- every kind: refuses kept on a FOR-partner transaction; refuses a claim
+  above the real excess even when it fits inside the $0.05 reconcile
+  epsilon; reconciles at the client's tender rate when sent (rule 27).
+
+Exchange keeps its own `kept_profit_usd` model and does not use either half.
+
+**Funding rule** (owner decision 2026-10-07). Kept change must be real drawer
+money the shop is holding back — cash or wallet (OMT, WHISH, Binance, …;
+`isDrawerAffectingMethod`) — never the customer's own account debt, store
+credit or gift card. It applies only when something is kept. Customer pays:
+`kept ≤ (drawer IN − drawer OUT) − max(0, expected − (non-drawer IN − non-drawer OUT))`,
+all USD-equivalent at the tender rate — non-drawer legs are applied to the
+total first, so only drawer money beyond what the total still needs can be
+kept (cash $20 for $10 with $5 credited back to the account, keep $5 ✔;
+WHISH $25 for $20, $3 cash back, keep $2 ✔; account $15 for $10, keep $5 ✘;
+account $15 + cash $5 for $10, $5 back, keep $5 ✘). Shop pays (Expenses): the
+same formula on handed/returned/bill, and any returned leg must be a drawer
+method. Payout: every payout leg must be a drawer method. Refusals open with
+one plain sentence for the cashier, followed by the technical detail in
+parentheses.
+
+**Where it applies today:** customer — POS, Maintenance, session checkout,
+Debts repayment, Custom Services, recharge/OMT sales; payout — OMT/Whish
+RECEIVE, Binance cash-out, app RECEIVE, credit buy-back, Whish top-up from a
+client, Debts credit cash-out, Hold Money pickup (one currency only), refunds
+of SALE / DEBT_REPAYMENT (cash, one currency); shop — Expenses. Kept change is
+refused on partner transactions and on refunds of other modules (LIRA-272).
+
+**Migration checklist for a module** (one module per change):
+
+1. Page: pass `payer` (and drop any `direction="payout"`); wire `onKeptChange`
+   only if the repository is migrated in the same change. Build the payload
+   once (rule 22) with `kept_change_usd`/`kept_change_lbp`.
+2. Schema: kept fields present in the shared core validator AND the desktop
+   preload type (rules 12, 23) — three-way key diff before wiring.
+3. Repository: call `resolveKeptChange` inside the `db.transaction(...)`
+   before any write, in place of `reconcileLegs`; pass `isForPartner` and
+   the client's `tender_exchange_rate`; add `keptUsd/keptLbp` to the
+   transaction's profit stamp (or `costUsd/costLbp` to the expense amount for
+   `payer="shop"`). Never trust `data.kept_change_*` directly.
+4. Payouts: stop sending OUT legs from the page (the helper refuses them) —
+   fix the page and the repository in the SAME change (POSTING_MAP G43).
+5. Tests: failing-first (rule 17) — accepted kept books profit/cost; tampered
+   kept rejected; void nets drawer + profit + ledger to 0 per currency
+   (rule 20); a web-mode run (rule 19).
+
 ---
 
 ## 5. Payment methods & CUSTOMER_ACCOUNT
@@ -805,6 +886,8 @@ Copy this into your task when building any flow that moves money:
 4. **Payment legs** (§4): accept split + change legs in ONE IPC payload; branches use
    IN legs only; OUT legs debited once by the shared loop; wire the form's
    Return/Change output end-to-end.
+   Kept change: declare `payer` on the form and call `resolveKeptChange` in the
+   repository (§4.1) — never hand-roll it.
 5. **Drawers** (§7): correct drawer per leg, per currency; app-wallet rule if a wallet
    is involved.
 6. **Client propagation** (§6): UI → IPC → handler → repo → `createTransaction({client_id})`;

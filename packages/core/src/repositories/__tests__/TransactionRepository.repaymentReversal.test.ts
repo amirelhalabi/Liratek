@@ -781,6 +781,11 @@ describe("D3 — DEBT_REPAYMENT void/refund restores debt + unwinds coverage", (
         amount_usd: 60,
         amount_lbp: 0,
         created_by: 1,
+        // The customer really handed over $65 for a $60 reduction — kept
+        // change is now checked against the payment lines
+        // (resolveKeptChange), so a kept claim with no lines behind it is
+        // refused (owner decision 2026-10-07).
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 65 }],
         kept_change_usd: 5,
       });
       expect(activeProfitUsd()).toBeCloseTo(5, 2);
@@ -797,6 +802,11 @@ describe("D3 — DEBT_REPAYMENT void/refund restores debt + unwinds coverage", (
         amount_usd: 60,
         amount_lbp: 0,
         created_by: 1,
+        // The customer really handed over $65 for a $60 reduction — kept
+        // change is now checked against the payment lines
+        // (resolveKeptChange), so a kept claim with no lines behind it is
+        // refused (owner decision 2026-10-07).
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 65 }],
         kept_change_usd: 5,
       });
 

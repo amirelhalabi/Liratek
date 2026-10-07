@@ -36,6 +36,30 @@ import { STOCK_EXPENSE_SOURCES } from "../constants/transactionTypes.js";
  * verbatim here so both transports finally agree (rule 19b: one schema,
  * shared).
  */
+/**
+ * One cash line of a manual expense (owner decision 2026-10-07, payer =
+ * "shop"; docs/FEATURE_GUIDE.md "Kept change"). No `direction` (or "IN") =
+ * cash the shop HANDS the vendor (drawer debit); `direction: "OUT"` = change
+ * the vendor hands BACK into the drawer (drawer credit). Same leg shape the
+ * other money schemas use (method / currencyCode / amount / direction).
+ */
+export const expensePaymentLegSchema = z.object({
+  method: z.string().min(1),
+  currencyCode: z.string().min(1),
+  amount: z.number().positive(),
+  direction: z.enum(["IN", "OUT"]).optional(),
+});
+
+/**
+ * Manual expense. `amount_usd`/`amount_lbp` are the BILL (what the vendor
+ * charged). Without `payments` the bill is also what left the drawer —
+ * exactly the pre-2026-10-07 contract every internal/scripted caller still
+ * uses. With `payments` the server derives the stored cost and the drawer
+ * legs from the lines (`resolveKeptChange`, payer "shop"): cost = handed −
+ * returned, so change the vendor did not return (`kept_change_*`, the
+ * client's claim — checked, never trusted) is ADDED TO THE COST.
+ * `tender_exchange_rate` is the rate the till converted at (rule 27).
+ */
 export const createExpenseSchema = z.object({
   category: z.string().min(1).max(100),
   amount_usd: positiveDecimalSchema,
@@ -44,6 +68,10 @@ export const createExpenseSchema = z.object({
   description: z.string().max(500).optional(),
   expense_date: z.string().min(8),
   transaction_time: transactionTimeSchema,
+  payments: z.array(expensePaymentLegSchema).optional(),
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
+  tender_exchange_rate: z.number().positive().optional(),
 });
 
 export const deleteExpenseSchema = z.object({
@@ -109,6 +137,10 @@ export type CreateStockExpenseInput = z.input<typeof createStockExpenseSchema>;
 export type CreateStockExpenseData = z.infer<typeof createStockExpenseSchema>;
 
 export type CreateExpenseInput = z.infer<typeof createExpenseSchema>;
+/** What a client SENDS to add a manual expense (rule 21 — adapter, preload
+ *  and page payload types derive from this, never a hand-written copy). */
+export type CreateExpenseRequest = z.input<typeof createExpenseSchema>;
+export type ExpensePaymentLeg = z.infer<typeof expensePaymentLegSchema>;
 export type DeleteExpenseInput = z.infer<typeof deleteExpenseSchema>;
 export type ExpenseUpdateMetadataInput = z.infer<
   typeof expenseUpdateMetadataSchema

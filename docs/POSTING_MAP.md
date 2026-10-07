@@ -94,6 +94,34 @@ Services/index.tsx (api.addOMTTransaction)
 
 ## 4. Posting maps per module
 
+> **Typed source of truth (phase 5, in progress).** The rows below are being encoded as
+> `POSTING_RULES` in [`packages/core/src/constants/postingRules.ts`](../packages/core/src/constants/postingRules.ts)
+> — transaction type × mode → for each of drawers / supplier / partner / customer account:
+> *must post* (with its amount formula), *must not post*, or *unchecked* (with a reason).
+> Tests assert a path against its rule with `expectPostingsMatchRule`
+> (`repositories/testHelpers/postingAssert.ts`), and `constants/__tests__/postingRules.guard.test.ts`
+> fails CI for any transaction type that has neither a rule nor a named exclusion.
+> **Encoded so far:** §4.1 OMT/WHISH (walk-in, THROUGH base, THROUGH secondary, FOR, basket),
+> §4.3 MTC/Alfa (recharge walk-in / account / FOR / basket / DAYS, credit buy-back cash and
+> account, line create / edit as `CARRIER_LINE_ADJUSTMENT`), the §4.2 rows for
+> `selfChargeTelecomItem`, the four `RECHARGE_TOPUP` writers and `cashoutToSupplier`
+> (`WALLET_CASHOUT`), §4.4 Loto tickets (walk-in, account, FOR), and the drawers &
+> counterparties family — §4.6 drawer cash-out and §4.7 drawer top-up (external / from a drawer),
+> drawer transfer, checkpoint (non-carrier drawers), supplier pay / receive / manual drawer
+> payment / paper adjustment / stock intake / recorded debt / per-supplier settlement (model 1,
+> non-bills), partner settle / Add Credit-Debt (cash and paper), and client / partner / bundled
+> supplier write-offs (`DrawersCounterparties.postingRules.test.ts`). `MTC_TOPUP` / `ALFA_TOPUP`
+> are excluded as `retired` (no writer since Phase 8.2). Carrier lines are not one of the four
+> ledgers the table covers; `RechargeCarrier.postingRules.test.ts` checks line credits move with
+> the carrier drawer beside each rule. Where this prose and the table disagree, the table is what
+> the tests enforce — change both in the same commit. (2026-10-07: three §4.2/§4.3 cells below
+> were stale against the code and were corrected while encoding — DAYS line credits, MTC/Alfa
+> `topUpApp`, and the supplier-row condition on `topUpFromSupplier`. Same day, §4.7 "Manual
+> supplier entry with drawer" still said "one `payments` row only" and "as given"; the code
+> follows the G8 fix — one row per currency. The §4.7 rows
+> for stock intake, recorded debt, paper adjustment, bundled discount, client write-off and the
+> top-up / transfer split were added from the code.)
+
 Legend: **—** = no posting. "drawer +X" = one `payments` row + one `drawer_balances` delta.
 
 ### 4.1 OMT / WHISH system transfers — `FinancialServiceRepository.createTransaction`
@@ -149,7 +177,8 @@ top-up**, sales only draw the provider drawer down.
 | THROUGH partner (any) | walk-in drawers | walk-in | `THROUGH_<KEY>_<TYPE>`, amount \|amount\| | walk-in | OMT_APP/WHISH_APP collapse to `OMT`/`WHISH` key |
 | Credit return (Only-Days) | carrier drawer +credits (USD) | — | — | — | carrier line +credits (`ONLY_DAYS_RETURN`) |
 | `selfChargeTelecomItem` | provider −cost LBP; carrier drawer +credits (full face) | — | — | — | `TELECOM_SELF_CHARGE`; line +credits +validity |
-| Top-up from supplier (iPick/Katsh/OMT_APP) — `RechargeRepository.topUpFromSupplier` | destination drawer +amount | `TOP_UP +amount` (**only if a supplier row exists**) | — | — | `RECHARGE_TOPUP` |
+| Top-up from supplier (iPick/Katsh/OMT_APP) — `RechargeRepository.topUpFromSupplier` | destination drawer +amount | `TOP_UP +amount` (supplier created / re-activated if missing — G10) | — | — | `RECHARGE_TOPUP` |
+| Whish App credits bought from a client — `RechargeRepository.topUpFromClient` | payout legs −(amount − fee); Whish_App +amount | — | — | — | `RECHARGE_TOPUP`; fee = profit stamp |
 | OMT App cashout to supplier — `cashoutToSupplier` | OMT_App −amount | `PAYMENT −(amount + commission)` + hidden sibling | — | — | commission recognised at `settleAccount` |
 
 ### 4.3 MTC / Alfa recharge and carrier lines — `RechargeRepository`, `CarrierLineRepository`
@@ -157,11 +186,11 @@ top-up**, sales only draw the provider drawer down.
 | Scenario | Drawer | Supplier | Partner | Customer account | Carrier line | Auto siblings |
 | --- | --- | --- | --- | --- | --- | --- |
 | Recharge sale (credit transfer / voucher / top-up / gift / shop-line) | customer legs +; carrier drawer −face value (USD) | — (prepaid) | — | non-drawer legs → `Recharge Debt`; CA change → `CREDIT_DEPOSIT` | primary line −(amount + SMS cost) | Credit transfer: `EXPENSE SMS_Transfer_Fee`, `is_auto`, carrier drawer −smsCost |
-| DAYS sale | customer legs +; carrier drawer −daysCostUsd | — | — | as above | validity −days (credits unchanged); owed-delivery row if sold ahead | — |
+| DAYS sale | customer legs +; carrier drawer −daysCostUsd | — | — | as above | validity −days and credits −daysCostUsd (G15 / D4); owed-delivery row if sold ahead | — |
 | Session basket | stock legs + SMS expense only | — | — | basket `Session Debt` | as sale | as sale |
 | FOR partner | stock leg + SMS expense | — | `FOR_RECHARGE` DEBIT = price | — | as sale | as sale |
 | Credit buy-back | payout legs −; carrier drawer +credits; `<drawer>_LINE_DRIFT` correction leg | — | — | CA payout → `CREDIT_DEPOSIT` | primary line +credits | — |
-| Drawer top-up into MTC/Alfa (`topUpApp`) | source −, MTC/Alfa + | — | — | — | **no movement** | — |
+| Drawer top-up into a provider wallet (`topUpApp`) | source −, wallet + | — | — | — | — (MTC/Alfa refused as targets since G15) | — |
 | Line create / edit / toggle / archive | carrier drawer ±delta (`CARRIER_LINE_ADJUSTMENT`) | — | — | — | line set | — |
 | Line usage (`recordUsage`) | carrier drawer −delta | — | — | — | movement −delta | `EXPENSE Line_Usage` (no `source_ref`, so not `is_auto`) |
 
@@ -207,7 +236,8 @@ on that expense row existing.
 | Custom service, Via partner IN | as walk-in | — | `THROUGH_CUSTOM_SERVICE` CREDIT = cost | as walk-in | **immediate** |
 | Custom service, Via partner OUT (Syria-style payout) | General −cost | — | `THROUGH_CUSTOM_SERVICE` DEBIT = price | — | **immediate** |
 | Maintenance checkout (`processPayments`) | each drawer leg +; change always CASH/General − | — | — | residual → `Maintenance Debt` | parts margin + labour + kept change |
-| Expense, manual | method drawer − | — | — | — | — |
+| Expense, manual (bill + cash handed, payer "shop") | method drawer −handed (per currency; BINANCE → USDT); change the vendor returned: +leg into its method's drawer on the SAME transaction | — | — | — | expense row = cost = handed − returned (change not returned is added to the cost, never profit); a negative side from cross-currency change is converted into the bill currency at the tender rate; no profit stamp, no KEPT_CHANGE row. Reversal: generic `_reversePayments` |
+| Hold Money pickup (HOLD_MONEY_COLLECT, payer "payout") | payout legs debit their drawers: −(held − kept), one-currency pickups only for kept; no OUT legs (refused) | — | — | — | hold clears in full; verified kept in the row's own profit stamp (Profits "Hold Money" card + By Module row, day close). Reversal: `voidPickup` (HOLD_MONEY_COLLECT_VOID mirrors the legs and stamps the negative profit) |
 | Expense, shop uses own inventory — `EXPENSE_INVENTORY` (LIRA-262, `ExpenseRepository.createStockExpense`) | **— none** (no `payments` row); stock: `products.stock_quantity −qty` + FIFO batch consumption (`stock_batch_consumptions.expense_id`, reason `ADJUSTMENT`) | — | — | — | expense row `amount_usd` = FIFO cost → net profit −cost (txn stamps 0) |
 | Expense, shop uses a Katsh / iPick / Whish App item — `EXPENSE_KATSH` / `EXPENSE_IPICK` / `EXPENSE_WHISH_APP` (LIRA-262) | provider drawer (`Katsh` / `iPick` / `Whish_App`) −`cost_lbp × qty` LBP, one leg noted `Cost: <provider>` (internal, not customer cash); **no cash drawer** | — (prepaid at top-up) | — | — | expense row `amount_lbp` = cost → net profit −cost (txn stamps 0) |
 | Hold money drop-off / pickup / void pickup | legs ± | — | — | — (liability lives in `hold_money`) | 0 |
@@ -222,12 +252,19 @@ on that expense row existing.
 | ↳ commission, bills-only | same txn | provider drawer +commission (or other-payment legs +) | — | — | on settlement txn |
 | Supplier account settle (`settleAccount`: OMT + OMT_APP + iPick) | `SUPPLIER_SETTLEMENT` | legs × (PAY −1 / COLLECT +1) | one row per member netting it; surplus `PAYMENT` on parent | — | commission + cashout commission |
 | Supplier pay / receive cash (`recordSupplierCashflow`) | `SUPPLIER_PAYMENT` | PAY −legs / RECEIVE +legs | `PAYMENT −Σ` / `SUPPLIER_PAYS_US +Σ`; FIFO on purchases | — | 0 (+discount if bundled) |
-| Manual supplier entry with drawer | `SUPPLIER_PAYMENT` | drawer as given (**one `payments` row only**) | as given | — | 0 |
-| Partner settle | `PARTNER_SETTLEMENT` | ±amount per leg | — | `SETTLEMENT` + FIFO coverage of `FOR_%` rows | gates FOR profit |
+| Manual supplier entry with drawer (`addLedgerEntry` PAYMENT + `drawer_name`) | `SUPPLIER_PAYMENT` | drawer as given, one `payments` row per currency (G8) | as given | — | 0 |
+| ↳ bundled supplier discount (`recordSupplierCashflow` PAY + `discount`) | `COUNTERPARTY_DISCOUNT` (own txn) | — | `DISCOUNT −d` | — | +d |
+| Supplier paper adjustment (`addLedgerEntry` ADJUSTMENT, no drawer) | `SUPPLIER_ADJUSTMENT` | — | `ADJUSTMENT ±x` | — | 0 |
+| Supplier stock intake (`ProductRepository.receiveStock` → `recordStockIntake`) | `SUPPLIER_STOCK_INTAKE` | — | `STOCK_INTAKE +qty×cost` (USD, cents); stock + cost batch | — | 0 |
+| Supplier recorded debt, no products (`recordDebt`) | `SUPPLIER_RECORDED_DEBT` | — | `RECORDED_DEBT +x` per currency | — | 0 |
+| Partner settle | `PARTNER_SETTLEMENT` | ±amount per leg (partner owed → +, shop owed → −; `CLIENT_ACCOUNT` → none) | — | `SETTLEMENT` + FIFO coverage of `FOR_%` rows | gates FOR profit |
 | Partner Add Credit / Debt | `PARTNER_PAYMENT` (cash) / `PARTNER_ADJUSTMENT` (paper) | ± if cash | — | as given | 0 |
 | Partner write-off | `COUNTERPARTY_DISCOUNT` | — | — | `DISCOUNT` | signed |
+| Client debt write-off (`DebtService.writeOffDebt`; customer account `Debt Discount −x`) | `COUNTERPARTY_DISCOUNT` | — | — | — | −x |
 | Whish App top-up via partner | `RECHARGE_TOPUP` | Whish_App +amount | — | `WHISH_TOPUP` CREDIT | — |
-| Drawer top-up / transfer | `DRAWER_TOPUP` / `DRAWER_TRANSFER` | ± | — | — | — |
+| Drawer top-up, external (`createTopUp`) | `DRAWER_TOPUP` | General +amount | — | — | — |
+| Drawer top-up from a drawer (`createTopUpFromDrawer`) | `DRAWER_TOPUP` | source −amount, General +amount (both journaled, G9/G33) | — | — | — |
+| Drawer transfer (`transferBetweenDrawers`) | `DRAWER_TRANSFER` | from −amount, to +amount | — | — | — |
 | Daily checkpoint | `CHECKPOINT` | adjustment legs (physical − book) | — | — | — |
 
 ---
@@ -312,6 +349,8 @@ Status: **Verified** = re-read by hand · **Reported** = cited by an audit, not 
 | G13 | **`DebtService.addCredit` failures are ignored by the sale path** | sale commits without the customer's store credit | Fixed in working tree (LIRA-258) in POS, recharge, custom services, OMT/Whish/wallet flows and session baskets (addCreditOrThrow) |
 | G14 | **Loto: no leg reconciliation; gift-card and CA-change legs silently dropped; editing a ticket changes no posting** | drawer / debt / supplier drift | Fixed in working tree (LIRA-258): legs reconciled, gift card redeemed, CA change booked, FOR legs refused, ticket money fields locked |
 | G15 | **DAYS sale and `topUpApp` move the MTC/Alfa drawer without a matching line-credit move** | breaks invariant 7 until the next buy-back drift leg absorbs it | Fixed in working tree (LIRA-258): DAYS sale lowers line credits by the days cost; topUpApp refuses MTC/Alfa (owner D4) |
+| G42 | **Client-sent kept change is booked with no server check** in POS (`SalesRepository` stamps `profit_usd + kept_change_usd`), Maintenance (`MaintenanceRepository` `keptChangeUsd/Lbp` into the profit stamp), session checkout (`SessionCheckoutService` writes a standalone `KEPT_CHANGE` profit row), Debts repayment (`DebtRepository.addRepayment` profit = `kept_change_*`) and Custom Services (`CustomServiceRepository` adds `kept_change_*` to profit). None of the five calls `reconcileLegs` (grep: 0 calls in Sales, Maintenance, CustomService, SessionCheckoutService; Debts' repayment documents it has none) | a hand-built payload can book any kept amount as profit | **Fixed (LIRA-266, 2026-10-07, uncommitted)** — all five call `resolveKeptChange` (payer customer) before any write when kept is claimed; the profit stamp uses only the verified kept. POS refuses kept on a deferred (basket) sale, Maintenance drops it (the basket owns it), Custom Services books none on basket items and refuses kept on a payout; session checkout reconciles over the net charge `grossCharge − grossPayout + Σ PAYOUT legs` (PAYOUT legs never count as change) and keeps its standalone `KEPT_CHANGE` row of the verified kept; partner transactions refuse kept. Guards: `SalesRepository.keptChange`, `MaintenanceRepository.keptChange`, `SessionCheckoutService.keptChangeReconcile`/`.keptChangeForPartner`, `DebtRepository.keptChange`, `CustomServiceRepository.keptChange` tests. Open: the check runs only when kept is claimed (owner question: reconcile every sale/basket) |
+| G43 | **Payout repositories treat an OUT leg as a drawer DEBIT, but on a payout an OUT leg would be cash coming back INTO the drawer.** `FinancialServiceRepository` `processReturnLegs` debits every drawer-affecting OUT leg (`-amt`); `DebtRepository.cashOutCredit` debits every leg regardless of `direction` and runs no reconcile | `cashOutCredit`: an OUT leg debits the drawer instead of crediting it. FSR system RECEIVE: the IN-only reconcile in `postPayoutLegs` refuses an overpaid payout before anything posts, so the likely effect there is a refused save, not a drawer error | **Fixed (LIRA-266, 2026-10-07, uncommitted)** — every payout page uses `payer="payout"` (no change fields, no OUT legs) and the servers refuse OUT legs: FSR non-catalog RECEIVE (system and wallet), `processCreditBuyback`, `topUpFromClient`, `DebtRepository.cashOutCredit` (also refuses CUSTOMER_ACCOUNT/GIFT_CARD legs and reconciles payout legs = credit reduction − kept), Hold Money pickup. Kept change on payouts goes through `resolveKeptChange` (payout) and into the row's profit stamp; tender moves −(owed − kept). Guards: `FinancialServiceRepository.receiveKeptChange`, `RechargeRepository.payoutKeptChange`, `DebtRepository.keptChange`, `HoldMoneyRepository.keptChange` tests |
 
 ### 7.2 Profit timing
 
@@ -320,6 +359,7 @@ Status: **Verified** = re-read by hand · **Reported** = cited by an audit, not 
 | G16 | Via-partner custom service (`THROUGH_CUSTOM_SERVICE`) counts profit immediately, while FOR rows wait for partner coverage | Fixed in working tree (LIRA-258): THROUGH_CUSTOM_SERVICE payout DEBIT deferred by partner coverage and covered by settlements (owner D5) |
 | G17 | On-account recharge / loto inside a basket: `Session Debt` has no `transaction_id`, so `notDebtPending` cannot hold that profit back | Unverified |
 | G18 | Deferred WHISH RECEIVE stamps fee profit though no fee cash is posted on that transaction | Checked: counted once — correct, no change (guard test added) |
+| G44 | **Debts repayment routes kept change into FIFO / PCD attribution but not into the ledger.** `DebtRepository.addRepayment` computes `totalUSD/LBP = IN − OUT` (kept change still inside) for the summary and FIFO attribution, while the `debt_ledger` reduction uses the client's `amount_usd/lbp`, which excludes kept. The two figures disagree by exactly the kept amount whenever change is kept | attribution (and any PCD routing fed by it) over-applies by the kept amount | **Fixed (LIRA-266, 2026-10-07, uncommitted)** — FIFO sale/service coverage and PCD routing use the applied amount (IN − OUT − kept); a void now unwinds exactly the coverage it applied. Guard: `DebtRepository.keptChange.test.ts` (failed first: next charge covered 1 vs 0, routing 101 vs 100) |
 | G32 | THROUGH-partner transfer on the second system: profit is stamped 0 (model-1 rule) and waits for a supplier settlement that never happens, so the shop fee is never counted as profit. Owner rule (D7, 2026-10-06): the fee is 100% profit, counted immediately | Fixed in working tree (LIRA-258): shop fee stamped as profit at creation |
 | G33 | Drawer-to-drawer top-up from a source drawer with no balance row for that currency credited General and debited nothing (money from nowhere). Found 2026-10-06 | Fixed in working tree (LIRA-258): source debited via applyDrawerDelta (may go negative, owner 2026-08-01 rule) |
 | G34 | Voiding a wallet-paid OMT/WHISH SEND with a payment-method fee left the wallet short by the fee (_reversePayments applied a drawer delta for the audit-only PM_FEE row). Found 2026-10-06 | Fixed in working tree (LIRA-258): AUDIT_ONLY_PAYMENT_METHODS skipped for drawer deltas on reversal |

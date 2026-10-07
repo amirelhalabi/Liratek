@@ -423,6 +423,33 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
       });
     });
 
+    // Payout kept change (owner decisions 2026-10-07): the web route must
+    // carry the claim to the service exactly as the desktop handler does —
+    // the shared schema declares it, so it is not stripped (rule 19/23).
+    // NOT proven failing-first: written after the schema gained the fields.
+    it("forwards a payout kept-change claim to the service (web parity)", async () => {
+      const spy = jest
+        .spyOn(rechargeService, "topUpFromClient")
+        .mockReturnValue({ success: true });
+      const withKept: TopUpFromClientInput = {
+        ...clientTopUpFixture,
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 37.5 }],
+        kept_change_usd: 0.5,
+      };
+
+      const res = await request(app)
+        .post("/api/recharge/top-up-from-client")
+        .set("x-test-role", "staff")
+        .send(withKept);
+
+      expect(res.status).toBe(200);
+      expect(spy).toHaveBeenCalledWith({
+        ...topUpFromClientSchema.parse(withKept),
+        userId: 42,
+      });
+      expect(spy.mock.calls[0][0].kept_change_usd).toBe(0.5);
+    });
+
     it("an unauthenticated caller is refused with 401 and never reaches the service", async () => {
       const spy = jest.spyOn(rechargeService, "topUpFromClient");
 

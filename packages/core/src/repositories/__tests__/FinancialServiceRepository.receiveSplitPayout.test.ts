@@ -336,54 +336,45 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
     expect(balance(db, "OMT_System", "USD")).toBeCloseTo(beforeOmtUsd - 100, 2);
   });
 
-  it("does NOT double-debit an OUT (change) leg — it is handled once by the return-leg loop, and both legs land on the PCD", () => {
+  it("REFUSES an OUT (change) leg on a RECEIVE — a payout has no change, so nothing is debited a second time", () => {
+    // History: this case used to pin that a 50,000 LBP OUT leg on a RECEIVE
+    // was debited exactly once by the shared return-leg loop (rule 16). The
+    // owner then ruled (2026-10-07, FEATURE_GUIDE §4.1) that a payout never
+    // carries change legs at all — the shop hands money OUT, it never
+    // receives change — so the OUT leg was itself the defect: it took
+    // 50,000 LBP out of the drawer with nothing owed for it. The case is
+    // kept as a guard that the old path is no longer taken (rule 24).
     const beforeGenUsd = balance(db, "General", "USD");
     const beforeGenLbp = balance(db, "General", "LBP");
     const beforeOmtUsd = balance(db, "OMT_System", "USD");
     const beforeOmtLbp = balance(db, "OMT_System", "LBP");
 
-    // Payout of 100 USD (IN leg) plus a 50,000 LBP change leg tagged OUT.
-    // The OUT leg must be debited exactly once (by the shared return-leg
-    // loop, CLAUDE.md rule 16), NOT also by the RECEIVE payout loop — the
-    // payout loop builds its set from `data.payments` AFTER the IN/OUT
-    // partition strips return legs out, so the OUT leg is invisible to it.
-    // Under the PCD model this property is MORE load-bearing than before:
-    // both the payout IN leg and the return-leg OUT leg resolve to the SAME
-    // drawer (OMT_System) now, so a double-debit here would silently drain
-    // the PCD twice as fast and could even trip the insufficient-funds guard
-    // — exactly the "confusing rejection" CLAUDE.md rule 16 warns about.
-    repo.createTransaction({
-      provider: "OMT",
-      serviceType: "RECEIVE",
-      amount: 100,
-      currency: "USD",
-      commission: 0,
-      omtServiceType: "INTRA",
-      cashoutMethod: "CASH",
-      payments: [
-        { method: "CASH", currencyCode: "USD", amount: 100 },
-        {
-          method: "CASH",
-          currencyCode: "LBP",
-          amount: 50000,
-          direction: "OUT",
-        },
-      ],
-      exchangeRate: 89000,
-    });
+    expect(() =>
+      repo.createTransaction({
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 0,
+        omtServiceType: "INTRA",
+        cashoutMethod: "CASH",
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 100 },
+          {
+            method: "CASH",
+            currencyCode: "LBP",
+            amount: 50000,
+            direction: "OUT",
+          },
+        ],
+        exchangeRate: 89000,
+      }),
+    ).toThrow(/payout cannot carry change \(OUT\) legs/);
 
-    // General is untouched — both the payout and the change leg are
-    // primary-system CASH and route to the PCD.
+    // Rolled back: no drawer moved at all.
     expect(balance(db, "General", "USD")).toBeCloseTo(beforeGenUsd, 2);
     expect(balance(db, "General", "LBP")).toBeCloseTo(beforeGenLbp, 2);
-    // Payout IN leg (100 USD) debited exactly once.
-    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(beforeOmtUsd - 100, 2);
-    // Return-leg OUT (50,000 LBP) debited exactly once — NOT 100,000 (which
-    // is what a double-debit through both the payout loop AND the return-leg
-    // loop would produce).
-    expect(balance(db, "OMT_System", "LBP")).toBeCloseTo(
-      beforeOmtLbp - 50000,
-      2,
-    );
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(beforeOmtUsd, 2);
+    expect(balance(db, "OMT_System", "LBP")).toBeCloseTo(beforeOmtLbp, 2);
   });
 });

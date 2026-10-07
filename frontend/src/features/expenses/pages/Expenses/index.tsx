@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import { Plus, History, Package, X } from "lucide-react";
-import type { CreateStockExpenseInput } from "@liratek/core";
+import type {
+  CreateExpenseRequest,
+  CreateStockExpenseInput,
+} from "@liratek/core";
 import {
   appEvents,
   PageHeader,
@@ -75,6 +78,24 @@ export default function Expenses() {
       amount: 0,
     },
   ]);
+  // Owner decision 2026-10-07 (payer = "shop"): the BILL is typed on its
+  // own; the payment lines are the cash HANDED. When the cash handed is more
+  // than the bill, the change the vendor gives back comes INTO the drawer
+  // (`returnLegs`, OUT direction) and change NOT given back is added to the
+  // cost (`keptChange`) — never profit. Paying exactly works as before.
+  const [billAmount, setBillAmount] = useState("");
+  const [billCurrency, setBillCurrency] = useState<"USD" | "LBP">("USD");
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
+  // The rate the operator converted at on the sheet (rule 27) — sent as
+  // tender_exchange_rate so the server reconciles at the same rate.
+  const [tenderRate, setTenderRate] = useState<number | undefined>();
+  // Remounts the payment sheet on reset so its internal lines / "amount
+  // touched" state start fresh with the next bill.
+  const [paymentFormKey, setPaymentFormKey] = useState(0);
   const [formData, setFormData] = useState<Expense>({
     description: "",
     category: "Shop_Supply",
@@ -121,6 +142,10 @@ export default function Expenses() {
         amount: 0,
       },
     ]);
+    setBillAmount("");
+    setReturnLegs([]);
+    setKeptChange(null);
+    setPaymentFormKey((k) => k + 1);
     setStockPick(null);
     setStockQty("1");
     setTransactionTime(undefined);
@@ -172,30 +197,69 @@ export default function Expenses() {
       return;
     }
 
-    // Use the first payment line (single-mode only)
-    const firstLine = paymentLines[0];
-    if (!firstLine || firstLine.amount === 0) {
-      alert("Please enter an amount.");
+    const bill = Number(billAmount);
+    if (!Number.isFinite(bill) || bill <= 0) {
+      alert("Please enter the bill amount.");
       return;
     }
 
-    // Extract amounts by currency from payment lines
-    let amount_usd = 0;
-    let amount_lbp = 0;
-    paymentLines.forEach((line) => {
-      if (line.currencyCode === "USD") amount_usd += line.amount;
-      if (line.currencyCode === "LBP") amount_lbp += line.amount;
-    });
+    // Single-mode sheet: one handed line (see allowSplit below).
+    const firstLine = paymentLines[0];
+    const handedLines = paymentLines.filter((line) => line.amount > 0);
+    if (!firstLine || handedLines.length === 0) {
+      alert("Please enter the cash handed.");
+      return;
+    }
+    const rate = tenderRate ?? exchangeRate;
+    const toUsd = (amount: number, currency: string) =>
+      currency === "LBP" ? (rate > 0 ? amount / rate : 0) : amount;
+    const handedUsd = handedLines.reduce(
+      (sum, line) => sum + toUsd(line.amount, line.currencyCode),
+      0,
+    );
+    if (handedUsd < toUsd(bill, billCurrency) - 0.05) {
+      alert("The cash handed is less than the bill.");
+      return;
+    }
+
+    // ONE payload for both transports (rule 22), typed by the core schema's
+    // input (rule 21). amount_* is the bill; the server derives the stored
+    // cost from the lines (handed − change back) and checks the
+    // not-returned claim.
+    const payload: CreateExpenseRequest = {
+      category: formData.category,
+      description: formData.description,
+      paid_by_method: firstLine.method,
+      amount_usd: billCurrency === "USD" ? bill : 0,
+      amount_lbp: billCurrency === "LBP" ? bill : 0,
+      expense_date: new Date(formData.expense_date).toISOString(),
+      transaction_time: transactionTime,
+      payments: [
+        ...handedLines.map((line) => ({
+          method: line.method,
+          currencyCode: line.currencyCode,
+          amount: line.amount,
+        })),
+        ...returnLegs
+          .filter((leg) => leg.amount > 0)
+          .map((leg) => ({
+            method: leg.method,
+            currencyCode: leg.currencyCode,
+            amount: leg.amount,
+            direction: "OUT" as const,
+          })),
+      ],
+      ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+        ? {
+            kept_change_usd: keptChange.usd,
+            kept_change_lbp: keptChange.lbp,
+          }
+        : {}),
+      ...(rate > 0 ? { tender_exchange_rate: rate } : {}),
+    };
 
     try {
-      const result = await api.addExpense({
-        ...formData,
-        paid_by_method: firstLine.method,
-        amount_usd,
-        amount_lbp,
-        expense_date: new Date(formData.expense_date).toISOString(),
-        transaction_time: transactionTime,
-      });
+      const result = await api.addExpense(payload);
 
       if (result.success) {
         appEvents.emit(
@@ -398,18 +462,72 @@ export default function Expenses() {
               />
             </div>
 
-            {/* Payment Method & Amount — hidden for shop use (no cash moves) */}
+            {/* Bill amount — the cost. Hidden for shop use (no cash moves). */}
+            {!stockPick && (
+              <div>
+                <label
+                  htmlFor="expense-bill-amount"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
+                  Bill amount *
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="expense-bill-amount"
+                    data-testid="expense-bill-amount"
+                    type="text"
+                    inputMode="decimal"
+                    value={billAmount}
+                    onChange={(e) =>
+                      setBillAmount(e.target.value.replace(/[^0-9.]/g, ""))
+                    }
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white font-mono focus:border-orange-500 focus:ring-2 focus:ring-orange-500/50 outline-none transition-all"
+                    placeholder={billCurrency === "USD" ? "0.00" : "0"}
+                  />
+                  <div
+                    role="group"
+                    aria-label="Bill currency"
+                    className="flex rounded-lg border border-slate-700 overflow-hidden"
+                  >
+                    {(["USD", "LBP"] as const).map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        data-testid={`expense-bill-currency-${code}`}
+                        aria-pressed={billCurrency === code}
+                        onClick={() => setBillCurrency(code)}
+                        className={`px-3 text-sm font-medium transition-colors ${
+                          billCurrency === code
+                            ? "bg-orange-600 text-white"
+                            : "bg-slate-900 text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        {code === "USD" ? "$" : "LBP"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Cash handed — hidden for shop use (no cash moves) */}
             {!stockPick && (
               <MultiPaymentInput
+                key={paymentFormKey}
+                payer="shop"
                 totals={[
-                  {
-                    amount: paymentLines[0]?.amount || 0,
-                    currency: paymentLines[0]?.currencyCode || "USD",
-                  },
+                  { amount: Number(billAmount) || 0, currency: billCurrency },
                 ]}
-                currency={paymentLines[0]?.currencyCode || "USD"}
-                totalAmountCurrency={paymentLines[0]?.currencyCode || "USD"}
+                currency={billCurrency}
+                totalAmountCurrency={billCurrency}
                 onChange={setPaymentLines}
+                onReturnChange={setReturnLegs}
+                onKeptChange={(kept) =>
+                  setKeptChange(kept ? { usd: kept.usd, lbp: kept.lbp } : null)
+                }
+                onExchangeRateChange={setTenderRate}
+                // The vendor hands change back in cash, into the drawer.
+                cashOnlyReturn
                 paymentMethods={drawerAffectingMethods.map((m) => ({
                   code: m.code,
                   label: m.label,
@@ -419,15 +537,13 @@ export default function Expenses() {
                   { code: "LBP", symbol: "LBP" },
                 ]}
                 exchangeRate={exchangeRate}
-                label="Payment"
+                label="Cash handed"
                 showDiscount={false}
                 showPmFee={false}
-                // LIRA-185: an expense has no independently-known "total
-                // owed" for split mode to reconcile against — the form only
-                // ever submits paymentLines[0] (see handleAddExpense above),
-                // so splitting silently mispriced the total and dropped a
-                // second line's payment method. Disabled rather than wired,
-                // see MultiPaymentInput's `allowSplit` prop doc.
+                // LIRA-185: split stays off — an expense is paid with ONE
+                // method (the server refuses a handed line with a different
+                // method than paid_by_method). The bill above is now the
+                // total the sheet reconciles against.
                 allowSplit={false}
               />
             )}

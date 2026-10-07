@@ -8,6 +8,11 @@ import {
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// Debts write payloads derived from the core schemas (rule 21).
+import type {
+  AddRepaymentPayload,
+  DebtCashOutPayload,
+} from "@liratek/core";
 import { messageFrom } from "./apiError";
 import { localDay } from "@/shared/utils/localDay";
 import type {
@@ -41,6 +46,8 @@ import type {
   // of `refundLegSchema`/`refundUnitExtraSchema`'s shape.
   RefundLegInput,
   RefundUnitExtraInput,
+  // Owner decision 2026-10-07 — refund kept change (rule 21).
+  RefundKeptChangeInput,
   // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
   // single-item refund payload (derived from the core schema, rule 21) +
   // result/preview shapes (derived from the repository, rule 21).
@@ -67,6 +74,7 @@ import type {
   LotoCheckpointsSettleBatchPayload,
   // LIRA-262 — "shop used its own stock" expense payload (rule 21).
   CreateStockExpenseInput,
+  CreateExpenseRequest,
 } from "@liratek/core";
 import type {
   UnsettledSummary,
@@ -1234,23 +1242,36 @@ export async function refundSale(
   refundLegs?: SaleRefundInput["refundLegs"],
   unitExtras?: SaleRefundInput["unitExtras"],
   exchangeRate?: SaleRefundInput["exchangeRate"],
+  /** Owner decision 2026-10-07 — refund kept change (type derived from
+   *  `saleRefundSchema`, rule 21); rides only when present. */
+  keptChange?: SaleRefundInput["keptChange"],
 ): Promise<{ success: boolean; refundId?: number; error?: string }> {
   return ipcOrHttp(
     async () =>
-      getElectronApi().sales.refund(
-        saleId,
-        refundLegs,
-        unitExtras,
-        exchangeRate,
-      ),
+      keptChange !== undefined
+        ? getElectronApi().sales.refund(
+            saleId,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+            keptChange,
+          )
+        : getElectronApi().sales.refund(
+            saleId,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+          ),
     async () =>
       requestJson<{ success: boolean; refundId?: number; error?: string }>(
         `/api/sales/${saleId}/refund`,
         {
           method: "POST",
           body:
-            refundLegs || unitExtras || exchangeRate
-              ? { refundLegs, unitExtras, exchangeRate }
+            refundLegs || unitExtras || exchangeRate || keptChange
+              ? keptChange !== undefined
+                ? { refundLegs, unitExtras, exchangeRate, keptChange }
+                : { refundLegs, unitExtras, exchangeRate }
               : undefined,
         },
       ),
@@ -1277,17 +1298,31 @@ export async function refundSaleItem(
   refundLegs?: SaleRefundItemInput["refundLegs"],
   unitExtras?: SaleRefundItemInput["unitExtras"],
   exchangeRate?: SaleRefundItemInput["exchangeRate"],
+  /** Owner decision 2026-10-07 — refund kept change (type derived from
+   *  `saleRefundItemSchema`, rule 21); rides only when present, so every
+   *  existing call is unchanged. */
+  keptChange?: SaleRefundItemInput["keptChange"],
 ): Promise<{ success: boolean; refundId?: number; error?: string }> {
   return ipcOrHttp(
     async () =>
-      getElectronApi().sales.refundItem(
-        saleId,
-        saleItemId,
-        refundQuantity,
-        refundLegs,
-        unitExtras,
-        exchangeRate,
-      ),
+      keptChange !== undefined
+        ? getElectronApi().sales.refundItem(
+            saleId,
+            saleItemId,
+            refundQuantity,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+            keptChange,
+          )
+        : getElectronApi().sales.refundItem(
+            saleId,
+            saleItemId,
+            refundQuantity,
+            refundLegs,
+            unitExtras,
+            exchangeRate,
+          ),
     async () =>
       requestJson<{ success: boolean; refundId?: number; error?: string }>(
         `/api/sales/${saleId}/refund-item`,
@@ -1299,6 +1334,7 @@ export async function refundSaleItem(
             refundLegs,
             unitExtras,
             exchangeRate,
+            ...(keptChange !== undefined ? { keptChange } : {}),
           },
         },
       ),
@@ -1458,7 +1494,7 @@ export async function getClientDebtTotal(clientId: number) {
   );
 }
 
-export async function addRepayment(payload: any) {
+export async function addRepayment(payload: AddRepaymentPayload) {
   if (isElectron()) {
     return (window as any).api.debt.addRepayment(payload);
   }
@@ -1502,7 +1538,7 @@ export async function getClientBalance(clientId: number) {
 }
 
 // Cash out a client's prepaid credit (drawer OUT).
-export async function debtCashOut(payload: any) {
+export async function debtCashOut(payload: DebtCashOutPayload) {
   return ipcOrHttp(
     async () => getElectronApi().debt.cashOut(payload),
     async () =>
@@ -1891,13 +1927,19 @@ export async function getTodayExpenses() {
   return res.expenses;
 }
 
-export async function addExpense(payload: any) {
-  if (isElectron()) {
-    return (window as any).api.expenses.add(payload);
-  }
-  return requestJson<{ success: boolean; id?: number; error?: string }>(
-    `/api/expenses`,
-    { method: "POST", body: payload },
+/** Manual expense — payload is core's createExpenseSchema input (rule 21):
+ *  the bill, the cash lines (IN = handed, OUT = change back) and the
+ *  not-returned claim, ONE shape for both transports (rule 22). */
+export async function addExpense(
+  payload: CreateExpenseRequest,
+): Promise<{ success: boolean; id?: number; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().expenses.add(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/expenses`,
+        { method: "POST", body: payload },
+      ),
   );
 }
 
@@ -3732,12 +3774,19 @@ export type RefundUnitExtraOverride = RefundUnitExtraInput;
  * validate the override's TOTAL VALUE at that rate instead of the old
  * per-currency rule. Only meaningful alongside `refundLegs`; omitted when
  * `refundLegs` is (matching "today's default behaviour is unchanged").
+ *
+ * Owner decision 2026-10-07: `keptChange` is optional too — the cash handed
+ * back (`refundLegs`) is short of the refund by a small leftover the shop
+ * keeps as profit. Built ONCE here and handed to whichever transport runs
+ * (rule 22): the IPC channel's fifth positional argument, or the REST
+ * body's `keptChange` key — the same core schema validates both.
  */
 export async function refundTransaction(
   id: number,
   refundLegs?: RefundLegOverride[],
   unitExtras?: RefundUnitExtraOverride[],
   exchangeRate?: number,
+  keptChange?: RefundKeptChangeInput,
 ) {
   if (isElectron()) {
     return (window as any).api.transactions.refund(
@@ -3745,6 +3794,7 @@ export async function refundTransaction(
       refundLegs,
       unitExtras,
       exchangeRate,
+      keptChange,
     );
   }
   return requestJson<{ success: boolean; refundId?: number; error?: string }>(
@@ -3752,8 +3802,13 @@ export async function refundTransaction(
     {
       method: "POST",
       body:
-        refundLegs || unitExtras || exchangeRate
-          ? { refundLegs, refundUnitExtras: unitExtras, exchangeRate }
+        refundLegs || unitExtras || exchangeRate || keptChange
+          ? {
+              refundLegs,
+              refundUnitExtras: unitExtras,
+              exchangeRate,
+              keptChange,
+            }
           : undefined,
     },
   );

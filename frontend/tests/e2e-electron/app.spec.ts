@@ -226,7 +226,11 @@ test("Expenses: record an expense", async ({ appPage }) => {
 
   await descInput.fill("E2E Test Expense - Office Supplies");
 
-  // Amount — use data-testid prefix to avoid matching exchange-rate input
+  // Owner decision 2026-10-07: the bill is its own field; the payment line
+  // below is the cash handed (it follows the bill until edited).
+  await appPage.getByTestId("expense-bill-amount").fill("35");
+
+  // Cash handed — use data-testid prefix to avoid matching exchange-rate input
   // (whose placeholder "89,000" contains "0" and would be matched first by
   //  getByPlaceholder("0") since it now always renders in the header)
   const amountInput = appPage

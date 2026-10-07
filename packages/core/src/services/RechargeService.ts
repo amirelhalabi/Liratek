@@ -188,6 +188,9 @@ export class RechargeService {
     exchangeRate?: number;
     clientName?: string;
     clientId?: number;
+    /** Payout kept change — verified by the repository (resolveKeptChange). */
+    kept_change_usd?: number;
+    kept_change_lbp?: number;
     userId: number;
   }): { success: boolean; error?: string } {
     if (!(data.amount > 0)) {

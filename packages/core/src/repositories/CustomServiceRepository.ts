@@ -24,7 +24,10 @@ import { getProfitRepository, notRefunded } from "./ProfitRepository.js";
 import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
+  partitionLegs,
 } from "../utils/payments.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import { resolveKeptChange } from "./keptChange.js";
 import type { CreateCustomServiceInput } from "../validators/customService.js";
 import {
   TERMINAL_FULFILLMENT_STATUS,
@@ -43,7 +46,34 @@ import {
   bookClientDebtCharge,
   assertPartnerIdRequired,
   assertNoCounterPayment,
+  type ExpectedTotals,
+  type ReconciliationLeg,
 } from "./moneyPosting.js";
+
+/**
+ * What the customer owes for an IN-mode custom service — the total the
+ * Services page's payment sheet asks for (`priceUsd || costUsd`, per the
+ * active currency): the price, or the cost when no price was entered.
+ * Defined once so the server reconciles against exactly what the page shows.
+ */
+function customerAmountDue(data: CreateCustomServiceInput): ExpectedTotals {
+  const priceUsd = data.price_usd ?? 0;
+  const priceLbp = data.price_lbp ?? 0;
+  return priceUsd > 0 || priceLbp > 0
+    ? { usd: priceUsd, lbp: priceLbp }
+    : { usd: data.cost_usd ?? 0, lbp: data.cost_lbp ?? 0 };
+}
+
+function toReconciliationLegs(
+  legs: NonNullable<CreateCustomServiceInput["payments"]>,
+): ReconciliationLeg[] {
+  return legs.map((l) => ({
+    method: l.method,
+    currencyCode: l.currency_code,
+    amount: l.amount,
+    ...(l.direction ? { direction: l.direction } : {}),
+  }));
+}
 
 // =============================================================================
 // Entity Types
@@ -286,6 +316,56 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           );
         }
 
+        // POSTING_MAP G42 — kept change goes through the ONE server-side
+        // check (`resolveKeptChange`, customer pays the shop), never straight
+        // from `data.kept_change_*` into the profit stamp. Runs before the
+        // first write (the INSERT and stock draw-down below) so a refusal
+        // rolls nothing back because nothing was written.
+        //   - payout: refused outright. The page never renders the payment
+        //     sheet for a payout and never sends kept; a hand-built payload
+        //     claiming it is refused rather than silently ignored.
+        //   - session-basket item (deferPayment): the basket owns the
+        //     customer's cash AND its own kept change (KEPT_CHANGE row), so
+        //     the item books none — booking it here would be profit with no
+        //     posted leg behind it (and double with the basket's).
+        //   - FOR partner: the helper refuses kept (exact amount required);
+        //     no legs are passed — assertNoCounterPayment below owns the
+        //     "no counter payment" refusal and its message.
+        //   - everything else: IN − OUT − kept must equal the amount due
+        //     (S2 reconcile), at the till's own rate (`exchange_rate` is the
+        //     rate the payment sheet converted at, rule 27).
+        const claimedKept = {
+          usd: data.kept_change_usd ?? 0,
+          lbp: data.kept_change_lbp ?? 0,
+        };
+        if (isPayout && (claimedKept.usd > 0 || claimedKept.lbp > 0)) {
+          throw new Error(
+            "A custom service payout cannot keep change — the recipient is paid the exact amount",
+          );
+        }
+        let keptUsd = 0;
+        let keptLbp = 0;
+        if (!isPayout && !data.deferPayment) {
+          const { inLegs, outLegs } = isForPartner
+            ? { inLegs: [], outLegs: [] }
+            : partitionLegs(data.payments);
+          const kept = resolveKeptChange({
+            payer: "customer",
+            expected: customerAmountDue(data),
+            inLegs: toReconciliationLegs(inLegs),
+            outLegs: toReconciliationLegs(outLegs),
+            claimedKept,
+            isForPartner,
+            exchangeRate: data.exchange_rate ?? getUsdLbpSellRate(this.db),
+            ...(data.exchange_rate !== undefined
+              ? { tenderExchangeRate: data.exchange_rate }
+              : {}),
+            context: "Custom service",
+          });
+          keptUsd = kept.keptUsd;
+          keptLbp = kept.keptLbp;
+        }
+
         // 1. Insert the custom service record
         const insertService = this.db.prepare(`
           INSERT INTO custom_services (
@@ -432,20 +512,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // existing price_usd/price_lbp (what the customer paid).
           amount_usd: isPayout ? (data.cost_usd ?? 0) : (data.price_usd ?? 0),
           amount_lbp: isPayout ? (data.cost_lbp ?? 0) : (data.price_lbp ?? 0),
-          // Margin plus any change the operator kept as profit (T3 KC-3).
-          // Fix-round I5: kept_change is ignored under isPayout — a payout
-          // collects no tender to make change from (the shop PAYS the
-          // recipient), so a stray kept_change value left over from before
-          // "Pay out" was toggled on must not inflate the commission with no
-          // matching cash behind it.
-          profit_usd:
-            (data.price_usd ?? 0) -
-            (data.cost_usd ?? 0) +
-            (isPayout ? 0 : (data.kept_change_usd ?? 0)),
-          profit_lbp:
-            (data.price_lbp ?? 0) -
-            (data.cost_lbp ?? 0) +
-            (isPayout ? 0 : (data.kept_change_lbp ?? 0)),
+          // Margin plus the VERIFIED kept change (resolveKeptChange above;
+          // 0 for a payout, a basket item or a partner service). Kept
+          // lives inside this stamp, per currency, so the generic
+          // void/refund negates it (rule 20).
+          profit_usd: (data.price_usd ?? 0) - (data.cost_usd ?? 0) + keptUsd,
+          profit_lbp: (data.price_lbp ?? 0) - (data.cost_lbp ?? 0) + keptLbp,
           exchange_rate: data.exchange_rate,
           client_id: data.client_id ?? null,
           // Rule 11: the name/phone must reach the unified row too — a walk-in

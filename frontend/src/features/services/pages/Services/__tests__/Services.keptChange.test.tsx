@@ -9,8 +9,14 @@
  * `kept_change_*` and stamps them as profit (the recharge-tab FinancialForm
  * and OMT/Whish App forms send them) — this page never wired `onKeptChange`,
  * so an under-returned SEND could only show the red "not covered" warning.
- * RECEIVE is a cashout (the shop pays out), so it stays unwired. Payload
- * asserted through the shared schema (rule 24).
+ *
+ * RECEIVE is a cashout — a PAYOUT. Owner decisions 2026-10-07 (FEATURE_GUIDE
+ * §4.1): the payment form runs in `payer="payout"` mode on a RECEIVE — no
+ * change (OUT) legs (not even ones left in state by an earlier SEND), and a
+ * small shortfall (under $1 / 100,000 LBP) is kept as profit, sent as
+ * `kept_change_*`. That replaces this file's earlier "RECEIVE does not wire
+ * onKeptChange" case (rule 24: rewritten, not deleted). Payload asserted
+ * through the shared schema (rule 24).
  *
  * Rule 17: run against the pre-wiring page first — see the task report.
  */
@@ -37,6 +43,8 @@ const mockApi = {
 };
 const mockSeenProps: {
   onKeptChange?: ((kept: { usd: number; lbp: number } | null) => void) | undefined;
+  onReturnChange?: ((legs: unknown[]) => void) | undefined;
+  payer?: string | undefined;
   renders: number;
 } = { renders: 0 };
 
@@ -51,8 +59,11 @@ jest.mock("@liratek/ui", () => ({
     onChange: (lines: unknown[]) => void;
     onReturnChange?: (legs: unknown[]) => void;
     onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
+    payer?: string;
   }) => {
     mockSeenProps.onKeptChange = props.onKeptChange;
+    mockSeenProps.onReturnChange = props.onReturnChange;
+    mockSeenProps.payer = props.payer;
     mockSeenProps.renders += 1;
     return (
       <div data-testid="stub-multi-payment-input">
@@ -72,6 +83,25 @@ jest.mock("@liratek/ui", () => ({
               },
             ]);
             props.onKeptChange?.({ usd: 4, lbp: 0 });
+          }}
+        />
+        {/* RECEIVE payout: exact $100 — nothing kept. */}
+        <button
+          data-testid="mpi-payout-exact"
+          onClick={() =>
+            props.onChange([
+              { id: "P1", method: "CASH", currencyCode: "USD", amount: 100 },
+            ])
+          }
+        />
+        {/* RECEIVE payout: $100.73 owed, $100 handed out, $0.73 kept. */}
+        <button
+          data-testid="mpi-payout-short"
+          onClick={() => {
+            props.onChange([
+              { id: "P1", method: "CASH", currencyCode: "USD", amount: 100 },
+            ]);
+            props.onKeptChange?.({ usd: 0.73, lbp: 0 });
           }}
         />
       </div>
@@ -233,9 +263,11 @@ describe("Services page — kept change on an OMT/Whish system SEND", () => {
     );
   });
 
-  it("RECEIVE (a cashout): the page does not wire onKeptChange", async () => {
+  it("RECEIVE (a payout): payout mode, kept change sent, no change legs — not even stale ones from a SEND", async () => {
     await renderPage();
-    expect(typeof mockSeenProps.onKeptChange).toBe("function");
+    // An earlier SEND under-return left change legs + kept in page state.
+    fireEvent.click(screen.getByTestId("mpi-under-return"));
+
     const receiveButton = screen
       .getAllByRole("button")
       .find(
@@ -246,8 +278,56 @@ describe("Services page — kept change on an OMT/Whish system SEND", () => {
     expect(receiveButton).toBeDefined();
     mockSeenProps.renders = 0;
     fireEvent.click(receiveButton!);
-    // The payment section re-rendered in RECEIVE mode, without the callback.
-    await waitFor(() => expect(mockSeenProps.renders).toBeGreaterThan(0));
-    expect(mockSeenProps.onKeptChange).toBeUndefined();
+    await waitFor(() => expect(mockSeenProps.payer).toBe("payout"));
+    expect(mockSeenProps.onReturnChange).toBeUndefined();
+    expect(typeof mockSeenProps.onKeptChange).toBe("function");
+
+    fireEvent.change(
+      document.getElementById("service-amount") as HTMLInputElement,
+      { target: { value: "100.73" } },
+    );
+    fireEvent.click(screen.getByTestId("mpi-payout-short"));
+    fireEvent.click(screen.getByRole("button", { name: /Record Receive/i }));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+    const parsed = createFinancialServiceSchema.parse(
+      mockAddOMTTransaction.mock.calls[0][0],
+    );
+    expect(parsed.serviceType).toBe("RECEIVE");
+    expect(parsed.kept_change_usd).toBe(0.73);
+    expect(parsed.kept_change_lbp).toBe(0);
+    expect(parsed.payments).toEqual([
+      expect.objectContaining({ currencyCode: "USD", amount: 100 }),
+    ]);
+    expect((parsed.payments ?? []).some((l) => l.direction === "OUT")).toBe(
+      false,
+    );
+  });
+
+  it("RECEIVE after a SEND under-return: the SEND's kept change is not sent on an exact payout", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByTestId("mpi-under-return"));
+    const receiveButton = screen
+      .getAllByRole("button")
+      .find(
+        (b) =>
+          (b.textContent ?? "").includes("OMT") &&
+          (b.textContent ?? "").includes("↓"),
+      );
+    fireEvent.click(receiveButton!);
+    await waitFor(() => expect(mockSeenProps.payer).toBe("payout"));
+    fireEvent.change(
+      document.getElementById("service-amount") as HTMLInputElement,
+      { target: { value: "100" } },
+    );
+    fireEvent.click(screen.getByTestId("mpi-payout-exact"));
+    fireEvent.click(screen.getByRole("button", { name: /Record Receive/i }));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+    const parsed = createFinancialServiceSchema.parse(
+      mockAddOMTTransaction.mock.calls[0][0],
+    );
+    expect(parsed.kept_change_usd ?? 0).toBe(0);
+    expect(parsed.kept_change_lbp ?? 0).toBe(0);
   });
 });
