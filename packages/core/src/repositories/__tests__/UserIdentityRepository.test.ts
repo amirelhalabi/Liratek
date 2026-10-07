@@ -102,13 +102,57 @@ describe("UserIdentityRepository", () => {
     link(2, 20);
     expect(codeOf(() => link(3, 30))).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
     expect(
-      repo.findLinksBySubject("google", "sub-1").map((l) => [l.tenant_id, l.user_id]),
+      repo.findLiveLinksBySubject("google", "sub-1").map((l) => [l.tenant_id, l.user_id]),
     ).toEqual([[2, 20]]);
   });
 
-  it("a link held by a DEACTIVATED user in another shop still counts", () => {
-    link(3, 31);
-    expect(codeOf(() => link(2, 20))).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
+  // Owner decision 2026-10-07: a link to a DEACTIVATED user, or in a
+  // SUSPENDED/ARCHIVED shop, is a dead link — ignored (not deleted) by the
+  // one-shop rule.
+  describe("dead links do not count", () => {
+    function rawLinks(subject = "sub-1"): number[][] {
+      return (
+        db
+          .prepare(
+            `SELECT tenant_id, user_id FROM user_identities WHERE subject = ? ORDER BY tenant_id`,
+          )
+          .all(subject) as { tenant_id: number; user_id: number }[]
+      ).map((r) => [r.tenant_id, r.user_id]);
+    }
+
+    it("a link held by a DEACTIVATED user in another shop does not block, and stays in the DB", () => {
+      link(3, 31);
+      expect(link(2, 20).tenant_id).toBe(2);
+      expect(rawLinks()).toEqual([
+        [2, 20],
+        [3, 31],
+      ]);
+    });
+
+    it.each(["suspended", "archived"])(
+      "a link in a %s shop does not block, and stays in the DB",
+      (status) => {
+        link(3, 30);
+        db.prepare(`UPDATE tenants SET status = ? WHERE id = 3`).run(status);
+        expect(link(2, 20).tenant_id).toBe(2);
+        expect(rawLinks()).toEqual([
+          [2, 20],
+          [3, 30],
+        ]);
+      },
+    );
+
+    it("a link in a PROVISIONING shop (being created) still blocks", () => {
+      link(3, 30);
+      db.exec(`UPDATE tenants SET status = 'provisioning' WHERE id = 3`);
+      expect(codeOf(() => link(2, 20))).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
+    });
+
+    it("an active user in an active shop still blocks", () => {
+      link(3, 30);
+      expect(codeOf(() => link(2, 20))).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
+      expect(rawLinks()).toEqual([[3, 30]]);
+    });
   });
 
   it("re-linking the same account to the same user is idempotent", () => {

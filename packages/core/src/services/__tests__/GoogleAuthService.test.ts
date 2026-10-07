@@ -345,9 +345,18 @@ describe("identities, hand-off and session", () => {
     // Same user again: idempotent, no error.
     expect(() => linkIn(2, 20)).not.toThrow();
     expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-1"))).toBe(true);
-    // A deactivated user's link still counts (it is a link).
+    // Dead links (owner decision 2026-10-07) do not count, so a Google
+    // sign-up is allowed: a deactivated user's link, or a link in a
+    // suspended/archived shop. They stay in the DB.
     linkIn(3, 31, "google-sub-2");
-    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-2"))).toBe(true);
+    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-2"))).toBe(false);
+    linkIn(4, 40, "google-sub-3");
+    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-3"))).toBe(false);
+    db.exec(`UPDATE tenants SET status = 'archived' WHERE id = 4`);
+    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-3"))).toBe(false);
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS n FROM user_identities WHERE subject IN ('google-sub-2', 'google-sub-3')`).get() as { n: number }).n,
+    ).toBe(2);
     // Disconnected: free again.
     runWithTenant(2, () => svc().unlinkIdentity(20));
     expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-1"))).toBe(false);

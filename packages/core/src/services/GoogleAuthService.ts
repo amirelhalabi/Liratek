@@ -20,7 +20,9 @@
  *
  * ONE GOOGLE ACCOUNT = ONE SHOP (owner decision 2026-10-07): `linkIdentity`
  * refuses an account already linked in another shop, and a Google sign-up is
- * refused for an account linked anywhere (`isLinkedToAnyShop`). Links made
+ * refused for an account linked anywhere (`isLinkedToAnyShop`). Only LIVE
+ * links count — a deactivated user's link, or one in a suspended/archived
+ * shop, is ignored (and kept); defined once in UserIdentityRepository. Links made
  * before that decision (one account in two shops) are kept, so sign-in can
  * still return several matches and the shop chooser stays.
  *
@@ -348,11 +350,12 @@ export class GoogleAuthService {
     return this.identityRepo.findBySubjectInTenant(PROVIDER, subject, tenantId);
   }
 
-  /** Is this Google account linked to any user, in any shop (whatever the
-   * user's state)? The Google sign-up refusal. Cross-tenant; SHARED DB mode
-   * only — see the header. Call inside `runWithoutTenant`. */
+  /** Is this Google account LIVE-linked in any shop (active user, shop not
+   * suspended/archived)? The Google sign-up refusal; dead links are ignored.
+   * Cross-tenant; SHARED DB mode only — see the header. Call inside
+   * `runWithoutTenant`. */
   isLinkedToAnyShop(subject: string): boolean {
-    return this.identityRepo.findLinksBySubject(PROVIDER, subject).length > 0;
+    return this.identityRepo.findLiveLinksBySubject(PROVIDER, subject).length > 0;
   }
 
   /** Links Google to a user of the CURRENT shop; the same link again is a

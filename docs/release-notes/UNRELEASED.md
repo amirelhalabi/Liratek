@@ -194,7 +194,7 @@
 ## 🌐 Web app
 
 - Web app: you can now sign in with Google. Connect your Google account once in Settings, then use "Continue with Google" on the login page. You can also create a new shop with Google. Your username and password keep working as before.
-- Web app: a Google account can now be connected to one shop only. If it is already connected to another shop, "Connect Google" in Settings says so — disconnect it there first, or use a different Google account. Creating a new shop with a Google account that is already connected to a shop is refused too; sign in with Google instead. Accounts already connected to more than one shop keep working until you disconnect one.
+- Web app: a Google account can now be connected to one shop only. If it is already connected to another shop, "Connect Google" in Settings says so — disconnect it there first, or use a different Google account. Creating a new shop with a Google account that is already connected to a shop is refused too; sign in with Google instead. A connection to a suspended or archived shop, or to a deactivated user, does not count. Accounts already connected to more than one shop keep working until you disconnect one.
 - Web app: a customer's gift cards now show up as a payment option (they were missing in the browser).
 - liratek.shop now opens an information page about LiraTek, in English and Arabic. Shops keep logging in at their own address, as before, and the page has a box to jump to your shop's login.
 - Web app: sign-up no longer uses an invite code. New shops join through an email invitation from LiraTek: open the link in the email to finish creating your shop.
