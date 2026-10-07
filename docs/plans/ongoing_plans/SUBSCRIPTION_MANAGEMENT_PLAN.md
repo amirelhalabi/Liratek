@@ -77,7 +77,7 @@ Also note what signup deliberately does not collect: **email**. There is no
 email column on `tenants` and no mail sending anywhere in the codebase
 (`WEB_SIGNUP_PAGE_PLAN.md` D6). Subscriptions need it — grace-period notices are
 in the policy above, and "notify on day 1/3/6" is not implementable without it.
-Adding `tenants.email` belongs to this work, not to a later cleanup.
+Adding `tenants.email` belongs to this work, not to a later cleanup. **Update 2026-10-07:** LIRA-267 adds this column as `tenants.contact_email` (unique when set), together with an email outbox. Use that name.
 
 ---
 
@@ -205,7 +205,7 @@ lint clean on every new file. Schema equivalence: 0 diffs across 72 tables.
   intended surface, but there is no screen: managing a customer today means
   calling `PATCH /api/admin/subscriptions/:tenantId`. The Google-Sheet bridge
   in § 5 is the cheap version of that screen and is also unbuilt.
-- **`tenants.email` still does not exist**, so the grace-period notices in the
+- **`tenants.email` still does not exist** (LIRA-267 adds it as `tenants.contact_email`, plus the email capability), so the grace-period notices in the
   policy cannot be sent. The banner is the only warning a shop gets.
 - **No e2e coverage.** Every layer has unit tests; nothing drives the whole
   path from an owner setting an allowlist to a module vanishing from a

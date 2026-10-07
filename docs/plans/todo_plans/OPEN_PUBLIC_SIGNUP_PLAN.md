@@ -1,3 +1,5 @@
+> **Update 2026-10-07:** LIRA-267 (`specs/267-email-invite-signup/`) delivers §3.1 (Turnstile, on the email-request step) and §3.3 (verified contact email). It also removes `SIGNUP_INVITE_CODE` at launch, which supersedes §2's "keep the invite code". §3.2 (owner approval of new shops) is not part of LIRA-267.
+
 # Opening Self-Service Signup to the Public
 
 > **Status**: planned, not started. **Do not remove `SIGNUP_INVITE_CODE` before

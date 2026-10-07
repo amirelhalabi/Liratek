@@ -324,7 +324,7 @@
   - `providerMessageId` is `info.messageId`.
   - Register it in `createTransport.ts`.
   - **If T001 found SMTP blocked**, create `backend/src/email/transports/resend.ts` instead: `fetch("https://api.resend.com/emails", { headers: { Authorization, "Idempotency-Key": <outbox idempotency_key> } })`. 4xx other than 429 → permanent.
-- [ ] T041 Write the owner's go-live runbook into `docs/DEPLOYMENT.md`, as a new subsection replacing §5b/5c's invite-code guidance after Stage B. It covers:
+- [X] T041 Write the owner's go-live runbook into `docs/DEPLOYMENT.md`, as a new subsection replacing §5b/5c's invite-code guidance after Stage B. It covers:
   - Creating the Spacemail mailbox.
   - The Cloudflare records (MX, SPF, DKIM, DMARC with `p=none`), all DNS only, with the warning not to move the nameservers.
   - `yarn api -- secrets set EMAIL_TRANSPORT=smtp EMAIL_FROM=… SMTP_HOST=… SMTP_PORT=… SMTP_USER=mail@liratek.shop SMTP_PASS=…`.

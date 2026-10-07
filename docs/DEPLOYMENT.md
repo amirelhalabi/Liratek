@@ -491,6 +491,67 @@ Desktop is untouched: Electron provisions its single tenant through the
 first-run setup wizard, and the login page hides the "Create your shop" link
 outside the browser.
 
+### 5b-email. Sign-up by email and admin invitations (LIRA-267)
+
+Sign-up now also works through a single-use emailed link. Details are in
+`specs/267-email-invite-signup/`. There are two ways a link is sent:
+
+- **Admin invite:** the super-admin uses **Send invite** on the Tenants page.
+- **Self-serve:** a visitor clicks **Sign up** on the login page, enters an
+  email address and passes Cloudflare Turnstile.
+
+Both flows are off until email is configured. Self-serve is also off until
+Turnstile is configured. The shared `SIGNUP_INVITE_CODE` above keeps working
+until Stage B removes it.
+
+**One-time setup by the owner (go-live runbook):**
+
+1. **Mailbox.** Buy Spacemail on spaceship.com, attach `liratek.shop` and
+   create the mailbox `mail`.
+2. **DNS.** Add Spacemail's MX, SPF and DKIM records in **Cloudflare**, copied
+   exactly from the Spacemail dashboard, all **DNS only (grey cloud)**. Also add
+   `_dmarc TXT "v=DMARC1; p=none; rua=mailto:mail@liratek.shop"`.
+   - **Do not move the nameservers to Spaceship.** Tenant subdomains are
+     created through the Cloudflare API (§ 5c), so moving DNS breaks every new
+     shop's address.
+   - Keep exactly one SPF record at the domain apex.
+3. **Turnstile.** In the Cloudflare dashboard, create a Turnstile widget for
+   `www.liratek.shop` and copy its site key and secret key.
+4. **Secrets:**
+   ```bash
+   yarn api -- secrets set EMAIL_TRANSPORT=smtp EMAIL_FROM="LiraTek <mail@liratek.shop>" \
+     SMTP_HOST=<from Spacemail> SMTP_PORT=465 SMTP_USER=mail@liratek.shop SMTP_PASS=<mailbox password> \
+     TURNSTILE_SITE_KEY=<site key> TURNSTILE_SECRET_KEY=<secret key>
+   ```
+   `SIGNUP_INVITE_BASE_URL` defaults to `https://www.${APP_BASE_DOMAIN}`.
+   Links have the form `<base>/#/signup?invite=…`. The hash route is needed
+   because Vercel answers a bare `/signup` with 404.
+5. **Check delivery.** Invite a real Gmail address from the Tenants page. In
+   Gmail, open **Show original** and confirm that SPF, DKIM and DMARC all show
+   **PASS**, and that the email landed in the inbox.
+6. **Check the client IP before enabling self-serve.** The per-IP limit and
+   Turnstile's `remoteip` rely on `req.ip` (`trust proxy` is 1). On one
+   production request, log `req.ip`, `x-forwarded-for` and `fly-client-ip`.
+   Confirm `req.ip` is the visitor's address, not Vercel's or Cloudflare's.
+
+**Limits** (env, optional):
+
+| Variable | Default |
+| --- | --- |
+| `SIGNUP_REQUEST_RATE_LIMIT_MAX` | 5 requests per IP per hour |
+| `SIGNUP_CHECK_RATE_LIMIT_MAX` | 30 link checks per IP per hour |
+| `SIGNUP_SELF_SERVE_DAILY_CAP` | 50 self-serve emails per day |
+
+The per-email limit (3 requests per hour) is fixed.
+
+**If email breaks after launch:** create shops with **Add tenant** on the
+Tenants page until it is fixed.
+
+**Retries:** each queued email gets two attempts in a row, then another round
+10 minutes later, until the link expires (72 hours). The Tenants page shows
+each invitation's email state (Queued, Accepted or Failed), with the last
+error.
+
 ## 5c. Automatic tenant subdomains
 
 When a tenant is provisioned — by self-service signup or by you in the admin
