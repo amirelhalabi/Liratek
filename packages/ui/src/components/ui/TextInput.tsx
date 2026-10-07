@@ -14,6 +14,9 @@ export interface TextInputProps {
   required?: boolean;
   autoComplete?: string;
   disabled?: boolean;
+  /** Field name and id — password managers and <label> association rely on them. */
+  name?: string;
+  id?: string;
 }
 
 export default function TextInput({
@@ -30,6 +33,8 @@ export default function TextInput({
   required = false,
   autoComplete,
   disabled = false,
+  name,
+  id,
 }: TextInputProps) {
   const inputCls = compact
     ? "w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
@@ -53,7 +58,7 @@ export default function TextInput({
   return (
     <div className={className}>
       {label && (
-        <label className={labelCls}>
+        <label className={labelCls} htmlFor={id}>
           {renderIcon()}
           {label}
         </label>
@@ -68,6 +73,8 @@ export default function TextInput({
         required={required}
         autoComplete={autoComplete}
         disabled={disabled}
+        name={name}
+        id={id}
       />
       {error && <p className={errorCls}>{error}</p>}
     </div>

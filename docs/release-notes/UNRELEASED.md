@@ -193,6 +193,7 @@
 
 ## 🌐 Web app
 
+- Web app: your browser now recognises the sign-in form. It offers to save your username and password after you sign in, and fills them in next time.
 - Web app: you can now sign in with Google. Connect your Google account once in Settings, then use "Continue with Google" on the login page. You can also create a new shop with Google. Your username and password keep working as before.
 - Web app: a Google account can now be connected to one shop only. If it is already connected to another shop, "Connect Google" in Settings says so — disconnect it there first, or use a different Google account. Creating a new shop with a Google account that is already connected to a shop is refused too; sign in with Google instead. A connection to a suspended or archived shop, or to a deactivated user, does not count. Accounts already connected to more than one shop keep working until you disconnect one.
 - Web app: a customer's gift cards now show up as a payment option (they were missing in the browser).

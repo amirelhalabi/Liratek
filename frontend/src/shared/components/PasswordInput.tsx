@@ -12,6 +12,14 @@ export interface PasswordInputProps {
   autoFocus?: boolean;
   className?: string;
   compact?: boolean;
+  /**
+   * "current-password" on sign-in forms so browsers autofill and offer to
+   * save it; the default "new-password" is for forms that create one.
+   */
+  autoComplete?: "current-password" | "new-password" | "off";
+  /** Field name and id — password managers and <label> association rely on them. */
+  name?: string;
+  id?: string;
 }
 
 export default function PasswordInput({
@@ -24,6 +32,9 @@ export default function PasswordInput({
   autoFocus = false,
   className = "",
   compact = false,
+  autoComplete = "new-password",
+  name,
+  id,
 }: PasswordInputProps) {
   const [showPassword, setShowPassword] = useState(false);
   const { capsLock, capsLockProps } = useCapsLock();
@@ -39,7 +50,7 @@ export default function PasswordInput({
   return (
     <div className={className}>
       {label && (
-        <label className={labelCls}>
+        <label className={labelCls} htmlFor={id}>
           <Lock size={14} className="inline mr-1.5 text-violet-400" />
           {label}
         </label>
@@ -51,7 +62,9 @@ export default function PasswordInput({
           onChange={(e) => onChange(e.target.value)}
           className={inputCls + " pr-10"}
           placeholder={placeholder}
-          autoComplete="new-password"
+          autoComplete={autoComplete}
+          name={name}
+          id={id}
           autoFocus={autoFocus}
           {...capsLockProps}
         />

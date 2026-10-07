@@ -251,6 +251,11 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                   placeholder="Enter username"
                   icon="user"
                   required
+                  // Password managers: these hints let the browser autofill
+                  // saved credentials and offer to save new ones.
+                  name="username"
+                  id="username"
+                  autoComplete="username"
                 />
               </div>
 
@@ -260,6 +265,9 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                   onChange={setPassword}
                   label="Password"
                   placeholder="••••••••"
+                  name="password"
+                  id="password"
+                  autoComplete="current-password"
                   // Arrived from www's shop list with the username filled
                   // in: the password is the only thing left to type.
                   autoFocus={initialUsername !== ""}
