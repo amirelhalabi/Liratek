@@ -49,8 +49,13 @@ const invitationsQuery: {
 } = { data: undefined, isLoading: false, isError: false, error: null };
 const revokeMutation = { mutateAsync: revokeMutate, isPending: false };
 const createInviteMutation = { mutateAsync: jest.fn(), isPending: false };
+/** Every source the section asked the query for (LIRA-278 Source filter). */
+const querySources: Array<string | undefined> = [];
 jest.mock("../../../hooks/useSignupInvitations", () => ({
-  useSignupInvitationsQuery: () => invitationsQuery,
+  useSignupInvitationsQuery: (source?: string) => {
+    querySources.push(source);
+    return invitationsQuery;
+  },
   useRevokeSignupInvitationMutation: () => revokeMutation,
   useCreateSignupInvitationMutation: () => createInviteMutation,
 }));
@@ -96,6 +101,7 @@ function inv(over: Partial<SignupInvitationView>): SignupInvitationView {
 }
 
 beforeEach(() => {
+  querySources.length = 0;
   createTenantMutate.mockReset();
   revokeMutate.mockReset();
   revokeMutate.mockResolvedValue(inv({ status: "revoked" }));
@@ -206,4 +212,24 @@ it("shows Add tenant's duplicate-email 409 in the server's words", async () => {
   expect(
     await screen.findByText("A shop already exists for this email"),
   ).toBeInTheDocument();
+});
+
+// LIRA-278: self-serve requests can be reviewed on their own.
+it("has a Source filter (All / Admin / Self) that re-queries with that source", () => {
+  render(<TenantsPage />);
+  const filter = screen.getByTestId("invitations-source-filter") as HTMLSelectElement;
+  expect(filter.value).toBe("all");
+  expect(querySources.at(-1)).toBeUndefined();
+  expect(
+    within(filter)
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["All", "Admin", "Self"]);
+
+  fireEvent.change(filter, { target: { value: "self" } });
+  expect(querySources.at(-1)).toBe("self");
+  fireEvent.change(filter, { target: { value: "admin" } });
+  expect(querySources.at(-1)).toBe("admin");
+  fireEvent.change(filter, { target: { value: "all" } });
+  expect(querySources.at(-1)).toBeUndefined();
 });

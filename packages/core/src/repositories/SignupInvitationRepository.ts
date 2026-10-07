@@ -294,8 +294,25 @@ export class SignupInvitationRepository extends BaseRepository<SignupInvitationE
     return result.changes === 1;
   }
 
-  /** Newest first, with the announcing email's status. Never the hash. */
-  listRecent(limit: number): SignupInvitationListRow[] {
+  /**
+   * Newest first, with the announcing email's status. Never the hash.
+   * `source` (LIRA-278) filters BEFORE the limit, so self-serve rows are
+   * never crowded out of a filtered list by newer admin invites.
+   */
+  listRecent(
+    limit: number,
+    source?: SignupInvitationSource,
+  ): SignupInvitationListRow[] {
+    if (source) {
+      return this.db
+        .prepare(
+          `${LIST_ROW_SELECT}
+            WHERE si.source = ?
+            ORDER BY si.created_at DESC, si.id DESC
+            LIMIT ?`,
+        )
+        .all(source, limit) as SignupInvitationListRow[];
+    }
     return this.db
       .prepare(
         `${LIST_ROW_SELECT}

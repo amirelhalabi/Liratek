@@ -13,6 +13,7 @@
 
 import { jest } from "@jest/globals";
 import type { Express } from "express";
+import type { ListSignupInvitationsQuery } from "@liratek/core";
 import type DatabaseCtor from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
@@ -379,6 +380,43 @@ describe("GET /api/admin/signup-invitations", () => {
     for (const { token_hash } of hashes) {
       expect(serialised).not.toContain(token_hash);
     }
+  });
+
+  // LIRA-278: the Invitations list's Source filter.
+  it("?source=self / ?source=admin return only that source; no source returns both", async () => {
+    const token = await loginToken("root");
+    const adminId = await createInvite(token, { email: "by-admin@example.com" });
+    const now = new Date().toISOString();
+    const selfId = Number(
+      db
+        .prepare(
+          `INSERT INTO signup_invitations
+             (email, token_hash, source, expires_at, created_at, updated_at)
+           VALUES ('by-visitor@example.com', 'self-hash-filter', 'self',
+                   '2999-01-01T00:00:00.000Z', ?, ?)`,
+        )
+        .run(now, now).lastInsertRowid,
+    );
+
+    const list = async (query: Record<string, string>) => {
+      const res = await request(app)
+        .get(url)
+        .query(query)
+        .set("Authorization", `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      return res;
+    };
+    const ids = (res: request.Response) =>
+      (res.body.data.invitations as Array<{ id: number }>).map((i) => i.id);
+
+    const selfQuery: ListSignupInvitationsQuery = { source: "self" };
+    const adminQuery: ListSignupInvitationsQuery = { source: "admin" };
+    expect(ids(await list(selfQuery as Record<string, string>))).toEqual([selfId]);
+    expect(ids(await list(adminQuery as Record<string, string>))).toEqual([adminId]);
+    expect(ids(await list({})).sort()).toEqual([adminId, selfId].sort());
+
+    const bad = await list({ source: "everyone" });
+    expect(bad.body.success).toBe(false);
   });
 
   it("reports emailConfigured: false when the server cannot send", async () => {

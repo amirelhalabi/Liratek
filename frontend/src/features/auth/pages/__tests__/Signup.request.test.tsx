@@ -2,9 +2,12 @@
 /**
  * Signup page without an invite link (LIRA-267 US4 + Stage B).
  *
- *   - Self-serve on: ONLY an email field and the Turnstile check; submitting
- *     asks for a link and says "Check your inbox". The shop form never shows
- *     here — the link the email carries is what opens it.
+ *   - Self-serve on: an email field, an optional shop name (LIRA-278), a
+ *     hidden honeypot and — only when the server has Turnstile keys — the
+ *     Turnstile check; submitting asks for a link and says "Check your
+ *     inbox". The shop form never shows here — the link the email carries
+ *     is what opens it. `formElapsedMs` is measured on the browser's own
+ *     clock from the moment the request form renders (rule 27).
  *   - Self-serve off: "Sign-up is not available right now" — whatever the
  *     retired shared-code `enabled` flag says (Stage B: there is no
  *     invite-code form any more, so an older backend's `enabled: true` must
@@ -107,11 +110,18 @@ describe("Signup — request a link (self-serve on)", () => {
     status({ selfServeEnabled: true, turnstileSiteKey: "site-key" }),
   );
 
-  it("shows only the email field and the Turnstile check", async () => {
+  it("shows the email, an optional shop name, a hidden honeypot and the Turnstile check", async () => {
     render(<Signup />);
     expect(await screen.findByTestId("signup-request-email")).toBeInTheDocument();
+    const shopName = screen.getByTestId("signup-request-shop-name") as HTMLInputElement;
+    expect(shopName.maxLength).toBe(100);
+    const honeypot = screen.getByTestId("signup-request-website") as HTMLInputElement;
+    expect(honeypot.tabIndex).toBe(-1);
+    expect(honeypot.getAttribute("autocomplete")).toBe("off");
+    expect(honeypot.closest("[aria-hidden='true']")).not.toBeNull();
     expect(screen.getByTestId("turnstile-widget")).toBeInTheDocument();
     expect(widgetMounts).toEqual(["site-key"]);
+    // The full shop form (the link's job) is not here.
     expect(screen.queryByTestId("signup-shop-name")).toBeNull();
     expect(screen.queryByTestId("signup-invite-code")).toBeNull();
     // Stage B: there is no legacy form to reach.
@@ -119,14 +129,33 @@ describe("Signup — request a link (self-serve on)", () => {
     expect(checkSignupInvite).not.toHaveBeenCalled();
   });
 
-  it("asks for a link with the email and the Turnstile token, then says Check your inbox", async () => {
+  it("asks for a link with the email, shop name, empty honeypot, elapsed time and Turnstile token, then says Check your inbox", async () => {
+    const now = jest.spyOn(performance, "now");
+    now.mockReturnValue(0);
+    let resolveStatus: (v: unknown) => void = () => undefined;
+    publicAuthInfo.mockReturnValue(
+      new Promise((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
     render(<Signup />);
+    // The clock starts when the REQUEST FORM renders, not while loading.
+    now.mockReturnValue(1_000);
+    resolveStatus({
+      success: true,
+      data: { selfServeEnabled: true, turnstileSiteKey: "site-key" },
+    });
     fireEvent.change(await screen.findByTestId("signup-request-email"), {
       target: { value: "  Owner@Shop.com " },
     });
+    fireEvent.change(screen.getByTestId("signup-request-shop-name"), {
+      target: { value: "  Cell City " },
+    });
+    now.mockReturnValue(6_500.7);
     fireEvent.click(screen.getByTestId("signup-request-submit"));
 
     await waitFor(() => expect(requestSignupLink).toHaveBeenCalledTimes(1));
+    now.mockRestore();
     const payload = requestSignupLink.mock.calls[0]![0] as Record<
       string,
       unknown
@@ -134,6 +163,9 @@ describe("Signup — request a link (self-serve on)", () => {
     expect(requestSignupLinkSchema.parse(payload)).toEqual({
       email: "owner@shop.com",
       turnstileToken: "tok",
+      shopNameHint: "Cell City",
+      website: "",
+      formElapsedMs: 5_501,
     });
     expect(await screen.findByText(/check your inbox/i)).toBeInTheDocument();
     expect(
@@ -178,6 +210,53 @@ describe("Signup — request a link (self-serve on)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Too many requests",
     );
+  });
+});
+
+describe("Signup — request a link, self-serve on WITHOUT Turnstile (LIRA-278)", () => {
+  beforeEach(() => status({ selfServeEnabled: true, turnstileSiteKey: null }));
+
+  it("shows the request form with no Turnstile check", async () => {
+    render(<Signup />);
+    expect(await screen.findByTestId("signup-request-email")).toBeInTheDocument();
+    expect(screen.getByTestId("signup-request-shop-name")).toBeInTheDocument();
+    expect(screen.queryByTestId("turnstile-widget")).toBeNull();
+    expect(screen.queryByText(/sign-up is not available/i)).toBeNull();
+  });
+
+  it("submits with just an email: no turnstileToken key at all, shop name omitted when blank", async () => {
+    render(<Signup />);
+    const submit = await screen.findByTestId("signup-request-submit");
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByTestId("signup-request-email"), {
+      target: { value: "owner@shop.com" },
+    });
+    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(requestSignupLink).toHaveBeenCalledTimes(1));
+    const payload = requestSignupLink.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("turnstileToken");
+    const parsed = requestSignupLinkSchema.parse(payload);
+    expect(parsed.shopNameHint).toBeUndefined();
+    expect(parsed.website).toBe("");
+    expect(typeof parsed.formElapsedMs).toBe("number");
+    expect(await screen.findByText(/check your inbox/i)).toBeInTheDocument();
+  });
+
+  it("a filled honeypot is sent as typed (the server decides, silently)", async () => {
+    render(<Signup />);
+    fireEvent.change(await screen.findByTestId("signup-request-email"), {
+      target: { value: "bot@spam.com" },
+    });
+    fireEvent.change(screen.getByTestId("signup-request-website"), {
+      target: { value: "http://spam.example" },
+    });
+    fireEvent.click(screen.getByTestId("signup-request-submit"));
+    await waitFor(() => expect(requestSignupLink).toHaveBeenCalledTimes(1));
+    expect(
+      requestSignupLinkSchema.parse(requestSignupLink.mock.calls[0]![0]).website,
+    ).toBe("http://spam.example");
   });
 });
 

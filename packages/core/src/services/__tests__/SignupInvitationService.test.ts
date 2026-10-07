@@ -504,4 +504,97 @@ describe("requestSelfServe", () => {
       reason: "has_shop",
     });
   });
+  // LIRA-278: the request form carries an optional shop name. It is stored on
+  // the invite (it prefills the form behind the link) but a visitor's text is
+  // NEVER echoed in the email: a spammer would type a URL there and use our
+  // domain to deliver it.
+  it("stores the visitor's shop name on the invite but leaves it OUT of the email data", () => {
+    expect(req({ shopNameHint: "  Visit evil.example now  " })).toEqual({
+      queued: true,
+      reason: "queued",
+    });
+    const row = db
+      .prepare(
+        `SELECT shop_name_hint, email_outbox_id FROM signup_invitations WHERE source = 'self'`,
+      )
+      .get() as { shop_name_hint: string | null; email_outbox_id: number };
+    expect(row.shop_name_hint).toBe("Visit evil.example now");
+    const outbox = outboxRepo.findById(row.email_outbox_id)!;
+    expect(outbox.data_json).not.toContain("evil.example");
+    expect(JSON.parse(outbox.data_json).shopNameHint).toBe("");
+    // ...while the link check still hands it to the form.
+    expect(service.check("tok_self_1", T0)?.shopNameHint).toBe(
+      "Visit evil.example now",
+    );
+  });
+
+  it("no shop name: stored as null, email data has the empty hint", () => {
+    req();
+    const row = db
+      .prepare(`SELECT shop_name_hint FROM signup_invitations WHERE source = 'self'`)
+      .get() as { shop_name_hint: string | null };
+    expect(row.shop_name_hint).toBeNull();
+  });
 });
+
+// =============================================================================
+// list — Source filter (LIRA-278)
+// =============================================================================
+
+describe("list source filter", () => {
+  beforeEach(() => {
+    service.create(params({ email: "admin1@example.com" }));
+    service.create(
+      params({ source: "self", invitedByUserId: null, email: "self1@example.com", shopNameHint: null }),
+    );
+    service.create(params({ email: "admin2@example.com" }));
+  });
+
+  it("no source: every invite, newest first", () => {
+    expect(service.list(T0).map((v) => v.email)).toEqual([
+      "admin2@example.com",
+      "self1@example.com",
+      "admin1@example.com",
+    ]);
+  });
+
+  it("source 'self' / 'admin': only that source", () => {
+    expect(service.list(T0, 200, "self").map((v) => v.email)).toEqual([
+      "self1@example.com",
+    ]);
+    expect(service.list(T0, 200, "admin").map((v) => v.email)).toEqual([
+      "admin2@example.com",
+      "admin1@example.com",
+    ]);
+  });
+
+  it("the limit applies AFTER the filter, so older self rows are not crowded out by admin rows", () => {
+    expect(service.list(T0, 1, "self").map((v) => v.email)).toEqual([
+      "self1@example.com",
+    ]);
+  });
+});
+
+// =============================================================================
+// create — the email never echoes a self-serve visitor's shop name
+// =============================================================================
+
+describe("create shop-name echo by source", () => {
+  it("admin invite: the hint is in the email data", () => {
+    const view = service.create(params({ shopNameHint: "Cell City" }));
+    const invite = inviteRepo.findById(view.id)!;
+    const data = JSON.parse(outboxRepo.findById(invite.email_outbox_id!)!.data_json);
+    expect(data.shopNameHint).toBe("Cell City");
+  });
+
+  it("self invite: the hint is stored but the email data carries an empty one", () => {
+    const view = service.create(
+      params({ source: "self", invitedByUserId: null, shopNameHint: "Cell City" }),
+    );
+    expect(view.shopNameHint).toBe("Cell City");
+    const invite = inviteRepo.findById(view.id)!;
+    const data = JSON.parse(outboxRepo.findById(invite.email_outbox_id!)!.data_json);
+    expect(data.shopNameHint).toBe("");
+  });
+});
+

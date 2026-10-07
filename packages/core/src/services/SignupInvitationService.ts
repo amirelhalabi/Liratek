@@ -159,6 +159,9 @@ export interface RevokeSignupInvitationResult {
 export interface RequestSelfServeParams {
   /** Already trimmed + lowercased by the zod schema. */
   email: string;
+  /** The visitor's optional shop name (LIRA-278). Stored on the invite so it
+   * prefills the form behind the link; NEVER put in the email. */
+  shopNameHint?: string | null;
   /** UTC ISO. */
   now: string;
   baseUrl: string;
@@ -245,6 +248,17 @@ export function toSignupInvitationView(
   };
 }
 
+/**
+ * The shop name an invite EMAIL may show (LIRA-278): an admin's hint, never
+ * a self-serve visitor's. The one place this rule lives (rule 14).
+ */
+export function emailShopNameHint(
+  source: SignupInvitationSource,
+  shopNameHint: string | null,
+): string {
+  return source === "admin" ? (shopNameHint ?? "") : "";
+}
+
 function inviteUrl(baseUrl: string, token: string): string {
   // Hash route: the web app uses HashRouter and Vercel does not serve
   // index.html at a bare /signup path (it 404s), so the link must carry the
@@ -314,8 +328,12 @@ export class SignupInvitationService {
           data: {
             [SIGNUP_INVITE_URL_KEY]: inviteUrl(params.baseUrl, token),
             // Always present ("" when absent) so the template's
-            // {{#if shopNameHint}} has a value to test.
-            shopNameHint: shopNameHint ?? "",
+            // {{#if shopNameHint}} has a value to test. A self-serve hint is
+            // text a stranger typed: it never enters the email (LIRA-278,
+            // owner decision 2026-10-07), or a spammer could type a URL and
+            // have our domain deliver it. It still prefills the form behind
+            // the link, through check().
+            shopNameHint: emailShopNameHint(params.source, shopNameHint),
             expiresAtText: formatInviteExpiry(expiresAt),
             supportEmail: params.supportEmail,
           },
@@ -392,7 +410,7 @@ export class SignupInvitationService {
       this.create({
         source: "self",
         email: params.email,
-        shopNameHint: null,
+        shopNameHint: params.shopNameHint ?? null,
         invitedByUserId: null,
         now: params.now,
         baseUrl: params.baseUrl,
@@ -409,10 +427,15 @@ export class SignupInvitationService {
     return { queued: true, reason: "queued" };
   }
 
-  /** The newest invites, as the admin list shows them. */
-  list(now: string, limit: number = SIGNUP_INVITATION_LIST_LIMIT): SignupInvitationView[] {
+  /** The newest invites, as the admin list shows them, optionally only one
+   * `source` (the admin page's Source filter, LIRA-278). */
+  list(
+    now: string,
+    limit: number = SIGNUP_INVITATION_LIST_LIMIT,
+    source?: SignupInvitationSource,
+  ): SignupInvitationView[] {
     return this.inviteRepo
-      .listRecent(limit)
+      .listRecent(limit, source)
       .map((row) => toSignupInvitationView(row, now));
   }
 

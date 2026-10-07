@@ -38,6 +38,9 @@ import {
   createTenantSchema,
   updateTenantSchema,
   createSignupInvitationSchema,
+  listSignupInvitationsQuerySchema,
+  SIGNUP_INVITATION_LIST_LIMIT,
+  type ListSignupInvitationsQuery,
   getSignupInvitationService,
   EMAIL_NOT_CONFIGURED,
 } from "@liratek/core";
@@ -46,7 +49,7 @@ import {
   requireSuperAdmin,
   type LiratekJwtPayload,
 } from "../middleware/auth.js";
-import { validateRequest } from "../middleware/validation.js";
+import { validateQuery, validateRequest } from "../middleware/validation.js";
 import { logger } from "../server.js";
 import {
   provisionTenantDomain,
@@ -250,32 +253,43 @@ router.post(
 
 // =============================================================================
 // GET /api/admin/signup-invitations — the newest 200 invites (LIRA-267, US2)
+// `?source=admin|self` (LIRA-278) narrows the list to one source, so
+// self-serve requests can be reviewed or revoked. Absent = every source.
 // =============================================================================
 
-router.get("/signup-invitations", (_req, res) => {
-  try {
-    const now = new Date().toISOString();
-    const invitations = runWithoutTenant(() =>
-      getSignupInvitationService().list(now),
-    );
-    res.json(
-      createSuccessResponse({
-        emailConfigured: canSendInvites(),
-        invitations,
-      }),
-    );
-  } catch (error) {
-    logger.error({ error }, "GET /api/admin/signup-invitations failed");
-    res
-      .status(500)
-      .json(
-        createErrorResponse(
-          ErrorCodes.INTERNAL_ERROR,
-          "Failed to list invitations",
+router.get(
+  "/signup-invitations",
+  validateQuery(listSignupInvitationsQuerySchema),
+  (req, res) => {
+    try {
+      const now = new Date().toISOString();
+      const { source } = req.query as ListSignupInvitationsQuery;
+      const invitations = runWithoutTenant(() =>
+        getSignupInvitationService().list(
+          now,
+          SIGNUP_INVITATION_LIST_LIMIT,
+          source,
         ),
       );
-  }
-});
+      res.json(
+        createSuccessResponse({
+          emailConfigured: canSendInvites(),
+          invitations,
+        }),
+      );
+    } catch (error) {
+      logger.error({ error }, "GET /api/admin/signup-invitations failed");
+      res
+        .status(500)
+        .json(
+          createErrorResponse(
+            ErrorCodes.INTERNAL_ERROR,
+            "Failed to list invitations",
+          ),
+        );
+    }
+  },
+);
 
 // =============================================================================
 // POST /api/admin/signup-invitations/:id/revoke — refuse an invite's link

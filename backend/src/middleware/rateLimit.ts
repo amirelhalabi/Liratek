@@ -5,6 +5,16 @@
 
 import rateLimit from "express-rate-limit";
 import { logger } from "../server.js";
+import { clientIpRateLimitKey } from "./clientIp.js";
+
+/**
+ * The sign-up limiters' key (LIRA-278): the visitor's IP from
+ * CLIENT_IP_HEADER when the owner sets it, else `req.ip` as before. Behind
+ * Vercel -> Fly, `req.ip` is a proxy's address, so without the header every
+ * visitor shares one budget. See middleware/clientIp.ts.
+ */
+const signupClientKey = (req: Parameters<typeof clientIpRateLimitKey>[0]) =>
+  clientIpRateLimitKey(req);
 
 // Limits are env-tunable (a single authenticated POS session fires far more
 // than 100 requests per 15 min in dev); defaults preserve prior behavior.
@@ -68,6 +78,7 @@ export const apiLimiter = rateLimit({
 export const signupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: envLimit("SIGNUP_RATE_LIMIT_MAX", 5),
+  keyGenerator: signupClientKey,
   message: {
     success: false,
     error: "Too many signup attempts from this IP, please try again later.",
@@ -89,10 +100,14 @@ export const signupLimiter = rateLimit({
 export const signupCheckLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: envLimit("SIGNUP_CHECK_RATE_LIMIT_MAX", 30),
+  keyGenerator: signupClientKey,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
-    logger.warn({ ip: req.ip, path: req.path }, "Rate limit exceeded - invite check");
+    logger.warn(
+      { ip: req.ip, path: req.path },
+      "Rate limit exceeded - invite check",
+    );
     res.status(429).json({
       success: false,
       error: "Too many requests, please try again later",
@@ -108,10 +123,14 @@ export const signupCheckLimiter = rateLimit({
 export const signupRequestLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: envLimit("SIGNUP_REQUEST_RATE_LIMIT_MAX", 5),
+  keyGenerator: signupClientKey,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
-    logger.warn({ ip: req.ip, path: req.path }, "Rate limit exceeded - sign-up request");
+    logger.warn(
+      { ip: req.ip, path: req.path },
+      "Rate limit exceeded - sign-up request",
+    );
     res.status(429).json({
       success: false,
       error: "Too many requests, please try again later",

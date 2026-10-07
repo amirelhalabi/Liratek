@@ -3,7 +3,9 @@
  * T023). Variables (contracts/api.md "Email template contract"):
  *
  *   inviteUrl       the link; escaped, so safe inside href="…"
- *   shopNameHint    optional; its block is hidden when empty
+ *   shopNameHint    optional; its block is hidden when empty. ADMIN invites
+ *                   only: the service sends "" for a self-serve request, so
+ *                   a visitor-typed name is never echoed (LIRA-278)
  *   expiresAtText   already formatted in UTC with an explicit "UTC"
  *   supportEmail    where to write for help
  */

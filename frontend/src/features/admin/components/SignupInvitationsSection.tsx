@@ -2,6 +2,7 @@ import { useState } from "react";
 import { MailWarning } from "lucide-react";
 import { ConfirmModal } from "@liratek/ui";
 import type { SignupInvitationView } from "@/api/backendApi";
+import type { ListSignupInvitationsQuery } from "@liratek/core";
 import { messageFrom } from "@/api/apiError";
 import {
   useSignupInvitationsQuery,
@@ -28,6 +29,14 @@ const DELIVERY_CLASSES: Record<Delivery["status"], string> = {
   accepted: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   failed: "bg-red-500/15 text-red-300 border-red-500/30",
 };
+
+type SourceFilter = NonNullable<ListSignupInvitationsQuery["source"]> | "all";
+
+const SOURCE_FILTERS: ReadonlyArray<{ value: SourceFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "admin", label: "Admin" },
+  { value: "self", label: "Self" },
+];
 
 const badge =
   "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border";
@@ -66,7 +75,11 @@ function DeliveryBadge({ delivery }: { delivery: Delivery | null }) {
  * the tenants table still renders.
  */
 export function SignupInvitationsSection() {
-  const { data, isLoading, isError, error } = useSignupInvitationsQuery();
+  // LIRA-278: self-serve requests can be reviewed (and revoked) on their own.
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const { data, isLoading, isError, error } = useSignupInvitationsQuery(
+    sourceFilter === "all" ? undefined : sourceFilter,
+  );
   const revoke = useRevokeSignupInvitationMutation();
   const [revokeTarget, setRevokeTarget] = useState<SignupInvitationView | null>(
     null,
@@ -89,12 +102,29 @@ export function SignupInvitationsSection() {
 
   return (
     <section className="mt-8" aria-labelledby="invitations-heading">
-      <h2
-        id="invitations-heading"
-        className="text-lg font-semibold text-white mb-3"
-      >
-        Invitations
-      </h2>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h2
+          id="invitations-heading"
+          className="text-lg font-semibold text-white"
+        >
+          Invitations
+        </h2>
+        <label className="flex items-center gap-2 text-sm text-slate-400">
+          Source
+          <select
+            data-testid="invitations-source-filter"
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value as SourceFilter)}
+            className="bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-sm text-white focus:outline-none focus:border-orange-500"
+          >
+            {SOURCE_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       {data && !data.emailConfigured && (
         <div className="mb-3 flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-200 text-sm">

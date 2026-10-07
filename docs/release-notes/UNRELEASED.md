@@ -147,6 +147,7 @@
 - liratek.shop now opens an information page about LiraTek, in English and Arabic. Shops keep logging in at their own address, as before, and the page has a box to jump to your shop's login.
 - Web app: sign-up no longer uses an invite code. New shops join through an email invitation from LiraTek: open the link in the email to finish creating your shop.
 - Web app (platform admin): you can now email a sign-up invitation from the Tenants page, see whether each invitation was used, and cancel one that went to the wrong address. "Add shop" also takes an optional contact email.
+- Web app: LiraTek can now let new shops sign up on their own, without an invitation. When it is switched on, the sign-up page asks for your email and, if you like, your shop's name; we email you a link, and the shop name is already filled in when you open it. Platform admins can filter the Invitations list on the Tenants page to see only these sign-up requests.
 
 ## 🧾 Expenses
 

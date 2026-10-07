@@ -17,8 +17,11 @@
  *              the invited email is shown locked, the shop name prefilled
  *              from the hint, and the form sends `inviteToken`. This is the
  *              ONLY way to the shop form (the shared invite code is gone).
- *   - REQUEST  no link, self-serve on: only an email field and the Turnstile
- *              check. The emailed link is what opens the shop form.
+ *   - REQUEST  no link, self-serve on: an email, an optional shop name
+ *              (LIRA-278; it prefills the shop form behind the link but is
+ *              never shown in the email), a hidden honeypot, and the
+ *              Turnstile check only when the server has its keys. The
+ *              emailed link is what opens the shop form.
  *   Otherwise: "Sign-up is not available right now".
  */
 
@@ -33,7 +36,10 @@ import {
   requestSignupLink,
   type SignupInput,
 } from "@/api/backendApi";
-import type { SignupInviteCheckResult } from "@liratek/core";
+import type {
+  RequestSignupLinkInput,
+  SignupInviteCheckResult,
+} from "@liratek/core";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import { TurnstileWidget } from "@/features/auth/components/TurnstileWidget";
@@ -63,12 +69,19 @@ const INVITE_INVALID_FALLBACK =
   "This invite link is not valid. Ask for a new invite.";
 const UNREACHABLE = "Could not reach the server. Please try again.";
 
+/** Upper bounds of `requestSignupLinkSchema` (formElapsedMs is an integer of
+ * at most one day; shopNameHint at most 100 characters), so a slow visitor
+ * or a long name is never refused by validation. */
+const MAX_FORM_ELAPSED_MS = 86_400_000;
+const MAX_SHOP_NAME_HINT = 100;
+
 /** What the page shows before the shop form. */
 type Entry =
   | { kind: "loading" }
   | { kind: "invite"; invite: SignupInviteCheckResult }
   | { kind: "invite-invalid"; message: string }
-  | { kind: "request"; siteKey: string }
+  /** `siteKey` null: the server has no Turnstile keys, so no check. */
+  | { kind: "request"; siteKey: string | null }
   | { kind: "unavailable" };
 
 export default function Signup() {
@@ -82,6 +95,13 @@ export default function Signup() {
 
   // Request-a-link form (self-serve).
   const [requestEmail, setRequestEmail] = useState("");
+  const [requestShopName, setRequestShopName] = useState("");
+  // Honeypot (LIRA-278): hidden from people, often filled by bots.
+  const [website, setWebsite] = useState("");
+  // When the request form first rendered, on the browser's OWN monotonic
+  // clock. Only the difference is sent (formElapsedMs), never a timestamp:
+  // the server's clock is not this one (rule 27).
+  const requestFormShownAt = useRef<number | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   // Bumped to REMOUNT the widget: a token the server has seen is spent.
   const [widgetKey, setWidgetKey] = useState(0);
@@ -143,17 +163,28 @@ export default function Signup() {
     publicAuthInfo()
       .then((res) => {
         const data = res.success ? res.data : undefined;
-        const siteKey =
-          data?.selfServeEnabled && data.turnstileSiteKey
-            ? data.turnstileSiteKey
-            : null;
-        setEntry(siteKey ? { kind: "request", siteKey } : { kind: "unavailable" });
+        // LIRA-278: the switch alone decides; Turnstile is shown only when
+        // the server hands over a site key.
+        setEntry(
+          data?.selfServeEnabled
+            ? { kind: "request", siteKey: data.turnstileSiteKey ?? null }
+            : { kind: "unavailable" },
+        );
       })
       // A backend that cannot answer cannot sign anyone up either.
       .catch(() => setEntry({ kind: "unavailable" }));
   }, [inviteToken]);
 
+  // Start the form clock when the request form is first shown — not while
+  // the page is still loading the status.
+  useEffect(() => {
+    if (entry.kind === "request" && requestFormShownAt.current === null) {
+      requestFormShownAt.current = performance.now();
+    }
+  }, [entry.kind]);
+
   const invite = entry.kind === "invite" ? entry.invite : null;
+  const requestSiteKey = entry.kind === "request" ? entry.siteKey : null;
 
   const effectiveSlug = slugTouched ? slug : slugify(shopName);
   const slugValid = SLUG_PATTERN.test(effectiveSlug);
@@ -167,7 +198,9 @@ export default function Signup() {
     !loading;
 
   const canRequest =
-    requestEmail.trim().length > 0 && turnstileToken !== null && !requesting;
+    requestEmail.trim().length > 0 &&
+    (requestSiteKey === null || turnstileToken !== null) &&
+    !requesting;
 
   const spendTurnstileToken = () => {
     setTurnstileToken(null);
@@ -176,15 +209,28 @@ export default function Signup() {
 
   const handleRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canRequest || turnstileToken === null) return;
+    if (!canRequest) return;
 
     setRequestError("");
     setRequesting(true);
     try {
-      const res = await requestSignupLink({
+      const startedAt = requestFormShownAt.current ?? performance.now();
+      const formElapsedMs = Math.min(
+        MAX_FORM_ELAPSED_MS,
+        Math.max(0, Math.round(performance.now() - startedAt)),
+      );
+      const shopNameHint = requestShopName.trim();
+      // Built ONCE (rule 22), typed from the core schema (rule 21).
+      const payload: RequestSignupLinkInput = {
         email: requestEmail.trim(),
-        turnstileToken,
-      });
+        ...(shopNameHint ? { shopNameHint } : {}),
+        website,
+        formElapsedMs,
+        ...(requestSiteKey !== null && turnstileToken !== null
+          ? { turnstileToken }
+          : {}),
+      };
+      const res = await requestSignupLink(payload);
       if (res.success) {
         setRequestSent(
           res.data?.message ??
@@ -386,6 +432,7 @@ export default function Signup() {
   }
 
   if (entry.kind === "request") {
+    const siteKey = entry.siteKey;
     if (requestSent) {
       return (
         <div className={pageClass}>
@@ -412,6 +459,34 @@ export default function Signup() {
             shop.
           </p>
 
+          {/* Honeypot (LIRA-278): off-screen rather than display:none, out of
+              the tab order and hidden from screen readers, with autofill off
+              so a password manager never fills it for a real person. A
+              filled one is answered "check your inbox" and sends nothing. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              left: "-10000px",
+              top: "auto",
+              width: "1px",
+              height: "1px",
+              overflow: "hidden",
+            }}
+          >
+            <label htmlFor="signup-request-website">Website</label>
+            <input
+              id="signup-request-website"
+              data-testid="signup-request-website"
+              type="text"
+              name="website"
+              tabIndex={-1}
+              autoComplete="off"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+            />
+          </div>
+
           {requestError && errorBox(requestError)}
 
           <div className="space-y-4">
@@ -432,12 +507,34 @@ export default function Signup() {
               />
             </div>
 
-            <TurnstileWidget
-              key={widgetKey}
-              siteKey={entry.siteKey}
-              onSuccess={setTurnstileToken}
-              onExpire={() => setTurnstileToken(null)}
-            />
+            <div>
+              <label className={labelClass} htmlFor="signup-request-shop-name">
+                Shop name (optional)
+              </label>
+              <input
+                id="signup-request-shop-name"
+                data-testid="signup-request-shop-name"
+                type="text"
+                value={requestShopName}
+                onChange={(e) => setRequestShopName(e.target.value)}
+                className={inputClass}
+                placeholder="Your shop name"
+                autoComplete="organization"
+                maxLength={MAX_SHOP_NAME_HINT}
+              />
+              <p className={hintClass}>
+                Fills in the form behind the link. You can change it there.
+              </p>
+            </div>
+
+            {siteKey !== null && (
+              <TurnstileWidget
+                key={widgetKey}
+                siteKey={siteKey}
+                onSuccess={setTurnstileToken}
+                onExpire={() => setTurnstileToken(null)}
+              />
+            )}
           </div>
 
           <button

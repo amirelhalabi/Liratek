@@ -22,6 +22,7 @@ import {
   getSignupInvitationService,
   hashToken,
   SIGNUP_SELF_SERVE_DAILY_CAP,
+  SIGNUP_SELF_SERVE_ENABLED,
   TURNSTILE_SITE_KEY,
   type TenantEntity,
 } from "@liratek/core";
@@ -51,6 +52,10 @@ import {
   resolveTenantBaseUrl,
 } from "../email/emailConfig.js";
 import { isTurnstileConfigured, verifyTurnstile } from "../security/turnstile.js";
+import {
+  logForwardedHeadersForSignup,
+  resolveClientIp,
+} from "../middleware/clientIp.js";
 import jwt from "jsonwebtoken";
 
 const router = express.Router();
@@ -654,12 +659,16 @@ router.get("/signup-status", (req, res): void => {
       // LIRA-267: can the platform email invite links at all? A boolean
       // only, never which transport.
       emailInvitesEnabled: isEmailConfigured(),
-      // LIRA-267 US4: can a visitor ask for a sign-up link by email? Both
-      // email and Turnstile must be configured. The site key is public (it
-      // is embedded in the page by design) and only sent when the form can
-      // actually be used.
+      // Can a visitor ask for a sign-up link by email? LIRA-278: the
+      // SIGNUP_SELF_SERVE_ENABLED switch plus working email. The Turnstile
+      // site key is public (embedded in the page by design) and only sent
+      // when the form can be used AND Turnstile is configured — then the
+      // page shows the check; otherwise the form has no check at all.
       selfServeEnabled,
-      turnstileSiteKey: selfServeEnabled ? (TURNSTILE_SITE_KEY ?? null) : null,
+      turnstileSiteKey:
+        selfServeEnabled && isTurnstileConfigured()
+          ? (TURNSTILE_SITE_KEY ?? null)
+          : null,
       platformHost,
       // Only alongside platformHost, and only so the page can spell out the
       // address format ("<your-shop>.liratek.shop"). Null everywhere else.
@@ -724,26 +733,50 @@ router.post(
 
 // POST /api/auth/signup/request — "email me a sign-up link" (PUBLIC, US4)
 //
-// contracts/api.md. Order: per-IP limiter (5/hour, 429) -> schema ->
-// self-serve available? -> Turnstile (fails closed) -> requestSelfServe.
-// Once Turnstile passes, the answer is IDENTICAL whether the link was sent,
-// the address already has a shop, the per-email limit was hit or the daily
-// cap was reached (FR-028), so the form cannot be used to learn which
-// addresses have shops. The address is logged only as hashToken(email).
-// No audit row: there is no tenant and no actor.
-//
-// `req.ip` is the client as seen through `trust proxy` (server.ts).
+// contracts/api.md + LIRA-278. Order: TEMP forwarded-header diagnostic ->
+// per-IP limiter (5/hour, 429, keyed on CLIENT_IP_HEADER when set) -> schema
+// -> self-serve available (switch + email)? -> Turnstile ONLY when its keys
+// are configured (fails closed) -> bot checks (honeypot, too fast) ->
+// requestSelfServe. Past the refusals, the answer is IDENTICAL whether the
+// link was sent, a bot check tripped, the address already has a shop, the
+// per-email limit was hit or the daily cap was reached (FR-028), so the
+// form cannot be used to learn which addresses have shops, nor which check
+// a bot failed. The address is logged only as hashToken(email). No audit
+// row: there is no tenant and no actor.
 const SELF_SERVE_NOT_AVAILABLE = "Sign-up is not available right now.";
 const SELF_SERVE_TURNSTILE_REJECTED = "Please complete the check and try again.";
 const SELF_SERVE_TRY_LATER = "Please try again in a few minutes.";
 const SELF_SERVE_GENERIC_MESSAGE =
   "If this address can be used, we've emailed a link.";
 
+/** A person needs at least this long to type an email (LIRA-278). Measured
+ * by the BROWSER on its own clock (render -> submit), never against the
+ * server clock (rule 27). */
+const SELF_SERVE_MIN_FORM_MS = 3_000;
+
 /** The ONE definition of "a visitor can ask for a sign-up link" (rule 14),
- * shared by signup-status and the request route: invite links can be sent
- * (transport + base URL) and Turnstile is configured. */
+ * shared by signup-status and the request route: the owner switched it on
+ * (SIGNUP_SELF_SERVE_ENABLED) and invite links can be sent (transport + base
+ * URL). Turnstile is an optional extra layer, not a requirement (LIRA-278). */
 function isSelfServeAvailable(): boolean {
-  return canSendInvites() && isTurnstileConfigured();
+  return canSendInvites() && SIGNUP_SELF_SERVE_ENABLED;
+}
+
+/** Why a request looks automated, or null. A filled honeypot (`website`, a
+ * field people never see) or a form sent in under 3 seconds. An absent
+ * `formElapsedMs` skips the timing check (contract A). */
+function selfServeBotReason(body: {
+  website?: string;
+  formElapsedMs?: number;
+}): "honeypot" | "too_fast" | null {
+  if (body.website && body.website.trim().length > 0) return "honeypot";
+  if (
+    typeof body.formElapsedMs === "number" &&
+    body.formElapsedMs < SELF_SERVE_MIN_FORM_MS
+  ) {
+    return "too_fast";
+  }
+  return null;
 }
 
 /** Rule 19c envelope: HTTP 200, plain-string error. */
@@ -753,6 +786,9 @@ function selfServeRefusal(res: express.Response, message: string): void {
 
 router.post(
   "/signup/request",
+  // TEMPORARY (LIRA-278): remove once CLIENT_IP_HEADER is chosen. Before the
+  // limiter, so throttled requests are measured too.
+  logForwardedHeadersForSignup,
   signupRequestLimiter,
   validateRequest(requestSignupLinkSchema),
   async (req, res): Promise<void> => {
@@ -765,29 +801,45 @@ router.post(
         return;
       }
 
-      // turnstileToken is optional in the schema since v196 (LIRA-278 makes
-      // Turnstile an extra layer). While Turnstile is required here, a
-      // missing token is refused up front, fail closed, without asking
-      // Cloudflare about "undefined".
-      const token: string | undefined = req.body.turnstileToken;
-      if (!token) {
-        logger.info({ emailHash }, "Self-serve sign-up: no Turnstile token");
-        selfServeRefusal(res, SELF_SERVE_TURNSTILE_REJECTED);
-        return;
+      // Turnstile is an optional extra layer (LIRA-278): checked only when
+      // its keys are configured. Then a missing token is refused up front,
+      // fail closed, without asking Cloudflare about "undefined".
+      if (isTurnstileConfigured()) {
+        const token: string | undefined = req.body.turnstileToken;
+        if (!token) {
+          logger.info({ emailHash }, "Self-serve sign-up: no Turnstile token");
+          selfServeRefusal(res, SELF_SERVE_TURNSTILE_REJECTED);
+          return;
+        }
+        const verdict = await verifyTurnstile(token, resolveClientIp(req));
+        if (verdict !== "passed") {
+          logger.info({ emailHash, verdict }, "Self-serve sign-up: Turnstile not passed");
+          selfServeRefusal(
+            res,
+            verdict === "rejected" ? SELF_SERVE_TURNSTILE_REJECTED : SELF_SERVE_TRY_LATER,
+          );
+          return;
+        }
       }
-      const verdict = await verifyTurnstile(token, req.ip);
-      if (verdict !== "passed") {
-        logger.info({ emailHash, verdict }, "Self-serve sign-up: Turnstile not passed");
-        selfServeRefusal(
-          res,
-          verdict === "rejected" ? SELF_SERVE_TURNSTILE_REJECTED : SELF_SERVE_TRY_LATER,
+
+      // Bot checks answer with the normal success reply and send nothing:
+      // a refusal would tell the bot which check it tripped.
+      const botReason = selfServeBotReason(req.body);
+      if (botReason) {
+        logger.info(
+          { emailHash, queued: false, reason: botReason },
+          "Self-serve sign-up request dropped as automated",
         );
+        res.json(createSuccessResponse({ message: SELF_SERVE_GENERIC_MESSAGE }));
         return;
       }
 
       const outcome = runWithoutTenant(() =>
         getSignupInvitationService().requestSelfServe({
           email,
+          // Stored on the invite to prefill the form behind the link; the
+          // service keeps it out of the email (LIRA-278).
+          shopNameHint: req.body.shopNameHint ?? null,
           now: new Date().toISOString(),
           baseUrl,
           supportEmail: resolveSupportEmail(),

@@ -90,15 +90,6 @@ export const EMAIL_FILE_DIR = path.join(
   "mail",
 );
 
-/**
- * Cloudflare's documented always-pass Turnstile TEST keys (likely, per
- * Cloudflare's Turnstile docs — verify if the self-serve spec misbehaves).
- * They still load the real widget from challenges.cloudflare.com and call
- * the real siteverify, so lira-web-039's self-serve test needs internet.
- */
-export const TURNSTILE_TEST_SITE_KEY = "1x00000000000000000000AA";
-const TURNSTILE_TEST_SECRET_KEY = "1x0000000000000000000000000000000AA";
-
 export default defineConfig({
   timeout: 60_000,
   retries: 0,
@@ -164,8 +155,13 @@ export default defineConfig({
         // APP_BASE_DOMAIN is pinned empty, so without this there is nowhere
         // for the link to point and invites answer 409 EMAIL_NOT_CONFIGURED.
         SIGNUP_INVITE_BASE_URL: `http://localhost:${WEB_PORT}`,
-        TURNSTILE_SITE_KEY: TURNSTILE_TEST_SITE_KEY,
-        TURNSTILE_SECRET_KEY: TURNSTILE_TEST_SECRET_KEY,
+        // LIRA-278: self-serve is ON by its own switch, with Turnstile OFF —
+        // the production launch configuration. Turnstile pinned empty (not
+        // omitted) for the same dotenv-leak reason; its optional path is
+        // covered by the backend API tests (no internet needed here).
+        SIGNUP_SELF_SERVE_ENABLED: "true",
+        TURNSTILE_SITE_KEY: "",
+        TURNSTILE_SECRET_KEY: "",
         // The DB and limiter windows outlive one run; re-running within the
         // hour must not 429 or hit the daily self-serve cap.
         SIGNUP_RATE_LIMIT_MAX: "100000",

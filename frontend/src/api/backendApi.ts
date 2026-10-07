@@ -16,6 +16,7 @@ import type {
   CreateTenantBodyInput,
   CreateSignupInvitationInput,
   RequestSignupLinkInput,
+  ListSignupInvitationsQuery,
   SignupInvitationView,
   SignupInviteCheckResult,
 } from "@liratek/core";
@@ -307,9 +308,11 @@ export async function checkSignupInvite(token: string) {
 /**
  * "Email me a sign-up link" (LIRA-267 US4, PUBLIC).
  *
- * Once Turnstile passes, the server answers the SAME generic message whether
- * or not it sent anything, so the form cannot reveal which addresses already
- * have a shop. Refusals (not available / complete the check / try later) are
+ * LIRA-278: Turnstile is optional (sent only when the server has its keys);
+ * the payload also carries the optional shop name, the honeypot `website`
+ * and `formElapsedMs`. Past the refusals, the server answers the SAME
+ * generic message whether or not it sent anything, so the form cannot
+ * reveal which addresses already have a shop. Refusals (not available / complete the check / try later) are
  * 200 + `success:false` with a string error; the per-IP limit is a 429, which
  * THROWS.
  */
@@ -7261,13 +7264,18 @@ export interface AdminSignupInvitationList {
   invitations: SignupInvitationView[];
 }
 
-export async function adminListSignupInvitations(): Promise<AdminSignupInvitationList> {
+/** The newest invites; `source` (LIRA-278) narrows to admin- or
+ * self-started ones. Absent = every source. */
+export async function adminListSignupInvitations(
+  source?: ListSignupInvitationsQuery["source"],
+): Promise<AdminSignupInvitationList> {
   assertWebOnly("Listing sign-up invitations");
+  const query = source ? `?${new URLSearchParams({ source }).toString()}` : "";
   const res = await requestJson<{
     success: boolean;
     data?: AdminSignupInvitationList;
     error?: PublicRouteError;
-  }>("/api/admin/signup-invitations");
+  }>(`/api/admin/signup-invitations${query}`);
   if (!res.success || !res.data) {
     throw new Error(messageFrom(res.error, "Failed to load invitations"));
   }

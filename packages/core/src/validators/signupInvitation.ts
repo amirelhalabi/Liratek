@@ -58,6 +58,17 @@ export const requestSignupLinkSchema = z.object({
   formElapsedMs: z.number().int().nonnegative().max(86_400_000).optional(),
 });
 
+/**
+ * GET /api/admin/signup-invitations?source=admin|self — the Invitations
+ * list's Source filter (LIRA-278). Absent = every source.
+ */
+export const listSignupInvitationsQuerySchema = z.object({
+  source: z.enum(["admin", "self"]).optional(),
+});
+
+export type ListSignupInvitationsQuery = z.input<
+  typeof listSignupInvitationsQuerySchema
+>;
 export type CreateSignupInvitationInput = z.input<
   typeof createSignupInvitationSchema
 >;

@@ -4,7 +4,10 @@ import {
   adminCreateSignupInvitation,
   adminRevokeSignupInvitation,
 } from "@/api/backendApi";
-import type { CreateSignupInvitationInput } from "@liratek/core";
+import type {
+  CreateSignupInvitationInput,
+  ListSignupInvitationsQuery,
+} from "@liratek/core";
 
 // ── Query key constants ─────────────────────────────────────────────────────
 export const ADMIN_SIGNUP_INVITATION_KEYS = {
@@ -12,11 +15,18 @@ export const ADMIN_SIGNUP_INVITATION_KEYS = {
 };
 
 // ── Read ──────────────────────────────────────────────────────────────────────
-/** The newest invites plus whether this deployment can email them at all. */
-export function useSignupInvitationsQuery() {
+/** The newest invites plus whether this deployment can email them at all.
+ * `source` is the Source filter (LIRA-278); each source is cached under its
+ * own key, all under `ADMIN_SIGNUP_INVITATION_KEYS.all`, so the mutations'
+ * invalidation still refreshes every filtered list. */
+export function useSignupInvitationsQuery(
+  source?: ListSignupInvitationsQuery["source"],
+) {
   return useQuery({
-    queryKey: ADMIN_SIGNUP_INVITATION_KEYS.all,
-    queryFn: adminListSignupInvitations,
+    queryKey: [...ADMIN_SIGNUP_INVITATION_KEYS.all, source ?? "all"],
+    // Wrapped: a bare function reference would receive react-query's
+    // context object as its first argument.
+    queryFn: () => adminListSignupInvitations(source),
   });
 }
 

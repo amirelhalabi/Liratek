@@ -11,9 +11,10 @@
  *      email opens the sign-up form with the email locked; signing up creates
  *      the shop with that `contact_email`; the invite shows "used"; reopening
  *      the link shows the generic "not valid" message.
- *   2. A visitor clicks "Sign up" on the login page, asks for a link (Turnstile
- *      test keys — needs internet), completes sign-up from the emailed link
- *      and logs in.
+ *   2. A visitor clicks "Sign up" on the login page, asks for a link with an
+ *      email and a shop name (LIRA-278: self-serve switched on, Turnstile
+ *      off), checks the email does NOT echo that shop name, completes
+ *      sign-up from the emailed link (shop name prefilled) and logs in.
  *
  * Shared accumulating DB (rule 15): every email, slug and username is
  * `Date.now()`-unique, emails are matched by their `to` address (never by file
@@ -62,6 +63,33 @@ function contactEmailOf(slug: string): string | null {
   } finally {
     db.close();
   }
+}
+
+/** The plain-text body of the newest `signup-invite` email sent to `to`. */
+function findInviteText(to: string): string | null {
+  if (!fs.existsSync(EMAIL_FILE_DIR)) return null;
+  let newest: { text: string; mtime: number } | null = null;
+  for (const name of fs.readdirSync(EMAIL_FILE_DIR)) {
+    if (!/^signup-invite-\d+\.json$/.test(name)) continue;
+    const jsonPath = path.join(EMAIL_FILE_DIR, name);
+    let meta: { to?: string };
+    try {
+      meta = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as { to?: string };
+    } catch {
+      continue;
+    }
+    if (meta.to !== to) continue;
+    const mtime = fs.statSync(jsonPath).mtimeMs;
+    if (!newest || mtime > newest.mtime) {
+      newest = {
+        text:
+          fs.readFileSync(jsonPath.replace(/\.json$/, ".txt"), "utf8") +
+          fs.readFileSync(jsonPath.replace(/\.json$/, ".html"), "utf8"),
+        mtime,
+      };
+    }
+  }
+  return newest?.text ?? null;
 }
 
 /** The invite link from the newest `signup-invite` email sent to `to`. */
@@ -188,7 +216,7 @@ test.describe("LIRA-267 — email invites and self-serve sign-up", () => {
     await expect(inviteRow).toContainText(slug);
   });
 
-  test("a visitor signs up from the login page with just an email", async ({
+  test("a visitor signs up from the login page with an email and a shop name", async ({
     page,
   }) => {
     test.setTimeout(180_000);
@@ -198,30 +226,42 @@ test.describe("LIRA-267 — email invites and self-serve sign-up", () => {
     const username = `l267_self_${ts}`;
     const password = "L267SelfPass!1";
 
-    // ── 1. Login page -> Sign up -> request form (email + Turnstile only) ──
+    const shopName = `L278 Self ${ts}`;
+
+    // ── 1. Login page -> Sign up -> request form (email + shop name) ──
     await page.goto("/#/login");
     await page.getByRole("link", { name: "Sign up" }).click();
     const emailField = page.getByTestId("signup-request-email");
     await expect(emailField).toBeVisible({ timeout: 15_000 });
+    // The full shop form is the link's job, not this page's.
     await expect(page.getByTestId("signup-shop-name")).toHaveCount(0);
+    // Turnstile is off in this environment (LIRA-278 launch config).
+    await expect(page.getByTestId("turnstile-container")).toHaveCount(0);
     await emailField.fill(email);
+    await page.getByTestId("signup-request-shop-name").fill(shopName);
 
-    // The always-pass test key solves the check by itself; the button
-    // enables once the widget hands over a token.
+    // A form sent in under 3 seconds is silently dropped as a bot (the
+    // browser measures the time on its own clock), so a person's pace.
+    await page.waitForTimeout(3_500);
     const submit = page.getByTestId("signup-request-submit");
-    await expect(submit).toBeEnabled({ timeout: 30_000 });
+    await expect(submit).toBeEnabled();
     await submit.click();
     await expect(page.getByText("Check your inbox")).toBeVisible({
       timeout: 15_000,
     });
 
-    // ── 2. The emailed link opens the shop form for that email ──
+    // ── 2. The email never echoes the visitor's shop name... ──
     const link = await waitForInviteLink(email);
+    const emailText = findInviteText(email);
+    expect(emailText).not.toBeNull();
+    expect(emailText).not.toContain(shopName);
+
+    // ── ...but the link opens the shop form with it prefilled ──
     await page.goto(link);
     await expect(page.getByTestId("signup-email")).toHaveValue(email, {
       timeout: 15_000,
     });
-    await page.getByTestId("signup-shop-name").fill(`L267 Self ${ts}`);
+    await expect(page.getByTestId("signup-shop-name")).toHaveValue(shopName);
     await page.getByTestId("signup-slug").fill(slug);
     await page.getByTestId("signup-username").fill(username);
     await page.getByTestId("signup-password").fill(password);

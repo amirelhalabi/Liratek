@@ -12,11 +12,17 @@
  * exhausts its own IP's budget.
  *
  * Request bodies are parsed through the core schemas first (rule 24).
+ *
+ * LIRA-278: the switch is SIGNUP_SELF_SERVE_ENABLED (set here, before core is
+ * imported; the "switch off" case lives in signupSelfServeOff.api.test.ts
+ * because the env is read once at import). Turnstile is an optional extra
+ * layer, verified only when its keys are configured.
  */
 
 import { jest } from "@jest/globals";
 import type { Express } from "express";
 import type DatabaseCtor from "better-sqlite3";
+import type { RequestSignupLinkInput } from "@liratek/core";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -71,16 +77,24 @@ function nextIp(): string {
   return `198.51.100.${ipCounter}`;
 }
 
-function body(input: { email: string; turnstileToken: string }) {
+function body(input: RequestSignupLinkInput) {
   expect(core.requestSignupLinkSchema.safeParse(input).success).toBe(true);
   return input;
 }
 
-function post(ip: string, input: { email: string; turnstileToken?: string }) {
+function post(ip: string, input: RequestSignupLinkInput) {
   return request(app)
     .post("/api/auth/signup/request")
     .set("X-Forwarded-For", ip)
     .send(body({ turnstileToken: "cf-token", ...input }));
+}
+
+/** A request as the LIRA-278 form sends it: no Turnstile token. */
+function postNoTurnstile(ip: string, input: RequestSignupLinkInput) {
+  return request(app)
+    .post("/api/auth/signup/request")
+    .set("X-Forwarded-For", ip)
+    .send(body(input));
 }
 
 function count(sql: string, ...args: unknown[]): number {
@@ -99,6 +113,10 @@ beforeAll(async () => {
   process.env.JWT_SECRET = "signup-request-test-secret-0123456789-0123456789";
   process.env.APP_BASE_DOMAIN = "liratek.test";
   process.env.SIGNUP_SELF_SERVE_DAILY_CAP = String(DAILY_CAP);
+  process.env.SIGNUP_SELF_SERVE_ENABLED = "true";
+  // Pinned (dotenv never overrides a set variable): a local .env with a
+  // CLIENT_IP_HEADER would otherwise change which IP the limiter keys on.
+  process.env.CLIENT_IP_HEADER = "";
 
   db = new RealDatabase(":memory:");
   db.pragma("foreign_keys = ON");
@@ -155,14 +173,16 @@ describe("POST /api/auth/signup/request", () => {
     expect(selfInvites()).toBe(0);
   });
 
-  it("self-serve off (no Turnstile keys): the same 'not available'", async () => {
+  // LIRA-278: Turnstile no longer gates self-serve. This test used to assert
+  // "no Turnstile keys -> not available"; it now guards the opposite.
+  it("switch on, Turnstile NOT configured: no token needed, queued, Cloudflare never asked", async () => {
     turnstileConfigured = false;
-    const res = await post(nextIp(), { email: "a@example.com" });
-    expect(res.body).toEqual({
-      success: false,
-      error: "Sign-up is not available right now.",
-    });
-    expect(selfInvites()).toBe(0);
+    const res = await postNoTurnstile(nextIp(), { email: "no-turnstile@example.com" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(GENERIC);
+    expect(verifyTurnstile).not.toHaveBeenCalled();
+    expect(selfInvites("no-turnstile@example.com")).toBe(1);
+    expect(outboxRows()).toBe(1);
   });
 
   it("Turnstile rejects: 200 success:false 'complete the check', nothing queued", async () => {
@@ -315,6 +335,119 @@ describe("POST /api/auth/signup/request", () => {
   });
 });
 
+describe("POST /api/auth/signup/request — LIRA-278 bot checks and shop name", () => {
+  beforeEach(() => {
+    turnstileConfigured = false;
+  });
+
+  function inviteRow(email: string) {
+    return db
+      .prepare(
+        `SELECT shop_name_hint, email_outbox_id FROM signup_invitations
+          WHERE source = 'self' AND email = ?`,
+      )
+      .get(email) as { shop_name_hint: string | null; email_outbox_id: number } | undefined;
+  }
+
+  it("honeypot filled: the SAME generic success, nothing queued, the reason logged", async () => {
+    const res = await postNoTurnstile(nextIp(), {
+      email: "bot@example.com",
+      website: "http://spam.example",
+      formElapsedMs: 10_000,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(GENERIC);
+    expect(selfInvites()).toBe(0);
+    expect(outboxRows()).toBe(0);
+    expect(JSON.stringify(routeLogger.info.mock.calls)).toContain("honeypot");
+  });
+
+  it("form submitted in under 3 seconds: the SAME generic success, nothing queued, the reason logged", async () => {
+    const res = await postNoTurnstile(nextIp(), {
+      email: "fast@example.com",
+      formElapsedMs: 2_999,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(GENERIC);
+    expect(selfInvites()).toBe(0);
+    expect(outboxRows()).toBe(0);
+    expect(JSON.stringify(routeLogger.info.mock.calls)).toContain("too_fast");
+  });
+
+  it("exactly 3 seconds, empty honeypot: queued", async () => {
+    const res = await postNoTurnstile(nextIp(), {
+      email: "human@example.com",
+      website: "",
+      formElapsedMs: 3_000,
+    });
+    expect(res.body).toEqual(GENERIC);
+    expect(selfInvites("human@example.com")).toBe(1);
+  });
+
+  it("no formElapsedMs at all: the timing check is skipped, queued", async () => {
+    const res = await postNoTurnstile(nextIp(), { email: "notiming@example.com" });
+    expect(res.body).toEqual(GENERIC);
+    expect(selfInvites("notiming@example.com")).toBe(1);
+  });
+
+  it("the shop name is stored on the invite and prefills the form, but is NOT in the email", async () => {
+    const res = await postNoTurnstile(nextIp(), {
+      email: "named@example.com",
+      shopNameHint: "Click www.spam.example",
+      formElapsedMs: 8_000,
+    });
+    expect(res.body).toEqual(GENERIC);
+    const row = inviteRow("named@example.com");
+    expect(row?.shop_name_hint).toBe("Click www.spam.example");
+    const outbox = db
+      .prepare(`SELECT data_json FROM email_outbox WHERE id = ?`)
+      .get(row!.email_outbox_id) as { data_json: string };
+    expect(outbox.data_json).not.toContain("spam.example");
+
+    // The link's check hands the name to the sign-up form.
+    const token = /invite=([A-Za-z0-9_-]+)/.exec(
+      JSON.parse(outbox.data_json).inviteUrl as string,
+    )?.[1];
+    expect(token).toBeTruthy();
+    const check = await request(app)
+      .post("/api/auth/signup/invite/check")
+      .set("X-Forwarded-For", nextIp())
+      .send({ token });
+    expect(check.body.success).toBe(true);
+    expect(check.body.data.shopNameHint).toBe("Click www.spam.example");
+  });
+
+  it("Turnstile configured: still required (token missing -> 'complete the check'), bot checks come after it", async () => {
+    turnstileConfigured = true;
+    const res = await postNoTurnstile(nextIp(), {
+      email: "needs-check@example.com",
+      formElapsedMs: 8_000,
+    });
+    expect(res.body).toEqual({
+      success: false,
+      error: "Please complete the check and try again.",
+    });
+    expect(selfInvites()).toBe(0);
+  });
+
+  it("TEMP diagnostic: logs which forwarded headers arrived, hashed — never the raw IP or the email", async () => {
+    const visitor = "203.0.113.77";
+    await request(app)
+      .post("/api/auth/signup/request")
+      .set("X-Forwarded-For", visitor)
+      .set("Fly-Client-IP", visitor)
+      .send(body({ email: "diag.person@example.com", formElapsedMs: 8_000 }));
+    const diagnostic = routeLogger.warn.mock.calls.find((call) =>
+      JSON.stringify(call).includes("LIRA-278 client-ip"),
+    );
+    expect(diagnostic).toBeDefined();
+    const text = JSON.stringify(diagnostic);
+    expect(text).toContain("fly-client-ip");
+    expect(text).not.toContain(visitor);
+    expect(text).not.toContain("diag.person@example.com");
+  });
+});
+
 describe("GET /api/auth/signup-status — self-serve fields", () => {
   it("selfServeEnabled + turnstileSiteKey when email and Turnstile are configured", async () => {
     const res = await request(app).get("/api/auth/signup-status");
@@ -332,10 +465,11 @@ describe("GET /api/auth/signup-status — self-serve fields", () => {
     expect(res.body.data.turnstileSiteKey).toBeNull();
   });
 
-  it("selfServeEnabled false when Turnstile is off", async () => {
+  // LIRA-278: used to assert false; Turnstile is now an optional layer.
+  it("selfServeEnabled TRUE when Turnstile is off (switch on + email), and no site key", async () => {
     turnstileConfigured = false;
     const res = await request(app).get("/api/auth/signup-status");
-    expect(res.body.data.selfServeEnabled).toBe(false);
+    expect(res.body.data.selfServeEnabled).toBe(true);
     expect(res.body.data.turnstileSiteKey).toBeNull();
   });
 });
