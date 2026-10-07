@@ -6445,7 +6445,7 @@ Spec, plan and tasks: `specs/267-email-invite-signup/`. Branch `267-email-invite
 
 **What users will notice:** on the web app, sign-up no longer uses an invite code: new shops join through an email invitation link from LiraTek. The platform admin can email invitations and see whether they were used.
 
-## LIRA-275: "Forgot password?" on the login page (web app) — BUILT on branch `auth-c` (not merged, not deployed)
+## LIRA-275: "Forgot password?" on the login page (web app) — DONE (deployed 2026-10-07, commit 713634ea)
 
 Built 2026-10-07 (feature C of `docs/plans/todo_plans/SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md`, contract C): `/api/password-reset/forgot|check|reset`, core `PasswordResetService`, `password-reset` email template, `/#/forgot-password` and `/#/reset-password` pages, "Forgot password?" link on the web login page. Decided by the v196 foundation: option (a), `users.email`; mail goes only to a VERIFIED email (owner to confirm). No Turnstile: per-IP limit (5/hour) + per-user limit (3/hour) instead. Web e2e `lira-web-040` written, not yet run.
 
@@ -6459,7 +6459,7 @@ Owner request 2026-10-07. The email capability now exists (LIRA-267: Spacemail S
 
 **What users will notice:** a "Forgot password?" link on the web login page that emails a link to choose a new password, for users whose email is confirmed. Choosing a new password signs that account out everywhere.
 
-## LIRA-276: reset password from Settings by email (web app) — TODO
+## LIRA-276: reset password from Settings by email (web app) — DONE (deployed 2026-10-07)
 
 Endpoint built 2026-10-07 on branch `auth-c`: `POST /api/password-reset/send/:userId` (admin of that shop; refuses `USER_HAS_NO_EMAIL`, `EMAIL_NOT_VERIFIED`, `EMAIL_NOT_CONFIGURED`, `RATE_LIMITED`, `NOT_FOUND`) and `sendPasswordReset(userId)` in `backendApi.ts`. The Settings → Users button is feature B's.
 
@@ -6471,13 +6471,13 @@ Owner request 2026-10-07. Today an admin can already set a user's password direc
 
 **What users will notice:** in Settings, admins can email a password-reset link to a user.
 
-## LIRA-277: email deliverability — warm-up, then tighten DMARC (ops) — TODO, due ≈ 2026-10-21
+## LIRA-277: email deliverability — tighten DMARC (ops) — IN PROGRESS (owner doing it 2026-10-07)
 
 Context: `mail@liratek.shop` (Spacemail) passes SPF, DKIM and DMARC in Gmail, but the domain is new, so the first emails (including the first invite) landed in **Spam**. That is reputation, not configuration.
 
 - **Now (owner):** in Gmail, mark LiraTek emails "Not spam", reply to one, and send a couple of normal emails to `mail@liratek.shop`. Use the mailbox normally for about two weeks.
 - **≈ 2026-10-21, if invites land in the Inbox:** in Cloudflare → `liratek.shop` → DNS → edit the TXT record `_dmarc` from `v=DMARC1; p=none; rua=mailto:mail@liratek.shop` to `v=DMARC1; p=quarantine; rua=mailto:mail@liratek.shop`. Check with `dig +short TXT _dmarc.liratek.shop`, then send one invite to Gmail and confirm DMARC still says PASS.
-- Do NOT tighten before then: if anything ever sends as `liratek.shop` without passing SPF/DKIM, `quarantine` sends it to spam.
+- Correction 2026-10-07: tightening does not need the warm-up. DMARC only acts on mail that FAILS SPF/DKIM, and all LiraTek mail passes, so `quarantine` can go in now (owner chose to do it now). The warm-up still matters for inbox placement.
 - Later (optional): `p=reject` once `quarantine` has run cleanly for a few weeks.
 - No code change; no user-visible change (no release note).
 
@@ -6497,6 +6497,37 @@ What users will notice: Session Checkout asks the customer only for their own it
 basket shows $0 and goes on the partner's account only.
 
 ---
+
+## LIRA-278: self-serve "Create your shop" by email — DONE (deployed 2026-10-07, switched on)
+
+Plan: `docs/plans/todo_plans/SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md` (Phase 1). `/signup` asks for email + optional shop name and emails the same one-time link as an admin invite. On with `SIGNUP_SELF_SERVE_ENABLED=true` in `.env.fly` (no Turnstile, owner decision). Protection: hidden bot-trap field, minimum fill time, 3 requests/hour per email, one daily cap of 20 public sign-ups (email + Google), identical reply in every case; the visitor's shop name is never put in the email. Platform Invitations list has an All/Admin/Self filter. Temporary IP diagnostic on `/signup/request` until `CLIENT_IP_HEADER` is chosen (LIRA-283).
+
+**What users will notice:** on the web app, "Sign up" on the login page opens "Create your shop": enter your email (and shop name if you like) and open the link we email you to finish.
+
+## LIRA-279: users have an email address — DONE (deployed 2026-10-07)
+
+Migration v196: `users.email` + `email_verified_at`, unique per shop. Each shop's admin email = the sign-up email (existing shops back-filled from `tenants.contact_email`, marked verified — owner decision). Settings → Users: add/change a user's email, confirmation link by email, Confirmed / Not confirmed badge. The shop owner's own email is not editable (owner decision).
+
+**What users will notice:** in Settings → Users, each staff member can have an email address, confirmed by an emailed link.
+
+## LIRA-280: Continue with Google — DONE, switched OFF until Google is set up
+
+Built 2026-10-07 (Phase 3 of the plan). Central Google flow on `www.liratek.shop` with a 60-second one-time hand-off to the shop's own address; accounts linked by Google ID only; existing users connect Google from Settings only; Google sign-up still sets a password and is always allowed once Google is configured, counting toward the daily cap (migration v197 `tenants.google_signup_at`). Off until `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are in `.env.fly` (owner setup: `docs/DEPLOYMENT.md` §5b-google).
+
+**What users will notice:** nothing until it is switched on. Then: "Continue with Google" on the login and sign-up pages, and "Connect Google" in Settings.
+
+## LIRA-281: invite users to a shop by email — DONE (deployed 2026-10-07)
+
+Settings → Users → "Invite by email" (email + role). The person opens `/#/join?invite=…` on the shop's address and picks their username and password; their email is already confirmed. Pending invitations can be resent or revoked. Lapsed (read-only) shops cannot send invites; an invite opened while the shop is lapsed is refused until renewed (owner decision 2026-10-07, being built).
+
+**What users will notice:** in Settings → Users, "Invite by email" lets you add a staff member or admin; they choose their own username and password from the emailed link.
+
+## LIRA-285: Checkpoint window opens after sign-in again; invites refused while a shop is lapsed — DONE (owner decisions 2026-10-07)
+
+- After a real sign-in (password or Google, not a page refresh), an admin gets the Checkpoint window for the first drawer not counted today (General first), when checkpoints are on. Once per sign-in; closing it does not reopen it. Skipped right after the setup wizard (it has just counted every drawer). Per-drawer check, not the old "anything counted today" check.
+- A user invite opened while the shop's subscription has lapsed (read-only) is refused with "This shop is not active right now. Ask the shop owner to renew, then use the link again." The invite is kept, so the same link works after renewal, before it expires. Grace-period shops still accept invites.
+
+**What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
 ## LIRA-282: API rate limit can lock out a shop's tills — HIGH — DONE (owner: per user + clear message, 2026-10-07)
 
