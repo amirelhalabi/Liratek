@@ -1184,6 +1184,75 @@ describe("SupplierRepository.settleAccount()", () => {
       expect(drawerBal(db, "OMT_System", "LBP")).toBeCloseTo(preDrawerLbp);
     });
 
+    // Cashier-facing wording: the message must OPEN with one plain sentence
+    // (the same ones `reconcileLegs` uses), technical detail in parentheses
+    // after it, and the sentence must appear exactly once.
+    describe("mismatch message opens with a plain sentence", () => {
+      const settleWith = (
+        payments: NonNullable<
+          Parameters<SupplierRepository["settleAccount"]>[0]["payments"]
+        >,
+      ): string => {
+        const { omtId, ipickId } = seedOmtAccount();
+        const debtId = seedLedgerEntry(db, {
+          supplierId: ipickId,
+          entryType: "TOP_UP",
+          amountUsd: 100,
+          amountLbp: 100_000,
+        });
+        try {
+          repo.settleAccount({
+            account_supplier_id: omtId,
+            direction: "PAY",
+            selections: [{ kind: "LEDGER", id: debtId }],
+            amount_usd: 100,
+            amount_lbp: 100_000,
+            commission_usd: 0,
+            commission_lbp: 0,
+            created_by: 1,
+            payments,
+          });
+        } catch (e) {
+          return (e as Error).message;
+        }
+        throw new Error("expected settleAccount to throw");
+      };
+      const count = (hay: string, needle: string) =>
+        hay.split(needle).length - 1;
+
+      it('underpaid → "The payment doesn\'t add up to the total."', () => {
+        const sentence = "The payment doesn't add up to the total.";
+        const msg = settleWith([
+          { method: "CASH", currency_code: "USD", amount: 60 },
+          { method: "CASH", currency_code: "LBP", amount: 100_000 },
+        ]);
+        expect(msg.startsWith(`${sentence} (`)).toBe(true);
+        expect(count(msg, sentence)).toBe(1);
+        expect(msg).toMatch(/do not reconcile/i);
+      });
+
+      it('overpaid → "The payment is more than the total."', () => {
+        const sentence = "The payment is more than the total.";
+        const msg = settleWith([
+          { method: "CASH", currency_code: "USD", amount: 150 },
+          { method: "CASH", currency_code: "LBP", amount: 100_000 },
+        ]);
+        expect(msg.startsWith(`${sentence} (`)).toBe(true);
+        expect(count(msg, sentence)).toBe(1);
+        expect(msg).toMatch(/do not reconcile/i);
+      });
+
+      it('one currency short, the other over → "The payment doesn\'t match the total."', () => {
+        const sentence = "The payment doesn't match the total.";
+        const msg = settleWith([
+          { method: "CASH", currency_code: "USD", amount: 60 },
+          { method: "CASH", currency_code: "LBP", amount: 150_000 },
+        ]);
+        expect(msg.startsWith(`${sentence} (`)).toBe(true);
+        expect(count(msg, sentence)).toBe(1);
+      });
+    });
+
     // Historical note (superseded, third hardening round, Finding A): this
     // test used to prove a PAY-direction OUT (change) leg was credited back
     // with the opposite sign instead of double-debiting (rule 16's IN/OUT

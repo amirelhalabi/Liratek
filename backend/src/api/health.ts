@@ -7,6 +7,7 @@ import { Router } from "express";
 import { getDatabase } from "../database/connection.js";
 import { logger } from "../server.js";
 import os from "os";
+import { resolveClientIpDetailed } from "../middleware/clientIp.js";
 
 // Get version from package.json
 const version = "1.0.0";
@@ -24,6 +25,25 @@ router.get("/", (_req, res) => {
     uptime: Math.floor(process.uptime()),
     version,
   });
+});
+
+/**
+ * Which client IP the server resolved for THIS request (LIRA-283).
+ *
+ * The deploy verifier (`scripts/deploy-api.mjs`) calls it through
+ * www.liratek.shop (expects `source: "vercel"` and the caller's real IP) and
+ * directly with forged headers (expects `source: "direct"` and NOT the forged
+ * value). The owner can also open https://www.liratek.shop/health/client-ip
+ * from the shop and compare `ip` with the shop's public address.
+ *
+ * Unauthenticated like the rest of /health, deliberately: the verifier holds
+ * no credentials, and the answer is only the caller's OWN address and which
+ * header it came from — never another request's data, never the secret.
+ */
+router.get("/client-ip", (req, res) => {
+  const { ip, source, header, proxyVerified } = resolveClientIpDetailed(req);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ success: true, ip, source, header, proxyVerified });
 });
 
 /**

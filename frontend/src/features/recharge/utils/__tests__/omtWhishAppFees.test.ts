@@ -260,3 +260,38 @@ describe("calculateOmtWhishAppFees — Whish App SEND has no fee (production tes
     expect(result.customerPays).toBeCloseTo(105, 2);
   });
 });
+
+describe("calculateOmtWhishAppFees — Whish App LBP RECEIVE has no fee", () => {
+  // The form hides the fee field on Whish App LBP RECEIVE, yet a fee typed
+  // while the toggle was on USD survived the switch to LBP and was charged
+  // and booked without the cashier seeing it. Forced to 0 here, the same way
+  // as Whish App SEND and OMT App RECEIVE.
+  // Rule 17: run red before the fix (2026-10-07) — providerFee Expected 0,
+  // Received 5.
+  it("ignores a leftover manual fee: no fee, no commission, wallet == payout == entered amount", () => {
+    const result = calculateOmtWhishAppFees({
+      ...base,
+      currency: "LBP",
+      parsedAmount: 1_000_000,
+      manualFee: "5",
+    });
+
+    expect(result.providerFee).toBe(0);
+    expect(result.shopProfit).toBe(0);
+    expect(result.commission).toBe(0);
+    expect(result.walletAmount).toBe(1_000_000);
+    expect(result.totalAmount).toBe(1_000_000);
+  });
+
+  it("guard: Whish App USD RECEIVE still charges a typed fee", () => {
+    const result = calculateOmtWhishAppFees({
+      ...base,
+      currency: "USD",
+      parsedAmount: 100,
+      manualFee: "5",
+    });
+
+    expect(result.providerFee).toBe(5);
+    expect(result.commission).toBe(5);
+  });
+});

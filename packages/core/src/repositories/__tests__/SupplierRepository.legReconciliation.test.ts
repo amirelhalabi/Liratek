@@ -430,6 +430,70 @@ describe("SupplierRepository.settleTransactions() — leg reconciliation (LIRA-1
       expect(drawerBalance(db, "General", "LBP")).toBeCloseTo(preDrawerLbp);
     });
 
+    // Cashier-facing wording: this reaches the till as a toast, so the
+    // message must OPEN with one plain sentence (the same two sentences
+    // `reconcileLegs` uses), with the technical detail after it in
+    // parentheses — and the sentence must appear exactly once.
+    describe("mismatch message opens with a plain sentence", () => {
+      const settleWith = (
+        amountUsd: number,
+        amountLbp: number,
+        payments: NonNullable<
+          Parameters<SupplierRepository["settleTransactions"]>[0]["payments"]
+        >,
+      ): string => {
+        const supplierId = seedSupplier(db, "Katsh");
+        const fsId = seedFs(db, { provider: "Katsh", amount: 100 });
+        try {
+          repo.settleTransactions({
+            supplier_id: supplierId,
+            financial_service_ids: [fsId],
+            amount_usd: amountUsd,
+            amount_lbp: amountLbp,
+            commission_usd: 0,
+            commission_lbp: 0,
+            created_by: 1,
+            payments,
+          });
+        } catch (e) {
+          return (e as Error).message;
+        }
+        throw new Error("expected settleTransactions to throw");
+      };
+      const count = (hay: string, needle: string) =>
+        hay.split(needle).length - 1;
+
+      it('underpaid → "The payment doesn\'t add up to the total."', () => {
+        const sentence = "The payment doesn't add up to the total.";
+        const msg = settleWith(100, 0, [
+          { method: "CASH", currency_code: "USD", amount: 60 },
+        ]);
+        expect(msg.startsWith(`${sentence} (`)).toBe(true);
+        expect(count(msg, sentence)).toBe(1);
+        expect(msg).toMatch(/do not reconcile/i);
+      });
+
+      it('overpaid → "The payment is more than the total."', () => {
+        const sentence = "The payment is more than the total.";
+        const msg = settleWith(100, 0, [
+          { method: "CASH", currency_code: "USD", amount: 150 },
+        ]);
+        expect(msg.startsWith(`${sentence} (`)).toBe(true);
+        expect(count(msg, sentence)).toBe(1);
+        expect(msg).toMatch(/do not reconcile/i);
+      });
+
+      it('one currency short, the other over → "The payment doesn\'t match the total."', () => {
+        const sentence = "The payment doesn't match the total.";
+        const msg = settleWith(100, 100_000, [
+          { method: "CASH", currency_code: "USD", amount: 60 },
+          { method: "CASH", currency_code: "LBP", amount: 150_000 },
+        ]);
+        expect(msg.startsWith(`${sentence} (`)).toBe(true);
+        expect(count(msg, sentence)).toBe(1);
+      });
+    });
+
     it("rejects an OUT (change) leg outright — a supplier settlement has no customer to hand change back to", () => {
       const supplierId = seedSupplier(db, "Katsh");
       const fsId = seedFs(db, { provider: "Katsh", amount: 100 });

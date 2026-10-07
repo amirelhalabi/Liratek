@@ -60,6 +60,8 @@
 - In a customer basket, an OMT receive line no longer shows a fee, and a For Partner transfer says it goes on the partner's account instead of listing fees the customer doesn't pay.
 - Custom services: a For Partner service now needs a selling price, like a walk-in sale. Until you type one, "Submit to Partner" stays greyed out and the page asks for a price, so the partner is always charged the price.
 - Desktop app: insurance services now start their fulfilment tracking (Ordered → Issued → Received → Delivered) like on the web app — before, the desktop app dropped it.
+- Whish App receive: a fee typed while the amount was in dollars is no longer charged after switching to LBP, where the fee field is hidden. Switching between USD and LBP now clears the fee on OMT App and Whish App. From now on; receives already recorded keep their fee.
+- When you settle a supplier and the payment you entered doesn't match the amount due, the error now tells you in plain words whether you paid too little or too much.
 
 ## 🏠 Dashboard
 
@@ -107,6 +109,9 @@
 - Binance transfers now show on the Profits page: the fee and any change you kept count in Overview, By Module, By Date, By Cashier and By Client, including past days. Binance amounts are counted as US dollars and now also count in revenue.
 - Undoing a refund now brings Profits back to what it was before the refund, on every Profits tab and in the day close, including refunds undone on earlier days.
 - In the Kept change details, change kept on a Debts credit cash-out is now labelled "Debts cash-out kept change".
+- The Commissions tab now includes Binance, counted in dollars, so its total matches the Overview for the same period.
+- Payment-method fees on Binance transactions now count as profit (in dollars) on every Profits tab.
+- In a Binance or older OMT/Whish "Show transactions" list, a transfer with no commission now says "No commission was recorded on this transfer" instead of "counted when the supplier settles".
 
 ## 📱 MTC / Alfa
 
@@ -130,6 +135,7 @@
 
 - Exchange: you can now keep the change — hand out the round amount (e.g. $101 instead of $101.12) and the leftover cents count as shop profit automatically; the form says so. On the Profits page those kept cents count as kept change instead of being added into the Currency Exchange profit, which now shows only the exchange margin; the total profit is the same.
 - Exchange: the page now opens on USD → LBP.
+- From now on, keeping change on an exchange payout is refused if the amount kept is more than what was actually left unpaid.
 
 ## 🛒 POS
 
@@ -152,6 +158,7 @@
 - POS: when you refund a single item in cash, you can now keep a small leftover (under $1 or 100,000 LBP) as shop profit, the same as when refunding a whole sale. Undoing that item refund removes it again.
 - Payment form: change warnings now show the dollar sign before the amount (for example "Returning $0.53 more…").
 - Payment form: the Paid amount no longer turns red when change is due or kept. Red now only means something needs fixing, such as an underpayment or handing back too much change.
+- When a payment doesn't match the total, the message now starts with a plain explanation ("The payment doesn't add up to the total." or "The payment is more than the total.") instead of technical text — on Loto, Exchange, OMT/Whish fees, Hold Money, supplier payments and other screens.
 
 ## 💳 Debts
 

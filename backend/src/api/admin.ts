@@ -50,6 +50,7 @@ import {
   type LiratekJwtPayload,
 } from "../middleware/auth.js";
 import { validateQuery, validateRequest } from "../middleware/validation.js";
+import { clientIp } from "../middleware/clientIp.js";
 import { logger } from "../server.js";
 import {
   provisionTenantDomain,
@@ -519,7 +520,7 @@ router.post("/tenants/:id/impersonate", (req, res) => {
         user_id: tenantAdmin.id,
         device_type: "impersonation",
         device_info: `impersonated by ${superAdmin.username} (#${superAdmin.userId})`,
-        ip_address: req.ip || req.socket.remoteAddress,
+        ip_address: clientIp(req) || req.socket.remoteAddress,
         remember_me: false,
         tenant_id: tenantId,
       }),

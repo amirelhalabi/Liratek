@@ -14,7 +14,10 @@ import {
   runWithTenant,
   runWithoutTenant,
 } from "@liratek/core";
-import { resolveTenantHost, isHostTenancyActive } from "../middleware/tenantHost.js";
+import {
+  resolveTenantHost,
+  isHostTenancyActive,
+} from "../middleware/tenantHost.js";
 import { isPerTenantDbMode } from "../database/tenantDbMode.js";
 import { logger } from "../server.js";
 import {
@@ -55,7 +58,11 @@ export function resolvePublicTokenScope(req: Request): PublicTokenScope {
   }
   if (isHostTenancyActive(realm)) return { ok: false };
   if (isPerTenantDbMode()) return { ok: false };
-  return { ok: true, requiredTenantId: null, run: (fn) => runWithoutTenant(fn) };
+  return {
+    ok: true,
+    requiredTenantId: null,
+    run: (fn) => runWithoutTenant(fn),
+  };
 }
 
 /**
@@ -74,7 +81,9 @@ export function sendFailure(
     return;
   }
   logger.error({ error }, logMessage);
-  res.status(500).json(createErrorResponse(ErrorCodes.INTERNAL_ERROR, fallback));
+  res
+    .status(500)
+    .json(createErrorResponse(ErrorCodes.INTERNAL_ERROR, fallback));
 }
 
 /**
@@ -85,7 +94,9 @@ export function sendFailure(
 export function requirePositiveIdParam(name: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!/^[1-9]\d*$/.test(req.params[name] ?? "")) {
-      res.json(createErrorResponse(ErrorCodes.VALIDATION_ERROR, `Invalid ${name}`));
+      res.json(
+        createErrorResponse(ErrorCodes.VALIDATION_ERROR, `Invalid ${name}`),
+      );
       return;
     }
     next();
@@ -99,7 +110,7 @@ function envLimit(name: string, fallback: number): number {
 
 /**
  * Per-IP limiter for the public link routes (join check/accept, email
- * verify). Keys on the real client IP (`CLIENT_IP_HEADER`, else `req.ip`)
+ * verify). Keys on the real client IP (proxy-secret-verified Vercel header, else `req.ip`)
  * through the one shared helper in `middleware/clientIp.ts`.
  */
 export function createPublicLinkLimiter(envName: string, label: string) {

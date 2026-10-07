@@ -50,8 +50,12 @@ import {
   resolveSupportEmail,
   resolveTenantBaseUrl,
 } from "../email/emailConfig.js";
-import { isTurnstileConfigured, verifyTurnstile } from "../security/turnstile.js";
 import {
+  isTurnstileConfigured,
+  verifyTurnstile,
+} from "../security/turnstile.js";
+import {
+  clientIp,
   logForwardedHeadersForSignup,
   resolveClientIp,
 } from "../middleware/clientIp.js";
@@ -184,7 +188,7 @@ router.post(
           rememberMe: rememberMe || false,
           deviceType: "web",
           deviceInfo: req.headers["user-agent"] || "Unknown",
-          ipAddress: req.ip || req.socket.remoteAddress,
+          ipAddress: clientIp(req) || req.socket.remoteAddress,
         }),
       );
 
@@ -690,7 +694,10 @@ router.post(
     } catch (error) {
       logger.error({ error }, "Sign-up invite check failed");
       res.json(
-        createErrorResponse(ErrorCodes.FORBIDDEN, SIGNUP_INVITE_INVALID_MESSAGE),
+        createErrorResponse(
+          ErrorCodes.FORBIDDEN,
+          SIGNUP_INVITE_INVALID_MESSAGE,
+        ),
       );
     }
   },
@@ -709,7 +716,8 @@ router.post(
 // a bot failed. The address is logged only as hashToken(email). No audit
 // row: there is no tenant and no actor.
 const SELF_SERVE_NOT_AVAILABLE = "Sign-up is not available right now.";
-const SELF_SERVE_TURNSTILE_REJECTED = "Please complete the check and try again.";
+const SELF_SERVE_TURNSTILE_REJECTED =
+  "Please complete the check and try again.";
 const SELF_SERVE_TRY_LATER = "Please try again in a few minutes.";
 const SELF_SERVE_GENERIC_MESSAGE =
   "If this address can be used, we've emailed a link.";
@@ -778,10 +786,15 @@ router.post(
         }
         const verdict = await verifyTurnstile(token, resolveClientIp(req));
         if (verdict !== "passed") {
-          logger.info({ emailHash, verdict }, "Self-serve sign-up: Turnstile not passed");
+          logger.info(
+            { emailHash, verdict },
+            "Self-serve sign-up: Turnstile not passed",
+          );
           selfServeRefusal(
             res,
-            verdict === "rejected" ? SELF_SERVE_TURNSTILE_REJECTED : SELF_SERVE_TRY_LATER,
+            verdict === "rejected"
+              ? SELF_SERVE_TURNSTILE_REJECTED
+              : SELF_SERVE_TRY_LATER,
           );
           return;
         }
@@ -795,7 +808,9 @@ router.post(
           { emailHash, queued: false, reason: botReason },
           "Self-serve sign-up request dropped as automated",
         );
-        res.json(createSuccessResponse({ message: SELF_SERVE_GENERIC_MESSAGE }));
+        res.json(
+          createSuccessResponse({ message: SELF_SERVE_GENERIC_MESSAGE }),
+        );
         return;
       }
 
@@ -991,7 +1006,10 @@ router.post(
       // The invite's email belongs to a shop already (a race past the admin
       // check, caught by the unique index). The invite was released.
       if (error instanceof AppError && error.code === EMAIL_ALREADY_HAS_SHOP) {
-        logger.warn({ slug: req.body?.slug }, "Signup refused: email has a shop");
+        logger.warn(
+          { slug: req.body?.slug },
+          "Signup refused: email has a shop",
+        );
         res
           .status(400)
           .json(

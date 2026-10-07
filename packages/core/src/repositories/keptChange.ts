@@ -15,8 +15,14 @@
  *              OUT = change back to customer
  *   payout     shop → customer (OMT/Whish      shop PROFIT, capped below
  *              RECEIVE, Binance cash-out,      PAYOUT_KEEP_CHANGE_MAX ($1 /
- *              buyback, credit cash-out);      100,000 LBP), payout currency
- *              NO OUT legs ever                only: paid = owed − kept
+ *              buyback, credit cash-out,       100,000 LBP), payout currency
+ *              Exchange, Hold Money pickup);   only: paid = owed − kept
+ *              NO OUT legs ever
+ *   payout +   shop → customer in BOTH         shop PROFIT per currency, NO
+ *   perCurren- currencies at once (Hold Money  cap: handed ≤ owed and
+ *   cyNoCap    two-currency pickup)            kept = owed − handed, in each
+ *                                              currency; the claim must
+ *                                              equal it exactly
  *   shop       shop → outsider (Expenses);     added to the COST, never
  *              OUT ("returned") = change the   profit: cost = handed −
  *              outsider hands back INTO the    returned
@@ -25,8 +31,10 @@
  * Kept profit belongs INSIDE the transaction's own profit stamp
  * (`profit_usd`/`profit_lbp`, per currency, unconverted) — never a separate
  * field — so the generic void/refund negates it for free (rule 20). Exchange
- * keeps its own `kept_profit_usd` model (USD-only profit column) and does
- * not call this.
+ * calls this for the CHECK only (payer "payout") and keeps its own booking
+ * model: the kept amount's USD value goes to `metadata_json.kept_profit_usd`
+ * (exchange profit is a USD-only column), read by ProfitRepository's
+ * `exchangeKeptProfitUsd`.
  *
  * FOR-partner transactions refuse kept change in every payer mode (exact
  * amount required), as Exchange already does.
@@ -91,7 +99,11 @@ import {
   type KeptChange,
   type ReconciliationLeg,
 } from "./moneyPosting.js";
-import { PAYOUT_KEEP_CHANGE_MAX } from "../validators/exchange.js";
+import {
+  KEPT_CHANGE_ROUNDING_TOLERANCE,
+  PAYOUT_KEEP_CHANGE_MAX,
+} from "../validators/exchange.js";
+import { holdPickupKeptPerCurrency } from "../validators/holdMoney.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { isDrawerAffectingMethod } from "../utils/payments.js";
 
@@ -125,6 +137,7 @@ export interface CustomerKeptChangeInput extends ResolveKeptChangeCommon {
 /** Shop hands money to a customer. */
 export interface PayoutKeptChangeInput extends ResolveKeptChangeCommon {
   payer: "payout";
+  perCurrencyNoCap?: false;
   /** What the shop owes the customer, in ONE currency. */
   owed: number;
   owedCurrency: string;
@@ -133,6 +146,28 @@ export interface PayoutKeptChangeInput extends ResolveKeptChangeCommon {
   /** Always refused when non-empty — a payout has no "change". Accepted as
    *  a parameter only so a caller passing its partitioned OUT set gets a
    *  clear refusal instead of a silent ignore. */
+  outLegs?: ReconciliationLeg[] | undefined | null;
+}
+
+/**
+ * Shop hands money to a customer in BOTH currencies at once, keeping a
+ * leftover in EACH currency with NO cap (owner decision 2026-10-07 — Hold
+ * Money's two-currency pickup). Per currency: handed ≤ owed, kept = owed −
+ * handed (rounded to cents / whole LBP), and the claim must equal it within
+ * {@link KEPT_CHANGE_ROUNDING_TOLERANCE} — an under-claim is refused too
+ * (money would go unaccounted). Handing MORE than owed in a currency (a
+ * cross-currency payout) is exact-only: no claim. With no claim the legs
+ * reconcile exactly against both currencies (cross-currency allowed).
+ */
+export interface PayoutPerCurrencyKeptChangeInput
+  extends ResolveKeptChangeCommon {
+  payer: "payout";
+  perCurrencyNoCap: true;
+  /** What the shop owes, per currency. */
+  owed: { usd: number; lbp: number };
+  /** The cash/method lines the shop hands out. Must carry no OUT leg. */
+  payoutLegs: ReconciliationLeg[] | undefined | null;
+  /** Always refused when non-empty (see PayoutKeptChangeInput). */
   outLegs?: ReconciliationLeg[] | undefined | null;
 }
 
@@ -150,6 +185,7 @@ export interface ShopKeptChangeInput extends ResolveKeptChangeCommon {
 export type ResolveKeptChangeInput =
   | CustomerKeptChangeInput
   | PayoutKeptChangeInput
+  | PayoutPerCurrencyKeptChangeInput
   | ShopKeptChangeInput;
 
 export interface KeptChangeResult {
@@ -178,29 +214,14 @@ const ZERO: KeptChangeResult = {
   costLbp: 0,
 };
 
-/** Cents / whole-LBP rounding the UI applies to a kept figure. */
-const ROUNDING_TOLERANCE = { USD: 0.005, LBP: 0.5 } as const;
+/** Cents / whole-LBP rounding the UI applies to a kept figure (one
+ *  definition, browser-safe — validators/exchange.ts). */
+const ROUNDING_TOLERANCE = KEPT_CHANGE_ROUNDING_TOLERANCE;
 const FLOAT_DUST = 1e-9;
 
 /** A refusal the cashier reads: plain sentence first, detail after. */
 function refusal(plain: string, context: string, detail: string): Error {
   return new Error(`${plain} (${context}: ${detail})`);
-}
-
-const NOT_ADD_UP = "The payment doesn't add up to the total.";
-
-/** `reconcileLegs` with the cashier-facing sentence in front of its
- *  technical "do not reconcile" text (moneyPosting.ts is shared by flows
- *  that don't use this helper, so its own wording is left alone). */
-function reconcile(args: Parameters<typeof reconcileLegs>[0]): void {
-  try {
-    reconcileLegs(args);
-  } catch (e) {
-    if (e instanceof Error && /do not reconcile/.test(e.message)) {
-      throw new Error(`${NOT_ADD_UP} (${e.message})`);
-    }
-    throw e;
-  }
 }
 
 const isDrawer = (l: ReconciliationLeg) => isDrawerAffectingMethod(l.method);
@@ -332,7 +353,7 @@ export function resolveKeptChange(
           "keeping change needs the payment lines — there is nothing to keep it from",
         );
       }
-      reconcile({
+      reconcileLegs({
         inLegs,
         outLegs,
         keptChange: { usd: kept.usd, lbp: kept.lbp },
@@ -386,7 +407,7 @@ export function resolveKeptChange(
       }
       // Same equation as a customer payment, read from the shop's side:
       // handed − returned − notReturned = bill.
-      reconcile({
+      reconcileLegs({
         inLegs: handed,
         outLegs: returned,
         keptChange: { usd: kept.usd, lbp: kept.lbp },
@@ -452,12 +473,15 @@ export function resolveKeptChange(
           "a payout cannot carry change (OUT) legs — the shop hands out money, it never receives change",
         );
       }
+      if (input.perCurrencyNoCap === true) {
+        return resolvePerCurrencyPayout(input, all, kept);
+      }
       const legs = all;
       const to = input.owedCurrency;
       const owed = Math.abs(input.owed);
 
       if (!kept.any) {
-        reconcile({
+        reconcileLegs({
           inLegs: legs,
           expectedTotals:
             to === "LBP" ? { usd: 0, lbp: owed } : { usd: owed, lbp: 0 },
@@ -522,7 +546,7 @@ export function resolveKeptChange(
       // paid = owed − kept, via the S2 equation with the reduced target
       // (reconcileLegs' own keptChange arg has the overpay sign — wrong here).
       const remaining = owed - keptInPayout;
-      reconcile({
+      reconcileLegs({
         inLegs: legs,
         expectedTotals:
           to === "LBP"
@@ -544,4 +568,67 @@ export function resolveKeptChange(
         : { ...ZERO, keptLbp: keptInPayout };
     }
   }
+}
+
+/** Payout, both currencies, no cap — see {@link PayoutPerCurrencyKeptChangeInput}.
+ *  `legs` are the non-empty payout legs (OUT legs already refused). */
+function resolvePerCurrencyPayout(
+  input: PayoutPerCurrencyKeptChangeInput,
+  legs: ReconciliationLeg[],
+  kept: { usd: number; lbp: number; any: boolean },
+): KeptChangeResult {
+  const { context, exchangeRate, tenderExchangeRate, owed } = input;
+  if (!kept.any) {
+    reconcileLegs({
+      inLegs: legs,
+      expectedTotals: { usd: owed.usd, lbp: owed.lbp },
+      exchangeRate,
+      ...(tenderExchangeRate !== undefined ? { tenderExchangeRate } : {}),
+      context,
+    });
+    return { ...ZERO };
+  }
+  if (legs.length === 0) {
+    throw refusal(
+      "There is no payout line to keep change from.",
+      context,
+      "keeping change needs the payment lines — without them the full payout is paid out",
+    );
+  }
+  // The per-currency arithmetic is the browser-safe helper the pickup sheet
+  // previews with (rule 14 — one definition, rule 29 — it stays pure).
+  const k = holdPickupKeptPerCurrency(
+    owed,
+    legs.map((l) => ({ currency_code: l.currencyCode, amount: l.amount })),
+  );
+  if (k.overUsd || k.overLbp) {
+    const cur = k.overUsd ? "USD" : "LBP";
+    const handed =
+      cur === "USD" ? k.handedUsd.toFixed(2) : String(Math.round(k.handedLbp));
+    const due =
+      cur === "USD" ? owed.usd.toFixed(2) : String(Math.round(owed.lbp));
+    throw refusal(
+      `You can't hand out more ${cur} than is being returned while keeping change — pay the exact amount instead.`,
+      context,
+      `handed ${cur} ${handed} is more than the ${due} returned`,
+    );
+  }
+  if (
+    Math.abs(kept.usd - k.keptUsd) > ROUNDING_TOLERANCE.USD ||
+    Math.abs(kept.lbp - k.keptLbp) > ROUNDING_TOLERANCE.LBP
+  ) {
+    throw refusal(
+      "The payment doesn't add up to the total.",
+      context,
+      `claimed kept $${kept.usd.toFixed(2)} + ${Math.round(kept.lbp)} LBP, but owed − handed is $${k.keptUsd.toFixed(2)} + ${k.keptLbp} LBP`,
+    );
+  }
+  if (legs.some((l) => !isDrawer(l))) {
+    throw refusal(
+      "Change can only be kept on a cash or wallet payout.",
+      context,
+      "a payout through an account or gift card cannot keep change — every payout line must move a drawer",
+    );
+  }
+  return { ...ZERO, keptUsd: k.keptUsd, keptLbp: k.keptLbp };
 }

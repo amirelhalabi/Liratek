@@ -10,7 +10,8 @@
  *
  * The test app trusts one proxy hop, like server.ts; the shop comes from
  * X-Forwarded-Host, exactly as Vercel -> Fly delivers it. The per-IP limiter
- * keys on CLIENT_IP_HEADER (`fly-client-ip`); each test sends its own.
+ * keys on CLIENT_IP_HEADER (`fly-client-ip`), believed only with the Vercel
+ * proxy secret (LIRA-283); each test sends its own.
  *
  * Request bodies are parsed through the core schemas first (rule 24).
  */
@@ -22,7 +23,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 jest.mock("../../server.js", () => ({
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 let emailConfigured = true;
@@ -79,7 +85,8 @@ const PASSWORD = "N3w!Passw0rd";
 const GENERIC_SENT = {
   success: true,
   data: {
-    message: "If this email belongs to an account in this shop, we've sent a link.",
+    message:
+      "If this email belongs to an account in this shop, we've sent a link.",
   },
 };
 const INVALID_LINK = "This reset link is not valid. Ask for a new one.";
@@ -98,11 +105,16 @@ const SHOP_HOST = "cellcity.liratek.test";
 const OTHER_HOST = "other.liratek.test";
 const WWW_HOST = "www.liratek.test";
 
-function forgot(host: string, input: { email: string; shop?: string }, ip = nextIp()) {
+function forgot(
+  host: string,
+  input: { email: string; shop?: string },
+  ip = nextIp(),
+) {
   expect(core.forgotPasswordSchema.safeParse(input).success).toBe(true);
   return request(app)
     .post("/api/password-reset/forgot")
     .set("X-Forwarded-Host", host)
+    .set("x-liratek-proxy-auth", "lira283-test-proxy-secret-0123456789abcdef")
     .set("fly-client-ip", ip)
     .send(input);
 }
@@ -113,6 +125,7 @@ function check(host: string, token: string) {
   return request(app)
     .post("/api/password-reset/check")
     .set("X-Forwarded-Host", host)
+    .set("x-liratek-proxy-auth", "lira283-test-proxy-secret-0123456789abcdef")
     .set("fly-client-ip", nextIp())
     .send(input);
 }
@@ -121,6 +134,7 @@ function reset(host: string, token: string, password = PASSWORD) {
   return request(app)
     .post("/api/password-reset/reset")
     .set("X-Forwarded-Host", host)
+    .set("x-liratek-proxy-auth", "lira283-test-proxy-secret-0123456789abcdef")
     .set("fly-client-ip", nextIp())
     .send({ token, password });
 }
@@ -149,6 +163,9 @@ beforeAll(async () => {
   process.env.JWT_SECRET = "password-reset-test-secret-0123456789-0123456789";
   process.env.APP_BASE_DOMAIN = "liratek.test";
   process.env.CLIENT_IP_HEADER = "fly-client-ip";
+  // LIRA-283: the header is only believed alongside the Vercel proxy secret.
+  process.env.CLIENT_IP_PROXY_SECRET =
+    "lira283-test-proxy-secret-0123456789abcdef";
 
   db = new RealDatabase(":memory:");
   db.pragma("foreign_keys = ON");
@@ -185,6 +202,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   db.close();
+  delete process.env.CLIENT_IP_PROXY_SECRET;
 });
 
 beforeEach(() => {
@@ -221,13 +239,19 @@ describe("POST /forgot", () => {
   });
 
   it("on www with a shop address: uses that shop", async () => {
-    const res = await forgot(WWW_HOST, { email: "boss@shop.com", shop: "cellcity" });
+    const res = await forgot(WWW_HOST, {
+      email: "boss@shop.com",
+      shop: "cellcity",
+    });
     expect(res.body).toEqual(GENERIC_SENT);
     expect(outboxRows()).toBe(1);
   });
 
   it("on www with an unknown shop: the generic reply, nothing sent", async () => {
-    const res = await forgot(WWW_HOST, { email: "boss@shop.com", shop: "nosuchshop" });
+    const res = await forgot(WWW_HOST, {
+      email: "boss@shop.com",
+      shop: "nosuchshop",
+    });
     expect(res.body).toEqual(GENERIC_SENT);
     expect(outboxRows()).toBe(0);
   });
@@ -242,7 +266,9 @@ describe("POST /forgot", () => {
   });
 
   it("on an unknown subdomain: the generic reply, nothing sent", async () => {
-    const res = await forgot("nosuchshop.liratek.test", { email: "boss@shop.com" });
+    const res = await forgot("nosuchshop.liratek.test", {
+      email: "boss@shop.com",
+    });
     expect(res.body).toEqual(GENERIC_SENT);
     expect(outboxRows()).toBe(0);
   });
@@ -266,6 +292,7 @@ describe("POST /forgot", () => {
     const res = await request(app)
       .post("/api/password-reset/forgot")
       .set("X-Forwarded-Host", SHOP_HOST)
+      .set("x-liratek-proxy-auth", "lira283-test-proxy-secret-0123456789abcdef")
       .set("fly-client-ip", nextIp())
       .send({ email: "not-an-email" });
     expect(res.status).toBe(200);
@@ -291,7 +318,10 @@ describe("POST /check and /reset", () => {
 
   it("check: the generic refusal for an unknown link or another shop's address", async () => {
     const token = await emailedToken();
-    for (const res of [await check(SHOP_HOST, "nope"), await check(OTHER_HOST, token)]) {
+    for (const res of [
+      await check(SHOP_HOST, "nope"),
+      await check(OTHER_HOST, token),
+    ]) {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
       expect(res.body.error.message).toBe(INVALID_LINK);
@@ -303,7 +333,9 @@ describe("POST /check and /reset", () => {
       INSERT INTO sessions (tenant_id, user_id, token, expires_at) VALUES
         (2, 20, 's1', '2099-01-01'), (2, 20, 's2', '2099-01-01'), (2, 24, 's3', '2099-01-01');`);
     const token = await emailedToken();
-    expect(core.resetPasswordSchema.safeParse({ token, password: PASSWORD }).success).toBe(true);
+    expect(
+      core.resetPasswordSchema.safeParse({ token, password: PASSWORD }).success,
+    ).toBe(true);
 
     const res = await reset(SHOP_HOST, token);
     expect(res.body).toEqual({
@@ -316,8 +348,12 @@ describe("POST /check and /reset", () => {
       }
     ).password_hash;
     expect(core.verifyPassword(PASSWORD, hash)).toBe(true);
-    expect(count(`SELECT COUNT(*) AS n FROM sessions WHERE user_id = 20`)).toBe(0);
-    expect(count(`SELECT COUNT(*) AS n FROM sessions WHERE user_id = 24`)).toBe(1);
+    expect(count(`SELECT COUNT(*) AS n FROM sessions WHERE user_id = 20`)).toBe(
+      0,
+    );
+    expect(count(`SELECT COUNT(*) AS n FROM sessions WHERE user_id = 24`)).toBe(
+      1,
+    );
     const audit = db
       .prepare(
         `SELECT tenant_id, user_id, username, entity_type, entity_id, summary FROM audit_log ORDER BY id DESC LIMIT 1`,
@@ -361,7 +397,9 @@ describe("POST /send/:userId (LIRA-276)", () => {
     const req = request(app)
       .post(`/api/password-reset/send/${userId}`)
       .set("X-Forwarded-Host", SHOP_HOST);
-    return role ? req.set("x-test-role", role).set("x-test-tenant", String(tenant)) : req;
+    return role
+      ? req.set("x-test-role", role).set("x-test-tenant", String(tenant))
+      : req;
   };
 
   it("needs a signed-in admin", async () => {

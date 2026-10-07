@@ -749,6 +749,32 @@ export interface SettleAccountData {
   surplus_lbp?: number;
 }
 
+/**
+ * Cashier-facing opening sentence for a supplier leg-mismatch error. These
+ * errors reach the till as a toast, so — like `reconcileLegs`
+ * (moneyPosting.ts) — the message opens with ONE plain sentence and the
+ * technical detail follows in parentheses: `"<plain> (<technical>)"`.
+ *
+ * Supplier legs are reconciled PER CURRENCY (no exchange rate exists in
+ * these flows), so they cannot call `reconcileLegs`, which compares one
+ * USD-equivalent total. That also means one currency can be short while the
+ * other is over — neither of `reconcileLegs`' two sentences is true then,
+ * hence the third.
+ *
+ * `diff` is legs-paid minus expected, per currency.
+ */
+function supplierLegMismatchSentence(
+  diff: { usd: number; lbp: number },
+  eps: { usd: number; lbp: number },
+): string {
+  const short = diff.usd < -eps.usd || diff.lbp < -eps.lbp;
+  const over = diff.usd > eps.usd || diff.lbp > eps.lbp;
+  if (short && over) return "The payment doesn't match the total.";
+  return over
+    ? "The payment is more than the total."
+    : "The payment doesn't add up to the total.";
+}
+
 export class SupplierRepository extends BaseRepository<SupplierEntity> {
   /** Memoized result of {@link _hasSupplierSettlementsTable} — the schema
    *  doesn't change mid-process, so unlike the per-call PRAGMA checks
@@ -2688,9 +2714,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         Math.abs(legSum.usd - data.commission_usd) > 0.005 ||
         Math.abs(legSum.lbp - data.commission_lbp) > 0.005
       ) {
+        const plain = supplierLegMismatchSentence(
+          {
+            usd: legSum.usd - data.commission_usd,
+            lbp: legSum.lbp - data.commission_lbp,
+          },
+          { usd: 0.005, lbp: 0.005 },
+        );
         throw new DatabaseError(
-          `Other-payment commission legs must sum to the entered commission exactly ` +
-            `(entered $${data.commission_usd.toFixed(2)} + ${data.commission_lbp} LBP, ` +
+          `${plain} (Other-payment commission legs must sum to the entered commission exactly — ` +
+            `entered $${data.commission_usd.toFixed(2)} + ${data.commission_lbp} LBP, ` +
             `legs summed to $${legSum.usd.toFixed(2)} + ${legSum.lbp} LBP)`,
         );
       }
@@ -2770,10 +2803,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         Math.abs(legSumUsd - data.amount_usd) > 0.005 ||
         Math.abs(legSumLbp - data.amount_lbp) > 0.005
       ) {
+        const plain = supplierLegMismatchSentence(
+          {
+            usd: legSumUsd - data.amount_usd,
+            lbp: legSumLbp - data.amount_lbp,
+          },
+          { usd: 0.005, lbp: 0.005 },
+        );
         throw new DatabaseError(
-          `Settlement payment legs do not reconcile to the net amount owed — ` +
+          `${plain} (Settlement payment legs do not reconcile to the net amount owed — ` +
             `expected $${data.amount_usd.toFixed(2)} + ${data.amount_lbp} LBP, ` +
-            `got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP`,
+            `got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP)`,
         );
       }
     }
@@ -4535,11 +4575,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         Math.abs(legSumUsd - totalAmountUsd) > EPS_USD ||
         Math.abs(legSumLbp - totalAmountLbp) > EPS_LBP
       ) {
+        const plain = supplierLegMismatchSentence(
+          {
+            usd: legSumUsd - totalAmountUsd,
+            lbp: legSumLbp - totalAmountLbp,
+          },
+          { usd: EPS_USD, lbp: EPS_LBP },
+        );
         throw new DatabaseError(
-          `Account settlement payment legs do not reconcile to the settled amount ` +
-            `${hasSurplus ? "(selected rows + overpayment surplus) " : ""}— ` +
+          `${plain} (Account settlement payment legs do not reconcile to the settled amount ` +
+            `${hasSurplus ? "[selected rows + overpayment surplus] " : ""}— ` +
             `expected $${totalAmountUsd.toFixed(2)} + ${totalAmountLbp} LBP, ` +
-            `got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP`,
+            `got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP)`,
         );
       }
     }

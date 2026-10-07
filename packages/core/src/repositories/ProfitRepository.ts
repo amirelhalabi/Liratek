@@ -418,6 +418,13 @@ export interface FinancialServiceDetailRow {
    *  settlement_allocation row (it only ever exists for a commission
    *  provider's batch). */
   is_commission_provider: 0 | 1;
+  /** Is this row's commission booked at supplier settlement
+   *  ({@link atSettlementCommission}, `commission_model = 1`)? 0 for a
+   *  legacy EMBEDDED row (`commission_model = 0` — e.g. every Binance row),
+   *  whose commission is already on the transfer itself: a $0 there means
+   *  none was recorded, NOT "counted when the supplier settles". Always 1 for a
+   *  settlement_allocation row. */
+  commission_at_settlement: 0 | 1;
   /** LIRA-233 (finding 8) — the originating `financial_services.id` this row
    *  is about: itself, for a transfer row; `settlement_commission_
    *  allocations.financial_service_id` for a settlement_allocation row. Lets
@@ -2207,10 +2214,13 @@ export function pmFeeRecognized(
   fsAlias: string,
   currency: "usd" | "lbp",
 ): string {
+  // Binance (USDT) fees report as USD, like every other FS profit figure
+  // (fsReportingCurrency, LIRA-268).
+  const reportingCurrency = fsReportingCurrency(fsAlias);
   const currencyGate =
     currency === "usd"
-      ? usdBucketPredicate(`${fsAlias}.currency`, true)
-      : `${fsAlias}.currency = 'LBP'`;
+      ? usdBucketPredicate(reportingCurrency, true)
+      : `${reportingCurrency} = 'LBP'`;
   return `(CASE WHEN ${notRefunded(fsAlias)} AND ${currencyGate} THEN COALESCE(${fsAlias}.payment_method_fee, 0) ELSE 0 END)`;
 }
 
@@ -4997,12 +5007,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * PM_FEE row lands in the reversal's period (created_at = reversal time), so a
    * cross-period reversal would overstate the original period while the
    * commission was removed retroactively.
+   *
+   * Grouped by {@link fsReportingCurrency}: a Binance (USDT) fee reports as
+   * USD, the same rule as its commission (LIRA-268).
    */
   getPmFeeTotals(fromDt: string, toDt: string): PmFeeCurrencyRow[] {
     return this.db
       .prepare(
         `SELECT
-          fs.currency AS currency_code,
+          ${fsReportingCurrency("fs")} AS currency_code,
           COALESCE(SUM(fs.payment_method_fee), 0) AS total,
           COUNT(*) AS count
         FROM financial_services fs
@@ -5010,7 +5023,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ?
-        GROUP BY fs.currency`,
+        GROUP BY ${fsReportingCurrency("fs")}`,
       )
       .all(fromDt, toDt, getCurrentTenantId()) as PmFeeCurrencyRow[];
   }
@@ -5891,6 +5904,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           CASE WHEN ${fsProviderRowRecognized("fs", hasCommissionModel)} THEN 1 ELSE 0 END AS recognized,
           CASE WHEN ${fsProviderKnown("fs")} THEN 1 ELSE 0 END AS provider_known,
           CASE WHEN fs.provider IN (${COMMISSION_PROVIDERS}) THEN 1 ELSE 0 END AS is_commission_provider,
+          CASE WHEN ${atSettlementCommission("fs", hasCommissionModel)} THEN 1 ELSE 0 END AS commission_at_settlement,
           fs.id AS related_transfer_id,
           (${otherCurrencyKeptChangeUsd(cur)}) AS kept_change_usd,
           (${otherCurrencyKeptChangeLbp(cur)}) AS kept_change_lbp,
@@ -5935,6 +5949,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           1 AS recognized,
           1 AS provider_known,
           1 AS is_commission_provider,
+          1 AS commission_at_settlement,
           sca.financial_service_id AS related_transfer_id,
           0 AS kept_change_usd,
           0 AS kept_change_lbp,
@@ -6109,7 +6124,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           fs.client_name AS client_name,
           fs.phone_number AS phone_number,
           fs.provider AS provider,
-          fs.currency AS currency_code,
+          ${fsReportingCurrency("fs")} AS currency_code,
           fs.payment_method_fee AS fee
         FROM financial_services fs
         WHERE COALESCE(fs.payment_method_fee, 0) <> 0
@@ -6670,13 +6685,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- fs.created_at) — same retroactive-removal semantics as commissions,
           -- so a cross-period void/refund never overstates the original period.
           -- LO-V10 (round 2, rule 14 consistency): EXACT 'USD' match, not
-          -- '!= LBP' — a third-currency fee (e.g. a Binance USDT row) used
-          -- to be lumped into profit_usd; it now contributes to neither,
-          -- matching PA-1.4's own "dropped, not given a bucket" policy.
+          -- '!= LBP' — a third currency (e.g. EUR) contributes to neither
+          -- bucket. A Binance USDT fee reports as USD (fsReportingCurrency,
+          -- LIRA-268), the same rule as getPmFeeTotals.
           SELECT
             ${localDayExpr("fs.created_at")} AS d,
-            COALESCE(SUM(CASE WHEN fs.currency = 'USD' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_usd,
-            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_lbp
+            COALESCE(SUM(CASE WHEN ${fsReportingCurrency("fs")} = 'USD' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_usd,
+            COALESCE(SUM(CASE WHEN ${fsReportingCurrency("fs")} = 'LBP' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_lbp
           FROM financial_services fs
           WHERE COALESCE(fs.payment_method_fee, 0) <> 0
             AND ${notRefunded("fs")}

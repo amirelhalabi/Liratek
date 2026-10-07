@@ -674,6 +674,13 @@ function OmtWhishAppTransferFormInner({
                 onClick={() => {
                   setCurrency(cur);
                   setAmount("");
+                  // The fee is denominated in the entry currency, and the
+                  // field is hidden on Whish App LBP RECEIVE — a fee typed
+                  // before the switch must not be charged after it.
+                  if (cur !== currency) {
+                    setManualFee("");
+                    setFeeMode("SENDER");
+                  }
                   // Remount the payment input so its seeded line re-opens in
                   // the newly selected currency (line currency is mount-only).
                   setPaymentInputKey((k) => k + 1);

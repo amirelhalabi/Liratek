@@ -65,10 +65,10 @@
  * the follow-up left for whichever lane next has permission to touch that
  * file.
  *
- * Round-2 review (LC-1): `COMMISSION_REPORT_PROVIDERS` below is NOT simply
- * `COMMISSION_PROVIDERS` re-exported — it deliberately excludes BINANCE. See
- * this file's "BINANCE exclusion" comment just above the constant for the
- * full trace.
+ * `COMMISSION_REPORT_PROVIDERS` below is `COMMISSION_PROVIDERS` itself —
+ * BINANCE was excluded in round 2 (LC-1) and is included again since
+ * LIRA-268 made its USDT rows report as USD; see the comment above the
+ * constant.
  */
 
 import {
@@ -82,80 +82,38 @@ import {
 import { COMMISSION_PROVIDERS } from "../constants/commissionProviders.js";
 
 /**
- * BINANCE exclusion (round-2 review, LC-1). BINANCE is a real commission
- * provider structurally (`COMMISSION_PROVIDERS` above includes it), but its
- * `financial_services` rows are stored with `currency = 'USDT'`
- * (`CryptoForm.tsx`'s `handleForPartnerSubmit`/normal submit,
- * `Recharge/index.tsx` ~:1192/:1228) — a THIRD currency neither of this
- * report's two sources buckets anywhere:
+ * BINANCE (LIRA-268 follow-up) — INCLUDED, valued USDT 1:1 as US dollars.
  *
- *  - `ProfitRepository.getFinancialSettledByProvider`'s revenue_usd/
- *    revenue_lbp AND profit_usd/profit_lbp columns are gated on an EXACT
- *    `fs.currency = 'USD'` / `= 'LBP'` (PA-1.4 — deliberately not `!= 'LBP'`,
- *    to stop a third currency being silently lumped into USD). A USDT row
- *    contributes 0 to every one of those four columns.
- *  - The FSR profit stamp that feeds `t.profit_usd`/`t.profit_lbp`
- *    (`FinancialServiceRepository.ts`'s `createTransaction`, ~:2158-2170)
- *    is the SAME exact-currency gate (`currency === "USD" ? commission : 0`
- *    / the LBP twin) — so a Binance row's real fee is never stamped into
- *    EITHER profit column, in ANY currency, regardless of `is_settled`.
+ * History: round-2 review (LC-1) excluded BINANCE here because its
+ * `financial_services` rows are stored with `currency = 'USDT'`, which every
+ * Profits query bucketed into neither USD nor LBP, so this tab could only
+ * have shown a misleading "$0.00". LIRA-268 fixed that at the source:
+ * `ProfitRepository.getFinancialSettledByProvider` — the ONE query this tab
+ * reads realized commission from, shared with the Overview / By Module —
+ * now buckets by `fsReportingCurrency` (USDT reports as USD) and adds the
+ * fee a USDT row's stamp leaves out (`unstampedUsdtCommission`). Including
+ * BINANCE is therefore pure reuse (rule 14): no SQL here, and the Binance
+ * figure on this tab agrees with the Overview by construction
+ * (`ProfitService.binanceProfitVisible.test.ts` pins that they agree).
  *
- * The result, verified in code (not executed — no e2e/DB access from this
- * lane): a Binance row ALWAYS shows `realized_usd = 0, realized_lbp = 0`
- * while still incrementing `count` — "BINANCE — N transactions — $0.00",
- * which reads as "we earned nothing" when the truth is "this figure isn't
- * tracked in a currency this tab can show". A fabricated $0.00 is worse than
- * an honest omission (fable-brain §8 — don't guess a number you can't
- * derive), so BINANCE is excluded from the reportable set entirely and
- * surfaced instead via {@link CommissionsReport.excludedProviders}, with a
- * reason the UI can caption.
+ * `getUnsettledSummaryByProvider`'s pending figures bucket `currency !=
+ * 'LBP'` into USD, which is the same USDT-as-USD reading. A Binance row is
+ * born `is_settled = 1` today (`isPendingSupplierSettlement` returns false
+ * for BINANCE), so it normally contributes nothing there.
  *
- * Fixing the underlying gap needs an owner decision among three options
- * this lane cannot make unilaterally, and two of the three are outside this
- * lane's reach even if it could: (a) give this report its own USDT bucket
- * sourced from the raw `financial_services.commission` column — would
- * require a new read on `FinancialServiceRepository` beyond the two
- * functions (`getAnalytics`, `getUnsettledSummaryByProvider`) this lane
- * owns; (b) fix `getFinancialSettledByProvider` to add a currency-agnostic
- * "other" bucket — forbidden: this lane may not edit `ProfitRepository.ts`;
- * (c) fix the FSR profit stamp itself — forbidden twice over: it sits
- * outside this lane's two owned FSR functions, AND this whole run's money
- * invariant is "no stored profit stamp may change" (reporting-only). Also
- * flagged separately (not fixed here, pre-dates this lane's work): because
- * of the same stamp gap, a Binance fee reaches NO Profits report at all
- * today — not just this tab — since nothing else reads the raw `commission`
- * column for BINANCE either.
- *
- * `getUnsettledSummaryByProvider`'s `pending_commission_usd`/`_lbp` are
- * narrower still (LIRA-159/D15 restricts them to `commission_model = 0`
- * rows' raw `commission` column, bucketed on `currency != 'LBP'` — see that
- * method's own doc comment) — a Binance row IS commission_model = 0, so if
- * one is ever `is_settled = 0` (verified in code: `isPendingSupplierSettlement`
- * returns `false` for BINANCE today, so in the current code path every
- * Binance row is born `is_settled = 1` and never reaches this query at all —
- * but that method is shared with the Suppliers "Pending Settlement" banner
- * and the Dashboard, and out of this lane's reach to re-verify against every
- * future code path) its raw USDT `commission` would land in
- * `pending_commission_usd`, mislabeling USDT as USD. Excluding BINANCE here
- * removes that mislabeled figure from THIS tab regardless of which branch
- * produced it, closing the "the two sources disagree" symptom the review
- * flagged, without this lane touching the shared method itself.
+ * The `excludedProviders` plumbing is kept (empty map) so a future provider
+ * this tab genuinely cannot value can be captioned instead of silently
+ * dropped — the UI already renders that caption when the list is non-empty.
  */
 const EXCLUDED_COMMISSION_PROVIDER_REASONS: Readonly<Record<string, string>> =
-  {
-    BINANCE:
-      "Binance commission is recorded in USDT, a currency this tab can't yet report in USD/LBP — see Suppliers → Binance for its raw activity.",
-  };
+  {};
 
 /**
- * Providers this report can currently render a truthful realized/pending
- * figure for — `COMMISSION_PROVIDERS` (constants/commissionProviders.ts)
- * minus BINANCE (see the exclusion comment above, LC-1).
+ * Providers this report renders a realized/pending figure for — every
+ * `COMMISSION_PROVIDERS` member (constants/commissionProviders.ts),
+ * BINANCE included since LIRA-268 (see the comment above).
  */
-export const COMMISSION_REPORT_PROVIDERS = COMMISSION_PROVIDERS.filter(
-  (p): p is Exclude<(typeof COMMISSION_PROVIDERS)[number], "BINANCE"> =>
-    p !== "BINANCE",
-);
+export const COMMISSION_REPORT_PROVIDERS = COMMISSION_PROVIDERS;
 
 export type CommissionReportProvider =
   (typeof COMMISSION_REPORT_PROVIDERS)[number];

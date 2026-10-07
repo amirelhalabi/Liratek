@@ -547,6 +547,36 @@ describe("reconcileLegs", () => {
       expect(expectedTotalIn(20, "USDT")).toEqual({ usd: 20, lbp: 0 });
     });
   });
+
+  /**
+   * Cashier-facing wording: the mismatch reaches the cashier as a toast, so
+   * it must open with ONE plain sentence; the technical detail (still
+   * carrying every substring older tests match) follows in parentheses.
+   * Rule 17: written and run before the wording change.
+   */
+  describe("mismatch message opens with a plain sentence", () => {
+    const run = (amount: number) => () =>
+      reconcileLegs({
+        inLegs: [leg("USD", amount)],
+        expectedTotals: expectedTotalIn(100, "USD"),
+        exchangeRate: RATE,
+        context: "OMT SEND",
+      });
+
+    it('underpaid -> "The payment doesn\'t add up to the total."', () => {
+      expect(run(90)).toThrow(
+        /^The payment doesn't add up to the total\. \(OMT SEND: payment legs do not reconcile — expected \$100\.00 USD-equivalent /,
+      );
+      expect(run(90)).toThrow(/diff \$-10\.00 at rate 90000\)$/);
+    });
+
+    it('overpaid -> "The payment is more than the total."', () => {
+      expect(run(110)).toThrow(
+        /^The payment is more than the total\. \(OMT SEND: payment legs do not reconcile — expected \$100\.00 USD-equivalent /,
+      );
+      expect(run(110)).toThrow(/diff \$10\.00 at rate 90000\)$/);
+    });
+  });
 });
 
 /**
@@ -578,9 +608,7 @@ describe("resolveStampedExchangeRate (stamp-only, never throws)", () => {
     expect(resolveStampedExchangeRate(90_000, 90_000 * 1.16)).toBe(
       90_000 * 1.16,
     );
-    expect(resolveStampedExchangeRate(90_000, 90_000 * 1.3)).toBe(
-      90_000 * 1.3,
-    );
+    expect(resolveStampedExchangeRate(90_000, 90_000 * 1.3)).toBe(90_000 * 1.3);
   });
 
   it("passes at exactly the +15% band boundary — tender wins", () => {

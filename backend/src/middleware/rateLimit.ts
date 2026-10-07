@@ -6,17 +6,20 @@
 import type { Request, RequestHandler, Response } from "express";
 import rateLimit from "express-rate-limit";
 import { logger } from "../server.js";
-import { clientIpRateLimitKey } from "./clientIp.js";
+import { clientIp, clientIpRateLimitKey } from "./clientIp.js";
+import { verifyJwt } from "./auth.js";
 
 /**
- * The sign-up limiters' key (LIRA-278): the visitor's IP from
- * CLIENT_IP_HEADER when the owner sets it, else `req.ip` as before. Behind
- * Vercel -> Fly, `req.ip` is a proxy's address, so without the header every
- * visitor shares one budget. See middleware/clientIp.ts.
+ * The key of EVERY per-IP limiter in this file (LIRA-278, LIRA-283): the real
+ * client IP when the request provably came through Vercel (proxy secret),
+ * else `req.ip` as before. Behind Vercel -> Fly, `req.ip` is one proxy
+ * address shared by every shop. See middleware/clientIp.ts.
+ *
+ * Wrapped (not passed bare) because express-rate-limit calls
+ * `keyGenerator(req, res)` and the helper's 2nd parameter is a header name.
  */
-const signupClientKey = (req: Parameters<typeof clientIpRateLimitKey>[0]) =>
+const clientKey = (req: Parameters<typeof clientIpRateLimitKey>[0]) =>
   clientIpRateLimitKey(req);
-import { verifyJwt } from "./auth.js";
 
 // Limits are env-tunable (a single authenticated POS session fires far more
 // than 100 requests per 15 min in dev); defaults preserve prior behavior.
@@ -111,7 +114,7 @@ function rejectRateLimited(
   return (req, res) => {
     logger.warn(
       {
-        ip: req.ip,
+        ip: clientIp(req),
         identity: identityOf(res),
         path: req.path,
         method: req.method,
@@ -128,6 +131,7 @@ function rejectRateLimited(
 
 /** Bucket 1: anonymous / unverifiable traffic, per IP (unchanged numbers). */
 const anonymousIpLimiter = rateLimit({
+  keyGenerator: clientKey,
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: envLimit("API_RATE_LIMIT_MAX", 100),
   standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
@@ -156,13 +160,14 @@ const perUserLimiter = rateLimit({
 /**
  * Bucket 3: authenticated traffic, per-IP flood cap.
  *
- * Set high on purpose (owner decision 2026-10-07): in production `req.ip` is
- * currently a hosting proxy address shared by EVERY shop (measured: all
- * sessions record 66.241.124.103), so this bucket is effectively global
- * until LIRA-283 reads the real client address. It must only stop a flood,
- * never normal multi-shop traffic.
+ * Set high on purpose (owner decision 2026-10-07): until the Vercel proxy
+ * secret is configured (LIRA-283, CLIENT_IP_PROXY_SECRET), the key falls back
+ * to `req.ip`, a hosting proxy address shared by EVERY shop (measured: all
+ * sessions recorded 66.241.124.103), so this bucket is effectively global.
+ * It must only stop a flood, never normal multi-shop traffic.
  */
 const authenticatedIpFloodLimiter = rateLimit({
+  keyGenerator: clientKey,
   windowMs: 60 * 1000, // 1 minute
   max: envLimit("API_IP_FLOOD_RATE_LIMIT_MAX", 10000),
   // No headers: it runs AFTER the per-user limiter and would overwrite the
@@ -223,7 +228,7 @@ export const apiLimiter: RequestHandler = (req, res, next) => {
 export const signupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: envLimit("SIGNUP_RATE_LIMIT_MAX", 5),
-  keyGenerator: signupClientKey,
+  keyGenerator: clientKey,
   message: {
     success: false,
     error: "Too many signup attempts from this IP, please try again later.",
@@ -245,12 +250,12 @@ export const signupLimiter = rateLimit({
 export const signupCheckLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: envLimit("SIGNUP_CHECK_RATE_LIMIT_MAX", 30),
-  keyGenerator: signupClientKey,
+  keyGenerator: clientKey,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
     logger.warn(
-      { ip: req.ip, path: req.path },
+      { ip: clientIp(req), path: req.path },
       "Rate limit exceeded - invite check",
     );
     res.status(429).json({
@@ -268,12 +273,12 @@ export const signupCheckLimiter = rateLimit({
 export const signupRequestLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: envLimit("SIGNUP_REQUEST_RATE_LIMIT_MAX", 5),
-  keyGenerator: signupClientKey,
+  keyGenerator: clientKey,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
     logger.warn(
-      { ip: req.ip, path: req.path },
+      { ip: clientIp(req), path: req.path },
       "Rate limit exceeded - sign-up request",
     );
     res.status(429).json({
@@ -284,6 +289,7 @@ export const signupRequestLimiter = rateLimit({
 });
 
 export const authLimiter = rateLimit({
+  keyGenerator: clientKey,
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: envLimit("AUTH_RATE_LIMIT_MAX", 5), // failed attempts per window
   message: {
@@ -298,7 +304,7 @@ export const authLimiter = rateLimit({
   handler: (req, res) => {
     logger.warn(
       {
-        ip: req.ip,
+        ip: clientIp(req),
         path: req.path,
         username: req.body?.username,
       },
@@ -319,6 +325,7 @@ export const authLimiter = rateLimit({
  * - For operations like password reset, user creation, etc.
  */
 export const strictLimiter = rateLimit({
+  keyGenerator: clientKey,
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // 10 requests per window
   message: {
@@ -331,7 +338,7 @@ export const strictLimiter = rateLimit({
   handler: (req, res) => {
     logger.warn(
       {
-        ip: req.ip,
+        ip: clientIp(req),
         path: req.path,
         method: req.method,
       },
@@ -356,6 +363,7 @@ export const strictLimiter = rateLimit({
  *   successes counted toward the limit.
  */
 export const profitsUnlockLimiter = rateLimit({
+  keyGenerator: clientKey,
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: envLimit("PROFITS_UNLOCK_RATE_LIMIT_MAX", 5), // failed attempts per window
   message: {
@@ -370,7 +378,7 @@ export const profitsUnlockLimiter = rateLimit({
   handler: (req, res) => {
     logger.warn(
       {
-        ip: req.ip,
+        ip: clientIp(req),
         path: req.path,
       },
       "Rate limit exceeded - profits unlock",
@@ -390,6 +398,7 @@ export const profitsUnlockLimiter = rateLimit({
  * - For GET endpoints that are safe to call frequently
  */
 export const readLimiter = rateLimit({
+  keyGenerator: clientKey,
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 300, // 300 requests per window
   message: {
@@ -402,7 +411,7 @@ export const readLimiter = rateLimit({
   handler: (req, res) => {
     logger.info(
       {
-        ip: req.ip,
+        ip: clientIp(req),
         path: req.path,
       },
       "Rate limit exceeded - read operations",

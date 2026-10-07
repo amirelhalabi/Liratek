@@ -22,6 +22,7 @@ import {
   revokeProfitsUnlock,
 } from "../middleware/profitsUnlock.js";
 import { profitsUnlockLimiter } from "../middleware/rateLimit.js";
+import { clientIp } from "../middleware/clientIp.js";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
 import {
@@ -107,7 +108,7 @@ router.post(
       const ok = getProfitsAccessService().verify(req.body.password);
       if (!ok) {
         logger.warn(
-          { userId: req.user?.userId, ip: req.ip },
+          { userId: req.user?.userId, ip: clientIp(req) },
           "Profits unlock failed",
         );
         res.json({ success: false, error: "Incorrect password" });

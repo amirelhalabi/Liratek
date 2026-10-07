@@ -20,7 +20,7 @@
     "build:core": "yarn workspace @liratek/core build && node scripts/sync-core.cjs",
     "build": "yarn workspaces foreach -ptA --exclude liratek run build && node scripts/build-stage.cjs",
     "test": "npm run rebuild:node && node scripts/run-tests.mjs",
-    "test:scripts": "node --test scripts/__tests__/tenantMigrationLogCheck.test.mjs scripts/__tests__/flyEntryGuard.test.mjs",
+    "test:scripts": "node --test scripts/__tests__/tenantMigrationLogCheck.test.mjs scripts/__tests__/flyEntryGuard.test.mjs scripts/__tests__/clientIpCheck.test.mjs",
     "test:e2e": "node scripts/run-e2e.mjs electron",
     "test:e2e:web": "npm run rebuild:node && node scripts/run-e2e.mjs web",
     "lint": "yarn workspaces foreach -ptA --exclude liratek run lint",

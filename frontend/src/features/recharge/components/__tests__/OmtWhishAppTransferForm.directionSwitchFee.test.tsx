@@ -46,7 +46,7 @@ jest.mock("../PaymentSheet", () => ({
               {
                 id: "P1",
                 method: "OMT",
-                currencyCode: "USD",
+                currencyCode: window.__stubPayoutCurrency ?? "USD",
                 amount: window.__stubPayoutAmount,
               },
             ])
@@ -177,6 +177,7 @@ jest.mock("@/utils/logger", () => ({
 
 declare global {
   var __stubPayoutAmount: number;
+  var __stubPayoutCurrency: string | undefined;
 }
 
 const formatAmount = (val: number, currency: string) =>
@@ -225,6 +226,7 @@ describe("OmtWhishAppTransferForm — fee does not carry over a direction switch
     mockAddOMTTransaction.mockClear();
     mockActiveSession = null;
     window.__stubPayoutAmount = 100;
+    window.__stubPayoutCurrency = undefined;
   });
 
   it("Whish App: a fee typed on RECEIVE is not charged or booked on SEND", async () => {
@@ -279,6 +281,51 @@ describe("OmtWhishAppTransferForm — fee does not carry over a direction switch
 
     switchToReceive();
     switchToSend();
+
+    expect(
+      (document.getElementById("transfer-fee") as HTMLInputElement).value,
+    ).toBe("");
+  });
+
+  // Rule 17: both currency-switch cases below ran red before the fix
+  // (2026-10-07): the LBP payload's amount Expected 1000000, Received
+  // 1000005; the OMT App fee field Expected "", Received "3".
+  it("Whish App: a fee typed in USD is not charged or booked after switching to LBP (fee field hidden there)", async () => {
+    renderForm("WHISH_APP");
+    switchToReceive();
+    typeAmount("100");
+    typeFee("5");
+
+    fireEvent.click(screen.getByRole("button", { name: "LBP" }));
+    expect(document.getElementById("transfer-fee")).toBeNull(); // no fee input on Whish App LBP RECEIVE
+    typeAmount("1000000");
+
+    window.__stubPayoutAmount = 1_000_000;
+    window.__stubPayoutCurrency = "LBP";
+    fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+    await screen.findByTestId("stub-payment-sheet");
+    fireEvent.click(screen.getByTestId("stub-inject-payout"));
+    fireEvent.click(screen.getByTestId("stub-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.serviceType).toBe("RECEIVE");
+    expect(payload.currency).toBe("LBP");
+    expect(payload.amount).toBe(1_000_000);
+    expect(payload.commission ?? 0).toBe(0);
+    expect(payload.whishFee ?? 0).toBe(0);
+  });
+
+  it("OMT App: switching USD -> LBP -> USD clears a typed fee", () => {
+    renderForm("OMT_APP");
+    typeAmount("100");
+    typeFee("3");
+
+    fireEvent.click(screen.getByRole("button", { name: "LBP" }));
+    fireEvent.click(screen.getByRole("button", { name: "USD" }));
 
     expect(
       (document.getElementById("transfer-fee") as HTMLInputElement).value,

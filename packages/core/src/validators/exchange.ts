@@ -20,6 +20,15 @@ import {
  */
 export const PAYOUT_KEEP_CHANGE_MAX = { USD: 1, LBP: 100_000 } as const;
 
+/**
+ * Cents / whole-LBP rounding a kept-change figure may carry — the ONE
+ * tolerance (rule 14) `resolveKeptChange` (repositories/keptChange.ts)
+ * applies when comparing a claimed kept amount with the real excess /
+ * shortfall. Lives here (pure, browser-safe — rule 29) next to the cap so
+ * a browser-side preview can share it; keptChange.ts itself is Node-only.
+ */
+export const KEPT_CHANGE_ROUNDING_TOLERANCE = { USD: 0.005, LBP: 0.5 } as const;
+
 /** Kept-change fields shared by both exchange schemas below — one
  *  definition so neither schema can silently strip them (rule 23). */
 const keptChangeFields = {

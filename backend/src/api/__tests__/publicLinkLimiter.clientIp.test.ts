@@ -11,34 +11,46 @@
 import { jest } from "@jest/globals";
 
 jest.mock("../../server.js", () => ({
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 import express, { type Express } from "express";
 import request from "supertest";
 
 const PROXY_IP = "66.241.124.103";
+const PROXY_SECRET = "lira283-test-proxy-secret-0123456789abcdef";
 const ENV_NAME = "TEST_PUBLIC_LINK_RATE_LIMIT_MAX";
 
 let shared: typeof import("../userAccountShared.js");
 
 beforeAll(async () => {
   process.env.CLIENT_IP_HEADER = "fly-client-ip";
+  process.env.CLIENT_IP_PROXY_SECRET = PROXY_SECRET; // LIRA-283 trust gate
   process.env[ENV_NAME] = "3";
   shared = await import("../userAccountShared.js");
 });
 
 afterAll(() => {
   delete process.env.CLIENT_IP_HEADER;
+  delete process.env.CLIENT_IP_PROXY_SECRET;
   delete process.env[ENV_NAME];
 });
 
 function appWithLimiter(): Express {
   const app = express();
   app.set("trust proxy", 1); // as server.ts: req.ip is the proxy
-  app.post("/t", shared.createPublicLinkLimiter(ENV_NAME, "test"), (_req, res) => {
-    res.json({ ok: true });
-  });
+  app.post(
+    "/t",
+    shared.createPublicLinkLimiter(ENV_NAME, "test"),
+    (_req, res) => {
+      res.json({ ok: true });
+    },
+  );
   return app;
 }
 
@@ -46,6 +58,7 @@ function hit(app: Express, visitor: string) {
   return request(app)
     .post("/t")
     .set("X-Forwarded-For", PROXY_IP)
+    .set("x-liratek-proxy-auth", PROXY_SECRET)
     .set("Fly-Client-IP", visitor);
 }
 

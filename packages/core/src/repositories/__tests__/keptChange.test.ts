@@ -769,9 +769,15 @@ describe("resolveKeptChange — kept change must be funded by cash", () => {
 describe("resolveKeptChange — refusals open with a plain sentence", () => {
   const cases: Array<[string, ResolveKeptChangeInput, RegExp, RegExp]> = [
     [
-      "legs don't add up",
-      { ...base, payer: "customer", expected: { usd: 7, lbp: 0 }, inLegs: [leg("USD", 10)] },
+      "legs don't add up (short)",
+      { ...base, payer: "customer", expected: { usd: 13, lbp: 0 }, inLegs: [leg("USD", 10)] },
       /^The payment doesn't add up to the total\./,
+      /\(TEST: payment legs do not reconcile — /,
+    ],
+    [
+      "legs don't add up (over)",
+      { ...base, payer: "customer", expected: { usd: 7, lbp: 0 }, inLegs: [leg("USD", 10)] },
+      /^The payment is more than the total\./,
       /\(TEST: payment legs do not reconcile — /,
     ],
     [
@@ -839,5 +845,117 @@ describe("resolveKeptChange — refusals open with a plain sentence", () => {
     }
     expect(message).toMatch(plain);
     expect(message).toMatch(detail);
+  });
+});
+
+/**
+ * The reconcile sentence is said ONCE. `reconcileLegs` (moneyPosting.ts)
+ * now opens its own message with the plain sentence ("doesn't add up" when
+ * short, "is more than the total" when over); keptChange.ts must not prefix
+ * a second one. Rule 17: run before keptChange.ts's wrapper was removed —
+ * every case failed (the message read "The payment doesn't add up to the
+ * total. (The payment … (TEST: …))").
+ */
+describe("resolveKeptChange — the reconcile sentence is not doubled", () => {
+  const cases: Array<[string, ResolveKeptChangeInput, RegExp]> = [
+    ["customer short", { ...base, payer: "customer", expected: { usd: 13, lbp: 0 }, inLegs: [leg("USD", 10)] }, /^The payment doesn't add up to the total\. \(TEST: /],
+    ["customer over", { ...base, payer: "customer", expected: { usd: 7, lbp: 0 }, inLegs: [leg("USD", 10)] }, /^The payment is more than the total\. \(TEST: /],
+    ["shop short", { ...base, payer: "shop", bill: { usd: 20, lbp: 0 }, handedLegs: [leg("USD", 15)] }, /^The payment doesn't add up to the total\. \(TEST: /],
+    ["payout short (no kept)", { ...base, payer: "payout", owed: 10, owedCurrency: "USD", payoutLegs: [leg("USD", 8)] }, /^The payment doesn't add up to the total\. \(TEST: /],
+    ["payout over (no kept)", { ...base, payer: "payout", owed: 10, owedCurrency: "USD", payoutLegs: [leg("USD", 12)] }, /^The payment is more than the total\. \(TEST: /],
+    ["payout kept ≠ shortfall", { ...base, payer: "payout", owed: 10, owedCurrency: "USD", payoutLegs: [leg("USD", 9.5)], claimedKept: { usd: 0.1 } }, /^The payment doesn't add up to the total\. \(TEST: /],
+  ];
+
+  it.each(cases)("%s", (_label, input, expected) => {
+    let message = "";
+    try {
+      resolveKeptChange(input);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toMatch(expected);
+    expect(message).not.toMatch(/total\.\s*\(The payment/);
+    expect(message.match(/The payment (doesn't add up|is more than)/g)).toHaveLength(1);
+  });
+});
+
+/**
+ * Payout, both currencies, no cap (`perCurrencyNoCap` — Hold Money's
+ * two-currency pickup, owner decision 2026-10-07). Moved here from
+ * HoldMoneyRepository (rule 14); the repository-level characterization lives
+ * in HoldMoneyRepository.keptChange.test.ts. These unit cases were written
+ * with the move, so they are refactor coverage, not failing-first proof.
+ */
+describe("resolveKeptChange — payout per currency, no cap", () => {
+  const pc = (
+    over: Partial<Extract<ResolveKeptChangeInput, { perCurrencyNoCap: true }>>,
+  ): ResolveKeptChangeInput => ({
+    ...base,
+    payer: "payout",
+    perCurrencyNoCap: true,
+    owed: { usd: 50, lbp: 1_000_000 },
+    payoutLegs: [leg("USD", 50), leg("LBP", 950_000)],
+    ...over,
+  });
+  const msg = (input: ResolveKeptChangeInput) => {
+    try {
+      resolveKeptChange(input);
+      return "";
+    } catch (e) {
+      return (e as Error).message;
+    }
+  };
+
+  it("kept per currency, above the one-currency cap", () => {
+    const r = resolveKeptChange(
+      pc({
+        owed: { usd: 52.5, lbp: 1_250_000 },
+        payoutLegs: [leg("USD", 50), leg("LBP", 1_000_000)],
+        claimedKept: { usd: 2.5, lbp: 250_000 },
+      }),
+    );
+    expect(r.keptUsd).toBe(2.5);
+    expect(r.keptLbp).toBe(250_000);
+  });
+
+  it("books the computed kept, not the claim, within the rounding tolerance", () => {
+    const r = resolveKeptChange(
+      pc({
+        owed: { usd: 50.12, lbp: 100_000 },
+        payoutLegs: [leg("USD", 50), leg("LBP", 100_000)],
+        claimedKept: { usd: 0.118 },
+      }),
+    );
+    expect(r.keptUsd).toBe(0.12);
+  });
+
+  it("refuses an under-claim and an over-claim", () => {
+    expect(msg(pc({ claimedKept: { lbp: 40_000 } }))).toMatch(/^The payment doesn't add up to the total\. \(TEST: claimed kept/);
+    expect(msg(pc({ claimedKept: { lbp: 60_000 } }))).toMatch(/owed − handed/);
+  });
+
+  it("refuses handing more than owed in a currency while claiming", () => {
+    expect(
+      msg(pc({ payoutLegs: [leg("USD", 60), leg("LBP", 100_000)], claimedKept: { lbp: 900_000 } })),
+    ).toMatch(/^You can't hand out more USD than is being returned/);
+  });
+
+  it("refuses a non-drawer payout line when claiming", () => {
+    expect(
+      msg(pc({ payoutLegs: [leg("USD", 50), leg("LBP", 950_000, { method: "CUSTOMER_ACCOUNT" })], claimedKept: { lbp: 50_000 } })),
+    ).toMatch(/^Change can only be kept on a cash or wallet payout\./);
+  });
+
+  it("refuses an OUT leg, and a claim with no payout lines", () => {
+    expect(msg(pc({ outLegs: [leg("LBP", 1, { direction: "OUT" })] }))).toMatch(/^A payout can't include change given back\./);
+    expect(msg(pc({ payoutLegs: [], claimedKept: { lbp: 50_000 } }))).toMatch(/^There is no payout line to keep change from\./);
+  });
+
+  it("no claim → exact reconcile over both currencies (cross-currency allowed); no legs → zeros", () => {
+    expect(
+      resolveKeptChange(pc({ owed: { usd: 50, lbp: 900_000 }, payoutLegs: [leg("USD", 60)] })).keptUsd,
+    ).toBe(0);
+    expect(msg(pc({}))).toMatch(/^The payment doesn't add up to the total\./);
+    expect(resolveKeptChange(pc({ payoutLegs: [] })).keptLbp).toBe(0);
   });
 });

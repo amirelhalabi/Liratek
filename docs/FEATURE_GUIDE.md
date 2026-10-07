@@ -189,7 +189,7 @@ equation), checks the client's claim, and returns what to book:
   above the real excess even when it fits inside the $0.05 reconcile
   epsilon; reconciles at the client's tender rate when sent (rule 27).
 
-Exchange keeps its own `kept_profit_usd` model and does not use either half.
+Exchange uses `resolveKeptChange` (payer "payout") for the CHECK and keeps its own `kept_profit_usd` booking. Hold Money's two-currency pickup uses the payout variant `perCurrencyNoCap: true` (kept per currency, no cap, claim must equal owed − handed). Refusal text comes from `reconcileLegs` itself (plain sentence, then the technical detail in parentheses) — never wrap it again.
 
 **Funding rule** (owner decision 2026-10-07). Kept change must be real drawer
 money the shop is holding back — cash or wallet (OMT, WHISH, Binance, …;

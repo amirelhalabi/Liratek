@@ -55,6 +55,7 @@ import { resetSettingsRepository } from "../../repositories/SettingsRepository";
 import { resetProfitRepository } from "../../repositories/ProfitRepository";
 import { resetDebtService } from "../DebtService";
 import { ProfitService } from "../ProfitService";
+import { CommissionsReportService } from "../CommissionsReportService";
 import type { CreateFinancialServiceInput } from "../../validators/financial";
 
 const REPO_ROOT = path.join(__dirname, "../../../../..");
@@ -236,5 +237,115 @@ describe("LIRA-268 — Binance commission and kept change reach every Profits su
     const summary = new ProfitService().getSummary(FROM, TO);
     expect(r6(summary.totals.gross_profit_usd)).toBe(0);
     expect(r6(summary.financial_services.waiting_for_repayment_usd)).toBe(2);
+  });
+});
+
+describe("Binance on the Commissions tab, payment-method fees and the drill-down note", () => {
+  // Rule 17: these three cases were written before their fixes and run red
+  // against the unfixed code first (2026-10-07):
+  //   - Commissions tab: BINANCE realized_usd Expected 4.5, Received 0
+  //     (BINANCE was excluded from the tab).
+  //   - PM fee: Overview pm_fee_usd / By Module PM_FEE / drill-down counted
+  //     Expected 1, Received 0 (detail not_counted 1); By Date / By Cashier /
+  //     By Client Expected 3, Received 2.
+  //   - $0-fee note: Received "Commission is counted when the supplier
+  //     settles (outside this date range if it already has)."
+  it("the Commissions tab counts a Binance SEND + cash-out the same as the Overview, and both net to 0 on void", () => {
+    const sendTxn = create(send);
+    const receiveTxn = create(receiveWithKept);
+
+    const svc = new ProfitService();
+    const overviewCommission = r6(
+      svc.getSummary(FROM, TO).financial_services.commission_usd,
+    );
+    const report = new CommissionsReportService().getReport(FROM, TO);
+    const binance = report.byProvider.find((r) => r.provider === "BINANCE");
+
+    expect(overviewCommission).toBe(4.5);
+    expect(r6(binance?.realized_usd ?? 0)).toBe(overviewCommission);
+    expect(r6(report.realized_usd)).toBe(overviewCommission);
+    expect(binance?.count).toBe(2);
+    expect(report.excludedProviders ?? []).toEqual([]);
+
+    const txnRepo = getTransactionRepository();
+    txnRepo.voidTransaction(sendTxn, USER_ID);
+    txnRepo.voidTransaction(receiveTxn, USER_ID);
+    const after = new CommissionsReportService().getReport(FROM, TO);
+    expect(r6(after.realized_usd)).toBe(0);
+    expect(
+      r6(svc.getSummary(FROM, TO).financial_services.commission_usd),
+    ).toBe(0);
+  });
+
+  it("a Binance payment-method fee counts as USD on every Profits surface, and a void nets it to 0", () => {
+    const pmFeeSurfaces = () => {
+      const svc = new ProfitService();
+      const summary = svc.getSummary(FROM, TO);
+      const pmRow = svc.getByModule(FROM, TO).find((m) => m.module === "PM_FEE");
+      const detail = svc.getModuleDetail("PM_FEE", FROM, TO);
+      return {
+        overviewPmFeeUsd: r6(summary.financial_services.pm_fee_usd),
+        overviewGrossUsd: r6(summary.totals.gross_profit_usd),
+        byModulePmFeeUsd: r6(pmRow?.profit_usd ?? 0),
+        detailCountedUsd: r6(detail.counted_total_profit_usd),
+        detailNotCounted: detail.not_counted.length,
+        byDateUsd: sum(svc.getByDate(FROM, TO), (r) => r.profit_usd),
+        byUserUsd: sum(svc.getByUser(FROM, TO), (r) => r.profit_usd),
+        byClientUsd: sum(svc.getByClient(FROM, TO, 1000), (r) => r.profit_usd),
+      };
+    };
+    const empty = pmFeeSurfaces();
+
+    const sendTxn = create({
+      ...send,
+      paymentMethodFee: 1,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 103 }],
+    });
+    // Not vacuous: the fee really is on the row.
+    expect(
+      (
+        db
+          .prepare(
+            `SELECT fs.payment_method_fee AS fee FROM financial_services fs
+               JOIN transactions t ON t.source_id = fs.id AND t.source_table = 'financial_services'
+              WHERE t.id = ?`,
+          )
+          .get(sendTxn) as { fee: number }
+      ).fee,
+    ).toBe(1);
+
+    // $2 Binance fee + $1 payment-method fee.
+    expect(pmFeeSurfaces()).toEqual({
+      overviewPmFeeUsd: 1,
+      overviewGrossUsd: 3,
+      byModulePmFeeUsd: 1,
+      detailCountedUsd: 1,
+      detailNotCounted: 0,
+      byDateUsd: 3,
+      byUserUsd: 3,
+      byClientUsd: 3,
+    });
+
+    getTransactionRepository().voidTransaction(sendTxn, USER_ID);
+    expect(pmFeeSurfaces()).toEqual(empty);
+  });
+
+  it("a Binance transfer with a $0 fee is not described as 'counted when the supplier settles'", () => {
+    create({
+      ...send,
+      commission: 0,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+    });
+    const detail = new ProfitService().getModuleDetail(
+      "FINANCIAL_SERVICE_BINANCE",
+      FROM,
+      TO,
+    );
+    const row = [...detail.counted, ...detail.not_counted].find(
+      (r) => r.source === "financial_service_transfer",
+    );
+    expect(row).toBeDefined();
+    expect(row!.fee_note ?? "").not.toMatch(/supplier settles/i);
+    expect(row!.fee_note).toMatch(/no commission was recorded/i);
   });
 });

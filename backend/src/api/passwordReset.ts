@@ -86,7 +86,7 @@ function hourlyLimiter(label: string, envName: string, max: number) {
     max: envLimit(envName, max),
     standardHeaders: true,
     legacyHeaders: false,
-    // The real client IP (CLIENT_IP_HEADER, else req.ip), IPv6 grouped by
+    // The real client IP (proxy-secret-verified Vercel header, else req.ip), IPv6 grouped by
     // its /56 — the one helper every public limiter shares.
     keyGenerator: (req) => clientIpRateLimitKey(req),
     handler: (req, res) => {
@@ -162,9 +162,7 @@ function hostShop(req: Request): HostShop {
 /** Run under the host shop's scope when there is one (per-tenant DB mode
  * needs it before the cross-tenant token lookup), else with no tenant. */
 function inHostScope<T>(tenantId: number | null, fn: () => T): T {
-  return tenantId === null
-    ? runWithoutTenant(fn)
-    : runWithTenant(tenantId, fn);
+  return tenantId === null ? runWithoutTenant(fn) : runWithTenant(tenantId, fn);
 }
 
 /** Positive integer path id, strictly (mirrors users.ts). */

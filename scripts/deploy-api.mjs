@@ -13,8 +13,15 @@
  */
 import { fly, flyCapture } from "./fly.mjs";
 import { checkTenantMigrationLogs } from "./lib/tenantMigrationLogCheck.mjs";
+import {
+  FORGED_DIRECT_HEADERS,
+  FORGED_IP_HEADERS,
+  evaluateClientIpChecks,
+} from "./lib/clientIpCheck.mjs";
 
 const HOST = "https://api.liratek.shop";
+// The real user path: browser -> Vercel rewrite -> HOST.
+const VIA_VERCEL = "https://www.liratek.shop";
 const BASE_DOMAIN = "liratek.shop";
 
 const ok = (m) => console.log(`  ✓ ${m}`);
@@ -66,6 +73,61 @@ async function verify() {
     else failures.push("a tenant subdomain resolved as the platform realm");
   } catch (e) {
     failures.push(`realm resolution check failed: ${e.message}`);
+  }
+
+  // 2b. The same realm resolution through VERCEL, with no hand-set header —
+  //     the path real shops use. Step 2 talks to Fly directly, so a Vercel
+  //     side regression (e.g. a vercel.json routes/transform edit that drops
+  //     X-Forwarded-Host) would otherwise pass this verifier.
+  try {
+    const platform = await getJson(`${VIA_VERCEL}/api/auth/signup-status`);
+    const tenant = await getJson(
+      `https://cornertech.${BASE_DOMAIN}/api/auth/signup-status`,
+    );
+    if (platform.json?.data?.platformHost === true)
+      ok("platform host resolves through Vercel");
+    else
+      failures.push("www through Vercel did NOT resolve as the platform realm");
+    if (tenant.json?.data?.platformHost === false)
+      ok("tenant host resolves through Vercel");
+    else
+      failures.push(
+        "cornertech through Vercel resolved as the platform realm — tenant logins are broken",
+      );
+  } catch (e) {
+    failures.push(`realm resolution through Vercel failed: ${e.message}`);
+  }
+
+  // 2c. Client IP (LIRA-283). Every per-IP limit (failed logins, sign-up,
+  //     profits unlock, anonymous API) and every session's ip_address use the
+  //     address this resolves. Direct + forged headers must be ignored;
+  //     through Vercel it must be the caller's real address once the proxy
+  //     secret is wired (CLIENT_IP_PROXY_SECRET on Fly = LIRATEK_PROXY_SECRET
+  //     on Vercel). See backend/src/middleware/clientIp.ts.
+  {
+    const safeGet = async (url, headers) => {
+      try {
+        return await getJson(url, headers);
+      } catch (e) {
+        return { status: 0, json: null, text: e.message };
+      }
+    };
+    const direct = await safeGet(
+      `${HOST}/health/client-ip`,
+      FORGED_DIRECT_HEADERS,
+    );
+    const viaVercel = await safeGet(
+      `${VIA_VERCEL}/health/client-ip`,
+      FORGED_IP_HEADERS,
+    );
+    // Names only — `fly secrets list` never prints values.
+    const flySecretSet = /\bCLIENT_IP_PROXY_SECRET\b/.test(
+      flyCapture(["secrets", "list"]),
+    );
+    const ipCheck = evaluateClientIpChecks({ direct, viaVercel, flySecretSet });
+    failures.push(...ipCheck.failures);
+    for (const m of ipCheck.oks) ok(m);
+    for (const m of ipCheck.infos) bad(m);
   }
 
   // 3. Boot markers — INFORMATIONAL ONLY, and that is a deliberate downgrade.

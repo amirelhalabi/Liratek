@@ -22,16 +22,10 @@
  * `ProfitRepository.ts` should replace its inline literal with
  * `COMMISSION_PROVIDERS_SQL_LIST` exported below (LC-3, round-2 review).
  *
- * NOTE this list is NOT automatically the right "which providers can the
- * Commissions tab show a REAL number for" list — `CommissionsReportService
- * .ts`'s own `COMMISSION_REPORT_PROVIDERS` narrows it further (excludes
- * BINANCE) because Binance's `financial_services` rows are stored in a
- * THIRD currency ('USDT') that the underlying profit-stamp/report queries
- * don't bucket into USD/LBP at all — see that file for the full trace
- * (LC-1). The two lists answer different questions: this one is "is this
- * provider's fee, structurally, a commission" (true for Binance); that one
- * is "can this specific report currently render a truthful number for it"
- * (false for Binance, today).
+ * The Commissions tab (`CommissionsReportService.ts`'s
+ * `COMMISSION_REPORT_PROVIDERS`) reports every provider in this list. It
+ * used to exclude BINANCE, whose rows are stored in 'USDT' (LC-1); since
+ * LIRA-268 the profit queries report USDT as USD, so BINANCE is included.
  */
 export const COMMISSION_PROVIDERS = [
   "OMT",

@@ -428,3 +428,173 @@ describe("Exchange keep-change — schema (one contract, both transports)", () =
     ).toBe(false);
   });
 });
+
+/**
+ * Characterization (rule 17, pure-refactor half): written BEFORE Exchange's
+ * private `_resolvePayoutKeptChange` was replaced by the shared
+ * `resolveKeptChange` (payer "payout"), and green on the old code — every
+ * refusal and the LBP valuation must survive the move unchanged. Regexes
+ * match both the old and the shared wording on purpose: the refusal is the
+ * contract, the cashier-facing sentence is the shared helper's.
+ */
+describe("Exchange payout keep-change — characterization (shared-helper move)", () => {
+  beforeEach(fresh);
+
+  function expectNothingWritten(): void {
+    expect(count("exchange_transactions")).toBe(0);
+    expect(count("transactions")).toBe(0);
+    expect(count("payments")).toBe(0);
+    expect(bal("General", "USD")).toBe(0);
+    expect(bal("General", "LBP")).toBe(0);
+  }
+
+  const LBP_PAYOUT: CreateExchangeData = {
+    fromCurrency: "USD",
+    toCurrency: "LBP",
+    amountIn: 100,
+    amountOut: 8_999_000,
+    leg1Rate: 89_990,
+    leg1MarketRate: 89_500,
+    leg1ProfitUsd: 0,
+    totalProfitUsd: 0,
+    payments: [{ method: "CASH", currencyCode: "LBP", amount: 8_900_000 }],
+    kept_change_lbp: 99_000,
+  };
+
+  it("LBP kept with NO tender rate is valued at the server sell rate (90,000)", () => {
+    t(() => {
+      seedRate();
+      const k0 = exchangeKept();
+      const { id } = new ExchangeRepository().createTransaction(LBP_PAYOUT);
+      expect(r2(exchangeKept() - k0)).toBe(r2(99_000 / 90_000)); // 1.10
+      const meta = JSON.parse(
+        (
+          db
+            .prepare(`SELECT metadata_json FROM transactions WHERE id = ?`)
+            .get(unifiedRow(id).id) as { metadata_json: string }
+        ).metadata_json,
+      ) as Record<string, unknown>;
+      expect(meta.kept_change_lbp).toBe(99_000);
+      expect(meta.kept_change_usd).toBe(0);
+      expect(r2(meta.kept_profit_usd as number)).toBe(1.1);
+    });
+  });
+
+  it("LBP kept WITH a tender rate is valued at the tender rate (89,000)", () => {
+    t(() => {
+      seedRate();
+      const k0 = exchangeKept();
+      new ExchangeRepository().createTransaction({
+        ...LBP_PAYOUT,
+        tender_exchange_rate: 89_000,
+      });
+      expect(r2(exchangeKept() - k0)).toBe(r2(99_000 / 89_000)); // 1.11
+    });
+  });
+
+  it("LBP kept at the 100,000 LBP cap is refused", () => {
+    t(() => {
+      seedRate();
+      expect(() =>
+        new ExchangeRepository().createTransaction({
+          ...LBP_PAYOUT,
+          amountOut: 9_000_000,
+          kept_change_lbp: 100_000,
+        }),
+      ).toThrow(/leftover/i);
+      expectNothingWritten();
+    });
+  });
+
+  it("kept on a non-USD/LBP payout currency is refused", () => {
+    t(() => {
+      seedRate();
+      expect(() =>
+        new ExchangeRepository().createTransaction({
+          fromCurrency: "USD",
+          toCurrency: "EUR",
+          amountIn: 100,
+          amountOut: 85,
+          leg1Rate: 0.85,
+          leg1MarketRate: 0.86,
+          leg1ProfitUsd: 0,
+          totalProfitUsd: 0,
+          payments: [{ method: "CASH", currencyCode: "EUR", amount: 84.9 }],
+          kept_change_usd: 0.1,
+        }),
+      ).toThrow(/USD or LBP/);
+      expect(count("exchange_transactions")).toBe(0);
+      expect(count("transactions")).toBe(0);
+    });
+  });
+
+  it.each([
+    ["negative", -0.12],
+    ["NaN", Number.NaN],
+  ])("a %s kept amount is refused at the repository (not only the schema)", (_l, v) => {
+    t(() => {
+      seedRate();
+      expect(() =>
+        new ExchangeRepository().createTransaction({
+          ...OWNER_TX,
+          payments: [{ method: "CASH", currencyCode: "USD", amount: 101 }],
+          kept_change_usd: v,
+        }),
+      ).toThrow(/non-negative/);
+      expectNothingWritten();
+    });
+  });
+
+  it("kept with a non-drawer payout line (account) is refused, nothing written", () => {
+    t(() => {
+      seedRate();
+      expect(() =>
+        new ExchangeRepository().createTransaction({
+          ...OWNER_TX,
+          payments: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 101 }],
+          kept_change_usd: 0.12,
+        }),
+      ).toThrow();
+      expectNothingWritten();
+    });
+  });
+
+  it("kept in the other currency with an LBP payout is refused", () => {
+    t(() => {
+      seedRate();
+      expect(() =>
+        new ExchangeRepository().createTransaction({
+          ...LBP_PAYOUT,
+          kept_change_lbp: 0,
+          kept_change_usd: 0.5,
+        }),
+      ).toThrow(/currency/i);
+      expectNothingWritten();
+    });
+  });
+});
+
+/**
+ * Behaviour change (rule 17 failing-first): the shared payout check refuses
+ * a kept claim larger than the real shortfall even when it hides inside the
+ * $0.05 reconcile epsilon. Exchange's private check relied on reconcile
+ * alone and booked the phantom cents.
+ */
+describe("Exchange payout keep-change — kept larger than the real shortfall", () => {
+  beforeEach(fresh);
+
+  it("owed $101.12, handed $101.08 (short $0.04), claims $0.08 kept → refused, nothing written", () => {
+    t(() => {
+      seedRate();
+      expect(() =>
+        new ExchangeRepository().createTransaction({
+          ...OWNER_TX,
+          payments: [{ method: "CASH", currencyCode: "USD", amount: 101.08 }],
+          kept_change_usd: 0.08,
+        }),
+      ).toThrow(/more than the amount left unpaid/);
+      expect(count("exchange_transactions")).toBe(0);
+      expect(count("transactions")).toBe(0);
+    });
+  });
+});

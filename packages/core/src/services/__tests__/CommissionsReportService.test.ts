@@ -198,52 +198,26 @@ describe("CommissionsReportService", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Round 2 (adversarial review, LC-1) — BINANCE realized commission is
-  // ALWAYS zero: its financial_services rows are stored with
-  // currency = 'USDT' (CryptoForm.tsx, Recharge/index.tsx), but
-  // getFinancialSettledByProvider (and the FSR profit stamp feeding
-  // t.profit_usd/t.profit_lbp) buckets strictly on fs.currency = 'USD'/'LBP'
-  // (PA-1.4). A USDT row therefore contributed realized_usd = 0,
-  // realized_lbp = 0 while still incrementing `count` — "BINANCE — N
-  // transactions — $0.00", which reads as "we earned nothing" rather than
-  // "this figure isn't tracked in a currency this tab can show". Owner
-  // decision needed for a real USDT figure (out of this lane's reach: it
-  // would mean editing ProfitRepository.ts, which this lane may not touch,
-  // or the FSR profit stamp, which is outside the two FSR functions this
-  // lane owns and would violate this run's "no stored profit stamp changes"
-  // invariant) — so BINANCE is EXCLUDED from the reportable set instead of
-  // shown with a fabricated/misleading $0.00, and callers are told WHY via
-  // `excludedProviders`.
-  //
-  // RULE 17 (failing-first proof, this session, `npx jest
-  // CommissionsReportService --maxWorkers=1`, run against the
-  // CommissionsReportService.ts that shipped in round 1 — BINANCE still a
-  // member of COMMISSION_REPORT_PROVIDERS, no `excludedProviders` field on
-  // `CommissionsReport` at all): the WHOLE SUITE failed to compile —
-  //
-  //   src/services/__tests__/CommissionsReportService.test.ts:291:19
-  //   error TS2339: Property 'excludedProviders' does not exist on type
-  //   'CommissionsReport'.
-  //   (repeated at the other 3 `report.excludedProviders` call sites)
-  //   Test Suites: 1 failed, 1 total / Tests: 0 total
-  //
-  // — i.e. ts-jest refused to run a single test because the type this file
-  // asserts against didn't exist pre-fix, which is as unambiguous a red as
-  // a runtime assertion failure. `excludedProviders` was then added to
-  // `CommissionsReport`/`getReport()` and BINANCE dropped from
-  // `COMMISSION_REPORT_PROVIDERS`, and the whole file was re-run: 11/11
-  // passing (see this file's own header for the ORIGINAL round-1 proof of
-  // the other cases).
+  // Round 2 (LC-1) excluded BINANCE here because its USDT rows reached no
+  // USD/LBP bucket and would have read "$0.00". LIRA-268 made the shared
+  // source (`getFinancialSettledByProvider`) report USDT as USD with the
+  // Binance fee included, so BINANCE is a normal provider on this tab again.
+  // These cases were the exclusion guards; rewritten (rule 24) into guards
+  // that BINANCE is now carried through like any other provider and never
+  // captioned as excluded. The real-DB agreement with the Overview is pinned
+  // in ProfitService.binanceProfitVisible.test.ts.
+  // Rule 17: these four rewritten cases were edited AFTER the fix — not
+  // proven failing-first (the real-DB case above them was).
   // ---------------------------------------------------------------------------
 
-  it("excludes BINANCE from byProvider even when it has settled/unsettled rows (LC-1)", () => {
+  it("carries BINANCE through byProvider like any other provider (settled + unsettled)", () => {
     const profitRepo = makeMockProfitRepo();
     (profitRepo.getFinancialSettledByProvider as jest.Mock).mockReturnValue([
       {
         provider: "BINANCE",
-        revenue_usd: 0,
+        revenue_usd: 200,
         revenue_lbp: 0,
-        profit_usd: 0,
+        profit_usd: 4.5,
         profit_lbp: 0,
         count: 3,
       },
@@ -266,22 +240,23 @@ describe("CommissionsReportService", () => {
 
     const report = service.getReport("2026-09-01", "2026-09-30");
 
-    expect(
-      report.byProvider.find((r) => (r.provider as string) === "BINANCE"),
-    ).toBeUndefined();
-    expect(report.byProvider.map((r) => r.provider)).toEqual(["OMT"]);
-    // Excluding BINANCE must not silently drop OMT's own totals.
-    expect(report.realized_usd).toBe(2);
+    expect(report.byProvider.map((r) => r.provider)).toEqual(["BINANCE", "OMT"]);
+    const binance = report.byProvider.find((r) => r.provider === "BINANCE")!;
+    expect(binance.realized_usd).toBe(4.5);
+    expect(binance.count).toBe(3);
+    expect(binance.pending_usd).toBe(12);
+    expect(binance.total_owed_usd).toBe(40);
+    expect(report.realized_usd).toBe(6.5);
   });
 
-  it("surfaces BINANCE in excludedProviders when it appears in either source, with a reason (LC-1)", () => {
+  it("never captions BINANCE as excluded, even when it has activity", () => {
     const profitRepo = makeMockProfitRepo();
     (profitRepo.getFinancialSettledByProvider as jest.Mock).mockReturnValue([
       {
         provider: "BINANCE",
-        revenue_usd: 0,
+        revenue_usd: 100,
         revenue_lbp: 0,
-        profit_usd: 0,
+        profit_usd: 2,
         profit_lbp: 0,
         count: 2,
       },
@@ -292,15 +267,10 @@ describe("CommissionsReportService", () => {
 
     const report = service.getReport("2026-09-01", "2026-09-30");
 
-    const excluded = report.excludedProviders ?? [];
-    expect(excluded).toEqual([
-      expect.objectContaining({ provider: "BINANCE" }),
-    ]);
-    expect(excluded[0].reason).toEqual(expect.any(String));
-    expect(excluded[0].reason.length).toBeGreaterThan(0);
+    expect(report.excludedProviders).toEqual([]);
   });
 
-  it("omits excludedProviders when Binance has no activity in either source (no permanent caption for shops that never use it)", () => {
+  it("excludedProviders is [] when no provider is excluded (no permanent caption)", () => {
     const profitRepo = makeMockProfitRepo();
     (profitRepo.getFinancialSettledByProvider as jest.Mock).mockReturnValue([
       { provider: "OMT", revenue_usd: 1, revenue_lbp: 0, profit_usd: 1, profit_lbp: 0, count: 1 },
@@ -314,9 +284,9 @@ describe("CommissionsReportService", () => {
     expect(report.excludedProviders).toEqual([]);
   });
 
-  it("COMMISSION_REPORT_PROVIDERS no longer includes BINANCE (LC-1) — the canonical 5-provider list lives in constants/commissionProviders.ts instead (LC-3)", () => {
+  it("COMMISSION_REPORT_PROVIDERS is the full commission-provider list, BINANCE included", () => {
     expect([...COMMISSION_REPORT_PROVIDERS].sort()).toEqual(
-      ["OMT", "OMT_APP", "WHISH", "WHISH_APP"].sort(),
+      ["BINANCE", "OMT", "OMT_APP", "WHISH", "WHISH_APP"].sort(),
     );
   });
 });

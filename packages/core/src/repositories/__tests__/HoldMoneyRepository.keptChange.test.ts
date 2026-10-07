@@ -640,3 +640,69 @@ describe("Hold Money pickup — two-currency kept change (uncapped, per currency
     expect(s2.totals.gross_profit_lbp - base.totals.gross_profit_lbp).toBe(0);
   });
 });
+
+/**
+ * Characterization (rule 17, pure-refactor half): written BEFORE the
+ * two-currency check moved into `resolveKeptChange` (payer "payout",
+ * per-currency mode) and green on the old in-repository code.
+ */
+describe("Hold Money pickup — two-currency kept change: characterization", () => {
+  it("a claim within the cents rounding tolerance is accepted and the COMPUTED kept is booked, not the claim", () => {
+    const id = holdUsd(50.12, 100_000);
+    const res = collect({
+      id,
+      payments: [cashUsd(50), cashLbp(100_000)],
+      kept_change_usd: 0.118,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+    expect(collectTxn().profit_usd).toBe(0.12);
+  });
+
+  it("a claim just outside the cents tolerance is refused", () => {
+    const id = holdUsd(50.12, 100_000);
+    const res = collect({
+      id,
+      payments: [cashUsd(50), cashLbp(100_000)],
+      kept_change_usd: 0.114,
+    });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/add up/);
+  });
+
+  it("LBP claim within ½ LBP is accepted; 1 LBP off is refused", () => {
+    const id = holdUsd(50, 1_000_000);
+    const ok = collect({
+      id,
+      usd_amount: 25,
+      lbp_amount: 500_000,
+      payments: [cashUsd(25), cashLbp(450_000)],
+      kept_change_lbp: 50_000.4,
+    });
+    expect(ok.error).toBeUndefined();
+    expect(collectTxn().profit_lbp).toBe(50_000);
+    const bad = collect({
+      id,
+      payments: [cashUsd(25), cashLbp(450_000)],
+      kept_change_lbp: 50_001,
+    });
+    expect(bad.success).toBe(false);
+    expect(bad.error).toMatch(/add up/);
+  });
+
+  it("handing less than held in one currency and exactly held in the other, with NO claim, is refused (exact reconcile, no silent kept)", () => {
+    const id = holdUsd(50, 100_000);
+    const res = collect({ id, payments: [cashUsd(49.5), cashLbp(100_000)] });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/add up|reconcile/);
+  });
+
+  it("no claim and no lines → the CASH fallback pays both currencies in full", () => {
+    const id = holdUsd(50, 100_000);
+    const res = collect({ id });
+    expect(res.success).toBe(true);
+    expect(collectTxn().profit_usd).toBe(0);
+    expect(collectTxn().profit_lbp).toBe(0);
+    expect(repo.getById(id)!.status).toBe("collected");
+  });
+});

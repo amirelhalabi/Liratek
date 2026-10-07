@@ -17,7 +17,7 @@ import {
   expectedTotalIn,
   resolveStampedExchangeRate,
 } from "./moneyPosting.js";
-import { PAYOUT_KEEP_CHANGE_MAX } from "../validators/exchange.js";
+import { resolveKeptChange } from "./keptChange.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import {
@@ -727,88 +727,57 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
 
   /**
    * Payout "keep the change" (owner decision 2026-10-06, D9 refined) —
-   * validates the kept leftover and returns it plus its USD profit value.
+   * returns the verified kept leftover plus its USD profit value.
    *
    * The exchange sheet is a PAYOUT (each line is cash the shop hands out), so
-   * keep-change runs opposite to T3's overpay: the lines are SHORT of
-   * amountOut by a small leftover, and that leftover (owed − paid) is kept as
-   * profit. Refuses (throws) anything that could book a loss or a real
-   * shortchange as profit:
-   *   - FOR-partner exchanges (no customer counter to round);
-   *   - no payout legs (the lump fallback pays the FULL amountOut);
-   *   - a non-USD/LBP payout currency, or kept in the other currency;
-   *   - kept at/above {@link PAYOUT_KEEP_CHANGE_MAX};
-   *   - lines that already cover amountOut (an overpaid or exact payout —
-   *     this also closes the reconcile epsilon, which would otherwise accept
-   *     a few kept cents on a payout paid in full).
-   * Whether kept equals the actual shortfall is enforced by the reconcile in
-   * createTransaction (lines must equal amountOut − kept).
+   * the lines are SHORT of amountOut by a small leftover kept as profit. The
+   * CHECK is the shared `resolveKeptChange` (payer "payout", rule 14) — the
+   * same one every other payout uses: partner refused, payout lines
+   * required, drawer methods only, USD/LBP payout currency, kept in that
+   * currency only, under `PAYOUT_KEEP_CHANGE_MAX`, the lines must be
+   * short of what is owed, paid = owed − kept, and kept never more than the
+   * real shortfall. It runs only when a kept amount is claimed — with none,
+   * the split-payout reconcile in createTransaction is the whole check (as
+   * before), so exotic-target and lump payouts are untouched.
    *
-   * Exchange profit is USD-only (no LBP profit column on
-   * exchange_transactions), so an LBP leftover is valued at the SAME rate the
-   * payout reconciles at (tender rate, else the server sell rate).
+   * Exchange keeps its OWN booking model: exchange profit is USD-only (no
+   * LBP profit column on exchange_transactions), so an LBP leftover is
+   * valued here at the SAME rate the payout reconciles at (tender rate, else
+   * the server sell rate) and stored as `kept_profit_usd`.
    */
   private _resolvePayoutKeptChange(
     data: CreateExchangeData,
     isForPartner: boolean,
   ): { usd: number; lbp: number; profitUsd: number } {
-    const usd = data.kept_change_usd ?? 0;
-    const lbp = data.kept_change_lbp ?? 0;
-    if (!Number.isFinite(usd) || !Number.isFinite(lbp) || usd < 0 || lbp < 0) {
-      throw new Error("Kept change must be a non-negative amount");
+    const claimed = {
+      usd: data.kept_change_usd ?? 0,
+      lbp: data.kept_change_lbp ?? 0,
+    };
+    // `!== 0` (not `> 0`): a negative or NaN claim still reaches the shared
+    // helper, which refuses it.
+    if (claimed.usd === 0 && claimed.lbp === 0) {
+      return { usd: 0, lbp: 0, profitUsd: 0 };
     }
-    if (usd === 0 && lbp === 0) return { usd: 0, lbp: 0, profitUsd: 0 };
-
-    if (isForPartner) {
-      throw new Error(
-        "A partner exchange cannot keep change — there is no customer payout to round",
-      );
-    }
-    const legs = (data.payments ?? []).filter((p) => Math.abs(p.amount) > 0);
-    if (legs.length === 0) {
-      throw new Error(
-        "Keeping change needs the payout lines — without them the full payout is paid out",
-      );
-    }
-    const to = data.toCurrency;
-    if (to !== "USD" && to !== "LBP") {
-      throw new Error("Keeping change requires a USD or LBP payout currency");
-    }
-    const keptInPayout = to === "USD" ? usd : lbp;
-    const keptOther = to === "USD" ? lbp : usd;
-    if (keptOther > 0) {
-      throw new Error(`Kept change must be in the payout currency (${to})`);
-    }
-    const cap = PAYOUT_KEEP_CHANGE_MAX[to];
-    if (keptInPayout >= cap) {
-      throw new Error(
-        `Kept change must be a small leftover — under ${formatMoneyAmount(cap, to)}`,
-      );
-    }
-
+    const sellRate = getUsdLbpSellRate(this.db);
+    const kept = resolveKeptChange({
+      payer: "payout",
+      owed: Math.abs(data.amountOut),
+      owedCurrency: data.toCurrency,
+      payoutLegs: data.payments ?? [],
+      claimedKept: claimed,
+      isForPartner,
+      exchangeRate: sellRate,
+      ...(data.tender_exchange_rate !== undefined
+        ? { tenderExchangeRate: data.tender_exchange_rate }
+        : {}),
+      context: "Exchange payout",
+    });
     const rate = resolveStampedExchangeRate(
-      getUsdLbpSellRate(this.db),
+      sellRate,
       data.tender_exchange_rate,
     );
-    const toPayout = (amount: number, currency: string): number => {
-      if (currency === to) return amount;
-      if (currency === "USD" && to === "LBP") return amount * rate;
-      if (currency === "LBP" && to === "USD") return amount / rate;
-      return amount;
-    };
-    const paid = legs.reduce(
-      (sum, l) => sum + toPayout(Math.abs(l.amount), l.currencyCode),
-      0,
-    );
-    const tolerance = to === "LBP" ? 0.5 : 0.005;
-    if (paid >= Math.abs(data.amountOut) - tolerance) {
-      throw new Error(
-        "Keep change applies only when the payout is short of the amount owed — the payout lines already cover it",
-      );
-    }
-
-    const profitUsd = to === "USD" ? keptInPayout : keptInPayout / rate;
-    return { usd, lbp, profitUsd };
+    const profitUsd = kept.keptUsd + kept.keptLbp / rate;
+    return { usd: kept.keptUsd, lbp: kept.keptLbp, profitUsd };
   }
 
   // ---------------------------------------------------------------------------

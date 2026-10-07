@@ -115,7 +115,15 @@ export function calculateOmtWhishAppFees({
   // same reason as OMT App RECEIVE above.
   const whishAppSendHasNoFee =
     activeProvider === "WHISH_APP" && serviceType === "SEND";
-  const hasNoFee = omtAppReceiveHasNoFee || whishAppSendHasNoFee;
+  // Whish App LBP RECEIVE has no fee either — the form hides the fee field
+  // there, but a fee typed while the toggle was on USD survived the switch
+  // to LBP and was charged and booked without the cashier seeing it.
+  const whishAppLbpReceiveHasNoFee =
+    activeProvider === "WHISH_APP" &&
+    serviceType === "RECEIVE" &&
+    currency === "LBP";
+  const hasNoFee =
+    omtAppReceiveHasNoFee || whishAppSendHasNoFee || whishAppLbpReceiveHasNoFee;
 
   const autoFee =
     !hasNoFee &&

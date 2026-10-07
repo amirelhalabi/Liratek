@@ -1207,6 +1207,60 @@ describe("SupplierRepository.settleTransactions() — bills-only commission via 
     expect(ledgerCount).toBe(0);
   });
 
+  // Cashier-facing wording: the message must OPEN with one plain sentence
+  // (the same ones `reconcileLegs` uses), technical detail in parentheses
+  // after it, and the sentence must appear exactly once.
+  describe("'OTHER_PAYMENT' mismatch message opens with a plain sentence", () => {
+    const collectWith = (amountLbp: number): string => {
+      const supplierId = seedSupplier(db, "Katsh", 0);
+      const fsId = seedFs(db, {
+        provider: "Katsh",
+        serviceType: "BILL",
+        amount: 0,
+        currency: "LBP",
+        commissionModel: 1,
+      });
+      try {
+        repo.settleTransactions({
+          supplier_id: supplierId,
+          financial_service_ids: [fsId],
+          amount_usd: 0,
+          amount_lbp: 0,
+          commission_usd: 0,
+          commission_lbp: 20000,
+          entry_mode: "RATE",
+          commission_rate: 20000,
+          commission_unit_count: 1,
+          created_by: 1,
+          commission_collection_mode: "OTHER_PAYMENT",
+          payments: [
+            { method: "CASH", currency_code: "LBP", amount: amountLbp },
+          ],
+        });
+      } catch (e) {
+        return (e as Error).message;
+      }
+      throw new Error("expected settleTransactions to throw");
+    };
+    const count = (hay: string, needle: string) => hay.split(needle).length - 1;
+
+    it('short → "The payment doesn\'t add up to the total."', () => {
+      const sentence = "The payment doesn't add up to the total.";
+      const msg = collectWith(15000);
+      expect(msg.startsWith(`${sentence} (`)).toBe(true);
+      expect(count(msg, sentence)).toBe(1);
+      expect(msg).toMatch(/must sum to the entered commission/i);
+    });
+
+    it('over → "The payment is more than the total."', () => {
+      const sentence = "The payment is more than the total.";
+      const msg = collectWith(25000);
+      expect(msg.startsWith(`${sentence} (`)).toBe(true);
+      expect(count(msg, sentence)).toBe(1);
+      expect(msg).toMatch(/must sum to the entered commission/i);
+    });
+  });
+
   it("rejects 'OTHER_PAYMENT' mode for a NON-bills-only batch — the field only has meaning when the server itself derives isBillsOnlyBatch", () => {
     const supplierId = seedSupplier(db, "OMT");
     const fsId = seedFs(db, {

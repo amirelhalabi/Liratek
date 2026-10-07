@@ -126,7 +126,9 @@ export const holdMoneyCollectSchema = z.object({
   //    "payout").
   //  - TWO-currency pickup (USD and LBP both returned): per currency, NO cap
   //    — kept = portion − handed in that currency (handed ≤ portion), and
-  //    the claim must match exactly (`holdPickupKeptPerCurrency` below).
+  //    the claim must match exactly — verified by `resolveKeptChange`'s
+//    `perCurrencyNoCap` payout mode, which does its arithmetic with
+//    `holdPickupKeptPerCurrency` below.
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
 });
@@ -137,9 +139,12 @@ export type HoldMoneyCollectInput = z.infer<typeof holdMoneyCollectSchema>;
  * Two-currency Hold Money pickup kept change (owner decision 2026-10-07:
  * "a pickup paid out in BOTH currencies may keep a leftover in each
  * currency, with no cap"). The ONE definition of the per-currency math,
- * shared by the pickup sheet (what it claims) and `HoldMoneyRepository.
- * collectHold` (what it verifies) — rule 14. Pure arithmetic, no DB or Node
- * import, so it stays reachable from `browser.ts` (rule 29).
+ * shared by the pickup sheet (what it claims) and the server check
+ * (`resolveKeptChange` payer "payout" with `perCurrencyNoCap`,
+ * repositories/keptChange.ts, called by `HoldMoneyRepository.collectHold`)
+ * — rule 14. Pure arithmetic, no DB or Node import, so it stays reachable
+ * from `browser.ts` (rule 29). The claim-vs-computed tolerance is
+ * `KEPT_CHANGE_ROUNDING_TOLERANCE` (validators/exchange.ts).
  *
  * Per currency: `handed` = the sum of the payout legs in that currency
  * (`Math.abs`, exactly what the posting loop debits; OUT legs ignored — the
@@ -161,7 +166,9 @@ export interface HoldPickupKeptResult {
   overLbp: boolean;
 }
 
-/** Same epsilons the pickup sheet and repository use for "nothing left". */
+/** Same epsilons the pickup sheet and repository use for "nothing left" /
+ *  "more than the portion" (deliberately coarser than the kept-claim
+ *  rounding tolerance — a different question). */
 export const HOLD_PICKUP_EPSILON = { USD: 0.01, LBP: 1 } as const;
 
 export function holdPickupKeptPerCurrency(

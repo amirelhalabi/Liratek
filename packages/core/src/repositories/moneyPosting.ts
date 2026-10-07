@@ -269,11 +269,13 @@ export function sumLegsByCurrency(
  * structured legs at all (the single-payment `paidByMethod`/`cashoutMethod`
  * fallback) are never checked, by design.
  *
- * Throws a descriptive Error naming the expected vs. actual USD-equivalent
- * totals (and the per-currency breakdown) on mismatch. Callers MUST invoke
- * this inside the same `db.transaction(...)` the flow runs in, before
- * writing any leg/drawer/debt row for this branch, so a thrown mismatch
- * rolls back the whole write atomically.
+ * Throws a descriptive Error on mismatch: one plain cashier-facing sentence
+ * ("The payment doesn't add up to the total." when short, "The payment is
+ * more than the total." when over), then in parentheses the context and the
+ * expected vs. actual USD-equivalent totals (and per-currency breakdown).
+ * Callers MUST invoke this inside the same `db.transaction(...)` the flow
+ * runs in, before writing any leg/drawer/debt row for this branch, so a
+ * thrown mismatch rolls back the whole write atomically.
  */
 export function reconcileLegs(input: ReconcileLegsInput): void {
   const {
@@ -313,11 +315,18 @@ export function reconcileLegs(input: ReconcileLegsInput): void {
 
   if (Math.abs(diff) > LEG_RECONCILIATION_EPSILON_USD) {
     const money = (n: number) => n.toFixed(2);
+    // Cashier-facing: this reaches the till as a toast, so ONE plain
+    // sentence first, the technical detail after in parentheses —
+    // `"<plain> (<context>: <detail>)"`, the same shape keptChange.ts uses.
+    const plain =
+      diff < 0
+        ? "The payment doesn't add up to the total."
+        : "The payment is more than the total.";
     throw new Error(
-      `${context}: payment legs do not reconcile — expected $${money(expectedUsd)} USD-equivalent ` +
+      `${plain} (${context}: payment legs do not reconcile — expected $${money(expectedUsd)} USD-equivalent ` +
         `($${money(expectedTotals.usd)} + ${Math.round(expectedTotals.lbp).toLocaleString()} LBP), ` +
         `got $${money(gotUsd)} USD-equivalent (IN $${money(inUsd)}, OUT $${money(outUsd)}, kept $${money(keptUsd)}), ` +
-        `diff $${money(diff)} at rate ${rate}`,
+        `diff $${money(diff)} at rate ${rate})`,
     );
   }
 }

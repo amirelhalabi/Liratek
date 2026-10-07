@@ -547,10 +547,10 @@ extra check on that form, used only when both its keys are set (as of
 5. **Check delivery.** Invite a real Gmail address from the Tenants page. In
    Gmail, open **Show original** and confirm that SPF, DKIM and DMARC all show
    **PASS**, and that the email landed in the inbox.
-6. **Check the client IP before enabling self-serve.** The per-IP limit and
-   Turnstile's `remoteip` rely on `req.ip` (`trust proxy` is 1). On one
-   production request, log `req.ip`, `x-forwarded-for` and `fly-client-ip`.
-   Confirm `req.ip` is the visitor's address, not Vercel's or Cloudflare's.
+6. **Check the client IP.** Every per-IP limit, Turnstile's `remoteip` and
+   each session's `ip_address` use the client IP from
+   `backend/src/middleware/clientIp.ts` — see **Client IP behind Vercel**
+   below. `yarn api:verify` prints the address the API resolved for you.
 
 **Limits** (env, optional):
 
@@ -564,8 +564,27 @@ extra check on that form, used only when both its keys are set (as of
 | `USER_INVITE_LINK_RATE_LIMIT_MAX` | 30 user-invite link checks/accepts per IP per hour |
 | `EMAIL_VERIFY_LINK_RATE_LIMIT_MAX` | 30 email-verification link opens per IP per hour |
 
-"Per IP" means the `CLIENT_IP_HEADER` value when it is set (one shared
-helper, `backend/src/middleware/clientIp.ts`), else `req.ip`.
+"Per IP" means the client IP from the one shared helper
+(`backend/src/middleware/clientIp.ts`), described next.
+
+**Client IP behind Vercel (LIRA-283).** Behind Vercel → Fly, `req.ip` is one
+proxy address for every shop (measured 2026-10-07: every session recorded
+66.241.124.103, the address `api.liratek.shop` resolves to). `api.liratek.shop`
+is public, so a forwarded header cannot be trusted by name — anyone can call it
+directly with a forged one. The API therefore believes a forwarded header only
+when the request also carries `x-liratek-proxy-auth` equal to the Fly secret
+`CLIENT_IP_PROXY_SECRET` (32+ characters). Vercel adds that header on its
+rewrite from the Vercel environment variable `LIRATEK_PROXY_SECRET` (same
+value; never in git — the repo is public). The address is then read from
+`CLIENT_IP_HEADER`, default `x-vercel-forwarded-for`. Anything else — no
+secret, wrong secret, a value that is not an IP — falls back to `req.ip`, so a
+half-finished setup behaves exactly as before. `X-Forwarded-Host` handling and
+`trust proxy` are unchanged.
+
+To check: `yarn api:verify` calls `/health/client-ip` directly with forged
+headers (must be ignored) and through `www.liratek.shop` (must show your real
+IP). From a shop, open `https://www.liratek.shop/health/client-ip` and compare
+`ip` with the shop's public address.
 
 The per-email limit (3 requests per hour) is fixed.
 

@@ -881,10 +881,10 @@ export class ProfitService {
       // Payment-method fees — immediate shop profit kept in the wallet drawer,
       // recorded as PM_FEE payment rows but previously never counted anywhere.
       for (const row of this.repo.getPmFeeTotals(fromDt, toDt)) {
-        // LO-V10 (round 2): EXACT currency match — `getPmFeeTotals` groups
-        // by the RAW `fs.currency` (not pre-bucketed), so the old
-        // `else -> USD` fallback lumped any third currency's fee into
-        // `pm_fee_usd`. Now dropped (neither bucket), matching PA-1.4.
+        // LO-V10 (round 2): EXACT currency match — the old `else -> USD`
+        // fallback lumped any third currency's fee into `pm_fee_usd`. Now
+        // dropped (neither bucket), matching PA-1.4. `getPmFeeTotals` groups
+        // by `fsReportingCurrency`, so a Binance (USDT) fee arrives as USD.
         if (row.currency_code === "USD") {
           finSvc.pm_fee_usd += row.total;
         } else if (row.currency_code === "LBP") {
@@ -2044,10 +2044,17 @@ export class ProfitService {
         r.is_commission_provider === 1 &&
         r.profit_usd === 0 &&
         r.profit_lbp === 0;
+      // A legacy EMBEDDED row (commission_model = 0 — every Binance row, and
+      // legacy OMT/WHISH rows) carries its commission on the transfer
+      // itself, so a $0 there means none was recorded; settlement
+      // allocations are only ever written for a commission_model = 1 batch
+      // (SupplierRepository.settleTransactions step 5).
       const commissionTimingNote = isCommissionTimingCase
         ? allocatedInRange.has(r.related_transfer_id)
           ? "Commission booked separately below — see the settlement allocation row for this transfer."
-          : "Commission is counted when the supplier settles (outside this date range if it already has)."
+          : r.commission_at_settlement === 1
+            ? "Commission is counted when the supplier settles (outside this date range if it already has)."
+            : "No commission was recorded on this transfer."
         : null;
       const infoNoteParts = [keptChangeNote, commissionTimingNote].filter(
         (p): p is string => p !== null,

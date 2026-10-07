@@ -60,6 +60,7 @@ import {
 } from "@liratek/core";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { authLimiter } from "../middleware/rateLimit.js";
+import { clientIp } from "../middleware/clientIp.js";
 import { validateRequest } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
 import {
@@ -558,7 +559,7 @@ router.post(
           userId: handoff.userId,
           tenantId: handoff.tenantId,
           deviceInfo: req.headers["user-agent"] || "Unknown",
-          ipAddress: req.ip || req.socket.remoteAddress,
+          ipAddress: clientIp(req) || req.socket.remoteAddress,
         }),
       );
       if (!opened) {
