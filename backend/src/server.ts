@@ -108,6 +108,7 @@ import { invalidateOnMutation } from "./middleware/invalidateOnMutation.js";
 import { requireWritableSubscription } from "./middleware/requireWritableSubscription.js";
 import { startLapseSweep } from "./services/lapseSweep.js";
 import { startSessionSweep } from "./services/sessionSweep.js";
+import { startEmailOutbox, stopEmailOutbox } from "./email/outboxWorker.js";
 app.use(invalidateOnMutation);
 
 // Block writes for a tenant whose subscription has lapsed to read_only.
@@ -302,11 +303,18 @@ httpServer.listen(PORT, HOST, () => {
   // serves (platform + every tenant file in per-tenant mode). Idempotent
   // and every 5 minutes, matching desktop's own sweep -- see sessionSweep.ts.
   startSessionSweep();
+
+  // Send queued email (sign-up invites). A durable outbox polled every 30s;
+  // not started when EMAIL_TRANSPORT=disabled -- see email/outboxWorker.ts.
+  startEmailOutbox();
 });
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
   logger.info("SIGTERM received, shutting down gracefully");
+  // Stop picking up new email. A send cut off mid-flight stays in `sending`
+  // until the worker's stuck-row recovery returns it to `pending`.
+  stopEmailOutbox();
   httpServer.close(() => {
     logger.info("Server closed");
     process.exit(0);

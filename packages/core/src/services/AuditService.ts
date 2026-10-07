@@ -91,7 +91,12 @@ export interface AdminActionAuditInput {
   /** Always 'super_admin' for every current caller; kept as an input rather
    *  than hardcoded so a future platform role doesn't need a new method. */
   actorRole: string;
-  targetTenantId: number;
+  /**
+   * The shop the action targets. `null` for a platform action that has no
+   * shop yet (LIRA-267: sending a sign-up invite) -- then only the platform
+   * row is written and the shop-note write is skipped entirely.
+   */
+  targetTenantId: number | null;
   action: string;
   entityType: string;
   entityId?: string | null;
@@ -181,8 +186,14 @@ export class AuditService {
       );
     }
 
+    // No target shop (e.g. a sign-up invite): there is no shop history to
+    // annotate. Skipped rather than attempted, because runWithTenant(null)
+    // throws and would log a false error on every such action.
+    const targetTenantId = input.targetTenantId;
+    if (targetTenantId === null) return;
+
     try {
-      runWithTenant(input.targetTenantId, () => {
+      runWithTenant(targetTenantId, () => {
         this.repo.log(
           redactSensitiveAuditWrite({
             user_id: 0,

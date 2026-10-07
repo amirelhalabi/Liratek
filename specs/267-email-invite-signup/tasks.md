@@ -123,13 +123,13 @@
     - A second `claim` on the same hash returns null.
     - A stale claim (older than 10 minutes) can be claimed again.
     - Expired, used and revoked invites cannot be claimed.
-- [ ] T014 [P] Create `backend/src/email/EmailTransport.ts`:
+- [X] T014 [P] Create `backend/src/email/EmailTransport.ts`:
   - `interface EmailTransport { name; send(msg: { to; from; replyTo?; subject; html; text }): Promise<{ providerMessageId: string | null }> }`
   - Classes `TransientEmailError` and `PermanentEmailError`.
-- [ ] T015 [P] Create `backend/src/email/transports/fake.ts`, which records sent messages in memory and can be scripted to throw. Create `backend/src/email/transports/disabled.ts`, which throws `PermanentEmailError("email not configured")`.
-- [ ] T016 [P] Write the test first, then create `backend/src/email/transports/file.ts`. It writes `<template>-<outboxId>.html`, `.txt` and `.json` (subject, to, from) into `EMAIL_FILE_DIR` and returns `providerMessageId: "file:<path>"`.
-- [ ] T017 Create `backend/src/email/createTransport.ts`, which picks the transport from `EMAIL_TRANSPORT` and exports `isEmailConfigured()` (true when the transport is not `disabled`). Selecting `smtp` or `resend` before T040 lands throws at boot with a clear message.
-- [ ] T018 [P] Write `backend/src/email/__tests__/renderTemplate.test.ts` first and see it fail. Then create `backend/src/email/renderTemplate.ts`:
+- [X] T015 [P] Create `backend/src/email/transports/fake.ts`, which records sent messages in memory and can be scripted to throw. Create `backend/src/email/transports/disabled.ts`, which throws `PermanentEmailError("email not configured")`.
+- [X] T016 [P] Write the test first, then create `backend/src/email/transports/file.ts`. It writes `<template>-<outboxId>.html`, `.txt` and `.json` (subject, to, from) into `EMAIL_FILE_DIR` and returns `providerMessageId: "file:<path>"`.
+- [X] T017 Create `backend/src/email/createTransport.ts`, which picks the transport from `EMAIL_TRANSPORT` and exports `isEmailConfigured()` (true when the transport is not `disabled`). Selecting `smtp` or `resend` before T040 lands throws at boot with a clear message.
+- [X] T018 [P] Write `backend/src/email/__tests__/renderTemplate.test.ts` first and see it fail. Then create `backend/src/email/renderTemplate.ts`:
   - `render(template, vars)` → `{ subject, html, text }`.
   - Every `{{var}}` in the HTML is HTML-escaped, including `"` and `'`, so values are safe inside attributes.
   - Text output is not escaped.
@@ -148,7 +148,7 @@
 
 ### Tests for US1 (write first, see them fail)
 
-- [ ] T019 [P] [US1] Write `packages/core/src/services/__tests__/SignupInvitationService.test.ts`. Use mocked repositories and a fixed clock. It covers:
+- [X] T019 [P] [US1] Write `packages/core/src/services/__tests__/SignupInvitationService.test.ts`. Use mocked repositories and a fixed clock. It covers:
   - `create` writes the invite and the outbox row in one transaction; if the outbox insert throws, no invite row exists.
   - `create` refuses with `EMAIL_ALREADY_HAS_SHOP` when `findTenantByContactEmail` finds a shop.
   - `create` refuses with `EMAIL_NOT_CONFIGURED` when email is not configured.
@@ -157,11 +157,11 @@
   - `consume` follows claim → provision → finalize. A provisioning error releases the claim and rethrows.
   - **Crash case (FR-010):** a stale claim is reused, provisioning throws `EMAIL_ALREADY_HAS_SHOP`, and a shop with `contact_email = invite.email` exists. Then the invite is finalized as used with that shop's id, not released, and the generic refusal is returned. No second shop is created.
   - The outbox row's `giveUpAt` equals the invite's `expiresAt`.
-- [ ] T020 [P] [US1] Write `backend/src/api/__tests__/signupInvitations.api.test.ts`, using the supertest pattern from `signup.api.test.ts`. It covers:
+- [X] T020 [P] [US1] Write `backend/src/api/__tests__/signupInvitations.api.test.ts`, using the supertest pattern from `signup.api.test.ts`. It covers:
   - `POST /api/admin/signup-invitations` returns 401/403 for anyone who is not super-admin.
   - It returns 201 with no token anywhere in the body.
   - It returns 409 `EMAIL_NOT_CONFIGURED`, and 409 `EMAIL_ALREADY_HAS_SHOP` with the slug.
-- [ ] T021 [P] [US1] Extend `backend/src/api/__tests__/signup.api.test.ts`. Take payload field names from the schema (rule 24). Cases:
+- [X] T021 [P] [US1] Extend `backend/src/api/__tests__/signup.api.test.ts`. Take payload field names from the schema (rule 24). Cases:
   - `POST /api/auth/signup/invite/check`: valid → 200 `{ email, shopNameHint, expiresAt }`. Unknown, expired, used, revoked or claimed → 200 `success:false` with the same generic message.
   - `POST /api/auth/signup` with `inviteToken`: valid → 201, and `provisionTenant` is called with `contactEmail` equal to the invite's email even when the body carries another `contactEmail`.
   - Invalid token → 403 with the generic message.
@@ -171,29 +171,29 @@
 
 ### Implementation for US1
 
-- [ ] T022 [US1] Create `packages/core/src/services/SignupInvitationService.ts`, with no SQL in it. Methods:
+- [X] T022 [US1] Create `packages/core/src/services/SignupInvitationService.ts`, with no SQL in it. Methods:
   - `create({ source, email, shopNameHint, invitedByUserId, now, baseUrl, emailConfigured })`: checks the duplicate shop, generates the token, then inside one repository transaction creates the invite, enqueues the outbox row (`signup-invite:<id>`, template `signup-invite`, data `{ inviteUrl, shopNameHint, expiresAtText, supportEmail }`, `giveUpAt` = the invite's `expiresAt`) and links the two.
   - `check(token, now)`
   - `consume(token, now, provisionFn)`: research R4.
   - Export a `getSignupInvitationService()` singleton and export the service from `packages/core/src/index.ts`. Don't export it from `browser.ts`.
-- [ ] T023 [US1] Create `backend/src/email/templates/layout.ts` and `backend/src/email/templates/signupInvite.ts`. They export HTML and text strings and the subject `You're invited to open your shop on LiraTek`. Layout requirements:
+- [X] T023 [US1] Create `backend/src/email/templates/layout.ts` and `backend/src/email/templates/signupInvite.ts`. They export HTML and text strings and the subject `You're invited to open your shop on LiraTek`. Layout requirements:
   - Table layout, max width 600px, inline CSS, LiraTek colours.
   - Logo from a stable `https://www.liratek.shop/…` URL. Check it exists in `frontend/public/`.
   - A button, plus the link written out in full as a fallback.
   - The text "This link works once and expires on {{expiresAtText}}".
   - The shop name hint inside `{{#if shopNameHint}}`.
   - Variables follow the template contract in contracts/api.md.
-- [ ] T024 [US1] Write `backend/src/email/__tests__/outboxWorker.test.ts` (basic: a due row is claimed, rendered, sent once, marked `accepted`, and `inviteUrl` is scrubbed) and see it fail. Then create `backend/src/email/outboxWorker.ts`:
+- [X] T024 [US1] Write `backend/src/email/__tests__/outboxWorker.test.ts` (basic: a due row is claimed, rendered, sent once, marked `accepted`, and `inviteUrl` is scrubbed) and see it fail. Then create `backend/src/email/outboxWorker.ts`:
   - `runOutboxOnce(now)`: `findDue(now, 20)`, then for each row claim → render → `transport.send` → `markAccepted` → `scrubSecret(id, "inviteUrl")`.
   - `startEmailOutbox()` and `stopEmailOutbox()`: run once at boot, then `setInterval` every 30 seconds with `.unref()`.
   - Every call runs inside `runWithoutTenant`, with a try/catch that logs. Mirror `backend/src/services/lapseSweep.ts`.
   - Leave retry and backoff for US3, but structure the error branch so US3 only fills it in.
-- [ ] T025 [US1] In `backend/src/server.ts`, call `startEmailOutbox()` next to `startLapseSweep()` (around :299). On `SIGTERM` (around :308), call `stopEmailOutbox()`.
-- [ ] T026 [US1] In `backend/src/api/admin.ts`, add `POST /signup-invitations`:
+- [X] T025 [US1] In `backend/src/server.ts`, call `startEmailOutbox()` next to `startLapseSweep()` (around :299). On `SIGTERM` (around :308), call `stopEmailOutbox()`.
+- [X] T026 [US1] In `backend/src/api/admin.ts`, add `POST /signup-invitations`:
   - `validateRequest(createSignupInvitationSchema)`, then `runWithoutTenant` → `service.create({ invitedByUserId: req.user.userId, now: new Date().toISOString(), baseUrl: SIGNUP_INVITE_BASE_URL ?? \`https://www.${APP_BASE_DOMAIN}\`, emailConfigured: isEmailConfigured() })`.
   - Map the errors to 409. Write an audit entry `signup_invitation.create` with `getAuditService().logAdminAction`.
   - Return 201 with the invitation view shape from contracts/api.md.
-- [ ] T027 [US1] In `backend/src/api/auth.ts`:
+- [X] T027 [US1] In `backend/src/api/auth.ts`:
   - Add `POST /signup/invite/check` (with `signupLimiter`).
   - Change `POST /signup` (:666): for `inviteToken`, call `service.consume(token, now, () => provisionTenant({...body, contactEmail: invite.email}))`, with the existing audit, `provisionTenantDomain` and `loginUrl` steps after it. For `inviteCode`, use `safeEqual`.
   - Map `EMAIL_ALREADY_HAS_SHOP` to 400 "This email already has a shop."

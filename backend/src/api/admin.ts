@@ -38,6 +38,9 @@ import {
   tenantLogger,
   createTenantSchema,
   updateTenantSchema,
+  createSignupInvitationSchema,
+  getSignupInvitationService,
+  EMAIL_NOT_CONFIGURED,
 } from "@liratek/core";
 import {
   authenticateJWT,
@@ -51,6 +54,11 @@ import {
   deprovisionTenantDomain,
 } from "../services/tenantDomains.js";
 import { randomBytes } from "node:crypto";
+import { isEmailConfigured } from "../email/createTransport.js";
+import {
+  resolveInviteBaseUrl,
+  resolveSupportEmail,
+} from "../email/emailConfig.js";
 
 if (!JWT_SECRET) {
   throw new Error(
@@ -155,6 +163,85 @@ router.post("/tenants", validateRequest(createTenantSchema), (req, res) => {
       );
   }
 });
+
+// =============================================================================
+// POST /api/admin/signup-invitations — email a single-use sign-up link
+// (LIRA-267). Web-only: the desktop app has no platform admin.
+// =============================================================================
+
+router.post(
+  "/signup-invitations",
+  validateRequest(createSignupInvitationSchema),
+  (req, res) => {
+    try {
+      const baseUrl = resolveInviteBaseUrl();
+      if (!baseUrl) {
+        // Without a base URL the emailed link would point nowhere. Same
+        // answer as "no mail transport": the deployment cannot send invites.
+        res
+          .status(409)
+          .json(
+            createErrorResponse(
+              EMAIL_NOT_CONFIGURED,
+              "Invite links are not configured on this server (set SIGNUP_INVITE_BASE_URL or APP_BASE_DOMAIN)",
+            ),
+          );
+        return;
+      }
+
+      const invitation = runWithoutTenant(() =>
+        getSignupInvitationService().create({
+          source: "admin",
+          email: req.body.email,
+          shopNameHint: req.body.shopNameHint,
+          // The actor comes from the JWT, never the body.
+          invitedByUserId: req.user!.userId,
+          now: new Date().toISOString(),
+          baseUrl,
+          emailConfigured: isEmailConfigured(),
+          supportEmail: resolveSupportEmail(),
+        }),
+      );
+
+      // A platform action with no shop yet: targetTenantId null writes the
+      // platform row only. Never throws (see logAdminAction).
+      getAuditService().logAdminAction({
+        actorUserId: req.user!.userId,
+        actorUsername: req.user!.username,
+        actorRole: req.user!.role,
+        targetTenantId: null,
+        action: "signup_invitation.create",
+        entityType: "signup_invitation",
+        entityId: String(invitation.id),
+        summary: `Sent a sign-up invite to ${invitation.email}`,
+        newValues: {
+          email: invitation.email,
+          shopNameHint: invitation.shopNameHint,
+          expiresAt: invitation.expiresAt,
+        },
+      });
+
+      // The token is never in the response: it reaches people only by email.
+      res.status(201).json(createSuccessResponse({ invitation }));
+    } catch (error) {
+      if (error instanceof AppError) {
+        res
+          .status(error.statusCode)
+          .json(createErrorResponse(error.code, error.message, error.details));
+        return;
+      }
+      logger.error({ error }, "POST /api/admin/signup-invitations failed");
+      res
+        .status(500)
+        .json(
+          createErrorResponse(
+            ErrorCodes.INTERNAL_ERROR,
+            "Failed to create the invitation",
+          ),
+        );
+    }
+  },
+);
 
 // =============================================================================
 // PATCH /api/admin/tenants/:id — update name/status/contact/notes

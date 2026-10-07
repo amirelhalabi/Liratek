@@ -26,8 +26,8 @@ Returns the 200 most recent invites, newest first.
     "expiresAt": "2026-10-10T09:00:00.000Z",
     "usedAt": null, "usedByTenant": null,   // { id, slug } once used
     "revokedAt": null,
-    "email": { "status": "accepted", "attempts": 1, "lastError": null, "sentAt": "…" },
-    // email.status is queued | accepted | failed. The outbox states pending and sending both show as queued.
+    "emailDelivery": { "status": "accepted", "attempts": 1, "lastError": null, "sentAt": "…" },  // null if no outbox row
+    // emailDelivery.status is queued | accepted | failed. The outbox states pending and sending both show as queued.
   }]
 }}
 ```

@@ -160,8 +160,24 @@ export const EMAIL_ALREADY_HAS_SHOP = "EMAIL_ALREADY_HAS_SHOP";
  * per-tenant mode. Callers recognise it by `code`, never by message text.
  */
 export class EmailAlreadyHasShopError extends AppError {
-  constructor(message: string = "A shop already exists for this email") {
-    super(EMAIL_ALREADY_HAS_SHOP, message, 409, true);
+  constructor(
+    message: string = "A shop already exists for this email",
+    details?: { slug: string },
+  ) {
+    super(EMAIL_ALREADY_HAS_SHOP, message, 409, true, details);
+  }
+}
+
+export const EMAIL_NOT_CONFIGURED = "EMAIL_NOT_CONFIGURED";
+
+/**
+ * LIRA-267: an action needs to send email but this deployment has no mail
+ * transport (`EMAIL_TRANSPORT=disabled`). Refused up front so nothing is
+ * created that could never be delivered.
+ */
+export class EmailNotConfiguredError extends AppError {
+  constructor(message: string = "Email is not configured on this server") {
+    super(EMAIL_NOT_CONFIGURED, message, 409, true);
   }
 }
 

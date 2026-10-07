@@ -15,6 +15,13 @@ import {
   ErrorCodes,
   JWT_SECRET,
   JWT_EXPIRES_IN,
+  AppError,
+  EMAIL_ALREADY_HAS_SHOP,
+  SIGNUP_INVITE_INVALID_MESSAGE,
+  checkSignupInviteSchema,
+  getSignupInvitationService,
+  safeEqual,
+  type TenantEntity,
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
 import { signupLimiter, authLimiter } from "../middleware/rateLimit.js";
@@ -29,6 +36,7 @@ import {
 import { authenticateJWT, type LiratekJwtPayload } from "../middleware/auth.js";
 import { isPerTenantDbMode } from "../database/tenantDbMode.js";
 import { logger } from "../server.js";
+import { isEmailConfigured } from "../email/createTransport.js";
 import jwt from "jsonwebtoken";
 
 const router = express.Router();
@@ -627,6 +635,9 @@ router.get("/signup-status", (req, res): void => {
   res.json(
     createSuccessResponse({
       enabled: Boolean(SIGNUP_INVITE_CODE),
+      // LIRA-267: can the platform email invite links at all? A boolean
+      // only, never which transport.
+      emailInvitesEnabled: isEmailConfigured(),
       platformHost,
       // Only alongside platformHost, and only so the page can spell out the
       // address format ("<your-shop>.liratek.shop"). Null everywhere else.
@@ -649,6 +660,68 @@ router.get("/signup-status", (req, res): void => {
   );
 });
 
+// POST /api/auth/signup/invite/check — is this invite link usable? (PUBLIC)
+//
+// LIRA-267. The sign-up page calls it on load to show the invited email
+// (locked) and the shop-name hint. The token travels in the BODY, never the
+// path, so it stays out of access logs. Every unusable link — unknown,
+// expired, used, revoked, or claimed by a sign-up in progress — gets the
+// SAME 200 + success:false answer (FR-009), so the response says nothing
+// about why. Rate-limited like /signup.
+router.post(
+  "/signup/invite/check",
+  signupLimiter,
+  validateRequest(checkSignupInviteSchema),
+  (req, res): void => {
+    try {
+      const invite = runWithoutTenant(() =>
+        getSignupInvitationService().check(
+          req.body.token,
+          new Date().toISOString(),
+        ),
+      );
+      if (!invite) {
+        res.json(
+          createErrorResponse(
+            ErrorCodes.FORBIDDEN,
+            SIGNUP_INVITE_INVALID_MESSAGE,
+          ),
+        );
+        return;
+      }
+      res.json(createSuccessResponse(invite));
+    } catch (error) {
+      logger.error({ error }, "Sign-up invite check failed");
+      res.json(
+        createErrorResponse(ErrorCodes.FORBIDDEN, SIGNUP_INVITE_INVALID_MESSAGE),
+      );
+    }
+  },
+);
+
+/** The provisionTenant input every sign-up path shares. Fields are listed
+ * explicitly so nothing else in the body (inviteCode, inviteToken) leaks
+ * into provisioning. */
+function signupProvisionFields(body: {
+  name: string;
+  slug: string;
+  contactName?: string;
+  contactPhone?: string;
+  notes?: string;
+  adminUsername: string;
+  adminPassword: string;
+}) {
+  return {
+    name: body.name,
+    slug: body.slug,
+    contactName: body.contactName,
+    contactPhone: body.contactPhone,
+    notes: body.notes,
+    adminUsername: body.adminUsername,
+    adminPassword: body.adminPassword,
+  };
+}
+
 // POST /api/auth/signup — self-service tenant creation (PUBLIC, no token)
 //
 // Feeds the SAME TenantProvisioningService.provisionTenant() a super admin
@@ -656,62 +729,102 @@ router.get("/signup-status", (req, res): void => {
 // registry row, full per-tenant config seed and first admin user, in one
 // transaction. No logic lives here.
 //
-// Three things make a public write path on a POS platform acceptable:
-//   1. It is DISABLED unless SIGNUP_INVITE_CODE is set. Unset is the safe
-//      default -- forgetting to configure something cannot expose it.
-//   2. signupLimiter counts SUCCESSES, not just failures (unlike the login
-//      limiter), because each success permanently consumes a unique slug.
-//   3. The slug charset and reserved-name blocklist are the same ones that
-//      guard staff-created tenants -- signupSchema extends createTenantSchema
-//      rather than restating the rules.
+// The body carries EXACTLY ONE proof of invitation (signupSchema):
+//   - inviteToken (LIRA-267): a single-use emailed link. Claimed, then the
+//     shop is provisioned with the INVITE's email as its contact email, then
+//     the invite is marked used — or released if provisioning fails
+//     (SignupInvitationService.consume). Works whether or not a shared code
+//     is configured.
+//   - inviteCode (Stage A only): the shared SIGNUP_INVITE_CODE, compared in
+//     constant time. DISABLED unless SIGNUP_INVITE_CODE is set — unset is the
+//     safe default, so forgetting to configure it cannot expose sign-up.
+//
+// signupLimiter counts SUCCESSES, not just failures (unlike the login
+// limiter), because each success permanently consumes a unique slug. The
+// slug charset and reserved-name blocklist are the same ones that guard
+// staff-created tenants -- signupSchema extends createTenantSchema rather
+// than restating the rules.
 router.post(
   "/signup",
   signupLimiter,
   validateRequest(signupSchema),
   (req, res): void => {
     try {
-      const expected = SIGNUP_INVITE_CODE;
-      if (!expected) {
-        // Not an error the caller can fix, and deliberately not 404: a clear
-        // answer is more useful than pretending the route is absent, and it
-        // leaks nothing an attacker could not learn by trying.
-        res
-          .status(403)
-          .json(
-            createErrorResponse(
-              ErrorCodes.FORBIDDEN,
-              "Signup is disabled on this deployment",
-            ),
-          );
-        return;
-      }
+      let tenant: TenantEntity;
+      let via: "invite_link" | "invite_code";
+      let invitationId: number | null = null;
 
-      if (req.body.inviteCode !== expected) {
-        logger.warn(
-          { slug: req.body.slug },
-          "Signup rejected: bad invite code",
+      if (req.body.inviteToken !== undefined) {
+        const outcome = runWithoutTenant(() =>
+          getSignupInvitationService().consume(
+            req.body.inviteToken,
+            new Date().toISOString(),
+            // The contact email comes from the invite row ONLY. signupSchema
+            // already strips a body contactEmail; this never reads one.
+            (invite) =>
+              getTenantProvisioningService().provisionTenant({
+                ...signupProvisionFields(req.body),
+                contactEmail: invite.email,
+              }),
+          ),
         );
-        res
-          .status(403)
-          .json(
-            createErrorResponse(ErrorCodes.FORBIDDEN, "Invalid invite code"),
+        if (!outcome.ok) {
+          logger.warn(
+            { slug: req.body.slug },
+            "Signup rejected: unusable invite link",
           );
-        return;
-      }
+          res
+            .status(403)
+            .json(
+              createErrorResponse(
+                ErrorCodes.FORBIDDEN,
+                SIGNUP_INVITE_INVALID_MESSAGE,
+              ),
+            );
+          return;
+        }
+        tenant = outcome.result;
+        via = "invite_link";
+        invitationId = outcome.invite.id;
+      } else {
+        const expected = SIGNUP_INVITE_CODE;
+        if (!expected) {
+          // Not an error the caller can fix, and deliberately not 404: a
+          // clear answer is more useful than pretending the route is absent,
+          // and it leaks nothing an attacker could not learn by trying.
+          res
+            .status(403)
+            .json(
+              createErrorResponse(
+                ErrorCodes.FORBIDDEN,
+                "Signup is disabled on this deployment",
+              ),
+            );
+          return;
+        }
 
-      // runWithoutTenant: creating a tenant is control-plane work with no
-      // ambient tenant of its own, and the registry is not tenant-scoped.
-      const tenant = runWithoutTenant(() =>
-        getTenantProvisioningService().provisionTenant({
-          name: req.body.name,
-          slug: req.body.slug,
-          contactName: req.body.contactName,
-          contactPhone: req.body.contactPhone,
-          notes: req.body.notes,
-          adminUsername: req.body.adminUsername,
-          adminPassword: req.body.adminPassword,
-        }),
-      );
+        if (!safeEqual(req.body.inviteCode ?? "", expected)) {
+          logger.warn(
+            { slug: req.body.slug },
+            "Signup rejected: bad invite code",
+          );
+          res
+            .status(403)
+            .json(
+              createErrorResponse(ErrorCodes.FORBIDDEN, "Invalid invite code"),
+            );
+          return;
+        }
+
+        // runWithoutTenant: creating a tenant is control-plane work with no
+        // ambient tenant of its own, and the registry is not tenant-scoped.
+        tenant = runWithoutTenant(() =>
+          getTenantProvisioningService().provisionTenant(
+            signupProvisionFields(req.body),
+          ),
+        );
+        via = "invite_code";
+      }
 
       // Audited under the NEW tenant, matching the admin provisioning route.
       //
@@ -738,7 +851,11 @@ router.post(
             entity_id: String(tenant.id),
             summary: `Self-service signup created tenant "${tenant.name}"`,
             new_values: { name: tenant.name, slug: tenant.slug },
-            metadata: { self_service: true },
+            metadata: {
+              self_service: true,
+              via,
+              ...(invitationId !== null ? { invitation_id: invitationId } : {}),
+            },
           });
         } catch {
           // Deliberately swallowed — see above.
@@ -746,7 +863,7 @@ router.post(
       });
 
       logger.info(
-        { tenantId: tenant.id, slug: tenant.slug },
+        { tenantId: tenant.id, slug: tenant.slug, via },
         "Tenant created via self-service signup",
       );
 
@@ -780,6 +897,20 @@ router.post(
         }),
       );
     } catch (error) {
+      // The invite's email belongs to a shop already (a race past the admin
+      // check, caught by the unique index). The invite was released.
+      if (error instanceof AppError && error.code === EMAIL_ALREADY_HAS_SHOP) {
+        logger.warn({ slug: req.body?.slug }, "Signup refused: email has a shop");
+        res
+          .status(400)
+          .json(
+            createErrorResponse(
+              EMAIL_ALREADY_HAS_SHOP,
+              "This email already has a shop.",
+            ),
+          );
+        return;
+      }
       // provisionTenant throws ConflictError for a taken slug or username and
       // ValidationError for a weak password; surface the message so the form
       // can show which field to fix.

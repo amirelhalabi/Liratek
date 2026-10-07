@@ -452,6 +452,30 @@ export {
 } from "./TenantProvisioningService.js";
 export type { ProvisionTenantData } from "./TenantProvisioningService.js";
 
+// Sign-up invitations (LIRA-267) — server-only: uses node:crypto via
+// utils/crypto.js. Exported from index.ts alone, never browser.ts (rule 29).
+export {
+  SignupInvitationService,
+  getSignupInvitationService,
+  resetSignupInvitationService,
+  formatInviteExpiry,
+  toSignupInvitationView,
+  toSignupInviteEmailStatus,
+  SIGNUP_INVITE_TTL_MS,
+  SIGNUP_INVITE_CLAIM_STALE_MS,
+  SIGNUP_INVITE_TEMPLATE,
+  SIGNUP_INVITE_URL_KEY,
+  SIGNUP_INVITE_INVALID_MESSAGE,
+} from "./SignupInvitationService.js";
+export type {
+  CreateSignupInvitationParams,
+  SignupInvitationView,
+  SignupInvitationViewExtras,
+  SignupInviteCheckResult,
+  SignupInviteEmailStatus,
+  ConsumeSignupInviteOutcome,
+} from "./SignupInvitationService.js";
+
 // Tenant Storage Provisioner port (Phase C, PRODUCTION_DATABASE_AND_HOSTING_PLAN.md § 12.2/12.3)
 export {
   SharedTenantStorageProvisioner,

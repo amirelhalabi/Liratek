@@ -24,9 +24,20 @@ jest.mock("../../server.js", () => ({
 
 const provisionTenant = jest.fn();
 const auditLog = jest.fn();
+// LIRA-267: the invite-link service. Its own behaviour (claim, release,
+// crash case) is proven against a real database in core's
+// SignupInvitationService.test.ts; here only the ROUTE's use of it matters.
+const inviteCheck = jest.fn();
+const inviteConsume = jest.fn();
+const safeEqualSpy = jest.fn();
 
 let inviteCode: string | undefined;
 let baseDomain: string | undefined;
+let emailConfigured = false;
+
+jest.mock("../../email/createTransport.js", () => ({
+  isEmailConfigured: () => emailConfigured,
+}));
 
 jest.mock("@liratek/core", () => {
   const actual =
@@ -34,6 +45,14 @@ jest.mock("@liratek/core", () => {
   return {
     ...actual,
     getTenantProvisioningService: () => ({ provisionTenant }),
+    getSignupInvitationService: () => ({
+      check: inviteCheck,
+      consume: inviteConsume,
+    }),
+    safeEqual: (a: string, b: string) => {
+      safeEqualSpy(a, b);
+      return actual.safeEqual(a, b);
+    },
     getAuthService: () => ({ login: jest.fn(), logout: jest.fn() }),
     getAuditService: () => ({ log: auditLog }),
     getUserRepository: () => ({
@@ -73,8 +92,16 @@ jest.mock("../../middleware/rateLimit.js", () => ({
 import express, { type Express } from "express";
 import request from "supertest";
 import authRoutes from "../auth.js";
+import {
+  signupSchema,
+  checkSignupInviteSchema,
+  EmailAlreadyHasShopError,
+  SIGNUP_INVITE_INVALID_MESSAGE,
+} from "@liratek/core";
 
 const TENANT = { id: 7, name: "Corner Tech", slug: "cornertech" };
+
+const VALID_TOKEN = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde";
 
 const VALID_BODY = {
   name: "Corner Tech",
@@ -102,8 +129,12 @@ describe("POST /api/auth/signup", () => {
     provisionTenant.mockReset();
     auditLog.mockReset();
     provisionTenant.mockReturnValue(TENANT);
+    inviteCheck.mockReset();
+    inviteConsume.mockReset();
+    safeEqualSpy.mockReset();
     inviteCode = "let-me-in";
     baseDomain = undefined;
+    emailConfigured = false;
   });
 
   describe("access control", () => {
@@ -284,6 +315,203 @@ describe("POST /api/auth/signup", () => {
 
       await post().expect(400);
       expect(auditLog).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── LIRA-267: invite links ───────────────────────────────────────────────
+
+  describe("inviteCode path (Stage A)", () => {
+    it("compares the code in constant time", async () => {
+      await post({ inviteCode: "guessing" }).expect(403);
+      expect(safeEqualSpy).toHaveBeenCalledWith("guessing", "let-me-in");
+    });
+
+    it("rejects a body carrying BOTH a code and a token", async () => {
+      const res = await post({ inviteToken: VALID_TOKEN });
+      expect(res.body.success).toBe(false);
+      expect(provisionTenant).not.toHaveBeenCalled();
+      expect(inviteConsume).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("inviteToken path", () => {
+    const INVITE = {
+      id: 12,
+      email: "owner@example.com",
+      shop_name_hint: "Corner Tech",
+    };
+
+    // Rule 24: the body's field names are the schema's — this precondition
+    // fails if `inviteToken` is ever renamed.
+    const TOKEN_BODY = {
+      name: VALID_BODY.name,
+      slug: VALID_BODY.slug,
+      adminUsername: VALID_BODY.adminUsername,
+      adminPassword: VALID_BODY.adminPassword,
+      inviteToken: VALID_TOKEN,
+    };
+
+    function postToken(extra: Record<string, unknown> = {}) {
+      return request(buildApp())
+        .post("/api/auth/signup")
+        .send({ ...TOKEN_BODY, ...extra });
+    }
+
+    beforeEach(() => {
+      // The real service calls provision(invite) after a successful claim.
+      inviteConsume.mockImplementation(
+        (token: unknown, _now: unknown, provision: unknown) =>
+          token === VALID_TOKEN
+            ? {
+                ok: true,
+                invite: INVITE,
+                result: (provision as (i: typeof INVITE) => unknown)(INVITE),
+              }
+            : { ok: false },
+      );
+    });
+
+    it("the token body is valid per signupSchema", () => {
+      expect(signupSchema.safeParse(TOKEN_BODY).success).toBe(true);
+    });
+
+    it("creates the shop with the INVITE's email, ignoring any contactEmail in the body", async () => {
+      const res = await postToken({ contactEmail: "attacker@evil.test" }).expect(
+        201,
+      );
+
+      expect(res.body.data.tenant).toEqual(TENANT);
+      expect(provisionTenant).toHaveBeenCalledTimes(1);
+      const args = provisionTenant.mock.calls[0]![0] as Record<string, unknown>;
+      expect(args.contactEmail).toBe("owner@example.com");
+      expect(args).not.toHaveProperty("inviteToken");
+      expect(args.slug).toBe(TENANT.slug);
+      // "now" is a server ISO instant.
+      const [, now] = inviteConsume.mock.calls[0]!;
+      expect(typeof now).toBe("string");
+      expect(Number.isNaN(Date.parse(now as string))).toBe(false);
+    });
+
+    it("works even when no shared invite code is configured", async () => {
+      inviteCode = undefined;
+      await postToken().expect(201);
+      expect(provisionTenant).toHaveBeenCalledTimes(1);
+    });
+
+    it("records the audit row as an invite-link sign-up", async () => {
+      await postToken().expect(201);
+      const row = auditLog.mock.calls[0]![0] as {
+        metadata: Record<string, unknown>;
+      };
+      expect(row.metadata).toMatchObject({
+        self_service: true,
+        via: "invite_link",
+        invitation_id: INVITE.id,
+      });
+    });
+
+    it("refuses an unusable token with 403 and the generic message", async () => {
+      const res = await postToken({ inviteToken: "not-a-real-token" }).expect(
+        403,
+      );
+      expect(res.body.success).toBe(false);
+      expect(JSON.stringify(res.body)).toContain(SIGNUP_INVITE_INVALID_MESSAGE);
+      expect(provisionTenant).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a provisioning error as 400 with its reason", async () => {
+      provisionTenant.mockImplementation(() => {
+        throw new Error("Tenant slug 'cornertech' is already taken");
+      });
+      inviteConsume.mockImplementation(
+        (_t: unknown, _n: unknown, provision: unknown) => {
+          // The real service releases the claim, then rethrows.
+          (provision as (i: typeof INVITE) => unknown)(INVITE);
+          return { ok: true };
+        },
+      );
+
+      const res = await postToken().expect(400);
+      expect(JSON.stringify(res.body)).toContain("already taken");
+      expect(auditLog).not.toHaveBeenCalled();
+    });
+
+    it("maps EMAIL_ALREADY_HAS_SHOP to 400 'This email already has a shop.'", async () => {
+      inviteConsume.mockImplementation(() => {
+        throw new EmailAlreadyHasShopError();
+      });
+      const res = await postToken().expect(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.message).toBe("This email already has a shop.");
+    });
+
+    it("rejects a body with neither a code nor a token", async () => {
+      const { inviteToken: _omit, ...neither } = TOKEN_BODY;
+      const res = await request(buildApp())
+        .post("/api/auth/signup")
+        .send(neither);
+      // validateRequest answers schema failures with 200 + success:false
+      // (rule 19c), not 400.
+      expect(res.body.success).toBe(false);
+      expect(inviteConsume).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("POST /api/auth/signup/invite/check", () => {
+    const check = (body: Record<string, unknown>) =>
+      request(buildApp()).post("/api/auth/signup/invite/check").send(body);
+
+    it("valid -> 200 with email, shop name hint and expiry", async () => {
+      inviteCheck.mockReturnValue({
+        email: "owner@example.com",
+        shopNameHint: "Corner Tech",
+        expiresAt: "2026-10-10T10:00:00.000Z",
+      });
+      const body = { token: VALID_TOKEN };
+      expect(checkSignupInviteSchema.safeParse(body).success).toBe(true);
+
+      const res = await check(body).expect(200);
+
+      expect(res.body).toEqual({
+        success: true,
+        data: {
+          email: "owner@example.com",
+          shopNameHint: "Corner Tech",
+          expiresAt: "2026-10-10T10:00:00.000Z",
+        },
+      });
+      expect(inviteCheck.mock.calls[0]![0]).toBe(VALID_TOKEN);
+    });
+
+    it("unknown/expired/used/revoked/claimed -> 200 success:false with the one generic message", async () => {
+      inviteCheck.mockReturnValue(null);
+      const res = await check({ token: "whatever" }).expect(200);
+      expect(res.body.success).toBe(false);
+      expect(JSON.stringify(res.body)).toContain(SIGNUP_INVITE_INVALID_MESSAGE);
+    });
+
+    it("an empty token is rejected by the schema", async () => {
+      const res = await check({ token: "" });
+      expect(res.body.success).toBe(false);
+      expect(inviteCheck).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("GET /api/auth/signup-status emailInvitesEnabled", () => {
+    it("is false when email is not configured", async () => {
+      emailConfigured = false;
+      const res = await request(buildApp())
+        .get("/api/auth/signup-status")
+        .expect(200);
+      expect(res.body.data.emailInvitesEnabled).toBe(false);
+    });
+
+    it("is true when it is", async () => {
+      emailConfigured = true;
+      const res = await request(buildApp())
+        .get("/api/auth/signup-status")
+        .expect(200);
+      expect(res.body.data.emailInvitesEnabled).toBe(true);
     });
   });
 });

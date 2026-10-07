@@ -39,6 +39,7 @@ import {
   getCurrentTenantId,
   resetTenantContext,
 } from "../../db/tenantContext.js";
+import * as tenantContextModule from "../../db/tenantContext.js";
 import { runMigrations } from "../../db/migrations/index.js";
 import { getAuditService, resetAuditService } from "../AuditService.js";
 import { resetAuditRepository } from "../../repositories/AuditRepository.js";
@@ -265,5 +266,52 @@ describe("AuditService.logAdminAction() — B-D3 platform row + shop note", () =
       .prepare(`PRAGMA foreign_key_check(audit_log)`)
       .all();
     expect(violations.length).toBeGreaterThan(0);
+  });
+
+  // LIRA-267: a platform action with NO target shop (sending a sign-up
+  // invite). Only the platform row may be written — never a "shop note"
+  // into some shop's history, and never a second platform row.
+  it("with targetTenantId null writes ONLY the platform row and no shop note", () => {
+    // The shop-note write must be SKIPPED, not attempted-and-swallowed:
+    // entering runWithTenant(null) throws TenantContextError, which the
+    // service would catch and log as an error on every single invite.
+    const runWithTenantSpy = jest.spyOn(tenantContextModule, "runWithTenant");
+    getAuditService().logAdminAction({
+      actorUserId: superAdminId,
+      actorUsername: "root",
+      actorRole: "super_admin",
+      targetTenantId: null,
+      action: "signup_invitation.create",
+      entityType: "signup_invitation",
+      entityId: "12",
+      summary: "Sent a sign-up invite to owner@example.com",
+      newValues: { email: "owner@example.com" },
+    });
+
+    const platformRows = platformDb
+      .prepare(
+        `SELECT tenant_id, user_id, metadata FROM audit_log
+          WHERE action = 'signup_invitation.create'`,
+      )
+      .all() as Array<{
+      tenant_id: number | null;
+      user_id: number;
+      metadata: string | null;
+    }>;
+    expect(platformRows).toHaveLength(1);
+    expect(platformRows[0]!.tenant_id).toBeNull();
+    expect(platformRows[0]!.user_id).toBe(superAdminId);
+    expect(JSON.parse(platformRows[0]!.metadata ?? "{}")).toMatchObject({
+      targetTenantId: null,
+    });
+
+    const shopRows = shopDb
+      .prepare(
+        `SELECT COUNT(*) AS n FROM audit_log WHERE action = 'signup_invitation.create'`,
+      )
+      .get() as { n: number };
+    expect(shopRows.n).toBe(0);
+    expect(runWithTenantSpy).not.toHaveBeenCalled();
+    runWithTenantSpy.mockRestore();
   });
 });
