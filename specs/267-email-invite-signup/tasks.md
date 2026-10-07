@@ -331,7 +331,7 @@
   - The Gmail "Show original" check.
   - Creating a Turnstile widget in the Cloudflare dashboard for `www.liratek.shop`, then `yarn api secrets set TURNSTILE_SITE_KEY=… TURNSTILE_SECRET_KEY=…`.
   - **If email breaks after launch:** create shops with the admin "Add shop" action until it is fixed (spec FR-019).
-- [ ] T042 **Owner plus agent, after deploying Stage A.** Invite a real Gmail address and confirm SPF, DKIM and DMARC all show PASS, and that the email lands in the inbox (spec SC-006). Record the result in `specs/267-email-invite-signup/quickstart.md` §5. **This task gates Phase 7.**
+- [X] T042 (passed 2026-10-07: email live over SMTP via mail.spacemail.com:465; a real admin invite was delivered and the sign-up link worked; recorded in quickstart §5) **Owner plus agent, after deploying Stage A.** Invite a real Gmail address and confirm SPF, DKIM and DMARC all show PASS, and that the email lands in the inbox (spec SC-006). Record the result in `specs/267-email-invite-signup/quickstart.md` §5. **This task gates Phase 7.**
 
 ---
 
@@ -339,10 +339,10 @@
 
 **Merge only after T042 passes.** A push to `main` deploys.
 
-- [ ] T043 Write the guard tests first and see them fail on Stage A code:
+- [X] T043 (done 2026-10-07 on branch `267-stage-b`; failing-first run recorded: backend 3, frontend 3, core 3 guards failed on Stage A code) Write the guard tests first and see them fail on Stage A code:
   - `signup.api.test.ts`: a body with `inviteCode` → 400, and a body without `inviteToken` → 400.
   - `Signup.request.test.tsx`: after Stage B, `/signup` without `?invite=` shows the email request form when `selfServeEnabled` is true, and "Sign-up is not available right now" when it is false. No invite-code field ever appears.
-- [ ] T044 Delete the shared-code path everywhere:
+- [X] T044 (done 2026-10-07; `signup-status.enabled` removed outright rather than remapped — an absent key reads as false on both sides of a frontend/backend version skew) Delete the shared-code path everywhere:
   - `signupSchema`: `inviteToken` becomes required and `inviteCode` is removed (`packages/core/src/validators/tenant.ts`).
   - The `SIGNUP_INVITE_CODE` variable, in all three places in `packages/core/src/config/env.ts`.
   - The code branch, and the `signup-status.enabled` semantics, in `backend/src/api/auth.ts`.
@@ -352,17 +352,17 @@
   - `.env.deploy.example`, and `docs/DEPLOYMENT.md` §5b/5c (:349-357, :457-482).
   - `docs/OPERATIONS.md:129`.
   - In Login.tsx, `canSignUp` becomes `selfServeEnabled` only, dropping the Stage A `|| enabled`. The **Sign up** link shows exactly when self-serve is on (spec FR-025). Update the T055 test to match.
-- [ ] T045 After the Stage B deploy, the owner runs `yarn api secrets unset SIGNUP_INVITE_CODE`. Then check quickstart §5 step 5.
+- [ ] T045 (open: owner unsets SIGNUP_INVITE_CODE on Fly after deploy) After the Stage B deploy, the owner runs `yarn api secrets unset SIGNUP_INVITE_CODE`. Then check quickstart §5 step 5.
 
 ---
 
 ## Phase 8: Polish and cross-cutting
 
-- [ ] T046 [P] (Stage A line and sprint entry done; Stage B line pending) Add release-note lines under `## 🌐 Web app` in `docs/release-notes/UNRELEASED.md`, in shop-owner language, with no ticket ids:
+- [X] T046 [P] (done 2026-10-07; because self-serve is off in production, the Stage A "sign up with just your email" line was replaced by the Stage B line rather than kept beside it) Add release-note lines under `## 🌐 Web app` in `docs/release-notes/UNRELEASED.md`, in shop-owner language, with no ticket ids:
   - **Stage A:** "New shops can sign up on the web app with just their email: click Sign up on the login page, then follow the link we email you."
   - **Stage B:** "Sign-up no longer uses an invite code. Every new shop confirms its email first."
   - Put a "What users will notice:" line in the LIRA-267 entry in `current_sprint.md`. Add that ticket entry if it's missing, and don't touch the unrelated edits already pending in that file.
-- [ ] T047 [P] Update the docs:
+- [X] T047 [P] (done 2026-10-07) Update the docs:
   - `docs/plans/ongoing_plans/SUBSCRIPTION_MANAGEMENT_PLAN.md`: rename `tenants.email` to `tenants.contact_email`.
   - `docs/plans/ongoing_plans/PLAN_OVERVIEW.md`: the email capability is now provided by LIRA-267.
   - `docs/plans/todo_plans/OPEN_PUBLIC_SIGNUP_PLAN.md` §3.3: done by LIRA-267, and §2's "keep SIGNUP_INVITE_CODE" is superseded.

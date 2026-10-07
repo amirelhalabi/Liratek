@@ -6,9 +6,11 @@
  * reachable with no token, not the provisioning itself (covered by the
  * TenantProvisioningService tests and the v172 migration tests).
  *
- * The invariant worth guarding above all: signup is OFF unless
- * SIGNUP_INVITE_CODE is set. Forgetting to configure something must not be
- * what exposes tenant creation to the internet.
+ * The invariant worth guarding above all: a shop is created ONLY through a
+ * single-use emailed invite link (LIRA-267 Stage B). The shared
+ * SIGNUP_INVITE_CODE that used to gate this route is gone; the guards below
+ * prove a code can no longer open it, even on a deployment that still has the
+ * old secret set.
  */
 
 import { jest } from "@jest/globals";
@@ -31,6 +33,9 @@ const inviteCheck = jest.fn();
 const inviteConsume = jest.fn();
 const safeEqualSpy = jest.fn();
 
+// Simulates a deployment that still carries the retired SIGNUP_INVITE_CODE
+// secret (Fly keeps it until the owner unsets it after the deploy). The
+// route must ignore it entirely.
 let inviteCode: string | undefined;
 let baseDomain: string | undefined;
 let emailConfigured = false;
@@ -107,12 +112,20 @@ const TENANT = { id: 7, name: "Corner Tech", slug: "cornertech" };
 
 const VALID_TOKEN = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde";
 
+const INVITE = {
+  id: 12,
+  email: "owner@example.com",
+  shop_name_hint: "Corner Tech",
+};
+
+// Rule 24: the body's field names are the schema's — the "valid per
+// signupSchema" test below fails if `inviteToken` is ever renamed.
 const VALID_BODY = {
   name: "Corner Tech",
   slug: "cornertech",
   adminUsername: "amir",
   adminPassword: "Str0ng-Password!",
-  inviteCode: "let-me-in",
+  inviteToken: VALID_TOKEN,
 };
 
 function buildApp(): Express {
@@ -139,44 +152,64 @@ describe("POST /api/auth/signup", () => {
     inviteCode = "let-me-in";
     baseDomain = undefined;
     emailConfigured = false;
+    // The real service calls provision(invite) after a successful claim.
+    inviteConsume.mockImplementation(
+      (token: unknown, _now: unknown, provision: unknown) =>
+        token === VALID_TOKEN
+          ? {
+              ok: true,
+              invite: INVITE,
+              result: (provision as (i: typeof INVITE) => unknown)(INVITE),
+            }
+          : { ok: false },
+    );
   });
 
   describe("access control", () => {
-    it("is DISABLED when no invite code is configured", async () => {
-      inviteCode = undefined;
-
-      const res = await post().expect(403);
-
-      // The safe default: an unconfigured deployment cannot be signed up to.
-      expect(provisionTenant).not.toHaveBeenCalled();
-      expect(res.body.success).toBe(false);
+    it("accepts a valid invite token", async () => {
+      const res = await post().expect(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.tenant).toEqual(TENANT);
     });
 
-    it("rejects a wrong invite code", async () => {
-      const res = await post({ inviteCode: "guessing" }).expect(403);
-      expect(provisionTenant).not.toHaveBeenCalled();
-      expect(res.body.success).toBe(false);
-    });
-
-    it("rejects a request with no invite code at all", async () => {
-      // Schema-level: inviteCode is required, so this never reaches the handler.
-      const res = await request(buildApp()).post("/api/auth/signup").send({
-        name: TENANT.name,
-        slug: TENANT.slug,
-        adminUsername: "amir",
-        adminPassword: "Str0ng-Password!",
-      });
+    it("rejects a request with no invite token at all", async () => {
+      // Schema-level: inviteToken is required, so this never reaches the
+      // handler.
+      const { inviteToken: _omit, ...noToken } = VALID_BODY;
+      const res = await request(buildApp())
+        .post("/api/auth/signup")
+        .send(noToken);
 
       // validateRequest answers 200 with success:false, matching IPC — the
       // envelope carries the outcome, not the status code (rule 19c).
       expect(res.body.success).toBe(false);
       expect(provisionTenant).not.toHaveBeenCalled();
+      expect(inviteConsume).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Stage B guards (rule 24: rewritten from the Stage A code-path tests) ──
+  describe("the shared invite code is gone", () => {
+    it("refuses a body carrying only the (still configured) shared code", async () => {
+      const { inviteToken: _omit, ...noToken } = VALID_BODY;
+      const res = await request(buildApp())
+        .post("/api/auth/signup")
+        .send({ ...noToken, inviteCode: "let-me-in" });
+
+      expect(res.body.success).toBe(false);
+      expect(provisionTenant).not.toHaveBeenCalled();
+      expect(inviteConsume).not.toHaveBeenCalled();
+      expect(auditLog).not.toHaveBeenCalled();
     });
 
-    it("accepts the correct invite code", async () => {
-      const res = await post().expect(201);
+    it("ignores a code sent beside a token: the token path runs, the code is never compared", async () => {
+      const res = await post({ inviteCode: "let-me-in" }).expect(201);
+
       expect(res.body.success).toBe(true);
-      expect(res.body.data.tenant).toEqual(TENANT);
+      expect(inviteConsume).toHaveBeenCalledTimes(1);
+      expect(safeEqualSpy).not.toHaveBeenCalled();
+      const args = provisionTenant.mock.calls[0]![0] as Record<string, unknown>;
+      expect(args).not.toHaveProperty("inviteCode");
     });
   });
 
@@ -241,21 +274,16 @@ describe("POST /api/auth/signup", () => {
   describe("GET /api/auth/signup-status", () => {
     const status = () => request(buildApp()).get("/api/auth/signup-status");
 
-    it("reports disabled when no invite code is configured", async () => {
-      inviteCode = undefined;
+    it("no longer reports the shared-code `enabled` flag, even with the old secret set", async () => {
       const res = await status().expect(200);
-      expect(res.body.data.enabled).toBe(false);
-    });
-
-    it("reports enabled when one is", async () => {
-      const res = await status().expect(200);
-      expect(res.body.data.enabled).toBe(true);
+      // Stage B: the login page decides from selfServeEnabled alone. A
+      // lingering `enabled: true` would make a cached older page offer a
+      // code form that can no longer work.
+      expect(res.body.data).not.toHaveProperty("enabled");
     });
 
     it("never returns the invite code itself", async () => {
       const res = await status().expect(200);
-      // A boolean is the whole contract; leaking the code would hand out the
-      // one thing that gates tenant creation.
       expect(JSON.stringify(res.body)).not.toContain("let-me-in");
     });
 
@@ -324,56 +352,14 @@ describe("POST /api/auth/signup", () => {
 
   // ── LIRA-267: invite links ───────────────────────────────────────────────
 
-  describe("inviteCode path (Stage A)", () => {
-    it("compares the code in constant time", async () => {
-      await post({ inviteCode: "guessing" }).expect(403);
-      expect(safeEqualSpy).toHaveBeenCalledWith("guessing", "let-me-in");
-    });
-
-    it("rejects a body carrying BOTH a code and a token", async () => {
-      const res = await post({ inviteToken: VALID_TOKEN });
-      expect(res.body.success).toBe(false);
-      expect(provisionTenant).not.toHaveBeenCalled();
-      expect(inviteConsume).not.toHaveBeenCalled();
-    });
-  });
-
   describe("inviteToken path", () => {
-    const INVITE = {
-      id: 12,
-      email: "owner@example.com",
-      shop_name_hint: "Corner Tech",
-    };
-
-    // Rule 24: the body's field names are the schema's — this precondition
-    // fails if `inviteToken` is ever renamed.
-    const TOKEN_BODY = {
-      name: VALID_BODY.name,
-      slug: VALID_BODY.slug,
-      adminUsername: VALID_BODY.adminUsername,
-      adminPassword: VALID_BODY.adminPassword,
-      inviteToken: VALID_TOKEN,
-    };
+    const TOKEN_BODY = VALID_BODY;
 
     function postToken(extra: Record<string, unknown> = {}) {
       return request(buildApp())
         .post("/api/auth/signup")
         .send({ ...TOKEN_BODY, ...extra });
     }
-
-    beforeEach(() => {
-      // The real service calls provision(invite) after a successful claim.
-      inviteConsume.mockImplementation(
-        (token: unknown, _now: unknown, provision: unknown) =>
-          token === VALID_TOKEN
-            ? {
-                ok: true,
-                invite: INVITE,
-                result: (provision as (i: typeof INVITE) => unknown)(INVITE),
-              }
-            : { ok: false },
-      );
-    });
 
     it("the token body is valid per signupSchema", () => {
       expect(signupSchema.safeParse(TOKEN_BODY).success).toBe(true);
@@ -396,7 +382,7 @@ describe("POST /api/auth/signup", () => {
       expect(Number.isNaN(Date.parse(now as string))).toBe(false);
     });
 
-    it("works even when no shared invite code is configured", async () => {
+    it("works when no shared invite code is configured", async () => {
       inviteCode = undefined;
       await postToken().expect(201);
       expect(provisionTenant).toHaveBeenCalledTimes(1);
@@ -449,7 +435,7 @@ describe("POST /api/auth/signup", () => {
       expect(res.body.error.message).toBe("This email already has a shop.");
     });
 
-    it("rejects a body with neither a code nor a token", async () => {
+    it("rejects a body without a token", async () => {
       const { inviteToken: _omit, ...neither } = TOKEN_BODY;
       const res = await request(buildApp())
         .post("/api/auth/signup")

@@ -61,7 +61,7 @@ export const apiLimiter = rateLimit({
  * request.
  *
  * Which is also why the cap is 5 rather than the 3 this started at: counting
- * failures means a mistyped invite code burns a slot, and locking someone out
+ * failures means a mistyped form (e.g. a taken slug) burns a slot, and locking someone out
  * for an hour over two typos is a worse failure than letting one IP create
  * five shops. `SIGNUP_RATE_LIMIT_MAX` raises it (dev deployments want more).
  */

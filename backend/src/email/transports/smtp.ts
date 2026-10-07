@@ -7,9 +7,13 @@
  * (`EmailTransport.ts`):
  *   - 4xx reply                      -> transient (greylisting, rate limits,
  *                                       a 454 temporary auth failure)
- *   - EAUTH / 535 (bad credentials)  -> permanent; an operator must fix the
- *                                       secrets, retrying only hammers the
- *                                       server with a wrong password
+ *   - EAUTH / 535 (bad credentials)  -> permanent (EmailAuthError); an
+ *                                       operator must fix the secrets,
+ *                                       retrying only hammers the server
+ *                                       with a wrong password. The worker
+ *                                       also checks the login once at
+ *                                       startup (verify) and switches email
+ *                                       OFF on this error.
  *   - any other 5xx reply            -> permanent (bad address, rejected)
  *   - no reply code at all           -> transient (DNS, connect, TLS,
  *                                       timeout, dropped socket)
@@ -20,6 +24,7 @@
 
 import nodemailer from "nodemailer";
 import {
+  EmailAuthError,
   PermanentEmailError,
   TransientEmailError,
   type EmailMessage,
@@ -75,7 +80,7 @@ export function classifySmtpError(
   // Bad credentials. The server's own text is deliberately NOT included: an
   // auth reply can echo the login, and this message is stored and shown.
   if (code === "EAUTH" || responseCode === 535) {
-    return new PermanentEmailError(
+    return new EmailAuthError(
       `SMTP login failed${responseCode ? ` (${responseCode})` : ""} — check SMTP_USER/SMTP_PASS`,
     );
   }
@@ -109,6 +114,16 @@ export function createSmtpTransport(config: SmtpConfig): EmailTransport {
 
   return {
     name: "smtp",
+    // Connect and log in, send nothing. Same error contract as send(), so a
+    // refused login comes back as EmailAuthError (a 4xx such as 454 stays
+    // transient, exactly as for a send).
+    async verify(): Promise<void> {
+      try {
+        await mailer.verify();
+      } catch (error) {
+        throw classifySmtpError(error);
+      }
+    },
     async send(message: EmailMessage): Promise<EmailSendResult> {
       try {
         const info = await mailer.sendMail({

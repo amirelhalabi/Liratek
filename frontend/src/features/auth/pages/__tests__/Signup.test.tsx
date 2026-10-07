@@ -5,10 +5,10 @@
  * What is worth asserting here is not the layout but the four things that
  * would each let a real user through the wrong door:
  *
- *   1. The submit button cannot fire without an invite code. The server is the
- *      real gate (`backend/src/api/__tests__/signup.api.test.ts`), but a form
- *      that lets you press the button and then reports a 403 reads as a broken
- *      deployment.
+ *   1. The submit button cannot fire until the form is complete, and there is
+ *      NO invite-code field any more (LIRA-267 Stage B): the emailed link is
+ *      the only proof of invitation. The server is the real gate
+ *      (`backend/src/api/__tests__/signup.api.test.ts`).
  *   2. The slug derives from the shop name AND stops deriving the moment it is
  *      edited by hand. Getting this wrong silently overwrites a deliberate
  *      choice of a permanent, unchangeable address.
@@ -25,14 +25,15 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 const signup = jest.fn();
-// LIRA-267: the page now asks signup-status which form to show. These tests
-// cover the shared-invite-code form (Stage A): code on, self-serve off.
+// LIRA-267 Stage B: the shop form is reached only through an emailed invite
+// link, so every test here opens the page with `?invite=`.
 const publicAuthInfo = jest.fn();
+const checkSignupInvite = jest.fn();
 
 jest.mock("@/api/backendApi", () => ({
   signup: (...args: unknown[]) => signup(...args),
   publicAuthInfo: (...args: unknown[]) => publicAuthInfo(...args),
-  checkSignupInvite: jest.fn(),
+  checkSignupInvite: (...args: unknown[]) => checkSignupInvite(...args),
   requestSignupLink: jest.fn(),
   isElectron: () => false,
 }));
@@ -42,9 +43,10 @@ jest.mock("@/features/auth/components/TurnstileWidget", () => ({
 }));
 
 const navigate = jest.fn();
-// Rule 25: one stable params object (no ?invite=).
+// Rule 25: one stable params object.
+const INVITE_TOKEN = "abc";
 const searchState: [URLSearchParams, jest.Mock] = [
-  new URLSearchParams(""),
+  new URLSearchParams(`invite=${INVITE_TOKEN}`),
   jest.fn(),
 ];
 jest.mock("react-router-dom", () => ({
@@ -62,7 +64,6 @@ const VALID = {
   slug: "cornertech",
   username: "amir",
   password: "Str0ng-Password!",
-  inviteCode: "let-me-in",
 };
 
 const field = (id: string) => screen.getByTestId(id) as HTMLInputElement;
@@ -85,7 +86,6 @@ function fillValid() {
   set("signup-slug", VALID.slug);
   set("signup-username", VALID.username);
   set("signup-password", VALID.password);
-  set("signup-invite-code", VALID.inviteCode);
 }
 
 describe("Signup page", () => {
@@ -93,9 +93,15 @@ describe("Signup page", () => {
     signup.mockReset();
     navigate.mockReset();
     publicAuthInfo.mockReset();
-    publicAuthInfo.mockResolvedValue({
+    checkSignupInvite.mockReset();
+    // No shop-name hint, so the form starts empty.
+    checkSignupInvite.mockResolvedValue({
       success: true,
-      data: { enabled: true, selfServeEnabled: false, turnstileSiteKey: null },
+      data: {
+        email: "owner@example.com",
+        shopNameHint: null,
+        expiresAt: "2026-10-10T09:00:00.000Z",
+      },
     });
     signup.mockResolvedValue({
       success: true,
@@ -109,16 +115,17 @@ describe("Signup page", () => {
       expect(submit()).toBeDisabled();
     });
 
-    it("stays disabled with everything filled EXCEPT the invite code", async () => {
+    // Rule 24: was "stays disabled with everything filled EXCEPT the invite
+    // code" — rewritten into a guard that the code field is gone.
+    it("has no invite-code field, and the four fields alone enable submit", async () => {
       await renderForm();
+      expect(screen.queryByTestId("signup-invite-code")).toBeNull();
 
       set("signup-shop-name", VALID.name);
       set("signup-username", VALID.username);
-      set("signup-password", VALID.password);
-
       expect(submit()).toBeDisabled();
 
-      set("signup-invite-code", VALID.inviteCode);
+      set("signup-password", VALID.password);
       expect(submit()).toBeEnabled();
     });
 
@@ -139,7 +146,6 @@ describe("Signup page", () => {
 
       set("signup-shop-name", VALID.name);
       set("signup-username", VALID.username);
-      set("signup-invite-code", VALID.inviteCode);
       set("signup-password", "abc");
 
       expect(submit()).toBeDisabled();
@@ -175,16 +181,18 @@ describe("Signup page", () => {
       set("signup-shop-name", "Corner Tech");
       set("signup-username", VALID.username);
       set("signup-password", VALID.password);
-      set("signup-invite-code", VALID.inviteCode);
       fireEvent.click(submit());
 
       await waitFor(() => expect(signup).toHaveBeenCalledTimes(1));
-      expect(signup.mock.calls[0]![0]).toMatchObject({
+      const payload = signup.mock.calls[0]![0] as Record<string, unknown>;
+      expect(payload).toMatchObject({
         name: "Corner Tech",
         slug: "corner-tech",
         adminUsername: VALID.username,
-        inviteCode: VALID.inviteCode,
+        inviteToken: INVITE_TOKEN,
       });
+      // Stage B guard: the retired shared-code key is never sent.
+      expect(payload).not.toHaveProperty("inviteCode");
     });
   });
 
@@ -210,11 +218,14 @@ describe("Signup page", () => {
       // The exact shape httpClient.ts builds for any non-2xx: `message` is
       // lifted off `data.error`, so for this route it is the nested
       // { code, message } object and NOT a string. An `instanceof Error`
-      // check misses this value entirely, which made a wrong invite code
-      // report itself as "could not reach the server".
+      // check misses this value entirely, which once made a refused
+      // sign-up report itself as "could not reach the server".
       signup.mockRejectedValue({
         status: 403,
-        message: { code: "FORBIDDEN", message: "Invalid invite code" },
+        message: {
+          code: "FORBIDDEN",
+          message: "This invite link is not valid. Ask for a new invite.",
+        },
         details: {},
       });
 
@@ -223,7 +234,7 @@ describe("Signup page", () => {
       fireEvent.click(submit());
 
       expect(await screen.findByRole("alert")).toHaveTextContent(
-        "Invalid invite code",
+        "This invite link is not valid",
       );
     });
 

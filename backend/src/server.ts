@@ -306,11 +306,14 @@ httpServer.listen(PORT, HOST, () => {
 
   // Send queued email (sign-up invites). A durable outbox polled every 30s;
   // not started when EMAIL_TRANSPORT=disabled or the mail config is invalid
-  // -- see email/outboxWorker.ts. It does not throw by contract; the guard
-  // is belt and braces, because a throw here, inside the listen callback, is
-  // uncaught and would take the whole API down over a mail problem.
+  // -- see email/outboxWorker.ts. For smtp it first checks the login in the
+  // background (not awaited: boot never waits on the mail server); a
+  // refused login switches email OFF. It does not throw or reject by
+  // contract; the guard is belt and braces, because a throw here, inside the
+  // listen callback, is uncaught and would take the whole API down over a
+  // mail problem.
   try {
-    startEmailOutbox();
+    void startEmailOutbox();
   } catch (error) {
     logger.error({ error }, "email outbox failed to start; email is OFF");
   }

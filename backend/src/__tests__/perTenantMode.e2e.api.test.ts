@@ -84,7 +84,6 @@ jest.setTimeout(30_000);
 const JWT_TEST_SECRET =
   "per-tenant-e2e-test-secret-0123456789-0123456789-0123456789";
 const APP_BASE_DOMAIN_TEST = "liratek.test";
-const SIGNUP_INVITE_CODE_TEST = "test-invite-code-187";
 
 interface ApiBody {
   success: boolean;
@@ -129,8 +128,8 @@ function readOne<T = Record<string, unknown>>(
 }
 
 // `@liratek/core` is imported dynamically (once, here) so this file controls
-// exactly when its env-derived constants (JWT_SECRET, APP_BASE_DOMAIN,
-// SIGNUP_INVITE_CODE) get frozen — see wp5_wp6_admin_tenant.api.test.ts's
+// exactly when its env-derived constants (JWT_SECRET, APP_BASE_DOMAIN)
+// get frozen — see wp5_wp6_admin_tenant.api.test.ts's
 // beforeAll for the same rationale. Typed via `typeof import(...)` (a
 // type-only query, safe regardless of when the dynamic import actually
 // resolves at runtime) rather than `any` (CLAUDE.md rule 1).
@@ -139,7 +138,6 @@ let core: typeof import("@liratek/core");
 beforeAll(async () => {
   process.env.JWT_SECRET = JWT_TEST_SECRET;
   process.env.APP_BASE_DOMAIN = APP_BASE_DOMAIN_TEST;
-  process.env.SIGNUP_INVITE_CODE = SIGNUP_INVITE_CODE_TEST;
   // Explicitly UNSET for the shared-mode sanity check, which runs first.
   delete process.env.TENANT_DB_MODE;
 
@@ -822,8 +820,27 @@ describe("Per-tenant mode — end-to-end proof", () => {
   // ── Step 10 ───────────────────────────────────────────────────────────
   it("Step 10: self-service signup provisions shop C the same way as admin provisioning", async () => {
     const slugC = "corner-c";
+    // Sign-up needs a single-use emailed invite (LIRA-267 Stage B). Seed one
+    // through the real service with a known token, in the platform realm the
+    // route itself uses; the email is never sent here.
+    const INVITE_TOKEN = "per-tenant-e2e-invite-token-0123456789";
+    core.runWithoutTenant(() =>
+      new core.SignupInvitationService(
+        core.getSignupInvitationRepository(),
+        core.getEmailOutboxRepository(),
+        () => INVITE_TOKEN,
+      ).create({
+        source: "admin",
+        email: "owner-c@example.com",
+        invitedByUserId: null,
+        now: new Date().toISOString(),
+        baseUrl: "https://www.liratek.test",
+        emailConfigured: true,
+        supportEmail: "help@liratek.test",
+      }),
+    );
     const signupRes = await request(app).post("/api/auth/signup").send({
-      inviteCode: SIGNUP_INVITE_CODE_TEST,
+      inviteToken: INVITE_TOKEN,
       name: "Corner C",
       slug: slugC,
       adminUsername: "shopadmin_c",

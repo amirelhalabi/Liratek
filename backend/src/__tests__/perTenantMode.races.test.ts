@@ -53,7 +53,6 @@ jest.setTimeout(30_000);
 const JWT_TEST_SECRET =
   "phase-d-races-test-secret-0123456789-0123456789-0123456789-x";
 const APP_BASE_DOMAIN_TEST = "liratek.test";
-const SIGNUP_INVITE_CODE_TEST = "phase-d-races-invite";
 
 interface ApiBody {
   success: boolean;
@@ -89,7 +88,6 @@ let savedLiratekTestDb: unknown;
 beforeAll(async () => {
   process.env.JWT_SECRET = JWT_TEST_SECRET;
   process.env.APP_BASE_DOMAIN = APP_BASE_DOMAIN_TEST;
-  process.env.SIGNUP_INVITE_CODE = SIGNUP_INVITE_CODE_TEST;
   core = await import("@liratek/core");
 });
 

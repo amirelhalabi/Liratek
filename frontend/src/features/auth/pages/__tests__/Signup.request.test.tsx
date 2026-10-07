@@ -1,14 +1,15 @@
 /** @jest-environment jsdom */
 /**
- * Signup page without an invite link (LIRA-267 US4 + Stage A).
+ * Signup page without an invite link (LIRA-267 US4 + Stage B).
  *
  *   - Self-serve on: ONLY an email field and the Turnstile check; submitting
  *     asks for a link and says "Check your inbox". The shop form never shows
  *     here — the link the email carries is what opens it.
- *   - Self-serve off, shared code on (Stage A): the existing invite-code form.
- *   - Both on: the request form, with a "Have an invite code?" way to the
- *     legacy form.
- *   - Neither: "Sign-up is not available right now".
+ *   - Self-serve off: "Sign-up is not available right now" — whatever the
+ *     retired shared-code `enabled` flag says (Stage B: there is no
+ *     invite-code form any more, so an older backend's `enabled: true` must
+ *     not bring one back).
+ *   - No invite-code field ever appears without a link.
  *   - A refused Turnstile token is spent: the widget must remount so the next
  *     submit carries a fresh token.
  *
@@ -113,7 +114,7 @@ describe("Signup — request a link (self-serve on)", () => {
     expect(widgetMounts).toEqual(["site-key"]);
     expect(screen.queryByTestId("signup-shop-name")).toBeNull();
     expect(screen.queryByTestId("signup-invite-code")).toBeNull();
-    // Shared code is off: no way to the legacy form.
+    // Stage B: there is no legacy form to reach.
     expect(screen.queryByText(/have an invite code/i)).toBeNull();
     expect(checkSignupInvite).not.toHaveBeenCalled();
   });
@@ -181,15 +182,20 @@ describe("Signup — request a link (self-serve on)", () => {
 });
 
 describe("Signup — which form without a link", () => {
-  it("self-serve off, shared code on: the invite-code form (Stage A)", async () => {
+  // Rule 24: these were the Stage A "shared code on" tests, rewritten into
+  // guards that the code form is gone.
+  it("self-serve off, legacy `enabled` true: not available, never a code form", async () => {
     status({ enabled: true });
     render(<Signup />);
-    expect(await screen.findByTestId("signup-invite-code")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/sign-up is not available right now/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("signup-invite-code")).toBeNull();
+    expect(screen.queryByTestId("signup-shop-name")).toBeNull();
     expect(screen.queryByTestId("signup-request-email")).toBeNull();
-    expect(screen.queryByTestId("turnstile-widget")).toBeNull();
   });
 
-  it("both on: the request form, with a way to the invite-code form", async () => {
+  it("self-serve on, legacy `enabled` true: the request form with no way to a code form", async () => {
     status({
       enabled: true,
       selfServeEnabled: true,
@@ -198,10 +204,7 @@ describe("Signup — which form without a link", () => {
     render(<Signup />);
     await screen.findByTestId("signup-request-email");
     expect(screen.queryByTestId("signup-invite-code")).toBeNull();
-
-    fireEvent.click(screen.getByText(/have an invite code/i));
-    expect(await screen.findByTestId("signup-invite-code")).toBeInTheDocument();
-    expect(screen.queryByTestId("signup-request-email")).toBeNull();
+    expect(screen.queryByText(/have an invite code/i)).toBeNull();
   });
 
   it("neither on: Sign-up is not available right now", async () => {

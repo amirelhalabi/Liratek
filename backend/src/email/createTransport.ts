@@ -100,6 +100,16 @@ export function isEmailConfigured(): boolean {
   return getEmailTransport() !== null;
 }
 
+/**
+ * Switches email OFF after the transport was built, e.g. when the startup
+ * login check is refused. Same `invalid` state a bad configuration produces,
+ * so `isEmailConfigured()` stays the one switch every route reads. `reason`
+ * must not contain a secret.
+ */
+export function markEmailTransportInvalid(reason: string): void {
+  state = { status: "invalid", error: reason };
+}
+
 /** Tests only: forget the resolved transport. */
 export function resetEmailTransportState(): void {
   state = null;

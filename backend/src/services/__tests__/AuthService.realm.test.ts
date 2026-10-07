@@ -137,7 +137,7 @@ describe("AuthService.login — realm scoping", () => {
     /**
      * This block replaced a "REFUSES an ambiguous username" test. Refusing
      * read as the safe choice and was not: `/api/auth/signup` is public, so
-     * anyone with the invite code could register a shop whose admin is named
+     * anyone with an invite link could register a shop whose admin is named
      * 'admin' and lock the INCUMBENT out of their own login. The rule is now
      * "prefer the operator, then the incumbent" — nothing leaks, because the
      * password check still runs on whichever row is returned.

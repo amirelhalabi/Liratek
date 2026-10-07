@@ -6426,7 +6426,40 @@ Spec, plan and tasks: `specs/267-email-invite-signup/`. Branch `267-email-invite
 
 - Stage A (built, not deployed): admin invitations from the Tenants page, self-serve sign-up by email behind Cloudflare Turnstile and rate limits, email outbox with retries, `tenants.contact_email` (one shop per email).
 - Done 2026-10-07: Spacemail mailbox `mail@liratek.shop`, MX/SPF/DKIM/DMARC in Cloudflare (Gmail: all PASS), SMTP ports 465/587 open from Fly, SMTP transport built.
-- Waiting on the owner: Turnstile keys, Fly secrets, deploy, real invite check (T042).
-- Stage B (after T042): remove the shared invite code.
+- Stage A deployed 2026-10-07: email live over SMTP, a real admin invite was delivered and its sign-up link worked (T042 passed). Turnstile is NOT configured (owner decision), so self-serve stays off.
+- Stage B (built on branch `267-stage-b`, not deployed): the shared invite code is removed; sign-up is only through an emailed invite link. The login page's Sign up link shows only when self-serve is on. A wrong SMTP password is now caught at startup and switches email off. After deploy the owner runs `yarn api secrets unset SIGNUP_INVITE_CODE` (T045).
 
-**What users will notice:** on the web app, new shops sign up with their email and a link we send them; the platform admin can email invitations and see whether they were used.
+**What users will notice:** on the web app, sign-up no longer uses an invite code: new shops join through an email invitation link from LiraTek. The platform admin can email invitations and see whether they were used.
+
+## LIRA-275: "Forgot password?" on the login page (web app) — TODO
+
+Owner request 2026-10-07. The email capability now exists (LIRA-267: Spacemail SMTP, `email_outbox`, templates, retries).
+
+- A **Forgot password?** link on the web login page. The user enters their email; if it belongs to a user, we email a single-use, time-limited reset link; the response is the same whether or not the email exists (no enumeration). Behind Turnstile + rate limits, like the self-serve sign-up request.
+- **Prerequisite:** users have no email today. `tenants.contact_email` exists (one per shop), `users` has only a username. Decide first: (a) add `users.email` (unique per tenant or globally?) and a way to set/verify it, or (b) for now, reset only the shop's first admin through `tenants.contact_email`.
+- Usernames are unique per shop, not globally, so the link must also carry which shop (realm) the user belongs to.
+- Reuse: `generateToken`/`hashToken` (store only the hash), the outbox worker, the template renderer, `/#/…` hash-route links.
+- Web-only (desktop has no email and no reset flow) — record the exception like LIRA-267.
+
+**What users will notice:** a "Forgot password?" link on the web login page that emails a reset link.
+
+## LIRA-276: reset password from Settings by email (web app) — TODO
+
+Owner request 2026-10-07. Today an admin can already set a user's password directly (`PUT /api/users/:id/password`). This ticket adds the email route:
+
+- In Settings → Users, an admin can send a user a **reset link by email** instead of typing a new password for them.
+- A signed-in user can change their own password from Settings (check what exists today before building).
+- Same prerequisite as LIRA-275: users need an email address. Build LIRA-275's token + email path once and reuse it here.
+
+**What users will notice:** in Settings, admins can email a password-reset link to a user.
+
+## LIRA-277: email deliverability — warm-up, then tighten DMARC (ops) — TODO, due ≈ 2026-10-21
+
+Context: `mail@liratek.shop` (Spacemail) passes SPF, DKIM and DMARC in Gmail, but the domain is new, so the first emails (including the first invite) landed in **Spam**. That is reputation, not configuration.
+
+- **Now (owner):** in Gmail, mark LiraTek emails "Not spam", reply to one, and send a couple of normal emails to `mail@liratek.shop`. Use the mailbox normally for about two weeks.
+- **≈ 2026-10-21, if invites land in the Inbox:** in Cloudflare → `liratek.shop` → DNS → edit the TXT record `_dmarc` from `v=DMARC1; p=none; rua=mailto:mail@liratek.shop` to `v=DMARC1; p=quarantine; rua=mailto:mail@liratek.shop`. Check with `dig +short TXT _dmarc.liratek.shop`, then send one invite to Gmail and confirm DMARC still says PASS.
+- Do NOT tighten before then: if anything ever sends as `liratek.shop` without passing SPF/DKIM, `quarantine` sends it to spam.
+- Later (optional): `p=reject` once `quarantine` has run cleanly for a few weeks.
+- No code change; no user-visible change (no release note).
+

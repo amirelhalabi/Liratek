@@ -54,7 +54,6 @@ jest.setTimeout(60_000);
 const JWT_TEST_SECRET =
   "phase-d-rehearsal-test-secret-0123456789-0123456789-0123456789";
 const APP_BASE_DOMAIN_TEST = "liratek.test";
-const SIGNUP_INVITE_CODE_TEST = "phase-d-invite-999";
 
 interface Manifest {
   rootDir: string;
@@ -128,7 +127,6 @@ beforeAll(async () => {
 
   process.env.JWT_SECRET = JWT_TEST_SECRET;
   process.env.APP_BASE_DOMAIN = APP_BASE_DOMAIN_TEST;
-  process.env.SIGNUP_INVITE_CODE = SIGNUP_INVITE_CODE_TEST;
   delete process.env.TENANT_DB_MODE;
   core = await import("@liratek/core");
 });

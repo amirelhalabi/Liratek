@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Input**: User description: "Email invites for sign-up: platform super-admin sends personal single-use, expiring invite links by email from mail@liratek.shop, replacing the shared SIGNUP_INVITE_CODE (kept as transition fallback). New shops get a verified tenants.contact_email. Built-in backend mail module with SQLite email_outbox, retries, idempotency, repo-stored HTML+text templates with local preview, pluggable transport (Spacemail SMTP or Resend, decided later; fake transport for tests). Web-only. Phase 2 self-serve request link is out of scope until Turnstile lands. Full design: docs/plans/todo_plans/EMAIL_INVITE_SIGNUP_PLAN.md"
+**Input**: User description: "Email invites for sign-up: platform super-admin sends personal single-use, expiring invite links by email from mail@liratek.shop, replacing the shared SIGNUP_INVITE_CODE (kept as transition fallback). New shops get a verified tenants.contact_email. Built-in backend mail module with SQLite email_outbox, retries, idempotency, repo-stored HTML+text templates with local preview, pluggable transport (Spacemail SMTP or Resend, decided later; fake transport for tests). Web-only. Phase 2 self-serve request link is out of scope until Turnstile lands. Full design: docs/plans/done_plans/EMAIL_INVITE_SIGNUP_PLAN.md"
 
-**Ticket**: LIRA-267 · **Design notes**: `docs/plans/todo_plans/EMAIL_INVITE_SIGNUP_PLAN.md`
+**Ticket**: LIRA-267 · **Design notes**: `docs/plans/done_plans/EMAIL_INVITE_SIGNUP_PLAN.md`
 
 ## Clarifications
 

@@ -12,16 +12,13 @@
  * subdomain to log in, which is the only place its credentials work once
  * APP_BASE_DOMAIN is set.
  *
- * LIRA-267 — three ways in, decided on load:
+ * LIRA-267 — two ways in, decided on load:
  *   - INVITE   `?invite=<token>`: the emailed single-use link. Checked once;
  *              the invited email is shown locked, the shop name prefilled
- *              from the hint, and the form sends `inviteToken`.
+ *              from the hint, and the form sends `inviteToken`. This is the
+ *              ONLY way to the shop form (the shared invite code is gone).
  *   - REQUEST  no link, self-serve on: only an email field and the Turnstile
  *              check. The emailed link is what opens the shop form.
- *   - CODE     no link, shared invite code configured (Stage A only, retired
- *              in Stage B): the original form with the invite-code field.
- *              Reachable from REQUEST via "Have an invite code?" when both
- *              are on.
  *   Otherwise: "Sign-up is not available right now".
  */
 
@@ -71,8 +68,7 @@ type Entry =
   | { kind: "loading" }
   | { kind: "invite"; invite: SignupInviteCheckResult }
   | { kind: "invite-invalid"; message: string }
-  | { kind: "request"; siteKey: string; codeAvailable: boolean }
-  | { kind: "code"; requestSiteKey: string | null }
+  | { kind: "request"; siteKey: string }
   | { kind: "unavailable" };
 
 export default function Signup() {
@@ -100,7 +96,6 @@ export default function Signup() {
   const [slug, setSlug] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -152,32 +147,23 @@ export default function Signup() {
           data?.selfServeEnabled && data.turnstileSiteKey
             ? data.turnstileSiteKey
             : null;
-        const codeAvailable = Boolean(data?.enabled);
-        if (siteKey) {
-          setEntry({ kind: "request", siteKey, codeAvailable });
-        } else if (codeAvailable) {
-          setEntry({ kind: "code", requestSiteKey: null });
-        } else {
-          setEntry({ kind: "unavailable" });
-        }
+        setEntry(siteKey ? { kind: "request", siteKey } : { kind: "unavailable" });
       })
       // A backend that cannot answer cannot sign anyone up either.
       .catch(() => setEntry({ kind: "unavailable" }));
   }, [inviteToken]);
 
   const invite = entry.kind === "invite" ? entry.invite : null;
-  const needsCode = entry.kind === "code";
 
   const effectiveSlug = slugTouched ? slug : slugify(shopName);
   const slugValid = SLUG_PATTERN.test(effectiveSlug);
 
   const canSubmit =
-    (invite !== null || needsCode) &&
+    invite !== null &&
     shopName.trim().length > 0 &&
     slugValid &&
     username.trim().length >= MIN_USERNAME &&
     password.length >= MIN_PASSWORD &&
-    (!needsCode || inviteCode.trim().length > 0) &&
     !loading;
 
   const canRequest =
@@ -219,21 +205,18 @@ export default function Signup() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || !inviteToken) return;
 
     setError("");
     setLoading(true);
     try {
-      // Built ONCE (rule 22). Exactly one proof key: an `inviteCode: ""`
-      // beside a token counts as "both" and the schema refuses it.
+      // Built ONCE (rule 22).
       const payload: SignupInput = {
         name: shopName.trim(),
         slug: effectiveSlug,
         adminUsername: username.trim(),
         adminPassword: password,
-        ...(inviteToken && invite
-          ? { inviteToken }
-          : { inviteCode: inviteCode.trim() }),
+        inviteToken,
       };
       const result = await signup(payload);
 
@@ -466,20 +449,6 @@ export default function Signup() {
             {requesting ? "Sending..." : "Email me a sign-up link"}
           </button>
 
-          {entry.codeAvailable && (
-            <p className={clsx("mt-4 text-center", subtleClass)}>
-              <button
-                type="button"
-                onClick={() =>
-                  setEntry({ kind: "code", requestSiteKey: entry.siteKey })
-                }
-                className="text-orange-500 hover:text-orange-400"
-              >
-                Have an invite code?
-              </button>
-            </p>
-          )}
-
           {signInFooter}
         </form>
       </div>
@@ -595,23 +564,6 @@ export default function Signup() {
             />
             <p className={hintClass}>At least {MIN_PASSWORD} characters.</p>
           </div>
-
-          {needsCode && (
-            <div>
-              <label className={labelClass} htmlFor="signup-invite-code">
-                Invite code *
-              </label>
-              <input
-                id="signup-invite-code"
-                data-testid="signup-invite-code"
-                type="text"
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value)}
-                className={inputClass}
-                autoComplete="off"
-              />
-            </div>
-          )}
         </div>
 
         <button
@@ -629,24 +581,6 @@ export default function Signup() {
             "Create shop"
           )}
         </button>
-
-        {entry.kind === "code" && entry.requestSiteKey && (
-          <p className={clsx("mt-4 text-center", subtleClass)}>
-            <button
-              type="button"
-              onClick={() =>
-                setEntry({
-                  kind: "request",
-                  siteKey: entry.requestSiteKey ?? "",
-                  codeAvailable: true,
-                })
-              }
-              className="text-orange-500 hover:text-orange-400"
-            >
-              Sign up with your email instead
-            </button>
-          </p>
-        )}
 
         {signInFooter}
       </form>

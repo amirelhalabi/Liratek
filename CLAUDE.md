@@ -43,7 +43,7 @@ rather than blocks a bad push.
 yarn api:deploy    # build remotely, deploy, then VERIFY it came up
 yarn api:logs      # fly deploy exiting 0 does not mean the app works
 yarn api:status
-yarn api -- <any flyctl args>
+yarn api <any flyctl args>
 ```
 
 **Never invoke `flyctl` directly.** Its installer needs elevation to create the

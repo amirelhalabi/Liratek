@@ -40,6 +40,13 @@ export interface EmailTransport {
   readonly name: string;
   /** Resolves once the provider ACCEPTED the message (not delivered). */
   send(message: EmailMessage): Promise<EmailSendResult>;
+  /**
+   * Optional: checks the provider will let us in (connect + log in) without
+   * sending anything. Run once at startup by the outbox worker. Rejects with
+   * `EmailAuthError` when the credentials are refused; any other rejection
+   * is treated as transient. Only transports that log in implement it.
+   */
+  verify?(): Promise<void>;
 }
 
 /** May succeed if tried again later. */
@@ -55,5 +62,14 @@ export class PermanentEmailError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PermanentEmailError";
+  }
+}
+
+/** The provider refused our login (wrong user or password). Permanent: no
+ * email can be sent until an operator fixes the secrets. */
+export class EmailAuthError extends PermanentEmailError {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmailAuthError";
   }
 }

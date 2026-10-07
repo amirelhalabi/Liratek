@@ -1,7 +1,7 @@
 /**
- * LIRA-267 — sign-up invitation schemas, and the Stage A change to
- * `signupSchema` (exactly one of inviteCode / inviteToken) plus the optional
- * `contactEmail` on the admin `createTenantSchema`.
+ * LIRA-267 — sign-up invitation schemas, the Stage B `signupSchema` (an
+ * emailed `inviteToken` is REQUIRED; the shared `inviteCode` is gone) plus the
+ * optional `contactEmail` on the admin `createTenantSchema`.
  */
 
 import {
@@ -10,6 +10,7 @@ import {
   requestSignupLinkSchema,
   signupSchema,
   createTenantSchema,
+  SIGNUP_INVITE_REQUIRED_MESSAGE,
 } from "../index.js";
 
 const BASE_SIGNUP = {
@@ -19,7 +20,7 @@ const BASE_SIGNUP = {
   adminPassword: "Str0ng-Password!",
 };
 
-const BOTH_OR_NEITHER = "Use an invite link or an invite code";
+const INVITE_REQUIRED = SIGNUP_INVITE_REQUIRED_MESSAGE;
 
 function issueMessages(result: {
   success: boolean;
@@ -76,36 +77,41 @@ describe("requestSignupLinkSchema", () => {
   });
 });
 
-describe("signupSchema — Stage A: exactly one of inviteCode / inviteToken", () => {
-  it("accepts an invite code alone (the existing path)", () => {
-    expect(signupSchema.safeParse({ ...BASE_SIGNUP, inviteCode: "let-me-in" }).success).toBe(true);
-  });
-
-  it("accepts an invite token alone (the new path)", () => {
+describe("signupSchema — Stage B: an invite token is required, the shared code is gone", () => {
+  it("accepts an invite token alone", () => {
     expect(signupSchema.safeParse({ ...BASE_SIGNUP, inviteToken: "tok" }).success).toBe(true);
   });
 
-  it("rejects both", () => {
-    const result = signupSchema.safeParse({
+  // Rule 24: these were the Stage A "invite code alone is accepted" tests,
+  // rewritten into guards that the shared-code path cannot come back.
+  it("REFUSES an invite code alone — the shared-code path is gone", () => {
+    const result = signupSchema.safeParse({ ...BASE_SIGNUP, inviteCode: "let-me-in" });
+    expect(result.success).toBe(false);
+    expect(issueMessages(result)).toContain(INVITE_REQUIRED);
+  });
+
+  it("ignores (strips) an invite code sent beside a token", () => {
+    const parsed = signupSchema.parse({
       ...BASE_SIGNUP,
       inviteCode: "let-me-in",
       inviteToken: "tok",
     });
-    expect(result.success).toBe(false);
-    expect(issueMessages(result)).toContain(BOTH_OR_NEITHER);
+    expect(parsed).not.toHaveProperty("inviteCode");
+    expect(parsed.inviteToken).toBe("tok");
   });
 
-  it("rejects neither", () => {
+  it("has no inviteCode key in its shape at all", () => {
+    expect(Object.keys(signupSchema.shape)).not.toContain("inviteCode");
+  });
+
+  it("rejects a body with no token", () => {
     const result = signupSchema.safeParse(BASE_SIGNUP);
     expect(result.success).toBe(false);
-    expect(issueMessages(result)).toContain(BOTH_OR_NEITHER);
+    expect(issueMessages(result)).toContain(INVITE_REQUIRED);
   });
 
-  it("does not count an empty string as present", () => {
-    expect(signupSchema.safeParse({ ...BASE_SIGNUP, inviteCode: "" }).success).toBe(false);
-    expect(
-      signupSchema.safeParse({ ...BASE_SIGNUP, inviteCode: "", inviteToken: "tok" }).success,
-    ).toBe(false);
+  it("does not count an empty token as present", () => {
+    expect(signupSchema.safeParse({ ...BASE_SIGNUP, inviteToken: "" }).success).toBe(false);
   });
 
   it("strips any client-sent contactEmail — the server takes it from the invite", () => {

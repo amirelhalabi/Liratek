@@ -166,10 +166,10 @@ function withDecodedTenant(
 }
 
 /**
- * The public sign-up body: exactly one of `inviteToken` (emailed link) or
- * `inviteCode` (shared code, Stage A only). Derived from `signupSchema`
- * (rule 21) — it replaced a hand-written copy that could only ever say
- * `inviteCode`.
+ * The public sign-up body: the shop fields plus `inviteToken`, the emailed
+ * single-use link (the only proof of invitation since LIRA-267 Stage B).
+ * Derived from `signupSchema` (rule 21) — it replaced a hand-written copy
+ * that could only ever say `inviteCode`.
  */
 export type SignupInput = SignupBodyInput;
 
@@ -183,7 +183,7 @@ export type SignupInput = SignupBodyInput;
  * choice.
  *
  * auth:false -- the whole point is that it works with no token. The server
- * gates it on an invite code and a success-counting rate limiter.
+ * gates it on a single-use invite link and a success-counting rate limiter.
  */
 export async function signup(input: SignupInput) {
   return requestJson<{
@@ -207,16 +207,6 @@ export async function signup(input: SignupInput) {
   });
 }
 
-/**
- * Is self-service signup switched on for this deployment?
- *
- * Exists so the login page does not advertise a door that is bolted: signup is
- * off unless the operator sets SIGNUP_INVITE_CODE, and a "Create your shop"
- * link that always leads to a 403 reads as a broken app. Leaks nothing a
- * single POST would not already reveal.
- *
- * Web only, same reasoning as signup() itself.
- */
 /** What both transports report about a shop's commercial standing. */
 export interface SubscriptionStatusView {
   status: "active" | "grace" | "read_only";
@@ -271,8 +261,6 @@ export async function publicAuthInfo() {
   return requestJson<{
     success: boolean;
     data?: {
-      /** The SHARED invite code is configured (Stage A only). */
-      enabled: boolean;
       /** LIRA-267: the platform can email invite links. */
       emailInvitesEnabled?: boolean;
       /** LIRA-267 US4: a visitor can ask for a sign-up link by email (mail

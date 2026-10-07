@@ -25,9 +25,9 @@ export default function Login() {
   // desktop build or on a deployment with signup switched off — showing it
   // and then removing it is worse than showing it a moment late.
   //
-  // LIRA-267: shown when a visitor can email themselves a sign-up link
-  // (selfServeEnabled) OR, in Stage A only, while the shared invite code is
-  // still configured (`enabled`). Stage B drops the `|| enabled`.
+  // LIRA-267: shown exactly when a visitor can email themselves a sign-up
+  // link (selfServeEnabled). Invited shops arrive through their emailed link
+  // and never need this one; the shared invite code is gone.
   const [canSignUp, setCanSignUp] = useState(false);
 
   // The shop's name as resolved from the SUBDOMAIN, which is knowable before
@@ -43,7 +43,7 @@ export default function Login() {
     publicAuthInfo()
       .then((r) => {
         if (cancelled || !r.success || !r.data) return;
-        setCanSignUp(Boolean(r.data.selfServeEnabled || r.data.enabled));
+        setCanSignUp(Boolean(r.data.selfServeEnabled));
         if (r.data.shopName) setHostShopName(r.data.shopName);
       })
       // A backend that cannot answer is a backend that cannot sign anyone up
@@ -217,11 +217,11 @@ export default function Login() {
             </button>
           </form>
 
-          {/* Web only, and only when signup is actually open: self-serve
-              email sign-up (LIRA-267), or the shared SIGNUP_INVITE_CODE while
-              Stage A lasts. The desktop build provisions its single tenant
-              through the first-run setup wizard, so a sign-up link there
-              would lead to an endpoint IPC never serves. */}
+          {/* Web only, and only when a visitor can sign up on their own:
+              self-serve email sign-up (LIRA-267). The desktop build
+              provisions its single tenant through the first-run setup
+              wizard, so a sign-up link there would lead to an endpoint IPC
+              never serves. */}
           {canSignUp && (
             <p
               className={clsx(

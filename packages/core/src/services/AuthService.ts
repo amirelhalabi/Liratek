@@ -184,7 +184,7 @@ export class AuthService {
    *
    * This deliberately REPLACED an earlier "refuse when ambiguous" rule, which
    * looked safer and was not: with a public `/api/auth/signup`, anyone holding
-   * the invite code could register a shop whose admin is named 'admin' and
+   * an invite link could register a shop whose admin is named 'admin' and
    * thereby lock the incumbent out of their own login — an availability attack
    * through a public endpoint. Preferring the incumbent leaks nothing, because
    * the password check still runs against whichever row comes back: a newcomer

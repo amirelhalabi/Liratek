@@ -75,9 +75,9 @@ yarn api:status
 yarn api:ssh         # shell on the machine
 yarn api:secrets     # names only, never values
 
-yarn api -- <anything>          # raw flyctl passthrough
-yarn api -- scale count 1
-yarn api -- ssh sftp put <local> /data/x.db
+yarn api <anything>             # raw flyctl passthrough
+yarn api scale count 1
+yarn api ssh sftp put <local> /data/x.db
 ```
 
 **`flyctl` is deliberately never called directly.** The installer needs
@@ -115,6 +115,10 @@ and informational in `api:verify`.
 
 ---
 
+## Email (live since 2026-10-07)
+
+`mail@liratek.shop` on Spacemail; app sends over SMTP (`mail.spacemail.com:465`); MX/SPF/DKIM/DMARC records live in **Cloudflare** (not Spaceship — Spaceship's DNS page is inactive by design). New domain ⇒ early mail may land in Spam (reputation, not config). **Pending: LIRA-277** — around 2026-10-21, if invites reach the Inbox, change `_dmarc` from `p=none` to `p=quarantine` (`current_sprint.md` has the exact record).
+
 ## Secrets
 
 Runtime config lives in **Fly secrets**, never in the image, never in git.
@@ -141,8 +145,9 @@ yarn api secrets import < file                     # bulk, values off the CLI
 On this repo's Yarn 4, write `yarn api <args>` — `yarn api -- <args>` passes a
 literal `--` to flyctl and fails.
 
-Groups: `JWT_SECRET`/`DATABASE_KEY` · `APP_BASE_DOMAIN`/`SIGNUP_INVITE_CODE`/
-`SUPER_ADMIN_*` · `CLOUDFLARE_*`/`VERCEL_*` (tenant subdomains) ·
+Groups: `JWT_SECRET`/`DATABASE_KEY` · `APP_BASE_DOMAIN`/`SUPER_ADMIN_*` ·
+`EMAIL_*`/`SMTP_*`/`SIGNUP_INVITE_BASE_URL` (invite emails) · `TURNSTILE_*`
+(self-serve sign-up) · `CLOUDFLARE_*`/`VERCEL_*` (tenant subdomains) ·
 `LITESTREAM_*` (backups).
 
 `DATABASE_KEY` **encrypts nothing** — stock `better-sqlite3` ignores

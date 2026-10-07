@@ -2,7 +2,7 @@
 
 **Branch**: `267-email-invite-signup` | **Date**: 2026-10-07 | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `specs/267-email-invite-signup/spec.md`. Design notes are in `docs/plans/todo_plans/EMAIL_INVITE_SIGNUP_PLAN.md`.
+**Input**: Feature specification from `specs/267-email-invite-signup/spec.md`. Design notes are in `docs/plans/done_plans/EMAIL_INVITE_SIGNUP_PLAN.md`.
 
 ## Summary
 

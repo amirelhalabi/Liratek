@@ -349,7 +349,6 @@ fly volumes create liratek_data --region fra --size 3
 fly secrets set \
   JWT_SECRET=... \
   APP_BASE_DOMAIN=liratek.shop \
-  SIGNUP_INVITE_CODE=... \
   CORS_ORIGIN=https://www.liratek.shop \
   SUPER_ADMIN_USERNAME=... SUPER_ADMIN_PASSWORD=... \
   CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ZONE_ID=... \
@@ -446,50 +445,50 @@ docker compose cp backend:/data/backup-$(date +%F).db ./
 Put that on a daily cron and copy the result off the box. Untested as written —
 run it once by hand before trusting it.
 
-## 5b. Self-service signup (`/signup`)
+## 5b. Sign-up by invite link (`/signup`)
 
 The web app has a public sign-up page at `/#/signup` that creates a whole
 tenant — registry row, seeded config, first admin — through the SAME
-`provisionTenant()` a super admin uses. It is **off unless you turn it on**:
+`provisionTenant()` a super admin uses. **The only way in is a single-use
+invite link** sent by email (LIRA-267). There is no shared invite code any
+more: `SIGNUP_INVITE_CODE` was removed from the code, and a stale value left
+on Fly is simply ignored (`yarn api secrets unset SIGNUP_INVITE_CODE` tidies
+it away).
 
-```bash
-# In backend/.env — any non-empty string. Unset or removed = signup disabled.
-SIGNUP_INVITE_CODE=liratek-something-only-you-know
-```
+How a link is sent, and how to set email up, is in § 5b-email below:
 
-Unset is deliberately the safe default. An open tenant-creation endpoint on a
-POS platform collects junk tenants, and every signup permanently consumes a
-globally-unique slug, so forgetting to configure something must not be what
-exposes it. With no code set the route answers 403 for everyone; with one set,
-a caller must send it in the request body.
+- **Admin invite** (always available once email works): **Send invite** on
+  the Tenants page.
+- **Self-serve** (only when email AND Turnstile are configured): a visitor
+  clicks **Sign up** on the login page and asks for a link.
 
-Three other things guard it:
+The link is `<base>/#/signup?invite=<token>`. It works once, for 72 hours,
+and the shop's contact email is taken from the invite, never the form.
+Opened without `?invite=`, `/signup` shows the request form when self-serve
+is on, and "Sign-up is not available right now" otherwise.
+
+Other guards on `POST /api/auth/signup`:
 
 - `signupLimiter` — 5 requests per IP per hour, and unlike the login limiter it
-  counts **successes** too, since a success is what consumes a slug. That also
-  means a mistyped invite code burns a slot, so `SIGNUP_RATE_LIMIT_MAX`
-  overrides the 5 (this dev deployment sets 30).
+  counts **successes** too, since a success is what consumes a slug.
+  `SIGNUP_RATE_LIMIT_MAX` overrides the 5.
 - The slug charset and the reserved-name blocklist are the same ones that guard
   staff-created tenants — `signupSchema` extends `createTenantSchema` rather
   than restating the rules, so `admin`, `www`, `api` and friends cannot be
   claimed.
 - **No token is issued on success.** The response carries only the new
-  `{ id, name, slug }`, and the page sends the user to `/login`. Once
-  `APP_BASE_DOMAIN` is set (§ 8), that shop's credentials work only on
-  `<slug>.<domain>`, so minting a token for a realm the browser is not on
-  would contradict the whole model.
+  `{ id, name, slug }` and the shop's own login URL. Once `APP_BASE_DOMAIN` is
+  set (§ 8), that shop's credentials work only on `<slug>.<domain>`, so
+  minting a token for a realm the browser is not on would contradict the
+  whole model.
 
-To close signups again, remove `SIGNUP_INVITE_CODE` and restart the backend.
-To rotate, change it — existing tenants are unaffected, only new signups.
-
-The login page asks `GET /api/auth/signup-status` (public, returns one boolean)
-and only shows "Create your shop" when signup is actually on, so flipping the
-variable is the whole switch — there is no second place to update, and the login
-page never advertises a door that is bolted.
+The login page asks `GET /api/auth/signup-status` (public) and shows **Sign
+up** only when `selfServeEnabled` is true. With self-serve off (no Turnstile
+keys), the link is hidden and new shops join only through an admin invite.
 
 Desktop is untouched: Electron provisions its single tenant through the
-first-run setup wizard, and the login page hides the "Create your shop" link
-outside the browser.
+first-run setup wizard, and the login page hides the sign-up link outside the
+browser.
 
 ### 5b-email. Sign-up by email and admin invitations (LIRA-267)
 
@@ -501,8 +500,8 @@ Sign-up now also works through a single-use emailed link. Details are in
   email address and passes Cloudflare Turnstile.
 
 Both flows are off until email is configured. Self-serve is also off until
-Turnstile is configured. The shared `SIGNUP_INVITE_CODE` above keeps working
-until Stage B removes it.
+Turnstile is configured (as of 2026-10-07 it is not, by owner decision, so
+sign-up is by admin invite only).
 
 **One-time setup by the owner (go-live runbook):**
 
@@ -531,8 +530,13 @@ until Stage B removes it.
    A missing mail secret never takes the API down: it stays up with email
    OFF (invites refused, self-serve hidden). Check `yarn api logs` for the
    "email configuration is invalid" error, which names the missing variable.
-   A WRONG password is only seen when sending: each invite fails with
-   "SMTP login failed — check SMTP_USER/SMTP_PASS".
+   A WRONG password is caught at startup: the API checks the SMTP login
+   once in the background after boot and, if the server refuses it, switches
+   email OFF (invites refused as "Email is not configured on this server",
+   self-serve hidden) and logs "SMTP login failed at startup — check SMTP_USER/SMTP_PASS;
+   email is OFF". Fix the secret and re-import; the restart checks again. If
+   the check cannot reach the server (network, timeout), it only logs a
+   warning and email stays on.
    `SIGNUP_INVITE_BASE_URL` defaults to `https://www.${APP_BASE_DOMAIN}`.
    Links have the form `<base>/#/signup?invite=…`. The hash route is needed
    because Vercel answers a bare `/signup` with 404.
@@ -726,7 +730,7 @@ assertion in the same layer, so it fails the build rather than shipping broken).
   username cannot log in on the shared hostname at all. Set `APP_BASE_DOMAIN`
   (and wildcard DNS) before onboarding a second tenant and the question does not
   arise. **Do not "simplify" this back to refusing an ambiguous username** — it
-  reads safer and is not: signup is public, so anyone with the invite code could
+  reads safer and is not: signup is public, so anyone with an invite link could
   register a shop whose admin is named `admin` and lock the incumbent out of
   their own login.
 - ~~**No audit trail on the web transport.**~~ **This was wrong** — corrected

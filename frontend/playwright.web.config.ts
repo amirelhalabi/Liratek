@@ -166,9 +166,6 @@ export default defineConfig({
         SIGNUP_INVITE_BASE_URL: `http://localhost:${WEB_PORT}`,
         TURNSTILE_SITE_KEY: TURNSTILE_TEST_SITE_KEY,
         TURNSTILE_SECRET_KEY: TURNSTILE_TEST_SECRET_KEY,
-        // The shared invite code stays OFF so /signup without a link shows
-        // the self-serve request form, never the legacy code form.
-        SIGNUP_INVITE_CODE: "",
         // The DB and limiter windows outlive one run; re-running within the
         // hour must not 429 or hit the daily self-serve cap.
         SIGNUP_RATE_LIMIT_MAX: "100000",

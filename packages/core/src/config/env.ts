@@ -63,15 +63,6 @@ const envSchema = z
     // would lock every user out.
     APP_BASE_DOMAIN: z.string().optional(),
 
-    // Shared secret required by POST /api/auth/signup.
-    //
-    // UNSET DISABLES SIGNUP ENTIRELY, which is the safe default: an
-    // open tenant-creation endpoint on a POS platform invites junk tenants,
-    // and every signup permanently consumes a globally-unique slug. Opting in
-    // is setting one variable; forgetting to set one cannot accidentally
-    // expose it.
-    SIGNUP_INVITE_CODE: z.string().optional(),
-
     // ── Automatic tenant subdomains ──────────────────────────────────
     //
     // When a tenant is provisioned, give it <slug>.<APP_BASE_DOMAIN>
@@ -81,7 +72,7 @@ const envSchema = z
     // domain alone never resolves.
     //
     // Every one is OPTIONAL and the feature is OFF unless the full set is
-    // present. Same safe default as SIGNUP_INVITE_CODE: a half-configured
+    // present. A half-configured
     // deployment must not half-create subdomains, and a missing token
     // must never be able to fail a signup.
     CLOUDFLARE_API_TOKEN: z.string().optional(),
@@ -203,7 +194,6 @@ function parseEnv(): EnvConfig {
     SUPER_ADMIN_USERNAME: process.env.SUPER_ADMIN_USERNAME?.trim(),
     SUPER_ADMIN_PASSWORD: process.env.SUPER_ADMIN_PASSWORD,
     APP_BASE_DOMAIN: process.env.APP_BASE_DOMAIN?.trim().toLowerCase(),
-    SIGNUP_INVITE_CODE: process.env.SIGNUP_INVITE_CODE,
     CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
     CLOUDFLARE_ZONE_ID: process.env.CLOUDFLARE_ZONE_ID,
     VERCEL_TOKEN: process.env.VERCEL_TOKEN,
@@ -278,7 +268,6 @@ export const {
   SUPER_ADMIN_USERNAME,
   SUPER_ADMIN_PASSWORD,
   APP_BASE_DOMAIN,
-  SIGNUP_INVITE_CODE,
   CLOUDFLARE_API_TOKEN,
   CLOUDFLARE_ZONE_ID,
   VERCEL_TOKEN,

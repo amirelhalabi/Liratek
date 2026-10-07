@@ -9,9 +9,9 @@
  *      twice per load halves the budget.
  *   2. The invited email is shown LOCKED and the shared invite-code field is
  *      absent: the server takes the email from the invite, never the body.
- *   3. Submitting sends `inviteToken` and NO `inviteCode` key. An empty
- *      `inviteCode: ""` next to the token would count as "both" and the
- *      schema would refuse the sign-up with a 400.
+ *   3. Submitting sends `inviteToken` and NO `inviteCode` key — the shared
+ *      invite code is gone (Stage B), and the page must not send a stale
+ *      key the server no longer reads.
  *   4. A dead link shows the generic message and no form at all.
  *
  * Payload field names come from the core schema (rule 24): the captured body

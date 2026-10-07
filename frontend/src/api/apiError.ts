@@ -6,7 +6,7 @@
  *     (Zod rejections) or a `{ code, message }` object (createErrorResponse);
  *   - the `ApiError` OBJECT that `requestJson` THROWS on any non-2xx — a plain
  *     `{ status, message, details }`, NOT an `Error`, so an `instanceof Error`
- *     check misses it and the invite-code 403 would read as "could not reach
+ *     check misses it and a sign-up 403 would read as "could not reach
  *     the server". Its own `message` can itself be the nested object, because
  *     it is lifted straight off `data.error`;
  *   - a real `Error` from fetch when the backend is genuinely unreachable.

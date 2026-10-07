@@ -39,10 +39,15 @@ import {
   type EmailOutboxRepository,
 } from "@liratek/core";
 import {
+  EmailAuthError,
   PermanentEmailError,
   type EmailTransport,
 } from "./EmailTransport.js";
-import { getEmailTransport, resolveEmailTransport } from "./createTransport.js";
+import {
+  getEmailTransport,
+  markEmailTransportInvalid,
+  resolveEmailTransport,
+} from "./createTransport.js";
 import { renderTemplate, type TemplateVars } from "./renderTemplate.js";
 import { getEmailTemplate } from "./templates/index.js";
 
@@ -306,39 +311,107 @@ export async function runOutboxOnce(
   return summary;
 }
 
+/** Logged (as an error) when the startup login check is refused. No
+ * secret in it, by construction. */
+export const SMTP_LOGIN_FAILED_AT_STARTUP =
+  "SMTP login failed at startup — check SMTP_USER/SMTP_PASS; email is OFF";
+
+/** Bumped by stopEmailOutbox(), so a start still waiting on its login
+ * check does not arm the timer after a stop (shutdown, tests). */
+let startGeneration = 0;
+
 /**
- * Starts the worker: one run now, then every 30 seconds. With
+ * Checks once that the provider accepts our login, for transports that log
+ * in (`verify` — only smtp today). Never throws.
+ *
+ *   - refused (EmailAuthError: EAUTH / 535): email is switched OFF through
+ *     the same `invalid` state a bad config produces, so isEmailConfigured()
+ *     reads false and invites answer 409 EMAIL_NOT_CONFIGURED. Returns false.
+ *   - anything else (network, timeout, a 4xx such as 454): a warning only.
+ *     That can clear up on its own, and each send retries anyway. True.
+ *
+ * Logs carry the transport name and the error code / reply code only —
+ * never the error text, which can echo the login.
+ */
+async function loginAcceptedAtStartup(transport: EmailTransport): Promise<boolean> {
+  if (!transport.verify) return true;
+  try {
+    await transport.verify();
+    emailLogger.info({ transport: transport.name }, "email login checked at startup");
+    return true;
+  } catch (error) {
+    if (error instanceof EmailAuthError) {
+      markEmailTransportInvalid(
+        "SMTP login failed at startup — check SMTP_USER/SMTP_PASS",
+      );
+      emailLogger.error({ transport: transport.name }, SMTP_LOGIN_FAILED_AT_STARTUP);
+      return false;
+    }
+    const fields = (error ?? {}) as { code?: unknown; responseCode?: unknown };
+    emailLogger.warn(
+      {
+        transport: transport.name,
+        kind: error instanceof Error ? error.name : typeof error,
+        code: typeof fields.code === "string" ? fields.code : undefined,
+        responseCode:
+          typeof fields.responseCode === "number" ? fields.responseCode : undefined,
+      },
+      "email login could not be checked at startup; email stays ON and sends will retry",
+    );
+    return true;
+  }
+}
+
+/**
+ * Starts the worker: one run, then every 30 seconds. With
  * `EMAIL_TRANSPORT=disabled` it does not start at all — queued rows stay
  * pending until email is configured (or past give_up_at, when the next
- * enabled run fails them). Never throws: an unusable configuration (e.g.
- * smtp without SMTP_PASS, or resend, which is not built) is logged as an
- * error, the worker stays off, and isEmailConfigured() reads false so the
- * invite routes refuse with EMAIL_NOT_CONFIGURED instead of queueing.
+ * enabled run fails them). An unusable configuration (e.g. smtp without
+ * SMTP_PASS, or resend, which is not built) is logged as an error, the
+ * worker stays off, and isEmailConfigured() reads false so the invite routes
+ * refuse with EMAIL_NOT_CONFIGURED instead of queueing.
+ *
+ * For a transport that logs in (smtp), the login is checked FIRST, in the
+ * background: server.ts does not await this, so boot is never blocked. A
+ * refused login switches email off and the worker never starts — so a
+ * wrong password cannot fail queued rows one by one. The returned promise
+ * settles once that is decided (tests await it) and never rejects.
  */
-export function startEmailOutbox(): void {
-  const resolved = resolveEmailTransport();
-  if (resolved.status === "off") {
-    emailLogger.info("email outbox not started: EMAIL_TRANSPORT=disabled");
-    return;
-  }
-  if (resolved.status === "invalid") {
-    // Already logged with the reason by resolveEmailTransport().
-    emailLogger.warn("email outbox not started: email configuration is invalid");
-    return;
-  }
-  emailLogger.info({ transport: resolved.transport.name }, "email outbox started");
+export async function startEmailOutbox(): Promise<void> {
+  try {
+    const resolved = resolveEmailTransport();
+    if (resolved.status === "off") {
+      emailLogger.info("email outbox not started: EMAIL_TRANSPORT=disabled");
+      return;
+    }
+    if (resolved.status === "invalid") {
+      // Already logged with the reason by resolveEmailTransport().
+      emailLogger.warn("email outbox not started: email configuration is invalid");
+      return;
+    }
 
-  void runOutboxOnce();
+    const generation = startGeneration;
+    const transport = resolved.transport;
+    if (!(await loginAcceptedAtStartup(transport))) return;
+    if (generation !== startGeneration) return;
 
-  if (timer) clearInterval(timer);
-  timer = setInterval(() => {
+    emailLogger.info({ transport: transport.name }, "email outbox started");
+
     void runOutboxOnce();
-  }, EMAIL_OUTBOX_INTERVAL_MS);
-  // Never hold the process open on shutdown for a mail timer.
-  timer.unref?.();
+
+    if (timer) clearInterval(timer);
+    timer = setInterval(() => {
+      void runOutboxOnce();
+    }, EMAIL_OUTBOX_INTERVAL_MS);
+    // Never hold the process open on shutdown for a mail timer.
+    timer.unref?.();
+  } catch (error) {
+    emailLogger.error({ error }, "email outbox failed to start");
+  }
 }
 
 export function stopEmailOutbox(): void {
+  startGeneration += 1;
   if (timer) clearInterval(timer);
   timer = null;
 }

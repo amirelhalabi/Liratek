@@ -2,10 +2,12 @@
 /**
  * Login page's sign-up link (LIRA-267 T055).
  *
- * The link reads **Sign up** and is shown when a visitor can actually sign
- * up: self-serve email sign-up is on, OR (Stage A only) the shared invite code
- * is still configured. Never on desktop, and never when neither is on — a
- * link that leads to "not available" reads as a broken app.
+ * The link reads **Sign up** and is shown exactly when a visitor can sign up
+ * on their own: self-serve email sign-up is on (Stage B — the shared invite
+ * code is gone, so its old `enabled` flag must not show it). Never on
+ * desktop, and never when self-serve is off — a link that leads to "not
+ * available" reads as a broken app. Invited shops arrive by their email link
+ * and never need this one.
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
@@ -74,13 +76,16 @@ it("shows 'Sign up' when self-serve is on", async () => {
   expect(screen.queryByText("Create your shop")).toBeNull();
 });
 
-it("shows 'Sign up' while only the shared code is on (Stage A)", async () => {
+// Rule 24: was "shows 'Sign up' while only the shared code is on (Stage A)".
+it("hides the link when only the retired shared-code `enabled` flag is on", async () => {
   status({ enabled: true });
   render(<Login />);
-  expect(await screen.findByRole("link", { name: "Sign up" })).toBeInTheDocument();
+  await waitFor(() => expect(publicAuthInfo).toHaveBeenCalledTimes(1));
+  await new Promise((r) => setTimeout(r, 0));
+  expect(screen.queryByRole("link", { name: "Sign up" })).toBeNull();
 });
 
-it("hides the link when neither is on", async () => {
+it("hides the link when self-serve is off", async () => {
   status({});
   render(<Login />);
   await waitFor(() => expect(publicAuthInfo).toHaveBeenCalledTimes(1));

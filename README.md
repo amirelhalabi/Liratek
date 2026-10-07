@@ -54,7 +54,7 @@ Both run the same business logic — the only difference is the transport (IPC v
 
 - **Multi-Tenancy**: Every table carries a `tenant_id`, scoped through `AsyncLocalStorage` and enforced by a fail-closed context plus a CI linter (`yarn check:tenant-scoping`).
 - **Per-Tenant Subdomains**: Each shop signs in at `<slug>.<domain>`; the tenant is resolved from the request `Host`.
-- **Self-Service Sign-Up**: A public one-screen flow creates the tenant, seeds its full configuration and its first admin in a single transaction — disabled unless an invite code is configured.
+- **Sign-Up by Email Invite**: A single-use invite link, emailed by the platform, opens a one-screen flow that creates the tenant, seeds its full configuration and its first admin in a single transaction.
 - **Automatic Subdomain DNS**: Provisioning a tenant creates its DNS record and registers the hostname with the CDN, so onboarding needs no manual DNS work.
 - **Subscriptions & Entitlements**: Per-tenant module allowlists with an `active → grace → read_only` lifecycle that never locks a shop out of its own history.
 - **Super-Admin Control Plane**: Tenant registry, plan management, license-key issuing, and "Connect as admin" impersonation with a full audit trail.
@@ -109,7 +109,7 @@ A shop's credentials work **only** on that shop's own hostname, and the platform
 
 ### Sign-up
 
-`POST /api/auth/signup` is public but **disabled unless `SIGNUP_INVITE_CODE` is set** — forgetting to configure something must not be what exposes tenant creation. It feeds the same `TenantProvisioningService.provisionTenant()` a super admin uses, so a self-served shop is indistinguishable from a hand-made one: registry row, full per-tenant config seed, and first admin user, in one transaction. It issues **no token** — the new shop signs in on its own subdomain.
+`POST /api/auth/signup` is public but **requires a single-use invite token** from an emailed link (a super admin sends invites; visitors can request one themselves only when email and Turnstile are both configured). There is no shared code. It feeds the same `TenantProvisioningService.provisionTenant()` a super admin uses, so a self-served shop is indistinguishable from a hand-made one: registry row, full per-tenant config seed, and first admin user, in one transaction. It issues **no token** — the new shop signs in on its own subdomain.
 
 ### Automatic subdomain DNS
 
@@ -333,10 +333,6 @@ LOG_DIR=/var/log/liratek      # Optional: Log file directory (production)
 APP_BASE_DOMAIN=liratek.shop  # Turns on host-based tenancy: <slug>.<domain>
                               # is a tenant, the apex/www/admin is the platform
                               # realm (super admins only). Unset = single-tenant.
-
-SIGNUP_INVITE_CODE=           # Public self-service sign-up is DISABLED unless
-                              # this is set. Anyone with the code can create a
-                              # tenant, so treat it as a secret.
 
 SUPER_ADMIN_USERNAME=         # Bootstraps the platform account on first boot,
 SUPER_ADMIN_PASSWORD=         # and ONLY if no active super admin exists yet.

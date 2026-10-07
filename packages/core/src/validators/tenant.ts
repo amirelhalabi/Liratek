@@ -44,7 +44,7 @@ export const updateTenantSchema = z.object({
 });
 
 export const SIGNUP_INVITE_REQUIRED_MESSAGE =
-  "Use an invite link or an invite code";
+  "Sign-up needs the invite link from your email";
 
 /**
  * Public self-service signup body.
@@ -55,27 +55,19 @@ export const SIGNUP_INVITE_REQUIRED_MESSAGE =
  * reserved-name rules that protect the tenant registry must be identical
  * whether a tenant is created by staff or by a stranger.
  *
- * LIRA-267 Stage A: EXACTLY ONE of `inviteCode` (the shared code, being
- * retired in Stage B) or `inviteToken` (the emailed single-use link).
+ * LIRA-267 Stage B: the ONLY proof of invitation is `inviteToken`, the
+ * emailed single-use link. The shared `inviteCode` is gone; zod strips one
+ * if a stale client still sends it, so it can never open this route.
  * `contactEmail` is OMITTED, so zod strips any client-sent value: on this
  * public route the email always comes from the invite row, never the body.
  */
 export const signupSchema = createTenantSchema
   .omit({ contactEmail: true })
   .extend({
-    inviteCode: z.string().min(1).optional(),
-    inviteToken: z.string().min(1).max(200).optional(),
-  })
-  .superRefine((data, ctx) => {
-    const hasCode = data.inviteCode !== undefined;
-    const hasToken = data.inviteToken !== undefined;
-    if (hasCode === hasToken) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: SIGNUP_INVITE_REQUIRED_MESSAGE,
-        path: ["inviteCode"],
-      });
-    }
+    inviteToken: z
+      .string({ error: SIGNUP_INVITE_REQUIRED_MESSAGE })
+      .min(1, SIGNUP_INVITE_REQUIRED_MESSAGE)
+      .max(200),
   });
 
 export type SignupInput = z.infer<typeof signupSchema>;
