@@ -1024,10 +1024,12 @@ export class ProfitService {
       // profit-only, pickup + void net to 0 (rule 20).
       const holdMoney = this.repo.getHoldMoneyProfit(fromDt, toDt);
 
-      // LIRA-272 — kept change on a refund of a module whose refunded
-      // original drops out of this page (FS/recharge/custom/maintenance/
-      // loto): only the kept part, folded into gross and the Kept Change
-      // card below (`kept_change`), never a second copy of anything above.
+      // LIRA-272 — kept change on a refund of any module (sales included;
+      // debt repayments stay in debtRepayments): only the kept part, on the
+      // REFUND's own day (owner decision 2026-10-07 — `getSalesProfit`
+      // takes a sale refund's kept part off the sale's day), folded into
+      // gross and the Kept Change card below (`kept_change`), never a
+      // second copy of anything above.
       const refundKept = this.repo.getRefundKeptChangeProfit(fromDt, toDt);
 
       // 7. Expenses.
@@ -1149,7 +1151,8 @@ export class ProfitService {
           // Exchange payout keep-change (owner decision 2026-10-06): kept
           // cents are shown here, not inside the Exchange row's margin.
           exchange.kept_change_usd +
-          // LIRA-272 — kept change on a module refund.
+          // LIRA-272 — kept change on a refund (any module but debt
+          // repayments), on the refund's own day.
           refundKept.profit_usd,
         lbp:
           recharges.kept_change_lbp +
@@ -1460,8 +1463,9 @@ export class ProfitService {
       // reports `margin_pct: null` ("N/A") for these rows instead. Read
       // `profit_usd`/`profit_lbp` for the row's dollar amount, never
       // `revenue_usd`/`revenue_lbp` (now always 0 here).
-      // LIRA-272 — a module refund's kept change joins this row (and its
-      // drill-down, `getKeptChangeDetail`), the same profit-only kind.
+      // LIRA-272 — a refund's kept change (any module, sales included)
+      // joins this row (and its drill-down, `getKeptChangeDetail`), the
+      // same profit-only kind, on the refund's own day (2026-10-07).
       const debtKept = this.repo.getDebtRepaymentProfit(fromDt, toDt);
       const refundKept = this.repo.getRefundKeptChangeProfit(fromDt, toDt);
       const keptChange = {
@@ -2529,10 +2533,15 @@ export class ProfitService {
               // named so it is not mistaken for a sale's kept change.
               r.txn_type === "CREDIT_CASH_OUT"
               ? "Debts cash-out kept change"
-              : // LIRA-272 — the change kept on a module refund.
+              : // LIRA-272 — the change kept on a refund (any module),
+                // on the refund's own day (owner decision 2026-10-07).
                 r.txn_type === "REFUND_KEPT_CHANGE"
                 ? "Refund kept change"
-                : "Kept change";
+                : // "Undo refund" of a refund that kept change — its
+                  // kept part comes back off, on the undo's own day.
+                  r.txn_type === "REFUND_KEPT_CHANGE_UNDO"
+                  ? "Refund kept change undone"
+                  : "Kept change";
       const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
       const reason = isRealMoney
         ? null

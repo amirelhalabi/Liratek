@@ -16,6 +16,21 @@ jest.mock("../../server.js", () => ({
   },
 }));
 
+// rateLimit.ts now imports `verifyJwt` from ./auth.js (LIRA-282), which
+// imports @liratek/core — and loading the real core runs its dotenv loader,
+// so a developer's local backend/.env (API_RATE_LIMIT_MAX=1000) would
+// silently replace the defaults these tests pin. Stub core so the suite stays
+// hermetic: no JWT_SECRET means every request is anonymous, which is exactly
+// what these per-IP tests exercise. Per-user behaviour lives in
+// rateLimit.perUser.test.ts.
+jest.mock("@liratek/core", () => ({
+  JWT_SECRET: undefined,
+  JWT_EXPIRES_IN: "7d",
+  getAuthService: jest.fn(),
+  runWithTenant: jest.fn(),
+  runWithoutTenant: jest.fn(),
+}));
+
 import express, { type Express } from "express";
 import request from "supertest";
 import {

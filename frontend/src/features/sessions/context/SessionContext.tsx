@@ -13,7 +13,10 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { subscribeToInvalidation } from "@/api/realtime";
 import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
 import type { CartItem, CartTotals } from "../types/cart";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { sessionBasketCustomerAmount } from "@liratek/core";
+
+const ADD_TO_BASKET_FAILED = "Could not add this item to the basket.";
 
 /** A basket line shows what the walk-in customer pays (+) or is paid (−):
  *  0 for a For-Partner item, whose obligation is the partner's (one shared
@@ -177,9 +180,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       });
       const sessionId = activeSession.id;
 
-      // Persist to DB
+      // Persist to DB. A line the server refused (or never received) must not
+      // appear on screen: the on-screen basket would then disagree with the
+      // saved one (the next cart poll silently removes the line) and the
+      // cashier is never told why — e.g. a no-price custom service was shown
+      // here and only refused later, failing the whole checkout. Tell the
+      // cashier at add time instead, like the rest of the page does.
       try {
-        await api.session.cartAdd(sessionId, {
+        const result = await api.session.cartAdd(sessionId, {
           item_id: newItem.id,
           module: newItem.module,
           label: newItem.label,
@@ -188,8 +196,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           form_data: JSON.stringify(newItem.formData),
           ipc_channel: newItem.ipcChannel,
         });
+        if (!result?.success) {
+          logger.error("Server refused cart item:", result?.error);
+          alert(getApiErrorMessage(result, ADD_TO_BASKET_FAILED));
+          return;
+        }
       } catch (err) {
         logger.error("Failed to persist cart item:", err);
+        alert(getApiErrorMessage(err, ADD_TO_BASKET_FAILED));
+        return;
       }
 
       setCartItems((prev) => [...prev, newItem]);

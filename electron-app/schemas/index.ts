@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import {
+  FULFILLMENT_STATUSES,
   saleProcessSchema,
   lotoSellSchema,
   lotoCashPrizeSchema,
@@ -1125,6 +1126,9 @@ export const CustomServiceCreateSchema = z
   // the payment lines at the server's fallback rate, not the till's.
   exchange_rate: z.coerce.number().positive().optional(),
   transaction_time: z.string().optional(),
+  // Insurance fulfilment tracking — mirrors the core schema field; without it
+  // the desktop path silently stripped "ORDERED" (rule 23, 2026-10-07).
+  fulfillment_status: z.enum(FULFILLMENT_STATUSES).optional(),
   // LIRA-081 — LOCAL duplicate of the core createCustomServiceSchema field
   // (rule-14 debt, same trap documented elsewhere in this file): fields must
   // exist in BOTH or the desktop path silently strips them.

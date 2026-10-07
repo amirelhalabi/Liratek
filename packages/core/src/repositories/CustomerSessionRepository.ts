@@ -5,6 +5,12 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 // module (no other repository import), so importing it directly here never
 // risks a require cycle.
 import { isToday, localDayExpr } from "./reportingTimeFragments.js";
+import { BusinessRuleError } from "../utils/errors.js";
+import {
+  customServiceCartLineHasSellingPrice,
+  isCustomServiceCartChannel,
+  NO_SELLING_PRICE_ERROR,
+} from "../utils/customServiceSellingPrice.js";
 
 export interface CustomerSession {
   id: number;
@@ -553,7 +559,16 @@ export class CustomerSessionRepository {
   // ---------------------------------------------------------------------------
 
   /**
-   * Add an item to the session cart
+   * Add an item to the session cart.
+   *
+   * Owner rule (2026-10-07): a custom-service line with no selling price has
+   * nothing to pay, so it cannot be added to a basket — walk-in, Via or
+   * For-Partner alike. This is the one writer both transports call
+   * (`session:cart:add` IPC, `POST /api/sessions/:id/cart`), so the refusal
+   * lives here. A line is a custom service by the channel the checkout
+   * replays it on, not its module label; unreadable form data on such a line
+   * reads as no price. Other modules' lines are not checked. Lines saved
+   * before this rule are left as they are (SessionCheckoutService).
    */
   addCartItem(
     sessionId: number,
@@ -568,6 +583,17 @@ export class CustomerSessionRepository {
       user_id?: number;
     },
   ): number {
+    if (isCustomServiceCartChannel(item.ipc_channel)) {
+      let formData: unknown = null;
+      try {
+        formData = JSON.parse(item.form_data);
+      } catch {
+        formData = null;
+      }
+      if (!customServiceCartLineHasSellingPrice(formData)) {
+        throw new BusinessRuleError(NO_SELLING_PRICE_ERROR);
+      }
+    }
     const stmt = this.db.prepare(`
       INSERT INTO ${this.cartTableName} (tenant_id, session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

@@ -13,7 +13,10 @@ import {
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-import type { CreateCustomServiceInput } from "@liratek/core";
+import type {
+  CreateCustomServiceInput,
+  CreateCustomServicePayload,
+} from "@liratek/core";
 import type {
   CreateServicePresetInput,
   UpdateServicePresetInput,
@@ -59,7 +62,7 @@ export function registerCustomServiceHandlers(): void {
   // Add custom service (admin only)
   ipcMain.handle(
     "custom-services:add",
-    (event: IpcMainInvokeEvent, data: CreateCustomServiceInput) => {
+    (event: IpcMainInvokeEvent, data: CreateCustomServicePayload) => {
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
 

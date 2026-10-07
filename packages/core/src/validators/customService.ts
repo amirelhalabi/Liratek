@@ -44,9 +44,14 @@ export const createCustomServiceSchema = z
         }),
       )
       .optional(),
-    // Session-basket deferred payment mode: basket owns the customer-cash price
-    // inflow + debt; the shop's own cost outflow (General drawer) is still booked.
-    deferPayment: z.boolean().optional(),
+    // NOTE — `deferPayment` is deliberately NOT accepted over the wire, on
+    // either transport (mirrors validators/recharge.ts). It tells the
+    // repository "the session basket owns the customer-cash price inflow +
+    // debt", which skips the selling-price refusal and every customer-cash
+    // posting. It is injected server-side by `SessionCheckoutService`
+    // (processCartItem) after validation; accepting it here let any caller
+    // book a custom service that collects nothing. See
+    // `CreateCustomServiceInput` below for the server-side type.
     // Operator-edited USD↔LBP rate of record, threaded by the session checkout so
     // the unified transaction stores it (the viewer's "@ <rate>" + USD/LBP display).
     exchange_rate: z.coerce.number<number>().positive().optional(),
@@ -164,9 +169,17 @@ export const createCustomServiceSchema = z
     },
   );
 
+/**
+ * The SERVER-side input of `CustomServiceService.addService` /
+ * `CustomServiceRepository.createService`: the parsed wire payload plus the
+ * one field only the server may set. `deferPayment` (session-basket mode:
+ * the basket owns the customer's payment) is set by
+ * `SessionCheckoutService.processCartItem`, never by a client — the schema
+ * above strips it from both transports.
+ */
 export type CreateCustomServiceInput = z.infer<
   typeof createCustomServiceSchema
->;
+> & { deferPayment?: boolean };
 
 /**
  * Rule 21 — the WIRE payload of `custom-services:add` / `POST

@@ -58,6 +58,8 @@
 - Custom services: when a service has no selling price saved, the price box now stays empty and you type the price before you can take payment or add it to a customer's basket. Before, the customer was charged the cost.
 - From now on, a fee typed on a Whish App receive is no longer charged on a Whish App send. Switching between Send and Receive also clears the fee you typed.
 - In a customer basket, an OMT receive line no longer shows a fee, and a For Partner transfer says it goes on the partner's account instead of listing fees the customer doesn't pay.
+- Custom services: a For Partner service now needs a selling price, like a walk-in sale. Until you type one, "Submit to Partner" stays greyed out and the page asks for a price, so the partner is always charged the price.
+- Desktop app: insurance services now start their fulfilment tracking (Ordered → Issued → Received → Delivered) like on the web app — before, the desktop app dropped it.
 
 ## 🏠 Dashboard
 
@@ -74,11 +76,12 @@
 ## 🧾 Transactions
 
 - Refunding a currency exchange now works: the refund simply swaps the money back.
-- Refunds: you can now hand back a round amount and keep a small leftover (under $1 or 100,000 LBP, in the refund's currency) as shop profit — for example, refund $20.12, hand back $20. Works for sales, debt payments, OMT/Whish and wallet transfers, recharges, custom services, repairs and Loto tickets, paid back in cash or through a wallet (not a customer account or gift card). It shows on the Profits page under Kept change and in the day close. From now on.
+- Refunds: you can now hand back a round amount and keep a small leftover (under $1 or 100,000 LBP, in the refund's currency) as shop profit — for example, refund $20.12, hand back $20. Works for sales, debt payments, OMT/Whish and wallet transfers, recharges, custom services, repairs and Loto tickets, paid back in cash or through a wallet (not a customer account or gift card). It shows on the Profits page under Kept change on the day of the refund (not the day of the original sale or transfer), and in that day's close, so the close matches the drawer.
 - Customer basket checkout: when a cash prize or payout covers the whole basket, a payment typed in earlier is no longer recorded as if the customer had paid it.
 - Customer basket checkout: an OMT receive no longer asks the customer to pay the OMT fee — OMT never charges a fee on a receive.
 - Customer basket checkout: a For Partner OMT or Whish transfer in the basket is no longer added to what the customer pays; it goes on the partner's account only. A For Partner receive is no longer paid out to the customer. From now on.
 - Customer basket checkout: you can keep change as profit even when the basket includes a For Partner transfer.
+- Customer basket: if an item can't be added to the basket, you now get a message saying why, and the item is not shown in the basket. Before, it showed for a moment even though it wasn't saved, then disappeared without explanation — or made the checkout fail later.
 
 ## 🔧 Maintenance
 
@@ -167,6 +170,7 @@
 - liratek.shop now opens an information page about LiraTek, in English and Arabic. Shops keep logging in at their own address, as before, and the page has a box to jump to your shop's login.
 - Web app: sign-up no longer uses an invite code. New shops join through an email invitation from LiraTek: open the link in the email to finish creating your shop.
 - Web app (platform admin): you can now email a sign-up invitation from the Tenants page, see whether each invitation was used, and cancel one that went to the wrong address. "Add shop" also takes an optional contact email.
+- Several tills in the same shop no longer lock each other out with "Failed to load data" — each signed-in user now has their own allowance, and if it's ever reached the screen says to wait a minute and try again.
 
 ## 🧾 Expenses
 

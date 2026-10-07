@@ -17,7 +17,11 @@
  *   1. price empty → nothing to collect (no payment total), Submit disabled,
  *      no sale sent, no basket line added;
  *   2. after typing a price → the payment total is the price and the payload
- *      carries it.
+ *      carries it;
+ *   3. For Partner (owner decision 2026-10-07, follow-up) — same rule: with a
+ *      partner selected but no price, "Submit to Partner" stays disabled and
+ *      the notice says "Enter a selling price first."; after a price the sale
+ *      goes out with it.
  *
  * Payload field names are typed against the core schema (rule 24). Scaffold
  * copied from CustomServices.keptChangePayer.test.tsx (stable useApi mock,
@@ -362,5 +366,84 @@ describe("CustomServices — no selling price: the payment form waits for one", 
     >;
     expect(payload[PRICE_USD]).toBe(8);
     expect(payload).not.toHaveProperty(KEPT_USD);
+  });
+});
+
+describe("CustomServices — For Partner with no selling price waits for one", () => {
+  const PARTNER_MODE: keyof CreateCustomServiceInput = "partnerMode";
+  const PARTNER_ID: keyof CreateCustomServiceInput = "partnerId";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPaymentProps.length = 0;
+    mockActiveSession = null;
+    mockGetClients.mockResolvedValue([]);
+    // Exactly one partner → PartnerSelector auto-selects it, so the only
+    // thing left blocking submit is the missing price.
+    mockPartnersGetAll.mockResolvedValue([
+      {
+        id: 7,
+        name: "Solo Partner",
+        phone: null,
+        notes: null,
+        is_active: 1,
+        system_association: null,
+        created_at: "",
+        updated_at: "",
+      },
+    ]);
+    mockGetCustomServicesSummary.mockResolvedValue({
+      count: 0,
+      totalCostUsd: 0,
+      totalCostLbp: 0,
+      totalPriceUsd: 0,
+      totalPriceLbp: 0,
+      totalProfitUsd: 0,
+      totalProfitLbp: 0,
+    });
+    mockGetCustomServices.mockResolvedValue([]);
+    mockAddCustomService.mockResolvedValue({ success: true, id: 1 });
+  });
+
+  function partnerSubmit(): HTMLButtonElement {
+    return screen
+      .getByText("Submit to Partner")
+      .closest("button") as HTMLButtonElement;
+  }
+
+  it("partner selected, cost only → Submit to Partner disabled, notice asks for a price, nothing sent; a price lets it through", async () => {
+    const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+    render(<CustomServices />);
+    fireEvent.change(screen.getByTestId("search-bar"), {
+      target: { value: "Partner paperwork" },
+    });
+    fireEvent.change(usdInputs().cost, { target: { value: "3" } });
+    fireEvent.click(screen.getByTestId("custom-service-for-partner-toggle"));
+    await screen.findByText("Partner: Solo Partner");
+
+    expect(
+      screen.getByTestId("custom-service-partner-no-payment-notice"),
+    ).toHaveTextContent("Enter a selling price first.");
+    expect(partnerSubmit().disabled).toBe(true);
+    fireEvent.click(partnerSubmit());
+    await Promise.resolve();
+    expect(mockAddCustomService).not.toHaveBeenCalled();
+
+    fireEvent.change(usdInputs().price, { target: { value: "5" } });
+    expect(
+      screen.getByTestId("custom-service-partner-no-payment-notice"),
+    ).not.toHaveTextContent("Enter a selling price first.");
+    await waitFor(() => expect(partnerSubmit().disabled).toBe(false));
+    fireEvent.click(partnerSubmit());
+    await waitFor(() => expect(mockAddCustomService).toHaveBeenCalled());
+    const payload = mockAddCustomService.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload[PARTNER_MODE]).toBe("FOR");
+    expect(payload[PARTNER_ID]).toBe(7);
+    expect(payload[PRICE_USD]).toBe(5);
+    expect(payload[COST_USD]).toBe(3);
+    alertSpy.mockRestore();
   });
 });

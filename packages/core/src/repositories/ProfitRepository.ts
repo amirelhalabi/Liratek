@@ -49,15 +49,9 @@ import {
   SERVICE_DEBT_COVERAGE_TYPES,
   SESSION_DEBT_TYPE,
 } from "../constants/transactionTypes.js";
-import {
-  coverableChargeSql,
-  coverageOpenSql,
-} from "./sessionDebtCoverage.js";
+import { coverableChargeSql, coverageOpenSql } from "./sessionDebtCoverage.js";
 import { COMMISSION_PROVIDERS_SQL_LIST } from "../constants/commissionProviders.js";
-import {
-  REFUND_KEPT_CHANGE_META,
-  REFUND_KEPT_CHANGE_MODULE_TYPES,
-} from "../validators/transaction.js";
+import { REFUND_KEPT_CHANGE_META } from "../validators/transaction.js";
 import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
 import {
   partnerObligationHeadRowSql,
@@ -1896,67 +1890,104 @@ export function keptChangeSource(alias: string): string {
 }
 
 /**
- * LIRA-272 (owner decision 2026-10-07) — refund kept change on a module whose
- * refunded original the Profits page DROPS (FINANCIAL_SERVICE, RECHARGE,
- * CUSTOM_SERVICE, MAINTENANCE, LOTO: each module query gates its source row
- * on {@link notRefunded} and never sums the REFUND row). The REFUND row's
- * stamp is −original + kept, so only its kept part may surface — never the
- * −original half, which the dropped original already accounts for. Read off
- * the refund's own dedicated metadata keys (`REFUND_KEPT_CHANGE_META`,
- * written only by `TransactionRepository._createRefundRow`), never the
- * stamp difference (`refund + original`): migrations have rewritten FS/
- * custom-service stamps after the fact, and a REFUND row's copied
- * `kept_change_usd/lbp` can be the ORIGINAL's sale-time kept change. No
- * historical row carries the dedicated keys, so every older figure stays
- * exactly as it was. `json_valid` guards a malformed blob (NULL → 0).
+ * Refund kept change — the leftover the shop keeps when it hands back less
+ * than a refund (refund $20.12, hand back $20 → $0.12 profit). ONE set of
+ * fragments (rule 14) for every Profits view:
  *
- * SALE / DEBT_REPAYMENT refunds are NOT read here: their pages already sum
- * the REFUND row's whole stamp (`REFUND_KEPT_CHANGE_STAMP_NETTED_TYPES`), so
- * adding the kept part again would double it. By Cashier / By Client need
- * nothing either — they sum original + REFUND stamps for every module, which
- * already nets to the kept part.
+ * **Date rule (owner decision 2026-10-07, refund-day dating):** the kept
+ * part is profit of the REFUND row's own day — {@link refundKeptChangeDay}.
+ * A transfer made Monday and refunded Wednesday shows its $0.12 on
+ * Wednesday (Overview, By Module's Kept Change row, By Date, By Cashier /
+ * By Client, and Wednesday's day close), so the day close matches the
+ * drawer. Only the kept part moves: the refunded original's own reversal
+ * stays where it was (a refunded module original drops out of its own day;
+ * a sale nets SALE + REFUND on the sale's day, `getSalesProfit`), which is
+ * why every query that sums a REFUND row's stamp on the ORIGINAL's day
+ * subtracts the kept part ({@link stampNetOfRefundKeptChange}) and every
+ * kept-change surface adds it back on the refund's day
+ * ({@link refundKeptChangeRow} + {@link refundKeptChangeDay}). Over a range
+ * covering both days the total is unchanged.
+ *
+ * **Amount:** {@link refundKeptChangeAmount} — read off the refund's own
+ * markers, never the stamp difference (`refund + original`): migrations
+ * have rewritten FS/custom-service stamps after the fact.
+ *
+ * **Which rows:** every REFUND that kept something, of any module (sale,
+ * transfer, recharge, custom service, maintenance, loto, session item),
+ * plus the "Undo refund" row (REFUND_UNDO) that cancels one — EXCEPT a
+ * debt-repayment / kept-change refund ({@link keptChangeSource}): those
+ * already count their whole stamp on the refund's own day
+ * (`getDebtRepaymentProfit`), so reading their kept part again would
+ * double it.
  */
-const REFUND_KEPT_CHANGE_MODULE_TYPES_SQL = REFUND_KEPT_CHANGE_MODULE_TYPES.map(
-  (t) => `'${t}'`,
-).join(", ");
+export function refundKeptChangeDay(alias: string): string {
+  return `${alias}.created_at`;
+}
 
-/** @see REFUND_KEPT_CHANGE_MODULE_TYPES_SQL — the kept amount, per currency.
- *  `supported` = the `transactions.metadata_json` column exists (schema
- *  drift: hand-rolled jest fixtures omit it; a DB without it can hold no
- *  refund kept change, so the amount is a literal 0 there). */
+/**
+ * @see refundKeptChangeDay — the kept amount on ONE refund row, per currency.
+ * Three writer shapes:
+ *  - generic refund (`TransactionRepository._createRefundRow`: whole sale,
+ *    transfer, recharge, custom service, maintenance, loto, session non-sale
+ *    member, debt repayment) — the dedicated `REFUND_KEPT_CHANGE_META` keys.
+ *    Never its `kept_change_usd/lbp`: that row's metadata starts from a copy
+ *    of the original's, which may hold the original's sale-time kept change.
+ *  - sale item refund (`SalesRepository.refundSaleItem`) and session sale
+ *    member refund (`refundSessionBasketItem`) — `kept_change_usd/lbp` in
+ *    FRESH metadata (`refundType` 'item' / 'sessionItem', `source_table =
+ *    'sales'`, no `reverses_id`). Only these shapes fall back to those keys.
+ *  - "Undo refund" (REFUND_UNDO, sale-only) — no kept keys of its own; its
+ *    stamp is the refund's negated, so its kept part is minus the kept part
+ *    of the refund it names (`metadata_json.refundTransactionId`).
+ * `supported` = the `transactions.metadata_json` column exists (schema
+ * drift: hand-rolled jest fixtures omit it; a DB without it holds no refund
+ * kept change, so the amount is a literal 0). `json_valid` guards a
+ * malformed blob. No bind params.
+ */
 export function refundKeptChangeAmount(
   alias: string,
   currency: "usd" | "lbp",
   supported: boolean,
 ): string {
   if (!supported) return "0";
-  return `(CASE WHEN json_valid(${alias}.metadata_json)
-                THEN COALESCE(CAST(json_extract(${alias}.metadata_json, '$.${REFUND_KEPT_CHANGE_META[currency]}') AS REAL), 0)
+  const own = (a: string) => `(CASE WHEN json_valid(${a}.metadata_json)
+                THEN COALESCE(
+                  CAST(json_extract(${a}.metadata_json, '$.${REFUND_KEPT_CHANGE_META[currency]}') AS REAL),
+                  CASE WHEN ${a}.source_table = 'sales' AND ${a}.reverses_id IS NULL
+                        AND json_extract(${a}.metadata_json, '$.refundType') IN ('item', 'sessionItem')
+                       THEN CAST(json_extract(${a}.metadata_json, '$.kept_change_${currency}') AS REAL) END,
+                  0)
                 ELSE 0 END)`;
+  return `(CASE
+            WHEN ${alias}.type = 'REFUND' THEN ${own(alias)}
+            WHEN ${alias}.type = 'REFUND_UNDO' AND json_valid(${alias}.metadata_json) THEN -COALESCE((
+              SELECT ${own("rkcu")} FROM transactions rkcu
+              WHERE rkcu.id = CAST(json_extract(${alias}.metadata_json, '$.refundTransactionId') AS INTEGER)
+                AND rkcu.type = 'REFUND' AND rkcu.tenant_id = ${alias}.tenant_id
+            ), 0)
+            ELSE 0 END)`;
 }
 
-/**
- * @see REFUND_KEPT_CHANGE_MODULE_TYPES_SQL — joins the refunded ORIGINAL
- * (`origAlias`) of a module REFUND row `alias`. Callers date the kept change
- * by `${origAlias}.created_at`: the same day By Cashier / By Client already
- * attribute it to (`profitTxnRowMembership` dates a REFUND by its
- * original), and the same rule a sale refund's kept change follows
- * (`getSalesProfit` dates by the sale). No bind params.
- */
-export function refundKeptChangeOriginalJoin(
-  alias: string,
-  origAlias: string,
-): string {
-  return `JOIN transactions ${origAlias} ON ${origAlias}.id = ${alias}.reverses_id
-            AND ${origAlias}.tenant_id = ${alias}.tenant_id
-            AND ${origAlias}.type IN (${REFUND_KEPT_CHANGE_MODULE_TYPES_SQL})`;
-}
-
-/** @see REFUND_KEPT_CHANGE_MODULE_TYPES_SQL — an ACTIVE REFUND row that
- *  kept something. No bind params. */
+/** @see refundKeptChangeDay — an ACTIVE REFUND / REFUND_UNDO row whose kept
+ *  part is read separately (not a debt-repayment / kept-change refund,
+ *  which {@link keptChangeSource} already counts whole). No bind params. */
 export function refundKeptChangeRow(alias: string, supported: boolean): string {
-  return `${alias}.status = 'ACTIVE' AND ${alias}.type = 'REFUND'
+  return `${alias}.status = 'ACTIVE' AND ${alias}.type IN ('REFUND', 'REFUND_UNDO')
+            AND NOT ${keptChangeSource(alias)}
             AND (${refundKeptChangeAmount(alias, "usd", supported)} != 0 OR ${refundKeptChangeAmount(alias, "lbp", supported)} != 0)`;
+}
+
+/** @see refundKeptChangeDay — a row's profit stamp WITHOUT its refund kept
+ *  part, for every query that sums a REFUND / REFUND_UNDO stamp on the
+ *  ORIGINAL's day (the sale ledger, By Cashier / By Client's per-row sums).
+ *  A no-op (minus 0) on every other row. No bind params. */
+export function stampNetOfRefundKeptChange(
+  alias: string,
+  currency: "usd" | "lbp",
+  supported: boolean,
+): string {
+  if (!supported) return `${alias}.profit_${currency}`;
+  return `(${alias}.profit_${currency} - ${refundKeptChangeAmount(alias, currency, supported)})`;
 }
 
 /**
@@ -2028,7 +2059,40 @@ export function keptChangeCountEligible(alias: string): string {
  * already bind-position-sensitive `params` arrays for no behavioural gain.
  */
 function keptChangeAttributedUserId(alias: string): string {
-  return `COALESCE((SELECT o.user_id FROM transactions o WHERE o.id = ${alias}.reverses_id), ${alias}.user_id)`;
+  // Owner decision 2026-10-07 (By Cashier follows the drawer) — the
+  // original-creator lookup above applies ONLY to a {@link keptChangeSource}
+  // row (a debt-repayment / KEPT_CHANGE refund, whose stamp is the reversal
+  // of the ORIGINAL's own kept change — that reversal stays with the
+  // original's cashier, LCC-M1). Every other row reaching a kept-change
+  // reader is a {@link refundKeptChangeRow} (a REFUND / REFUND_UNDO that
+  // kept change on the refund itself): its kept part is credited to that
+  // row's OWN `user_id` — the cashier who did the refund and kept the
+  // change (Rami sells Monday, Sara refunds Wednesday handing back $20 of
+  // $20.12 → Sara +$0.12 on Wednesday), and for an "Undo refund" the
+  // cashier who did the undo (it puts the money back through their drawer).
+  // The refunded original's own reversal is NOT moved (it is summed in
+  // getByUser's per-row CASE under `COALESCE(orig.user_id, t.user_id)`,
+  // net of the kept part — stampNetOfRefundKeptChange). No bind params
+  // (keptChangeSource embeds none).
+  return `(CASE WHEN ${keptChangeSource(alias)}
+            THEN COALESCE((SELECT o.user_id FROM transactions o WHERE o.id = ${refundOriginalIdExpr(alias)}), ${alias}.user_id)
+            ELSE ${alias}.user_id END)`;
+}
+
+/**
+ * Owner decision 2026-10-07 (refund-day dating) — the walk-in NAME a
+ * kept-change row is attributed to in By Client. A REFUND row never copies
+ * the original's `client_name` (LCC-V8), and a refund's kept change now
+ * reaches By Client as a kept-change row of its own, so it falls back to
+ * the refunded original's name — the same group the refund's own reversal
+ * joins (`getByClient`'s `CLIENT_NAME_KEY`). A no-op for every older
+ * kept-change source: a debt-ledger row always has a `client_id`, and a
+ * KEPT_CHANGE row is never refunded (see `getByClient`'s
+ * LCC-walkin-keptchange-name note). No bind params (lookup by primary key,
+ * same reasoning as {@link keptChangeAttributedUserId}).
+ */
+function keptChangeAttributedClientName(alias: string): string {
+  return `COALESCE(${alias}.client_name, (SELECT o.client_name FROM transactions o WHERE o.id = ${refundOriginalIdExpr(alias)}), '')`;
 }
 
 /**
@@ -2186,12 +2250,19 @@ export function pmFeeRecognized(
 export function keptChangeProfitForKey(
   matchCondition: string,
   currency: "usd" | "lbp",
+  supported: boolean,
 ): string {
   const profitCol = currency === "usd" ? "profit_usd" : "profit_lbp";
+  // Owner decision 2026-10-07 — a refund's kept change is summed here, on
+  // the REFUND's own day (refundKeptChangeDay = kc.created_at, the date
+  // keptChangeRecognitionGates already filters by), ONLY its kept part; the
+  // rest of that REFUND's stamp stays in the caller's per-row sum on the
+  // original's day (stampNetOfRefundKeptChange).
   return `COALESCE((
-              SELECT SUM(kc.${profitCol})
+              SELECT SUM(CASE WHEN ${keptChangeSource("kc")} THEN kc.${profitCol}
+                              ELSE ${refundKeptChangeAmount("kc", currency, supported)} END)
               FROM transactions kc
-              WHERE ${keptChangeRecognitionGates("kc")}
+              WHERE ${keptChangeRecognitionGates("kc", supported)}
                 AND ${matchCondition}
             ), 0)`;
 }
@@ -2506,11 +2577,14 @@ export function exchangeProfitForUser(
  * distinct profit-bearing event, so counting it a second time here inflated
  * the "Avg Profit/Txn" denominator for a voided/refunded kept-change entry.
  */
-export function keptChangeRecognizedCount(matchCondition: string): string {
+export function keptChangeRecognizedCount(
+  matchCondition: string,
+  supported: boolean,
+): string {
   return `COALESCE((
               SELECT COUNT(*)
               FROM transactions kc
-              WHERE ${keptChangeRecognitionGates("kc")}
+              WHERE ${keptChangeRecognitionGates("kc", supported)}
                 AND kc.type IN ('DEBT_REPAYMENT', 'CREDIT_CASH_OUT', 'KEPT_CHANGE')
                 AND ${matchCondition}
                 AND (kc.profit_usd <> 0 OR kc.profit_lbp <> 0)
@@ -2618,9 +2692,9 @@ function exchangeUsdRevenue(alias: string, supported: boolean): string {
  * {@link hasCommissionModelColumn}.
  */
 export function hasExchangeCurrencyColumns(db: Database.Database): boolean {
-  const cols = db
-    .prepare(`PRAGMA table_info(exchange_transactions)`)
-    .all() as { name: string }[];
+  const cols = db.prepare(`PRAGMA table_info(exchange_transactions)`).all() as {
+    name: string;
+  }[];
   return cols.some((c) => c.name === "from_currency");
 }
 
@@ -2841,9 +2915,14 @@ function saleRevenueUsdCaseBranch(hasNetCols: boolean): string {
 function salePlusRefundProfitSubquery(
   saleAlias: string,
   profitColumn: "profit_usd" | "profit_lbp",
+  supported: boolean,
 ): string {
+  // Owner decision 2026-10-07 — a refund's kept change is not the sale's
+  // profit (it is counted on the refund's own day, refundKeptChangeDay), so
+  // this per-sale sum stays equal to getSalesProfit's.
+  const currency = profitColumn === "profit_usd" ? "usd" : "lbp";
   return `COALESCE((
-              SELECT SUM(t.${profitColumn}) FROM transactions t
+              SELECT SUM(${stampNetOfRefundKeptChange("t", currency, supported)}) FROM transactions t
               WHERE t.source_table = 'sales' AND t.source_id = ${saleAlias}.id
                 AND t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.status = 'ACTIVE' AND t.tenant_id = ?
             ), 0)`;
@@ -3248,15 +3327,31 @@ function refundOriginalIsProfitEvent(
  */
 function refundOriginalJoin(alias: string, origAlias: string): string {
   return `LEFT JOIN transactions ${origAlias} ON ${alias}.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}) AND ${origAlias}.tenant_id = ?
-        AND (${origAlias}.id = ${alias}.reverses_id
-          OR (${alias}.reverses_id IS NULL AND ${alias}.source_table = 'sales'
-            AND ${origAlias}.id = (
-              SELECT MIN(o.id) FROM transactions o
-              WHERE o.tenant_id = ${alias}.tenant_id
-                AND o.source_table = 'sales'
-                AND o.source_id = ${alias}.source_id
-                AND o.type = 'SALE'
-            )))`;
+        AND ${origAlias}.id = ${refundOriginalIdExpr(alias)}`;
+}
+
+/**
+ * The ONE "which transaction did this REFUND / REFUND_UNDO row reverse"
+ * expression (rule 14) — {@link refundOriginalJoin}'s match, also used by
+ * {@link keptChangeAttributedUserId}/{@link keptChangeAttributedClientName}
+ * (owner decision 2026-10-07: a refund's kept change is attributed to the
+ * same client as its reversal; its cashier is the refund row's own actor
+ * — see keptChangeAttributedUserId). `reverses_id` when set; otherwise,
+ * for a sale item refund / its undo (`source_table = 'sales'`, no
+ * `reverses_id`), the OLDEST `SALE` row of that sale — see
+ * {@link refundOriginalJoin}'s doc for why `MIN(o.id)`. NULL for anything
+ * else. No bind params (the subquery reads the outer row's own
+ * `tenant_id`).
+ */
+function refundOriginalIdExpr(alias: string): string {
+  return `COALESCE(${alias}.reverses_id,
+          CASE WHEN ${alias}.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}) AND ${alias}.source_table = 'sales' THEN (
+            SELECT MIN(o.id) FROM transactions o
+            WHERE o.tenant_id = ${alias}.tenant_id
+              AND o.source_table = 'sales'
+              AND o.source_id = ${alias}.source_id
+              AND o.type = 'SALE'
+          ) END)`;
 }
 
 /**
@@ -3320,10 +3415,16 @@ function allocationRecognitionGates(
  * bind-param count or order changes. Embeds 3 bind params: `dateRange`'s 2,
  * then `kcAlias.tenant_id`.
  */
-function keptChangeRecognitionGates(kcAlias: string): string {
+function keptChangeRecognitionGates(
+  kcAlias: string,
+  supported: boolean,
+): string {
+  // Owner decision 2026-10-07: a refund that kept change is a kept-change
+  // row too, dated by its own day (refundKeptChangeDay — the same
+  // `created_at` every kept-change source is dated by). No new binds.
   return `${kcAlias}.status = 'ACTIVE'
-              AND ${keptChangeSource(kcAlias)}
-              AND ${dateRange(`${kcAlias}.created_at`)}
+              AND (${keptChangeSource(kcAlias)} OR (${refundKeptChangeRow(kcAlias, supported)}))
+              AND ${dateRange(refundKeptChangeDay(kcAlias))}
               AND ${kcAlias}.tenant_id = ?`;
 }
 
@@ -3683,9 +3784,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    */
   private _hasTransactionsMetadataColumn(): boolean {
     if (this._hasTransactionsMetadataColumnCache === null) {
-      const cols = this.db
-        .prepare(`PRAGMA table_info(transactions)`)
-        .all() as { name: string }[];
+      const cols = this.db.prepare(`PRAGMA table_info(transactions)`).all() as {
+        name: string;
+      }[];
       this._hasTransactionsMetadataColumnCache = cols.some(
         (c) => c.name === "metadata_json",
       );
@@ -3737,8 +3838,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * `_hasCommissionModelColumnCache` above. Feeds {@link getSalesRevCost}
    * (PA-4.23 a).
    */
-  private _hasSaleDiscountAndRefundQuantityColumnsCache: boolean | null =
-    null;
+  private _hasSaleDiscountAndRefundQuantityColumnsCache: boolean | null = null;
 
   private _hasSaleDiscountAndRefundQuantityColumns(): boolean {
     if (this._hasSaleDiscountAndRefundQuantityColumnsCache === null) {
@@ -3937,13 +4037,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * {@link saleRecognitionWeight} instead of gated by the old binary
    * `salePaidOrPartnerSettled` — see getSalesRevCost's own doc comment for
    * the full rationale (identical here; no count column to convert).
+   *
+   * Owner decision 2026-10-07 (refund-day dating): a refund's KEPT change
+   * is not part of this sum — {@link stampNetOfRefundKeptChange} takes it
+   * off the REFUND / REFUND_UNDO stamp here, and
+   * {@link ProfitRepository.getRefundKeptChangeProfit} counts it on the
+   * refund's own day instead (see {@link refundKeptChangeDay}).
    */
   getSalesProfit(fromDt: string, toDt: string): SalesProfitRow {
+    const hasMeta = this._hasTransactionsMetadataColumn();
     return this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(t.profit_usd * (${saleRecognitionWeight("s")})), 0) AS profit_usd,
-          COALESCE(SUM(t.profit_lbp * (${saleRecognitionWeight("s")})), 0) AS profit_lbp
+          COALESCE(SUM(${stampNetOfRefundKeptChange("t", "usd", hasMeta)} * (${saleRecognitionWeight("s")})), 0) AS profit_usd,
+          COALESCE(SUM(${stampNetOfRefundKeptChange("t", "lbp", hasMeta)} * (${saleRecognitionWeight("s")})), 0) AS profit_lbp
         FROM transactions t
         JOIN sales s ON s.id = t.source_id
         WHERE t.status = 'ACTIVE'
@@ -4058,10 +4165,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * conservative extension of the existing per-module convention, not new
    * behavior for the common case.
    */
-  getTopupBuybackProfit(
-    fromDt: string,
-    toDt: string,
-  ): TopupBuybackProfitRow {
+  getTopupBuybackProfit(fromDt: string, toDt: string): TopupBuybackProfitRow {
     return this.db
       .prepare(
         `SELECT
@@ -4118,17 +4222,19 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
-   * LIRA-272 — refund kept change on a FINANCIAL_SERVICE / RECHARGE /
-   * CUSTOM_SERVICE / MAINTENANCE / LOTO refund: the leftover the shop kept
-   * when it handed back less than the refund (refund $20.12, hand back
-   * $20 → $0.12). Profit-only, per currency, dated by the refunded
-   * original's day — see {@link refundKeptChangeAmount} for why it is read
-   * off the refund's own keys and why sales/debt repayments are not here.
-   * A REFUND row is never voided (`_assertReversible`), and no undo exists
-   * for these modules' refunds (both REFUND_UNDO writers are sale-only), so
-   * once booked it stays. Gated by {@link notDebtPending} like every other
-   * PROFIT_TXN_TYPES row; a REFUND row is never itself a debt charge, so
-   * the gate always passes today. `count` = refunds that kept something.
+   * Refund kept change on a refund of ANY module (LIRA-272, owner decisions
+   * 2026-10-07): the leftover the shop kept when it handed back less than
+   * the refund (refund $20.12, hand back $20 → $0.12). Profit-only, per
+   * currency, dated by the REFUND's own day ({@link refundKeptChangeDay}) —
+   * see that fragment for the date rule and {@link refundKeptChangeAmount}
+   * for how the amount is read. A sale refund's kept part is moved here out
+   * of `getSalesProfit` (which subtracts it), so it is never counted twice;
+   * a debt-repayment refund is not here (`getDebtRepaymentProfit` already
+   * counts it). An "Undo refund" row's minus-kept lands on the undo's day.
+   * Gated by {@link notDebtPending} like every other PROFIT_TXN_TYPES row; a
+   * REFUND row is never itself a debt charge, so the gate always passes
+   * today. `count` = refunds that kept something (an undo row is not a new
+   * event, so it is not counted).
    */
   getRefundKeptChangeProfit(
     fromDt: string,
@@ -4140,12 +4246,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         `SELECT
           COALESCE(SUM(${refundKeptChangeAmount("t", "usd", hasMeta)}), 0) AS profit_usd,
           COALESCE(SUM(${refundKeptChangeAmount("t", "lbp", hasMeta)}), 0) AS profit_lbp,
-          COUNT(*) AS count
+          COALESCE(SUM(CASE WHEN t.type = 'REFUND' THEN 1 ELSE 0 END), 0) AS count
         FROM transactions t
-        ${refundKeptChangeOriginalJoin("t", "rko")}
         WHERE ${refundKeptChangeRow("t", hasMeta)}
           AND ${notDebtPending("t.id")}
-          AND ${dateRange("rko.created_at")}
+          AND ${dateRange(refundKeptChangeDay("t"))}
           AND t.tenant_id = ?`,
       )
       .get(fromDt, toDt, getCurrentTenantId()) as TopupBuybackProfitRow;
@@ -4534,12 +4639,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           `SUM((${fsOwnCurrencyProfit("fs", cm)}) * (${partnerCoverageRatio("financial_services", "fs.id")})) != 0`,
         ])}`,
       )
-      .all(
-        fromDt,
-        toDt,
-        tenantId,
-        tenantId,
-      ) as FsWaitingForRepaymentRow[];
+      .all(fromDt, toDt, tenantId, tenantId) as FsWaitingForRepaymentRow[];
 
     const byCurrency = new Map<string, FsWaitingForRepaymentRow>();
     for (const row of stampRows) {
@@ -5503,8 +5603,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- of missing the REFUND row's negative contribution. Rule 14:
             -- shared via salePlusRefundProfitSubquery (see its own doc
             -- comment) instead of a hand-pasted copy.
-            ${salePlusRefundProfitSubquery("s", "profit_usd")} AS profit_usd,
-            ${salePlusRefundProfitSubquery("s", "profit_lbp")} AS profit_lbp,
+            ${salePlusRefundProfitSubquery("s", "profit_usd", this._hasTransactionsMetadataColumn())} AS profit_usd,
+            ${salePlusRefundProfitSubquery("s", "profit_lbp", this._hasTransactionsMetadataColumn())} AS profit_lbp,
             s.total_amount_usd AS total_amount_usd,
             s.paid_usd AS paid_usd,
             s.paid_lbp AS paid_lbp,
@@ -5574,8 +5674,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           (${partnerCoverageRatio("sales", "s.id")}) AS partner_coverage_ratio,
           -- Same scalar-subquery shape as the fallback branch above (see its
           -- own comment) — rule 14: shared via salePlusRefundProfitSubquery.
-          ${salePlusRefundProfitSubquery("s", "profit_usd")} AS profit_usd,
-          ${salePlusRefundProfitSubquery("s", "profit_lbp")} AS profit_lbp,
+          ${salePlusRefundProfitSubquery("s", "profit_usd", this._hasTransactionsMetadataColumn())} AS profit_usd,
+          ${salePlusRefundProfitSubquery("s", "profit_lbp", this._hasTransactionsMetadataColumn())} AS profit_lbp,
           s.total_amount_usd AS total_amount_usd,
           s.paid_usd AS paid_usd,
           s.paid_lbp AS paid_lbp,
@@ -5630,8 +5730,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           CASE WHEN ${saleHasPartnerObligation("s")} THEN 1 ELSE 0 END AS has_partner_obligation,
           (${partnerCoverageRatio("sales", "s.id")}) AS partner_coverage_ratio,
           -- Rule 14: shared via salePlusRefundProfitSubquery.
-          ${salePlusRefundProfitSubquery("s", "profit_usd")} AS profit_usd,
-          ${salePlusRefundProfitSubquery("s", "profit_lbp")} AS profit_lbp,
+          ${salePlusRefundProfitSubquery("s", "profit_usd", this._hasTransactionsMetadataColumn())} AS profit_usd,
+          ${salePlusRefundProfitSubquery("s", "profit_lbp", this._hasTransactionsMetadataColumn())} AS profit_lbp,
           s.total_amount_usd AS total_amount_usd,
           s.paid_usd AS paid_usd,
           s.paid_lbp AS paid_lbp,
@@ -6051,7 +6151,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
 
         UNION ALL
 
-        -- LIRA-272 — a module refund's kept change: ONLY its kept part
+        -- LIRA-272 — a refund's kept change (any module, sales included):
+        -- ONLY its kept part, on the refund's own day
         -- (getRefundKeptChangeProfit's exact rows and amounts, rule 14),
         -- labelled REFUND_KEPT_CHANGE so the service names it.
         SELECT
@@ -6059,18 +6160,25 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           t.created_at AS created_at,
           t.client_name AS counterpart_name,
           t.client_phone AS counterpart_phone,
-          'REFUND_KEPT_CHANGE' AS txn_type,
+          CASE WHEN t.type = 'REFUND_UNDO' THEN 'REFUND_KEPT_CHANGE_UNDO'
+               ELSE 'REFUND_KEPT_CHANGE' END AS txn_type,
           ${refundKeptChangeAmount("t", "usd", hasMeta)} AS profit_usd,
           ${refundKeptChangeAmount("t", "lbp", hasMeta)} AS profit_lbp
         FROM transactions t
-        ${refundKeptChangeOriginalJoin("t", "rko")}
         WHERE ${refundKeptChangeRow("t", hasMeta)}
           AND ${notDebtPending("t.id")}
-          AND ${dateRange("rko.created_at")}
+          AND ${dateRange(refundKeptChangeDay("t"))}
           AND t.tenant_id = ?
         ORDER BY created_at DESC, id DESC`,
       )
-      .all(fromDt, toDt, tenantId, fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
+      .all(
+        fromDt,
+        toDt,
+        tenantId,
+        fromDt,
+        toDt,
+        tenantId,
+      ) as ProfitOnlyDetailRow[];
   }
 
   /**
@@ -6339,7 +6447,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     params.push(fromDt, toDt, tenantId); // daily_bills_commission
     params.push(fromDt, toDt, tenantId, tenantId); // daily_topup_buyback (r, t)
     params.push(fromDt, toDt, tenantId); // daily_hold_money (t)
-    params.push(fromDt, toDt, tenantId); // daily_refund_kept (t, rko)
+    params.push(fromDt, toDt, tenantId); // daily_refund_kept (t)
 
     return this.db
       .prepare(
@@ -6371,10 +6479,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- daily_sales above.
           SELECT
             ${localDayExpr("s.created_at")} AS d,
-            COALESCE(SUM(t.profit_usd * (${saleRecognitionWeight("s")})), 0) AS profit_usd,
+            -- Owner decision 2026-10-07: a refund's kept change is NOT on
+            -- the sale's day — taken off here (stampNetOfRefundKeptChange)
+            -- and counted on the refund's own day by daily_refund_kept.
+            COALESCE(SUM(${stampNetOfRefundKeptChange("t", "usd", hasMeta)} * (${saleRecognitionWeight("s")})), 0) AS profit_usd,
             -- PA-3.1: kept change stamped in LBP (transactions.profit_lbp =
             -- kept_change_lbp, SalesRepository.ts) used to be dropped here.
-            COALESCE(SUM(t.profit_lbp * (${saleRecognitionWeight("s")})), 0) AS profit_lbp
+            COALESCE(SUM(${stampNetOfRefundKeptChange("t", "lbp", hasMeta)} * (${saleRecognitionWeight("s")})), 0) AS profit_lbp
           FROM transactions t
           JOIN sales s ON s.id = t.source_id
           WHERE t.status = 'ACTIVE'
@@ -6660,20 +6771,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           GROUP BY ${localDayExpr("t.created_at")}
         ),
         daily_refund_kept AS (
-          -- LIRA-272 — a module refund's kept change, dated by the refunded
-          -- original's day — the SAME fragments getRefundKeptChangeProfit
-          -- uses (rule 14).
+          -- LIRA-272 — a refund's kept change (any module), dated by the
+          -- REFUND's own day (refundKeptChangeDay, owner decision
+          -- 2026-10-07) — the SAME fragments getRefundKeptChangeProfit uses
+          -- (rule 14).
           SELECT
-            ${localDayExpr("rko.created_at")} AS d,
+            ${localDayExpr(refundKeptChangeDay("t"))} AS d,
             COALESCE(SUM(${refundKeptChangeAmount("t", "usd", hasMeta)}), 0) AS profit_usd,
             COALESCE(SUM(${refundKeptChangeAmount("t", "lbp", hasMeta)}), 0) AS profit_lbp
           FROM transactions t
-          ${refundKeptChangeOriginalJoin("t", "rko")}
           WHERE ${refundKeptChangeRow("t", hasMeta)}
             AND ${notDebtPending("t.id")}
-            AND ${dateRange("rko.created_at")}
+            AND ${dateRange(refundKeptChangeDay("t"))}
             AND t.tenant_id = ?
-          GROUP BY ${localDayExpr("rko.created_at")}
+          GROUP BY ${localDayExpr(refundKeptChangeDay("t"))}
         )
         SELECT
           dates.d AS date,
@@ -7569,12 +7680,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    */
   getByUser(fromDt: string, toDt: string): ProfitByUserRow[] {
     const tenantId = getCurrentTenantId();
+    // Owner decision 2026-10-07 — a REFUND row's kept change is summed on
+    // the REFUND's own day (keptChangeProfitForKey), never on the original's
+    // day with the rest of its stamp (stampNetOfRefundKeptChange).
+    const hasMeta = this._hasTransactionsMetadataColumn();
     const hasAllocations = this._hasSettlementAllocationsTable();
     const hasExchangeTable = this._hasExchangeTransactionsTable();
     // REV lane (2026-09-24, PA-4.23 a parity) — see
     // saleRevenueUsdCaseBranch's own doc comment.
     const hasNetSaleCols = this._hasSaleDiscountAndRefundQuantityColumns();
-    const saleRevenueUsdCaseBranchSql = saleRevenueUsdCaseBranch(hasNetSaleCols);
+    const saleRevenueUsdCaseBranchSql =
+      saleRevenueUsdCaseBranch(hasNetSaleCols);
 
     const USER_KEY = "COALESCE(orig.user_id, t.user_id)";
     // LCC-V1 (Round 2): getByUser has at most ONE NULL/no-actor output group
@@ -7585,7 +7701,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     const userReattMatchMain = `ft.user_id IS ${USER_KEY}`;
     // LCC-M1 (round 4): a kept-change REFUND's OWN user_id is the refunder,
     // not the original DEBT_REPAYMENT/KEPT_CHANGE creator — see
-    // keptChangeAttributedUserId's own doc comment.
+    // keptChangeAttributedUserId's own doc comment. (A refund that kept
+    // change on the refund itself goes to the refunder — owner decision
+    // 2026-10-07, same fragment.)
     const userKeptMatchMain = `${keptChangeAttributedUserId("kc")} IS ${USER_KEY}`;
     // LCC-V2: the orphan-row branch below has no `t`/`orig` in scope — it
     // matches against its own derived key table `k` instead.
@@ -7622,7 +7740,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     // correctly matches nothing) instead of the original creator.
     orphanUserKeySources.push(`SELECT DISTINCT ${keptChangeAttributedUserId("kc2")} AS user_id
         FROM transactions kc2
-        WHERE ${keptChangeRecognitionGates("kc2")}`);
+        WHERE ${keptChangeRecognitionGates("kc2", hasMeta)}`);
     if (hasExchangeTable) {
       orphanUserKeySources.push(`SELECT DISTINCT et2.user_id AS user_id
         FROM exchange_transactions ext2
@@ -7935,7 +8053,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             ${supplierSettlementProfitArm(hasAllocations, "usd")}
             WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3: see the revenue_usd CASE above.
-              SELECT t.profit_usd * ${saleRecognitionWeight("s2")}
+              SELECT ${stampNetOfRefundKeptChange("t", "usd", hasMeta)} * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             WHEN t.source_table = 'financial_services' THEN (
@@ -7950,10 +8068,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- (the OUTER WHEN NOT notDebtPending above would otherwise zero
               -- it out too) — see the standalone SUM addend below instead.
               SELECT
-                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN (t.profit_usd + ${unstampedUsdtCommissionForTxn("t", "fs", this._hasCommissionModelColumn())}) * ${txnPartnerCoverageRatio("t")} ELSE 0 END
+                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN (${stampNetOfRefundKeptChange("t", "usd", hasMeta)} + ${unstampedUsdtCommissionForTxn("t", "fs", this._hasCommissionModelColumn())}) * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
-            ELSE t.profit_usd * ${txnPartnerCoverageRatio("t")}
+            ELSE ${stampNetOfRefundKeptChange("t", "usd", hasMeta)} * ${txnPartnerCoverageRatio("t")}
           END)
             -- LCC-X5 (Round 3, PA-2.6) — payment-method fee, UNCONDITIONAL on
             -- debt-pending status: real money kept at the counter the instant
@@ -7972,7 +8090,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- allocation's own originating FS transaction's user.
             + ${reattributedSettlementCommission(userReattMatchMain, "usd", hasAllocations)}
             -- PA-2.6: kept change on DEBT_REPAYMENT/KEPT_CHANGE rows.
-            + ${keptChangeProfitForKey(userKeptMatchMain, "usd")}
+            + ${keptChangeProfitForKey(userKeptMatchMain, "usd", hasMeta)}
             -- LCC-V3 (Round 2): exchange profit — see this method's own doc
             -- comment for why the by-CASHIER attribution is valid (unlike
             -- by-CLIENT, which stays excluded).
@@ -7988,15 +8106,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- revenue_usd CASE. LCC-X5: PM fee moved to its own standalone
               -- addend below — see the profit_usd arm's identical comment.
               SELECT
-                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN t.profit_lbp * ${txnPartnerCoverageRatio("t")} ELSE 0 END
+                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN ${stampNetOfRefundKeptChange("t", "lbp", hasMeta)} * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3: see the revenue_usd CASE above.
-              SELECT t.profit_lbp * ${saleRecognitionWeight("s2")}
+              SELECT ${stampNetOfRefundKeptChange("t", "lbp", hasMeta)} * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
-            ELSE t.profit_lbp * ${txnPartnerCoverageRatio("t")}
+            ELSE ${stampNetOfRefundKeptChange("t", "lbp", hasMeta)} * ${txnPartnerCoverageRatio("t")}
           END)
             -- LCC-X5: LBP side of the same standalone, unconditional PM-fee
             -- addend — see the profit_usd arm's own comment above.
@@ -8005,7 +8123,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
               ) ELSE 0 END)
             + ${reattributedSettlementCommission(userReattMatchMain, "lbp", hasAllocations)}
-            + ${keptChangeProfitForKey(userKeptMatchMain, "lbp")}
+            + ${keptChangeProfitForKey(userKeptMatchMain, "lbp", hasMeta)}
           AS profit_lbp,
           COUNT(*) AS transaction_count,
           -- PA-4.19 ("Avg Profit/Txn" half): excludes REFUND/SUPPLIER_SETTLEMENT
@@ -8041,7 +8159,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- partly from one of these (measured: 1 sale + 50 exchanges read
             -- as a $252 average instead of ≈$5). Each COUNT twin uses the
             -- SAME match condition/gates as its SUM counterpart above.
-            + ${keptChangeRecognizedCount(userKeptMatchMain)}
+            + ${keptChangeRecognizedCount(userKeptMatchMain, hasMeta)}
             + ${exchangeRecognizedCount(USER_KEY, hasExchangeTable)}
             + ${reattributedSettlementRecognizedCount(userReattMatchMain, hasAllocations)}
           AS recognized_transaction_count,
@@ -8092,18 +8210,18 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           0 AS revenue_usd,
           0 AS revenue_lbp,
           ${reattributedSettlementCommission(userReattMatchOrphan, "usd", hasAllocations)}
-            + ${keptChangeProfitForKey(userKeptMatchOrphan, "usd")}
+            + ${keptChangeProfitForKey(userKeptMatchOrphan, "usd", hasMeta)}
             + ${exchangeProfitForUser("k.user_id", hasExchangeTable)}
           AS profit_usd,
           ${reattributedSettlementCommission(userReattMatchOrphan, "lbp", hasAllocations)}
-            + ${keptChangeProfitForKey(userKeptMatchOrphan, "lbp")}
+            + ${keptChangeProfitForKey(userKeptMatchOrphan, "lbp", hasMeta)}
           AS profit_lbp,
           0 AS transaction_count,
           -- LCC-X4 (Round 3): an orphan row's profit_usd/profit_lbp are
           -- ENTIRELY these three sources, so its denominator must be too —
           -- was hard-coded 0, which just hid the average behind "—" instead
           -- of inflating it, but is still the same missing-denominator bug.
-          ${keptChangeRecognizedCount(userKeptMatchOrphan)}
+          ${keptChangeRecognizedCount(userKeptMatchOrphan, hasMeta)}
             + ${exchangeRecognizedCount("k.user_id", hasExchangeTable)}
             + ${reattributedSettlementRecognizedCount(userReattMatchOrphan, hasAllocations)}
           AS recognized_transaction_count,
@@ -8282,11 +8400,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     limit: number,
   ): ProfitByClientRow[] {
     const tenantId = getCurrentTenantId();
+    // Owner decision 2026-10-07 — a REFUND row's kept change is summed on
+    // the REFUND's own day (keptChangeProfitForKey), never on the original's
+    // day with the rest of its stamp (stampNetOfRefundKeptChange).
+    const hasMeta = this._hasTransactionsMetadataColumn();
     const hasAllocations = this._hasSettlementAllocationsTable();
     // REV lane (2026-09-24, PA-4.23 a parity) — see
     // saleRevenueUsdCaseBranch's own doc comment.
     const hasNetSaleCols = this._hasSaleDiscountAndRefundQuantityColumns();
-    const saleRevenueUsdCaseBranchSql = saleRevenueUsdCaseBranch(hasNetSaleCols);
+    const saleRevenueUsdCaseBranchSql =
+      saleRevenueUsdCaseBranch(hasNetSaleCols);
 
     // LCC-V8 (Round 2): the walk-in group's NAME key falls back to the
     // ORIGINAL transaction's client_name via `orig` (already joined for
@@ -8349,15 +8472,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     // name that was never written) — flagged for the session-checkout lane
     // and FIXED there (LIRA-230): the KEPT_CHANGE `createTransaction` call
     // now stamps `client_name: sessionCustomerName ?? null` directly.
-    const clientKeptMatchMain = `((t.client_id IS NOT NULL AND kc.client_id = t.client_id) OR (t.client_id IS NULL AND kc.client_id IS NULL AND COALESCE(kc.client_name, '') = ${CLIENT_NAME_KEY}))`;
+    //
+    // Owner decision 2026-10-07 (refund-day dating) changes (a)/(b) above: a
+    // refund's kept change of ANY module is now a kept-change row here, and
+    // a walk-in sale/transfer refund IS reachable — so the name now falls
+    // back to the refunded original's (keptChangeAttributedClientName), the
+    // same group the refund's reversal joins.
+    const clientKeptMatchMain = `((t.client_id IS NOT NULL AND kc.client_id = t.client_id) OR (t.client_id IS NULL AND kc.client_id IS NULL AND ${keptChangeAttributedClientName("kc")} = ${CLIENT_NAME_KEY}))`;
     // LCC-V2: the orphan-row branch below has no `t`/`orig` in scope — it
     // matches against its own derived key table `k` instead.
     const clientReattMatchOrphan =
       "((k.client_id_key IS NOT NULL AND ft.client_id = k.client_id_key) OR (k.client_id_key IS NULL AND ft.client_id IS NULL AND COALESCE(ft.client_name, '') = k.client_name_key))";
-    // See clientKeptMatchMain's own doc comment (LCC-walkin-keptchange-name)
-    // for why this deliberately has no reverses_id name fallback either.
-    const clientKeptMatchOrphan =
-      "((k.client_id_key IS NOT NULL AND kc.client_id = k.client_id_key) OR (k.client_id_key IS NULL AND kc.client_id IS NULL AND COALESCE(kc.client_name, '') = k.client_name_key))";
+    // Same walk-in name fallback as clientKeptMatchMain (see its own doc
+    // comment, owner decision 2026-10-07 paragraph).
+    const clientKeptMatchOrphan = `((k.client_id_key IS NOT NULL AND kc.client_id = k.client_id_key) OR (k.client_id_key IS NULL AND kc.client_id IS NULL AND ${keptChangeAttributedClientName("kc")} = k.client_name_key))`;
 
     // LCC-V2 (Round 2, PA-2.5/PA-2.6 "NOT CLOSED") — two sources of "this
     // client has real money to report even though they have NO
@@ -8377,12 +8505,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     }
     orphanClientKeySources.push(`SELECT DISTINCT
           CASE WHEN kc2.client_id IS NOT NULL THEN kc2.client_id END AS client_id_key,
-          CASE WHEN kc2.client_id IS NULL THEN COALESCE(kc2.client_name, '') END AS client_name_key
+          CASE WHEN kc2.client_id IS NULL THEN ${keptChangeAttributedClientName("kc2")} END AS client_name_key
         FROM transactions kc2
-        WHERE ${keptChangeRecognitionGates("kc2")}`);
-    const orphanClientKeysSql = orphanClientKeySources.join(
-      "\n        UNION\n",
-    );
+        WHERE ${keptChangeRecognitionGates("kc2", hasMeta)}`);
+    const orphanClientKeysSql =
+      orphanClientKeySources.join("\n        UNION\n");
 
     const params: (string | number)[] = [
       tenantId, // revenue_usd CASE — financial_services fs subquery
@@ -8614,7 +8741,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             ${supplierSettlementProfitArm(hasAllocations, "usd")}
             WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3: see the revenue_usd CASE above.
-              SELECT t.profit_usd * ${saleRecognitionWeight("s2")}
+              SELECT ${stampNetOfRefundKeptChange("t", "usd", hasMeta)} * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             WHEN t.source_table = 'financial_services' THEN (
@@ -8628,10 +8755,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- this branch — a debt-pending transfer's fee must still count
               -- — see the standalone SUM addend below instead.
               SELECT
-                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN (t.profit_usd + ${unstampedUsdtCommissionForTxn("t", "fs", this._hasCommissionModelColumn())}) * ${txnPartnerCoverageRatio("t")} ELSE 0 END
+                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN (${stampNetOfRefundKeptChange("t", "usd", hasMeta)} + ${unstampedUsdtCommissionForTxn("t", "fs", this._hasCommissionModelColumn())}) * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
-            ELSE t.profit_usd * ${txnPartnerCoverageRatio("t")}
+            ELSE ${stampNetOfRefundKeptChange("t", "usd", hasMeta)} * ${txnPartnerCoverageRatio("t")}
           END)
             -- LCC-X5 (Round 3, PA-2.6) — payment-method fee, UNCONDITIONAL on
             -- debt-pending status — see getByUser's identical addend's own
@@ -8644,7 +8771,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- allocation's own originating FS transaction's client.
             + ${reattributedSettlementCommission(clientReattMatchMain, "usd", hasAllocations)}
             -- PA-2.6: kept change on DEBT_REPAYMENT/KEPT_CHANGE rows.
-            + ${keptChangeProfitForKey(clientKeptMatchMain, "usd")}
+            + ${keptChangeProfitForKey(clientKeptMatchMain, "usd", hasMeta)}
           AS profit_usd,
           SUM(CASE
             -- DBT-2 (converted 2026-09-05): see getByUser's doc comment.
@@ -8656,15 +8783,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- revenue_usd CASE. LCC-X5: PM fee moved to its own standalone
               -- addend below — see the profit_usd arm's own comment above.
               SELECT
-                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN t.profit_lbp * ${txnPartnerCoverageRatio("t")} ELSE 0 END
+                CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN ${stampNetOfRefundKeptChange("t", "lbp", hasMeta)} * ${txnPartnerCoverageRatio("t")} ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN (${SALE_LEDGER_TYPES_SQL}) AND t.source_table = 'sales' THEN (
               -- Task 3: see the revenue_usd CASE above.
-              SELECT t.profit_lbp * ${saleRecognitionWeight("s2")}
+              SELECT ${stampNetOfRefundKeptChange("t", "lbp", hasMeta)} * ${saleRecognitionWeight("s2")}
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
-            ELSE t.profit_lbp * ${txnPartnerCoverageRatio("t")}
+            ELSE ${stampNetOfRefundKeptChange("t", "lbp", hasMeta)} * ${txnPartnerCoverageRatio("t")}
           END)
             -- LCC-X5: LBP side of the same standalone, unconditional PM-fee
             -- addend — see the profit_usd arm's own comment above.
@@ -8673,7 +8800,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
               ) ELSE 0 END)
             + ${reattributedSettlementCommission(clientReattMatchMain, "lbp", hasAllocations)}
-            + ${keptChangeProfitForKey(clientKeptMatchMain, "lbp")}
+            + ${keptChangeProfitForKey(clientKeptMatchMain, "lbp", hasMeta)}
           AS profit_lbp,
           COUNT(*) AS transaction_count,
           -- PA-4.19: see getByUser's own recognized_transaction_count column
@@ -8694,7 +8821,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- getByUser's identical addend's own doc comment. No exchange
             -- term here (exchange rows carry no client_id — see this
             -- method's own doc comment).
-            + ${keptChangeRecognizedCount(clientKeptMatchMain)}
+            + ${keptChangeRecognizedCount(clientKeptMatchMain, hasMeta)}
             + ${reattributedSettlementRecognizedCount(clientReattMatchMain, hasAllocations)}
           AS recognized_transaction_count,
           -- LIRA-158 (Phase 2a): embeddedCommission restricts this pending
@@ -8764,16 +8891,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           0 AS revenue_usd,
           0 AS revenue_lbp,
           ${reattributedSettlementCommission(clientReattMatchOrphan, "usd", hasAllocations)}
-            + ${keptChangeProfitForKey(clientKeptMatchOrphan, "usd")}
+            + ${keptChangeProfitForKey(clientKeptMatchOrphan, "usd", hasMeta)}
           AS profit_usd,
           ${reattributedSettlementCommission(clientReattMatchOrphan, "lbp", hasAllocations)}
-            + ${keptChangeProfitForKey(clientKeptMatchOrphan, "lbp")}
+            + ${keptChangeProfitForKey(clientKeptMatchOrphan, "lbp", hasMeta)}
           AS profit_lbp,
           0 AS transaction_count,
           -- LCC-X4 (Round 3): an orphan row's profit is entirely these two
           -- sources, so its denominator must be too — see getByUser's
           -- identical orphan-row fix.
-          ${keptChangeRecognizedCount(clientKeptMatchOrphan)}
+          ${keptChangeRecognizedCount(clientKeptMatchOrphan, hasMeta)}
             + ${reattributedSettlementRecognizedCount(clientReattMatchOrphan, hasAllocations)}
           AS recognized_transaction_count,
           0 AS pending_profit_usd,
@@ -8941,7 +9068,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           sn.net_revenue_usd AS total_amount_usd,
           (${saleTotalPaidUsdEquiv("s")}) AS paid_usd,
           MAX(0, sn.net_revenue_usd - (${saleTotalPaidUsdEquiv("s")})) AS outstanding_usd,
-          ${salePlusRefundProfitSubquery("s", "profit_usd")} AS potential_profit_usd,
+          ${salePlusRefundProfitSubquery("s", "profit_usd", this._hasTransactionsMetadataColumn())} AS potential_profit_usd,
           COALESCE((
             SELECT GROUP_CONCAT((si2.quantity - si2.refunded_quantity) || 'x ' || COALESCE(p.name, 'Item'), ', ')
             FROM sale_items si2
