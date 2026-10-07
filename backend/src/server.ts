@@ -305,8 +305,15 @@ httpServer.listen(PORT, HOST, () => {
   startSessionSweep();
 
   // Send queued email (sign-up invites). A durable outbox polled every 30s;
-  // not started when EMAIL_TRANSPORT=disabled -- see email/outboxWorker.ts.
-  startEmailOutbox();
+  // not started when EMAIL_TRANSPORT=disabled or the mail config is invalid
+  // -- see email/outboxWorker.ts. It does not throw by contract; the guard
+  // is belt and braces, because a throw here, inside the listen callback, is
+  // uncaught and would take the whole API down over a mail problem.
+  try {
+    startEmailOutbox();
+  } catch (error) {
+    logger.error({ error }, "email outbox failed to start; email is OFF");
+  }
 });
 
 // Graceful shutdown

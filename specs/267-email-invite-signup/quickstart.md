@@ -89,7 +89,7 @@ Confirm that each suite actually ran by checking its test count and elapsed time
 ## 5. Go-live (the owner, once the transport is chosen)
 
 1. Create the Spacemail mailbox and add its records to Cloudflare as **DNS only**. Steps are in `docs/plans/todo_plans/EMAIL_INVITE_SIGNUP_PLAN.md` §4.1.
-2. Set the secrets with `yarn api -- secrets set EMAIL_TRANSPORT=… EMAIL_FROM=… <credentials>`, and redeploy with `yarn api:deploy`.
+2. Set the secrets with `yarn api secrets set EMAIL_TRANSPORT=… EMAIL_FROM=… <credentials>`, and redeploy with `yarn api:deploy`.
 3. Invite a real Gmail address. In Gmail, open **Show original** and check that SPF, DKIM and DMARC all show **PASS** (spec SC-006).
-4. Merge Stage B, which deletes the shared invite code from the code (plan step 7). After it deploys, run `yarn api -- secrets unset SIGNUP_INVITE_CODE`.
+4. Merge Stage B, which deletes the shared invite code from the code (plan step 7). After it deploys, run `yarn api secrets unset SIGNUP_INVITE_CODE`.
 5. **Check:** opening `/signup` without a link shows the email request form, with no invite-code field. A request carrying `inviteCode` is refused (spec SC-007).

@@ -519,10 +519,15 @@ until Stage B removes it.
    `www.liratek.shop` and copy its site key and secret key.
 4. **Secrets:**
    ```bash
-   yarn api -- secrets set EMAIL_TRANSPORT=smtp EMAIL_FROM="LiraTek <mail@liratek.shop>" \
-     SMTP_HOST=<from Spacemail> SMTP_PORT=465 SMTP_USER=mail@liratek.shop SMTP_PASS=<mailbox password> \
+   yarn api secrets set EMAIL_TRANSPORT=smtp EMAIL_FROM="LiraTek <mail@liratek.shop>" \
+     SMTP_HOST=mail.spacemail.com SMTP_PORT=465 SMTP_USER=mail@liratek.shop SMTP_PASS=<mailbox password> \
      TURNSTILE_SITE_KEY=<site key> TURNSTILE_SECRET_KEY=<secret key>
    ```
+   A missing mail secret never takes the API down: it stays up with email
+   OFF (invites refused, self-serve hidden). Check `yarn api logs` for the
+   "email configuration is invalid" error, which names the missing variable.
+   A WRONG password is only seen when sending: each invite fails with
+   "SMTP login failed — check SMTP_USER/SMTP_PASS".
    `SIGNUP_INVITE_BASE_URL` defaults to `https://www.${APP_BASE_DOMAIN}`.
    Links have the form `<base>/#/signup?invite=…`. The hash route is needed
    because Vercel answers a bare `/signup` with 404.

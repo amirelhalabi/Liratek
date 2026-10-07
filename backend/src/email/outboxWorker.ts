@@ -42,7 +42,7 @@ import {
   PermanentEmailError,
   type EmailTransport,
 } from "./EmailTransport.js";
-import { createTransport, isEmailConfigured } from "./createTransport.js";
+import { getEmailTransport, resolveEmailTransport } from "./createTransport.js";
 import { renderTemplate, type TemplateVars } from "./renderTemplate.js";
 import { getEmailTemplate } from "./templates/index.js";
 
@@ -90,7 +90,6 @@ type RoundOutcome =
   | { ok: true; providerMessageId: string | null; attemptsMade: number }
   | { ok: false; error: unknown; attemptsMade: number };
 
-let activeTransport: EmailTransport | null = null;
 let timer: NodeJS.Timeout | null = null;
 
 function addMs(iso: string, ms: number): string {
@@ -122,11 +121,13 @@ export function redactSecrets(
   return out;
 }
 
-function defaultDeps(): OutboxWorkerDeps {
-  if (!activeTransport) activeTransport = createTransport();
+/** Null when email is off or misconfigured: there is nothing to send with. */
+function defaultDeps(): OutboxWorkerDeps | null {
+  const transport = getEmailTransport();
+  if (!transport) return null;
   return {
     outbox: getEmailOutboxRepository(),
-    transport: activeTransport,
+    transport,
     from: EMAIL_FROM,
     replyTo: EMAIL_REPLY_TO,
   };
@@ -286,6 +287,7 @@ export async function runOutboxOnce(
   try {
     await runWithoutTenant(async () => {
       const resolved = deps ?? defaultDeps();
+      if (!resolved) return;
       // Crash recovery first, so a row abandoned mid-send is due this run.
       resolved.outbox.recoverStuck(now, EMAIL_OUTBOX_STUCK_AFTER_MS);
       const due = resolved.outbox.findDue(now, EMAIL_OUTBOX_BATCH_SIZE);
@@ -308,16 +310,23 @@ export async function runOutboxOnce(
  * Starts the worker: one run now, then every 30 seconds. With
  * `EMAIL_TRANSPORT=disabled` it does not start at all — queued rows stay
  * pending until email is configured (or past give_up_at, when the next
- * enabled run fails them). Throws at boot on an unusable configuration
- * (e.g. smtp before it ships), so the deploy surfaces it.
+ * enabled run fails them). Never throws: an unusable configuration (e.g.
+ * smtp without SMTP_PASS, or resend, which is not built) is logged as an
+ * error, the worker stays off, and isEmailConfigured() reads false so the
+ * invite routes refuse with EMAIL_NOT_CONFIGURED instead of queueing.
  */
 export function startEmailOutbox(): void {
-  if (!isEmailConfigured()) {
+  const resolved = resolveEmailTransport();
+  if (resolved.status === "off") {
     emailLogger.info("email outbox not started: EMAIL_TRANSPORT=disabled");
     return;
   }
-  activeTransport = createTransport();
-  emailLogger.info({ transport: activeTransport.name }, "email outbox started");
+  if (resolved.status === "invalid") {
+    // Already logged with the reason by resolveEmailTransport().
+    emailLogger.warn("email outbox not started: email configuration is invalid");
+    return;
+  }
+  emailLogger.info({ transport: resolved.transport.name }, "email outbox started");
 
   void runOutboxOnce();
 

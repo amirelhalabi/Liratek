@@ -5,7 +5,14 @@
  * env), so no module re-import or env juggling is needed.
  */
 
-import { createTransport, isEmailConfigured } from "../createTransport.js";
+import { jest } from "@jest/globals";
+import { emailLogger } from "@liratek/core";
+import {
+  createTransport,
+  isEmailConfigured,
+  resetEmailTransportState,
+  resolveEmailTransport,
+} from "../createTransport.js";
 import {
   resolveInviteBaseUrl,
   resolveSupportEmail,
@@ -22,12 +29,43 @@ const MESSAGE = {
   tag: TAG,
 };
 
-describe("isEmailConfigured", () => {
-  it("is false only for disabled", () => {
-    expect(isEmailConfigured("disabled")).toBe(false);
-    expect(isEmailConfigured("file")).toBe(true);
-    expect(isEmailConfigured("smtp")).toBe(true);
-    expect(isEmailConfigured("resend")).toBe(true);
+describe("resolveEmailTransport + isEmailConfigured", () => {
+  const SMTP_OK = { host: "h", port: undefined, user: "u", pass: "p" };
+  let logged: ReturnType<typeof jest.spyOn>;
+
+  beforeEach(() => {
+    logged = jest.spyOn(emailLogger, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logged.mockRestore();
+    resetEmailTransportState();
+  });
+
+  it("disabled -> off, not configured, nothing logged", () => {
+    expect(resolveEmailTransport("disabled").status).toBe("off");
+    expect(isEmailConfigured()).toBe(false);
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it("a buildable transport (file, smtp with credentials) -> ready and configured", () => {
+    expect(resolveEmailTransport("file", "/tmp/liratek-mail").status).toBe("ready");
+    expect(isEmailConfigured()).toBe(true);
+    expect(resolveEmailTransport("smtp", undefined, SMTP_OK).status).toBe("ready");
+    expect(isEmailConfigured()).toBe(true);
+  });
+
+  it.each([
+    ["smtp without SMTP_PASS", () => resolveEmailTransport("smtp", undefined, { ...SMTP_OK, pass: undefined })],
+    ["file without EMAIL_FILE_DIR", () => resolveEmailTransport("file", undefined)],
+    ["resend (not built)", () => resolveEmailTransport("resend")],
+  ])("%s -> invalid, NOT configured, logged; never throws", (_label, resolve) => {
+    let state: ReturnType<typeof resolveEmailTransport> | undefined;
+    expect(() => {
+      state = resolve();
+    }).not.toThrow();
+    expect(state?.status).toBe("invalid");
+    expect(isEmailConfigured()).toBe(false);
+    expect(logged).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -48,14 +86,31 @@ describe("createTransport", () => {
     expect(() => createTransport("file", undefined)).toThrow(/EMAIL_FILE_DIR/);
   });
 
-  it.each(["smtp", "resend"] as const)(
-    "%s -> throws a clear 'not available yet' error (lands with T040)",
-    (kind) => {
-      expect(() => createTransport(kind)).toThrow(
-        new RegExp(`EMAIL_TRANSPORT=${kind}`),
-      );
-    },
-  );
+  const SMTP = {
+    host: "mail.spacemail.test",
+    port: undefined,
+    user: "mail@liratek.test",
+    pass: "pw",
+  };
+
+  it("smtp with host/user/pass -> the smtp transport (no network until a send)", () => {
+    expect(createTransport("smtp", undefined, SMTP).name).toBe("smtp");
+  });
+
+  it("smtp missing host, user or pass -> a clear boot error naming each missing variable", () => {
+    expect(() =>
+      createTransport("smtp", undefined, {
+        host: undefined,
+        port: 465,
+        user: "mail@liratek.test",
+        pass: undefined,
+      }),
+    ).toThrow(/EMAIL_TRANSPORT=smtp needs SMTP_HOST, SMTP_PASS/);
+  });
+
+  it("resend -> throws a clear 'not available' error (Spacemail SMTP was chosen; resend is not built)", () => {
+    expect(() => createTransport("resend")).toThrow(/EMAIL_TRANSPORT=resend/);
+  });
 });
 
 describe("resolveSupportEmail", () => {

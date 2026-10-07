@@ -26,13 +26,13 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Check whether Fly allows outbound SMTP. `scripts/fly.mjs` passes arguments straight to flyctl (`shell:false`, adds `--app`), so `yarn api -- ssh console -C "…"` works as written. Spacemail SMTP was the owner's choice; this decides between `smtp` and the `resend` fallback (research R6).
-  - From the live machine, run `yarn api -- ssh console -C "node -e \"require('net').connect(465,'<spacemail smtp host>').on('connect',()=>{console.log('OPEN');process.exit(0)}).on('error',e=>{console.log('BLOCKED',e.code);process.exit(1)})\""`.
+- [X] T001 Check whether Fly allows outbound SMTP. `scripts/fly.mjs` passes arguments straight to flyctl (`shell:false`, adds `--app`), so `yarn api ssh console -C "…"` works. Do NOT write `yarn api -- …`: on this repo's Yarn 4 the `--` reaches flyctl literally and it prints its help instead (seen 2026-10-07). **Done 2026-10-07: 465 and 587 to `mail.spacemail.com` are OPEN from the live machine — see research R6.** Spacemail SMTP was the owner's choice; this decides between `smtp` and the `resend` fallback (research R6).
+  - From the live machine, run `yarn api ssh console -C "node -e \"require('net').connect(465,'<spacemail smtp host>').on('connect',()=>{console.log('OPEN');process.exit(0)}).on('error',e=>{console.log('BLOCKED',e.code);process.exit(1)})\""`.
   - Repeat for port 587.
   - Take the SMTP host from the Spacemail dashboard. Don't guess it.
   - Record the result in `specs/267-email-invite-signup/research.md` under R6.
   - If both ports are blocked, stop and tell the owner. Then T040 switches to `resend`.
-- [ ] T002 Add the `nodemailer` dependency and `@types/nodemailer` to `backend/package.json`. Do this only if T001 found a port OPEN; otherwise skip it.
+- [X] T002 Add the `nodemailer` dependency and `@types/nodemailer` to `backend/package.json`. Do this only if T001 found a port OPEN; otherwise skip it.
 - [X] T003 [P] Add the optional environment variables to `packages/core/src/config/env.ts`, in all three places: the schema (around :87), the `parseEnv` mapping (around :165, values `.trim()`ed) and the destructured export (around :209). Defaults:
   - `EMAIL_TRANSPORT`: `z.enum(["disabled","file","smtp","resend"]).default("disabled")`.
   - `EMAIL_FROM`: default `"LiraTek <mail@liratek.shop>"`.
@@ -318,7 +318,7 @@
 
 ## Phase 6: Real transport and go-live (Stage A in production)
 
-- [ ] T040 Write a unit test first for SMTP response-code classification. Then create `backend/src/email/transports/smtp.ts` using `nodemailer`:
+- [X] T040 Write a unit test first for SMTP response-code classification. Then create `backend/src/email/transports/smtp.ts` using `nodemailer`: (done 2026-10-07: `backend/src/email/__tests__/smtpTransport.test.ts`; EAUTH/535 → permanent with a "check SMTP_USER/SMTP_PASS" message, 454 → transient; 587 sets `requireTLS`; `resend` was not built and still refuses to start)
   - `createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: port === 465, auth })`.
   - Classify errors: `responseCode` 5xx → `PermanentEmailError`; 4xx, network or timeout → transient.
   - `providerMessageId` is `info.messageId`.
@@ -327,9 +327,9 @@
 - [X] T041 Write the owner's go-live runbook into `docs/DEPLOYMENT.md`, as a new subsection replacing §5b/5c's invite-code guidance after Stage B. It covers:
   - Creating the Spacemail mailbox.
   - The Cloudflare records (MX, SPF, DKIM, DMARC with `p=none`), all DNS only, with the warning not to move the nameservers.
-  - `yarn api -- secrets set EMAIL_TRANSPORT=smtp EMAIL_FROM=… SMTP_HOST=… SMTP_PORT=… SMTP_USER=mail@liratek.shop SMTP_PASS=…`.
+  - `yarn api secrets set EMAIL_TRANSPORT=smtp EMAIL_FROM=… SMTP_HOST=mail.spacemail.com SMTP_PORT=465 SMTP_USER=mail@liratek.shop SMTP_PASS=…`.
   - The Gmail "Show original" check.
-  - Creating a Turnstile widget in the Cloudflare dashboard for `www.liratek.shop`, then `yarn api -- secrets set TURNSTILE_SITE_KEY=… TURNSTILE_SECRET_KEY=…`.
+  - Creating a Turnstile widget in the Cloudflare dashboard for `www.liratek.shop`, then `yarn api secrets set TURNSTILE_SITE_KEY=… TURNSTILE_SECRET_KEY=…`.
   - **If email breaks after launch:** create shops with the admin "Add shop" action until it is fixed (spec FR-019).
 - [ ] T042 **Owner plus agent, after deploying Stage A.** Invite a real Gmail address and confirm SPF, DKIM and DMARC all show PASS, and that the email lands in the inbox (spec SC-006). Record the result in `specs/267-email-invite-signup/quickstart.md` §5. **This task gates Phase 7.**
 
@@ -352,7 +352,7 @@
   - `.env.deploy.example`, and `docs/DEPLOYMENT.md` §5b/5c (:349-357, :457-482).
   - `docs/OPERATIONS.md:129`.
   - In Login.tsx, `canSignUp` becomes `selfServeEnabled` only, dropping the Stage A `|| enabled`. The **Sign up** link shows exactly when self-serve is on (spec FR-025). Update the T055 test to match.
-- [ ] T045 After the Stage B deploy, the owner runs `yarn api -- secrets unset SIGNUP_INVITE_CODE`. Then check quickstart §5 step 5.
+- [ ] T045 After the Stage B deploy, the owner runs `yarn api secrets unset SIGNUP_INVITE_CODE`. Then check quickstart §5 step 5.
 
 ---
 

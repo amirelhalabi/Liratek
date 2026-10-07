@@ -80,12 +80,17 @@ The facts:
     - `file`: writes `.html`/`.txt`/`.json` into `EMAIL_FILE_DIR`. Used for dev, for local preview, and for web e2e, which reads the link from disk.
     - `disabled`: used when nothing is configured; reports "email not configured".
   - Build the real transport last, once the owner picks one:
-    - `smtp`: adds the `nodemailer` dependency. **Unverified:** whether Fly allows outbound connections on ports 465/587.
+    - `smtp`: adds the `nodemailer` dependency. Fly allows outbound 465/587 (verified 2026-10-07 — see Result below).
     - `resend`: uses the global `fetch` in Node 20 (`backend/Dockerfile:10,93`), so no new dependency.
 - **Owner decision:** `smtp` through Spacemail, using `nodemailer` (a new backend dependency).
-  - **First task:** test whether Fly allows outbound connections on 465/587 to the Spacemail host. Use a one-off `yarn api -- ssh console` with `nc -zv`, or open a TLS connection from Node.
+  - **First task:** test whether Fly allows outbound connections on 465/587 to the Spacemail host. Use a one-off `yarn api ssh console` with `nc -zv`, or open a TLS connection from Node.
   - If those ports are blocked, `resend` (an HTTPS API) is the fallback. It needs no dependency because Node has built-in `fetch`.
 - **Rationale:** everything except the final send can be built and tested before the real transport exists.
+- **Result (T001, 2026-10-07, owner-confirmed):**
+  - SMTP host: `mail.spacemail.com` (from the Spacemail dashboard). Port 465 is implicit SSL/TLS; 587 is STARTTLS. Login is `mail@liratek.shop` with the mailbox password (a Fly secret, never in the repo).
+  - From the live Fly machine (`liratek-api`, region `fra`), a TCP connect to `mail.spacemail.com` on **465 and 587 both succeeded (OPEN)**.
+  - SPF, DKIM and DMARC for `liratek.shop` all show PASS in Gmail for mail sent through Spacemail.
+  - **Chosen: `smtp` on port 465** (`SMTP_PORT` defaults to 465). The `resend` fallback is not needed and stays unimplemented — `EMAIL_TRANSPORT=resend` still refuses to start with a clear message.
 
 ## R7. Templates
 
