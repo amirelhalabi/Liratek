@@ -7928,6 +7928,171 @@ export async function selfChargeTelecomItem(data: {
 // =============================================================================
 
 // [auth-B] user invitations + user email (LIRA-279/281)
+// Payloads typed from the core `*Input` types (rule 21); views from the core
+// services (type-only, rule 29). Imported here, not at the top of the file,
+// so parallel feature branches never touch the shared import block.
+import type {
+  SetUserEmailInput,
+  VerifyUserEmailInput,
+  CreateUserInvitationInput,
+  CheckUserInvitationInput,
+  AcceptUserInvitationInput,
+  UserEmailView,
+  SetUserEmailResult,
+  UserInvitationView,
+  UserInviteCheckResult,
+} from "@liratek/core";
+//
+// Web-only: desktop keeps manual accounts (Settings -> Users -> Create) and
+// has no email — recorded as a desktop exception like LIRA-267, and the
+// Users tab hides these controls under isElectron(). Reads return the
+// unwrapped data (and throw on failure); writes return the envelope so the
+// page can read `error.code` (rule 19 adapter contract). Business refusals
+// are HTTP 200 + success:false; a 401/403/429 THROWS requestJson's plain
+// object — read it with `messageFrom`.
+
+/** `{ success, data?, error? }` as the account routes answer. */
+export interface AccountRouteResult<T> {
+  success: boolean;
+  data?: T;
+  error?: PublicRouteError;
+}
+
+export type {
+  UserEmailView,
+  SetUserEmailResult,
+  UserInvitationView,
+  UserInviteCheckResult,
+};
+
+export interface UserInvitationList {
+  /** False when this server cannot email links for the shop. */
+  emailConfigured: boolean;
+  invitations: UserInvitationView[];
+}
+
+export async function listUserEmails(): Promise<UserEmailView[]> {
+  assertWebOnly("Listing user emails");
+  const res = await requestJson<AccountRouteResult<{ users: UserEmailView[] }>>(
+    "/api/user-email",
+  );
+  if (!res.success || !res.data) {
+    throw new Error(messageFrom(res.error, "Failed to load user emails"));
+  }
+  return res.data.users;
+}
+
+export async function setUserEmail(
+  userId: number,
+  input: SetUserEmailInput,
+): Promise<AccountRouteResult<SetUserEmailResult>> {
+  assertWebOnly("Setting a user's email");
+  return requestJson<AccountRouteResult<SetUserEmailResult>>(
+    `/api/user-email/${userId}`,
+    { method: "PUT", body: input },
+  );
+}
+
+export async function sendUserEmailVerification(
+  userId: number,
+): Promise<AccountRouteResult<{ sent: true }>> {
+  assertWebOnly("Sending a verification email");
+  return requestJson<AccountRouteResult<{ sent: true }>>(
+    `/api/user-email/${userId}/send-verification`,
+    { method: "POST" },
+  );
+}
+
+/** PUBLIC: the /#/verify-email page. Token in the body, never the path. */
+export async function verifyUserEmail(
+  input: VerifyUserEmailInput,
+): Promise<AccountRouteResult<{ verified: true }>> {
+  assertWebOnly("Verifying an email");
+  return requestJson<AccountRouteResult<{ verified: true }>>(
+    "/api/user-email/verify",
+    { method: "POST", body: input, auth: false },
+  );
+}
+
+export async function listUserInvitations(): Promise<UserInvitationList> {
+  assertWebOnly("Listing user invitations");
+  const res = await requestJson<AccountRouteResult<UserInvitationList>>(
+    "/api/user-invitations",
+  );
+  if (!res.success || !res.data) {
+    throw new Error(messageFrom(res.error, "Failed to load invitations"));
+  }
+  return res.data;
+}
+
+export async function createUserInvitation(
+  input: CreateUserInvitationInput,
+): Promise<AccountRouteResult<{ invitation: UserInvitationView }>> {
+  assertWebOnly("Inviting a user");
+  return requestJson<AccountRouteResult<{ invitation: UserInvitationView }>>(
+    "/api/user-invitations",
+    { method: "POST", body: input },
+  );
+}
+
+export async function revokeUserInvitation(
+  id: number,
+): Promise<AccountRouteResult<{ invitation: UserInvitationView }>> {
+  assertWebOnly("Revoking a user invitation");
+  return requestJson<AccountRouteResult<{ invitation: UserInvitationView }>>(
+    `/api/user-invitations/${id}/revoke`,
+    { method: "POST" },
+  );
+}
+
+export async function resendUserInvitation(
+  id: number,
+): Promise<AccountRouteResult<{ invitation: UserInvitationView }>> {
+  assertWebOnly("Resending a user invitation");
+  return requestJson<AccountRouteResult<{ invitation: UserInvitationView }>>(
+    `/api/user-invitations/${id}/resend`,
+    { method: "POST" },
+  );
+}
+
+/** PUBLIC: is this /#/join link usable? */
+export async function checkUserInvitation(
+  input: CheckUserInvitationInput,
+): Promise<AccountRouteResult<UserInviteCheckResult>> {
+  assertWebOnly("Checking an invitation");
+  return requestJson<AccountRouteResult<UserInviteCheckResult>>(
+    "/api/user-invitations/check",
+    { method: "POST", body: input, auth: false },
+  );
+}
+
+/** PUBLIC: the invitee chooses a username and password. `loginUrl` is the
+ * shop's own address, or null when host tenancy is off. */
+export async function acceptUserInvitation(
+  input: AcceptUserInvitationInput,
+): Promise<AccountRouteResult<{ loginUrl: string | null }>> {
+  assertWebOnly("Accepting an invitation");
+  return requestJson<AccountRouteResult<{ loginUrl: string | null }>>(
+    "/api/user-invitations/accept",
+    { method: "POST", body: input, auth: false },
+  );
+}
+
+/**
+ * LIRA-276: email a user a password-reset link, from Settings -> Users.
+ * Feature C owns the endpoint (`POST /api/password-reset/send/:userId`,
+ * contract C); only the button lives in feature B. NOTE FOR THE MERGE: the
+ * contract also lists this function under [auth-C] — keep ONE copy.
+ */
+export async function sendPasswordReset(
+  userId: number,
+): Promise<AccountRouteResult<{ sent: true }>> {
+  assertWebOnly("Sending a password reset link");
+  return requestJson<AccountRouteResult<{ sent: true }>>(
+    `/api/password-reset/send/${userId}`,
+    { method: "POST" },
+  );
+}
 
 // [auth-C] forgot / reset password (LIRA-275/276)
 // Payload types are the core schemas' input types (rule 21); the import sits

@@ -369,6 +369,18 @@ export type {
 // [auth-A] exports
 
 // [auth-B] exports
+// Refusal codes for Settings -> Users (pure leaf module), and the views the
+// pages render — TYPE-only from the Node services, so nothing reaches the
+// bundle (rule 29).
+export * from "./constants/userAccountCodes.js";
+export type {
+  UserInvitationView,
+  UserInviteCheckResult,
+} from "./services/UserInvitationService.js";
+export type {
+  UserEmailView,
+  SetUserEmailResult,
+} from "./services/UserEmailService.js";
 
 // [auth-C] exports
 // Forgot / reset password codes + fixed messages (pure leaf module).

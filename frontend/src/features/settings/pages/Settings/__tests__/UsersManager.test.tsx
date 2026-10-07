@@ -45,6 +45,17 @@ jest.mock("@liratek/ui", () => ({
   useApi: () => mockApi,
 }));
 
+// The web-only email / invite calls (LIRA-279/281) load on mount too; they
+// get empty answers here so this suite stays about the original actions
+// (UsersManager.emailInvites.test.tsx covers them). Stable references.
+const emptyEmails = jest.fn(async () => []);
+const emptyInvites = jest.fn(async () => ({ emailConfigured: true, invitations: [] }));
+jest.mock("@/api/backendApi", () => ({
+  isElectron: () => false,
+  listUserEmails: () => emptyEmails(),
+  listUserInvitations: () => emptyInvites(),
+}));
+
 /** The exact shape `requestJson` throws on any non-2xx — see apiError.ts. */
 function apiThrow(message: string) {
   return { status: 500, message, details: {} };

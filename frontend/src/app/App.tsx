@@ -14,6 +14,8 @@ import Signup from "@/features/auth/pages/Signup";
 // One anchor per feature, blank-line separated so parallel branches merge
 // cleanly; add your import directly under YOUR anchor only.
 // [auth-B] imports: JoinShop (/join), VerifyEmail (/verify-email)
+import JoinShop from "@/features/auth/pages/JoinShop";
+import VerifyEmail from "@/features/auth/pages/VerifyEmail";
 
 // [auth-C] imports: ForgotPassword (/forgot-password), ResetPassword (/reset-password)
 import ForgotPassword from "@/features/auth/pages/ForgotPassword";
@@ -214,6 +216,8 @@ function AppRoutes() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         {/* [auth-B] routes: /join, /verify-email (public) */}
+        <Route path="/join" element={<JoinShop />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
 
         {/* [auth-C] routes: /forgot-password, /reset-password (public) */}
         <Route path="/forgot-password" element={<ForgotPassword />} />
