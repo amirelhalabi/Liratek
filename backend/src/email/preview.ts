@@ -35,6 +35,23 @@ export const EMAIL_PREVIEW_SAMPLES: Readonly<Record<string, TemplateVars>> = {
     expiresAtText: "10 October 2026, 09:00 UTC",
     supportEmail: "support@liratek.shop",
   },
+  // [auth-B] user invite + email verification (LIRA-279/281)
+  "user-invite": {
+    inviteUrl:
+      "https://cellcity.liratek.shop/#/join?invite=PREVIEW_ONLY_not_a_real_token_0123456789",
+    shopName: `Cell City <script>alert("hi")</script> & Sons`,
+    roleText: "a staff member",
+    expiresAtText: "10 October 2026, 09:00 UTC",
+    supportEmail: "support@liratek.shop",
+  },
+  "verify-email": {
+    verifyUrl:
+      "https://cellcity.liratek.shop/#/verify-email?token=PREVIEW_ONLY_not_a_real_token_0123456789",
+    username: "cashier1",
+    shopName: `Cell City <script>alert("hi")</script> & Sons`,
+    expiresAtText: "8 October 2026, 09:00 UTC",
+    supportEmail: "support@liratek.shop",
+  },
 };
 
 export function defaultPreviewDir(): string {

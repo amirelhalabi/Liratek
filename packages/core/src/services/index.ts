@@ -557,6 +557,55 @@ export type { SessionSweepResult } from "./SessionSweepService.js";
 // [auth-A] exports
 
 // [auth-B] exports
+// The Node entry (index.ts) reaches the refusal codes through here; the
+// browser entry re-exports the same leaf module directly.
+export { USER_ACCOUNT_CODES } from "../constants/userAccountCodes.js";
+export type { UserAccountCode } from "../constants/userAccountCodes.js";
+export {
+  UserInvitationService,
+  getUserInvitationService,
+  resetUserInvitationService,
+  UsernameTakenError,
+  UserInvitationUsedError,
+  UserInviteRateLimitedError,
+  UserInvitationNotFoundError,
+  userInviteIdempotencyKey,
+  USER_INVITE_CLAIM_STALE_MS,
+  USER_INVITE_DAILY_LIMIT,
+  USER_INVITE_DAILY_WINDOW_MS,
+  USER_INVITATION_LIST_LIMIT,
+  USER_INVITE_TEMPLATE,
+  USER_INVITE_INVALID_MESSAGE,
+} from "./UserInvitationService.js";
+export type {
+  UserInvitationView,
+  UserInviteCheckResult,
+  UserInviteSendContext,
+  CreateUserInvitationParams,
+  RevokeUserInvitationResult,
+  AcceptUserInvitationParams,
+  AcceptUserInvitationOutcome,
+} from "./UserInvitationService.js";
+export {
+  UserEmailService,
+  getUserEmailService,
+  resetUserEmailService,
+  UserNotFoundInShopError,
+  UserHasNoEmailError,
+  EmailAlreadyVerifiedError,
+  EmailVerifyRateLimitedError,
+  verifyEmailIdempotencyKey,
+  EMAIL_VERIFY_TTL_HOURS,
+  EMAIL_VERIFY_PER_USER_LIMIT,
+  EMAIL_VERIFY_WINDOW_MS,
+  VERIFY_EMAIL_TEMPLATE,
+  EMAIL_VERIFY_INVALID_MESSAGE,
+} from "./UserEmailService.js";
+export type {
+  UserEmailView,
+  SetUserEmailResult,
+  UserEmailSendContext,
+} from "./UserEmailService.js";
 
 // [auth-C] exports
 
