@@ -6510,11 +6510,13 @@ Migration v196: `users.email` + `email_verified_at`, unique per shop. Each shop'
 
 **What users will notice:** in Settings → Users, each staff member can have an email address, confirmed by an emailed link.
 
-## LIRA-280: Continue with Google — DONE, switched OFF until Google is set up
+## LIRA-280: Continue with Google — DONE, switched ON 2026-10-07
 
 Built 2026-10-07 (Phase 3 of the plan). Central Google flow on `www.liratek.shop` with a 60-second one-time hand-off to the shop's own address; accounts linked by Google ID only; existing users connect Google from Settings only; Google sign-up still sets a password and is always allowed once Google is configured, counting toward the daily cap (migration v197 `tenants.google_signup_at`). Off until `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are in `.env.fly` (owner setup: `docs/DEPLOYMENT.md` §5b-google).
 
-**What users will notice:** nothing until it is switched on. Then: "Continue with Google" on the login and sign-up pages, and "Connect Google" in Settings.
+Switched on 2026-10-07: Google Cloud project "Liratek", OAuth client "LiraTek web" (origin `https://www.liratek.shop`, redirect `/api/auth/google/callback`), consent screen published (privacy `liratek.shop/privacy`, terms `liratek.shop/terms`); keys in `.env.fly`. Owner verified on test.liratek.shop.
+
+**What users will notice:** on the web app, "Continue with Google" on the login page signs you in; "Connect Google" in Settings links your account first. New shops can also be created with Google. Signing in with your username and password still works.
 
 ## LIRA-281: invite users to a shop by email — DONE (deployed 2026-10-07)
 

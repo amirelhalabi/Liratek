@@ -88,16 +88,19 @@ export default function GoogleSignInButton({
       <a
         href={intent === "signup" ? links.signup : links.login}
         data-testid="google-sign-in"
-        className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-500/40 bg-white px-4 py-3 font-semibold text-gray-800 transition-colors hover:bg-gray-100"
+        // Fixed colours on purpose: index.css repaints theme classes such as
+        // text-gray-800 as white in dark mode (!important), which made the
+        // label invisible on the white button. Arbitrary values are not remapped.
+        className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-500/40 bg-[#ffffff] px-4 py-3 font-semibold text-[#1f2937] transition-colors hover:bg-[#f3f4f6]"
       >
-        <span aria-hidden="true" className="font-bold text-blue-600">
+        <span aria-hidden="true" className="font-bold text-[#4285F4]">
           G
         </span>
         Continue with Google
       </a>
       {intent === "login" && (
         <p className="text-center text-xs text-slate-500">
-          New here?{" "}
+          Or{" "}
           <a
             href={links.signup}
             className="text-orange-500 hover:text-orange-400"
