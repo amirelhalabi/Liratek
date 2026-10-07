@@ -21,7 +21,7 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { seedSystemSuppliers } from "../db/systemSuppliers.js";
-import { DatabaseError } from "../utils/errors.js";
+import { DatabaseError, EmailAlreadyHasShopError } from "../utils/errors.js";
 import { TELECOM_CREDIT_COST_RATE_LBP } from "../utils/telecomCredit.js";
 
 // =============================================================================
@@ -45,6 +45,8 @@ export interface TenantEntity {
   contact_name: string | null;
   contact_phone: string | null;
   notes: string | null;
+  /** v195 (LIRA-267): lowercased; NULL for shops created without one. */
+  contact_email: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +62,30 @@ export interface CreateTenantData {
   contact_name?: string | null;
   contact_phone?: string | null;
   notes?: string | null;
+  /** Must already be trimmed + lowercased (the service normalises it). */
+  contact_email?: string | null;
+}
+
+/**
+ * True for SQLite's UNIQUE violation on `idx_tenants_contact_email`. A slug
+ * collision raises the same SQLITE_CONSTRAINT_UNIQUE code, so the column
+ * named in the message is what tells the two apart.
+ *
+ * Duck-typed on purpose, NOT `instanceof Error`: with the `instanceof`
+ * check this mapping flaked to a plain DATABASE_ERROR in the full core jest
+ * suite (2 of 3 runs) while passing alone. Likely cause (unverified):
+ * better-sqlite3's native addon is loaded once per jest worker, so its
+ * `SqliteError` can come from another test file's vm realm and fail
+ * `instanceof Error` there. Checking `code` + `message` works either way.
+ */
+function isContactEmailUniqueViolation(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  return (
+    code === "SQLITE_CONSTRAINT_UNIQUE" &&
+    typeof message === "string" &&
+    message.includes("tenants.contact_email")
+  );
 }
 
 export interface UpdateTenantData {
@@ -360,8 +386,8 @@ export class TenantRepository {
   create(data: CreateTenantData): TenantEntity {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO tenants (name, slug, contact_name, contact_phone, notes, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO tenants (name, slug, contact_name, contact_phone, notes, contact_email, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `);
       const result = stmt.run(
         data.name,
@@ -369,6 +395,7 @@ export class TenantRepository {
         data.contact_name ?? null,
         data.contact_phone ?? null,
         data.notes ?? null,
+        data.contact_email ?? null,
       );
       const created = this.getById(result.lastInsertRowid as number);
       if (!created) {
@@ -379,6 +406,9 @@ export class TenantRepository {
       return created;
     } catch (error) {
       if (error instanceof DatabaseError) throw error;
+      if (isContactEmailUniqueViolation(error)) {
+        throw new EmailAlreadyHasShopError();
+      }
       throw new DatabaseError("Failed to create tenant", { cause: error });
     }
   }

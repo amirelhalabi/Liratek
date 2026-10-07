@@ -169,6 +169,73 @@ describe("createPerTenantStorageProvisioner", () => {
       }
     });
 
+    // LIRA-267. NOT proven failing-first (rule 17): the passthrough was
+    // written in the same change as the core test that drove it, before this
+    // backend case existed.
+    it("stores contactEmail on the platform row AND the shop file's local tenants row", () => {
+      const created = provisioner.createTenant({
+        name: "Mail Shop",
+        slug: "mailshop",
+        contactName: null,
+        contactPhone: null,
+        notes: null,
+        contactEmail: "owner@example.com",
+        adminUsername: "admin",
+        passwordHash: "hashed-password-value",
+      });
+
+      expect(platformTenantRepo.getById(created.id)?.contact_email).toBe(
+        "owner@example.com",
+      );
+      const shopDb = new RealDatabase(
+        path.join(tenantsDir, `${created.id}.db`),
+        { readonly: true },
+      );
+      try {
+        const row = shopDb
+          .prepare(`SELECT contact_email FROM tenants WHERE id = ?`)
+          .get(created.id) as { contact_email: string | null };
+        expect(row.contact_email).toBe("owner@example.com");
+      } finally {
+        shopDb.close();
+      }
+    });
+
+    it("refuses a duplicate contactEmail with EMAIL_ALREADY_HAS_SHOP and leaves no file or platform row", () => {
+      provisioner.createTenant({
+        name: "First",
+        slug: "firstshop",
+        contactName: null,
+        contactPhone: null,
+        notes: null,
+        contactEmail: "owner@example.com",
+        adminUsername: "admin",
+        passwordHash: "hashed-password-value",
+      });
+      const filesBefore = fs.readdirSync(tenantsDir).sort();
+
+      let caught: unknown;
+      try {
+        provisioner.createTenant({
+          name: "Second",
+          slug: "secondshop",
+          contactName: null,
+          contactPhone: null,
+          notes: null,
+          contactEmail: "owner@example.com",
+          adminUsername: "admin",
+          passwordHash: "hashed-password-value",
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect((caught as { code?: string } | undefined)?.code).toBe(
+        "EMAIL_ALREADY_HAS_SHOP",
+      );
+      expect(platformTenantRepo.getBySlug("secondshop")).toBeNull();
+      expect(fs.readdirSync(tenantsDir).sort()).toEqual(filesBefore);
+    });
+
     it("is idempotent-safe for the migration bookkeeping (schema_migrations fully populated)", () => {
       const created = provisioner.createTenant({
         name: "Second Shop",

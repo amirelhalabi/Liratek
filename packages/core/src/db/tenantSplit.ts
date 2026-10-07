@@ -106,12 +106,36 @@ function isLitestreamTable(name: string): boolean {
  * narrowed by the per-tenant DELETE loop and `VACUUM INTO` carries every one
  * of its rows, unfiltered, into EVERY tenant's file — a real cross-shop leak.
  */
+/**
+ * Platform-only tables with NO `tenant_id` (LIRA-267, migration v195): the
+ * transactional email outbox and the single-use sign-up invitations. They
+ * belong to the platform, not to any shop — `signup_invitations.
+ * used_by_tenant_id` records which shop an invite CREATED, it does not
+ * scope the row. Kept whole in `platform.db` and DELETED from every
+ * `tenants/<id>.db` (exactly like `tenant_subscriptions`), because `VACUUM
+ * INTO` would otherwise copy every invitee's email address into every shop's
+ * file. Both are optional in the source: a pre-v195 snapshot has neither.
+ */
+const PLATFORM_ONLY_TABLES: readonly string[] = [
+  "signup_invitations",
+  "email_outbox",
+];
+
 const KNOWN_TABLES_WITHOUT_TENANT_ID = new Set([
   "tenants",
   "sync_queue",
   "sync_errors",
   "schema_migrations",
+  ...PLATFORM_ONLY_TABLES,
 ]);
+
+function tableExistsIn(db: Database.Database, table: string): boolean {
+  return (
+    db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(table) !== undefined
+  );
+}
 
 export interface TenantSplitOptions {
   /** Path to the SOURCE database — MUST be a copy, never the live file. This
@@ -564,6 +588,11 @@ function buildTenantFile(
       }
       file.prepare(`DELETE FROM tenants WHERE id != ?`).run(tenantId);
       file.exec(`DELETE FROM tenant_subscriptions`);
+      for (const table of PLATFORM_ONLY_TABLES) {
+        if (tableExistsIn(file, table)) {
+          file.exec(`DELETE FROM ${quoteIdent(table)}`);
+        }
+      }
       // Rewrite legacy impersonator rows AFTER narrowing (only this
       // tenant's own audit rows remain) and BEFORE dropping the Litestream
       // tables / this function's caller running the FK check.
@@ -799,6 +828,37 @@ export function splitTenantDatabase(options: TenantSplitOptions): TenantSplitRep
         try {
           const actual = countAll(tenantFileDb, "tenant_subscriptions");
           record({ table: "tenant_subscriptions", scope: `tenant ${id} (must be 0)`, expected: 0, actual });
+        } finally {
+          tenantFileDb.close();
+        }
+      }
+    }
+
+    // Platform-only tables (LIRA-267): whole-table retention in platform,
+    // zero in every tenant file — same rule as tenant_subscriptions above.
+    for (const table of PLATFORM_ONLY_TABLES) {
+      if (!tableExistsIn(sourceDb, table)) continue;
+      const expectedTotal = countAll(sourceDb, table);
+      const platformDb = new Database(platformFile, { readonly: true });
+      try {
+        record({
+          table,
+          scope: "platform (full retention)",
+          expected: expectedTotal,
+          actual: countAll(platformDb, table),
+        });
+      } finally {
+        platformDb.close();
+      }
+      for (const id of tenantIds) {
+        const tenantFileDb = new Database(tenantFiles[id], { readonly: true });
+        try {
+          record({
+            table,
+            scope: `tenant ${id} (must be 0)`,
+            expected: 0,
+            actual: countAll(tenantFileDb, table),
+          });
         } finally {
           tenantFileDb.close();
         }

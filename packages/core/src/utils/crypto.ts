@@ -103,3 +103,45 @@ export function validatePasswordComplexity(password: string): {
 
   return { valid: errors.length === 0, errors };
 }
+
+// =============================================================================
+// Opaque tokens (LIRA-267 — sign-up invite links)
+// =============================================================================
+
+const TOKEN_BYTES = 32;
+
+/**
+ * A fresh, URL-safe random token: 32 bytes as base64url (43 characters, no
+ * padding). Sent in an emailed link; only {@link hashToken} of it is stored.
+ */
+export function generateToken(): string {
+  return crypto.randomBytes(TOKEN_BYTES).toString("base64url");
+}
+
+/**
+ * sha256 of a token, as lowercase hex. Deterministic, so a presented token
+ * is looked up by its hash; the token itself is never persisted. A plain
+ * (unsalted) hash is enough here because the token carries 256 bits of
+ * randomness — there is nothing to brute-force.
+ */
+export function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+/**
+ * Constant-time string comparison. `timingSafeEqual` throws on unequal
+ * lengths, and returning early on a length mismatch would leak the length
+ * through timing — so both sides are padded to the longer byte length,
+ * compared in full, and the length check is folded in afterwards.
+ */
+export function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  const length = Math.max(bufA.length, bufB.length, 1);
+  const paddedA = Buffer.alloc(length);
+  const paddedB = Buffer.alloc(length);
+  bufA.copy(paddedA);
+  bufB.copy(paddedB);
+  const contentEqual = crypto.timingSafeEqual(paddedA, paddedB);
+  return contentEqual && bufA.length === bufB.length;
+}

@@ -151,6 +151,20 @@ export class ConflictError extends AppError {
   }
 }
 
+export const EMAIL_ALREADY_HAS_SHOP = "EMAIL_ALREADY_HAS_SHOP";
+
+/**
+ * LIRA-267 FR-013a: a shop already exists for this contact email. Raised by
+ * `TenantRepository.create` from SQLite's UNIQUE error on
+ * `idx_tenants_contact_email`, so it surfaces identically in shared and
+ * per-tenant mode. Callers recognise it by `code`, never by message text.
+ */
+export class EmailAlreadyHasShopError extends AppError {
+  constructor(message: string = "A shop already exists for this email") {
+    super(EMAIL_ALREADY_HAS_SHOP, message, 409, true);
+  }
+}
+
 /**
  * Type guard to check if an error is an AppError
  */

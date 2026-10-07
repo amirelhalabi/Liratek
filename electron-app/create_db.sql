@@ -5,6 +5,13 @@
 -- 0. Tenants (multi-tenancy foundation)
 -- =============================================================================
 
+-- contact_email (v195, LIRA-267): the email a shop signed up with, stored
+-- lowercased; NULL for shops created before email invites or with the shared
+-- code. Kept on the same line as updated_at with NO comment in between (the
+-- text shape ALTER TABLE ADD COLUMN produces). Verified 2026-10-07: SQLite's
+-- DROP COLUMN (v195 down()) cuts the stored CREATE text back to the last
+-- comma before the column, so a "--" comment containing a comma just above
+-- it makes the rewrite fail with "incomplete input".
 CREATE TABLE IF NOT EXISTS tenants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -19,8 +26,12 @@ CREATE TABLE IF NOT EXISTS tenants (
     contact_phone TEXT,
     notes TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, contact_email TEXT DEFAULT NULL
 );
+
+-- One shop per email (v195). Partial, so every NULL row is unaffected.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_contact_email
+    ON tenants(contact_email) WHERE contact_email IS NOT NULL;
 
 -- Seed the Default tenant. Desktop (Electron) is single-tenant and always
 -- runs as tenant 1. Web tenants are provisioned explicitly later (id >= 2)
@@ -61,6 +72,57 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_subscriptions_key
 -- v173 grandfathering. A fresh install must never boot read-only.
 INSERT OR IGNORE INTO tenant_subscriptions (tenant_id, plan, status, current_period_end)
     VALUES (1, 'standard', 'active', NULL);
+
+-- Platform-level transactional email outbox (v195, LIRA-267). No tenant_id:
+-- the web API's single worker sends these; desktop never writes it.
+-- Created before signup_invitations, which references it.
+CREATE TABLE IF NOT EXISTS email_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    template TEXT NOT NULL,
+    to_email TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sending', 'accepted', 'failed')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL,
+    give_up_at TEXT NOT NULL,
+    locked_at TEXT,
+    last_error TEXT,
+    provider_message_id TEXT,
+    sent_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_outbox_status_next_attempt
+    ON email_outbox(status, next_attempt_at);
+
+-- Single-use sign-up invitations (v195, LIRA-267). Platform-level, no
+-- tenant_id: used_by_tenant_id records which shop an invite created, it does
+-- not scope the row. Only sha256(token) is stored. ON DELETE SET NULL so a
+-- deleted shop does not block on (or take with it) the invite that created
+-- it; used_at still marks the invite used.
+CREATE TABLE IF NOT EXISTS signup_invitations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    shop_name_hint TEXT,
+    token_hash TEXT NOT NULL UNIQUE,
+    source TEXT NOT NULL CHECK (source IN ('admin', 'self')),
+    invited_by_user_id INTEGER,
+    expires_at TEXT NOT NULL,
+    claimed_at TEXT,
+    used_at TEXT,
+    used_by_tenant_id INTEGER REFERENCES tenants(id) ON DELETE SET NULL,
+    revoked_at TEXT,
+    email_outbox_id INTEGER REFERENCES email_outbox(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_signup_invitations_email_created
+    ON signup_invitations(email, created_at);
+CREATE INDEX IF NOT EXISTS idx_signup_invitations_source_created
+    ON signup_invitations(source, created_at);
 
 -- =============================================================================
 -- 1. Core System Tables
@@ -2485,4 +2547,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- all declared above.
     (193, 'expense_stock_use'),
     -- v194 adds maintenance.client_phone, declared above.
-    (194, 'maintenance_job_client_phone');
+    (194, 'maintenance_job_client_phone'),
+    -- v195 (LIRA-267) adds tenants.contact_email (+ partial unique index),
+    -- email_outbox and signup_invitations, all declared above.
+    (195, 'email_invites');

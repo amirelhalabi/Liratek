@@ -13396,6 +13396,102 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 195,
+    name: "email_invites",
+    description:
+      "LIRA-267 (email invites + self-serve sign-up). Adds " +
+      "tenants.contact_email (nullable, stored lowercased) with a PARTIAL " +
+      "unique index so one email can own at most one shop while every " +
+      "pre-existing shop (NULL) is unaffected. Adds two PLATFORM-level " +
+      "tables with no tenant_id: email_outbox (durable, idempotent outbox " +
+      "for transactional email) and signup_invitations (single-use sign-up " +
+      "links; only sha256(token) is stored). email_outbox is created first " +
+      "because signup_invitations references it.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (
+        tableExists(db, "tenants") &&
+        !columnExists(db, "tenants", "contact_email")
+      ) {
+        db.exec(
+          `ALTER TABLE tenants ADD COLUMN contact_email TEXT DEFAULT NULL;`,
+        );
+      }
+      if (tableExists(db, "tenants")) {
+        db.exec(
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_contact_email
+             ON tenants(contact_email) WHERE contact_email IS NOT NULL;`,
+        );
+      }
+
+      if (!tableExists(db, "email_outbox")) {
+        db.exec(`
+          CREATE TABLE email_outbox (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            template TEXT NOT NULL,
+            to_email TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sending', 'accepted', 'failed')),
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at TEXT NOT NULL,
+            give_up_at TEXT NOT NULL,
+            locked_at TEXT,
+            last_error TEXT,
+            provider_message_id TEXT,
+            sent_at TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_email_outbox_status_next_attempt
+           ON email_outbox(status, next_attempt_at);`,
+      );
+
+      if (!tableExists(db, "signup_invitations")) {
+        db.exec(`
+          CREATE TABLE signup_invitations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            shop_name_hint TEXT,
+            token_hash TEXT NOT NULL UNIQUE,
+            source TEXT NOT NULL CHECK (source IN ('admin', 'self')),
+            invited_by_user_id INTEGER,
+            expires_at TEXT NOT NULL,
+            claimed_at TEXT,
+            used_at TEXT,
+            used_by_tenant_id INTEGER REFERENCES tenants(id) ON DELETE SET NULL,
+            revoked_at TEXT,
+            email_outbox_id INTEGER REFERENCES email_outbox(id),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_signup_invitations_email_created
+           ON signup_invitations(email, created_at);`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_signup_invitations_source_created
+           ON signup_invitations(source, created_at);`,
+      );
+    },
+    down(db: Database.Database) {
+      // signup_invitations references email_outbox, so it goes first. The
+      // index must go before the column: SQLite refuses DROP COLUMN on a
+      // column an index still references.
+      db.exec(`DROP TABLE IF EXISTS signup_invitations;`);
+      db.exec(`DROP TABLE IF EXISTS email_outbox;`);
+      db.exec(`DROP INDEX IF EXISTS idx_tenants_contact_email;`);
+      if (columnExists(db, "tenants", "contact_email")) {
+        db.exec(`ALTER TABLE tenants DROP COLUMN contact_email;`);
+      }
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

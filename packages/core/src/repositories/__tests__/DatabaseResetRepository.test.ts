@@ -503,15 +503,37 @@ describe("DatabaseResetRepository", () => {
     expect(nonZero.n).toBe(0);
   });
 
-  it("never touches sync_queue / sync_errors (EXCLUDED — no tenant_id column)", () => {
+  it("never touches sync_queue / sync_errors / email_outbox / signup_invitations (EXCLUDED — no tenant_id column)", () => {
     for (const table of RESET_EXCLUDED_TABLES) {
-      expect(["sync_errors", "sync_queue"]).toContain(table);
+      expect([
+        "email_outbox",
+        "signup_invitations",
+        "sync_errors",
+        "sync_queue",
+      ]).toContain(table);
     }
 
     db.prepare(`INSERT INTO sync_queue (table_name) VALUES ('test')`).run();
     db.prepare(`INSERT INTO sync_errors (endpoint) VALUES ('test')`).run();
+    // LIRA-267: platform-level invite + its email — one shop's reset must
+    // never delete another shop's (or a prospective shop's) invitation.
+    db.prepare(
+      `INSERT INTO email_outbox (idempotency_key, template, to_email, data_json, next_attempt_at, give_up_at)
+       VALUES ('k', 'signup-invite', 'x@example.com', '{}', '2026-10-07T00:00:00.000Z', '2026-10-10T00:00:00.000Z')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO signup_invitations (email, token_hash, source, expires_at)
+       VALUES ('x@example.com', 'h', 'self', '2026-10-10T00:00:00.000Z')`,
+    ).run();
 
     runWithTenant(1, () => repo.resetTenantData());
+
+    for (const table of ["email_outbox", "signup_invitations"]) {
+      const n = (
+        db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }
+      ).n;
+      expect(n).toBe(1);
+    }
 
     const queueCount = (
       db.prepare(`SELECT COUNT(*) AS n FROM sync_queue`).get() as {

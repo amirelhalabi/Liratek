@@ -104,6 +104,7 @@ export interface PlatformTenantRepoLike {
     contact_name: string | null;
     contact_phone: string | null;
     notes: string | null;
+    contact_email?: string | null;
   }): TenantEntity;
   update(
     id: number,
@@ -212,6 +213,7 @@ export function createPerTenantStorageProvisioner(
           contact_name: input.contactName,
           contact_phone: input.contactPhone,
           notes: input.notes,
+          contact_email: input.contactEmail ?? null,
         });
         const provisioning = opts.platformTenantRepo.update(row.id, {
           status: "provisioning",
@@ -260,8 +262,8 @@ export function createPerTenantStorageProvisioner(
         new TenantRepository(tempDb).deleteTenantCascade(1);
         tempDb
           .prepare(
-            `INSERT INTO tenants (id, name, slug, status, contact_name, contact_phone, notes, created_at, updated_at)
-             VALUES (?, ?, ?, 'active', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            `INSERT INTO tenants (id, name, slug, status, contact_name, contact_phone, notes, contact_email, created_at, updated_at)
+             VALUES (?, ?, ?, 'active', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
           )
           .run(
             tenantId,
@@ -270,6 +272,7 @@ export function createPerTenantStorageProvisioner(
             input.contactName,
             input.contactPhone,
             input.notes,
+            input.contactEmail ?? null,
           );
 
         opts.runMigrations(tempDb);

@@ -19,13 +19,16 @@
  *   Settings-page config (`system_settings`, `currency_drawers`) and
  *   control-plane rows (`tenants`, `tenant_subscriptions`,
  *   `schema_migrations`). The shop should never have to re-run the wizard.
- * - RESET_EXCLUDED_TABLES (2): `sync_queue` / `sync_errors` are the only
+ * - RESET_EXCLUDED_TABLES (4): `sync_queue` / `sync_errors` were the first
  *   wipe-candidates with NO `tenant_id` column — they are documented in
  *   `BaseRepository` as control-plane/global tables, so a tenant-scoped
  *   `DELETE ... WHERE tenant_id = ?` cannot target them safely on the
  *   multi-tenant web server (there is no tenant column to scope on, and
  *   deleting unscoped would wipe every tenant's queue at once). Nothing
  *   currently writes them in production, so leaving them alone is safe.
+ *   `email_outbox` / `signup_invitations` (LIRA-267, v195) joined for the
+ *   same reason: platform-level sign-up invitations and their emails, owned
+ *   by no shop, so one shop's "Reset Data" must never touch them.
  * - RESET_ZERO_TABLES (2): rows are KEPT and specific "balance-like" columns
  *   are set to 0, never deleted. `drawer_balances.balance` is the original
  *   member — zeroing (not deleting) is load-bearing:
@@ -95,12 +98,14 @@ export const RESET_KEEP_TABLES: readonly string[] = [
 ];
 
 /**
- * EXCLUDED — global, not tenant-scopable (2). No `tenant_id` column exists
- * on either table (see `BaseRepository`'s "control-plane/global tables"
+ * EXCLUDED — global, not tenant-scopable (4). No `tenant_id` column exists
+ * on any of these tables (see `BaseRepository`'s "control-plane/global tables"
  * doc comment), so they are left alone entirely rather than risk an
  * unscoped cross-tenant DELETE.
  */
 export const RESET_EXCLUDED_TABLES: readonly string[] = [
+  "email_outbox",
+  "signup_invitations",
   "sync_errors",
   "sync_queue",
 ];

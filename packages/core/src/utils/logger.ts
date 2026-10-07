@@ -173,6 +173,8 @@ export const syncLogger = logger.child({ module: "sync" });
 export const voucherLogger = logger.child({ module: "voucher" });
 // Control-plane: tenant provisioning + impersonation (plan §5, WP5/WP6).
 export const tenantLogger = logger.child({ module: "tenant" });
+// Transactional email outbox + sign-up invitations (LIRA-267).
+export const emailLogger = logger.child({ module: "email" });
 
 // =============================================================================
 // Performance Timing Utility

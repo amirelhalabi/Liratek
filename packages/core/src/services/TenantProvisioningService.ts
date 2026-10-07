@@ -54,6 +54,14 @@ export interface ProvisionTenantData {
   contactName?: string | null;
   contactPhone?: string | null;
   notes?: string | null;
+  /**
+   * LIRA-267: the shop's contact email. Normalised (trimmed + lowercased)
+   * HERE, not only in the zod schema, because the invite-token path takes
+   * it from the invite row and never passes through `createTenantSchema`.
+   * A duplicate throws `EmailAlreadyHasShopError` (code
+   * `EMAIL_ALREADY_HAS_SHOP`).
+   */
+  contactEmail?: string | null;
   adminUsername: string;
   adminPassword: string;
 }
@@ -165,6 +173,7 @@ export class TenantProvisioningService {
         contactName: data.contactName?.trim() || null,
         contactPhone: data.contactPhone?.trim() || null,
         notes: data.notes?.trim() || null,
+        contactEmail: data.contactEmail?.trim().toLowerCase() || null,
         adminUsername,
         passwordHash,
       });

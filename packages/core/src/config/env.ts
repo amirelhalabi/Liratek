@@ -105,6 +105,37 @@ const envSchema = z
     // to exercise the feature before DNS does. Never enable in production.
     TENANT_HOST_HEADER_OVERRIDE: z.coerce.boolean().optional(),
 
+    // ── Email (LIRA-267) ─────────────────────────────────────────────
+    //
+    // Every one is OPTIONAL. EMAIL_TRANSPORT defaults to "disabled", in
+    // which case no email is ever sent and the invite-by-email features
+    // report themselves unavailable. A misconfigured smtp/resend only
+    // WARNS in validateProductionEnv — mail must never stop the API booting.
+    EMAIL_TRANSPORT: z
+      .enum(["disabled", "file", "smtp", "resend"])
+      .default("disabled"),
+    EMAIL_FROM: z.string().default("LiraTek <mail@liratek.shop>"),
+    EMAIL_REPLY_TO: z.string().optional(),
+    // Used by the "file" transport (dev, preview, web e2e).
+    EMAIL_FILE_DIR: z.string().optional(),
+    SMTP_HOST: z.string().optional(),
+    SMTP_PORT: z.coerce.number().int().positive().max(65535).optional(),
+    SMTP_USER: z.string().optional(),
+    SMTP_PASS: z.string().optional(),
+    RESEND_API_KEY: z.string().optional(),
+    // Base URL the emailed invite link points at. Unset = the caller falls
+    // back to https://www.<APP_BASE_DOMAIN>.
+    SIGNUP_INVITE_BASE_URL: z.string().optional(),
+    // Cloudflare Turnstile for the public "email me a sign-up link" form.
+    TURNSTILE_SITE_KEY: z.string().optional(),
+    TURNSTILE_SECRET_KEY: z.string().optional(),
+    // Platform-wide cap on self-serve sign-up link requests per 24 hours.
+    SIGNUP_SELF_SERVE_DAILY_CAP: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(50),
+
     // Electron-specific (only needed when running electron app)
     ELECTRON_RENDERER_URL: z.string().url().optional(),
 
@@ -135,6 +166,16 @@ export type EnvConfig = z.infer<typeof envSchema>;
 // =============================================================================
 // Parse and Validate Environment
 // =============================================================================
+
+/**
+ * Trims a raw env value and maps "" (or whitespace only) to undefined, so an
+ * empty `SMTP_PORT=` line falls back to the default instead of coercing to 0
+ * and failing validation — which would stop the whole process booting.
+ */
+function emptyToUndefined(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
 
 /**
  * Parse and validate environment variables.
@@ -172,6 +213,23 @@ function parseEnv(): EnvConfig {
     TENANT_HOST_HEADER_OVERRIDE:
       process.env.TENANT_HOST_HEADER_OVERRIDE === "true" ||
       process.env.TENANT_HOST_HEADER_OVERRIDE === "1",
+    EMAIL_TRANSPORT: emptyToUndefined(process.env.EMAIL_TRANSPORT),
+    EMAIL_FROM: emptyToUndefined(process.env.EMAIL_FROM),
+    EMAIL_REPLY_TO: emptyToUndefined(process.env.EMAIL_REPLY_TO),
+    EMAIL_FILE_DIR: emptyToUndefined(process.env.EMAIL_FILE_DIR),
+    SMTP_HOST: emptyToUndefined(process.env.SMTP_HOST),
+    SMTP_PORT: emptyToUndefined(process.env.SMTP_PORT),
+    SMTP_USER: emptyToUndefined(process.env.SMTP_USER),
+    SMTP_PASS: emptyToUndefined(process.env.SMTP_PASS),
+    RESEND_API_KEY: emptyToUndefined(process.env.RESEND_API_KEY),
+    SIGNUP_INVITE_BASE_URL: emptyToUndefined(
+      process.env.SIGNUP_INVITE_BASE_URL,
+    ),
+    TURNSTILE_SITE_KEY: emptyToUndefined(process.env.TURNSTILE_SITE_KEY),
+    TURNSTILE_SECRET_KEY: emptyToUndefined(process.env.TURNSTILE_SECRET_KEY),
+    SIGNUP_SELF_SERVE_DAILY_CAP: emptyToUndefined(
+      process.env.SIGNUP_SELF_SERVE_DAILY_CAP,
+    ),
     ELECTRON_RENDERER_URL: process.env.ELECTRON_RENDERER_URL,
     DASHSCOPE_API_KEY: process.env.DASHSCOPE_API_KEY,
     QWEN_ASR_MODEL: process.env.QWEN_ASR_MODEL,
@@ -228,6 +286,19 @@ export const {
   VERCEL_DNS_TARGET,
   VERCEL_TEAM_ID,
   TENANT_HOST_HEADER_OVERRIDE,
+  EMAIL_TRANSPORT,
+  EMAIL_FROM,
+  EMAIL_REPLY_TO,
+  EMAIL_FILE_DIR,
+  SMTP_HOST,
+  SMTP_PORT,
+  SMTP_USER,
+  SMTP_PASS,
+  RESEND_API_KEY,
+  SIGNUP_INVITE_BASE_URL,
+  TURNSTILE_SITE_KEY,
+  TURNSTILE_SECRET_KEY,
+  SIGNUP_SELF_SERVE_DAILY_CAP,
   ELECTRON_RENDERER_URL,
   DASHSCOPE_API_KEY,
   QWEN_ASR_MODEL,
@@ -254,6 +325,34 @@ export function validateProductionEnv(): void {
     throw new Error(
       `Missing required environment variables for production: ${missing.join(", ")}`,
     );
+  }
+
+  // Email misconfiguration only WARNS: a broken mail setup must never stop
+  // the API from booting (sign-up by email just reports itself unavailable).
+  const emailWarnings: string[] = [];
+  if (env.EMAIL_TRANSPORT === "smtp") {
+    const missingSmtp = (
+      [
+        ["SMTP_HOST", env.SMTP_HOST],
+        ["SMTP_USER", env.SMTP_USER],
+        ["SMTP_PASS", env.SMTP_PASS],
+      ] as const
+    )
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
+    if (missingSmtp.length > 0) {
+      emailWarnings.push(
+        `EMAIL_TRANSPORT=smtp but ${missingSmtp.join(", ")} not set`,
+      );
+    }
+  }
+  if (env.EMAIL_TRANSPORT === "resend" && !env.RESEND_API_KEY) {
+    emailWarnings.push("EMAIL_TRANSPORT=resend but RESEND_API_KEY not set");
+  }
+  for (const warning of emailWarnings) {
+    if (typeof process !== "undefined" && process.stderr) {
+      process.stderr.write(`⚠️  WARNING: ${warning}\n`);
+    }
   }
 
   // Warn if using default values in production

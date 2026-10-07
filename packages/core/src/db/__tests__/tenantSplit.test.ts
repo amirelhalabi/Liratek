@@ -262,6 +262,62 @@ describe("splitTenantDatabase", () => {
     }
   });
 
+  it("keeps the platform-only email tables (LIRA-267) whole in platform.db and empty in every tenant file", () => {
+    // One sent invite email + its invitation, used to create tenant 5 — the
+    // exact shape that would otherwise be copied by VACUUM INTO into every
+    // shop's file (an invitee's email address leaking into other shops).
+    const outboxId = sourceDb!
+      .prepare(
+        `INSERT INTO email_outbox (idempotency_key, template, to_email, data_json, status, next_attempt_at, give_up_at)
+         VALUES ('signup-invite:1', 'signup-invite', 'five@example.com', '{}', 'accepted', '2026-10-07T00:00:00.000Z', '2026-10-10T00:00:00.000Z')`,
+      )
+      .run().lastInsertRowid as number;
+    sourceDb!
+      .prepare(
+        `INSERT INTO signup_invitations (email, token_hash, source, expires_at, used_at, used_by_tenant_id, email_outbox_id)
+         VALUES ('five@example.com', 'hash-five', 'admin', '2026-10-10T00:00:00.000Z', '2026-10-07T01:00:00.000Z', 5, ?)`,
+      )
+      .run(outboxId);
+    sourceDb!
+      .prepare(
+        `INSERT INTO signup_invitations (email, token_hash, source, expires_at)
+         VALUES ('pending@example.com', 'hash-pending', 'self', '2026-10-10T00:00:00.000Z')`,
+      )
+      .run();
+
+    const outputDir = path.join(tmpDir, "out-email-tables");
+    const report = splitTenantDatabase({ sourceDbPath, outputDir, write: true });
+
+    expect(report.unexpectedTablesWithoutTenantId).toEqual([]);
+    expect(report.mismatches).toEqual([]);
+    expect(report.ok).toBe(true);
+
+    const count = (db: Database.Database, table: string): number =>
+      (db.prepare(`SELECT COUNT(*) c FROM ${table}`).get() as { c: number }).c;
+
+    for (const id of [1, 5]) {
+      const tenantFile = new Database(report.tenantFiles[id], { readonly: true });
+      try {
+        expect(count(tenantFile, "signup_invitations")).toBe(0);
+        expect(count(tenantFile, "email_outbox")).toBe(0);
+      } finally {
+        tenantFile.close();
+      }
+    }
+    const platform = new Database(report.platformFile, { readonly: true });
+    try {
+      expect(count(platform, "signup_invitations")).toBe(2);
+      expect(count(platform, "email_outbox")).toBe(1);
+    } finally {
+      platform.close();
+    }
+
+    // Both tables are part of the verify step, not merely deleted.
+    const verifiedTables = new Set(report.verifiedCounts.map((f) => f.table));
+    expect(verifiedTables.has("signup_invitations")).toBe(true);
+    expect(verifiedTables.has("email_outbox")).toBe(true);
+  });
+
   it("reports an unexpected global row on any OTHER table holding tenant_id IS NULL rows", () => {
     // Sabotage: a stray global row on a table that is neither
     // users/sessions/audit_log — this is exactly the finding the tool must

@@ -748,6 +748,35 @@ export type {
   UpdateTenantData,
 } from "./TenantRepository.js";
 
+// Email outbox + sign-up invitations (platform level, LIRA-267). Node-only:
+// exported from index.ts via this barrel, never from browser.ts.
+export {
+  EmailOutboxRepository,
+  getEmailOutboxRepository,
+  resetEmailOutboxRepository,
+  EMAIL_OUTBOX_MAX_ERROR_LENGTH,
+} from "./EmailOutboxRepository.js";
+export type {
+  EmailOutboxEntity,
+  EmailOutboxStatus,
+  EmailTemplateData,
+  EnqueueEmailData,
+} from "./EmailOutboxRepository.js";
+export {
+  SignupInvitationRepository,
+  getSignupInvitationRepository,
+  resetSignupInvitationRepository,
+  deriveStatus as deriveSignupInvitationStatus,
+} from "./SignupInvitationRepository.js";
+export type {
+  SignupInvitationEntity,
+  SignupInvitationSource,
+  SignupInvitationStatus,
+  SignupInvitationListRow,
+  CreateSignupInvitationData,
+  TenantByContactEmail,
+} from "./SignupInvitationRepository.js";
+
 // Money posting helpers (moneyPosting.ts — seeded by the Payment-Legs
 // Integrity plan's S2 hard-reject leg reconciliation; grown by CQ-3 with the
 // shared drawer-upsert/payments-INSERT helpers)

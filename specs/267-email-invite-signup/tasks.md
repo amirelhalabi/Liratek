@@ -33,7 +33,7 @@
   - Record the result in `specs/267-email-invite-signup/research.md` under R6.
   - If both ports are blocked, stop and tell the owner. Then T040 switches to `resend`.
 - [ ] T002 Add the `nodemailer` dependency and `@types/nodemailer` to `backend/package.json`. Do this only if T001 found a port OPEN; otherwise skip it.
-- [ ] T003 [P] Add the optional environment variables to `packages/core/src/config/env.ts`, in all three places: the schema (around :87), the `parseEnv` mapping (around :165, values `.trim()`ed) and the destructured export (around :209). Defaults:
+- [X] T003 [P] Add the optional environment variables to `packages/core/src/config/env.ts`, in all three places: the schema (around :87), the `parseEnv` mapping (around :165, values `.trim()`ed) and the destructured export (around :209). Defaults:
   - `EMAIL_TRANSPORT`: `z.enum(["disabled","file","smtp","resend"]).default("disabled")`.
   - `EMAIL_FROM`: default `"LiraTek <mail@liratek.shop>"`.
   - `EMAIL_REPLY_TO`, `EMAIL_FILE_DIR`, `SMTP_HOST`, `SMTP_PORT` (coerced number), `SMTP_USER`, `SMTP_PASS`, `RESEND_API_KEY`, `SIGNUP_INVITE_BASE_URL`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `SIGNUP_SELF_SERVE_DAILY_CAP` (coerced number, default 50).
@@ -43,12 +43,12 @@
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T004 Write the guard test `packages/core/src/db/migrations/__tests__/v195_emailInvites.test.ts` and run it to see it fail. It checks four things after migrating an in-memory database:
+- [X] T004 Write the guard test `packages/core/src/db/migrations/__tests__/v195_emailInvites.test.ts` and run it to see it fail. It checks four things after migrating an in-memory database:
   - `tenants.contact_email` exists.
   - A partial unique index rejects two tenants with the same non-NULL `contact_email`, but allows several NULLs.
   - The `signup_invitations` and `email_outbox` tables exist with the columns in data-model.md.
   - `down()` removes all of it.
-- [ ] T005 Add the migration to `packages/core/src/db/migrations/index.ts`.
+- [X] T005 Add the migration to `packages/core/src/db/migrations/index.ts`.
   - **Version:** re-read the last entry first. It was v194 `maintenance_job_client_phone` at :13372; use last + 1.
   - **Shape:** use `type: "typescript"` with guarded `up`/`down`, using the `tableExists` and `columnExists` helpers, like v194.
   - **`tenants`:**
@@ -70,34 +70,34 @@
     - `created_at`/`updated_at`
     - Index on `(status, next_attempt_at)`.
   - **Order:** create `email_outbox` before `signup_invitations`, because of the foreign key.
-- [ ] T006 Mirror T005 in `electron-app/create_db.sql`:
+- [X] T006 Mirror T005 in `electron-app/create_db.sql`:
   - Add `contact_email` to the `tenants` block (:8-21), plus the index.
   - Add both new tables.
   - Add the `schema_migrations` seed row (around :2196): change the trailing `;` to `,` and append `(<v>, '<name>');`.
   - Build core, then run `yarn check:schema-equivalence`, which must pass.
-- [ ] T007 [P] In `packages/core/src/db/tenantSplit.ts`, add `DELETE FROM signup_invitations` and `DELETE FROM email_outbox` to each per-tenant file, next to the `tenant_subscriptions` delete at around :566. Add both tables to the verify counts at around :781. Extend the split's existing test so both tables are empty in a tenant file and kept whole in `platform.db`. Write that test first and see it fail.
-- [ ] T008 [P] Write the test `packages/core/src/utils/__tests__/crypto.hashToken.test.ts` first and see it fail. Then add to `packages/core/src/utils/crypto.ts`:
+- [X] T007 [P] In `packages/core/src/db/tenantSplit.ts`, add `DELETE FROM signup_invitations` and `DELETE FROM email_outbox` to each per-tenant file, next to the `tenant_subscriptions` delete at around :566. Add both tables to the verify counts at around :781. Extend the split's existing test so both tables are empty in a tenant file and kept whole in `platform.db`. Write that test first and see it fail.
+- [X] T008 [P] Write the test `packages/core/src/utils/__tests__/crypto.hashToken.test.ts` first and see it fail. Then add to `packages/core/src/utils/crypto.ts`:
   - `generateToken()`: `randomBytes(32).toString("base64url")`.
   - `hashToken(t)`: sha256 hex.
   - `safeEqual(a, b)`: compare with `timingSafeEqual`, padding unequal lengths so the timing doesn't leak the length.
   - Confirm `crypto.ts` is still unreachable from `browser.ts`: the `browserEntryIsNodeFree` guard must stay green.
-- [ ] T009 [P] Create `packages/core/src/validators/signupInvitation.ts`:
+- [X] T009 [P] Create `packages/core/src/validators/signupInvitation.ts`:
   - `createSignupInvitationSchema`: `{ email: z.string().trim().toLowerCase().email().max(254), shopNameHint: z.string().trim().max(100).optional() }`
   - `checkSignupInviteSchema`: `{ token: z.string().min(1).max(200) }`
   - `requestSignupLinkSchema`: `{ email: z.string().trim().toLowerCase().email().max(254), turnstileToken: z.string().min(1).max(2048) }`
   - Export the inferred input types.
   - Re-export everything from `packages/core/src/validators/index.ts`, which `browser.ts:55` already re-exports. This is a browser-safe module with only zod.
-- [ ] T010 Make these schema changes in `packages/core/src/validators/tenant.ts`:
+- [X] T010 Make these schema changes in `packages/core/src/validators/tenant.ts`:
   - `createTenantSchema` gets `contactEmail: z.string().trim().toLowerCase().email().max(254).optional()` (FR-013b).
   - `signupSchema` (:51-53) becomes **Stage A**: `inviteCode?: string` and `inviteToken?: string`, with `.superRefine` requiring exactly one of them. The error for both or neither is "Use an invite link or an invite code".
   - **Before landing this, do the rule-23 three-way key diff.** Compare three key sets: the schema, the `Signup.tsx` payload (:90 area), and the `provisionTenant` arguments in `backend/src/api/auth.ts`. Write the diff into the PR notes.
-- [ ] T011 Thread `contactEmail` through tenant creation:
+- [X] T011 Thread `contactEmail` through tenant creation:
   - `TenantEntity` and `create()` in `packages/core/src/repositories/TenantRepository.ts` (:360-375 insert).
   - `ProvisionTenantData` (:51-59) in `packages/core/src/services/TenantProvisioningService.ts`.
   - `packages/core/src/services/TenantStorageProvisioner.ts` (:108-131).
   - `backend/src/database/perTenantStorageProvisioner.ts`.
   - **Test first:** provisioning with `contactEmail` stores it lowercased. Provisioning a duplicate throws an error the caller can recognise (`EMAIL_ALREADY_HAS_SHOP`, mapped from SQLite's UNIQUE error on `idx_tenants_contact_email`).
-- [ ] T012 [P] Write `packages/core/src/repositories/__tests__/EmailOutboxRepository.test.ts` first and see it fail. It uses a real in-memory database through `__LIRATEK_TEST_DB__`. Then create `packages/core/src/repositories/EmailOutboxRepository.ts` (BaseRepository, `tenantScoped: false`) with these methods:
+- [X] T012 [P] Write `packages/core/src/repositories/__tests__/EmailOutboxRepository.test.ts` first and see it fail. It uses a real in-memory database through `__LIRATEK_TEST_DB__`. Then create `packages/core/src/repositories/EmailOutboxRepository.ts` (BaseRepository, `tenantScoped: false`) with these methods:
   - `enqueue({ idempotencyKey, template, toEmail, data, now, giveUpAt })`: on a duplicate key it returns the existing row and inserts nothing.
   - `findDue(now, limit)`
   - `claim(id, now)`: `UPDATE … SET status='sending', locked_at=? WHERE id=? AND status='pending'`. Returns `changes === 1`.
@@ -107,7 +107,7 @@
   - `recoverStuck(now, olderThanMs)`
   - `scrubSecret(id, key)`: removes one key from `data_json`.
   - `findById(id)`
-- [ ] T013 [P] Write the test `packages/core/src/repositories/__tests__/SignupInvitationRepository.test.ts` first and see it fail. Then create `packages/core/src/repositories/SignupInvitationRepository.ts` (`tenantScoped: false`) with these methods:
+- [X] T013 [P] Write the test `packages/core/src/repositories/__tests__/SignupInvitationRepository.test.ts` first and see it fail. Then create `packages/core/src/repositories/SignupInvitationRepository.ts` (`tenantScoped: false`) with these methods:
   - `create({ email, shopNameHint, tokenHash, invitedByUserId, expiresAt })`
   - `linkOutbox(id, outboxId)`
   - `findByTokenHash(hash)`

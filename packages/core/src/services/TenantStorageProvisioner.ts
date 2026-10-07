@@ -49,6 +49,9 @@ export interface CreateTenantStorageInput {
   contactName: string | null;
   contactPhone: string | null;
   notes: string | null;
+  /** LIRA-267: already trimmed + lowercased. Optional so existing callers
+   * and test fakes need no change; absent means NULL. */
+  contactEmail?: string | null;
   adminUsername: string;
   /** Already hashed — `TenantProvisioningService` owns password validation
    * and hashing; this port never sees a plaintext password. */
@@ -113,6 +116,7 @@ export class SharedTenantStorageProvisioner implements TenantStorageProvisioner 
         contact_name: input.contactName,
         contact_phone: input.contactPhone,
         notes: input.notes,
+        contact_email: input.contactEmail ?? null,
       });
 
       // shop_name seeds from the tenant's own name — see
