@@ -25,15 +25,31 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 const signup = jest.fn();
+// LIRA-267: the page now asks signup-status which form to show. These tests
+// cover the shared-invite-code form (Stage A): code on, self-serve off.
+const publicAuthInfo = jest.fn();
 
 jest.mock("@/api/backendApi", () => ({
   signup: (...args: unknown[]) => signup(...args),
+  publicAuthInfo: (...args: unknown[]) => publicAuthInfo(...args),
+  checkSignupInvite: jest.fn(),
+  requestSignupLink: jest.fn(),
   isElectron: () => false,
 }));
 
+jest.mock("@/features/auth/components/TurnstileWidget", () => ({
+  TurnstileWidget: () => null,
+}));
+
 const navigate = jest.fn();
+// Rule 25: one stable params object (no ?invite=).
+const searchState: [URLSearchParams, jest.Mock] = [
+  new URLSearchParams(""),
+  jest.fn(),
+];
 jest.mock("react-router-dom", () => ({
   useNavigate: () => navigate,
+  useSearchParams: () => searchState,
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
     <a href={to}>{children}</a>
   ),
@@ -52,6 +68,13 @@ const VALID = {
 const field = (id: string) => screen.getByTestId(id) as HTMLInputElement;
 const submit = () => screen.getByTestId("signup-submit") as HTMLButtonElement;
 
+/** Renders the page and waits for the form: the entry is decided async. */
+async function renderForm() {
+  const utils = render(<Signup />);
+  await screen.findByTestId("signup-submit");
+  return utils;
+}
+
 function set(id: string, value: string) {
   fireEvent.change(field(id), { target: { value } });
 }
@@ -69,6 +92,11 @@ describe("Signup page", () => {
   beforeEach(() => {
     signup.mockReset();
     navigate.mockReset();
+    publicAuthInfo.mockReset();
+    publicAuthInfo.mockResolvedValue({
+      success: true,
+      data: { enabled: true, selfServeEnabled: false, turnstileSiteKey: null },
+    });
     signup.mockResolvedValue({
       success: true,
       data: { tenant: { id: 7, name: VALID.name, slug: VALID.slug } },
@@ -76,13 +104,13 @@ describe("Signup page", () => {
   });
 
   describe("submit gating", () => {
-    it("starts disabled", () => {
-      render(<Signup />);
+    it("starts disabled", async () => {
+      await renderForm();
       expect(submit()).toBeDisabled();
     });
 
-    it("stays disabled with everything filled EXCEPT the invite code", () => {
-      render(<Signup />);
+    it("stays disabled with everything filled EXCEPT the invite code", async () => {
+      await renderForm();
 
       set("signup-shop-name", VALID.name);
       set("signup-username", VALID.username);
@@ -94,8 +122,8 @@ describe("Signup page", () => {
       expect(submit()).toBeEnabled();
     });
 
-    it("stays disabled while the slug is invalid", () => {
-      render(<Signup />);
+    it("stays disabled while the slug is invalid", async () => {
+      await renderForm();
 
       fillValid();
       expect(submit()).toBeEnabled();
@@ -106,8 +134,8 @@ describe("Signup page", () => {
       expect(submit()).toBeDisabled();
     });
 
-    it("stays disabled for a too-short password", () => {
-      render(<Signup />);
+    it("stays disabled for a too-short password", async () => {
+      await renderForm();
 
       set("signup-shop-name", VALID.name);
       set("signup-username", VALID.username);
@@ -119,15 +147,15 @@ describe("Signup page", () => {
   });
 
   describe("slug derivation", () => {
-    it("derives the slug from the shop name", () => {
-      render(<Signup />);
+    it("derives the slug from the shop name", async () => {
+      await renderForm();
 
       set("signup-shop-name", "Corner Tech & Co");
       expect(field("signup-slug").value).toBe("corner-tech-co");
     });
 
-    it("stops deriving once the slug is edited by hand", () => {
-      render(<Signup />);
+    it("stops deriving once the slug is edited by hand", async () => {
+      await renderForm();
 
       set("signup-shop-name", "Corner");
       expect(field("signup-slug").value).toBe("corner");
@@ -142,7 +170,7 @@ describe("Signup page", () => {
     });
 
     it("sends the slug the field actually shows", async () => {
-      render(<Signup />);
+      await renderForm();
 
       set("signup-shop-name", "Corner Tech");
       set("signup-username", VALID.username);
@@ -167,7 +195,7 @@ describe("Signup page", () => {
         error: { message: "Tenant slug 'cornertech' is already taken" },
       });
 
-      render(<Signup />);
+      await renderForm();
       fillValid();
       fireEvent.click(submit());
 
@@ -190,7 +218,7 @@ describe("Signup page", () => {
         details: {},
       });
 
-      render(<Signup />);
+      await renderForm();
       fillValid();
       fireEvent.click(submit());
 
@@ -205,7 +233,7 @@ describe("Signup page", () => {
         message: "Signup is disabled on this deployment",
       });
 
-      render(<Signup />);
+      await renderForm();
       fillValid();
       fireEvent.click(submit());
 
@@ -218,7 +246,7 @@ describe("Signup page", () => {
       // The realistic web failure: the tunnel to the backend is down.
       signup.mockRejectedValue(new Error("Failed to fetch"));
 
-      render(<Signup />);
+      await renderForm();
       fillValid();
       fireEvent.click(submit());
 
@@ -228,7 +256,7 @@ describe("Signup page", () => {
 
   describe("success", () => {
     it("confirms with the new slug and does not navigate into the app", async () => {
-      render(<Signup />);
+      await renderForm();
       fillValid();
       fireEvent.click(submit());
 
@@ -248,7 +276,7 @@ describe("Signup page", () => {
         },
       });
 
-      render(<Signup />);
+      await renderForm();
       fillValid();
       fireEvent.click(submit());
 
@@ -262,7 +290,7 @@ describe("Signup page", () => {
     it("falls back to the bare slug when host tenancy is off", async () => {
       // loginUrl null means APP_BASE_DOMAIN is unset. The page must NOT
       // fabricate `<slug>.<current host>` — that link would be dead.
-      render(<Signup />);
+      await renderForm();
       fillValid();
       fireEvent.click(submit());
 
@@ -272,7 +300,7 @@ describe("Signup page", () => {
     });
 
     it("never renders the password back to the page", async () => {
-      const { container } = render(<Signup />);
+      const { container } = await renderForm();
       fillValid();
       fireEvent.click(submit());
 

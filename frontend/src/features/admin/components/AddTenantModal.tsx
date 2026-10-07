@@ -35,6 +35,7 @@ export function AddTenantModal({
   const [slugTouched, setSlugTouched] = useState(false);
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [adminUsername, setAdminUsername] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
@@ -60,6 +61,7 @@ export function AddTenantModal({
     setSlugTouched(false);
     setContactName("");
     setContactPhone("");
+    setContactEmail("");
     setNotes("");
     setAdminUsername("");
     setAdminPassword("");
@@ -78,6 +80,9 @@ export function AddTenantModal({
       slug,
       ...(contactName.trim() ? { contactName: contactName.trim() } : {}),
       ...(contactPhone.trim() ? { contactPhone: contactPhone.trim() } : {}),
+      // Optional (LIRA-267 FR-013b). Omitted when blank: "" fails the
+      // schema's email check.
+      ...(contactEmail.trim() ? { contactEmail: contactEmail.trim() } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
       adminUsername: adminUsername.trim(),
       adminPassword,
@@ -167,6 +172,28 @@ export function AddTenantModal({
           </div>
 
           <div>
+            <label
+              className="text-xs text-slate-400 block mb-1"
+              htmlFor="add-tenant-contact-email"
+            >
+              Contact email
+            </label>
+            <input
+              id="add-tenant-contact-email"
+              data-testid="add-tenant-contact-email"
+              type="email"
+              value={contactEmail}
+              onChange={(e) => setContactEmail(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+              placeholder="owner@shop.com"
+              autoComplete="off"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Optional. One shop per email address.
+            </p>
+          </div>
+
+          <div>
             <label className="text-xs text-slate-400 block mb-1">Notes</label>
             <textarea
               value={notes}
@@ -183,6 +210,7 @@ export function AddTenantModal({
               </label>
               <input
                 type="text"
+                data-testid="add-tenant-admin-username"
                 value={adminUsername}
                 onChange={(e) => setAdminUsername(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
@@ -195,6 +223,7 @@ export function AddTenantModal({
               </label>
               <input
                 type="password"
+                data-testid="add-tenant-admin-password"
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"

@@ -126,6 +126,8 @@
 
 - Web app: a customer's gift cards now show up as a payment option (they were missing in the browser).
 - liratek.shop now opens an information page about LiraTek, in English and Arabic. Shops keep logging in at their own address, as before, and the page has a box to jump to your shop's login.
+- Web app: new shops can sign up with just their email. Click **Sign up** on the login page, enter your email, and open the link we send you to finish creating your shop.
+- Web app (platform admin): you can now email a sign-up invitation from the Tenants page, see whether each invitation was used, and cancel one that went to the wrong address. "Add shop" also takes an optional contact email.
 
 ## 🧾 Expenses
 

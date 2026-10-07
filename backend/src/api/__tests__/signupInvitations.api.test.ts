@@ -170,10 +170,12 @@ describe("POST /api/admin/signup-invitations", () => {
       .get() as { data_json: string; idempotency_key: string };
     const inviteUrl = (JSON.parse(outbox.data_json) as { inviteUrl: string })
       .inviteUrl;
-    expect(inviteUrl.startsWith("https://www.liratek.test/signup?invite=")).toBe(
+    expect(inviteUrl.startsWith("https://www.liratek.test/#/signup?invite=")).toBe(
       true,
     );
-    const rawToken = new URL(inviteUrl).searchParams.get("invite")!;
+    const rawToken = new URLSearchParams(
+      new URL(inviteUrl).hash.split("?")[1] ?? "",
+    ).get("invite")!;
     expect(rawToken.length).toBeGreaterThan(20);
     const serialised = JSON.stringify(res.body);
     expect(serialised).not.toContain(rawToken);
@@ -444,9 +446,12 @@ describe("POST /api/admin/signup-invitations/:id/revoke", () => {
     const outbox = db
       .prepare(`SELECT data_json FROM email_outbox WHERE idempotency_key = ?`)
       .get(`signup-invite:${id}`) as { data_json: string };
-    const rawToken = new URL(
-      (JSON.parse(outbox.data_json) as { inviteUrl: string }).inviteUrl,
-    ).searchParams.get("invite")!;
+    const rawToken = new URLSearchParams(
+      new URL(
+        (JSON.parse(outbox.data_json) as { inviteUrl: string }).inviteUrl,
+      ).hash.split("?")[1] ?? "",
+    ).get("invite")!;
+    expect(rawToken.length).toBeGreaterThan(20);
 
     await request(app)
       .post(revokeUrl(id))

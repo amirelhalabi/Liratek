@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./app/App";
 import { bootstrapImpersonationSession } from "@/features/admin/utils/impersonation";
+import { normalizeSignupLink } from "@/features/auth/utils/normalizeSignupLink";
 
 // Web-only super-admin impersonation handoff: if `?impersonation_token=` is
 // present, move it into sessionStorage and strip it from the URL/history
@@ -12,6 +13,10 @@ import { bootstrapImpersonationSession } from "@/features/admin/utils/impersonat
 // nothing observable) when the param isn't present, which covers every
 // Electron/desktop boot and every normal web login.
 bootstrapImpersonationSession();
+
+// Emailed sign-up links are `/signup?invite=…` (a real path); the app routes
+// on the hash. Move it into the hash before the router reads the URL.
+normalizeSignupLink();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

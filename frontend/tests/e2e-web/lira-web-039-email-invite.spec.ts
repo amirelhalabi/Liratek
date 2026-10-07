@@ -1,0 +1,229 @@
+/**
+ * lira-web-039 — LIRA-267: email invites and self-serve sign-up, end to end.
+ *
+ * The backend runs with EMAIL_TRANSPORT=file (playwright.web.config.ts), so
+ * every email lands in EMAIL_FILE_DIR as `<template>-<outboxId>.{html,txt,json}`
+ * instead of a mailbox. The `.json` is written LAST, so once it exists the
+ * other two are complete. The outbox worker sends on a 30-second interval,
+ * hence the long poll and test timeouts.
+ *
+ *   1. A super admin sends an invite from the Tenants page; the link from the
+ *      email opens the sign-up form with the email locked; signing up creates
+ *      the shop with that `contact_email`; the invite shows "used"; reopening
+ *      the link shows the generic "not valid" message.
+ *   2. A visitor clicks "Sign up" on the login page, asks for a link (Turnstile
+ *      test keys — needs internet), completes sign-up from the emailed link
+ *      and logs in.
+ *
+ * Shared accumulating DB (rule 15): every email, slug and username is
+ * `Date.now()`-unique, emails are matched by their `to` address (never by file
+ * order), and the invite row by its email.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import Database from "better-sqlite3";
+import { hashPassword } from "@liratek/core";
+import { test, expect, loginAsUser } from "./fixtures";
+import { EMAIL_FILE_DIR } from "../../playwright.web.config";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DB_PATH = path.join(
+  __dirname,
+  "..",
+  "..",
+  "test-results",
+  "e2e-web",
+  "phone_shop.web.db",
+);
+
+const INVITE_INVALID = "This invite link is not valid";
+
+/** Same escape hatch as lira-web-038: no REST/UI path creates a super admin. */
+function seedSuperAdmin(username: string, password: string): void {
+  const db = new Database(DB_PATH);
+  try {
+    db.prepare(
+      `INSERT INTO users (tenant_id, username, password_hash, role, is_active)
+       VALUES (NULL, ?, ?, 'super_admin', 1)`,
+    ).run(username, hashPassword(password));
+  } finally {
+    db.close();
+  }
+}
+
+function contactEmailOf(slug: string): string | null {
+  const db = new Database(DB_PATH, { readonly: true });
+  try {
+    const row = db
+      .prepare(`SELECT contact_email FROM tenants WHERE slug = ?`)
+      .get(slug) as { contact_email: string | null } | undefined;
+    return row?.contact_email ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+/** The invite link from the newest `signup-invite` email sent to `to`. */
+function findInviteLink(to: string): string | null {
+  if (!fs.existsSync(EMAIL_FILE_DIR)) return null;
+  const matches: { link: string; mtime: number }[] = [];
+  for (const name of fs.readdirSync(EMAIL_FILE_DIR)) {
+    if (!/^signup-invite-\d+\.json$/.test(name)) continue;
+    const jsonPath = path.join(EMAIL_FILE_DIR, name);
+    let meta: { to?: string };
+    try {
+      meta = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as { to?: string };
+    } catch {
+      continue;
+    }
+    if (meta.to !== to) continue;
+    // The .txt body is not HTML-escaped, so the link reads back verbatim.
+    const text = fs.readFileSync(jsonPath.replace(/\.json$/, ".txt"), "utf8");
+    const link = /https?:\/\/\S+\/signup\?invite=[A-Za-z0-9_%-]+/.exec(text)?.[0];
+    if (link) matches.push({ link, mtime: fs.statSync(jsonPath).mtimeMs });
+  }
+  matches.sort((a, b) => b.mtime - a.mtime);
+  return matches[0]?.link ?? null;
+}
+
+async function waitForInviteLink(to: string): Promise<string> {
+  await expect
+    .poll(
+      () => findInviteLink(to) !== null,
+      {
+        message: `no signup-invite email to ${to} in ${EMAIL_FILE_DIR}`,
+        timeout: 75_000,
+        intervals: [1_000],
+      },
+    )
+    .toBe(true);
+  const link = findInviteLink(to);
+  if (!link) throw new Error(`invite link to ${to} vanished after polling`);
+  return link;
+}
+
+test.describe("LIRA-267 — email invites and self-serve sign-up", () => {
+  test("super admin invites by email; the link signs the shop up once", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const suUsername = `l267_root_${ts}`;
+    const suPassword = "L267RootPass!1";
+    seedSuperAdmin(suUsername, suPassword);
+
+    const email = `l267-admin-${ts}@example.com`;
+    const shopName = `L267 Invited ${ts}`;
+    const slug = `l267-inv-${ts}`;
+
+    // ── 1. Send the invite from the Tenants page ──
+    await loginAsUser(page, suUsername, suPassword);
+    await expect(page).toHaveURL(/\/admin\/tenants/, { timeout: 15_000 });
+    await page.getByRole("button", { name: "Send invite" }).click();
+    await page.getByTestId("send-invite-email").fill(email);
+    await page.getByTestId("send-invite-shop").fill(shopName);
+    await page.getByTestId("send-invite-submit").click();
+    await expect(page.getByTestId("send-invite-email")).toBeHidden({
+      timeout: 15_000,
+    });
+
+    const inviteRow = page.locator(`tr[data-email="${email}"]`);
+    await expect(inviteRow).toBeVisible({ timeout: 15_000 });
+    await expect(inviteRow.getByText("pending")).toBeVisible();
+
+    // ── 2. Read the link from the emailed file ──
+    const link = await waitForInviteLink(email);
+    expect(link).toContain("/signup?invite=");
+
+    // ── 3. Open it logged out: email locked, shop name prefilled ──
+    const visitor = await browser.newContext();
+    try {
+      const signupPage = await visitor.newPage();
+      await signupPage.goto(link);
+      const lockedEmail = signupPage.getByTestId("signup-email");
+      await expect(lockedEmail).toHaveValue(email, { timeout: 15_000 });
+      await expect(lockedEmail).toHaveAttribute("readonly", "");
+      await expect(signupPage.getByTestId("signup-shop-name")).toHaveValue(
+        shopName,
+      );
+      await expect(signupPage.getByTestId("signup-invite-code")).toHaveCount(0);
+
+      await signupPage.getByTestId("signup-slug").fill(slug);
+      await signupPage.getByTestId("signup-username").fill(`l267_owner_${ts}`);
+      await signupPage.getByTestId("signup-password").fill("L267OwnerPass!1");
+      await signupPage.getByTestId("signup-submit").click();
+
+      // APP_BASE_DOMAIN is empty here, so the page shows the bare slug.
+      await expect(signupPage.getByTestId("signup-login-url")).toContainText(
+        slug,
+        { timeout: 15_000 },
+      );
+      expect(contactEmailOf(slug)).toBe(email);
+
+      // ── 4. The link works once ──
+      await signupPage.goto(link);
+      await expect(signupPage.getByRole("alert")).toContainText(
+        INVITE_INVALID,
+        { timeout: 15_000 },
+      );
+      await expect(signupPage.getByTestId("signup-submit")).toHaveCount(0);
+    } finally {
+      await visitor.close();
+    }
+
+    // ── 5. The admin list shows it used, by the new shop ──
+    await page.reload();
+    await expect(inviteRow.getByText("used")).toBeVisible({ timeout: 15_000 });
+    await expect(inviteRow).toContainText(slug);
+  });
+
+  test("a visitor signs up from the login page with just an email", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const email = `l267-self-${ts}@example.com`;
+    const slug = `l267-self-${ts}`;
+    const username = `l267_self_${ts}`;
+    const password = "L267SelfPass!1";
+
+    // ── 1. Login page -> Sign up -> request form (email + Turnstile only) ──
+    await page.goto("/#/login");
+    await page.getByRole("link", { name: "Sign up" }).click();
+    const emailField = page.getByTestId("signup-request-email");
+    await expect(emailField).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("signup-shop-name")).toHaveCount(0);
+    await emailField.fill(email);
+
+    // The always-pass test key solves the check by itself; the button
+    // enables once the widget hands over a token.
+    const submit = page.getByTestId("signup-request-submit");
+    await expect(submit).toBeEnabled({ timeout: 30_000 });
+    await submit.click();
+    await expect(page.getByText("Check your inbox")).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // ── 2. The emailed link opens the shop form for that email ──
+    const link = await waitForInviteLink(email);
+    await page.goto(link);
+    await expect(page.getByTestId("signup-email")).toHaveValue(email, {
+      timeout: 15_000,
+    });
+    await page.getByTestId("signup-shop-name").fill(`L267 Self ${ts}`);
+    await page.getByTestId("signup-slug").fill(slug);
+    await page.getByTestId("signup-username").fill(username);
+    await page.getByTestId("signup-password").fill(password);
+    await page.getByTestId("signup-submit").click();
+    await expect(page.getByTestId("signup-login-url")).toContainText(slug, {
+      timeout: 15_000,
+    });
+    expect(contactEmailOf(slug)).toBe(email);
+
+    // ── 3. The new owner can log in ──
+    await loginAsUser(page, username, password);
+    await expect(page).not.toHaveURL(/\/login/);
+  });
+});

@@ -11,15 +11,35 @@
  * No token is issued on success by design: the new tenant is sent to its own
  * subdomain to log in, which is the only place its credentials work once
  * APP_BASE_DOMAIN is set.
+ *
+ * LIRA-267 — three ways in, decided on load:
+ *   - INVITE   `?invite=<token>`: the emailed single-use link. Checked once;
+ *              the invited email is shown locked, the shop name prefilled
+ *              from the hint, and the form sends `inviteToken`.
+ *   - REQUEST  no link, self-serve on: only an email field and the Turnstile
+ *              check. The emailed link is what opens the shop form.
+ *   - CODE     no link, shared invite code configured (Stage A only, retired
+ *              in Stage B): the original form with the invite-code field.
+ *              Reachable from REQUEST via "Have an invite code?" when both
+ *              are on.
+ *   Otherwise: "Sign-up is not available right now".
  */
 
-import React, { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import React, { useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import clsx from "clsx";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
-import { signup } from "@/api/backendApi";
+import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
+import {
+  signup,
+  checkSignupInvite,
+  publicAuthInfo,
+  requestSignupLink,
+  type SignupInput,
+} from "@/api/backendApi";
+import type { SignupInviteCheckResult } from "@liratek/core";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
+import { TurnstileWidget } from "@/features/auth/components/TurnstileWidget";
 import logger from "@/utils/logger";
 
 /**
@@ -42,10 +62,36 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 const MIN_USERNAME = 3;
 const MIN_PASSWORD = 6;
 
+const INVITE_INVALID_FALLBACK =
+  "This invite link is not valid. Ask for a new invite.";
+const UNREACHABLE = "Could not reach the server. Please try again.";
+
+/** What the page shows before the shop form. */
+type Entry =
+  | { kind: "loading" }
+  | { kind: "invite"; invite: SignupInviteCheckResult }
+  | { kind: "invite-invalid"; message: string }
+  | { kind: "request"; siteKey: string; codeAvailable: boolean }
+  | { kind: "code"; requestSiteKey: string | null }
+  | { kind: "unavailable" };
+
 export default function Signup() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const dark = theme === "dark";
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get("invite")?.trim() || null;
+
+  const [entry, setEntry] = useState<Entry>({ kind: "loading" });
+
+  // Request-a-link form (self-serve).
+  const [requestEmail, setRequestEmail] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  // Bumped to REMOUNT the widget: a token the server has seen is spent.
+  const [widgetKey, setWidgetKey] = useState(0);
+  const [requesting, setRequesting] = useState(false);
+  const [requestError, setRequestError] = useState("");
+  const [requestSent, setRequestSent] = useState<string | null>(null);
 
   const [shopName, setShopName] = useState("");
   // Tracked separately so typing the name keeps deriving the slug, while an
@@ -64,16 +110,112 @@ export default function Signup() {
     loginUrl: string | null;
   } | null>(null);
 
+  // Decide the entry ONCE per link. The ref (not a `cancelled` flag) is what
+  // makes StrictMode's mount -> cleanup -> mount run the check a single time:
+  // the check route has its own per-IP limiter, and a dropped first result
+  // plus a second request would spend two slots per page load. The API
+  // functions are module imports (stable), so they are not dependencies.
+  const decidedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const key = inviteToken ?? "";
+    if (decidedFor.current === key) return;
+    decidedFor.current = key;
+
+    if (inviteToken) {
+      checkSignupInvite(inviteToken)
+        .then((res) => {
+          if (res.success && res.data) {
+            const invite = res.data;
+            setEntry({ kind: "invite", invite });
+            if (invite.shopNameHint) setShopName(invite.shopNameHint);
+            return;
+          }
+          setEntry({
+            kind: "invite-invalid",
+            message: messageFrom(res.error, INVITE_INVALID_FALLBACK),
+          });
+        })
+        .catch((err: unknown) => {
+          logger.error("Invite check failed:", err);
+          setEntry({
+            kind: "invite-invalid",
+            message: messageFrom(err, UNREACHABLE),
+          });
+        });
+      return;
+    }
+
+    publicAuthInfo()
+      .then((res) => {
+        const data = res.success ? res.data : undefined;
+        const siteKey =
+          data?.selfServeEnabled && data.turnstileSiteKey
+            ? data.turnstileSiteKey
+            : null;
+        const codeAvailable = Boolean(data?.enabled);
+        if (siteKey) {
+          setEntry({ kind: "request", siteKey, codeAvailable });
+        } else if (codeAvailable) {
+          setEntry({ kind: "code", requestSiteKey: null });
+        } else {
+          setEntry({ kind: "unavailable" });
+        }
+      })
+      // A backend that cannot answer cannot sign anyone up either.
+      .catch(() => setEntry({ kind: "unavailable" }));
+  }, [inviteToken]);
+
+  const invite = entry.kind === "invite" ? entry.invite : null;
+  const needsCode = entry.kind === "code";
+
   const effectiveSlug = slugTouched ? slug : slugify(shopName);
   const slugValid = SLUG_PATTERN.test(effectiveSlug);
 
   const canSubmit =
+    (invite !== null || needsCode) &&
     shopName.trim().length > 0 &&
     slugValid &&
     username.trim().length >= MIN_USERNAME &&
     password.length >= MIN_PASSWORD &&
-    inviteCode.trim().length > 0 &&
+    (!needsCode || inviteCode.trim().length > 0) &&
     !loading;
+
+  const canRequest =
+    requestEmail.trim().length > 0 && turnstileToken !== null && !requesting;
+
+  const spendTurnstileToken = () => {
+    setTurnstileToken(null);
+    setWidgetKey((k) => k + 1);
+  };
+
+  const handleRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canRequest || turnstileToken === null) return;
+
+    setRequestError("");
+    setRequesting(true);
+    try {
+      const res = await requestSignupLink({
+        email: requestEmail.trim(),
+        turnstileToken,
+      });
+      if (res.success) {
+        setRequestSent(
+          res.data?.message ??
+            "If this address can be used, we've emailed a link.",
+        );
+        return;
+      }
+      setRequestError(messageFrom(res.error, "Could not send the link"));
+      spendTurnstileToken();
+    } catch (err) {
+      logger.error("Sign-up link request failed:", err);
+      setRequestError(messageFrom(err, UNREACHABLE));
+      spendTurnstileToken();
+    } finally {
+      setRequesting(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,13 +224,18 @@ export default function Signup() {
     setError("");
     setLoading(true);
     try {
-      const result = await signup({
+      // Built ONCE (rule 22). Exactly one proof key: an `inviteCode: ""`
+      // beside a token counts as "both" and the schema refuses it.
+      const payload: SignupInput = {
         name: shopName.trim(),
         slug: effectiveSlug,
         adminUsername: username.trim(),
         adminPassword: password,
-        inviteCode: inviteCode.trim(),
-      });
+        ...(inviteToken && invite
+          ? { inviteToken }
+          : { inviteCode: inviteCode.trim() }),
+      };
+      const result = await signup(payload);
 
       if (result.success && result.data?.tenant) {
         setCreated({
@@ -102,9 +249,7 @@ export default function Signup() {
       setError(messageFrom(result.error, "Signup failed"));
     } catch (err) {
       logger.error("Signup request failed:", err);
-      setError(
-        messageFrom(err, "Could not reach the server. Please try again."),
-      );
+      setError(messageFrom(err, UNREACHABLE));
     } finally {
       setLoading(false);
     }
@@ -204,6 +349,143 @@ export default function Signup() {
     );
   }
 
+  const errorBox = (message: string) => (
+    <div
+      role="alert"
+      className="mb-4 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-500"
+    >
+      <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+      <span>{message}</span>
+    </div>
+  );
+
+  const signInFooter = (
+    <p className={clsx("mt-4 text-center", subtleClass)}>
+      Already have a shop?{" "}
+      <Link to="/login" className="text-orange-500 hover:text-orange-400">
+        Sign in
+      </Link>
+    </p>
+  );
+
+  if (entry.kind === "loading") {
+    return (
+      <div className={pageClass}>
+        <div className={clsx(cardClass, "text-center")}>
+          <p className={subtleClass}>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.kind === "invite-invalid") {
+    return (
+      <div className={pageClass}>
+        <div className={cardClass}>
+          <h1 className={clsx(headingClass, "mb-4")}>Create your shop</h1>
+          {errorBox(entry.message)}
+          {signInFooter}
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.kind === "unavailable") {
+    return (
+      <div className={pageClass}>
+        <div className={clsx(cardClass, "text-center")}>
+          <h1 className={clsx(headingClass, "mb-2")}>Sign up</h1>
+          <p className={subtleClass}>Sign-up is not available right now.</p>
+          {signInFooter}
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.kind === "request") {
+    if (requestSent) {
+      return (
+        <div className={pageClass}>
+          <div className={clsx(cardClass, "text-center")}>
+            <Mail className="w-10 h-10 text-orange-500 mx-auto mb-3" />
+            <h1 className={clsx(headingClass, "mb-2")}>Check your inbox</h1>
+            <p className={subtleClass}>{requestSent}</p>
+            <p className={clsx(hintClass, "mt-3")}>
+              The link works once. If nothing arrives in a few minutes, check
+              your spam folder.
+            </p>
+            {signInFooter}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className={pageClass}>
+        <form onSubmit={handleRequest} className={cardClass}>
+          <h1 className={clsx(headingClass, "mb-1")}>Create your shop</h1>
+          <p className={clsx(subtleClass, "mb-6")}>
+            Enter your email and we&apos;ll send you a link to set up your
+            shop.
+          </p>
+
+          {requestError && errorBox(requestError)}
+
+          <div className="space-y-4">
+            <div>
+              <label className={labelClass} htmlFor="signup-request-email">
+                Email *
+              </label>
+              <input
+                id="signup-request-email"
+                data-testid="signup-request-email"
+                type="email"
+                value={requestEmail}
+                onChange={(e) => setRequestEmail(e.target.value)}
+                className={inputClass}
+                placeholder="you@example.com"
+                autoComplete="email"
+                autoFocus
+              />
+            </div>
+
+            <TurnstileWidget
+              key={widgetKey}
+              siteKey={entry.siteKey}
+              onSuccess={setTurnstileToken}
+              onExpire={() => setTurnstileToken(null)}
+            />
+          </div>
+
+          <button
+            type="submit"
+            data-testid="signup-request-submit"
+            disabled={!canRequest}
+            className="mt-6 w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
+          >
+            {requesting ? "Sending..." : "Email me a sign-up link"}
+          </button>
+
+          {entry.codeAvailable && (
+            <p className={clsx("mt-4 text-center", subtleClass)}>
+              <button
+                type="button"
+                onClick={() =>
+                  setEntry({ kind: "code", requestSiteKey: entry.siteKey })
+                }
+                className="text-orange-500 hover:text-orange-400"
+              >
+                Have an invite code?
+              </button>
+            </p>
+          )}
+
+          {signInFooter}
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className={pageClass}>
       <form onSubmit={handleSubmit} className={cardClass}>
@@ -212,17 +494,27 @@ export default function Signup() {
           Everything else can be changed later in Settings.
         </p>
 
-        {error && (
-          <div
-            role="alert"
-            className="mb-4 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-500"
-          >
-            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
+        {error && errorBox(error)}
 
         <div className="space-y-4">
+          {invite && (
+            <div>
+              <label className={labelClass} htmlFor="signup-email">
+                Email
+              </label>
+              {/* Locked: the server takes the shop's email from the invite,
+                  never from the form. */}
+              <input
+                id="signup-email"
+                data-testid="signup-email"
+                type="email"
+                value={invite.email}
+                readOnly
+                className={clsx(inputClass, "opacity-70 cursor-not-allowed")}
+              />
+            </div>
+          )}
+
           <div>
             <label className={labelClass} htmlFor="signup-shop-name">
               Shop name *
@@ -304,20 +596,22 @@ export default function Signup() {
             <p className={hintClass}>At least {MIN_PASSWORD} characters.</p>
           </div>
 
-          <div>
-            <label className={labelClass} htmlFor="signup-invite-code">
-              Invite code *
-            </label>
-            <input
-              id="signup-invite-code"
-              data-testid="signup-invite-code"
-              type="text"
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value)}
-              className={inputClass}
-              autoComplete="off"
-            />
-          </div>
+          {needsCode && (
+            <div>
+              <label className={labelClass} htmlFor="signup-invite-code">
+                Invite code *
+              </label>
+              <input
+                id="signup-invite-code"
+                data-testid="signup-invite-code"
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                className={inputClass}
+                autoComplete="off"
+              />
+            </div>
+          )}
         </div>
 
         <button
@@ -336,12 +630,25 @@ export default function Signup() {
           )}
         </button>
 
-        <p className={clsx("mt-4 text-center", subtleClass)}>
-          Already have a shop?{" "}
-          <Link to="/login" className="text-orange-500 hover:text-orange-400">
-            Sign in
-          </Link>
-        </p>
+        {entry.kind === "code" && entry.requestSiteKey && (
+          <p className={clsx("mt-4 text-center", subtleClass)}>
+            <button
+              type="button"
+              onClick={() =>
+                setEntry({
+                  kind: "request",
+                  siteKey: entry.requestSiteKey ?? "",
+                  codeAvailable: true,
+                })
+              }
+              className="text-orange-500 hover:text-orange-400"
+            >
+              Sign up with your email instead
+            </button>
+          </p>
+        )}
+
+        {signInFooter}
       </form>
     </div>
   );

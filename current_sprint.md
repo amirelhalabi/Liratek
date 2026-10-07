@@ -6297,3 +6297,14 @@ Also from the production test: **G40** — voided supplier history rows read "Un
 **What users will notice (follow-ups):** the Keep change button is gone — less change handed back is kept
 as profit automatically and the form says so; a repair job keeps the phone you type; Exchange kept cents
 appear under "Kept change" on the Profits page.
+
+
+## LIRA-267: email sign-up links and invitations (web app) — IN PROGRESS
+
+Spec, plan and tasks: `specs/267-email-invite-signup/`. Branch `267-email-invite-signup`.
+
+- Stage A (built, not deployed): admin invitations from the Tenants page, self-serve sign-up by email behind Cloudflare Turnstile and rate limits, email outbox with retries, `tenants.contact_email` (one shop per email).
+- Waiting on the owner: Spacemail mailbox + DNS, SMTP host for the Fly port check (T001), Turnstile keys, SMTP transport (T040), real Gmail check (T042).
+- Stage B (after T042): remove the shared invite code.
+
+**What users will notice:** on the web app, new shops sign up with their email and a link we send them; the platform admin can email invitations and see whether they were used.

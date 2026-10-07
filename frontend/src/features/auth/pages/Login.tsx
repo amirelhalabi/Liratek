@@ -21,9 +21,13 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Whether to offer "Create your shop". Starts false so the link never
-  // flashes on a desktop build or on a deployment with signup switched off —
-  // showing it and then removing it is worse than showing it a moment late.
+  // Whether to offer "Sign up". Starts false so the link never flashes on a
+  // desktop build or on a deployment with signup switched off — showing it
+  // and then removing it is worse than showing it a moment late.
+  //
+  // LIRA-267: shown when a visitor can email themselves a sign-up link
+  // (selfServeEnabled) OR, in Stage A only, while the shared invite code is
+  // still configured (`enabled`). Stage B drops the `|| enabled`.
   const [canSignUp, setCanSignUp] = useState(false);
 
   // The shop's name as resolved from the SUBDOMAIN, which is knowable before
@@ -39,7 +43,7 @@ export default function Login() {
     publicAuthInfo()
       .then((r) => {
         if (cancelled || !r.success || !r.data) return;
-        setCanSignUp(Boolean(r.data.enabled));
+        setCanSignUp(Boolean(r.data.selfServeEnabled || r.data.enabled));
         if (r.data.shopName) setHostShopName(r.data.shopName);
       })
       // A backend that cannot answer is a backend that cannot sign anyone up
@@ -213,10 +217,11 @@ export default function Login() {
             </button>
           </form>
 
-          {/* Web only, and only when the operator has actually enabled signup
-              (SIGNUP_INVITE_CODE). The desktop build provisions its single
-              tenant through the first-run setup wizard, so a "create a shop"
-              link there would lead to an endpoint IPC never serves. */}
+          {/* Web only, and only when signup is actually open: self-serve
+              email sign-up (LIRA-267), or the shared SIGNUP_INVITE_CODE while
+              Stage A lasts. The desktop build provisions its single tenant
+              through the first-run setup wizard, so a sign-up link there
+              would lead to an endpoint IPC never serves. */}
           {canSignUp && (
             <p
               className={clsx(
@@ -229,7 +234,7 @@ export default function Login() {
                 to="/signup"
                 className="text-orange-500 hover:text-orange-400"
               >
-                Create your shop
+                Sign up
               </Link>
             </p>
           )}

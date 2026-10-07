@@ -104,7 +104,7 @@ export interface CreateSignupInvitationParams {
   invitedByUserId: number | null;
   /** UTC ISO. */
   now: string;
-  /** e.g. `https://www.liratek.shop` — the link is `${baseUrl}/signup?invite=…`. */
+  /** e.g. `https://www.liratek.shop` — the link is `${baseUrl}/#/signup?invite=…`. */
   baseUrl: string;
   /** False when the server has no mail transport: refuse up front. */
   emailConfigured: boolean;
@@ -246,7 +246,10 @@ export function toSignupInvitationView(
 }
 
 function inviteUrl(baseUrl: string, token: string): string {
-  return `${baseUrl.replace(/\/+$/, "")}/signup?invite=${encodeURIComponent(token)}`;
+  // Hash route: the web app uses HashRouter and Vercel does not serve
+  // index.html at a bare /signup path (it 404s), so the link must carry the
+  // route in the fragment.
+  return `${baseUrl.replace(/\/+$/, "")}/#/signup?invite=${encodeURIComponent(token)}`;
 }
 
 // =============================================================================

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, ExternalLink, RefreshCw } from "lucide-react";
+import { Plus, ExternalLink, RefreshCw, Send } from "lucide-react";
 import { ConfirmModal } from "@liratek/ui";
 import {
   useTenantsQuery,
@@ -8,6 +8,8 @@ import {
   useImpersonateTenantMutation,
 } from "../../hooks/useTenants";
 import { AddTenantModal } from "../../components/AddTenantModal";
+import { SendInviteModal } from "../../components/SendInviteModal";
+import { SignupInvitationsSection } from "../../components/SignupInvitationsSection";
 import { PlanModal } from "../../components/PlanModal";
 import { DeleteTenantModal } from "../../components/DeleteTenantModal";
 import { useSubscriptionsQuery } from "../../hooks/useSubscriptions";
@@ -17,6 +19,7 @@ import type {
   AdminSubscription,
 } from "@/api/backendApi";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { messageFrom } from "@/api/apiError";
 
 const STATUS_BADGE_CLASSES: Record<AdminTenant["status"], string> = {
   active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
@@ -86,6 +89,7 @@ export function TenantsPage() {
   const impersonate = useImpersonateTenantMutation();
 
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<AdminTenant | null>(null);
   const [impersonateError, setImpersonateError] = useState<string | null>(null);
@@ -110,11 +114,11 @@ export function TenantsPage() {
       await createTenant.mutateAsync(payload);
       setIsAddOpen(false);
     } catch (err) {
-      // requestJson throws ApiError (with .message) on non-2xx, e.g. the
-      // 409 duplicate-slug case — surface it verbatim in the form.
-      setCreateError(
-        err instanceof Error ? err.message : "Failed to create tenant",
-      );
+      // requestJson throws a PLAIN `{ status, message }` object on non-2xx
+      // (e.g. the 409 duplicate-slug / EMAIL_ALREADY_HAS_SHOP cases), whose
+      // `message` is itself `{ code, message }` — not an Error. messageFrom
+      // unwraps every shape so the server's words reach the form.
+      setCreateError(messageFrom(err, "Failed to create tenant"));
     }
   };
 
@@ -202,6 +206,13 @@ export function TenantsPage() {
             title="Refresh"
           >
             <RefreshCw size={16} className={isFetching ? "animate-spin" : ""} />
+          </button>
+          <button
+            onClick={() => setIsInviteOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-orange-500/60 text-orange-300 hover:bg-orange-500/10 text-sm font-semibold rounded-lg transition-colors"
+          >
+            <Send size={16} />
+            Send invite
           </button>
           <button
             onClick={() => {
@@ -342,6 +353,8 @@ export function TenantsPage() {
         </div>
       )}
 
+      <SignupInvitationsSection />
+
       {deleteTarget && (
         <DeleteTenantModal
           tenant={deleteTarget}
@@ -360,6 +373,11 @@ export function TenantsPage() {
           onClose={() => setPlanTenantId(null)}
         />
       )}
+
+      <SendInviteModal
+        isOpen={isInviteOpen}
+        onClose={() => setIsInviteOpen(false)}
+      />
 
       <AddTenantModal
         isOpen={isAddOpen}

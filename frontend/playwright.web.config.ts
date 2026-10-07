@@ -78,6 +78,27 @@ const DB_PATH = path.join(
   "phone_shop.web.db",
 );
 
+/**
+ * LIRA-267: where the backend's `file` email transport writes each email
+ * (`<template>-<outboxId>.{html,txt,json}`). lira-web-039 polls it for the
+ * invite link instead of a real mailbox. Exported for the spec.
+ */
+export const EMAIL_FILE_DIR = path.join(
+  __dirname,
+  "test-results",
+  "e2e-web",
+  "mail",
+);
+
+/**
+ * Cloudflare's documented always-pass Turnstile TEST keys (likely, per
+ * Cloudflare's Turnstile docs — verify if the self-serve spec misbehaves).
+ * They still load the real widget from challenges.cloudflare.com and call
+ * the real siteverify, so lira-web-039's self-serve test needs internet.
+ */
+export const TURNSTILE_TEST_SITE_KEY = "1x00000000000000000000AA";
+const TURNSTILE_TEST_SECRET_KEY = "1x0000000000000000000000000000000AA";
+
 export default defineConfig({
   timeout: 60_000,
   retries: 0,
@@ -135,6 +156,25 @@ export default defineConfig({
         // (100/15min) would 429 the suite (see rateLimit.ts env knobs).
         API_RATE_LIMIT_MAX: "1000000",
         AUTH_RATE_LIMIT_MAX: "100000",
+        // LIRA-267 (lira-web-039): email invites + self-serve sign-up.
+        // Every value pinned, NOT omitted, for the same dotenv-leak reason
+        // as APP_BASE_DOMAIN above.
+        EMAIL_TRANSPORT: "file",
+        EMAIL_FILE_DIR,
+        // APP_BASE_DOMAIN is pinned empty, so without this there is nowhere
+        // for the link to point and invites answer 409 EMAIL_NOT_CONFIGURED.
+        SIGNUP_INVITE_BASE_URL: `http://localhost:${WEB_PORT}`,
+        TURNSTILE_SITE_KEY: TURNSTILE_TEST_SITE_KEY,
+        TURNSTILE_SECRET_KEY: TURNSTILE_TEST_SECRET_KEY,
+        // The shared invite code stays OFF so /signup without a link shows
+        // the self-serve request form, never the legacy code form.
+        SIGNUP_INVITE_CODE: "",
+        // The DB and limiter windows outlive one run; re-running within the
+        // hour must not 429 or hit the daily self-serve cap.
+        SIGNUP_RATE_LIMIT_MAX: "100000",
+        SIGNUP_CHECK_RATE_LIMIT_MAX: "100000",
+        SIGNUP_REQUEST_RATE_LIMIT_MAX: "100000",
+        SIGNUP_SELF_SERVE_DAILY_CAP: "100000",
         LOG_LEVEL: "warn",
       },
     },

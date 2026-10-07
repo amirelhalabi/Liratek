@@ -8,6 +8,17 @@ import {
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-267 — sign-up / invite payloads and views, derived from the core
+// schemas (rule 21). The `*BodyInput`/`*Input` aliases are `z.input<…>`
+// computed inside core, against core's own zod major.
+import type {
+  SignupBodyInput,
+  CreateTenantBodyInput,
+  CreateSignupInvitationInput,
+  RequestSignupLinkInput,
+  SignupInvitationView,
+  SignupInviteCheckResult,
+} from "@liratek/core";
 import { messageFrom } from "./apiError";
 import { localDay } from "@/shared/utils/localDay";
 import type {
@@ -146,15 +157,13 @@ function withDecodedTenant(
   return tenantId !== undefined ? { ...user, tenantId } : user;
 }
 
-export interface SignupInput {
-  name: string;
-  slug: string;
-  adminUsername: string;
-  adminPassword: string;
-  inviteCode: string;
-  contactName?: string;
-  contactPhone?: string;
-}
+/**
+ * The public sign-up body: exactly one of `inviteToken` (emailed link) or
+ * `inviteCode` (shared code, Stage A only). Derived from `signupSchema`
+ * (rule 21) — it replaced a hand-written copy that could only ever say
+ * `inviteCode`.
+ */
+export type SignupInput = SignupBodyInput;
 
 /**
  * Create a tenant via self-service signup.
@@ -254,7 +263,16 @@ export async function publicAuthInfo() {
   return requestJson<{
     success: boolean;
     data?: {
+      /** The SHARED invite code is configured (Stage A only). */
       enabled: boolean;
+      /** LIRA-267: the platform can email invite links. */
+      emailInvitesEnabled?: boolean;
+      /** LIRA-267 US4: a visitor can ask for a sign-up link by email (mail
+       *  AND Turnstile configured). Optional so an older backend reads as
+       *  "off". */
+      selfServeEnabled?: boolean;
+      /** Public Turnstile site key; null unless self-serve is on. */
+      turnstileSiteKey?: string | null;
       platformHost: boolean;
       baseDomain: string | null;
       /** The tenant's name, resolved from the HOST — available before login,
@@ -262,6 +280,53 @@ export async function publicAuthInfo() {
       shopName: string | null;
     };
   }>("/api/auth/signup-status", { auth: false });
+}
+
+/** One error envelope shape these public routes can answer with: a bare
+ * string (zod / self-serve refusals) or createErrorResponse's object. */
+export type PublicRouteError = string | { code?: string; message?: string };
+
+/**
+ * Is this emailed invite link usable? (LIRA-267, PUBLIC)
+ *
+ * The token goes in the BODY so it never lands in access logs. Every unusable
+ * link — unknown, expired, used, revoked, mid-claim — gets the same 200 +
+ * `success:false`, so the page can only say "not valid", never why. A 429
+ * (signupCheckLimiter) THROWS, like every non-2xx from requestJson.
+ *
+ * Web only: the desktop app has no sign-up at all.
+ */
+export async function checkSignupInvite(token: string) {
+  return requestJson<{
+    success: boolean;
+    data?: SignupInviteCheckResult;
+    error?: PublicRouteError;
+  }>("/api/auth/signup/invite/check", {
+    method: "POST",
+    body: { token },
+    auth: false,
+  });
+}
+
+/**
+ * "Email me a sign-up link" (LIRA-267 US4, PUBLIC).
+ *
+ * Once Turnstile passes, the server answers the SAME generic message whether
+ * or not it sent anything, so the form cannot reveal which addresses already
+ * have a shop. Refusals (not available / complete the check / try later) are
+ * 200 + `success:false` with a string error; the per-IP limit is a 429, which
+ * THROWS.
+ */
+export async function requestSignupLink(input: RequestSignupLinkInput) {
+  return requestJson<{
+    success: boolean;
+    data?: { message: string };
+    error?: PublicRouteError;
+  }>("/api/auth/signup/request", {
+    method: "POST",
+    body: input,
+    auth: false,
+  });
 }
 
 export async function login(
@@ -6941,15 +7006,9 @@ export type AdminTenant = {
   last_activity: string | null;
 };
 
-export type AdminCreateTenantPayload = {
-  name: string;
-  slug: string;
-  contactName?: string;
-  contactPhone?: string;
-  notes?: string;
-  adminUsername: string;
-  adminPassword: string;
-};
+/** Derived from `createTenantSchema` (rule 21) — includes the optional
+ * `contactEmail` (LIRA-267 FR-013b). */
+export type AdminCreateTenantPayload = CreateTenantBodyInput;
 
 export type AdminUpdateTenantPayload = {
   name?: string;
@@ -7145,6 +7204,67 @@ export async function adminCreateTenant(
     throw new Error(res.error || "Failed to create tenant");
   }
   return res.data.tenant;
+}
+
+// ==================== Sign-up invitations (LIRA-267) ====================
+// Web only (super-admin control plane), same as the tenant functions above.
+
+export type { SignupInvitationView };
+
+export interface AdminSignupInvitationList {
+  /** False when this deployment cannot email links (no transport or no base
+   *  URL) — the page shows a banner and creating an invite would 409. */
+  emailConfigured: boolean;
+  invitations: SignupInvitationView[];
+}
+
+export async function adminListSignupInvitations(): Promise<AdminSignupInvitationList> {
+  assertWebOnly("Listing sign-up invitations");
+  const res = await requestJson<{
+    success: boolean;
+    data?: AdminSignupInvitationList;
+    error?: PublicRouteError;
+  }>("/api/admin/signup-invitations");
+  if (!res.success || !res.data) {
+    throw new Error(messageFrom(res.error, "Failed to load invitations"));
+  }
+  return res.data;
+}
+
+/**
+ * Email a single-use sign-up link. A 409 (`EMAIL_NOT_CONFIGURED`,
+ * `EMAIL_ALREADY_HAS_SHOP`) is a non-2xx, so requestJson THROWS its plain
+ * `{ status, message: { code, message, details } }` object — callers read it
+ * with `messageFrom`, never `instanceof Error`.
+ */
+export async function adminCreateSignupInvitation(
+  input: CreateSignupInvitationInput,
+): Promise<SignupInvitationView> {
+  assertWebOnly("Sending a sign-up invitation");
+  const res = await requestJson<{
+    success: boolean;
+    data?: { invitation: SignupInvitationView };
+    error?: PublicRouteError;
+  }>("/api/admin/signup-invitations", { method: "POST", body: input });
+  if (!res.success || !res.data?.invitation) {
+    throw new Error(messageFrom(res.error, "Failed to send the invitation"));
+  }
+  return res.data.invitation;
+}
+
+export async function adminRevokeSignupInvitation(
+  id: number,
+): Promise<SignupInvitationView> {
+  assertWebOnly("Revoking a sign-up invitation");
+  const res = await requestJson<{
+    success: boolean;
+    data?: { invitation: SignupInvitationView };
+    error?: PublicRouteError;
+  }>(`/api/admin/signup-invitations/${id}/revoke`, { method: "POST" });
+  if (!res.success || !res.data?.invitation) {
+    throw new Error(messageFrom(res.error, "Failed to revoke the invitation"));
+  }
+  return res.data.invitation;
 }
 
 export async function adminUpdateTenant(

@@ -128,7 +128,7 @@ The body accepts an optional `contactEmail`, which is subject to the uniqueness 
 
 | Variable | Escaped in HTML | Source |
 | --- | --- | --- |
-| `inviteUrl` | yes (attribute-safe) | `${SIGNUP_INVITE_BASE_URL}/signup?invite=<token>` |
+| `inviteUrl` | yes (attribute-safe) | `${SIGNUP_INVITE_BASE_URL}/#/signup?invite=<token>` (hash route: the app uses HashRouter and Vercel 404s a bare `/signup`) |
 | `shopNameHint` | yes | Invite. Optional; that block is hidden when empty. |
 | `expiresAtText` | yes | Formatted in UTC with an explicit "UTC" suffix, so the text doesn't depend on the server's timezone (rule 27). |
 | `supportEmail` | yes | `EMAIL_REPLY_TO` or `EMAIL_FROM` |

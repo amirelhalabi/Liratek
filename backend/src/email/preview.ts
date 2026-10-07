@@ -30,7 +30,7 @@ export type PreviewSpawner = (command: string, args: string[]) => void;
 export const EMAIL_PREVIEW_SAMPLES: Readonly<Record<string, TemplateVars>> = {
   "signup-invite": {
     inviteUrl:
-      "https://www.liratek.shop/signup?invite=PREVIEW_ONLY_not_a_real_token_0123456789",
+      "https://www.liratek.shop/#/signup?invite=PREVIEW_ONLY_not_a_real_token_0123456789",
     shopNameHint: `Cell City <script>alert("hi")</script> & Sons`,
     expiresAtText: "10 October 2026, 09:00 UTC",
     supportEmail: "support@liratek.shop",

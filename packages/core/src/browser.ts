@@ -336,3 +336,13 @@ export * from "./constants/transactionTypes.js";
 // this one definition (rule 14). Must be exported HERE too (rule 29 /
 // telecomCredit.js note).
 export * from "./utils/rechargeDiscount.js";
+
+// LIRA-267 — the admin invite list's row shape and the invite-check answer.
+// Type-only (erased at compile time), so the Node-only service module lands
+// nothing in the bundle — same reasoning as the ProfitService exports above.
+// Must be exported HERE: Vite/Jest resolve @liratek/core to this file.
+export type {
+  SignupInvitationView,
+  SignupInviteEmailStatus,
+  SignupInviteCheckResult,
+} from "./services/SignupInvitationService.js";

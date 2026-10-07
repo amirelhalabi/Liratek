@@ -81,4 +81,13 @@ export const signupSchema = createTenantSchema
 export type SignupInput = z.infer<typeof signupSchema>;
 
 export type CreateTenantInput = z.infer<typeof createTenantSchema>;
+
+/**
+ * Wire (pre-parse) shapes of the two tenant-creating bodies, for the web
+ * adapter's payload types (CLAUDE.md rule 21: derived from the schema, never
+ * hand-copied). `z.input` is computed HERE, against core's own zod major, so
+ * the frontend never applies its own zod's `z.input` to a core schema.
+ */
+export type SignupBodyInput = z.input<typeof signupSchema>;
+export type CreateTenantBodyInput = z.input<typeof createTenantSchema>;
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;

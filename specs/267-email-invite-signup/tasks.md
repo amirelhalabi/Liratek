@@ -198,20 +198,20 @@
   - Change `POST /signup` (:666): for `inviteToken`, call `service.consume(token, now, () => provisionTenant({...body, contactEmail: invite.email}))`, with the existing audit, `provisionTenantDomain` and `loginUrl` steps after it. For `inviteCode`, use `safeEqual`.
   - Map `EMAIL_ALREADY_HAS_SHOP` to 400 "This email already has a shop."
   - Extend `GET /signup-status` with `emailInvitesEnabled`.
-- [ ] T028 [P] [US1] In `frontend/src/api/backendApi.ts`. This file only: admin functions are not part of `ApiAdapter`/`ElectronApiAdapter`. `adminCreateTenant` lives only in `backendApi.ts` and is imported directly by `useTenants.ts`. Do the same here.
+- [X] T028 [P] [US1] In `frontend/src/api/backendApi.ts`. This file only: admin functions are not part of `ApiAdapter`/`ElectronApiAdapter`. `adminCreateTenant` lives only in `backendApi.ts` and is imported directly by `useTenants.ts`. Do the same here.
   - Add `adminCreateSignupInvitation(input: z.input<typeof createSignupInvitationSchema>)` and `checkSignupInvite(token)`. Use `assertWebOnly` and `requestJson`, like `adminCreateTenant` (around :7135).
   - Replace the hand-written `SignupInput` (:149-158) with `z.input<typeof signupSchema>` (rule 21).
-- [ ] T029 [US1] Write `frontend/src/features/auth/pages/__tests__/Signup.invite.test.tsx` first and see it fail. Its `useApi()`/API mock must return a stable reference (rule 25). It checks:
+- [X] T029 [US1] Write `frontend/src/features/auth/pages/__tests__/Signup.invite.test.tsx` first and see it fail. Its `useApi()`/API mock must return a stable reference (rule 25). It checks:
   - With `?invite=abc`, `checkSignupInvite` is called once.
   - The email is shown read-only and the invite-code field is absent.
   - Submitting sends `inviteToken: "abc"` and no `inviteCode`.
   - An invalid token shows the generic message and no form.
   - Then implement in `frontend/src/features/auth/pages/Signup.tsx`: `useSearchParams`, a check on mount (reading the API through a ref), prefilling the shop name from the hint, the read-only email, and the payload built once (rule 22).
-- [ ] T030 [US1] Create `frontend/src/features/admin/hooks/useSignupInvitations.ts`, using react-query in the style of `useTenants.ts` (key `ADMIN_SIGNUP_INVITATION_KEYS`).
+- [X] T030 [US1] Create `frontend/src/features/admin/hooks/useSignupInvitations.ts`, using react-query in the style of `useTenants.ts` (key `ADMIN_SIGNUP_INVITATION_KEYS`).
   - On the existing super-admin Tenants page `frontend/src/features/admin/pages/Tenants/index.tsx` (spec FR-031), add a **Send invite** button next to **Add shop**. It opens a new `frontend/src/features/admin/components/SendInviteModal.tsx` (email plus optional shop name), which shows the 409 messages inline.
   - No new route and no new nav entry.
   - Write an RTL test first: sending calls the adapter with the schema-derived payload, and the duplicate-shop 409 is shown.
-- [ ] T031 [US1] Add the web e2e `frontend/tests/e2e-web/lira-web-039-email-invite.spec.ts`:
+- [X] T031 [US1] Add the web e2e `frontend/tests/e2e-web/lira-web-039-email-invite.spec.ts`: **Written and typechecked, NOT run** (needs the owner's web e2e environment and internet for Turnstile).
   - The super-admin sends an invite to a unique address.
   - The test polls `EMAIL_FILE_DIR` for `signup-invite-*.json`, reads the link from the `.html`, opens it and completes sign-up.
   - It asserts the shop's login URL, and that reopening the link shows the generic message.
@@ -233,15 +233,15 @@
   - `POST /:id/revoke`: 200, and calling it twice is harmless; 409 if the invite is already used; 404 for an unknown id.
 - [X] T033 [US2] In `SignupInvitationService`, add `list(now)` (map rows to the view shape, `deriveStatus`) and `revoke(id, now)`.
   - In `backend/src/api/admin.ts`, add `GET /signup-invitations` and `POST /signup-invitations/:id/revoke`. Put the static paths before `/:id`. Add the audit entry `signup_invitation.revoke`.
-- [ ] T034 [US2] Add `adminListSignupInvitations` and `adminRevokeSignupInvitation` to `frontend/src/api/backendApi.ts`, and wire them into `useSignupInvitations.ts`.
+- [X] T034 [US2] Add `adminListSignupInvitations` and `adminRevokeSignupInvitation` to `frontend/src/api/backendApi.ts`, and wire them into `useSignupInvitations.ts`.
   - On the Tenants page, add an **Invitations** section or tab below or beside the tenants table. It is a table with email, source (Admin or Self), sent, expires, status, and an email-state badge. A failed send shows `lastError` in a tooltip.
   - Add a Revoke action with a confirm step, and an "Email not configured" banner when `emailConfigured` is false.
   - Write the RTL test first.
-- [ ] T035 [US2] Admin "Add shop" email (FR-013b):
+- [X] T035 [US2] Admin "Add shop" email (FR-013b):
   - In `backend/src/api/admin.ts`, `POST /tenants` (:100) passes `contactEmail` through and maps a duplicate to 409 `EMAIL_ALREADY_HAS_SHOP`.
   - Add an optional email input to `frontend/src/features/admin/pages/Tenants/components/AddTenantModal.tsx`, typed from `createTenantSchema`.
   - Write tests first, in the existing admin tenants API test and the modal test.
-  - Backend half DONE (`POST /tenants` forwards `contactEmail`; duplicate → 409 `EMAIL_ALREADY_HAS_SHOP`, test in `wp5_wp6_admin_tenant.api.test.ts`). Frontend half (modal field + its test) still open, so this task stays unchecked.
+  - Backend half DONE (`POST /tenants` forwards `contactEmail`; duplicate → 409 `EMAIL_ALREADY_HAS_SHOP`, test in `wp5_wp6_admin_tenant.api.test.ts`). Frontend half DONE: the modal lives at `frontend/src/features/admin/components/AddTenantModal.tsx` (not `pages/Tenants/components/`); test `components/__tests__/AddTenantModal.test.tsx`. The Tenants page now shows the 409 in the server's words (`messageFrom`) — it used `instanceof Error`, which missed requestJson's plain-object throw.
 
 ---
 
@@ -271,17 +271,17 @@
   - The client IP comes from `req.ip`. Confirm Express `trust proxy` is set to match the Vercel → Fly chain already used by the limiters.
   - Log the outcome with `hashToken(email)`, never the plain address.
   - Extend `GET /signup-status` with `selfServeEnabled` and `turnstileSiteKey`.
-- [ ] T053 [P] [US4] Update the CSP in `frontend/index.html:13`: add `https://challenges.cloudflare.com` to `script-src`, and add `frame-src https://challenges.cloudflare.com`. Check whether `vercel.json` sets its own CSP header that would override it (it does not today; confirm).
-- [ ] T054 [US4] Write `frontend/src/features/auth/pages/__tests__/Signup.request.test.tsx` first, with a stable API mock (rule 25). It checks:
+- [X] T053 [P] [US4] Update the CSP in `frontend/index.html:13`: add `https://challenges.cloudflare.com` to `script-src`, and add `frame-src https://challenges.cloudflare.com`. Check whether `vercel.json` sets its own CSP header that would override it (it does not today; confirm).
+- [X] T054 [US4] Write `frontend/src/features/auth/pages/__tests__/Signup.request.test.tsx` first, with a stable API mock (rule 25). It checks:
   - Without `?invite=` and with `selfServeEnabled`, the page shows only the email field and the Turnstile widget. Mock the widget as a component that calls `onSuccess("tok")`.
   - Submitting calls `requestSignupLink({ email, turnstileToken: "tok" })` and shows "Check your inbox".
   - With `selfServeEnabled` false, it shows "not available".
   - Then implement it: create `frontend/src/features/auth/components/TurnstileWidget.tsx`, which loads the script once and renders explicitly with the site key from `signup-status`. Update `Signup.tsx` with three modes: invite (US1), request (US4), and the legacy shared code (Stage A only). Add `requestSignupLink` to `backendApi.ts`.
-- [ ] T055 [US4] In `frontend/src/features/auth/pages/Login.tsx` (:216-235):
+- [X] T055 [US4] In `frontend/src/features/auth/pages/Login.tsx` (:216-235):
   - Rename the link text from "Create your shop" to **Sign up**.
   - `canSignUp` becomes `selfServeEnabled || enabled` (Stage A). Update the comment block above it.
   - Write the test first. It covers the link text and visibility.
-- [ ] T056 [US4] Extend web e2e `lira-web-039-email-invite.spec.ts` with a second test:
+- [X] T056 [US4] Extend web e2e `lira-web-039-email-invite.spec.ts` with a second test: **Written and typechecked, NOT run** (needs the owner's web e2e environment and internet for Turnstile).
   - Run the backend with the Turnstile test keys. Click Sign up on the login page, enter a unique email and submit.
   - Read the link from `EMAIL_FILE_DIR` (match on the email, not file order), complete sign-up, then log in.
   - Assert the shop's contact email.

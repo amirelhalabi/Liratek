@@ -152,7 +152,7 @@ describe("create", () => {
     // No round may start after the link itself stops working.
     expect(outbox.give_up_at).toBe(invite.expires_at);
     expect(JSON.parse(outbox.data_json)).toEqual({
-      inviteUrl: `${BASE_URL}/signup?invite=${TOKEN}`,
+      inviteUrl: `${BASE_URL}/#/signup?invite=${TOKEN}`,
       shopNameHint: "Cell City",
       expiresAtText: "10 October 2026, 10:00 UTC",
       supportEmail: "help@liratek.test",
@@ -191,7 +191,7 @@ describe("create", () => {
       .prepare(`SELECT data_json FROM email_outbox`)
       .get() as { data_json: string };
     const data = JSON.parse(outbox.data_json) as Record<string, string>;
-    expect(data.inviteUrl).toBe(`${BASE_URL}/signup?invite=${TOKEN}`);
+    expect(data.inviteUrl).toBe(`${BASE_URL}/#/signup?invite=${TOKEN}`);
     // Always present, so the template's {{#if shopNameHint}} has a value to
     // test and the renderer's "missing variable" guard never fires.
     expect(data.shopNameHint).toBe("");
