@@ -5,6 +5,8 @@ import HomeViewLayout from "./HomeViewLayout";
 import { NotificationCenter, appEvents } from "@liratek/ui";
 
 import CheckpointModal from "@/features/closing/pages/Checkpoint";
+import AllDrawersCheckpointModal from "@/features/closing/pages/Checkpoint/AllDrawersCheckpointModal";
+import type { DrawerForCheckpoint } from "@/features/closing/utils/autoCheckpoint";
 import { useAutoCheckpointAfterSignIn } from "@/features/closing/hooks/useAutoCheckpointAfterSignIn";
 
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -79,6 +81,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
   };
 
   const [checkpointDrawer, setCheckpointDrawer] = useState<string | null>(null);
+  // The after-sign-in "all drawers" window (null = closed).
+  const [allDrawersCheckpoint, setAllDrawersCheckpoint] = useState<
+    DrawerForCheckpoint[] | null
+  >(null);
   // Mounted once, in the authenticated shell only (MainLayout is never
   // rendered for /login or /signup — see App.tsx), on both desktop and web:
   // it's pure frontend over a bundled JSON, no transport involved.
@@ -119,10 +125,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
     return () => window.removeEventListener("layout-mode-changed", handler);
   }, []);
 
-  // After a FRESH sign-in (not a refresh), open the Checkpoint window once
-  // for the first drawer not counted today — admins only, and only when the
-  // shop uses checkpoints. See useAutoCheckpointAfterSignIn.
-  useAutoCheckpointAfterSignIn(setCheckpointDrawer);
+  // After a FRESH sign-in (not a refresh), open the "all drawers" Checkpoint
+  // window once, while any drawer is not counted today — admins only, and
+  // only when the shop uses checkpoints. See useAutoCheckpointAfterSignIn.
+  useAutoCheckpointAfterSignIn(setAllDrawersCheckpoint);
 
   const layoutContent =
     layoutMode === "page-view" ? (
@@ -143,6 +149,14 @@ export default function MainLayout({ children }: MainLayoutProps) {
       <SubscriptionBanner />
       {layoutContent}
       <NotificationCenter />
+      {/* After-sign-in Checkpoint: every drawer, each saved on its own */}
+      {isAdmin && allDrawersCheckpoint != null && (
+        <AllDrawersCheckpointModal
+          isOpen
+          drawers={allDrawersCheckpoint}
+          onClose={() => setAllDrawersCheckpoint(null)}
+        />
+      )}
       {/* Per-drawer Checkpoint Modal */}
       {isAdmin && checkpointDrawer != null && (
         <CheckpointModal

@@ -1,5 +1,5 @@
 /**
- * Which drawer the Checkpoint window opens for right after a sign-in.
+ * Which drawers the Checkpoint window lists right after a sign-in.
  *
  * Pure (no React, no transport) so the rule is unit-tested on its own; the
  * hook `useAutoCheckpointAfterSignIn` only fetches the inputs.
@@ -17,10 +17,17 @@ export type LastCheckpointByDrawer = Record<
   { checked_at: string } | undefined
 > | null;
 
+/** One row of the after-sign-in "all drawers" Checkpoint window. */
+export interface DrawerForCheckpoint {
+  name: string;
+  countedToday: boolean;
+}
+
 /**
- * The first drawer, in the dashboard's order with General moved to the
- * front, whose last checkpoint is not from `today`. Null when every visible
- * drawer was already counted today (or there are none).
+ * Every visible drawer, in the dashboard's order with General moved to the
+ * front, each marked whether its last checkpoint is from `today`. Null when
+ * every visible drawer was already counted today (or there are none) — the
+ * window then does not open at all.
  *
  * `today` is the browser's own `YYYY-MM-DD` (rule 27 — the shop's day, never
  * the server's). A checkpoint's `checked_at` is SQLite's UTC
@@ -28,20 +35,23 @@ export type LastCheckpointByDrawer = Record<
  * LOCAL calendar day, the same way the dashboard's "last checked" label
  * decides "today".
  */
-export function pickDrawerToCheckpoint(
+export function listDrawersForCheckpoint(
   drawerNames: readonly string[],
   lastCheckpoints: LastCheckpointByDrawer,
   today: string,
   isVisible: (drawerName: string) => boolean,
-): string | null {
+): DrawerForCheckpoint[] | null {
   const visible = drawerNames.filter(isVisible);
   const ordered = [
     ...visible.filter((name) => name === FIRST_CHECKPOINT_DRAWER),
     ...visible.filter((name) => name !== FIRST_CHECKPOINT_DRAWER),
   ];
-  const notCountedToday = ordered.find((name) => {
+  const drawers = ordered.map((name) => {
     const checkedAt = lastCheckpoints?.[name]?.checked_at;
-    return !checkedAt || localDay(parseDbDate(checkedAt)) !== today;
+    return {
+      name,
+      countedToday: !!checkedAt && localDay(parseDbDate(checkedAt)) === today,
+    };
   });
-  return notCountedToday ?? null;
+  return drawers.some((d) => !d.countedToday) ? drawers : null;
 }
