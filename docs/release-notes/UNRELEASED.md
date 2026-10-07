@@ -68,6 +68,7 @@
 
 - The Pending Settlement banner on the Dashboard now also lists partners you still need to settle
   with.
+- After you sign in, admins now get the Checkpoint window straight away for the first drawer not counted today (General first), when checkpoints are turned on. It opens once per sign-in — closing it or refreshing the page does not bring it back.
 
 ## 🤝 Partners
 
@@ -201,6 +202,7 @@
 - Web app, Settings → Users: "Invite by email" lets you add a staff member or admin by email. They get a link to choose their own username and password, with their email already confirmed. Invitations that are still waiting are listed with Resend and Revoke.
 - Web app, Settings → Users: "Send password reset" emails a user a link to choose a new password. It works for users whose email is confirmed.
 - Web app, Settings → Users: while a shop's subscription has lapsed, inviting users by email, changing a user's email and sending reset links are unavailable, like other staff changes. Revoking a waiting invitation still works.
+- Web app: an email invitation can no longer be used to join a shop whose subscription has lapsed. The invite page says "This shop is not active right now. Ask the shop owner to renew, then use the link again." — the invitation is kept, so the same link works once the shop renews (before it expires).
 - Several tills in the same shop no longer lock each other out with "Failed to load data" — each signed-in user now has their own allowance, and if it's ever reached the screen says to wait a minute and try again.
 
 ## 🧾 Expenses
