@@ -13,7 +13,6 @@ import {
   createSuccessResponse,
   ErrorCodes,
   JWT_SECRET,
-  JWT_EXPIRES_IN,
   AppError,
   EMAIL_ALREADY_HAS_SHOP,
   SIGNUP_INVITE_INVALID_MESSAGE,
@@ -41,7 +40,7 @@ import {
   NO_SUCH_REALM,
   type TenantHostResolution,
 } from "../middleware/tenantHost.js";
-import { authenticateJWT, type LiratekJwtPayload } from "../middleware/auth.js";
+import { authenticateJWT } from "../middleware/auth.js";
 import { isPerTenantDbMode } from "../database/tenantDbMode.js";
 import { logger } from "../server.js";
 import { isEmailConfigured } from "../email/createTransport.js";
@@ -57,6 +56,9 @@ import {
   resolveClientIp,
 } from "../middleware/clientIp.js";
 import jwt from "jsonwebtoken";
+// [auth-D] imports: shared web session response + the Google sign-up branch
+import { sendWebLoginResponse } from "../services/webLoginSession.js";
+import { googleSignupRoute, isGoogleSignupBody } from "./googleSignup.js";
 
 const router = express.Router();
 
@@ -68,7 +70,6 @@ if (!JWT_SECRET) {
 }
 
 const jwtSecret: string = JWT_SECRET;
-const jwtExpiresIn: string = JWT_EXPIRES_IN;
 
 /**
  * Resolve BOTH (a) the realm `authService.login()` should search WITHIN (the
@@ -262,53 +263,17 @@ router.post(
         }
       }
 
-      // Create JWT v2: session-linked AND tenant-carrying (plan §3).
-      // tenantId comes from the user row (null only for super_admin).
-      const payload: LiratekJwtPayload = {
-        userId: user.id,
-        role: user.role,
-        sessionToken: result.token, // Link JWT to database session
-        tenantId: user.tenant_id ?? null,
-      };
-      const jwtToken = jwt.sign(payload, jwtSecret, {
-        expiresIn: jwtExpiresIn as jwt.SignOptions["expiresIn"],
+      // [auth-D] JWT + login audit + envelope now live in ONE helper shared
+      // with the Google hand-off exchange (LIRA-280), so both hand out the
+      // same session shape. Extracted verbatim from here.
+      sendWebLoginResponse(res, user, {
+        sessionToken: result.token,
+        summary: `User "${username}" logged in`,
       });
 
       logger.info(
         { userId: user.id, username: user.username, rememberMe },
         "User logged in with database session",
-      );
-
-      // Mirrors authHandlers.ts's auth:login audit (action=login,
-      // entity_type=session, no entity_id). Fire-and-forget — never blocks
-      // the response. tenant_id comes from the just-authenticated user; a
-      // platform super_admin (tenant_id null) has no tenant to write the
-      // row under, so the log call is skipped for that one case rather than
-      // silently failing inside AuditRepository.log()'s getCurrentTenantId().
-      const loginTenantId = user.tenant_id ?? null;
-      if (loginTenantId !== null) {
-        runWithTenant(loginTenantId, () => {
-          getAuditService().log({
-            user_id: user.id,
-            username: user.username,
-            role: user.role,
-            action: "login",
-            entity_type: "session",
-            summary: `User "${username}" logged in`,
-          });
-        });
-      }
-
-      res.json(
-        createSuccessResponse({
-          user: {
-            id: result.user.id,
-            username: result.user.username,
-            role: result.user.role,
-          },
-          token: jwtToken,
-          sessionToken: result.token,
-        }),
       );
     } catch (error) {
       logger.error({ error }, "Login error");
@@ -901,6 +866,17 @@ function signupProvisionFields(body: {
 // slug charset and reserved-name blocklist are the same ones that guard
 // staff-created tenants -- signupSchema extends createTenantSchema rather
 // than restating the rules.
+// [auth-D] POST /api/auth/signup with `googleTicket` instead of `inviteToken`
+// (LIRA-280). Registered BEFORE the invite route: a body without a
+// googleTicket skips to it via next("route") before the limiter runs, so no
+// request is counted twice and the invite route is untouched.
+router.post(
+  "/signup",
+  (req, _res, next) => (isGoogleSignupBody(req.body) ? next() : next("route")),
+  signupLimiter,
+  ...googleSignupRoute,
+);
+
 router.post(
   "/signup",
   signupLimiter,

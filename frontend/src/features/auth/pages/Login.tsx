@@ -14,6 +14,8 @@ import { isElectron, publicAuthInfo } from "@/api/backendApi";
 // [auth-C] imports
 
 // [auth-D] imports
+import GoogleSignInButton from "@/features/auth/components/GoogleSignInButton";
+import { useSsoHandoff } from "@/features/auth/hooks/useSsoHandoff";
 
 export default function Login() {
   const { login } = useAuth();
@@ -60,6 +62,9 @@ export default function Login() {
   }, []);
 
   // [auth-D] the ?sso=<token> hand-off exchange (web only) goes here
+  // After "Continue with Google" on www (LIRA-280): exchanged once, then the
+  // app restarts at home signed in. A refusal shows in the form's error box.
+  const sso = useSsoHandoff();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,7 +156,13 @@ export default function Login() {
         {/* Form */}
         <div className="p-8 relative z-10">
           <form onSubmit={handleSubmit} className="space-y-5">
-            {error && (
+            {/* [auth-D] hand-off progress / refusal */}
+            {sso.exchanging && (
+              <p className="text-sm text-slate-400" role="status">
+                Signing you in with Google...
+              </p>
+            )}
+            {(error || sso.error) && (
               <div
                 className={clsx(
                   "p-4 rounded-lg flex items-start gap-3 text-sm animate-in fade-in border",
@@ -161,7 +172,7 @@ export default function Login() {
                 )}
               >
                 <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
-                <span>{error}</span>
+                <span>{error || sso.error}</span>
               </div>
             )}
 
@@ -239,6 +250,7 @@ export default function Login() {
           )}
 
           {/* [auth-D] "Continue with Google" button (web only, when enabled) */}
+          <GoogleSignInButton />
 
           {/* Web only, and only when a visitor can sign up on their own:
               self-serve email sign-up (LIRA-267). The desktop build

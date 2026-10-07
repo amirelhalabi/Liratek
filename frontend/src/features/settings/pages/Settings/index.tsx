@@ -17,6 +17,8 @@ import CarrierLinesManager from "./CarrierLinesManager";
 import ProfitsPasswordPanel from "./ProfitsPasswordPanel";
 import ResetDataPanel from "./ResetDataPanel";
 import SignedInDevices from "./SignedInDevices";
+// LIRA-280: Connect Google, on the tab about how this user signs in.
+import GoogleAccountPanel from "./GoogleAccountPanel";
 
 type TabKey =
   | "shop"
@@ -146,7 +148,12 @@ export default function Settings() {
           {active === "modules" && <ModulesManager />}
           {active === "currencies" && <CurrencyManager />}
           {active === "users" && <UsersManager />}
-          {active === "devices" && <SignedInDevices />}
+          {active === "devices" && (
+            <>
+              <GoogleAccountPanel />
+              <SignedInDevices />
+            </>
+          )}
           {active === "profits" && <ProfitsPasswordPanel />}
           {active === "integrations" && <IntegrationsConfig />}
           {active === "mobile-services" && <MobileServicesManager />}

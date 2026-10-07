@@ -20,6 +20,12 @@ import type {
   SignupInvitationView,
   SignupInviteCheckResult,
 } from "@liratek/core";
+// [auth-D] Google sign-in payloads, derived from the core schemas (rule 21).
+import type {
+  GoogleChooseInput,
+  GoogleSignupBodyInput,
+  SsoExchangeInput,
+} from "@liratek/core";
 // Debts write payloads derived from the core schemas (rule 21).
 import type {
   AddRepaymentPayload,
@@ -8165,3 +8171,105 @@ export async function sendPasswordReset(userId: number) {
 }
 
 // [auth-D] Google sign-in + hand-off (LIRA-280)
+//
+// Web only (assertWebOnly): the desktop app keeps username + password — the
+// same recorded exception as LIRA-267 sign-up. Payload types are core's
+// (rule 21). Google's own redirect (`startUrl?intent=…`) is a plain browser
+// NAVIGATION, never a fetch, so it has no function here.
+
+/** Contract envelope of the Google routes: a refusal carries a `code`. */
+export interface GoogleRouteResult<T> {
+  success: boolean;
+  data?: T;
+  error?: PublicRouteError;
+  code?: string;
+}
+
+/** Is "Continue with Google" switched on, and where does it start? `shop` is
+ * this host's shop slug (null on www). PUBLIC. */
+export async function googleAuthStatus() {
+  assertWebOnly("Google sign-in");
+  return requestJson<
+    GoogleRouteResult<{
+      enabled: boolean;
+      startUrl: string | null;
+      shop?: string | null;
+      /** "Create a shop with Google" may be offered (self-serve on). */
+      signupEnabled?: boolean;
+    }>
+  >("/api/auth/google/status", { auth: false });
+}
+
+/** The signed-in user's own Google link (Settings). */
+export async function googleLinkStatus() {
+  assertWebOnly("Google sign-in");
+  return requestJson<
+    GoogleRouteResult<{ enabled: boolean; linked: boolean; email: string | null }>
+  >("/api/auth/google/link");
+}
+
+/** Where to start linking Google to the SIGNED-IN user (Settings), plus the
+ * signed ticket naming them. The caller POSTs `{ intent: "link", ticket }` to
+ * `data.url` as a form — never a URL query, so the ticket stays out of logs. */
+export async function googleLinkStart() {
+  assertWebOnly("Google sign-in");
+  return requestJson<GoogleRouteResult<{ url: string; ticket: string }>>(
+    "/api/auth/google/link/start",
+    { method: "POST" },
+  );
+}
+
+/** Disconnect the signed-in user's Google account. */
+export async function googleUnlink() {
+  assertWebOnly("Google sign-in");
+  return requestJson<GoogleRouteResult<{ unlinked: boolean }>>(
+    "/api/auth/google/link",
+    { method: "DELETE" },
+  );
+}
+
+/** The www chooser's pick: returns the shop's hand-off URL. PUBLIC. */
+export async function googleChooseShop(input: GoogleChooseInput) {
+  assertWebOnly("Google sign-in");
+  return requestJson<GoogleRouteResult<{ redirectUrl: string }>>(
+    "/api/auth/google/choose",
+    { method: "POST", body: input, auth: false },
+  );
+}
+
+/**
+ * Trade the `?sso=` hand-off for a normal session (on the shop's own host).
+ * On success the session is stored exactly as `login()` stores one — and, as
+ * there, it supersedes any impersonation session in this tab. PUBLIC.
+ */
+export async function ssoExchange(input: SsoExchangeInput) {
+  assertWebOnly("Google sign-in");
+  const res = await requestJson<
+    GoogleRouteResult<{ user: ApiUser; token: string; sessionToken: string }>
+  >("/api/auth/google/sso-exchange", {
+    method: "POST",
+    body: input,
+    auth: false,
+  });
+  if (res.success && res.data?.token) {
+    clearImpersonationSession();
+    setToken(res.data.token);
+    localStorage.setItem("sessionToken", res.data.sessionToken);
+  }
+  return res;
+}
+
+/** Create a shop with Google as the proof (`?google=` ticket). Same reply
+ * as `signup()`. PUBLIC. */
+export async function googleSignup(input: GoogleSignupBodyInput) {
+  assertWebOnly("Google sign-in");
+  return requestJson<{
+    success: boolean;
+    error?: PublicRouteError;
+    code?: string;
+    data?: {
+      tenant: { id: number; name: string; slug: string };
+      loginUrl?: string | null;
+    };
+  }>("/api/auth/signup", { method: "POST", body: input, auth: false });
+}
