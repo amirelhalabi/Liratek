@@ -44,6 +44,7 @@ import { authLogger } from "../utils/logger.js";
 import { formatInviteExpiry } from "./SignupInvitationService.js";
 import {
   PASSWORD_RESET_CODES,
+  PASSWORD_RESET_EVERY_SHOP_MAX,
   PASSWORD_RESET_PER_USER_LIMIT,
   PASSWORD_RESET_PER_USER_WINDOW_MS,
   type PasswordResetCode,
@@ -212,6 +213,39 @@ export class PasswordResetService {
       );
       return outcome("queued");
     });
+  }
+
+  /**
+   * "Forgot password?" on www, where no shop is named (LIRA-287): one reset
+   * link per shop this email signs in to (`findSigninAccountsByEmail` —
+   * verified, active user, active shop; at most
+   * PASSWORD_RESET_EVERY_SHOP_MAX), each through `requestByEmail`, so every
+   * per-shop rule (verified only, per-user limit, the shop's own link
+   * address, one email per link) applies unchanged. The existing email
+   * already names the account and the shop. Never throws for a business
+   * outcome. Cross-tenant lookup: SHARED DB mode only (see the repository).
+   */
+  requestByEmailEveryShop(
+    params: Omit<RequestPasswordResetParams, "tenantId">,
+  ): { queued: number } {
+    const accounts = runWithoutTenant(() =>
+      this.userRepo.findSigninAccountsByEmail(params.email),
+    );
+    const shopIds = [...new Set(accounts.map((a) => a.tenant_id))].slice(
+      0,
+      PASSWORD_RESET_EVERY_SHOP_MAX,
+    );
+    let queued = 0;
+    for (const tenantId of shopIds) {
+      if (this.requestByEmail({ ...params, tenantId }).queued) queued += 1;
+    }
+    if (shopIds.length === 0) {
+      authLogger.info(
+        { emailHash: hashToken(params.email.trim().toLowerCase()) },
+        "Password reset request (every shop) not sent: no account",
+      );
+    }
+    return { queued };
   }
 
   /**

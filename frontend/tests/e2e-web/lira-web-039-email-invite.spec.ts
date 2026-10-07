@@ -11,7 +11,7 @@
  *      email opens the sign-up form with the email locked; signing up creates
  *      the shop with that `contact_email`; the invite shows "used"; reopening
  *      the link shows the generic "not valid" message.
- *   2. A visitor clicks "Sign up" on the login page, asks for a link with an
+ *   2. A visitor clicks "Create your shop" on the sign-in page, asks for a link with an
  *      email and a shop name (LIRA-278: self-serve switched on, Turnstile
  *      off), checks the email does NOT echo that shop name, completes
  *      sign-up from the emailed link (shop name prefilled) and logs in.
@@ -228,9 +228,9 @@ test.describe("LIRA-267 — email invites and self-serve sign-up", () => {
 
     const shopName = `L278 Self ${ts}`;
 
-    // ── 1. Login page -> Sign up -> request form (email + shop name) ──
+    // ── 1. Sign-in page -> Create your shop -> request form (email + shop name) ──
     await page.goto("/#/login");
-    await page.getByRole("link", { name: "Sign up" }).click();
+    await page.getByRole("link", { name: "Create your shop" }).click();
     const emailField = page.getByTestId("signup-request-email");
     await expect(emailField).toBeVisible({ timeout: 15_000 });
     // The full shop form is the link's job, not this page's.

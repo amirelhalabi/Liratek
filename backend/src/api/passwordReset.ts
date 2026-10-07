@@ -33,6 +33,7 @@ import rateLimit from "express-rate-limit";
 import {
   PASSWORD_RESET_TTL_MINUTES,
   PASSWORD_RESET_CODES,
+  PASSWORD_RESET_EVERY_SHOP_MESSAGE,
   PASSWORD_RESET_INVALID_MESSAGE,
   PASSWORD_RESET_REQUEST_MESSAGE,
   checkResetTokenSchema,
@@ -183,7 +184,9 @@ function validateUserIdParam(
 // =============================================================================
 //
 // The shop is the host's shop. On a host that names none (www, or host
-// tenancy off) it is the typed `shop` address; with neither, SHOP_REQUIRED.
+// tenancy off) it is the typed `shop` address. With neither: on www
+// (LIRA-287) a link goes to every shop the email signs in to, with its own
+// generic message; with host tenancy off (dev, previews, e2e), SHOP_REQUIRED.
 // On a shop's address a typed `shop` is ignored: the host decides. An
 // unknown shop, an unknown or unverified email, the per-user limit and a
 // missing mail setup ALL get the same success message, so the form cannot
@@ -210,6 +213,21 @@ router.post(
         return;
       } else {
         const slug = body.shop;
+        if (!slug && realm.kind === "platform") {
+          // LIRA-287: www no longer asks for the shop. One link per shop the
+          // email signs in to; one generic reply either way.
+          getPasswordResetService().requestByEmailEveryShop({
+            ...mailOptions(new Date().toISOString()),
+            email: body.email,
+            requesterIp: resolveClientIp(req) || null,
+          });
+          res.json(
+            createSuccessResponse({
+              message: PASSWORD_RESET_EVERY_SHOP_MESSAGE,
+            }),
+          );
+          return;
+        }
         if (!slug) {
           res.json(
             refusal(

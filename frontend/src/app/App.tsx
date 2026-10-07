@@ -215,6 +215,10 @@ function AppRoutes() {
           element={isSetupRequired ? <SetupWizard /> : <Navigate to="/" />}
         />
         <Route path="/login" element={<Login />} />
+        {/* LIRA-287: platform (super) admins sign in here with a username.
+            Deliberately linked from nowhere: www's own sign-in is the email
+            one. */}
+        <Route path="/platform" element={<Login adminOnly />} />
         <Route path="/signup" element={<Signup />} />
         {/* [auth-B] routes: /join, /verify-email (public) */}
         <Route path="/join" element={<JoinShop />} />

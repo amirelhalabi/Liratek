@@ -2,8 +2,9 @@
  * "Forgot password?" (LIRA-275) — web only, route `/forgot-password`.
  *
  * The person types the email on their account. On a shop's own address the
- * host already names the shop; on an address that names none (www, or a
- * deployment without per-shop addresses) they also type the shop address.
+ * host already names the shop. On www (LIRA-287) nothing else is asked: the
+ * server mails a reset link for every shop that email signs in to. Only a
+ * deployment without per-shop addresses (dev, previews) asks for the shop.
  * The server answers the SAME message whether or not it sent anything, so
  * this page never says whether an account exists.
  *
@@ -61,8 +62,11 @@ export default function ForgotPassword() {
         }
         setSetup({
           kind: "ready",
-          // The host names the shop only on a shop's own address.
-          askShop: !data?.shopName,
+          // The host names the shop only on a shop's own address. On www
+          // (LIRA-287) the server mails a link for every shop the email
+          // signs in to, so only the email is asked; with host tenancy off
+          // (dev, previews) there is no www, so the shop is still asked.
+          askShop: !data?.shopName && !data?.platformHost,
           baseDomain: data?.baseDomain ?? null,
         });
       })

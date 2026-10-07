@@ -414,3 +414,58 @@ describe("identities, hand-off and session", () => {
     ).toBeNull();
   });
 });
+
+// LIRA-287 (A): connecting Google gives a user with NO email the Google
+// address as their confirmed email — never overwriting one, never taking an
+// address another user of the same shop already holds.
+describe("connecting Google confirms the user's email (LIRA-287)", () => {
+  const svc = () => new GoogleAuthService();
+  const emailOf = (id: number) =>
+    db
+      .prepare(`SELECT email, email_verified_at FROM users WHERE id = ?`)
+      .get(id) as { email: string | null; email_verified_at: string | null };
+
+  it("a user with no email gets Google's verified address, lowercased", () => {
+    runWithTenant(2, () =>
+      svc().linkIdentity({
+        userId: 20,
+        subject: "sub-a",
+        email: "Owner@Gmail.com",
+        now: NOW,
+      }),
+    );
+    expect(emailOf(20)).toEqual({
+      email: "owner@gmail.com",
+      email_verified_at: NOW,
+    });
+  });
+
+  it("never overwrites an existing email", () => {
+    db.prepare(`UPDATE users SET email = 'mine@shop.com' WHERE id = 20`).run();
+    runWithTenant(2, () =>
+      svc().linkIdentity({
+        userId: 20,
+        subject: "sub-a",
+        email: "owner@gmail.com",
+        now: NOW,
+      }),
+    );
+    expect(emailOf(20)).toEqual({ email: "mine@shop.com", email_verified_at: null });
+  });
+
+  it("skips (and still links) when another user of the shop holds the address", () => {
+    db.prepare(`UPDATE users SET email = 'owner@gmail.com' WHERE id = 21`).run();
+    runWithTenant(2, () =>
+      svc().linkIdentity({
+        userId: 20,
+        subject: "sub-a",
+        email: "owner@gmail.com",
+        now: NOW,
+      }),
+    );
+    expect(emailOf(20)).toEqual({ email: null, email_verified_at: null });
+    expect(
+      runWithTenant(2, () => svc().getLinkedEmail(20)).linked,
+    ).toBe(true);
+  });
+});

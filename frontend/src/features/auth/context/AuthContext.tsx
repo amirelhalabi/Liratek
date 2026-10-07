@@ -273,7 +273,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         return { success: true, role: result.user.role };
       }
-      return { success: false, error: result.error || "Login failed" };
+      return { success: false, error: result.error || "Sign-in failed" };
     } catch (error) {
       logger.error("Login error:", error);
       return { success: false, error: "An unexpected error occurred" };

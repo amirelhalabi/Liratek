@@ -71,3 +71,15 @@ export function removeHashParam(name: string): void {
     `${window.location.pathname}${window.location.search}${route}${rest ? `?${rest}` : ""}`,
   );
 }
+
+/** This page's cookies as the browser hands them to script (LIRA-287:
+ * remembered shops). Here so tests can replace it — jsdom on localhost
+ * cannot hold a cookie for another domain. */
+export function readCookies(): string {
+  return document.cookie;
+}
+
+/** Sets one cookie from a full `name=value; Domain=…; …` string. */
+export function writeCookie(cookie: string): void {
+  document.cookie = cookie;
+}

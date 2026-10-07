@@ -13745,6 +13745,121 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 198,
+    name: "google_link_email_backfill",
+    description:
+      "LIRA-287 (owner decision 2026-10-07): a Google account's verified " +
+      "email becomes the user's confirmed email. From now on " +
+      "GoogleAuthService.linkIdentity does it when Settings connects " +
+      "Google; this one-time backfill does it for links made before. A user " +
+      "with a 'google' user_identities row and NO email gets the identity's " +
+      "email (trimmed + lowercased, like normalizeEmail), verified at the " +
+      "instant the link was made (user_identities.created_at, which link() " +
+      "writes as UTC ISO). Never overwrites an email; skips a link with no " +
+      "email; skips an address another user of the SAME shop already holds " +
+      "(idx_users_tenant_email is unique per shop, active or not). " +
+      "down() clears only rows whose email AND verified stamp still match " +
+      "their Google link — note that also matches emails the live link " +
+      "flow set later, which stamps the same link instant; rolling this " +
+      "back means rolling that feature back too, so that is intended.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (
+        !tableExists(db, "user_identities") ||
+        !columnExists(db, "users", "email")
+      ) {
+        return;
+      }
+      const candidates = db
+        .prepare(
+          `SELECT u.id AS user_id, u.tenant_id AS tenant_id,
+                  lower(trim(ui.email)) AS email, ui.created_at AS linked_at
+             FROM user_identities ui
+             JOIN users u ON u.id = ui.user_id AND u.tenant_id = ui.tenant_id
+            WHERE ui.provider = 'google'
+              AND ui.email IS NOT NULL AND trim(ui.email) <> ''
+              AND u.email IS NULL
+            ORDER BY u.id`,
+        )
+        .all() as {
+        user_id: number;
+        tenant_id: number;
+        email: string;
+        linked_at: string;
+      }[];
+      const taken = db.prepare(
+        `SELECT 1 FROM users WHERE tenant_id = ? AND email = ?`,
+      );
+      const setEmail = db.prepare(
+        `UPDATE users SET email = ?, email_verified_at = ?
+          WHERE id = ? AND email IS NULL`,
+      );
+      for (const row of candidates) {
+        if (taken.get(row.tenant_id, row.email) !== undefined) continue;
+        setEmail.run(row.email, row.linked_at, row.user_id);
+      }
+    },
+    down(db: Database.Database) {
+      if (
+        !tableExists(db, "user_identities") ||
+        !columnExists(db, "users", "email")
+      ) {
+        return;
+      }
+      db.exec(`
+        UPDATE users SET email = NULL, email_verified_at = NULL
+         WHERE EXISTS (
+           SELECT 1 FROM user_identities ui
+            WHERE ui.user_id = users.id
+              AND ui.tenant_id = users.tenant_id
+              AND ui.provider = 'google'
+              AND lower(trim(ui.email)) = users.email
+              AND ui.created_at = users.email_verified_at
+         );
+      `);
+    },
+  },
+  {
+    version: 199,
+    name: "signin_codes",
+    description:
+      "LIRA-287: 'email me a code' on www. One row per 6-digit sign-in code " +
+      "sent to an email: only sha256(email:code) is stored, 10-minute life, " +
+      "at most 5 wrong tries (attempts), single use (used_at, also set when " +
+      "a newer code supersedes it). A valid code returns the shops where " +
+      "that email is a confirmed user — it never signs anyone in. " +
+      "PLATFORM-level, like sso_handoff_tokens: no tenant_id column (the " +
+      "code belongs to an email, not a shop), so the per-tenant split keeps " +
+      "it in platform.db and a shop's Reset Data never touches it. " +
+      "email_outbox_id has no FK (same precedent as every token table).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "signin_codes")) {
+        db.exec(`
+          CREATE TABLE signin_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            code_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            used_at TEXT,
+            requested_ip_hash TEXT,
+            email_outbox_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_signin_codes_email_created
+           ON signin_codes(email, created_at);`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS signin_codes;`);
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

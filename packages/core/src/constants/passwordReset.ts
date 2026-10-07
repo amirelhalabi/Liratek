@@ -15,8 +15,10 @@
  * collide at merge time.
  */
 export const PASSWORD_RESET_CODES = {
-  /** `POST /forgot` on a host that names no shop (www, or host tenancy off)
-   * with no `shop` field: the page must ask for the shop address. */
+  /** `POST /forgot` on a host that names no shop with no `shop` field, where
+   * host tenancy is OFF (dev, previews, e2e): the page must ask for the shop
+   * address. On www (the platform host) the server instead mails a link for
+   * every shop the email signs in to (LIRA-287). */
   SHOP_REQUIRED: "SHOP_REQUIRED",
   /** `POST /send/:userId`: no such active user in the admin's shop. */
   NOT_FOUND: "NOT_FOUND",
@@ -38,6 +40,16 @@ export type PasswordResetCode =
  * the form cannot be used to learn which emails have accounts. */
 export const PASSWORD_RESET_REQUEST_MESSAGE =
   "If this email belongs to an account in this shop, we've sent a link.";
+
+/** The ONE reply to `POST /forgot` on www without a shop (LIRA-287): one
+ * reset link is mailed per shop the email signs in to, so the message
+ * cannot say "this shop". Same rule: identical whether or not anything was
+ * sent. */
+export const PASSWORD_RESET_EVERY_SHOP_MESSAGE =
+  "If this email belongs to a LiraTek account, we've sent a reset link for each shop it signs in to.";
+
+/** At most this many shops get a reset link from one www request. */
+export const PASSWORD_RESET_EVERY_SHOP_MAX = 10;
 
 /** The ONE refusal for every unusable reset link: unknown, expired, used,
  * superseded, for another shop, or for a user who is no longer active. */

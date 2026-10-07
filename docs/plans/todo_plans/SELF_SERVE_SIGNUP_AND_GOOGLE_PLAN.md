@@ -414,14 +414,14 @@ Routes (mounted at `/api/password-reset`):
 
 | Method + path | Auth | Body | 200 `data` | Refusal `code`s |
 | --- | --- | --- | --- | --- |
-| `POST /forgot` | public; per-IP limiter 5 per hour (real IP, from A) | `forgotPasswordSchema` | `{ message }`, always the same | `SHOP_REQUIRED` (on www with no `shop`) |
+| `POST /forgot` | public; per-IP limiter 5 per hour (real IP, from A) | `forgotPasswordSchema` | `{ message }`, always the same | `SHOP_REQUIRED` (host tenancy off, no `shop`; on www see LIRA-287) |
 | `POST /check` | public | `checkResetTokenSchema` | `{ username, shopName }` | generic "This reset link is not valid. Ask for a new one." |
 | `POST /reset` | public | `resetPasswordSchema` | `{ loginUrl }` | generic |
 | `POST /send/:userId` | JWT + `admin` | none | `{ sent: true }` | `USER_HAS_NO_EMAIL`, `EMAIL_NOT_VERIFIED`, `EMAIL_NOT_CONFIGURED`, `RATE_LIMITED` |
 
 - **`POST /forgot`:**
   - The shop is the host's shop (`resolveTenantHost`, kind `tenant`). Otherwise it is `body.shop`, resolved by slug to an **active** shop.
-  - On www with no `shop`, return 200 `{success:false, code:"SHOP_REQUIRED"}`. An unknown shop returns the generic reply.
+  - On www with no `shop` (LIRA-287): one reset link per shop the email signs in to (`requestByEmailEveryShop`, at most 10), answered with `PASSWORD_RESET_EVERY_SHOP_MESSAGE`. With host tenancy off (dev, previews, e2e) and no `shop`: 200 `{success:false, code:"SHOP_REQUIRED"}`. An unknown shop returns the generic reply.
   - The reply is always the same message: "If this email belongs to an account in this shop, we've sent a link." Whether the user exists never changes it.
   - **Mail goes only to a VERIFIED email** (`findByEmailInTenant` and `email_verified_at` not null). Recommended, owner to confirm: an unverified address could be a typo that hands over the account.
   - At most 3 per hour per user (`countForUserSince`); requests beyond that are silently not sent.
@@ -491,3 +491,13 @@ Routes (mounted at `/api/auth/google`):
 | `Login.tsx` anchors | none | none | `[auth-C]` | `[auth-D]` (both) |
 | `email/templates/index.ts` | none | `[auth-B]` | `[auth-C]` | none |
 | core `services/index.ts`, `browser.ts` (end of file) | `[auth-A]` | `[auth-B]` | `[auth-C]` | `[auth-D]` |
+
+---
+
+## LIRA-287 — identifier-first sign-in on www (2026-10-07)
+
+- **www page** (`PlatformSignIn.tsx`): remembered shops (cookie `lt_shops` on `.<base>`, written by the shop page after a password or Google sign-in; slug + name + time only, ≤10, 1 year, Lax, Secure, not httpOnly, validated on read), email → code → "Your shops", Google, "Create your shop". No shop-address field; super admins use the unlinked `#/platform`.
+- **Routes** (`backend/src/api/signinCode.ts`, mounted at `/api/auth/signin-code`): `POST /request {email}` → always `SIGNIN_CODE_REQUEST_MESSAGE`; `POST /verify {email, code}` → `{ shops: [{slug, name, username}] }` or `SIGNIN_CODE_INVALID`. Per-IP 10/h and 30/h (`SIGNIN_CODE_*_RATE_LIMIT_MAX`).
+- **Core**: `SigninCodeService` + `SigninCodeRepository` (platform table `signin_codes`, v199). Looked up by email; stores `hashToken("<email>:<code>")`; 10-min TTL, 5 wrong tries lock it, a new code burns older ones, 5 codes/email/hour; outbox `signin-code:<id>` in the same transaction. "Who can sign in with this email" is `UserRepository.findSigninAccountsByEmail` (verified, active, non-super-admin user in an active shop) — shared by the code gate, the shops list and the www forgot fan-out. SHARED DB mode only.
+- **Google email**: `GoogleAuthService.linkIdentity` sets `users.email` (verified at the link instant) when empty and free in the shop (`setEmailIfAbsent`); v198 backfills earlier links.
+- No housekeeping job deletes expired `signin_codes` (nor `sso_handoff_tokens`) yet; `deleteExpiredBefore` exists for one.

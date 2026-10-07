@@ -2,7 +2,7 @@
 /**
  * Login page's sign-up link (LIRA-267 T055).
  *
- * The link reads **Sign up** and is shown exactly when a visitor can sign up
+ * The link reads **Create your shop** (LIRA-287 wording; was "Sign up") and is shown exactly when a visitor can sign up
  * on their own: self-serve email sign-up is on (Stage B — the shared invite
  * code is gone, so its old `enabled` flag must not show it). Never on
  * desktop, and never when self-serve is off — a link that leads to "not
@@ -72,12 +72,13 @@ beforeEach(() => {
   electron = false;
 });
 
-it("shows 'Sign up' when self-serve is on", async () => {
+// LIRA-287 wording: "Sign in" pairs with "Create your shop" everywhere.
+it("shows 'Create your shop' when self-serve is on", async () => {
   status({ selfServeEnabled: true, turnstileSiteKey: "k" });
   render(<Login />);
-  const link = await screen.findByRole("link", { name: "Sign up" });
+  const link = await screen.findByRole("link", { name: "Create your shop" });
   expect(link).toHaveAttribute("href", "/signup");
-  expect(screen.queryByText("Create your shop")).toBeNull();
+  expect(screen.queryByRole("link", { name: "Sign up" })).toBeNull();
 });
 
 // Rule 24: was "shows 'Sign up' while only the shared code is on (Stage A)".
@@ -86,7 +87,7 @@ it("hides the link when only the retired shared-code `enabled` flag is on", asyn
   render(<Login />);
   await waitFor(() => expect(publicAuthInfo).toHaveBeenCalledTimes(1));
   await new Promise((r) => setTimeout(r, 0));
-  expect(screen.queryByRole("link", { name: "Sign up" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Create your shop" })).toBeNull();
 });
 
 it("hides the link when self-serve is off", async () => {
@@ -95,7 +96,7 @@ it("hides the link when self-serve is off", async () => {
   await waitFor(() => expect(publicAuthInfo).toHaveBeenCalledTimes(1));
   // Let the resolved status settle before asserting absence.
   await new Promise((r) => setTimeout(r, 0));
-  expect(screen.queryByRole("link", { name: "Sign up" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Create your shop" })).toBeNull();
 });
 
 it("never asks or shows it on desktop", async () => {
@@ -104,5 +105,5 @@ it("never asks or shows it on desktop", async () => {
   render(<Login />);
   await new Promise((r) => setTimeout(r, 0));
   expect(publicAuthInfo).not.toHaveBeenCalled();
-  expect(screen.queryByRole("link", { name: "Sign up" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Create your shop" })).toBeNull();
 });

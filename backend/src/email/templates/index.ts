@@ -13,6 +13,9 @@ import { verifyEmailTemplate } from "./verifyEmail.js";
 // [auth-C] imports: passwordResetTemplate
 import { passwordResetTemplate } from "./passwordReset.js";
 
+// LIRA-287: www "email me a code" sign-in
+import { signinCodeTemplate } from "./signinCode.js";
+
 const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
   [signupInviteTemplate.name]: signupInviteTemplate,
   // [auth-B] entries: "user-invite", "verify-email"
@@ -21,6 +24,9 @@ const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
 
   // [auth-C] entries: "password-reset"
   [passwordResetTemplate.name]: passwordResetTemplate,
+
+  // LIRA-287: "signin-code"
+  [signinCodeTemplate.name]: signinCodeTemplate,
 };
 
 /** Throws for an unknown name: a row naming a template that does not exist

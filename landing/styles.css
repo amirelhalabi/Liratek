@@ -97,6 +97,26 @@ a {
   color: var(--text);
 }
 
+/* "Create your shop" in the header: a compact primary button (the quiet
+   "Sign in" link sits before it). Two labels: the long one, and a short one
+   for phone widths. */
+.topnav a.nav-cta {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 15px;
+  color: var(--accent-ink);
+  white-space: nowrap;
+}
+
+.topnav a.nav-cta:hover {
+  color: var(--accent-ink);
+}
+
+.nav-cta-short {
+  display: none;
+}
+
 .lang-toggle {
   font: inherit;
   font-size: 15px;
@@ -424,10 +444,37 @@ h2 {
   .cta-row .btn {
     width: 100%;
   }
-  .topnav a {
+  /* Both doors stay visible on a phone: tighter spacing and the short
+     button label, and the brand keeps only its logo on the narrowest. */
+  .topnav {
+    gap: 10px;
+  }
+  .topnav a.nav-signin {
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .topnav a.nav-cta {
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+  .nav-cta-long {
     display: none;
   }
+  .nav-cta-short {
+    display: inline;
+  }
+  .lang-toggle {
+    font-size: 14px;
+    padding: 3px 10px;
+  }
   .prefix {
+    display: none;
+  }
+}
+
+@media (max-width: 400px) {
+  .brand span {
     display: none;
   }
 }

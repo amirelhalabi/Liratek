@@ -11,7 +11,9 @@
   // DRAFT Arabic copy — to be reviewed by the owner before launch.
   var AR = {
     "page.title": "LiraTek — نظام بيع لمحلات الهواتف في لبنان",
-    "nav.login": "دخول المحل",
+    "nav.login": "تسجيل الدخول",
+    "nav.signup": "أنشئ متجرك",
+    "nav.signupShort": "أنشئ متجرك",
     "hero.eyebrow": "مصمّم لمحلات الهواتف في لبنان",
     "hero.title": "محلك كله، بالدولار والليرة، في مكان واحد.",
     "hero.lead":
@@ -43,7 +45,7 @@
     "f.where.d":
       "استعمل تطبيق الكمبيوتر في المحل، أو ادخل من أي متصفح على عنوان محلك الخاص.",
     "login.title": "عندك محل على LiraTek؟",
-    "login.lead": "اكتب اسم محلك لتنتقل إلى صفحة الدخول.",
+    "login.lead": "اكتب اسم محلك لتنتقل إلى صفحة تسجيل الدخول.",
     "login.label": "اسم المحل",
     "login.placeholder": "yourshop",
     "login.go": "ادخل إلى محلي",

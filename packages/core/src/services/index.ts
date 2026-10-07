@@ -631,6 +631,25 @@ export type {
 } from "./PasswordResetService.js";
 export * from "../constants/passwordReset.js";
 
+// LIRA-287: www "email me a code" sign-in. The service is Node-only
+// (node:crypto); the constants + schemas are pure and ALSO exported from
+// browser.ts.
+export {
+  SigninCodeService,
+  getSigninCodeService,
+  resetSigninCodeService,
+  generateSigninCode,
+  hashSigninCode,
+  SIGNIN_CODE_TEMPLATE,
+} from "./SigninCodeService.js";
+export type {
+  SigninCodeRequestReason,
+  RequestSigninCodeParams,
+  VerifySigninCodeParams,
+  SigninCodeServiceDeps,
+} from "./SigninCodeService.js";
+export * from "../constants/signinCode.js";
+
 // [auth-D] exports
 // Continue with Google (LIRA-280). The service is Node-only (node:crypto,
 // network) — never export it from browser.ts (rule 29). The validators file

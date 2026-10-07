@@ -26,6 +26,8 @@ export * from "./tenant.js";
 export * from "./signupInvitation.js";
 // Account email, user invites, password reset, Google (v196 foundation).
 export * from "./account.js";
+// LIRA-287: www "email me a code" sign-in.
+export * from "./signinCode.js";
 export * from "./loto.js";
 export * from "./session.js";
 export * from "./holdMoney.js";

@@ -5,9 +5,10 @@
  * What must hold:
  *   1. On a shop's own address (the host names the shop) only the email is
  *      asked; the payload has NO `shop` key.
- *   2. On an address that names no shop (www, or host tenancy off) the shop
- *      address is asked too, and a typed `cellcity.liratek.shop` is sent as
- *      the slug `cellcity`.
+ *   2. On www (LIRA-287) only the email is asked: the server mails a link for
+ *      every shop the email signs in to. With host tenancy off (dev,
+ *      previews, e2e) the shop address is asked too, and a typed
+ *      `cellcity.liratek.shop` is sent as the slug `cellcity`.
  *   3. A SHOP_REQUIRED answer reveals the shop field.
  *   4. Success shows the server's generic message — never anything that says
  *      whether the account exists.
@@ -102,8 +103,30 @@ it("on a shop's address: asks only the email, sends no shop, shows the generic m
   );
 });
 
-it("on an address with no shop: asks the shop address and sends its slug", async () => {
+// LIRA-287: www asks ONLY the email; the server mails a reset link for each
+// shop that email signs in to (owner removed the shop-address field).
+it("on www: asks only the email, sends no shop, shows the server's every-shop message", async () => {
+  const EVERY_SHOP =
+    "If this email belongs to a LiraTek account, we've sent a reset link for each shop it signs in to.";
   hostInfo({ shopName: null, platformHost: true, baseDomain: "liratek.shop" });
+  forgotPassword.mockResolvedValue({
+    success: true,
+    data: { message: EVERY_SHOP },
+  });
+  renderPage();
+
+  await screen.findByTestId("forgot-email");
+  expect(screen.queryByTestId("forgot-shop")).toBeNull();
+  expect(screen.queryByLabelText(/shop address/i)).toBeNull();
+  type("forgot-email", "boss@shop.com");
+  fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+  expect(await screen.findByText(EVERY_SHOP)).toBeInTheDocument();
+  expect(sentPayload()).toEqual({ email: "boss@shop.com" });
+});
+
+it("with host tenancy off (dev, previews): asks the shop address and sends its slug", async () => {
+  hostInfo({ shopName: null, platformHost: false, baseDomain: null });
   forgotPassword.mockResolvedValue({ success: true, data: { message: GENERIC } });
   renderPage();
 

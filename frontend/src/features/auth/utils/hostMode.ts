@@ -1,9 +1,10 @@
 /**
  * Which logged-out page a web host gets (owner UX change 2026-10-07).
  *
- *   platform  www.<base>: the front door. "Sign in to your shop" asks for the
- *             shop address and sends the browser there; creating a shop
- *             lives here. Super admins still sign in here (on request).
+ *   platform  www.<base>: the front door, "Sign in to LiraTek" (LIRA-287):
+ *             remembered shops, Google, and email -> code -> "Your shops";
+ *             creating a shop lives here. Super admins sign in at the
+ *             unlinked #/platform route.
  *   shop      <slug>.<base>: that shop's own login. Nothing about creating
  *             a shop.
  *   combined  everything else — desktop, localhost, preview deployments, an
@@ -81,9 +82,15 @@ export function normalizeShopAddress(value: string): string | null {
   return slug;
 }
 
-/** A shop's own login page. */
-export function shopLoginUrl(slug: string, baseDomain: string): string {
-  return `https://${slug}.${baseDomain}/#/login`;
+/** A shop's own sign-in page; with `username`, that field arrives filled in
+ * (`?u=`, LIRA-287: picked from www's "Your shops" list). */
+export function shopLoginUrl(
+  slug: string,
+  baseDomain: string,
+  username?: string,
+): string {
+  const base = `https://${slug}.${baseDomain}/#/login`;
+  return username ? `${base}?u=${encodeURIComponent(username)}` : base;
 }
 
 /** The platform front door's sign-up page. */

@@ -27,6 +27,7 @@ export type {
   UpdateUserData,
   UserEmailInfo,
   UserWithEmail,
+  SigninAccount,
   UserEmailRow,
 } from "./UserRepository.js";
 
@@ -837,6 +838,16 @@ export type {
   SsoHandoffTokenEntity,
   CreateSsoHandoffTokenData,
 } from "./SsoHandoffTokenRepository.js";
+// LIRA-287: www sign-in codes (platform level, v199).
+export {
+  SigninCodeRepository,
+  getSigninCodeRepository,
+  resetSigninCodeRepository,
+} from "./SigninCodeRepository.js";
+export type {
+  SigninCodeEntity,
+  CreateSigninCodeData,
+} from "./SigninCodeRepository.js";
 
 // Money posting helpers (moneyPosting.ts — seeded by the Payment-Legs
 // Integrity plan's S2 hard-reject leg reconciliation; grown by CQ-3 with the

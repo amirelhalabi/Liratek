@@ -90,6 +90,13 @@ const GENERIC_SENT = {
   },
 };
 const INVALID_LINK = "This reset link is not valid. Ask for a new one.";
+const GENERIC_SENT_EVERY_SHOP = {
+  success: true,
+  data: {
+    message:
+      "If this email belongs to a LiraTek account, we've sent a reset link for each shop it signs in to.",
+  },
+};
 
 let app: Express;
 let db: InstanceType<typeof DatabaseCtor>;
@@ -186,7 +193,9 @@ beforeAll(async () => {
       (21, 2, 'cashier', 'old', 'staff', 1, 'cashier@shop.com', NULL),
       (22, 2, 'nomail', 'old', 'staff', 1, NULL, NULL),
       (24, 2, 'clerk', 'old', 'staff', 1, 'clerk@shop.com', '2026-10-01T00:00:00.000Z'),
-      (30, 3, 'otherboss', 'old', 'admin', 1, 'boss@other.com', '2026-10-01T00:00:00.000Z');
+      (30, 3, 'otherboss', 'old', 'admin', 1, 'boss@other.com', '2026-10-01T00:00:00.000Z'),
+      (31, 3, 'owner2', 'old', 'admin', 1, 'boss@shop.com', '2026-10-01T00:00:00.000Z'),
+      (32, 3, 'unverified', 'old', 'staff', 1, 'cashier@shop.com', NULL);
   `);
 
   core.resetTenantRepository();
@@ -230,11 +239,37 @@ describe("POST /forgot", () => {
     expect(outboxRows()).toBe(0);
   });
 
-  it("on www without a shop: SHOP_REQUIRED", async () => {
+  // LIRA-287: www no longer asks for the shop. It mails one reset link per
+  // shop the email signs in to (verified, active user, active shop), each on
+  // that shop's own address, and answers one generic message either way.
+  it("on www without a shop: one reset link per shop the email signs in to", async () => {
     const res = await forgot(WWW_HOST, { email: "boss@shop.com" });
     expect(res.status).toBe(200);
-    expect(res.body.success).toBe(false);
-    expect(res.body.code).toBe("SHOP_REQUIRED");
+    expect(res.body).toEqual(GENERIC_SENT_EVERY_SHOP);
+    expect(
+      db
+        .prepare(
+          `SELECT tenant_id, user_id FROM password_reset_tokens ORDER BY tenant_id`,
+        )
+        .all(),
+    ).toEqual([
+      { tenant_id: 2, user_id: 20 },
+      { tenant_id: 3, user_id: 31 },
+    ]);
+    const urls = (
+      db.prepare(`SELECT data_json FROM email_outbox ORDER BY id`).all() as {
+        data_json: string;
+      }[]
+    ).map((r) => String(JSON.parse(r.data_json).resetUrl));
+    expect(urls[0]).toMatch(/^https:\/\/cellcity\.liratek\.test\/#\/reset-password\?token=/);
+    expect(urls[1]).toMatch(/^https:\/\/other\.liratek\.test\/#\/reset-password\?token=/);
+  });
+
+  it("on www without a shop: the same reply, and nothing sent, for an unknown or unverified email", async () => {
+    const unknown = await forgot(WWW_HOST, { email: "nobody@shop.com" });
+    const unverified = await forgot(WWW_HOST, { email: "cashier@shop.com" });
+    expect(unknown.body).toEqual(GENERIC_SENT_EVERY_SHOP);
+    expect(unverified.body).toEqual(GENERIC_SENT_EVERY_SHOP);
     expect(outboxRows()).toBe(0);
   });
 

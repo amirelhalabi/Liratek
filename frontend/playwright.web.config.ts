@@ -179,6 +179,9 @@ export default defineConfig({
         PASSWORD_RESET_TOKEN_RATE_LIMIT_MAX: "100000",
         USER_INVITE_LINK_RATE_LIMIT_MAX: "100000",
         EMAIL_VERIFY_LINK_RATE_LIMIT_MAX: "100000",
+        // LIRA-287 (lira-web-042): www sign-in code request + check.
+        SIGNIN_CODE_REQUEST_RATE_LIMIT_MAX: "100000",
+        SIGNIN_CODE_VERIFY_RATE_LIMIT_MAX: "100000",
         // Pinned empty (dotenv-leak, as above): the limiters key on req.ip,
         // and Google stays dormant — its flows are unit-tested only (no
         // Google account in e2e).

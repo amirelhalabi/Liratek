@@ -396,6 +396,11 @@ export type {
 export * from "./constants/passwordReset.js";
 export type { PasswordResetCheckResult } from "./services/PasswordResetService.js";
 
+// LIRA-287: www "email me a code" sign-in — messages, limits and the
+// "your shops" shape (pure leaf module). The schemas arrive through the
+// validators barrel above.
+export * from "./constants/signinCode.js";
+
 // [auth-D] exports
 // Continue with Google (LIRA-280): schemas, codes and input types only. The
 // GoogleAuthService itself is Node-only and stays out of this entry.

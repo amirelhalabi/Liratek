@@ -55,6 +55,8 @@
  *   by no shop, so one shop's "Reset Data" must never touch them.
  *   `sso_handoff_tokens` (v196) joined for the same reason: a platform-level
  *   www -> shop sign-in hand-off with no `tenant_id` column.
+ *   `signin_codes` (v199, LIRA-287) likewise: www "email me a code"
+ *   sign-in codes, owned by an email address, never by a shop.
  * - RESET_ZERO_TABLES: rows are KEPT and specific "balance-like" columns
  *   are set to 0, never deleted. `drawer_balances.balance` is the original
  *   member — zeroing (not deleting) is load-bearing:
@@ -156,6 +158,7 @@ export const RESET_KEEP_TABLES: readonly string[] = [
 export const RESET_EXCLUDED_TABLES: readonly string[] = [
   "email_outbox",
   "signup_invitations",
+  "signin_codes",
   "sso_handoff_tokens",
   "sync_errors",
   "sync_queue",

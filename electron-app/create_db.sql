@@ -297,6 +297,23 @@ CREATE TABLE IF NOT EXISTS sso_handoff_tokens (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- "Email me a code" sign-in on www (LIRA-287). PLATFORM-level, no tenant_id:
+-- a code belongs to an email, not a shop. Only sha256(email:code) is stored.
+CREATE TABLE IF NOT EXISTS signin_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    used_at TEXT,
+    requested_ip_hash TEXT,
+    email_outbox_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_signin_codes_email_created
+    ON signin_codes(email, created_at);
+
 -- Sessions (for unified session management across Electron and Web)
 -- NOTE: token is random-unique already; tenant_id is just added (denormalized
 -- from user) — not part of any constraint.
@@ -2662,4 +2679,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- user_identities and sso_handoff_tokens, all declared above.
     (196, 'user_emails_and_auth_tokens'),
     -- v197 (LIRA-280) adds tenants.google_signup_at, declared above.
-    (197, 'tenants_google_signup_at');
+    (197, 'tenants_google_signup_at'),
+    -- v198 (LIRA-287) backfills users.email from Google links: data only.
+    (198, 'google_link_email_backfill'),
+    -- v199 (LIRA-287) adds signin_codes, declared above.
+    (199, 'signin_codes');

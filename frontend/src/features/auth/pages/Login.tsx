@@ -17,29 +17,39 @@ import { isElectron, publicAuthInfo } from "@/api/backendApi";
 import GoogleSignInButton from "@/features/auth/components/GoogleSignInButton";
 import { useSsoHandoff } from "@/features/auth/hooks/useSsoHandoff";
 
-// Platform front door vs a shop's own login (owner UX change 2026-10-07).
-import {
-  normalizeShopAddress,
-  resolveHostMode,
-  shopLoginUrl,
-  type HostMode,
-} from "@/features/auth/utils/hostMode";
+// Platform front door vs a shop's own sign-in (owner UX changes 2026-10-07;
+// LIRA-287: identifier-first www sign-in, remembered shops, ?u= prefill).
+import { resolveHostMode, type HostMode } from "@/features/auth/utils/hostMode";
 import {
   currentHostname,
-  navigateAway,
+  hashQuery,
 } from "@/features/auth/utils/browserNavigation";
+import PlatformSignIn from "@/features/auth/components/PlatformSignIn";
+import { rememberCurrentShop } from "@/features/auth/utils/rememberCurrentShop";
 
-/** www: the typed address names no shop. */
-function shopAddressInvalid(baseDomain: string): string {
-  return `Enter your shop address, for example your-shop or your-shop.${baseDomain}.`;
+interface LoginProps {
+  /**
+   * The unlinked `#/platform` route (LIRA-287): the username + password form
+   * on every host, www included, for platform (super) admins. Nothing links
+   * here; www itself shows the email sign-in instead.
+   */
+  adminOnly?: boolean;
 }
 
-export default function Login() {
+/** `?u=<username>` — set by www's "Your shops" list (LIRA-287). */
+function prefilledUsername(): string {
+  if (isElectron()) return "";
+  return hashQuery().get("u")?.trim().slice(0, 100) ?? "";
+}
+
+export default function Login({ adminOnly = false }: LoginProps = {}) {
   const { login } = useAuth();
   const navigate = useNavigate();
   const shopName = useShopName();
   const { theme } = useTheme();
-  const [username, setUsername] = useState("");
+  // Read once: the username www's shop list sent this page.
+  const [initialUsername] = useState(prefilledUsername);
+  const [username, setUsername] = useState(initialUsername);
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
@@ -68,11 +78,6 @@ export default function Login() {
   const [hostMode, setHostMode] = useState<HostMode | null>(() =>
     isElectron() ? { kind: "combined" } : null,
   );
-  // www only: the shop address typed, and whether a platform admin asked for
-  // the username form (super admins sign in on www).
-  const [shopAddress, setShopAddress] = useState("");
-  const [adminSignIn, setAdminSignIn] = useState(false);
-
   useEffect(() => {
     if (isElectron()) return;
     let cancelled = false;
@@ -102,22 +107,8 @@ export default function Login() {
 
   const platformBase =
     hostMode?.kind === "platform" ? hostMode.baseDomain : null;
-  const showShopForm = platformBase !== null && !adminSignIn;
-
-  // www: "Continue" goes to the shop's own login page. A full navigation —
-  // it is another origin. Not checked for existence first (there is no public
-  // lookup); an unknown address refuses every sign-in on its own.
-  const handleShopContinue = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (platformBase === null) return;
-    const slug = normalizeShopAddress(shopAddress);
-    if (!slug) {
-      setError(shopAddressInvalid(platformBase));
-      return;
-    }
-    setError("");
-    navigateAway(shopLoginUrl(slug, platformBase));
-  };
+  // www shows the email sign-in; the username form only at #/platform.
+  const showPlatformSignIn = platformBase !== null && !adminOnly;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,16 +118,19 @@ export default function Login() {
     try {
       const result = await login(username, password, rememberMe);
       if (result.success) {
+        // On a shop's own address: let www offer "Continue to <shop>" next
+        // time (LIRA-287). Never blocks, never throws; a no-op elsewhere.
+        if (!isElectron()) void rememberCurrentShop();
         // Super admins (web-only, plan §5) land in the control plane, never
         // the POS home — ProtectedRoute would redirect them there anyway,
         // but navigating directly avoids the extra bounce.
         navigate(result.role === "super_admin" ? "/admin/tenants" : "/");
       } else {
-        setError(result.error || "Login failed");
+        setError(result.error || "Sign-in failed");
       }
     } catch (err) {
       setError("An unexpected error occurred");
-      logger.error("Login failed", { error: err });
+      logger.error("Sign-in failed", { error: err });
     } finally {
       setLoading(false);
     }
@@ -235,62 +229,17 @@ export default function Login() {
 
         {/* Form */}
         <div className="p-8 relative z-10">
-          {showShopForm ? (
-            <form onSubmit={handleShopContinue} className="space-y-5">
-              {messages}
-              <h2
-                className={clsx(
-                  "text-xl font-semibold text-center",
-                  theme === "dark" ? "text-white" : "text-gray-900",
-                )}
-              >
-                Sign in to your shop
-              </h2>
-              <div>
-                <label
-                  htmlFor="login-shop-address"
-                  className={clsx(
-                    "block text-sm font-medium mb-1.5",
-                    theme === "dark" ? "text-slate-300" : "text-gray-700",
-                  )}
-                >
-                  Shop address
-                </label>
-                <input
-                  id="login-shop-address"
-                  data-testid="login-shop-address"
-                  type="text"
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  value={shopAddress}
-                  onChange={(e) => setShopAddress(e.target.value)}
-                  placeholder={`your-shop.${platformBase}`}
-                  className={clsx(
-                    "w-full rounded-lg px-3 py-2.5 text-sm border focus:outline-none focus:border-violet-500",
-                    theme === "dark"
-                      ? "bg-slate-900 border-slate-600 text-white"
-                      : "bg-white border-gray-300 text-gray-900",
-                  )}
-                  required
-                />
-                <p
-                  className={clsx(
-                    "mt-1 text-xs",
-                    theme === "dark" ? "text-slate-500" : "text-gray-500",
-                  )}
-                >
-                  The address your shop signs in at, for example your-shop.
-                  {platformBase}
-                </p>
-              </div>
-              <button
-                type="submit"
-                className="w-full py-3 px-4 rounded-lg text-white font-semibold transition-all duration-200 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 active:scale-[0.98] shadow-lg shadow-violet-600/30"
-              >
-                Continue
-              </button>
-            </form>
+          {showPlatformSignIn ? (
+            <>
+              {(sso.exchanging || sso.error) && (
+                <div className="mb-5">{messages}</div>
+              )}
+              <PlatformSignIn
+                baseDomain={platformBase}
+                canSignUp={canSignUp}
+                dark={theme === "dark"}
+              />
+            </>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
               {messages}
@@ -311,6 +260,9 @@ export default function Login() {
                   onChange={setPassword}
                   label="Password"
                   placeholder="••••••••"
+                  // Arrived from www's shop list with the username filled
+                  // in: the password is the only thing left to type.
+                  autoFocus={initialUsername !== ""}
                 />
               </div>
 
@@ -348,99 +300,59 @@ export default function Login() {
                     Signing in...
                   </span>
                 ) : (
-                  "Sign In"
+                  "Sign in"
                 )}
               </button>
             </form>
           )}
 
-          {/* [auth-C] "Forgot password?" link (web only) */}
-          {/* The desktop app has no email reset: an admin sets a new
-              password in Settings → Users there. */}
-          {!isElectron() && (
-            <p className="mt-4 text-center text-sm">
-              <Link
-                to="/forgot-password"
-                className="text-orange-500 hover:text-orange-400"
-              >
-                Forgot password?
-              </Link>
-            </p>
-          )}
-
-          {/* [auth-D] "Continue with Google" button (web only, when enabled) */}
-          {/* "Create a shop with Google": always on the combined page, never
-              on a shop's own address. On www only while email sign-up is off;
-              otherwise "Create your shop" below is the one door (the sign-up
-              page offers Google too). */}
-          <GoogleSignInButton
-            offerShopCreation={
-              hostMode?.kind === "combined" ||
-              (platformBase !== null && !canSignUp)
-            }
-          />
-
-          {/* Web only, and only when a visitor can sign up on their own:
-              self-serve email sign-up (LIRA-267). The desktop build
-              provisions its single tenant through the first-run setup
-              wizard, so a sign-up link there would lead to an endpoint IPC
-              never serves. On www it reads "Create your shop"; never on a
-              shop's own address (creating a shop is www's job). */}
-          {canSignUp && platformBase !== null && (
-            <p
-              className={clsx(
-                "mt-6 text-center text-sm",
-                theme === "dark" ? "text-slate-400" : "text-gray-600",
+          {/* Below the username form only: www's sign-in carries its own
+              links, and #/platform (super admins) needs none of them. */}
+          {!showPlatformSignIn && !(adminOnly && platformBase !== null) && (
+            <>
+              {/* [auth-C] "Forgot password?" link (web only) */}
+              {/* The desktop app has no email reset: an admin sets a new
+                  password in Settings → Users there. */}
+              {!isElectron() && (
+                <p className="mt-4 text-center text-sm">
+                  <Link
+                    to="/forgot-password"
+                    className="text-orange-500 hover:text-orange-400"
+                  >
+                    Forgot password?
+                  </Link>
+                </p>
               )}
-            >
-              New to LiraTek?{" "}
-              <Link
-                to="/signup"
-                className="text-orange-500 hover:text-orange-400"
-              >
-                Create your shop
-              </Link>
-            </p>
-          )}
 
-          {/* www: super admins sign in here with a username (they belong to
-              no shop). Tucked away so shop staff are not invited to type a
-              username that means nothing on this address. */}
-          {platformBase !== null && (
-            <p className="mt-4 text-center text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  setError("");
-                  setAdminSignIn((v) => !v);
-                }}
-                className={clsx(
-                  "underline-offset-2 hover:underline",
-                  theme === "dark" ? "text-slate-500" : "text-gray-500",
-                )}
-              >
-                {adminSignIn
-                  ? "Sign in to your shop instead"
-                  : "Platform admin sign in"}
-              </button>
-            </p>
-          )}
+              {/* [auth-D] "Continue with Google" button (web only, when enabled) */}
+              {/* "Create a shop with Google": on the combined page only, never
+                  on a shop's own address (creating a shop is www's job). */}
+              <GoogleSignInButton
+                offerShopCreation={hostMode?.kind === "combined"}
+              />
 
-          {canSignUp && hostMode?.kind === "combined" && (
-            <p
-              className={clsx(
-                "mt-6 text-center text-sm",
-                theme === "dark" ? "text-slate-400" : "text-gray-600",
+              {/* Web only, and only when a visitor can sign up on their own
+                  (self-serve email sign-up, LIRA-267). The desktop build
+                  provisions its single tenant through the first-run setup
+                  wizard, so a sign-up link there would lead to an endpoint
+                  IPC never serves. Never on a shop's own address. */}
+              {canSignUp && hostMode?.kind === "combined" && (
+                <p
+                  className={clsx(
+                    "mt-6 text-center text-sm",
+                    theme === "dark" ? "text-slate-400" : "text-gray-600",
+                  )}
+                >
+                  New to LiraTek?{" "}
+                  <Link
+                    to="/signup"
+                    className="text-orange-500 hover:text-orange-400"
+                  >
+                    Create your shop
+                  </Link>
+                </p>
               )}
-            >
-              New here?{" "}
-              <Link
-                to="/signup"
-                className="text-orange-500 hover:text-orange-400"
-              >
-                Sign up
-              </Link>
-            </p>
+            </>
           )}
 
           <div

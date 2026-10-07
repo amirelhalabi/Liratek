@@ -361,7 +361,14 @@ export class GoogleAuthService {
   /** Links Google to a user of the CURRENT shop; the same link again is a
    * no-op. Throws `GoogleAccountInOtherShopError`
    * (GOOGLE_ACCOUNT_IN_OTHER_SHOP) or `IdentityAlreadyLinkedError`
-   * (IDENTITY_ALREADY_LINKED). */
+   * (IDENTITY_ALREADY_LINKED).
+   *
+   * LIRA-287 (owner decision 2026-10-07): Google's verified address becomes
+   * the user's CONFIRMED email when they have none — never overwriting one,
+   * and skipped when another user of this shop already holds it (unique per
+   * shop). Stamped with the link instant, the same rule migration v198
+   * applied to links made before this. `input.email` is Google-verified:
+   * `verifyIdToken` refuses `email_verified !== true`. */
   linkIdentity(input: {
     userId: number;
     subject: string;
@@ -375,6 +382,9 @@ export class GoogleAuthService {
       email: input.email,
       now: input.now,
     });
+    if (input.email.trim()) {
+      this.userRepo.setEmailIfAbsent(input.userId, input.email, input.now);
+    }
   }
 
   unlinkIdentity(userId: number): boolean {

@@ -128,6 +128,9 @@ const PLATFORM_ONLY_TABLES: readonly string[] = [
   "signup_invitations",
   "email_outbox",
   "sso_handoff_tokens",
+  // v199 (LIRA-287): www "email me a code" sign-in codes. A code belongs to
+  // an email, not a shop, so it has no tenant_id and stays platform-level.
+  "signin_codes",
 ];
 
 const KNOWN_TABLES_WITHOUT_TENANT_ID = new Set([

@@ -97,6 +97,32 @@ export interface UserEmailInfo {
   email_verified_at: string | null;
 }
 
+/**
+ * "This email can sign in to that shop" (LIRA-287), defined once (rule 14):
+ * an ACTIVE user (never a super admin) whose email is VERIFIED, in an
+ * ACTIVE shop. It gates the www sign-in code (a code is only mailed to such
+ * an email), builds the "your shops" list a valid code returns, and picks
+ * the shops a www "Forgot password?" mails a reset link for. `u` is users,
+ * `t` is tenants. Bind: the normalised email.
+ */
+const SIGNIN_ACCOUNT_FROM = `
+  FROM users u
+  JOIN tenants t ON t.id = u.tenant_id
+ WHERE u.email = ?
+   AND u.email_verified_at IS NOT NULL
+   AND u.is_active = 1
+   AND u.role <> 'super_admin'
+   AND t.status = 'active'`;
+
+/** One shop an email signs in to (see `SIGNIN_ACCOUNT_FROM`). */
+export interface SigninAccount {
+  tenant_id: number;
+  slug: string;
+  shop_name: string;
+  user_id: number;
+  username: string;
+}
+
 /** A user row plus its account email — returned by the by-email lookups. */
 export type UserWithEmail = UserEntity & UserEmailInfo;
 
@@ -697,6 +723,56 @@ export class UserRepository extends BaseRepository<UserEntity> {
       );
     } catch (error) {
       throw new DatabaseError("Failed to find user by email", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Gives a CURRENT-shop user an email only if they have none (LIRA-287:
+   * connecting Google makes Google's verified address the account email).
+   * Never overwrites. Returns false — and changes nothing — when the user
+   * already has an email, is not in this shop, or another user of the shop
+   * holds the address (unique per shop).
+   */
+  setEmailIfAbsent(userId: number, email: string, verifiedAt: string): boolean {
+    try {
+      const result = this.execute(
+        `UPDATE ${this.tableName} SET email = ?, email_verified_at = ? WHERE id = ? AND tenant_id = ? AND email IS NULL`,
+        normalizeEmail(email),
+        verifiedAt,
+        userId,
+        getCurrentTenantId(),
+      );
+      return result.changes > 0;
+    } catch (error) {
+      if (isEmailUniqueViolation(error)) return false;
+      throw new DatabaseError("Failed to set user email", {
+        cause: error,
+        entityId: userId,
+      });
+    }
+  }
+
+  /**
+   * Every shop this email signs in to (`SIGNIN_ACCOUNT_FROM`), by shop name.
+   * Cross-tenant by design: the www sign-in has no shop yet. SHARED DB mode
+   * only — in per-tenant mode each shop's users live in their own file, so a
+   * platform-level email -> (shop, user) index is needed before that split
+   * goes live (the same follow-up as `UserIdentityRepository
+   * .findBySubjectAllTenants`).
+   */
+  findSigninAccountsByEmail(email: string): SigninAccount[] {
+    try {
+      return this.query<SigninAccount>(
+        `SELECT t.id AS tenant_id, t.slug AS slug, t.name AS shop_name,
+                u.id AS user_id, u.username AS username
+           ${SIGNIN_ACCOUNT_FROM} /* tenant-exempt: www sign-in lists every shop an email signs in to, before any shop is chosen */
+          ORDER BY t.name COLLATE NOCASE, t.id, u.username COLLATE NOCASE`,
+        normalizeEmail(email),
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to find shops by email", {
         cause: error,
       });
     }

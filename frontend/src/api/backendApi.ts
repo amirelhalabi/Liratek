@@ -376,7 +376,7 @@ export async function login(
       sessionToken: undefined,
       // messageFrom unwraps the nested `{ code, message }` the backend sends;
       // reading `.message` directly yields an object here.
-      error: messageFrom(err, "Login failed"),
+      error: messageFrom(err, "Sign-in failed"),
     };
   }
 
@@ -8211,4 +8211,45 @@ export async function googleSignup(input: GoogleSignupBodyInput) {
       loginUrl?: string | null;
     };
   }>("/api/auth/signup", { method: "POST", body: input, auth: false });
+}
+
+// LIRA-287 — www "email me a code" sign-in.
+//
+// Web only (assertWebOnly): the desktop app signs in with a username on its
+// own machine and has no www — the same recorded exception as LIRA-267's
+// sign-up. Payload types are the core schemas' input types (rule 21).
+import type {
+  RequestSigninCodeInput,
+  VerifySigninCodeInput,
+  SigninShop,
+} from "@liratek/core";
+
+/** What both sign-in-code routes answer. A refused code carries
+ * `code: "SIGNIN_CODE_INVALID"` (top level and in `error`); a zod refusal is
+ * a plain string `error`. A per-IP limit is a 429, which THROWS. */
+export interface SigninCodeEnvelope<T> {
+  success: boolean;
+  data?: T;
+  error?: PublicRouteError;
+  code?: string;
+}
+
+/** "Email me a code" (PUBLIC). The server answers the SAME message whether
+ * or not it sent one. */
+export async function requestSigninCode(input: RequestSigninCodeInput) {
+  assertWebOnly("Signing in with an emailed code");
+  return requestJson<SigninCodeEnvelope<{ message: string }>>(
+    "/api/auth/signin-code/request",
+    { method: "POST", body: input, auth: false },
+  );
+}
+
+/** Check the emailed code (PUBLIC). On success: every shop where this email
+ * is a confirmed user. It does NOT sign anyone in. */
+export async function verifySigninCode(input: VerifySigninCodeInput) {
+  assertWebOnly("Signing in with an emailed code");
+  return requestJson<SigninCodeEnvelope<{ shops: SigninShop[] }>>(
+    "/api/auth/signin-code/verify",
+    { method: "POST", body: input, auth: false },
+  );
 }

@@ -44,6 +44,13 @@ export const EMAIL_PREVIEW_SAMPLES: Readonly<Record<string, TemplateVars>> = {
     expiresAtText: "10 October 2026, 09:00 UTC",
     supportEmail: "support@liratek.shop",
   },
+  // LIRA-287: www sign-in code. The code is the secret, so the sample
+  // carries the marker every preview secret carries.
+  "signin-code": {
+    code: "PREVIEW_ONLY_not_a_real_token",
+    expiresAtText: "10 October 2026, 09:00 UTC",
+    supportEmail: "support@liratek.shop",
+  },
   // [auth-B] user invite + email verification (LIRA-279/281)
   "user-invite": {
     inviteUrl:

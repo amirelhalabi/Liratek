@@ -38,7 +38,7 @@ export default function StepComplete() {
         payload.admin_password,
       );
       if (!loginResult.success) {
-        setError(loginResult.error ?? "Login after setup failed");
+        setError(loginResult.error ?? "Sign-in after setup failed");
         return;
       }
       // This auto-login is the wizard's, not a person signing in, and the

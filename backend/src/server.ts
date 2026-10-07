@@ -172,6 +172,7 @@ import userInvitationsRoutes from "./api/userInvitations.js";
 import userEmailRoutes from "./api/userEmail.js";
 import passwordResetRoutes from "./api/passwordReset.js";
 import googleAuthRoutes from "./api/googleAuth.js";
+import signinCodeRoutes from "./api/signinCode.js";
 
 // Health checks (no /api prefix for easier monitoring)
 app.use("/health", healthRoutes);
@@ -190,6 +191,8 @@ app.use("/health", healthRoutes);
 // Google sign-in (feature D) lives under /api/auth/google; mounted BEFORE
 // authRoutes so nothing in auth.ts can shadow it.
 app.use("/api/auth/google", googleAuthRoutes);
+// LIRA-287: www "email me a code" sign-in (public). Before authRoutes.
+app.use("/api/auth/signin-code", signinCodeRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/clients", clientsRoutes);
 app.use("/api/sales", salesRoutes);

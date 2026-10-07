@@ -448,6 +448,7 @@ describe("DatabaseResetRepository", () => {
       expect([
         "email_outbox",
         "signup_invitations",
+        "signin_codes",
         "sso_handoff_tokens",
         "sync_errors",
         "sync_queue",
@@ -471,12 +472,18 @@ describe("DatabaseResetRepository", () => {
       `INSERT INTO sso_handoff_tokens (token_hash, user_id, target_tenant_id, expires_at)
        VALUES ('h', 1, 1, '2026-10-10T00:00:00.000Z')`,
     ).run();
+    // v199 (LIRA-287): platform-level www sign-in code.
+    db.prepare(
+      `INSERT INTO signin_codes (email, code_hash, expires_at)
+       VALUES ('x@example.com', 'h', '2026-10-10T00:00:00.000Z')`,
+    ).run();
 
     runWithTenant(1, () => repo.resetTenantData());
 
     for (const table of [
       "email_outbox",
       "signup_invitations",
+      "signin_codes",
       "sso_handoff_tokens",
     ]) {
       const n = (

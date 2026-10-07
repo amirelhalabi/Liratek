@@ -23,6 +23,10 @@ import {
   removeHashParam,
 } from "@/features/auth/utils/browserNavigation";
 import { markFreshSignIn } from "@/features/auth/utils/freshSignIn";
+import { rememberCurrentShop } from "@/features/auth/utils/rememberCurrentShop";
+
+/** The longest a Google sign-in waits to remember the shop (LIRA-287). */
+const REMEMBER_WAIT_MS = 2000;
 
 const SSO_FAILED = "This sign-in link is not valid. Please sign in again.";
 
@@ -44,7 +48,15 @@ export function useSsoHandoff(): { exchanging: boolean; error: string | null } {
           // The reload boots through session restore; this marker makes it
           // run the same post-sign-in steps as a password login.
           markFreshSignIn();
-          reloadAtHome();
+          // LIRA-287: let www offer "Continue to <shop>" next time. Finished
+          // BEFORE the reload tears the page down; it never throws, and a
+          // slow answer never holds the sign-in up for more than a moment.
+          void Promise.race([
+            rememberCurrentShop(),
+            new Promise<void>((resolve) =>
+              setTimeout(resolve, REMEMBER_WAIT_MS),
+            ),
+          ]).then(() => reloadAtHome());
           return;
         }
         setError(messageFrom(res.error, SSO_FAILED));

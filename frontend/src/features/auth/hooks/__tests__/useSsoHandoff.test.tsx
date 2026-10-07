@@ -24,6 +24,10 @@ jest.mock("@/features/auth/utils/browserNavigation", () => {
   const actual = jest.requireActual("@/features/auth/utils/browserNavigation");
   return { ...actual, reloadAtHome: () => reloadAtHome() };
 });
+const rememberCurrentShop = jest.fn();
+jest.mock("@/features/auth/utils/rememberCurrentShop", () => ({
+  rememberCurrentShop: () => rememberCurrentShop(),
+}));
 
 import { useSsoHandoff } from "../useSsoHandoff";
 
@@ -49,6 +53,41 @@ function renderAt(hash: string) {
 beforeEach(() => {
   ssoExchange.mockReset();
   reloadAtHome.mockReset();
+  rememberCurrentShop.mockReset();
+  rememberCurrentShop.mockResolvedValue(undefined);
+});
+
+// LIRA-287: a Google sign-in on a shop's address remembers the shop for www,
+// and must finish doing so BEFORE the reload tears the page down.
+it("remembers this shop for www before the reload", async () => {
+  const order: string[] = [];
+  let finish: () => void = () => {};
+  rememberCurrentShop.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        order.push("remember:start");
+        finish = () => {
+          order.push("remember:done");
+          resolve();
+        };
+      }),
+  );
+  reloadAtHome.mockImplementation(() => order.push("reload"));
+  ssoExchange.mockResolvedValue({ success: true, data: { token: "jwt" } });
+  renderAt("#/login?sso=tok-remember");
+  await waitFor(() => expect(rememberCurrentShop).toHaveBeenCalledTimes(1));
+  expect(reloadAtHome).not.toHaveBeenCalled();
+  finish();
+  await waitFor(() => expect(reloadAtHome).toHaveBeenCalledTimes(1));
+  expect(order).toEqual(["remember:start", "remember:done", "reload"]);
+});
+
+it("a refused hand-off remembers nothing", async () => {
+  ssoExchange.mockResolvedValue({ success: false, error: "nope" });
+  renderAt("#/login?sso=tok-refused");
+  await waitFor(() => expect(ssoExchange).toHaveBeenCalledTimes(1));
+  await new Promise((r) => setTimeout(r, 0));
+  expect(rememberCurrentShop).not.toHaveBeenCalled();
 });
 
 it("marks a FRESH sign-in before the reload, so the app runs the post-login opening check", async () => {

@@ -420,6 +420,55 @@ export default function Signup() {
     </div>
   );
 
+  // LIRA-287: "1 Email · 2 Shop details", so this page never reads as the
+  // sign-in page. Step 2 is the full form opened from the emailed link.
+  const stepIndicator = (current: 1 | 2) => (
+    <ol
+      aria-label="Sign-up steps"
+      className={clsx("mb-5 flex items-center gap-2 text-xs", subtleClass)}
+    >
+      {(["Email", "Shop details"] as const).map((label, i) => {
+        const n = (i + 1) as 1 | 2;
+        const active = n === current;
+        const done = n < current;
+        return (
+          <li
+            key={label}
+            aria-current={active ? "step" : undefined}
+            className="flex items-center gap-2"
+          >
+            {i > 0 && (
+              <span aria-hidden="true" className="mx-1">
+                ·
+              </span>
+            )}
+            <span
+              aria-hidden="true"
+              className={clsx(
+                "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold",
+                active || done
+                  ? "bg-orange-500 text-white"
+                  : dark
+                    ? "bg-slate-700 text-slate-300"
+                    : "bg-gray-200 text-gray-600",
+              )}
+            >
+              {n}
+            </span>
+            <span
+              className={clsx(
+                active && "font-semibold",
+                active && (dark ? "text-white" : "text-gray-900"),
+              )}
+            >
+              {label}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+
   const signInFooter = (
     <p className={clsx("mt-4 text-center", subtleClass)}>
       Already have a shop?{" "}
@@ -455,7 +504,7 @@ export default function Signup() {
     return (
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
-          <h1 className={clsx(headingClass, "mb-2")}>Sign up</h1>
+          <h1 className={clsx(headingClass, "mb-2")}>Create your shop</h1>
           {/* Google sign-up is open whenever Google is configured, even with
               the emailed form off (owner decision 2026-10-07). */}
           <GoogleSignInButton
@@ -476,6 +525,7 @@ export default function Signup() {
       return (
         <div className={pageClass}>
           <div className={clsx(cardClass, "text-center")}>
+            <div className="flex justify-center">{stepIndicator(1)}</div>
             <Mail className="w-10 h-10 text-orange-500 mx-auto mb-3" />
             <h1 className={clsx(headingClass, "mb-2")}>Check your inbox</h1>
             <p className={subtleClass}>{requestSent}</p>
@@ -492,6 +542,7 @@ export default function Signup() {
     return (
       <div className={pageClass}>
         <form onSubmit={handleRequest} className={cardClass}>
+          {stepIndicator(1)}
           <h1 className={clsx(headingClass, "mb-1")}>Create your shop</h1>
           <p className={clsx(subtleClass, "mb-6")}>
             Enter your email and we&apos;ll send you a link to set up your shop.
@@ -594,6 +645,7 @@ export default function Signup() {
   return (
     <div className={pageClass}>
       <form onSubmit={handleSubmit} className={cardClass}>
+        {invite && stepIndicator(2)}
         <h1 className={clsx(headingClass, "mb-1")}>Create your shop</h1>
         <p className={clsx(subtleClass, "mb-6")}>
           Everything else can be changed later in Settings.
