@@ -16,12 +16,18 @@ export {
   UserRepository,
   getUserRepository,
   resetUserRepository,
+  normalizeEmail,
+  FIRST_ADMIN_WHERE,
+  FIRST_ADMIN_ORDER,
 } from "./UserRepository.js";
 export type {
   UserEntity,
   SafeUser,
   CreateUserData,
   UpdateUserData,
+  UserEmailInfo,
+  UserWithEmail,
+  UserEmailRow,
 } from "./UserRepository.js";
 
 // Product Repository
@@ -776,6 +782,61 @@ export type {
   CreateSignupInvitationData,
   TenantByContactEmail,
 } from "./SignupInvitationRepository.js";
+
+// Account email + sign-in tokens (v196, SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md).
+// Tenant-scoped: user invitations, password reset, email verification, Google
+// identities. Platform-level: the www -> shop sign-in hand-off. Node-only.
+export { USABLE_TOKEN_WHERE } from "./authTokenSql.js";
+export {
+  UserInvitationRepository,
+  getUserInvitationRepository,
+  resetUserInvitationRepository,
+  deriveUserInvitationStatus,
+} from "./UserInvitationRepository.js";
+export type {
+  UserInvitationEntity,
+  UserInvitationRole,
+  UserInvitationStatus,
+  CreateUserInvitationData,
+} from "./UserInvitationRepository.js";
+export {
+  PasswordResetTokenRepository,
+  getPasswordResetTokenRepository,
+  resetPasswordResetTokenRepository,
+} from "./PasswordResetTokenRepository.js";
+export type {
+  PasswordResetTokenEntity,
+  CreatePasswordResetTokenData,
+} from "./PasswordResetTokenRepository.js";
+export {
+  EmailVerificationTokenRepository,
+  getEmailVerificationTokenRepository,
+  resetEmailVerificationTokenRepository,
+} from "./EmailVerificationTokenRepository.js";
+export type {
+  EmailVerificationTokenEntity,
+  CreateEmailVerificationTokenData,
+} from "./EmailVerificationTokenRepository.js";
+export {
+  UserIdentityRepository,
+  getUserIdentityRepository,
+  resetUserIdentityRepository,
+} from "./UserIdentityRepository.js";
+export type {
+  UserIdentityEntity,
+  IdentityProvider,
+  IdentityMatch,
+  LinkUserIdentityData,
+} from "./UserIdentityRepository.js";
+export {
+  SsoHandoffTokenRepository,
+  getSsoHandoffTokenRepository,
+  resetSsoHandoffTokenRepository,
+} from "./SsoHandoffTokenRepository.js";
+export type {
+  SsoHandoffTokenEntity,
+  CreateSsoHandoffTokenData,
+} from "./SsoHandoffTokenRepository.js";
 
 // Money posting helpers (moneyPosting.ts — seeded by the Payment-Legs
 // Integrity plan's S2 hard-reject leg reconciliation; grown by CQ-3 with the

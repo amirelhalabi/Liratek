@@ -486,6 +486,7 @@ export type {
 // Tenant Storage Provisioner port (Phase C, PRODUCTION_DATABASE_AND_HOSTING_PLAN.md § 12.2/12.3)
 export {
   SharedTenantStorageProvisioner,
+  adminEmailFields,
   setTenantStorageProvisioner,
   getTenantStorageProvisionerOverride,
   resetTenantStorageProvisioner,
@@ -546,3 +547,17 @@ export {
   resetSessionSweepService,
 } from "./SessionSweepService.js";
 export type { SessionSweepResult } from "./SessionSweepService.js";
+
+// =============================================================================
+// Account features (SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md "Contracts"): one
+// anchor per feature, blank-line separated so parallel branches merge
+// cleanly. Add exports directly under YOUR anchor only.
+// =============================================================================
+
+// [auth-A] exports
+
+// [auth-B] exports
+
+// [auth-C] exports
+
+// [auth-D] exports

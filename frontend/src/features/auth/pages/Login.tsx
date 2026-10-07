@@ -9,6 +9,11 @@ import PasswordInput from "@/shared/components/PasswordInput";
 import { TextInput } from "@liratek/ui";
 import { useTheme } from "@/contexts/ThemeContext";
 import { isElectron, publicAuthInfo } from "@/api/backendApi";
+// Account features (SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md "Contracts"): add
+// imports under YOUR anchor only (blank-line separated for clean merges).
+// [auth-C] imports
+
+// [auth-D] imports
 
 export default function Login() {
   const { login } = useAuth();
@@ -53,6 +58,8 @@ export default function Login() {
       cancelled = true;
     };
   }, []);
+
+  // [auth-D] the ?sso=<token> hand-off exchange (web only) goes here
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,6 +223,10 @@ export default function Login() {
               )}
             </button>
           </form>
+
+          {/* [auth-C] "Forgot password?" link (web only) */}
+
+          {/* [auth-D] "Continue with Google" button (web only, when enabled) */}
 
           {/* Web only, and only when a visitor can sign up on their own:
               self-serve email sign-up (LIRA-267). The desktop build

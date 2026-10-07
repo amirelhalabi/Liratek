@@ -52,6 +52,14 @@ export interface CreateTenantStorageInput {
   /** LIRA-267: already trimmed + lowercased. Optional so existing callers
    * and test fakes need no change; absent means NULL. */
   contactEmail?: string | null;
+  /**
+   * v196: when the shop has a `contactEmail`, the first admin user is linked
+   * to it (owner decision 2026-10-07). This is the UTC ISO instant that email
+   * was PROVEN (the invite link was opened, or Google confirmed it), or
+   * null/absent when it was only typed — the admin's email is then stored
+   * unverified. Ignored when there is no contactEmail.
+   */
+  adminEmailVerifiedAt?: string | null;
   adminUsername: string;
   /** Already hashed — `TenantProvisioningService` owns password validation
    * and hashing; this port never sees a plaintext password. */
@@ -81,6 +89,22 @@ export interface TenantStorageProvisioner {
    * the delete is allowed and loaded `tenant`).
    */
   deleteTenant(tenant: TenantEntity): TenantStorageDeleteResult;
+}
+
+/**
+ * The first admin's account email (v196), derived ONCE for both storage
+ * modes (rule 14): the shop's contact email, verified only when the caller
+ * supplied a proof instant. No contact email = no admin email at all.
+ */
+export function adminEmailFields(input: CreateTenantStorageInput): {
+  email: string | null;
+  email_verified_at: string | null;
+} {
+  const email = input.contactEmail?.trim().toLowerCase() || null;
+  return {
+    email,
+    email_verified_at: email ? (input.adminEmailVerifiedAt ?? null) : null,
+  };
 }
 
 // =============================================================================
@@ -130,6 +154,7 @@ export class SharedTenantStorageProvisioner implements TenantStorageProvisioner 
         role: "admin",
         is_active: 1,
         tenant_id: created.id,
+        ...adminEmailFields(input),
       });
 
       // Commercial state, in the SAME transaction as the tenant row — see

@@ -75,6 +75,7 @@ import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import {
   TenantRepository,
+  adminEmailFields,
   type TenantEntity,
   type TenantStorageProvisioner,
   type CreateTenantStorageInput,
@@ -287,12 +288,21 @@ export function createPerTenantStorageProvisioner(
         // has no created_at/updated_at columns (pre-existing schema shape,
         // matching create_db.sql's own admin seed at tenant 1 — not
         // something to "fix" in passing here).
+        // v196: the admin is linked to the shop's sign-up email — the SAME
+        // derivation the shared-file provisioner uses (adminEmailFields).
+        const adminEmail = adminEmailFields(input);
         tempDb
           .prepare(
-            `INSERT INTO users (username, password_hash, role, is_active, tenant_id)
-             VALUES (?, ?, 'admin', 1, ?)`,
+            `INSERT INTO users (username, password_hash, role, is_active, tenant_id, email, email_verified_at)
+             VALUES (?, ?, 'admin', 1, ?, ?, ?)`,
           )
-          .run(input.adminUsername, input.passwordHash, tenantId);
+          .run(
+            input.adminUsername,
+            input.passwordHash,
+            tenantId,
+            adminEmail.email,
+            adminEmail.email_verified_at,
+          );
 
         const violations = tempDb.pragma("foreign_key_check") as unknown[];
         if (Array.isArray(violations) && violations.length > 0) {

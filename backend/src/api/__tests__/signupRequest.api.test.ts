@@ -177,6 +177,21 @@ describe("POST /api/auth/signup/request", () => {
     expect(outboxRows()).toBe(0);
   });
 
+  it("Turnstile configured but NO token sent (the field is optional since v196): refused, Cloudflare never asked, nothing queued", async () => {
+    const res = await request(app)
+      .post("/api/auth/signup/request")
+      .set("X-Forwarded-For", nextIp())
+      .send({ email: "a@example.com" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: false,
+      error: "Please complete the check and try again.",
+    });
+    expect(verifyTurnstile).not.toHaveBeenCalled();
+    expect(selfInvites()).toBe(0);
+    expect(outboxRows()).toBe(0);
+  });
+
   it("Turnstile unreachable or timed out: 200 success:false 'try again in a few minutes', nothing queued", async () => {
     verifyTurnstile.mockResolvedValue("unavailable");
     const res = await post(nextIp(), { email: "a@example.com" });

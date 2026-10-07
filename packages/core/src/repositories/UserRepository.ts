@@ -7,7 +7,7 @@
 
 import { BaseRepository, type FindOptions } from "./BaseRepository.js";
 import { getCurrentTenantId, runWithoutTenant } from "../db/tenantContext.js";
-import { DatabaseError } from "../utils/errors.js";
+import { DatabaseError, EmailTakenInShopError } from "../utils/errors.js";
 
 /**
  * How a username is matched, everywhere. Defined once (rule 14) because the
@@ -27,6 +27,51 @@ import { DatabaseError } from "../utils/errors.js";
  */
 const USERNAME_MATCH = "username COLLATE NOCASE = ?";
 
+/**
+ * "A shop's FIRST ADMIN", defined once (rule 14): the lowest-id ACTIVE user
+ * with role 'admin' in the shop. Used by impersonation ("connect as" lands on
+ * this account) and by migration v196's email backfill, which restates it in
+ * SQL because migrations cannot import repositories — keep the two equal.
+ * Bind: tenant_id.
+ */
+export const FIRST_ADMIN_WHERE =
+  "tenant_id = ? AND role = 'admin' AND is_active = 1";
+export const FIRST_ADMIN_ORDER = "ORDER BY id LIMIT 1";
+
+/**
+ * How an email is stored and compared, everywhere: trimmed + lowercased
+ * (v196). Applied INSIDE the repository, not only in the zod schemas,
+ * because provisioning and the backfill never pass through a schema — this
+ * normalisation is what makes the plain `idx_users_tenant_email` unique index
+ * case-insensitive in practice.
+ */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/**
+ * True for SQLite's UNIQUE violation on `idx_users_tenant_email`, looking
+ * through the `DatabaseError` wrapper `BaseRepository.execute` adds (the
+ * driver error is its `details.cause`).
+ */
+function isEmailUniqueViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 4; depth++) {
+    // Duck-typed, not `instanceof Error`: better-sqlite3's SqliteError can
+    // come from another realm (one native module, many jest contexts).
+    const raw = (current as { message?: unknown }).message;
+    const message = typeof raw === "string" ? raw : "";
+    if (
+      /UNIQUE constraint failed: users\.tenant_id, users\.email/.test(message)
+    ) {
+      return true;
+    }
+    const details = (current as { details?: { cause?: unknown } }).details;
+    current = details?.cause ?? (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -45,6 +90,21 @@ export interface UserEntity {
 /** User without sensitive password hash */
 export type SafeUser = Omit<UserEntity, "password_hash">;
 
+/** A user's account email (v196). `email_verified_at` is a UTC ISO instant,
+ * or null while unverified. */
+export interface UserEmailInfo {
+  email: string | null;
+  email_verified_at: string | null;
+}
+
+/** A user row plus its account email — returned by the by-email lookups. */
+export type UserWithEmail = UserEntity & UserEmailInfo;
+
+/** One row of `listEmails()`. */
+export interface UserEmailRow extends UserEmailInfo {
+  id: number;
+}
+
 export interface CreateUserData {
   username: string;
   password_hash: string;
@@ -57,6 +117,11 @@ export interface CreateUserData {
    * `null` ONLY for platform-realm users (`super_admin` bootstrap).
    */
   tenant_id?: number | null;
+  /** v196: optional account email, normalised here. Omitted = not written
+   * (so a caller on a pre-v196 table shape is unaffected). */
+  email?: string | null;
+  /** v196: UTC ISO instant the email was proven, or null. */
+  email_verified_at?: string | null;
 }
 
 export interface UpdateUserData {
@@ -175,7 +240,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   findFirstActiveAdminByTenant(tenantId: number): UserEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: control-plane cross-tenant lookup — target tenant is an explicit param */ WHERE tenant_id = ? AND role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: control-plane cross-tenant lookup — target tenant is an explicit param */ WHERE ${FIRST_ADMIN_WHERE} ${FIRST_ADMIN_ORDER}`;
       return this.queryOne<UserEntity>(query, tenantId);
     } catch (error) {
       throw new DatabaseError("Failed to find first active tenant admin", {
@@ -483,17 +548,27 @@ export class UserRepository extends BaseRepository<UserEntity> {
       const tenantId =
         data.tenant_id !== undefined ? data.tenant_id : getCurrentTenantId();
 
-      const query = `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id)
+      // The email columns are written only when the caller supplies them,
+      // so a caller (or test) on a pre-v196 table shape is unaffected.
+      const withEmail = data.email !== undefined;
+      const query = withEmail
+        ? `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id, email, email_verified_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`
+        : `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id)
                      VALUES (?, ?, ?, ?, ?)`;
-
-      const result = this.execute(
-        query,
+      const params: (string | number | null)[] = [
         data.username,
         data.password_hash,
         data.role,
         data.is_active ?? 1,
         tenantId,
-      );
+      ];
+      if (withEmail) {
+        const email = data.email ? normalizeEmail(data.email) : null;
+        params.push(email, email ? (data.email_verified_at ?? null) : null);
+      }
+
+      const result = this.execute(query, ...params);
       const insertedId = result.lastInsertRowid as number;
 
       // Global fetch by the fresh rowid: a platform-realm user (tenant_id
@@ -506,7 +581,124 @@ export class UserRepository extends BaseRepository<UserEntity> {
       }
       return created;
     } catch (error) {
+      if (isEmailUniqueViolation(error)) throw new EmailTakenInShopError();
       throw new DatabaseError("Failed to create user", { cause: error });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Account email (v196, LIRA-279)
+  //
+  // Deliberately NOT part of getColumns(): the login and session paths, and
+  // the many tests that hand-build a pre-v196 `users` table, keep working
+  // untouched. `users` has no updated_at column, so none of these write one.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set (or clear, with null) a user's email in the CURRENT shop. The email
+   * is normalised; `verifiedAt` is stored only alongside a non-null email.
+   * Returns false when the id is not a user of the current shop. Throws
+   * `EmailTakenInShopError` (code EMAIL_TAKEN_IN_SHOP) when another user in
+   * the shop already has the address.
+   */
+  setEmail(
+    userId: number,
+    email: string | null,
+    verifiedAt: string | null,
+  ): boolean {
+    const normalized = email ? normalizeEmail(email) : null;
+    try {
+      const result = this.execute(
+        `UPDATE ${this.tableName} SET email = ?, email_verified_at = ? WHERE id = ? AND tenant_id = ?`,
+        normalized,
+        normalized ? verifiedAt : null,
+        userId,
+        getCurrentTenantId(),
+      );
+      return result.changes > 0;
+    } catch (error) {
+      if (isEmailUniqueViolation(error)) throw new EmailTakenInShopError();
+      throw new DatabaseError("Failed to set user email", {
+        cause: error,
+        entityId: userId,
+      });
+    }
+  }
+
+  /**
+   * Mark the user's email verified — but only if it is STILL `email` (the
+   * address the verification link was sent to). A link for an address the
+   * user has since changed verifies nothing. Current shop only.
+   */
+  markEmailVerified(
+    userId: number,
+    email: string,
+    verifiedAt: string,
+  ): boolean {
+    try {
+      const result = this.execute(
+        `UPDATE ${this.tableName} SET email_verified_at = ? WHERE id = ? AND tenant_id = ? AND email = ?`,
+        verifiedAt,
+        userId,
+        getCurrentTenantId(),
+        normalizeEmail(email),
+      );
+      return result.changes > 0;
+    } catch (error) {
+      throw new DatabaseError("Failed to mark user email verified", {
+        cause: error,
+        entityId: userId,
+      });
+    }
+  }
+
+  /** A current-shop user's email, or null when no such user. */
+  getEmail(userId: number): UserEmailInfo | null {
+    try {
+      return this.queryOne<UserEmailInfo>(
+        `SELECT email, email_verified_at FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`,
+        userId,
+        getCurrentTenantId(),
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to load user email", {
+        cause: error,
+        entityId: userId,
+      });
+    }
+  }
+
+  /** Every current-shop user's email (active or not), for the Users list. */
+  listEmails(): UserEmailRow[] {
+    try {
+      return this.query<UserEmailRow>(
+        `SELECT id, email, email_verified_at FROM ${this.tableName} WHERE tenant_id = ? ORDER BY id`,
+        getCurrentTenantId(),
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to list user emails", { cause: error });
+    }
+  }
+
+  /**
+   * The ACTIVE user with this email in an explicit shop (forgot password,
+   * invite duplicate check). The realm is passed by the caller — resolved
+   * from the request host or a typed shop address before any tenant context
+   * exists — like `findByUsernameInRealm`. Case-insensitive via
+   * normalisation. Returns whether the email is verified; callers decide
+   * whether an unverified address may receive mail.
+   */
+  findByEmailInTenant(email: string, tenantId: number): UserWithEmail | null {
+    try {
+      return this.queryOne<UserWithEmail>(
+        `SELECT ${this.getColumns()}, email, email_verified_at FROM ${this.tableName} /* tenant-exempt: explicit realm supplied by caller */ WHERE tenant_id = ? AND email = ? AND is_active = 1`,
+        tenantId,
+        normalizeEmail(email),
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to find user by email", {
+        cause: error,
+      });
     }
   }
 

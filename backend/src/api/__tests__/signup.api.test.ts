@@ -382,6 +382,13 @@ describe("POST /api/auth/signup", () => {
       expect(Number.isNaN(Date.parse(now as string))).toBe(false);
     });
 
+    it("marks the invite email PROVEN for the first admin, at the consume instant (v196)", async () => {
+      await postToken().expect(201);
+      const args = provisionTenant.mock.calls[0]![0] as Record<string, unknown>;
+      const [, now] = inviteConsume.mock.calls[0]!;
+      expect(args.contactEmailVerifiedAt).toBe(now);
+    });
+
     it("works when no shared invite code is configured", async () => {
       inviteCode = undefined;
       await postToken().expect(201);

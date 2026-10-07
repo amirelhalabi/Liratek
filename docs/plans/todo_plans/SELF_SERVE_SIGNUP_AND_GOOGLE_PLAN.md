@@ -155,3 +155,302 @@ Phase 3 (LIRA-280) ── after Phase 2; Spec Kit (/speckit-specify --number 280
 3. **Phase 3:**
    - A Google sign-up **still sets a password**.
    - Existing users link Google **from Settings only**, never automatically.
+
+---
+
+## Contracts (foundation, 2026-10-07)
+
+The foundation commit (migration **v196**) builds the shared pieces. Features **A–D** build on it in parallel. Each feature edits only the files it owns (the ownership table is at the end). Shared files already carry one **anchor comment per feature**, separated by blank lines, so parallel branches merge cleanly. Add your lines directly under **your** anchor only.
+
+### What the foundation provides
+
+**Schema (v196)**, in `migrations/index.ts` and `create_db.sql`:
+
+- `users.email`, `users.email_verified_at`, plus a partial `UNIQUE(tenant_id, email) WHERE email IS NOT NULL`.
+- Backfill: each shop's **first admin** gets `tenants.contact_email`, marked verified.
+  - "First admin" means the lowest-id **active** user with `role='admin'`. It is defined once in `UserRepository`, as `FIRST_ADMIN_WHERE`/`FIRST_ADMIN_ORDER`.
+  - The admin is skipped if they already have an email, or if another user in the shop already holds that address.
+- Tenant-scoped tables (`tenant_id NOT NULL`, `ON DELETE CASCADE`):
+  - `user_invitations`
+  - `password_reset_tokens`
+  - `email_verification_tokens` (new; it stores the `email` the link was sent to)
+  - `user_identities`
+- Platform table: `sso_handoff_tokens`.
+  - It has `target_tenant_id` and **no `tenant_id`**, so the per-tenant split and the platform-split guard never count its rows as shop data.
+  - Neither `target_tenant_id` nor `user_id` has a foreign key.
+- `email_outbox_id` is a plain INTEGER everywhere, with **no foreign key**. The outbox is platform-only and is deleted from every `tenants/<id>.db`, so a foreign key would fail that file's `foreign_key_check`.
+- `user_identities` uniqueness:
+  - `UNIQUE(provider, subject, tenant_id)`: one Google account can be linked in several shops, but to only one user per shop.
+  - `UNIQUE(user_id, provider)`: one Google account per user.
+  - The first index also serves the by-subject lookup.
+- Case-insensitivity: emails are stored trimmed and lowercased.
+  - `signupEmailSchema` does this at the edge.
+  - `normalizeEmail()` does it inside every repository, because provisioning bypasses zod.
+  - Lookups compare the normalized value. The plain unique index is therefore case-insensitive in practice, the same approach as v195.
+
+**Repositories** (`@liratek/core`, Node only):
+
+- Every "now" is a UTC ISO string passed in by the caller.
+- Every `created_at` in the token tables is written as ISO.
+- By-token methods are cross-tenant in SQL, because the token is the capability; the row's `tenant_id` names the shop.
+  - The route must check that shop against the host's shop when the host resolves one.
+  - It must then do the rest inside `runWithTenant(row.tenant_id)`.
+  - In per-tenant DB mode, the route must already be inside the host shop's scope before calling.
+
+| Repository | Methods |
+| --- | --- |
+| `UserRepository` (added) | `setEmail(userId, email\|null, verifiedAt\|null)`, `markEmailVerified(userId, email, verifiedAt)` (only if the user's email is still `email`), `getEmail(userId)`, `listEmails()`, `findByEmailInTenant(email, tenantId)` (active users only), and `createUser({…, email?, email_verified_at?})`. Throws `EmailTakenInShopError` (`EMAIL_TAKEN_IN_SHOP`). |
+| `UserInvitationRepository` | `createInvitation`, `linkOutbox`, `findByTokenHash`, `claim(hash, now, staleBefore)`, `finalize(id, userId, now)`, `release`, `revoke`, `listRecent(limit)`, `findPendingByEmail(email, now)`, `countCreatedSince(iso)`, and `deriveUserInvitationStatus`. |
+| `PasswordResetTokenRepository` | `createToken({userId, tokenHash, expiresAt, requestedIpHash?, now})`, `linkOutbox`, `findUsableByTokenHash(hash, now)`, `consume(hash, now)`, `invalidateForUser(userId, now)`, `countForUserSince(userId, iso)` |
+| `EmailVerificationTokenRepository` | `createToken({userId, email, tokenHash, expiresAt, now})`, `linkOutbox`, `findUsableByTokenHash`, `consume`, `invalidateForUser`, `countForUserSince` |
+| `UserIdentityRepository` | `link({userId, provider, subject, email, now})` (throws `IdentityAlreadyLinkedError`, `IDENTITY_ALREADY_LINKED`), `findByUser`, `unlink`, `findBySubjectInTenant(provider, sub, tenantId)`, `findBySubjectAllTenants(provider, sub)` (active users only, **shared DB mode only**) |
+| `SsoHandoffTokenRepository` | `createToken({tokenHash, userId, targetTenantId, expiresAt, now})`, `consume(hash, now)`, `deleteExpiredBefore(iso)`. Callers wrap it in `runWithoutTenant`. |
+
+Atomic single use:
+
+- `claim()` and `consume()` are conditional UPDATEs; the second call returns `null`.
+- Expired tokens are refused with `expires_at > now`. That predicate is defined once, as `USABLE_TOKEN_WHERE`.
+- Reuse `generateToken()` / `hashToken()` from LIRA-267 and store only the hash.
+
+**Provisioning:**
+
+- `ProvisionTenantData.contactEmailVerifiedAt` and `CreateTenantStorageInput.adminEmailVerifiedAt` link the first admin to the shop's `contactEmail`. This works in both shared and per-tenant modes, through `adminEmailFields()`.
+- The email is **verified** only when the caller proves it. `POST /api/auth/signup` (invite link) now passes `contactEmailVerifiedAt: now`.
+- A super admin's typed `contactEmail` links the email **unverified**. Google sign-up (D) must pass the instant Google confirmed the email.
+
+**Env** (`env.ts`, `.env.deploy.example`, `backend/.env.example`):
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `SIGNUP_SELF_SERVE_ENABLED` | `false` | On only for `true` or `1` (any case). Not `z.coerce.boolean`. |
+| `SIGNUP_SELF_SERVE_DAILY_CAP` | `20` | Changed from 50. |
+| `CLIENT_IP_HEADER` | unset | Lowercased, for example `fly-client-ip`. |
+| `GOOGLE_CLIENT_ID` | unset | Google sign-in stays dormant while this is unset. |
+| `GOOGLE_CLIENT_SECRET` | unset | |
+| `PASSWORD_RESET_TTL_MINUTES` | `60` | |
+| `USER_INVITE_TTL_HOURS` | `72` | |
+
+**Validators** (`validators/account.ts` and `signupInvitation.ts`; exported from `index.ts` **and** `browser.ts`):
+
+- `requestSignupLinkSchema`:
+  - `turnstileToken` is now optional.
+  - New optional fields: `shopNameHint` (≤100), the honeypot `website` (≤200), and **`formElapsedMs`**.
+  - `formElapsedMs` is an integer from 0 to 86 400 000 (one day), measured by the browser **on its own clock** from render to submit.
+  - It replaces the `formStartedAt` timestamp the brief asked for. Comparing a browser timestamp with the server clock would let clock skew silently drop real people (rule 27).
+- Account schemas: `createUserInvitationSchema {email, role: admin|staff}`, `checkUserInvitationSchema {token}`, `acceptUserInvitationSchema {token, username (trim, 3..100), password}`, `forgotPasswordSchema {email, shop?: slug}`, `checkResetTokenSchema {token}`, `resetPasswordSchema {token, password}`, `setUserEmailSchema {email: email|null}`, `verifyUserEmailSchema {token}`, `googleStartQuerySchema {intent: login|signup|link, shop?: slug}`, `ssoExchangeSchema {token}`.
+- Passwords use `newPasswordSchema`, which is `validatePasswordComplexity` (the rule user creation enforces). It was moved to the pure `utils/passwordPolicy.ts` and is re-exported from `crypto.ts` and `browser.ts`.
+- Exported input types for the frontend (rule 21): `RequestSignupLinkInput`, `CreateUserInvitationInput`, `CheckUserInvitationInput`, `AcceptUserInvitationInput`, `ForgotPasswordInput`, `CheckResetTokenInput`, `ResetPasswordInput`, `SetUserEmailInput`, `VerifyUserEmailInput`, `GoogleStartQueryInput`, `SsoExchangeInput`.
+- `browser.ts` also exports these error codes: `EMAIL_ALREADY_HAS_SHOP`, `EMAIL_NOT_CONFIGURED`, `EMAIL_TAKEN_IN_SHOP`, `IDENTITY_ALREADY_LINKED`. Pages compare codes, never message text.
+
+**Link bases** (`backend/src/email/emailConfig.ts`):
+
+- `resolveInviteBaseUrl()` gives the **platform** origin: `SIGNUP_INVITE_BASE_URL`, else `https://www.<APP_BASE_DOMAIN>`. Use it for sign-up invites and every Google `www` URL.
+- `resolveTenantBaseUrl(slug)` gives `https://<slug>.<APP_BASE_DOMAIN>`, or null. `loginUrl` and the impersonation `targetOrigin` now use it.
+- **`resolveShopLinkBaseUrl(slug)`** is what every **shop-scoped emailed link** uses. It is the shop subdomain, or the one platform origin when `APP_BASE_DOMAIN` is unset, because every shop is served there in dev, preview and e2e. When it is null, the feature refuses to send.
+- No new env variable was needed. `docs/DEPLOYMENT.md` says production has `APP_BASE_DOMAIN=liratek.shop`. That is **unverified against the live secrets**; check with `yarn api:secrets`.
+
+**Pre-mounted routers** (empty; the feature fills its own file and never edits `server.ts`):
+
+| File | Mounted at | Feature |
+| --- | --- | --- |
+| `backend/src/api/userInvitations.ts` | `/api/user-invitations` | B |
+| `backend/src/api/userEmail.ts` | `/api/user-email` | B |
+| `backend/src/api/passwordReset.ts` | `/api/password-reset` | C |
+| `backend/src/api/googleAuth.ts` | `/api/auth/google` (mounted before `authRoutes`) | D |
+
+**Anchors** are in `packages/core/src/services/index.ts` and `browser.ts` (end of file), `frontend/src/app/App.tsx` (imports and routes), `frontend/src/api/backendApi.ts` (end of file), `frontend/src/features/auth/pages/Login.tsx` (imports, the `?sso=` effect, and links under the form), and `backend/src/email/templates/index.ts` (imports and the registry).
+
+### Conventions for every route below
+
+- **Envelope:** `{ success, data?, error?, code? }`, from `createSuccessResponse`/`createErrorResponse`.
+- **Statuses:**
+  - Expected business refusals (bad link, email taken, not configured) are **HTTP 200** with `success:false` plus a `code`. `requestJson` throws on non-2xx, which is why this matches `signup/invite/check`.
+  - Zod failures are 400 (`validateRequest`).
+  - Missing or invalid JWT is 401. Wrong role is 403. Rate limits are 429.
+- **Authenticated routes:** `authenticateJWT` **then** `requireRole([...])`, per route. The actor and the shop come from the JWT, never from the body.
+- **Public token routes:** the token goes in the **body**, never the URL path. Every unusable token (unknown, expired, used, revoked, claimed) gets **one** generic message. If the host resolves a shop and the token's shop differs, use that same generic message.
+- **Emails:** go through the outbox inside the same transaction as the token row, using the idempotency keys below. Templates escape all variables. `expiresAtText` is formatted in UTC with an explicit "UTC" suffix (rule 27).
+- **Web-only:** every function in `backendApi.ts` calls `assertWebOnly(...)`. Record the desktop exception as LIRA-267 does.
+- **Release notes** (rule 30): add one line under your area in `docs/release-notes/UNRELEASED.md` (Web app / Settings).
+
+### A — Self-serve sign-up (LIRA-278)
+
+**Owns:**
+
+- `backend/src/api/auth.ts`, the `/signup/request` and `/signup-status` blocks only.
+- `backend/src/security/turnstile.ts`.
+- A new `backend/src/middleware/clientIp.ts`, plus the limiter key generators in `backend/src/middleware/rateLimit.ts`.
+- `SignupInvitationService` (core) and the `signup-invite` template.
+- `frontend/src/features/auth/pages/Signup.tsx` (request mode).
+- The admin Invitations page's Source filter.
+- `frontend/tests/e2e-web/lira-web-039*`.
+
+**`POST /api/auth/signup/request`** (public; `signupRequestLimiter` keyed on the real client IP):
+
+- Body: `requestSignupLinkSchema`.
+- Availability: `canSendInvites() && SIGNUP_SELF_SERVE_ENABLED`. Otherwise 200 `{success:false, error:"Sign-up is not available right now."}`.
+- Turnstile is verified **only if** `isTurnstileConfigured()`. When it is configured, a missing or invalid token gets 200 `{success:false, error:"Please complete the check and try again."}`.
+- A filled `website`, or `formElapsedMs < 3000`, gets the normal success reply and sends nothing. Log the reason. An absent `formElapsedMs` skips the timing check.
+- Otherwise the response is unchanged: 200 `{success:true, data:{message}}`, with the per-email limit (3 per hour) and the daily cap (20, plus a warning log).
+- `shopNameHint` is stored on the invite. For `source='self'` the email **omits** the shop name.
+
+**`GET /api/auth/signup-status`:**
+
+- `selfServeEnabled` is `canSendInvites() && SIGNUP_SELF_SERVE_ENABLED`.
+- `turnstileSiteKey` is returned only when both Turnstile keys are set.
+
+**Real client IP:** when `CLIENT_IP_HEADER` is set, the limiters key on that header's first value, else on `req.ip`. Never change `trust proxy` in a way that breaks `X-Forwarded-Host` (see `OPERATIONS.md`).
+
+**Admin list:** `GET /api/admin/signup-invitations?source=admin|self`.
+
+**Frontend:** `requestSignupLink(input: RequestSignupLinkInput)` exists; change it in place. The form sends `email`, `shopNameHint`, `website:""` (a hidden input) and `formElapsedMs`.
+
+### B — Settings → Users: emails and invites (LIRA-279, LIRA-281)
+
+**Owns:**
+
+- `backend/src/api/userInvitations.ts` and `backend/src/api/userEmail.ts`.
+- The core services `UserInvitationService` and `UserEmailService` (new files).
+- Templates `user-invite` and `verify-email` (new files, registered under the `[auth-B]` anchors).
+- `frontend/src/features/settings/pages/Settings/UsersManager.tsx`.
+- New pages `frontend/src/features/auth/pages/JoinShop.tsx` (route `/join`) and `VerifyEmail.tsx` (route `/verify-email`).
+- The LIRA-276 **button** in Settings → Users, which calls C's endpoint.
+
+**User email** (mounted at `/api/user-email`):
+
+| Method + path | Auth | Body | 200 `data` | Refusal `code`s |
+| --- | --- | --- | --- | --- |
+| `GET /` | JWT + `admin` | none | `{ users: [{ id, email, emailVerifiedAt }] }` | none |
+| `PUT /:userId` | JWT + `admin` | `setUserEmailSchema` | `{ email, emailVerifiedAt: null, verificationSent }` | `EMAIL_TAKEN_IN_SHOP`, `NOT_FOUND` |
+| `POST /:userId/send-verification` | JWT + `admin` | none | `{ sent: true }` | `USER_HAS_NO_EMAIL`, `EMAIL_ALREADY_VERIFIED`, `EMAIL_NOT_CONFIGURED`, `RATE_LIMITED` (at most 3 per hour per user, `countForUserSince`) |
+| `POST /verify` | public | `verifyUserEmailSchema` | `{ verified: true }` | generic "This link is not valid…" |
+
+- **`PUT /:userId`:**
+  - Saves the address **unverified**.
+  - Calls `invalidateForUser` on any old verification links.
+  - When the email is non-null and email is configured, it issues a verification link (TTL 24 hours, a constant `EMAIL_VERIFY_TTL_HOURS = 24` in B's service) and returns `verificationSent:true`.
+  - `null` clears both the email and the verified stamp.
+- **`POST /verify`:** `consume` → `runWithTenant(row.tenant_id)` → `markEmailVerified(row.user_id, row.email, now)`. When that returns false (the email has changed since), give the generic refusal.
+- **Template `verify-email`:**
+  - Variables: `verifyUrl`, `username`, `shopName`, `expiresAtText`, `supportEmail`.
+  - Idempotency key: `verify-email:<tokenId>`.
+  - Link: `<shopLinkBase>/#/verify-email?token=<token>`.
+
+**User invitations** (mounted at `/api/user-invitations`):
+
+| Method + path | Auth | Body | 200 `data` | Refusal `code`s |
+| --- | --- | --- | --- | --- |
+| `GET /` | JWT + `admin` | none | `{ emailConfigured, invitations: [UserInvitationView] }` | none |
+| `POST /` | JWT + `admin` | `createUserInvitationSchema` | `{ invitation }` | `EMAIL_NOT_CONFIGURED`, `EMAIL_TAKEN_IN_SHOP` (an active user here already has it), `RATE_LIMITED` (20 per day per shop, `countCreatedSince`) |
+| `POST /:id/revoke` | JWT + `admin` | none | `{ invitation }` | `USER_INVITATION_USED` |
+| `POST /:id/resend` | JWT + `admin` | none | `{ invitation }` (a **new** invite) | as `POST /` |
+| `POST /check` | public | `checkUserInvitationSchema` | `{ email, role, shopName, expiresAt }` | generic |
+| `POST /accept` | public | `acceptUserInvitationSchema` | `{ loginUrl }` | generic, `USERNAME_TAKEN` (claim released), `EMAIL_TAKEN_IN_SHOP` (claim released) |
+
+- **`UserInvitationView`:** `{ id, email, role, status, createdAt, expiresAt, usedAt, usedByUserId, revokedAt, emailDelivery }`. `emailDelivery` is read from `EmailOutboxRepository` under `runWithoutTenant`; do not join it, because it lives in a different file in per-tenant mode. The token hash is never included.
+- **`POST /:id/resend`:** revokes the old invite if it is pending, then creates a new invite with the same email and role.
+- **`POST /accept`:**
+  1. `claim(hash, now, now - 10 min)`.
+  2. Check the host's shop.
+  3. Inside `runWithTenant(invite.tenant_id)`: `usernameExistsInRealm`, then `createUser({ role: invite.role, email: invite.email, email_verified_at: now })`.
+  4. `finalize`. On any failure, `release`.
+- **Audit log:** `logAdminAction`-style entries `user_invitation.create` and `user_invitation.revoke`, and `user.create` with `via: "invite"`.
+- **Template `user-invite`:**
+  - Subject: "<Shop name> invited you to LiraTek".
+  - Variables: `inviteUrl`, `shopName`, `roleText`, `expiresAtText`, `supportEmail`. The shop name is safe to show, because only a shop admin can send this.
+  - Idempotency key: `user-invite:<id>`.
+  - Link: `<shopLinkBase>/#/join?invite=<token>`.
+  - TTL: `USER_INVITE_TTL_HOURS`.
+
+**`backendApi.ts`** (under `[auth-B]`): `listUserEmails`, `setUserEmail(userId, input: SetUserEmailInput)`, `sendUserEmailVerification(userId)`, `verifyUserEmail(input: VerifyUserEmailInput)`, `listUserInvitations`, `createUserInvitation(input: CreateUserInvitationInput)`, `revokeUserInvitation(id)`, `resendUserInvitation(id)`, `checkUserInvitation(input)`, `acceptUserInvitation(input: AcceptUserInvitationInput)`.
+
+### C — Forgot / reset password (LIRA-275), and send reset from Settings (LIRA-276)
+
+**Owns:**
+
+- `backend/src/api/passwordReset.ts` and the core `PasswordResetService` (new file).
+- The `password-reset` template.
+- New pages `frontend/src/features/auth/pages/ForgotPassword.tsx` (route `/forgot-password`) and `ResetPassword.tsx` (route `/reset-password`).
+- The "Forgot password?" link under the `Login.tsx` anchor.
+
+Routes (mounted at `/api/password-reset`):
+
+| Method + path | Auth | Body | 200 `data` | Refusal `code`s |
+| --- | --- | --- | --- | --- |
+| `POST /forgot` | public; per-IP limiter 5 per hour (real IP, from A) | `forgotPasswordSchema` | `{ message }`, always the same | `SHOP_REQUIRED` (on www with no `shop`) |
+| `POST /check` | public | `checkResetTokenSchema` | `{ username, shopName }` | generic "This reset link is not valid. Ask for a new one." |
+| `POST /reset` | public | `resetPasswordSchema` | `{ loginUrl }` | generic |
+| `POST /send/:userId` | JWT + `admin` | none | `{ sent: true }` | `USER_HAS_NO_EMAIL`, `EMAIL_NOT_VERIFIED`, `EMAIL_NOT_CONFIGURED`, `RATE_LIMITED` |
+
+- **`POST /forgot`:**
+  - The shop is the host's shop (`resolveTenantHost`, kind `tenant`). Otherwise it is `body.shop`, resolved by slug to an **active** shop.
+  - On www with no `shop`, return 200 `{success:false, code:"SHOP_REQUIRED"}`. An unknown shop returns the generic reply.
+  - The reply is always the same message: "If this email belongs to an account in this shop, we've sent a link." Whether the user exists never changes it.
+  - **Mail goes only to a VERIFIED email** (`findByEmailInTenant` and `email_verified_at` not null). Recommended, owner to confirm: an unverified address could be a typo that hands over the account.
+  - At most 3 per hour per user (`countForUserSince`); requests beyond that are silently not sent.
+  - `requested_ip_hash = hashToken(ip)`.
+- **`POST /reset`:**
+  1. Validate the password with the schema **before** `consume`.
+  2. `consume`.
+  3. Inside `runWithTenant(row.tenant_id)`: `updatePassword(hashPassword(pw))`, `invalidateForUser`, and revoke all of the user's sessions.
+  4. Write an audit log entry.
+- **`POST /send/:userId`:** the target must be in the admin's shop.
+- **Template `password-reset`:**
+  - Variables: `resetUrl`, `username`, `shopName`, `expiresAtText`, `supportEmail`.
+  - Idempotency key: `password-reset:<tokenId>`.
+  - Link: `<shopLinkBase>/#/reset-password?token=<token>`.
+  - TTL: `PASSWORD_RESET_TTL_MINUTES`.
+
+**`backendApi.ts`** (under `[auth-C]`): `forgotPassword(input: ForgotPasswordInput)`, `checkResetToken(input: CheckResetTokenInput)`, `resetPassword(input: ResetPasswordInput)`, `sendPasswordReset(userId)`. B's Settings button calls `sendPasswordReset`.
+
+### D — Continue with Google (LIRA-280; Spec Kit `/speckit-specify --number 280`)
+
+**Owns:**
+
+- `backend/src/api/googleAuth.ts` and the core `GoogleAuthService` (new file; it verifies ID tokens with Google's JWKS).
+- The new page `frontend/src/features/auth/pages/GoogleAuth.tsx` (route `/auth/google`, www only).
+- The Google button and the `?sso=` effect under the `Login.tsx` anchors.
+- "Connect Google" in Settings, as a new component; B owns `UsersManager.tsx`.
+- The Google step in `Signup.tsx`, coordinated with A. A owns the request-mode block; D adds a separate `?google=` branch.
+
+**Dormancy:** while `GOOGLE_CLIENT_ID` is unset, every route answers 200 `{success:false, code:"GOOGLE_NOT_CONFIGURED"}`, or redirects with `error=not_configured`, and the button stays hidden.
+
+Routes (mounted at `/api/auth/google`):
+
+| Method + path | Auth | Result |
+| --- | --- | --- |
+| `GET /status` | public | `{ enabled }` |
+| `GET /start?intent=login\|signup&shop=` | public (www) | 302 to Google (auth code + PKCE; `state` and the verifier sit in a signed, httpOnly cookie of about 10 minutes) |
+| `POST /link/start` | JWT, any tenant role, own account | `{ url }`, a www start URL carrying a signed link ticket (about 10 minutes) for `{userId, tenantId}` |
+| `GET /callback` | public (www) | 302, see below |
+| `POST /choose` | public | body `{ ticket, tenantId }`, returns `{ redirectUrl }` |
+| `POST /sso-exchange` | public (shop host) | `ssoExchangeSchema` |
+| `DELETE /link` | JWT | unlink the current user's Google account |
+
+- **`GET /callback`:** the backend verifies `iss`, `aud`, `exp` and `email_verified`, then redirects as follows.
+  - **login, one match** (`findBySubjectAllTenants`): mint `sso_handoff_tokens` (60 s), then go to `https://<slug>.<base>/#/login?sso=<token>`.
+  - **login, several matches:** `https://www.<base>/#/auth/google?choose=<signed ticket>`.
+  - **login, no match:** `…/#/auth/google?error=no_account`.
+  - **signup:** `https://www.<base>/#/signup?google=<signed ticket carrying email + verified-at>`.
+    - The page shows the full form with the email locked.
+    - `POST /api/auth/signup` gains an alternative proof `googleTicket`, which is A's or D's schema change, coordinated.
+    - The shop is provisioned with `contactEmail` and `contactEmailVerifiedAt`.
+    - A password is still required.
+  - **link:** `identityRepo.link(...)` inside `runWithTenant`, then go to `https://<slug>.<base>/#/settings?google=linked|error`.
+- **`POST /sso-exchange`:** `consume` under `runWithoutTenant`. Require host shop == `target_tenant_id`. Then issue the session **exactly** as `POST /api/auth/login` does, with the same response shape and audit entry.
+- **No automatic linking by email** (owner decision 3). Sign-in matches only through `user_identities`.
+- **Per-tenant DB mode limitation:** `findBySubjectAllTenants` only sees every shop in shared mode. Before Phase D (the database split) goes live, a platform-level `(provider, subject) → (tenant_id, user_id)` index is needed. This is a known follow-up, not part of this work.
+
+**`backendApi.ts`** (under `[auth-D]`): `googleAuthStatus()`, `googleLinkStart()`, `googleChooseShop(input)`, `ssoExchange(input: SsoExchangeInput)`, `googleUnlink()`. The start URL is a plain navigation, not a fetch.
+
+### Ownership summary
+
+| Shared file | A | B | C | D |
+| --- | --- | --- | --- | --- |
+| `backend/src/api/auth.ts` | `/signup/request`, `/signup-status` | none | none | the `googleTicket` branch of `/signup` (coordinate with A) |
+| `server.ts` | none | none | none | none (all routers pre-mounted) |
+| `App.tsx` anchors | none | `[auth-B]` | `[auth-C]` | `[auth-D]` |
+| `backendApi.ts` | `requestSignupLink` in place | `[auth-B]` | `[auth-C]` | `[auth-D]` |
+| `Login.tsx` anchors | none | none | `[auth-C]` | `[auth-D]` (both) |
+| `email/templates/index.ts` | none | `[auth-B]` | `[auth-C]` | none |
+| core `services/index.ts`, `browser.ts` (end of file) | `[auth-A]` | `[auth-B]` | `[auth-C]` | `[auth-D]` |

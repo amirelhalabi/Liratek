@@ -503,11 +503,12 @@ describe("DatabaseResetRepository", () => {
     expect(nonZero.n).toBe(0);
   });
 
-  it("never touches sync_queue / sync_errors / email_outbox / signup_invitations (EXCLUDED — no tenant_id column)", () => {
+  it("never touches sync_queue / sync_errors / email_outbox / signup_invitations / sso_handoff_tokens (EXCLUDED — no tenant_id column)", () => {
     for (const table of RESET_EXCLUDED_TABLES) {
       expect([
         "email_outbox",
         "signup_invitations",
+        "sso_handoff_tokens",
         "sync_errors",
         "sync_queue",
       ]).toContain(table);
@@ -525,10 +526,19 @@ describe("DatabaseResetRepository", () => {
       `INSERT INTO signup_invitations (email, token_hash, source, expires_at)
        VALUES ('x@example.com', 'h', 'self', '2026-10-10T00:00:00.000Z')`,
     ).run();
+    // v196: platform-level sign-in hand-off.
+    db.prepare(
+      `INSERT INTO sso_handoff_tokens (token_hash, user_id, target_tenant_id, expires_at)
+       VALUES ('h', 1, 1, '2026-10-10T00:00:00.000Z')`,
+    ).run();
 
     runWithTenant(1, () => repo.resetTenantData());
 
-    for (const table of ["email_outbox", "signup_invitations"]) {
+    for (const table of [
+      "email_outbox",
+      "signup_invitations",
+      "sso_handoff_tokens",
+    ]) {
       const n = (
         db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }
       ).n;

@@ -13491,6 +13491,228 @@ export const MIGRATIONS: Migration[] = [
         db.exec(`ALTER TABLE tenants DROP COLUMN contact_email;`);
       }
     },
+  },  {
+    version: 196,
+    name: "user_emails_and_auth_tokens",
+    description:
+      "Foundation for LIRA-278/279/281/275/276/280 " +
+      "(SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md). users gains email + " +
+      "email_verified_at, unique PER SHOP via a partial index (the app " +
+      "always stores emails trimmed + lowercased). Backfills each shop's " +
+      "first admin (lowest-id active role='admin') from tenants." +
+      "contact_email, marked verified. New tenant-scoped tables: " +
+      "user_invitations, password_reset_tokens, email_verification_tokens, " +
+      "user_identities (Google). New platform-level table: " +
+      "sso_handoff_tokens (www -> shop subdomain hand-off), which carries " +
+      "target_tenant_id, NOT tenant_id, so the per-tenant split tool and " +
+      "platform-split guard never mistake it for shop data. email_outbox_id " +
+      "columns are plain INTEGERs (no FK): email_outbox is platform-only " +
+      "and is deleted from every tenants/<id>.db by the split.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Guarded on `users` existing, like v195 guards `tenants`: some
+      // migration-runner test fixtures build a partial schema without it.
+      const hasUsers = tableExists(db, "users");
+      if (hasUsers && !columnExists(db, "users", "email")) {
+        db.exec(`ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL;`);
+      }
+      if (hasUsers && !columnExists(db, "users", "email_verified_at")) {
+        db.exec(
+          `ALTER TABLE users ADD COLUMN email_verified_at TEXT DEFAULT NULL;`,
+        );
+      }
+      if (hasUsers) {
+        db.exec(
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_email
+             ON users(tenant_id, email) WHERE email IS NOT NULL;`,
+        );
+      }
+
+      // Backfill: each shop's FIRST ADMIN gets the shop's sign-up email,
+      // verified (owner decision 2026-10-07: "each shop's admin account is
+      // linked to the email used at sign-up"). "First admin" is the SAME
+      // predicate as UserRepository's FIRST_ADMIN_WHERE / ORDER (role =
+      // 'admin' AND is_active = 1, lowest id). Skipped when that admin
+      // already has an email, or when another user in the shop already holds
+      // the address (the unique index would refuse it anyway). Migrations are
+      // exempt from rule 27; the stamp is an ISO instant, the shape the app
+      // writes.
+      if (
+        hasUsers &&
+        tableExists(db, "tenants") &&
+        columnExists(db, "tenants", "contact_email")
+      ) {
+        const now = new Date().toISOString();
+        const shops = db
+          .prepare(
+            `SELECT id, lower(trim(contact_email)) AS email FROM tenants
+              WHERE contact_email IS NOT NULL AND trim(contact_email) != ''`,
+          )
+          .all() as { id: number; email: string }[];
+        const firstAdmin = db.prepare(
+          `SELECT id, email FROM users
+            WHERE tenant_id = ? AND role = 'admin' AND is_active = 1
+            ORDER BY id LIMIT 1`,
+        );
+        const taken = db.prepare(
+          `SELECT 1 FROM users WHERE tenant_id = ? AND email = ? LIMIT 1`,
+        );
+        const setEmail = db.prepare(
+          `UPDATE users SET email = ?, email_verified_at = ?
+            WHERE id = ? AND email IS NULL`,
+        );
+        for (const shop of shops) {
+          const admin = firstAdmin.get(shop.id) as
+            | { id: number; email: string | null }
+            | undefined;
+          if (!admin || admin.email !== null) continue;
+          if (taken.get(shop.id, shop.email) !== undefined) continue;
+          setEmail.run(shop.email, now, admin.id);
+        }
+      }
+
+      // Invite a user into ONE shop by email (LIRA-281). Tenant-scoped.
+      // email_outbox_id has no FK: the outbox is platform-only and the
+      // per-tenant split deletes it from every shop file, so a FK here would
+      // fail that file's foreign_key_check.
+      if (!tableExists(db, "user_invitations")) {
+        db.exec(`
+          CREATE TABLE user_invitations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+            email TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('admin', 'staff')),
+            token_hash TEXT NOT NULL UNIQUE,
+            invited_by_user_id INTEGER,
+            expires_at TEXT NOT NULL,
+            claimed_at TEXT,
+            used_at TEXT,
+            used_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            revoked_at TEXT,
+            email_outbox_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_user_invitations_tenant_email
+           ON user_invitations(tenant_id, email);`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_user_invitations_tenant_created
+           ON user_invitations(tenant_id, created_at);`,
+      );
+
+      // Forgot password (LIRA-275/276). Tenant-scoped.
+      if (!tableExists(db, "password_reset_tokens")) {
+        db.exec(`
+          CREATE TABLE password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token_hash TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            requested_ip_hash TEXT,
+            email_outbox_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_created
+           ON password_reset_tokens(user_id, created_at);`,
+      );
+
+      // Verify a user's email (LIRA-279). Tenant-scoped. `email` is the
+      // address the link was sent to: using the link verifies THAT address
+      // only, so it cannot verify an email the user changed to afterwards.
+      if (!tableExists(db, "email_verification_tokens")) {
+        db.exec(`
+          CREATE TABLE email_verification_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            email TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            email_outbox_id INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_created
+           ON email_verification_tokens(user_id, created_at);`,
+      );
+
+      // Google sign-in links (LIRA-280). Tenant-scoped. One Google account
+      // (subject) may be linked to users in SEVERAL shops (one owner, many
+      // shops) but to at most ONE user per shop, and one user has at most one
+      // identity per provider. The UNIQUE (provider, subject, tenant_id) index
+      // also serves the by-subject lookup (leftmost prefix), so no separate
+      // (provider, subject) index is needed.
+      if (!tableExists(db, "user_identities")) {
+        db.exec(`
+          CREATE TABLE user_identities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL CHECK (provider IN ('google')),
+            subject TEXT NOT NULL,
+            email TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (provider, subject, tenant_id)
+          );
+        `);
+      }
+      db.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identities_user_provider
+           ON user_identities(user_id, provider);`,
+      );
+
+      // www -> <slug> sign-in hand-off (LIRA-280). PLATFORM-level: minted on
+      // www, consumed on the shop subdomain, about 60 s of life. The column
+      // is target_tenant_id, never tenant_id, and neither it nor user_id has
+      // a FK: in per-tenant mode the shop's users are not in the platform
+      // file (same precedent as signup_invitations.used_by_tenant_id).
+      if (!tableExists(db, "sso_handoff_tokens")) {
+        db.exec(`
+          CREATE TABLE sso_handoff_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_hash TEXT NOT NULL UNIQUE,
+            user_id INTEGER NOT NULL,
+            target_tenant_id INTEGER NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+      }
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS sso_handoff_tokens;`);
+      db.exec(`DROP TABLE IF EXISTS user_identities;`);
+      db.exec(`DROP TABLE IF EXISTS email_verification_tokens;`);
+      db.exec(`DROP TABLE IF EXISTS password_reset_tokens;`);
+      db.exec(`DROP TABLE IF EXISTS user_invitations;`);
+      // The index must go before the columns: SQLite refuses DROP COLUMN on a
+      // column an index still references.
+      db.exec(`DROP INDEX IF EXISTS idx_users_tenant_email;`);
+      if (!tableExists(db, "users")) return;
+      if (columnExists(db, "users", "email_verified_at")) {
+        db.exec(`ALTER TABLE users DROP COLUMN email_verified_at;`);
+      }
+      if (columnExists(db, "users", "email")) {
+        db.exec(`ALTER TABLE users DROP COLUMN email;`);
+      }
+    },
   },
 ];
 // =============================================================================

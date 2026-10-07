@@ -7910,3 +7910,17 @@ export async function selfChargeTelecomItem(data: {
       }>(`/api/services/self-charge`, { method: "POST", body: data }),
   );
 }
+
+// =============================================================================
+// Account features (SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md "Contracts").
+// Web-only, PUBLIC or tenant-JWT routes; payload types are the core
+// `*Input` types (rule 21). One section per feature, blank-line separated so
+// parallel branches merge cleanly: add functions under YOUR anchor only.
+// Feature A (self-serve sign-up) changes `requestSignupLink` above in place.
+// =============================================================================
+
+// [auth-B] user invitations + user email (LIRA-279/281)
+
+// [auth-C] forgot / reset password (LIRA-275/276)
+
+// [auth-D] Google sign-in + hand-off (LIRA-280)

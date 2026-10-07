@@ -139,6 +139,13 @@ const TENANT_SCOPED_TABLES = [
   "carrier_lines",
   "carrier_line_movements",
   "carrier_line_owed_deliveries",
+  // v196 (SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md): account email + sign-in
+  // tokens. Lookups by token hash are deliberately cross-tenant (the token is
+  // the capability) and carry a `tenant-exempt:` marker saying so.
+  "user_invitations",
+  "password_reset_tokens",
+  "email_verification_tokens",
+  "user_identities",
 ];
 
 // Explicitly never flagged, even if referenced.
@@ -147,6 +154,10 @@ const NON_TENANT_TABLES = new Set([
   "tenants",
   "sync_queue",
   "sync_errors",
+  // LIRA-267 / v196 platform-level tables with no tenant_id column.
+  "signup_invitations",
+  "email_outbox",
+  "sso_handoff_tokens",
   "sqlite_sequence",
   "sqlite_master",
 ]);

@@ -14,12 +14,12 @@
  *
  * The six buckets:
  *
- * - RESET_KEEP_TABLES (13): untouched. Configuration captured by the setup
+ * - RESET_KEEP_TABLES (17): untouched. Configuration captured by the setup
  *   wizard's Account/Base-System/Modules/Currencies/Users pages, plus
  *   Settings-page config (`system_settings`, `currency_drawers`) and
  *   control-plane rows (`tenants`, `tenant_subscriptions`,
  *   `schema_migrations`). The shop should never have to re-run the wizard.
- * - RESET_EXCLUDED_TABLES (4): `sync_queue` / `sync_errors` were the first
+ * - RESET_EXCLUDED_TABLES (5): `sync_queue` / `sync_errors` were the first
  *   wipe-candidates with NO `tenant_id` column — they are documented in
  *   `BaseRepository` as control-plane/global tables, so a tenant-scoped
  *   `DELETE ... WHERE tenant_id = ?` cannot target them safely on the
@@ -29,6 +29,8 @@
  *   `email_outbox` / `signup_invitations` (LIRA-267, v195) joined for the
  *   same reason: platform-level sign-up invitations and their emails, owned
  *   by no shop, so one shop's "Reset Data" must never touch them.
+ *   `sso_handoff_tokens` (v196) joined for the same reason: a platform-level
+ *   www -> shop sign-in hand-off with no `tenant_id` column.
  * - RESET_ZERO_TABLES (2): rows are KEPT and specific "balance-like" columns
  *   are set to 0, never deleted. `drawer_balances.balance` is the original
  *   member — zeroing (not deleting) is load-bearing:
@@ -80,25 +82,36 @@ export const DATABASE_RESET_CONFIRMATION_PHRASE = "RESET ALL DATA";
 // Table buckets — each sorted alphabetically so future diffs stay readable.
 // =============================================================================
 
-/** KEEP — untouched (13). Setup-wizard + Settings-page config, control plane. */
+/**
+ * KEEP — untouched (17). Setup-wizard + Settings-page config, control plane,
+ * and the accounts themselves. The four v196 tables travel with `users`
+ * (KEEP): a user's Google link, pending invites to the shop, and open
+ * password-reset / email-verification links are account state, not shop
+ * operations, and a "Reset Data" that silently unlinked Google or killed a
+ * just-sent invite would be a surprise with nothing to gain.
+ */
 export const RESET_KEEP_TABLES: readonly string[] = [
   "currencies",
   "currency_drawers",
   "currency_modules",
+  "email_verification_tokens",
   "exchange_rates",
   "loto_settings",
   "modules",
+  "password_reset_tokens",
   "payment_methods",
   "schema_migrations",
   "service_providers",
   "system_settings",
   "tenant_subscriptions",
   "tenants",
+  "user_identities",
+  "user_invitations",
   "users",
 ];
 
 /**
- * EXCLUDED — global, not tenant-scopable (4). No `tenant_id` column exists
+ * EXCLUDED — global, not tenant-scopable (5). No `tenant_id` column exists
  * on any of these tables (see `BaseRepository`'s "control-plane/global tables"
  * doc comment), so they are left alone entirely rather than risk an
  * unscoped cross-tenant DELETE.
@@ -106,6 +119,7 @@ export const RESET_KEEP_TABLES: readonly string[] = [
 export const RESET_EXCLUDED_TABLES: readonly string[] = [
   "email_outbox",
   "signup_invitations",
+  "sso_handoff_tokens",
   "sync_errors",
   "sync_queue",
 ];

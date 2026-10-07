@@ -201,6 +201,38 @@ describe("createPerTenantStorageProvisioner", () => {
       }
     });
 
+    it("links the shop file's admin user to the sign-up email, with the verified stamp (v196)", () => {
+      const proven = "2026-10-07T12:00:00.000Z";
+      const created = provisioner.createTenant({
+        name: "Linked Shop",
+        slug: "linkedshop",
+        contactName: null,
+        contactPhone: null,
+        notes: null,
+        contactEmail: "owner@example.com",
+        adminEmailVerifiedAt: proven,
+        adminUsername: "admin",
+        passwordHash: "hashed-password-value",
+      });
+      const shopDb = new RealDatabase(
+        path.join(tenantsDir, `${created.id}.db`),
+        { readonly: true },
+      );
+      try {
+        const row = shopDb
+          .prepare(
+            `SELECT email, email_verified_at FROM users WHERE tenant_id = ? AND username = 'admin'`,
+          )
+          .get(created.id) as { email: string | null; email_verified_at: string | null };
+        expect(row).toEqual({
+          email: "owner@example.com",
+          email_verified_at: proven,
+        });
+      } finally {
+        shopDb.close();
+      }
+    });
+
     it("refuses a duplicate contactEmail with EMAIL_ALREADY_HAS_SHOP and leaves no file or platform row", () => {
       provisioner.createTenant({
         name: "First",

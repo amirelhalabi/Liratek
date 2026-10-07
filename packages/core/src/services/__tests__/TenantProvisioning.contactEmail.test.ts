@@ -145,6 +145,59 @@ describe("provisionTenant — contactEmail", () => {
   });
 });
 
+describe("provisionTenant — the first admin's account email (v196)", () => {
+  function adminEmailOf(tenantId: number): {
+    email: string | null;
+    email_verified_at: string | null;
+  } {
+    return db
+      .prepare(
+        `SELECT email, email_verified_at FROM users WHERE tenant_id = ? AND role = 'admin' ORDER BY id LIMIT 1`,
+      )
+      .get(tenantId) as { email: string | null; email_verified_at: string | null };
+  }
+
+  it("links the admin to the sign-up email, verified at the instant the caller proved it", () => {
+    const proven = "2026-10-07T12:00:00.000Z";
+    const tenant = runWithoutTenant(() =>
+      service.provisionTenant({
+        ...BASE,
+        name: "Linked",
+        slug: "linked",
+        contactEmail: " Owner@Example.com",
+        contactEmailVerifiedAt: proven,
+      }),
+    );
+    expect(adminEmailOf(tenant.id)).toEqual({
+      email: "owner@example.com",
+      email_verified_at: proven,
+    });
+  });
+
+  it("a typed (unproven) contact email is linked but left unverified", () => {
+    const tenant = provision("typed", "typed@example.com");
+    expect(adminEmailOf(tenant.id)).toEqual({
+      email: "typed@example.com",
+      email_verified_at: null,
+    });
+  });
+
+  it("no contact email: the admin has no email, even if a verified stamp is passed", () => {
+    const tenant = runWithoutTenant(() =>
+      service.provisionTenant({
+        ...BASE,
+        name: "Bare",
+        slug: "bare",
+        contactEmailVerifiedAt: "2026-10-07T12:00:00.000Z",
+      }),
+    );
+    expect(adminEmailOf(tenant.id)).toEqual({
+      email: null,
+      email_verified_at: null,
+    });
+  });
+});
+
 describe("deleteTenant after an invite created the shop (LIRA-267)", () => {
   it("deletes the shop and keeps the invitation row, still reading as used", () => {
     db.pragma("foreign_keys = ON");

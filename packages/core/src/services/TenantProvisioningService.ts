@@ -62,6 +62,13 @@ export interface ProvisionTenantData {
    * `EMAIL_ALREADY_HAS_SHOP`).
    */
   contactEmail?: string | null;
+  /**
+   * v196: the UTC ISO instant `contactEmail` was PROVEN — set by the
+   * invite-link sign-up (the link reached that inbox) and, later, Google
+   * sign-up. Omit on the super-admin path, where the email is only typed:
+   * the first admin is then linked to it unverified.
+   */
+  contactEmailVerifiedAt?: string | null;
   adminUsername: string;
   adminPassword: string;
 }
@@ -174,6 +181,7 @@ export class TenantProvisioningService {
         contactPhone: data.contactPhone?.trim() || null,
         notes: data.notes?.trim() || null,
         contactEmail: data.contactEmail?.trim().toLowerCase() || null,
+        adminEmailVerifiedAt: data.contactEmailVerifiedAt ?? null,
         adminUsername,
         passwordHash,
       });

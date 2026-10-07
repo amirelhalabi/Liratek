@@ -4,9 +4,17 @@
 
 import type { EmailTemplate } from "../renderTemplate.js";
 import { signupInviteTemplate } from "./signupInvite.js";
+// One anchor per feature (SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md
+// "Contracts"); add your import / registry entry under YOUR anchor only.
+// [auth-B] imports: userInviteTemplate, verifyEmailTemplate
+
+// [auth-C] imports: passwordResetTemplate
 
 const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
   [signupInviteTemplate.name]: signupInviteTemplate,
+  // [auth-B] entries: "user-invite", "verify-email"
+
+  // [auth-C] entries: "password-reset"
 };
 
 /** Throws for an unknown name: a row naming a template that does not exist

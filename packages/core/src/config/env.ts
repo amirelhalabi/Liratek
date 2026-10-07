@@ -121,11 +121,37 @@ const envSchema = z
     TURNSTILE_SITE_KEY: z.string().optional(),
     TURNSTILE_SECRET_KEY: z.string().optional(),
     // Platform-wide cap on self-serve sign-up link requests per 24 hours.
+    // 20 for launch (owner decision 2026-10-07, LIRA-278).
     SIGNUP_SELF_SERVE_DAILY_CAP: z.coerce
       .number()
       .int()
       .positive()
-      .default(50),
+      .default(20),
+
+    // ── Self-serve sign-up, accounts and Google (v196 foundation) ─────
+    // SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md.
+    //
+    // The switch for the public "email me a sign-up link" form (LIRA-278).
+    // A real boolean parsed in parseEnv ("true"/"1", case-insensitive) — NOT
+    // z.coerce.boolean, which reads the string "false" as true. Email must
+    // also be working; Turnstile becomes an optional extra layer.
+    SIGNUP_SELF_SERVE_ENABLED: z.boolean().default(false),
+    // The ONE request header that carries the visitor's real IP behind the
+    // proxy chain (browser -> Vercel -> Fly), e.g. "fly-client-ip" or
+    // "x-real-ip". Lowercased. Unset = use Express's req.ip as today.
+    CLIENT_IP_HEADER: z.string().optional(),
+    // Google sign-in (LIRA-280). The feature is dormant unless
+    // GOOGLE_CLIENT_ID is set; the secret is needed for the code exchange.
+    GOOGLE_CLIENT_ID: z.string().optional(),
+    GOOGLE_CLIENT_SECRET: z.string().optional(),
+    // How long a "reset your password" link works (LIRA-275/276).
+    PASSWORD_RESET_TTL_MINUTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60),
+    // How long an "invite a user to this shop" link works (LIRA-281).
+    USER_INVITE_TTL_HOURS: z.coerce.number().int().positive().default(72),
 
     // Electron-specific (only needed when running electron app)
     ELECTRON_RENDERER_URL: z.string().url().optional(),
@@ -166,6 +192,16 @@ export type EnvConfig = z.infer<typeof envSchema>;
 function emptyToUndefined(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+/**
+ * An on/off switch: true only for "true" or "1" (any case, trimmed).
+ * Everything else — unset, "", "false", "0", a typo — is off, so a mistyped
+ * value can never switch a public feature ON.
+ */
+function parseBooleanFlag(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "true" || normalized === "1";
 }
 
 /**
@@ -220,6 +256,18 @@ function parseEnv(): EnvConfig {
     SIGNUP_SELF_SERVE_DAILY_CAP: emptyToUndefined(
       process.env.SIGNUP_SELF_SERVE_DAILY_CAP,
     ),
+    SIGNUP_SELF_SERVE_ENABLED: parseBooleanFlag(
+      process.env.SIGNUP_SELF_SERVE_ENABLED,
+    ),
+    CLIENT_IP_HEADER: emptyToUndefined(
+      process.env.CLIENT_IP_HEADER,
+    )?.toLowerCase(),
+    GOOGLE_CLIENT_ID: emptyToUndefined(process.env.GOOGLE_CLIENT_ID),
+    GOOGLE_CLIENT_SECRET: emptyToUndefined(process.env.GOOGLE_CLIENT_SECRET),
+    PASSWORD_RESET_TTL_MINUTES: emptyToUndefined(
+      process.env.PASSWORD_RESET_TTL_MINUTES,
+    ),
+    USER_INVITE_TTL_HOURS: emptyToUndefined(process.env.USER_INVITE_TTL_HOURS),
     ELECTRON_RENDERER_URL: process.env.ELECTRON_RENDERER_URL,
     DASHSCOPE_API_KEY: process.env.DASHSCOPE_API_KEY,
     QWEN_ASR_MODEL: process.env.QWEN_ASR_MODEL,
@@ -288,6 +336,12 @@ export const {
   TURNSTILE_SITE_KEY,
   TURNSTILE_SECRET_KEY,
   SIGNUP_SELF_SERVE_DAILY_CAP,
+  SIGNUP_SELF_SERVE_ENABLED,
+  CLIENT_IP_HEADER,
+  GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET,
+  PASSWORD_RESET_TTL_MINUTES,
+  USER_INVITE_TTL_HOURS,
   ELECTRON_RENDERER_URL,
   DASHSCOPE_API_KEY,
   QWEN_ASR_MODEL,

@@ -195,6 +195,35 @@ export class SignupInvitationUsedError extends AppError {
   }
 }
 
+export const EMAIL_TAKEN_IN_SHOP = "EMAIL_TAKEN_IN_SHOP";
+
+/**
+ * v196 (LIRA-279/281): another user in the same shop already has this email.
+ * Raised by `UserRepository` from SQLite's UNIQUE error on
+ * `idx_users_tenant_email`. The same address in a DIFFERENT shop is allowed.
+ */
+export class EmailTakenInShopError extends AppError {
+  constructor(
+    message: string = "Another user in this shop already uses this email",
+  ) {
+    super(EMAIL_TAKEN_IN_SHOP, message, 409, true);
+  }
+}
+
+export const IDENTITY_ALREADY_LINKED = "IDENTITY_ALREADY_LINKED";
+
+/**
+ * v196 (LIRA-280): this Google account is already linked to another user in
+ * this shop, or this user already has a Google account linked.
+ */
+export class IdentityAlreadyLinkedError extends AppError {
+  constructor(
+    message: string = "This Google account is already linked in this shop",
+  ) {
+    super(IDENTITY_ALREADY_LINKED, message, 409, true);
+  }
+}
+
 /**
  * Type guard to check if an error is an AppError
  */

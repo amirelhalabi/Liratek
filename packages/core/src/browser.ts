@@ -54,6 +54,19 @@ export * from "./constants/subscription.js";
 // Validators — zod schemas, no Node.js deps
 export * from "./validators/index.js";
 
+// v196 — the password complexity rule (pure, zero imports; crypto.ts only
+// re-exports it), so a form can show the same requirements the schema and
+// the services enforce. And the machine-readable error codes the new account
+// endpoints return, so pages compare codes, never message text. errors.ts
+// has no imports, but only the CODE constants are exported here.
+export * from "./utils/passwordPolicy.js";
+export {
+  EMAIL_ALREADY_HAS_SHOP,
+  EMAIL_NOT_CONFIGURED,
+  EMAIL_TAKEN_IN_SHOP,
+  IDENTITY_ALREADY_LINKED,
+} from "./utils/errors.js";
+
 // Lebanese phone-number normalization (CARRIER_LINES_VALIDITY_PLAN.md Phase 6)
 // — pure string manipulation, no Node.js deps. index.ts (the Node entry)
 // exports it too, but Vite/Jest resolve @liratek/core to THIS file (see the
@@ -346,3 +359,17 @@ export type {
   SignupInviteEmailStatus,
   SignupInviteCheckResult,
 } from "./services/SignupInvitationService.js";
+
+// =============================================================================
+// Account features (SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md "Contracts"): one
+// anchor per feature, blank-line separated so parallel branches merge
+// cleanly. Add exports directly under YOUR anchor only.
+// =============================================================================
+
+// [auth-A] exports
+
+// [auth-B] exports
+
+// [auth-C] exports
+
+// [auth-D] exports

@@ -64,45 +64,14 @@ export function needsMigration(stored?: string): boolean {
 }
 
 /**
- * Password complexity requirements
+ * Password complexity rules live in the pure `passwordPolicy.ts` (no
+ * `node:crypto`), so the browser-safe zod validators can enforce the SAME
+ * rule (rule 14 + rule 29). Re-exported here so existing imports keep working.
  */
-export const PASSWORD_REQUIREMENTS = {
-  minLength: 8,
-  requireUppercase: true,
-  requireLowercase: true,
-  requireNumber: true,
-  requireSpecial: true,
-};
-
-/**
- * Validate password meets complexity requirements.
- */
-export function validatePasswordComplexity(password: string): {
-  valid: boolean;
-  errors: string[];
-} {
-  const errors: string[] = [];
-
-  if (password.length < PASSWORD_REQUIREMENTS.minLength) {
-    errors.push(
-      `Password must be at least ${PASSWORD_REQUIREMENTS.minLength} characters`,
-    );
-  }
-  if (PASSWORD_REQUIREMENTS.requireUppercase && !/[A-Z]/.test(password)) {
-    errors.push("Password must contain an uppercase letter");
-  }
-  if (PASSWORD_REQUIREMENTS.requireLowercase && !/[a-z]/.test(password)) {
-    errors.push("Password must contain a lowercase letter");
-  }
-  if (PASSWORD_REQUIREMENTS.requireNumber && !/\d/.test(password)) {
-    errors.push("Password must contain a number");
-  }
-  if (PASSWORD_REQUIREMENTS.requireSpecial && !/[@$!%*?&]/.test(password)) {
-    errors.push("Password must contain a special character (@$!%*?&)");
-  }
-
-  return { valid: errors.length === 0, errors };
-}
+export {
+  PASSWORD_REQUIREMENTS,
+  validatePasswordComplexity,
+} from "./passwordPolicy.js";
 
 // =============================================================================
 // Opaque tokens (LIRA-267 — sign-up invite links)

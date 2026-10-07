@@ -318,6 +318,79 @@ describe("splitTenantDatabase", () => {
     expect(verifiedTables.has("email_outbox")).toBe(true);
   });
 
+  it("splits the v196 account tables: tenant-scoped ones to their shop (even when linked to an outbox row), the sign-in hand-off kept in platform.db", () => {
+    const admin5 = (
+      sourceDb!
+        .prepare(`SELECT id FROM users WHERE username = 'admin-five'`)
+        .get() as { id: number }
+    ).id;
+    const outboxId = sourceDb!
+      .prepare(
+        `INSERT INTO email_outbox (idempotency_key, template, to_email, data_json, status, next_attempt_at, give_up_at)
+         VALUES ('user-invite:1', 'user-invite', 'staff@example.com', '{}', 'accepted', '2026-10-07T00:00:00.000Z', '2026-10-10T00:00:00.000Z')`,
+      )
+      .run().lastInsertRowid as number;
+    // An invite LINKED to its (platform-only) outbox row: had
+    // email_outbox_id been a FK, tenant 5's file would fail its
+    // foreign_key_check once the outbox is deleted from it.
+    sourceDb!
+      .prepare(
+        `INSERT INTO user_invitations (tenant_id, email, role, token_hash, invited_by_user_id, expires_at, email_outbox_id)
+         VALUES (5, 'staff@example.com', 'staff', 'inv-hash', ?, '2026-10-10T00:00:00.000Z', ?)`,
+      )
+      .run(admin5, outboxId);
+    sourceDb!
+      .prepare(
+        `INSERT INTO password_reset_tokens (tenant_id, user_id, token_hash, expires_at, email_outbox_id)
+         VALUES (5, ?, 'reset-hash', '2026-10-07T01:00:00.000Z', ?)`,
+      )
+      .run(admin5, outboxId);
+    sourceDb!
+      .prepare(
+        `INSERT INTO user_identities (user_id, tenant_id, provider, subject, email)
+         VALUES (?, 5, 'google', 'sub-five', 'five@example.com')`,
+      )
+      .run(admin5);
+    sourceDb!
+      .prepare(
+        `INSERT INTO sso_handoff_tokens (token_hash, user_id, target_tenant_id, expires_at)
+         VALUES ('sso-hash', ?, 5, '2026-10-07T00:01:00.000Z')`,
+      )
+      .run(admin5);
+
+    const outputDir = path.join(tmpDir, "out-v196");
+    const report = splitTenantDatabase({ sourceDbPath, outputDir, write: true });
+
+    expect(report.unexpectedTablesWithoutTenantId).toEqual([]);
+    expect(report.mismatches).toEqual([]);
+    expect(report.ok).toBe(true);
+
+    const count = (db: Database.Database, table: string): number =>
+      (db.prepare(`SELECT COUNT(*) c FROM ${table}`).get() as { c: number }).c;
+
+    const five = new Database(report.tenantFiles[5], { readonly: true });
+    const one = new Database(report.tenantFiles[1], { readonly: true });
+    const platform = new Database(report.platformFile, { readonly: true });
+    try {
+      for (const table of [
+        "user_invitations",
+        "password_reset_tokens",
+        "user_identities",
+      ]) {
+        expect(count(five, table)).toBe(1);
+        expect(count(one, table)).toBe(0);
+        expect(count(platform, table)).toBe(0);
+      }
+      expect(count(five, "sso_handoff_tokens")).toBe(0);
+      expect(count(one, "sso_handoff_tokens")).toBe(0);
+      expect(count(platform, "sso_handoff_tokens")).toBe(1);
+    } finally {
+      five.close();
+      one.close();
+      platform.close();
+    }
+  });
+
   it("reports an unexpected global row on any OTHER table holding tenant_id IS NULL rows", () => {
     // Sabotage: a stray global row on a table that is neither
     // users/sessions/audit_log — this is exactly the finding the tool must

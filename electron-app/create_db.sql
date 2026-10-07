@@ -164,6 +164,11 @@ INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value) VALUES
 -- NOTE: username is unique PER TENANT, not globally (see migration v172 and
 -- the column comment below). tenant_id is NULL for the platform/super_admin
 -- realm, which has its own separate uniqueness (idx_users_platform_username).
+-- email / email_verified_at (v196): optional, stored trimmed + lowercased by
+-- the app, unique per shop (idx_users_tenant_email). Kept on the is_active
+-- line with no comment in between: SQLite's DROP COLUMN (v196 down()) cuts
+-- the stored CREATE text back to the last comma before the column, and the
+-- comments inside this table contain commas.
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER REFERENCES tenants(id),
@@ -172,7 +177,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     password_hash TEXT,
     role TEXT DEFAULT 'staff',
-    is_active BOOLEAN DEFAULT 1
+    is_active BOOLEAN DEFAULT 1, email TEXT DEFAULT NULL, email_verified_at TEXT DEFAULT NULL
 );
 
 -- Seed admin user if not exists
@@ -190,6 +195,104 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_username ON users(tenant_id, 
 -- SQLite treats NULLs as distinct in a unique index, so without it two
 -- super_admins (tenant_id NULL) could share a username.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_platform_username ON users(username COLLATE NOCASE) WHERE tenant_id IS NULL;
+-- One email per shop (v196). Partial, so every user with no email is
+-- unaffected; the same address may belong to users in different shops.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tenant_email ON users(tenant_id, email) WHERE email IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Account email + sign-in tokens (v196; SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md).
+-- Every token table stores only sha256(token). email_outbox_id columns carry
+-- NO foreign key on purpose: email_outbox is platform-only and the per-tenant
+-- split deletes it from every tenants/<id>.db, so a FK would fail that file's
+-- foreign_key_check. Times are UTC ISO strings written by the app.
+-- ---------------------------------------------------------------------------
+
+-- Invite a user into one shop by email (LIRA-281). Tenant-scoped.
+CREATE TABLE IF NOT EXISTS user_invitations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'staff')),
+    token_hash TEXT NOT NULL UNIQUE,
+    invited_by_user_id INTEGER,
+    expires_at TEXT NOT NULL,
+    claimed_at TEXT,
+    used_at TEXT,
+    used_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    revoked_at TEXT,
+    email_outbox_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_user_invitations_tenant_email
+    ON user_invitations(tenant_id, email);
+CREATE INDEX IF NOT EXISTS idx_user_invitations_tenant_created
+    ON user_invitations(tenant_id, created_at);
+
+-- Forgot password (LIRA-275/276). Tenant-scoped.
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    requested_ip_hash TEXT,
+    email_outbox_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_created
+    ON password_reset_tokens(user_id, created_at);
+
+-- Verify a user's email (LIRA-279). Tenant-scoped. `email` is the address the
+-- link was sent to; using the link verifies that address only.
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    email_outbox_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_created
+    ON email_verification_tokens(user_id, created_at);
+
+-- Google sign-in links (LIRA-280). Tenant-scoped. One Google account may be
+-- linked in several shops, but to one user per shop; one identity per
+-- provider per user. The UNIQUE (provider, subject, tenant_id) also serves
+-- the by-subject lookup.
+CREATE TABLE IF NOT EXISTS user_identities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL CHECK (provider IN ('google')),
+    subject TEXT NOT NULL,
+    email TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (provider, subject, tenant_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identities_user_provider
+    ON user_identities(user_id, provider);
+
+-- www -> shop subdomain sign-in hand-off (LIRA-280). PLATFORM-level, no
+-- tenant_id: target_tenant_id names the shop, and neither it nor user_id has
+-- a FK (in per-tenant mode the shop's users are not in the platform file).
+CREATE TABLE IF NOT EXISTS sso_handoff_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash TEXT NOT NULL UNIQUE,
+    user_id INTEGER NOT NULL,
+    target_tenant_id INTEGER NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Sessions (for unified session management across Electron and Web)
 -- NOTE: token is random-unique already; tenant_id is just added (denormalized
@@ -2550,4 +2653,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (194, 'maintenance_job_client_phone'),
     -- v195 (LIRA-267) adds tenants.contact_email (+ partial unique index),
     -- email_outbox and signup_invitations, all declared above.
-    (195, 'email_invites');
+    (195, 'email_invites'),
+    -- v196 adds users.email/email_verified_at (+ idx_users_tenant_email),
+    -- user_invitations, password_reset_tokens, email_verification_tokens,
+    -- user_identities and sso_handoff_tokens, all declared above.
+    (196, 'user_emails_and_auth_tokens');

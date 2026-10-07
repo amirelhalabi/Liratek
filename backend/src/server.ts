@@ -166,6 +166,12 @@ import carrierLinesRoutes from "./api/carrierLines.js";
 import mobileServiceItemsRoutes from "./api/mobileServiceItems.js";
 import databaseResetRoutes from "./api/databaseReset.js";
 import whatsappRoutes from "./api/whatsapp.js";
+// Account features (v196 foundation, SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md
+// "Contracts"). Mounted up front so each feature edits only its own file.
+import userInvitationsRoutes from "./api/userInvitations.js";
+import userEmailRoutes from "./api/userEmail.js";
+import passwordResetRoutes from "./api/passwordReset.js";
+import googleAuthRoutes from "./api/googleAuth.js";
 
 // Health checks (no /api prefix for easier monitoring)
 app.use("/health", healthRoutes);
@@ -181,6 +187,9 @@ app.use("/health", healthRoutes);
 // the visitor out for 15 minutes with "Too many login attempts from this IP".
 // It also broke bootstrap outright, because `signup-status` (which the login
 // page needs to render) was throttled by the same counter.
+// Google sign-in (feature D) lives under /api/auth/google; mounted BEFORE
+// authRoutes so nothing in auth.ts can shadow it.
+app.use("/api/auth/google", googleAuthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/clients", clientsRoutes);
 app.use("/api/sales", salesRoutes);
@@ -232,6 +241,12 @@ app.use("/api/database", databaseResetRoutes);
 // Settings > Integrations' `api.sendWhatsAppTestMessage` (backendApi.ts) —
 // previously missing entirely, so sending WhatsApp in the browser 404'd.
 app.use("/api/whatsapp", whatsappRoutes);
+// Account features (v196): invite a user into a shop (B), a user's own email
+// (B), forgot/reset password (C). Each router mixes public and authenticated
+// routes and applies authenticateJWT + requireRole per route.
+app.use("/api/user-invitations", userInvitationsRoutes);
+app.use("/api/user-email", userEmailRoutes);
+app.use("/api/password-reset", passwordResetRoutes);
 
 // Initialize WebSocket server for voice transcription
 initVoiceWebSocketServer(httpServer);

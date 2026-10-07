@@ -115,10 +115,19 @@ function isLitestreamTable(name: string): boolean {
  * `tenants/<id>.db` (exactly like `tenant_subscriptions`), because `VACUUM
  * INTO` would otherwise copy every invitee's email address into every shop's
  * file. Both are optional in the source: a pre-v195 snapshot has neither.
+ *
+ * `sso_handoff_tokens` (v196, LIRA-280) joins them: the www -> shop sign-in
+ * hand-off is minted and consumed under `runWithoutTenant`, so it lives in
+ * the platform file. It names its shop with `target_tenant_id`, deliberately
+ * NOT `tenant_id`, so `discoverTenantScopedTables()` and the platform-split
+ * guard never count its rows as shop data. (The v196 TENANT-scoped tables —
+ * user_invitations, password_reset_tokens, email_verification_tokens,
+ * user_identities — carry `tenant_id` and are split like any other.)
  */
 const PLATFORM_ONLY_TABLES: readonly string[] = [
   "signup_invitations",
   "email_outbox",
+  "sso_handoff_tokens",
 ];
 
 const KNOWN_TABLES_WITHOUT_TENANT_ID = new Set([

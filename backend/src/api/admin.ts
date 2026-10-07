@@ -34,7 +34,6 @@ import {
   ErrorCodes,
   AppError,
   JWT_SECRET,
-  APP_BASE_DOMAIN,
   tenantLogger,
   createTenantSchema,
   updateTenantSchema,
@@ -59,6 +58,7 @@ import {
   canSendInvites,
   resolveInviteBaseUrl,
   resolveSupportEmail,
+  resolveTenantBaseUrl,
 } from "../email/emailConfig.js";
 
 if (!JWT_SECRET) {
@@ -591,9 +591,7 @@ router.post("/tenants/:id/impersonate", (req, res) => {
     // reason: with no APP_BASE_DOMAIN there is no per-tenant origin, and
     // inventing one would open a dead tab. The caller falls back to a
     // relative URL, which is the old behaviour.
-    const targetOrigin = APP_BASE_DOMAIN
-      ? `https://${tenant.slug}.${APP_BASE_DOMAIN}`
-      : null;
+    const targetOrigin = resolveTenantBaseUrl(tenant.slug);
 
     res.json(
       createSuccessResponse({

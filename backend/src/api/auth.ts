@@ -48,6 +48,7 @@ import {
   canSendInvites,
   resolveInviteBaseUrl,
   resolveSupportEmail,
+  resolveTenantBaseUrl,
 } from "../email/emailConfig.js";
 import { isTurnstileConfigured, verifyTurnstile } from "../security/turnstile.js";
 import jwt from "jsonwebtoken";
@@ -764,7 +765,17 @@ router.post(
         return;
       }
 
-      const verdict = await verifyTurnstile(req.body.turnstileToken, req.ip);
+      // turnstileToken is optional in the schema since v196 (LIRA-278 makes
+      // Turnstile an extra layer). While Turnstile is required here, a
+      // missing token is refused up front, fail closed, without asking
+      // Cloudflare about "undefined".
+      const token: string | undefined = req.body.turnstileToken;
+      if (!token) {
+        logger.info({ emailHash }, "Self-serve sign-up: no Turnstile token");
+        selfServeRefusal(res, SELF_SERVE_TURNSTILE_REJECTED);
+        return;
+      }
+      const verdict = await verifyTurnstile(token, req.ip);
       if (verdict !== "passed") {
         logger.info({ emailHash, verdict }, "Self-serve sign-up: Turnstile not passed");
         selfServeRefusal(
@@ -844,16 +855,20 @@ router.post(
   validateRequest(signupSchema),
   (req, res): void => {
     try {
+      const now = new Date().toISOString();
       const outcome = runWithoutTenant(() =>
         getSignupInvitationService().consume(
           req.body.inviteToken,
-          new Date().toISOString(),
+          now,
           // The contact email comes from the invite row ONLY. signupSchema
           // already strips a body contactEmail; this never reads one.
+          // Opening the emailed link proved the address, so the first admin
+          // is linked to it VERIFIED (v196, owner decision 2026-10-07).
           (invite) =>
             getTenantProvisioningService().provisionTenant({
               ...signupProvisionFields(req.body),
               contactEmail: invite.email,
+              contactEmailVerifiedAt: now,
             }),
         ),
       );
@@ -936,9 +951,7 @@ router.post(
       // tenancy is on, and a page that guessed `<slug>.<current host>` would
       // hand out a dead link on liratek.vercel.app or a bare IP. null means
       // "not configured", and the page then shows the slug alone.
-      const loginUrl = APP_BASE_DOMAIN
-        ? `https://${tenant.slug}.${APP_BASE_DOMAIN}`
-        : null;
+      const loginUrl = resolveTenantBaseUrl(tenant.slug);
 
       res.status(201).json(
         createSuccessResponse({

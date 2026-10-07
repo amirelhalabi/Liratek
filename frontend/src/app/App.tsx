@@ -10,6 +10,15 @@ import { ActiveModuleProvider } from "@/contexts/ActiveModuleContext";
 import { MobileServiceItemsProvider } from "@/contexts/MobileServiceItemsContext";
 import Login from "@/features/auth/pages/Login";
 import Signup from "@/features/auth/pages/Signup";
+// Account-feature pages (SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md "Contracts").
+// One anchor per feature, blank-line separated so parallel branches merge
+// cleanly; add your import directly under YOUR anchor only.
+// [auth-B] imports: JoinShop (/join), VerifyEmail (/verify-email)
+
+// [auth-C] imports: ForgotPassword (/forgot-password), ResetPassword (/reset-password)
+
+// [auth-D] imports: GoogleAuth (/auth/google)
+
 import Dashboard from "@/features/dashboard/pages/Dashboard";
 
 // Lazy-loaded routes
@@ -202,6 +211,12 @@ function AppRoutes() {
         />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        {/* [auth-B] routes: /join, /verify-email (public) */}
+
+        {/* [auth-C] routes: /forgot-password, /reset-password (public) */}
+
+        {/* [auth-D] routes: /auth/google (public, www only) */}
+
         <Route
           path="/"
           element={

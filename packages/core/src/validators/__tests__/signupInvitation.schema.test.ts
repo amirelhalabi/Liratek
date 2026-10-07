@@ -66,14 +66,71 @@ describe("checkSignupInviteSchema", () => {
 });
 
 describe("requestSignupLinkSchema", () => {
-  it("normalises the email and requires a Turnstile token", () => {
+  it("normalises the email; the Turnstile token is OPTIONAL (LIRA-278) but never empty", () => {
     expect(
       requestSignupLinkSchema.parse({ email: " A@B.CO ", turnstileToken: "t" }),
     ).toEqual({ email: "a@b.co", turnstileToken: "t" });
-    expect(requestSignupLinkSchema.safeParse({ email: "a@b.co" }).success).toBe(false);
+    expect(requestSignupLinkSchema.parse({ email: "a@b.co" })).toEqual({
+      email: "a@b.co",
+    });
     expect(
       requestSignupLinkSchema.safeParse({ email: "a@b.co", turnstileToken: "" }).success,
     ).toBe(false);
+  });
+
+  it("accepts a shop-name hint (trimmed, at most 100) and the anti-bot fields", () => {
+    expect(
+      requestSignupLinkSchema.parse({
+        email: "a@b.co",
+        shopNameHint: "  Corner Shop ",
+        website: "",
+        formElapsedMs: 4200,
+      }),
+    ).toEqual({
+      email: "a@b.co",
+      shopNameHint: "Corner Shop",
+      website: "",
+      formElapsedMs: 4200,
+    });
+    expect(
+      requestSignupLinkSchema.safeParse({
+        email: "a@b.co",
+        shopNameHint: "x".repeat(101),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("a filled honeypot still PARSES — the route must answer it silently, not with a 400", () => {
+    expect(
+      requestSignupLinkSchema.safeParse({
+        email: "a@b.co",
+        website: "http://spam.example",
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSignupLinkSchema.safeParse({ email: "a@b.co", website: "x".repeat(201) })
+        .success,
+    ).toBe(false);
+  });
+
+  it("formElapsedMs (time on the form, measured on ONE clock — the browser's) is a non-negative integer, at most a day", () => {
+    // Not an epoch timestamp: comparing a browser timestamp with the
+    // server's clock would make clock skew silently drop real people
+    // (rule 27).
+    expect(
+      requestSignupLinkSchema.safeParse({ email: "a@b.co", formElapsedMs: -1 }).success,
+    ).toBe(false);
+    expect(
+      requestSignupLinkSchema.safeParse({ email: "a@b.co", formElapsedMs: "123" })
+        .success,
+    ).toBe(false);
+    expect(
+      requestSignupLinkSchema.safeParse({ email: "a@b.co", formElapsedMs: 86_400_001 })
+        .success,
+    ).toBe(false);
+    expect(
+      requestSignupLinkSchema.parse({ email: "a@b.co", formStartedAt: 1 }),
+    ).toEqual({ email: "a@b.co" });
   });
 });
 
