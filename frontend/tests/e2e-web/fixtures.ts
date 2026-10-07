@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   test as base,
   expect,
+  type Dialog,
   type Page,
   type Request,
 } from "@playwright/test";
@@ -172,10 +173,12 @@ export async function gotoAndSettle(
 
 /**
  * Close the Checkpoint window the app opens by itself after an admin's FRESH
- * sign-in (useAutoCheckpointAfterSignIn: the first drawer not counted today,
- * when checkpoints are on — the default here). Specs in this suite drive
- * other pages, and the window's backdrop would intercept their clicks.
- * Closed the way a person would, with its X button.
+ * sign-in (useAutoCheckpointAfterSignIn: ONE "Checkpoint — all drawers"
+ * window listing every drawer, when checkpoints are on — the default here).
+ * Specs in this suite drive other pages, and the window's backdrop would
+ * intercept their clicks. Closed the way a person would, with its X button;
+ * an "unsaved changes?" confirm (a drawer whose fields differ from expected)
+ * is accepted, scoped to this one click.
  *
  * Bounded wait, not a hard expectation: it opens only when some drawer was
  * not counted today. In this suite that is effectively always (no spec
@@ -190,11 +193,17 @@ export async function closeAutoCheckpoint(page: Page): Promise<void> {
   } catch {
     return;
   }
-  await page
-    .locator("div.border-b", { has: heading })
-    .getByRole("button")
-    .click();
-  await heading.waitFor({ state: "hidden", timeout: 10_000 });
+  const acceptConfirm = (dialog: Dialog) => void dialog.accept();
+  page.on("dialog", acceptConfirm);
+  try {
+    await page
+      .locator("div.border-b", { has: heading })
+      .getByRole("button")
+      .click();
+    await heading.waitFor({ state: "hidden", timeout: 10_000 });
+  } finally {
+    page.off("dialog", acceptConfirm);
+  }
 }
 
 /** Log in as the seeded admin through the real UI form. */

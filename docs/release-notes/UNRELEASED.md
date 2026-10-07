@@ -68,7 +68,7 @@
 
 - The Pending Settlement banner on the Dashboard now also lists partners you still need to settle
   with.
-- After you sign in, admins now get the Checkpoint window straight away for the first drawer not counted today (General first), when checkpoints are turned on. It opens once per sign-in — closing it or refreshing the page does not bring it back.
+- After you sign in, admins now get one Checkpoint window that lists all your drawers together (General first), when checkpoints are turned on and at least one drawer has not been counted today. Count each drawer and press its own Save — each drawer is saved on its own and then shows as "Counted today", while the others stay open for counting. Drawers already counted today are marked and can be counted again. The window stays open until you close it, opens once per sign-in, and closing it or refreshing the page does not bring it back. The clipboard button on each drawer card on the Dashboard still opens that one drawer's Checkpoint as before.
 
 ## 🤝 Partners
 

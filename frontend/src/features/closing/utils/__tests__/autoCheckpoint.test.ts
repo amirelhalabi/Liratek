@@ -1,12 +1,14 @@
 /**
- * Which drawer the Checkpoint window opens for right after a sign-in.
+ * Which drawers the after-sign-in Checkpoint window lists.
  *
- * The first drawer, in the dashboard's order with General first, whose last
- * checkpoint is not from the shop's own today (the browser's local day —
- * rule 27: never the server's). Hidden drawers (module off) are skipped,
- * exactly as the dashboard hides their cards.
+ * Owner decision 2026-10-07: ONE window lists EVERY visible drawer (General
+ * first, then the dashboard's order), each marked counted-today or not, so
+ * the owner counts and saves each drawer on its own. The window opens only
+ * while at least one visible drawer is not counted today — "today" being the
+ * shop's own local day (rule 27: never the server's). Hidden drawers (module
+ * off) are left out, exactly as the dashboard hides their cards.
  */
-import { pickDrawerToCheckpoint } from "../autoCheckpoint";
+import { listDrawersForCheckpoint } from "../autoCheckpoint";
 
 const TODAY = "2026-10-07";
 const visibleAll = () => true;
@@ -22,49 +24,66 @@ function status(day: string, hh = 10) {
   return { drawer_name: "x", checked_at: stampAt(day, hh), amounts: {} };
 }
 
-describe("pickDrawerToCheckpoint", () => {
-  it("General first, even when the dashboard lists it later", () => {
+describe("listDrawersForCheckpoint", () => {
+  it("lists every visible drawer, General first, then the dashboard's order", () => {
     expect(
-      pickDrawerToCheckpoint(["Alfa", "Binance", "General", "OMT_System"], {}, TODAY, visibleAll),
-    ).toBe("General");
+      listDrawersForCheckpoint(
+        ["Alfa", "Binance", "General", "OMT_System"],
+        {},
+        TODAY,
+        visibleAll,
+      ),
+    ).toEqual([
+      { name: "General", countedToday: false },
+      { name: "Alfa", countedToday: false },
+      { name: "Binance", countedToday: false },
+      { name: "OMT_System", countedToday: false },
+    ]);
   });
 
-  it("skips a drawer already counted today and opens the next one in order", () => {
+  it("keeps a drawer already counted today in the list, marked counted", () => {
     expect(
-      pickDrawerToCheckpoint(
+      listDrawersForCheckpoint(
         ["General", "OMT_System", "MTC"],
         { General: status(TODAY), OMT_System: status("2026-10-06") },
         TODAY,
         visibleAll,
       ),
-    ).toBe("OMT_System");
+    ).toEqual([
+      { name: "General", countedToday: true },
+      { name: "OMT_System", countedToday: false },
+      { name: "MTC", countedToday: false },
+    ]);
   });
 
   it("uses the LOCAL day of the checkpoint: 00:30 local today counts as today", () => {
     expect(
-      pickDrawerToCheckpoint(
+      listDrawersForCheckpoint(
         ["General", "MTC"],
         { General: status(TODAY, 0) },
         TODAY,
         visibleAll,
       ),
-    ).toBe("MTC");
+    ).toEqual([
+      { name: "General", countedToday: true },
+      { name: "MTC", countedToday: false },
+    ]);
   });
 
-  it("skips drawers whose module is off", () => {
+  it("leaves out drawers whose module is off", () => {
     expect(
-      pickDrawerToCheckpoint(
+      listDrawersForCheckpoint(
         ["General", "Binance", "MTC"],
-        { General: status(TODAY) },
+        {},
         TODAY,
         (name) => name !== "Binance",
-      ),
-    ).toBe("MTC");
+      )?.map((d) => d.name),
+    ).toEqual(["General", "MTC"]);
   });
 
-  it("null when every visible drawer was counted today", () => {
+  it("null when every visible drawer was counted today (no window)", () => {
     expect(
-      pickDrawerToCheckpoint(
+      listDrawersForCheckpoint(
         ["General", "MTC"],
         { General: status(TODAY), MTC: status(TODAY, 23) },
         TODAY,
@@ -74,6 +93,6 @@ describe("pickDrawerToCheckpoint", () => {
   });
 
   it("null when there are no drawers", () => {
-    expect(pickDrawerToCheckpoint([], null, TODAY, visibleAll)).toBeNull();
+    expect(listDrawersForCheckpoint([], null, TODAY, visibleAll)).toBeNull();
   });
 });

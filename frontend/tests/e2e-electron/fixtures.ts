@@ -13,6 +13,7 @@ import {
   _electron,
   expect,
   type Browser,
+  type Dialog,
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
@@ -385,9 +386,10 @@ export const test = base.extend<
         await sharedPage.waitForURL((u) => !u.hash.includes("/login"), {
           timeout: 15_000,
         });
-        // A fresh admin sign-in opens the Checkpoint window for the first
-        // drawer not counted today (useAutoCheckpointAfterSignIn); close it
-        // the way a person would, or its backdrop blocks every later click.
+        // A fresh admin sign-in opens ONE "Checkpoint — all drawers" window
+        // (useAutoCheckpointAfterSignIn); close it the way a person would, or
+        // its backdrop blocks every later click. An "unsaved changes?"
+        // confirm is accepted, scoped to this one click.
         // Same step as tests/e2e-web/fixtures.ts `closeAutoCheckpoint`.
         const autoCheckpoint = sharedPage.getByRole("heading", {
           name: /^Checkpoint — /,
@@ -397,11 +399,17 @@ export const test = base.extend<
           .then(() => true)
           .catch(() => false);
         if (opened) {
-          await sharedPage
-            .locator("div.border-b", { has: autoCheckpoint })
-            .getByRole("button")
-            .click();
-          await autoCheckpoint.waitFor({ state: "hidden", timeout: 10_000 });
+          const acceptConfirm = (dialog: Dialog) => void dialog.accept();
+          sharedPage.on("dialog", acceptConfirm);
+          try {
+            await sharedPage
+              .locator("div.border-b", { has: autoCheckpoint })
+              .getByRole("button")
+              .click();
+            await autoCheckpoint.waitFor({ state: "hidden", timeout: 10_000 });
+          } finally {
+            sharedPage.off("dialog", acceptConfirm);
+          }
         }
       }
       // eslint-disable-next-line react-hooks/rules-of-hooks

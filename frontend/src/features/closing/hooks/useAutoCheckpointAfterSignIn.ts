@@ -1,10 +1,11 @@
 /**
  * Open the Checkpoint window once, right after a FRESH sign-in.
  *
- * Brings back the pre-v1.18.49 "count the drawer when you sign in" prompt,
- * now per drawer: an admin of a shop that uses checkpoints gets the window
- * for the first drawer (General first, then the dashboard's order) that has
- * not been counted today.
+ * Brings back the pre-v1.18.49 "count the drawer when you sign in" prompt:
+ * an admin of a shop that uses checkpoints gets ONE window listing every
+ * visible drawer (General first, then the dashboard's order), each saved on
+ * its own (owner decision 2026-10-07). It opens only while at least one
+ * visible drawer has not been counted today.
  *
  * Once per sign-in, by construction: the trigger is AuthContext's
  * `freshSignIn`, which a page refresh never sets, and which is consumed here
@@ -21,7 +22,10 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { localDay } from "@/shared/utils/localDay";
 import logger from "@/utils/logger";
-import { pickDrawerToCheckpoint } from "../utils/autoCheckpoint";
+import {
+  listDrawersForCheckpoint,
+  type DrawerForCheckpoint,
+} from "../utils/autoCheckpoint";
 
 interface ModuleRow {
   key: string;
@@ -29,7 +33,7 @@ interface ModuleRow {
 }
 
 export function useAutoCheckpointAfterSignIn(
-  openCheckpoint: (drawerName: string) => void,
+  openCheckpoint: (drawers: DrawerForCheckpoint[]) => void,
 ): void {
   const { user, freshSignIn, clearFreshSignIn } = useAuth();
   const { flags, loaded: flagsLoaded } = useFeatureFlags();
@@ -83,13 +87,13 @@ export function useAutoCheckpointAfterSignIn(
             .filter((m) => m.is_enabled)
             .map((m) => m.key),
         );
-        const drawer = pickDrawerToCheckpoint(
+        const drawers = listDrawersForCheckpoint(
           Object.keys(balances ?? {}),
           lastCheckpoints,
           today,
           (name) => isDrawerVisible(name, (key) => enabled.has(key)),
         );
-        if (drawer && mounted.current) openRef.current(drawer);
+        if (drawers && mounted.current) openRef.current(drawers);
       } catch (error) {
         // Never block the app over a convenience prompt.
         logger.warn("Could not decide the after-sign-in checkpoint", { error });
