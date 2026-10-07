@@ -16,6 +16,8 @@ import Signup from "@/features/auth/pages/Signup";
 // [auth-B] imports: JoinShop (/join), VerifyEmail (/verify-email)
 
 // [auth-C] imports: ForgotPassword (/forgot-password), ResetPassword (/reset-password)
+import ForgotPassword from "@/features/auth/pages/ForgotPassword";
+import ResetPassword from "@/features/auth/pages/ResetPassword";
 
 // [auth-D] imports: GoogleAuth (/auth/google)
 
@@ -214,6 +216,8 @@ function AppRoutes() {
         {/* [auth-B] routes: /join, /verify-email (public) */}
 
         {/* [auth-C] routes: /forgot-password, /reset-password (public) */}
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* [auth-D] routes: /auth/google (public, www only) */}
 

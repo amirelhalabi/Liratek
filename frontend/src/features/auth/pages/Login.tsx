@@ -225,6 +225,18 @@ export default function Login() {
           </form>
 
           {/* [auth-C] "Forgot password?" link (web only) */}
+          {/* The desktop app has no email reset: an admin sets a new
+              password in Settings → Users there. */}
+          {!isElectron() && (
+            <p className="mt-4 text-center text-sm">
+              <Link
+                to="/forgot-password"
+                className="text-orange-500 hover:text-orange-400"
+              >
+                Forgot password?
+              </Link>
+            </p>
+          )}
 
           {/* [auth-D] "Continue with Google" button (web only, when enabled) */}
 
