@@ -373,3 +373,9 @@ export type {
 // [auth-C] exports
 
 // [auth-D] exports
+// Continue with Google (LIRA-280): schemas, codes and input types only. The
+// GoogleAuthService itself is Node-only and stays out of this entry.
+export * from "./validators/googleAuth.js";
+// The shop-address rule, so the Google sign-up form checks the slug with the
+// server's own predicate (rule 14). Pure (errors.js only).
+export { validateTenantSlug } from "./utils/tenantSlug.js";

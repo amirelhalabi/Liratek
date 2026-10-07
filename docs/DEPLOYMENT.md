@@ -566,6 +566,74 @@ Tenants page until it is fixed.
 each invitation's email state (Queued, Accepted or Failed), with the last
 error.
 
+### 5b-google. Google sign-in setup (owner) (LIRA-280)
+
+"Continue with Google" (sign in, sign up, and Connect Google in Settings →
+Signed-in Devices) is built but **dormant**: every Google route refuses and
+every Google button stays hidden until `GOOGLE_CLIENT_ID` **and**
+`GOOGLE_CLIENT_SECRET` are set (and a www base URL resolves — it does once
+`SIGNUP_INVITE_BASE_URL` or `APP_BASE_DOMAIN` is set). Web only; the desktop
+app keeps username and password.
+
+The whole Google flow runs on `www.liratek.shop`, and a 60-second one-time
+token carries the result to the shop's own subdomain. Likely, based on
+Google's OAuth client rules (unverified — confirm while creating the client):
+Google does not accept wildcard subdomains as redirect URIs or JavaScript
+origins, which is why the flow does not run on `<shop>.liratek.shop`.
+
+1. **Google Cloud project.** At console.cloud.google.com create (or pick) a
+   project, e.g. "LiraTek".
+2. **OAuth consent screen.** User type **External**; app name `LiraTek`;
+   support email `mail@liratek.shop`; authorized domain `liratek.shop`
+   (verify it in Google Search Console if asked). Scopes: only `openid` and
+   `email` — LiraTek asks for nothing else. Publish the app (move it out of
+   "Testing"), or only listed test users can sign in.
+3. **OAuth client.** Credentials → Create credentials → OAuth client ID →
+   **Web application**:
+   - Authorized JavaScript origin: `https://www.liratek.shop`
+   - Authorized redirect URI:
+     `https://www.liratek.shop/api/auth/google/callback` (exactly; the backend
+     sends this same string in the code exchange)
+4. **Secrets.** Add to `.env.fly` (gitignored, never commit):
+   ```bash
+   GOOGLE_CLIENT_ID=<…>.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=<…>
+   ```
+   then import (restarts the API):
+   ```bash
+   grep -v '^#' .env.fly | grep -v '^$' | yarn api secrets import
+   ```
+5. **Check.** `https://www.liratek.shop/api/auth/google/status` should answer
+   `{"success":true,"data":{"enabled":true,"startUrl":"https://www.liratek.shop/api/auth/google/start",…}}`.
+   Then do one real sign-in end to end. Unverified until then: that the
+   short-lived state cookie (`lt_google_oauth`, httpOnly, SameSite=Lax, path
+   `/api/auth/google`) survives the Vercel → Fly rewrite. If every attempt
+   comes back "took too long", that cookie is being dropped.
+
+**How people use it once on:**
+
+- **Sign in:** works only for accounts already connected to Google. A person
+  signs in with their password once, then uses **Settings → Signed-in
+  Devices → Connect Google**. Nothing is ever linked automatically by email.
+  An account connected in several shops gets a "choose your shop" page.
+- **Sign up:** "Create a shop with Google" skips the emailed link (Google
+  proved the address) but still asks for the shop address, an admin username
+  **and a password**. One shop per email still applies. It is public
+  self-serve sign-up by another door, so it stays closed (link hidden,
+  refused server-side) until `SIGNUP_SELF_SERVE_ENABLED=true` too — turning
+  Google on for sign-in does not open sign-up. The self-serve daily cap
+  (`SIGNUP_SELF_SERVE_DAILY_CAP`) counts emailed links only and does **not**
+  limit Google sign-ups; only the per-IP sign-up limiter does.
+
+**Known limit:** finding which shops a Google account opens reads every
+shop's `user_identities` from one database. That works in the current
+**shared** DB mode only; before the per-tenant database split goes live, a
+platform-level index of Google links is needed (follow-up).
+
+To switch it off again, unset the two secrets (`yarn api secrets unset
+GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET`); existing links stay in the database
+and work again when it is turned back on.
+
 ## 5c. Automatic tenant subdomains
 
 When a tenant is provisioned — by self-service signup or by you in the admin

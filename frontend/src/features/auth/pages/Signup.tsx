@@ -38,6 +38,8 @@ import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import { TurnstileWidget } from "@/features/auth/components/TurnstileWidget";
 import logger from "@/utils/logger";
+// [auth-D] Google sign-up (LIRA-280): its own form, for `?google=<ticket>`.
+import GoogleSignupForm from "@/features/auth/components/GoogleSignupForm";
 
 /**
  * Mirror of the server's slug rule so the field can be corrected before a
@@ -268,6 +270,12 @@ export default function Signup() {
       ? "bg-slate-900 border-slate-600 text-white"
       : "bg-white border-gray-300 text-gray-900",
   );
+
+  // [auth-D] `?google=<ticket>`: Google already proved the email, so the
+  // Google form replaces every other mode (no emailed link, no Turnstile).
+  // After all hooks above, so the hook order never changes.
+  const googleTicket = searchParams.get("google")?.trim() || null;
+  if (googleTicket) return <GoogleSignupForm ticket={googleTicket} />;
 
   if (created) {
     return (

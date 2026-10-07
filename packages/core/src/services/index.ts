@@ -561,3 +561,23 @@ export type { SessionSweepResult } from "./SessionSweepService.js";
 // [auth-C] exports
 
 // [auth-D] exports
+// Continue with Google (LIRA-280). The service is Node-only (node:crypto,
+// network) — never export it from browser.ts (rule 29). The validators file
+// is pure and is ALSO exported from browser.ts.
+export {
+  GoogleAuthService,
+  GoogleTokenError,
+  getGoogleAuthService,
+  resetGoogleAuthService,
+  GOOGLE_AUTHORIZATION_ENDPOINT,
+  GOOGLE_TOKEN_ENDPOINT,
+  GOOGLE_JWKS_URL,
+  GOOGLE_ISSUERS,
+  SSO_HANDOFF_TTL_MS,
+} from "./GoogleAuthService.js";
+export type {
+  FetchLike,
+  GoogleIdentityClaims,
+  GoogleAuthServiceOptions,
+} from "./GoogleAuthService.js";
+export * from "../validators/googleAuth.js";

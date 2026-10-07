@@ -18,6 +18,7 @@ import Signup from "@/features/auth/pages/Signup";
 // [auth-C] imports: ForgotPassword (/forgot-password), ResetPassword (/reset-password)
 
 // [auth-D] imports: GoogleAuth (/auth/google)
+import GoogleAuth from "@/features/auth/pages/GoogleAuth";
 
 import Dashboard from "@/features/dashboard/pages/Dashboard";
 
@@ -216,6 +217,7 @@ function AppRoutes() {
         {/* [auth-C] routes: /forgot-password, /reset-password (public) */}
 
         {/* [auth-D] routes: /auth/google (public, www only) */}
+        <Route path="/auth/google" element={<GoogleAuth />} />
 
         <Route
           path="/"
