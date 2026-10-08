@@ -6595,7 +6595,7 @@ What users will notice: on the web app, shops with several tills stop seeing "Fa
 
 ---
 
-## LIRA-283: the API sees every visitor as the same address — URGENT — TODO
+## LIRA-283: the API sees every visitor as the same address — URGENT — DONE (verified in production 2026-10-08)
 
 Measured 2026-10-07 on production: every session on cornertech records `ip_address = 66.241.124.103` (a hosting
 proxy address) while the real client was 185.187.131.199. So `req.ip` behind Vercel → Fly is the proxy, not the shop's
@@ -6624,6 +6624,17 @@ browser. Owner: `yarn api secrets set CLIENT_IP_HEADER=x-liratek-client-ip`, pus
 
 What users will notice: on the web app, wrong-password lockouts and sign-up limits count each shop separately, and
 each new sign-in records the shop's own address.
+
+Done 2026-10-08: Vercel Routing Middleware (`middleware.js`, vercel.json `proxy`) strips client-sent
+`x-liratek-proxy-auth` / `x-liratek-client-ip`, sets the secret from `LIRATEK_PROXY_SECRET` and the client IP from
+Vercel's `x-real-ip`; Fly has `CLIENT_IP_PROXY_SECRET` and `CLIENT_IP_HEADER=x-liratek-client-ip`. Measured after
+deploy: `www.liratek.shop/health/client-ip` → the visitor's real IP, `source: vercel`, `proxyVerified: true`;
+`x-liratek-edge: ok`; no secret in response headers; tenant login OK; `yarn api:verify` all checks passed (forged
+headers on a direct request ignored). The first attempt (`routes` transform, c02b98ef) built but never reached Fly.
+The temporary LIRA-278 sign-up header logging is removed.
+
+What users will notice: wrong-password lockouts and sign-up limits count each shop's own internet connection, so one
+shop's typos no longer lock other shops out; new sign-ins record the shop's real address.
 
 ---
 

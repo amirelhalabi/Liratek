@@ -27,8 +27,6 @@ import {
   isFromTrustedProxy,
   clientIpRateLimitKey,
   PROXY_AUTH_HEADER,
-  describeForwardedHeaders,
-  FORWARDED_HEADERS_PROBED,
 } from "../clientIp.js";
 
 const PROXY_SECRET = "clientip-unit-test-secret-0123456789abcdef";
@@ -252,76 +250,5 @@ describe("the proxy-secret gate (LIRA-283)", () => {
       if (before === undefined) delete process.env.CLIENT_IP_PROXY_SECRET;
       else process.env.CLIENT_IP_PROXY_SECRET = before;
     }
-  });
-});
-
-describe("describeForwardedHeaders (TEMPORARY diagnostic, LIRA-278)", () => {
-  it("probes the five headers the owner must choose between", () => {
-    expect([...FORWARDED_HEADERS_PROBED].sort()).toEqual(
-      [
-        "cf-connecting-ip",
-        "fly-client-ip",
-        "x-forwarded-for",
-        "x-real-ip",
-        "x-vercel-forwarded-for",
-      ].sort(),
-    );
-  });
-
-  it("reports presence, part count, a short hash and a masked prefix — never a raw address", () => {
-    const req = fakeReq({
-      "x-forwarded-for": "198.51.100.77, 66.241.124.103",
-      "fly-client-ip": "66.241.124.103",
-      "x-vercel-forwarded-for": "198.51.100.77",
-    });
-    const report = describeForwardedHeaders(req, SALT);
-
-    expect(report["x-forwarded-for"]).toEqual({
-      parts: 2,
-      firstHash: sha12("198.51.100.77"),
-      firstMasked: "198.51.x.x",
-    });
-    expect(report["fly-client-ip"]).toEqual({
-      parts: 1,
-      firstHash: sha12("66.241.124.103"),
-      firstMasked: "66.241.x.x",
-    });
-    expect(report["x-real-ip"]).toBeNull();
-    expect(report["cf-connecting-ip"]).toBeNull();
-    expect(report.reqIp).toEqual({
-      parts: 1,
-      firstHash: sha12("66.241.124.103"),
-      firstMasked: "66.241.x.x",
-    });
-
-    const text = JSON.stringify(report);
-    expect(text).not.toContain("198.51.100.77");
-    expect(text).not.toContain("66.241.124.103");
-  });
-
-  it("masks IPv6 to its first two groups", () => {
-    const report = describeForwardedHeaders(
-      fakeReq({ "x-real-ip": "2001:db8:abcd:12::1" }),
-    );
-    expect(report["x-real-ip"]?.firstMasked).toBe("2001:db8:x");
-    expect(JSON.stringify(report)).not.toContain("abcd");
-  });
-
-  it("the default salt is random per process: an unsalted hash of the address is NOT what is logged", () => {
-    const report = describeForwardedHeaders(
-      fakeReq({ "x-real-ip": "198.51.100.9" }),
-    );
-    const unsalted = crypto
-      .createHash("sha256")
-      .update("198.51.100.9", "utf8")
-      .digest("hex")
-      .slice(0, 12);
-    expect(report["x-real-ip"]?.firstHash).not.toBe(unsalted);
-    // ...but stable within the process, so requests can be compared.
-    expect(
-      describeForwardedHeaders(fakeReq({ "x-real-ip": "198.51.100.9" }))[
-        "x-real-ip"
-      ]?.firstHash,
-    ).toBe(report["x-real-ip"]?.firstHash);
   });
 });

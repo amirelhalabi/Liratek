@@ -477,7 +477,7 @@ describe("POST /api/auth/signup/request — LIRA-278 bot checks and shop name", 
     expect(selfInvites()).toBe(0);
   });
 
-  it("TEMP diagnostic: logs which forwarded headers arrived, hashed — never the raw IP or the email", async () => {
+  it("no longer logs the TEMP LIRA-278 forwarded-header diagnostic (removed once LIRA-283 shipped)", async () => {
     const visitor = "203.0.113.77";
     await request(app)
       .post("/api/auth/signup/request")
@@ -487,11 +487,10 @@ describe("POST /api/auth/signup/request — LIRA-278 bot checks and shop name", 
     const diagnostic = routeLogger.warn.mock.calls.find((call) =>
       JSON.stringify(call).includes("LIRA-278 client-ip"),
     );
-    expect(diagnostic).toBeDefined();
-    const text = JSON.stringify(diagnostic);
-    expect(text).toContain("fly-client-ip");
-    expect(text).not.toContain(visitor);
-    expect(text).not.toContain("diag.person@example.com");
+    expect(diagnostic).toBeUndefined();
+    expect(JSON.stringify(routeLogger.warn.mock.calls)).not.toContain(
+      "diag.person@example.com",
+    );
   });
 });
 

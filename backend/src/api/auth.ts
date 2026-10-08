@@ -57,7 +57,6 @@ import {
 } from "../security/turnstile.js";
 import {
   clientIp,
-  logForwardedHeadersForSignup,
   resolveClientIp,
 } from "../middleware/clientIp.js";
 import jwt from "jsonwebtoken";
@@ -763,9 +762,6 @@ function selfServeRefusal(res: express.Response, message: string): void {
 
 router.post(
   "/signup/request",
-  // TEMPORARY (LIRA-278): remove once CLIENT_IP_HEADER is chosen. Before the
-  // limiter, so throttled requests are measured too.
-  logForwardedHeadersForSignup,
   signupRequestLimiter,
   validateRequest(requestSignupLinkSchema),
   async (req, res): Promise<void> => {

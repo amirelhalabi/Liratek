@@ -37,7 +37,7 @@
 
 import crypto from "node:crypto";
 import net from "node:net";
-import type { NextFunction, Request, Response } from "express";
+import type { Request } from "express";
 import { ipKeyGenerator } from "express-rate-limit";
 import { CLIENT_IP_HEADER } from "@liratek/core";
 import { logger } from "../server.js";
@@ -60,14 +60,6 @@ function firstAddress(value: string | string[] | undefined): string | null {
   if (typeof raw !== "string") return null;
   const first = raw.split(",")[0]?.trim() ?? "";
   return first.length > 0 ? first : null;
-}
-
-function partCount(value: string | string[] | undefined): number {
-  const all = Array.isArray(value) ? value.join(",") : (value ?? "");
-  return all
-    .split(",")
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0).length;
 }
 
 /** The configured proxy secret, read per call (so a restart with a new Fly
@@ -180,104 +172,4 @@ export function clientIpRateLimitKey(
   secret: string | undefined = configuredProxySecret(),
 ): string {
   return ipKeyGenerator(resolveClientIp(req, headerName, secret));
-}
-
-// =============================================================================
-// TEMPORARY DIAGNOSTIC (LIRA-278) — remove once CLIENT_IP_HEADER is chosen.
-// =============================================================================
-
-/** The forwarded headers the owner chooses between. */
-export const FORWARDED_HEADERS_PROBED = [
-  "x-forwarded-for",
-  "x-real-ip",
-  "x-vercel-forwarded-for",
-  "fly-client-ip",
-  "cf-connecting-ip",
-] as const;
-
-export interface ForwardedHeaderProbe {
-  /** How many comma-separated addresses the header carried. */
-  parts: number;
-  /** sha256(salt + first address), hex, first 12 characters. The salt is
-   * random per server process, so two hashes compare equal within one
-   * deploy, but an address cannot be recovered by hashing every candidate. */
-  firstHash: string;
-  /** IPv4 `a.b.x.x`, IPv6 `a:b:x` — enough to spot a proxy range. */
-  firstMasked: string;
-}
-
-/** Created once per process; never logged. */
-const DIAGNOSTIC_SALT = crypto.randomBytes(16).toString("hex");
-
-function maskAddress(ip: string): string {
-  if (ip.includes(":")) {
-    const groups = ip.split(":").filter((g) => g.length > 0);
-    return `${groups.slice(0, 2).join(":")}:x`;
-  }
-  const octets = ip.split(".");
-  return octets.length === 4 ? `${octets[0]}.${octets[1]}.x.x` : "x";
-}
-
-function probe(
-  value: string | string[] | undefined,
-  salt: string,
-): ForwardedHeaderProbe | null {
-  const first = firstAddress(value);
-  if (!first) return null;
-  return {
-    parts: partCount(value),
-    firstHash: crypto
-      .createHash("sha256")
-      .update(salt + first, "utf8")
-      .digest("hex")
-      .slice(0, 12),
-    firstMasked: maskAddress(first),
-  };
-}
-
-/** Which forwarded headers arrived, with every address reduced to a short
- * hash and a masked prefix. Never a raw address. `reqIp` is Express's view,
- * for comparison. */
-export function describeForwardedHeaders(
-  req: HeaderSource,
-  salt: string = DIAGNOSTIC_SALT,
-): Record<
-  (typeof FORWARDED_HEADERS_PROBED)[number] | "reqIp",
-  ForwardedHeaderProbe | null
-> {
-  const report = {} as Record<
-    (typeof FORWARDED_HEADERS_PROBED)[number] | "reqIp",
-    ForwardedHeaderProbe | null
-  >;
-  for (const name of FORWARDED_HEADERS_PROBED) {
-    report[name] = probe(req.headers[name], salt);
-  }
-  report.reqIp = probe(req.ip, salt);
-  return report;
-}
-
-/**
- * TEMPORARY (LIRA-278): logs the forwarded-header report for each sign-up
- * link request, BEFORE the limiter so throttled requests are measured too.
- * Logs no email and no raw address. Remove once CLIENT_IP_HEADER is set.
- * At WARN on purpose, so it shows whatever LOG_LEVEL production runs at.
- */
-export function logForwardedHeadersForSignup(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
-  try {
-    logger.warn(
-      {
-        diagnostic: "LIRA-278 client-ip",
-        clientIpHeader: CLIENT_IP_HEADER ?? null,
-        headers: describeForwardedHeaders(req),
-      },
-      "TEMP LIRA-278: forwarded headers on /signup/request",
-    );
-  } catch {
-    // A diagnostic must never block a request.
-  }
-  next();
 }
