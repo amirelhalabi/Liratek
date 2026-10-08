@@ -105,6 +105,15 @@ export const resetPasswordSchema = z.object({
   password: newPasswordSchema,
 });
 
+/**
+ * POST /api/password-reset/set-initial (LIRA-291) — a signed-in user with NO
+ * password (joined with Google) adds one. The user comes from the session,
+ * never the body; the same one password rule as everywhere else.
+ */
+export const setInitialPasswordSchema = z.object({
+  password: newPasswordSchema,
+});
+
 // ── A user's own email (LIRA-279) ────────────────────────────────────────
 
 /** PUT /api/users/:id/email — set (sends a verification link) or clear. */
@@ -149,6 +158,9 @@ export type JoinWithGoogleStartInput = z.input<
 export type ForgotPasswordInput = z.input<typeof forgotPasswordSchema>;
 export type CheckResetTokenInput = z.input<typeof checkResetTokenSchema>;
 export type ResetPasswordInput = z.input<typeof resetPasswordSchema>;
+export type SetInitialPasswordInput = z.input<
+  typeof setInitialPasswordSchema
+>;
 export type SetUserEmailInput = z.input<typeof setUserEmailSchema>;
 export type VerifyUserEmailInput = z.input<typeof verifyUserEmailSchema>;
 export type GoogleStartQueryInput = z.input<typeof googleStartQuerySchema>;

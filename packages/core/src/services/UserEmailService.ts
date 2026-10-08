@@ -35,7 +35,11 @@ import type {
 import { getTenantRepository } from "../repositories/TenantRepository.js";
 import { runWithTenant, runWithoutTenant } from "../db/tenantContext.js";
 import { generateToken, hashToken } from "../utils/crypto.js";
-import { AppError, EmailNotConfiguredError } from "../utils/errors.js";
+import {
+  AppError,
+  EmailNotConfiguredError,
+  LastSigninMethodError,
+} from "../utils/errors.js";
 import { USER_ACCOUNT_CODES } from "../constants/userAccountCodes.js";
 import { authLogger } from "../utils/logger.js";
 import { formatInviteExpiry } from "./SignupInvitationService.js";
@@ -81,6 +85,9 @@ export interface UserEmailView {
   /** LIRA-288: the user's Google sign-in link (the address Google
    * reported), or null when Google is not connected. */
   google: { email: string | null } | null;
+  /** LIRA-291: false = the user has no password (joined with Google). With
+   * `google`, it gives the Sign-in label (`signinMethodLabel`). */
+  hasPassword: boolean;
 }
 
 /** LIRA-288: an admin disconnected a member's Google. */
@@ -214,6 +221,7 @@ export class UserEmailService {
       email: row.email,
       emailVerifiedAt: row.email_verified_at,
       google: google.get(row.id) ?? null,
+      hasPassword: row.has_password === 1,
     }));
   }
 
@@ -224,13 +232,28 @@ export class UserEmailService {
    * shops are untouched. The member's password (if they set one) and
    * "Forgot password" still work. Then the sign-in directory is re-synced.
    * Disconnecting nothing is a harmless repeat (`unlinked: false`).
+   *
+   * LIRA-291: disconnecting ANOTHER user with no password is allowed (the
+   * admin was warned; the route then emails a "Set a password" link). But
+   * an admin disconnecting their OWN Google while they have no password
+   * gets the same refusal as Settings → Sign-in methods
+   * (`LastSigninMethodError`, SET_PASSWORD_FIRST): `actorUserId` is the
+   * admin, from the JWT.
    */
   adminUnlinkGoogle(
     userId: number,
-    ctx: { tenantId: number; now: string },
+    ctx: { tenantId: number; now: string; actorUserId?: number },
   ): AdminUnlinkGoogleResult {
     const current = this.userRepo.getEmail(userId);
     if (!current) throw new UserNotFoundInShopError();
+    const hasPassword = this.userRepo.hasPassword(userId);
+    if (
+      ctx.actorUserId === userId &&
+      !hasPassword &&
+      this.identityRepo.findByUser(userId, "google")
+    ) {
+      throw new LastSigninMethodError();
+    }
     const unlinked = this.identityRepo.unlink(userId, "google");
     if (unlinked) {
       this.directory.syncUser(ctx.tenantId, userId, ctx.now);
@@ -245,6 +268,7 @@ export class UserEmailService {
         email: current.email,
         emailVerifiedAt: current.email_verified_at,
         google: null,
+        hasPassword,
       },
       unlinked,
     };

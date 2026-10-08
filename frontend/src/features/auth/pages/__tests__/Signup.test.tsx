@@ -319,4 +319,18 @@ describe("Signup page", () => {
       expect(container.innerHTML).not.toContain(VALID.password);
     });
   });
+
+  it("LIRA-291: the admin password has a show/hide eye and is a new-password field", async () => {
+    await renderForm();
+    // LIRA-291 (FR-012): a password-setting field has a show/hide eye, is a
+    // new-password field with a distinct name/id, so a browser can generate
+    // and save the password.
+    const pw = screen.getByTestId("signup-password") as HTMLInputElement;
+    expect(pw.getAttribute("autocomplete")).toBe("new-password");
+    expect(pw.name).toBe("signup-password");
+    expect(pw.id).toBe("signup-password");
+    const eye = screen.getByRole("button", { name: /show password/i });
+    fireEvent.click(eye);
+    expect(pw.type).toBe("text");
+  });
 });

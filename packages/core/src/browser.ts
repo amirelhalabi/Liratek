@@ -60,6 +60,8 @@ export * from "./validators/index.js";
 // endpoints return, so pages compare codes, never message text. errors.ts
 // has no imports, but only the CODE constants are exported here.
 export * from "./utils/passwordPolicy.js";
+// LIRA-291: the one wording for a user's sign-in methods (pure).
+export * from "./utils/signinMethods.js";
 export {
   EMAIL_ALREADY_HAS_SHOP,
   EMAIL_ALREADY_HAS_SHOP_MESSAGE,
@@ -68,6 +70,8 @@ export {
   GOOGLE_ACCOUNT_IN_OTHER_SHOP,
   GOOGLE_ACCOUNT_IN_OTHER_SHOP_MESSAGE,
   IDENTITY_ALREADY_LINKED,
+  SET_PASSWORD_FIRST,
+  SET_PASSWORD_FIRST_MESSAGE,
 } from "./utils/errors.js";
 
 // Lebanese phone-number normalization (CARRIER_LINES_VALIDITY_PLAN.md Phase 6)
@@ -395,7 +399,10 @@ export type {
 // [auth-C] exports
 // Forgot / reset password codes + fixed messages (pure leaf module).
 export * from "./constants/passwordReset.js";
-export type { PasswordResetCheckResult } from "./services/PasswordResetService.js";
+export type {
+  PasswordResetCheckResult,
+  SetInitialPasswordResult,
+} from "./services/PasswordResetService.js";
 
 // LIRA-287: www "email me a code" sign-in — messages, limits and the
 // "your shops" shape (pure leaf module). The schemas arrive through the

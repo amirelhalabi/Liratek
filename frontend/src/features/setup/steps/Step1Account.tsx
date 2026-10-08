@@ -3,7 +3,7 @@ import { useSetup } from "../context/SetupContext";
 
 import PasswordInput from "@/shared/components/PasswordInput";
 import { TextInput } from "@liratek/ui";
-import { validatePassword } from "@/shared/utils/validatePassword";
+import { validatePasswordComplexity } from "@liratek/core";
 
 export default function Step1Account() {
   const { payload, updatePayload, setStep } = useSetup();
@@ -15,7 +15,7 @@ export default function Step1Account() {
     if (!payload.shop_name.trim()) e.shop_name = "Shop name is required";
     if (!payload.admin_username.trim())
       e.admin_username = "Username is required";
-    const pwResult = validatePassword(payload.admin_password);
+    const pwResult = validatePasswordComplexity(payload.admin_password);
     if (!pwResult.valid) {
       e.admin_password = pwResult.errors[0];
     }

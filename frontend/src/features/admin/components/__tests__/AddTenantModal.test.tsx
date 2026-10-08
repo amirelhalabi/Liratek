@@ -62,3 +62,25 @@ it("omits the contact email when blank", async () => {
   expect("contactEmail" in payload).toBe(false);
   expect(createTenantSchema.safeParse(payload).success).toBe(true);
 });
+
+it("LIRA-291: the admin password has a show/hide eye and is a new-password field", () => {
+  render(
+    <AddTenantModal
+      isOpen
+      onClose={jest.fn()}
+      onSubmit={onSubmit}
+      isSubmitting={false}
+      error={null}
+    />,
+  );
+  // LIRA-291 (FR-012): a password-setting field has a show/hide eye, is a
+  // new-password field with a distinct name/id, so a browser can generate
+  // and save the password.
+  const pw = screen.getByTestId("add-tenant-admin-password") as HTMLInputElement;
+  expect(pw.getAttribute("autocomplete")).toBe("new-password");
+  expect(pw.name).toBe("add-tenant-admin-password");
+  expect(pw.id).toBe("add-tenant-admin-password");
+  const eye = screen.getByRole("button", { name: /show password/i });
+  fireEvent.click(eye);
+  expect(pw.type).toBe("text");
+});

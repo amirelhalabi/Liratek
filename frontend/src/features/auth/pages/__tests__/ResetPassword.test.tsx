@@ -174,3 +174,55 @@ it("never calls the server on desktop", async () => {
   expect(await screen.findByText(/web app/i)).toBeInTheDocument();
   expect(checkResetToken).not.toHaveBeenCalled();
 });
+
+// ── LIRA-291: wording for users with no password; show/hide on both fields ──
+
+it("LIRA-291: a user with a password sees 'Choose a new password' for <username> at <shop>", async () => {
+  checkResetToken.mockResolvedValue({
+    success: true,
+    data: { username: "boss", shopName: "Cell City", hasPassword: true },
+  });
+  renderPage();
+  expect(
+    await screen.findByRole("heading", { name: "Choose a new password" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/For/)).toHaveTextContent("For boss at Cell City");
+});
+
+it("LIRA-291: a user with NO password sees 'Set a password' for <username> at <shop>", async () => {
+  checkResetToken.mockResolvedValue({
+    success: true,
+    data: { username: "rami", shopName: "Corner Tech", hasPassword: false },
+  });
+  renderPage();
+  expect(
+    await screen.findByRole("heading", { name: "Set a password" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/For/)).toHaveTextContent("For rami at Corner Tech");
+  expect(screen.queryByText(/choose a new password/i)).toBeNull();
+});
+
+it("LIRA-291: both fields are new-password inputs with their own name/id and an eye toggle", async () => {
+  renderPage();
+  await screen.findByTestId("reset-password");
+  const pw = field("reset-password");
+  const confirmPw = field("reset-confirm");
+  expect(pw.getAttribute("autocomplete")).toBe("new-password");
+  expect(confirmPw.getAttribute("autocomplete")).toBe("new-password");
+  expect([pw.name, pw.id]).toEqual(["new-password", "new-password"]);
+  expect([confirmPw.name, confirmPw.id]).toEqual(["confirm-password", "confirm-password"]);
+  const eyes = screen.getAllByRole("button", { name: /show password/i });
+  expect(eyes).toHaveLength(2);
+  fireEvent.click(eyes[1]!);
+  expect(confirmPw.type).toBe("text");
+  expect(pw.type).toBe("password");
+});
+
+it("LIRA-291: a browser-generated password is accepted, and the hint names any symbol", async () => {
+  renderPage();
+  await screen.findByTestId("reset-password");
+  expect(screen.queryByText(/@\$!%\*\?&/)).toBeNull();
+  type("reset-password", "xY7-pq_Rt.9mZ");
+  type("reset-confirm", "xY7-pq_Rt.9mZ");
+  expect(submit()).toBeEnabled();
+});

@@ -3,7 +3,7 @@ import { useSetup } from "../context/SetupContext";
 import { Plus, Trash2 } from "lucide-react";
 import PasswordInput from "@/shared/components/PasswordInput";
 import { TextInput, Select } from "@liratek/ui";
-import { validatePassword } from "@/shared/utils/validatePassword";
+import { validatePasswordComplexity } from "@liratek/core";
 
 export default function Step4Users() {
   const { payload, updatePayload, setStep } = useSetup();
@@ -16,7 +16,7 @@ export default function Step4Users() {
 
   const addUser = () => {
     if (!newUser.username.trim() || !newUser.password) return;
-    const pwResult = validatePassword(newUser.password);
+    const pwResult = validatePasswordComplexity(newUser.password);
     if (!pwResult.valid) {
       setError(pwResult.errors[0]);
       return;

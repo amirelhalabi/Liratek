@@ -41,13 +41,15 @@ import { submitPostForm } from "@/features/auth/utils/browserNavigation";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import logger from "@/utils/logger";
+import PasswordInput from "@/shared/components/PasswordInput";
 
 const INVITE_INVALID_FALLBACK =
   "This invite link is not valid. Ask the shop for a new invite.";
 const UNREACHABLE = "Could not reach the server. Please try again.";
 const MIN_USERNAME = 3;
 
-const GOOGLE_START_FAILED = "Joining with Google could not start. Please try again.";
+const GOOGLE_START_FAILED =
+  "Joining with Google could not start. Please try again.";
 
 /** Why "Join with Google" did not join (the callback's `google=` value). */
 const JOIN_GOOGLE_TEXT: Record<JoinWithGoogleResult, string> = {
@@ -58,7 +60,8 @@ const JOIN_GOOGLE_TEXT: Record<JoinWithGoogleResult, string> = {
   invite_invalid: INVITE_INVALID_FALLBACK,
   shop_not_active:
     "This shop is not active right now. Ask the shop owner to renew, then use the link again.",
-  username_taken: "That username is already taken in this shop. Choose another one.",
+  username_taken:
+    "That username is already taken in this shop. Choose another one.",
   email_taken:
     "A user in this shop already uses this email. Ask the shop owner for help.",
   cancelled: "Joining with Google was cancelled.",
@@ -102,7 +105,9 @@ export default function JoinShop() {
   );
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [startingGoogle, setStartingGoogle] = useState(false);
-  const [joined, setJoined] = useState<{ loginUrl: string | null } | null>(null);
+  const [joined, setJoined] = useState<{ loginUrl: string | null } | null>(
+    null,
+  );
 
   // Check ONCE per link — the ref (not a cancelled flag) is what makes
   // StrictMode's mount -> cleanup -> mount run it a single time, so a page
@@ -134,7 +139,8 @@ export default function JoinShop() {
     let cancelled = false;
     googleAuthStatus()
       .then((res) => {
-        if (!cancelled) setGoogleEnabled(Boolean(res.success && res.data?.enabled));
+        if (!cancelled)
+          setGoogleEnabled(Boolean(res.success && res.data?.enabled));
       })
       .catch(() => {
         if (!cancelled) setGoogleEnabled(false);
@@ -154,10 +160,16 @@ export default function JoinShop() {
     setStartingGoogle(true);
     try {
       // Built ONCE (rule 22): only the link and the chosen name travel.
-      const payload: JoinWithGoogleStartInput = { token, username: username.trim() };
+      const payload: JoinWithGoogleStartInput = {
+        token,
+        username: username.trim(),
+      };
       const res = await startJoinWithGoogle(payload);
       if (res.success && res.data?.url && res.data.ticket) {
-        submitPostForm(res.data.url, { intent: "join", ticket: res.data.ticket });
+        submitPostForm(res.data.url, {
+          intent: "join",
+          ticket: res.data.ticket,
+        });
         return;
       }
       setError(messageFrom(res.error, GOOGLE_START_FAILED));
@@ -217,8 +229,14 @@ export default function JoinShop() {
     "text-2xl font-bold",
     dark ? "text-white" : "text-gray-900",
   );
-  const subtleClass = clsx("text-sm", dark ? "text-slate-400" : "text-gray-600");
-  const hintClass = clsx("mt-1 text-xs", dark ? "text-slate-500" : "text-gray-500");
+  const subtleClass = clsx(
+    "text-sm",
+    dark ? "text-slate-400" : "text-gray-600",
+  );
+  const hintClass = clsx(
+    "mt-1 text-xs",
+    dark ? "text-slate-500" : "text-gray-500",
+  );
   const labelClass = clsx(
     "text-xs block mb-1",
     dark ? "text-slate-400" : "text-gray-600",
@@ -381,13 +399,15 @@ export default function JoinShop() {
             <label className={labelClass} htmlFor="join-password">
               Password *
             </label>
-            <input
+            <PasswordInput
+              label=""
               id="join-password"
-              data-testid="join-password"
-              type="password"
+              name="join-password"
+              testId="join-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClass}
+              onChange={setPassword}
+              placeholder=""
+              inputClassName={inputClass}
               autoComplete="new-password"
             />
             {passwordProblems.length > 0 ? (

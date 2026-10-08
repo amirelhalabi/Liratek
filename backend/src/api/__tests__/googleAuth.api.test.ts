@@ -100,7 +100,10 @@ const svc = {
   openSession: jest.fn<(input: Record<string, unknown>) => unknown>(),
   linkIdentity: jest.fn<(input: Record<string, unknown>) => void>(),
   unlinkIdentity: jest.fn<(userId: number) => boolean>(),
-  getLinkedEmail: jest.fn<(userId: number) => { linked: boolean; email: string | null }>(),
+  assertCanUnlink: jest.fn<(userId: number) => void>(),
+  getLinkedEmail: jest.fn<
+    (userId: number) => { linked: boolean; email: string | null; hasPassword: boolean }
+  >(),
 };
 
 /** Which scope the route was in when a service method ran: a shop id
@@ -196,6 +199,9 @@ import {
   JoinGoogleEmailMismatchError,
   UserInviteShopInactiveError,
   UsernameTakenError,
+  LastSigninMethodError,
+  SET_PASSWORD_FIRST,
+  SET_PASSWORD_FIRST_MESSAGE,
 } from "@liratek/core";
 import googleAuthRoutes from "../googleAuth.js";
 import authRoutes from "../auth.js";
@@ -964,11 +970,15 @@ describe("link / unlink from Settings", () => {
     return callback(app, cookie, `code=c1&state=${google.searchParams.get("state")}`);
   }
 
-  it("links the SIGNED-IN user's own account and returns to that shop's Settings", async () => {
+  // LIRA-291: the panel moved to "My account" (/account), which every role
+  // can open; Settings is admin-only, so a staff member landing there was
+  // sent home and never saw the result.
+  it("links the SIGNED-IN user's own account and returns to that shop's My account page", async () => {
     enable();
     const url = await linkFlow(buildApp());
     expect(url.origin).toBe("https://two.liratek.shop");
-    expect(url.hash.startsWith("#/settings?")).toBe(true);
+    expect(url.hash.startsWith("#/account?")).toBe(true);
+    expect(hashParams(url).has("tab")).toBe(false);
     expect(hashParams(url).get("google")).toBe("linked");
     expect(svc.linkIdentity).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 42, subject: "g-sub", email: "owner@gmail.com" }),
@@ -1014,11 +1024,15 @@ describe("link / unlink from Settings", () => {
   it("GET /link reports the caller's own link; DELETE /link unlinks it", async () => {
     enable();
     const app = buildApp();
-    svc.getLinkedEmail.mockReturnValue({ linked: true, email: "owner@gmail.com" });
+    svc.getLinkedEmail.mockReturnValue({
+      linked: true,
+      email: "owner@gmail.com",
+      hasPassword: true,
+    });
     let res = await request(app).get("/api/auth/google/link").set("x-test-role", "admin");
     expect(res.body).toEqual({
       success: true,
-      data: { enabled: true, linked: true, email: "owner@gmail.com" },
+      data: { enabled: true, linked: true, email: "owner@gmail.com", hasPassword: true },
     });
     expect(svc.getLinkedEmail).toHaveBeenCalledWith(42);
 
@@ -1029,6 +1043,69 @@ describe("link / unlink from Settings", () => {
       .send({ userId: 7 });
     expect(res.body).toEqual({ success: true, data: { unlinked: true } });
     expect(svc.unlinkIdentity).toHaveBeenCalledWith(42, expect.any(String));
+  });
+
+  // ── LIRA-291: never remove the last way to sign in ─────────────────────
+
+  it("LIRA-291: a STAFF session can read and remove its own link (My account is for every role)", async () => {
+    enable();
+    const app = buildApp();
+    svc.getLinkedEmail.mockReturnValue({ linked: true, email: "s@gmail.com", hasPassword: true });
+    const status = await request(app).get("/api/auth/google/link").set("x-test-role", "staff");
+    expect(status.body).toMatchObject({ success: true, data: { linked: true, hasPassword: true } });
+    svc.unlinkIdentity.mockReturnValue(true);
+    const res = await request(app).delete("/api/auth/google/link").set("x-test-role", "staff");
+    expect(res.body).toEqual({ success: true, data: { unlinked: true } });
+    expect(svc.unlinkIdentity).toHaveBeenCalledWith(42, expect.any(String));
+  });
+
+  it("GET /link reports hasPassword:false for a Google-only user, even with Google off", async () => {
+    svc.getLinkedEmail.mockReturnValue({
+      linked: true,
+      email: "rami@gmail.com",
+      hasPassword: false,
+    });
+    const res = await request(buildApp())
+      .get("/api/auth/google/link")
+      .set("x-test-role", "staff");
+    expect(res.body).toEqual({
+      success: true,
+      data: { enabled: false, linked: true, email: "rami@gmail.com", hasPassword: false },
+    });
+  });
+
+  it.each([
+    ["Google on", true],
+    ["Google off", false],
+  ])("DELETE /link refuses SET_PASSWORD_FIRST for a user with no password (%s); nothing unlinked or audited", async (_label, on) => {
+    if (on) enable();
+    svc.assertCanUnlink.mockImplementationOnce(() => {
+      throw new LastSigninMethodError();
+    });
+    const res = await request(buildApp())
+      .delete("/api/auth/google/link")
+      .set("x-test-role", "staff");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: false,
+      code: SET_PASSWORD_FIRST,
+      error: SET_PASSWORD_FIRST_MESSAGE,
+    });
+    expect(svc.assertCanUnlink).toHaveBeenCalledWith(42);
+    expect(svc.unlinkIdentity).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /link turns the service's own refusal (checked again inside unlink) into SET_PASSWORD_FIRST", async () => {
+    enable();
+    svc.unlinkIdentity.mockImplementationOnce(() => {
+      throw new LastSigninMethodError();
+    });
+    const res = await request(buildApp())
+      .delete("/api/auth/google/link")
+      .set("x-test-role", "staff");
+    expect(res.body).toMatchObject({ success: false, code: SET_PASSWORD_FIRST });
+    expect(auditLog).not.toHaveBeenCalled();
   });
 });
 

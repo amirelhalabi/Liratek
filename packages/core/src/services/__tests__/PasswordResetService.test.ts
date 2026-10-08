@@ -254,6 +254,7 @@ describe("check (POST /check)", () => {
     expect(service.check("tok-1", T0, 2)).toEqual({
       username: "boss",
       shopName: "Cell City",
+      hasPassword: true,
     });
     // No host shop (www / tenancy off): allowed.
     expect(service.check("tok-1", T0, null)).not.toBeNull();

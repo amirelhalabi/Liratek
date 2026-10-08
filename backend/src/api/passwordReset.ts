@@ -13,6 +13,8 @@
  *   POST /check           public   { token }           -> { username, shopName }
  *   POST /reset           public   { token, password } -> { loginUrl }
  *   POST /send/:userId    JWT + admin                  -> { sent: true }
+ *   POST /set-initial     JWT + admin|staff  { password } -> { hasPassword, noticeSent }
+ *                         (LIRA-291: a user with NO password adds one)
  *
  * Envelopes: business refusals are HTTP 200 + `success:false`. Refusals
  * built with createErrorResponse carry `error: { code, message }` AND the
@@ -46,6 +48,7 @@ import {
   getTenantRepository,
   isAppError,
   resetPasswordSchema,
+  setInitialPasswordSchema,
   runWithTenant,
   runWithoutTenant,
   type PasswordResetMailOptions,
@@ -133,8 +136,9 @@ function invalidLink(res: Response): void {
   res.json(refusal(ErrorCodes.FORBIDDEN, PASSWORD_RESET_INVALID_MESSAGE));
 }
 
-/** Server-side mail settings, read per request. */
-function mailOptions(now: string): PasswordResetMailOptions {
+/** Server-side mail settings, read per request. Exported for the admin
+ * Google disconnect (LIRA-291), which sends the same link. */
+export function mailOptions(now: string): PasswordResetMailOptions {
   return {
     now,
     linkBaseUrl: (slug) => resolveShopLinkBaseUrl(slug),
@@ -365,6 +369,70 @@ router.post(
       }
       logger.error({ error }, "Password reset failed");
       invalidLink(res);
+    }
+  },
+);
+
+// =============================================================================
+// POST /set-initial — a signed-in user with NO password adds one (LIRA-291)
+// =============================================================================
+//
+// For users who joined with Google: they have no password, so there is no
+// current password to ask for. The user comes from the JWT, never the body.
+// Refused (PASSWORD_ALREADY_SET) for anyone who already has a password — this
+// never replaces one. Google stays connected and no session is revoked. A
+// "password added" notice goes to a confirmed email when email is on.
+// Not subscription-gated: adding a way to sign in is account safety, not
+// shop administration.
+const SET_INITIAL_ROLES = ["admin", "staff"];
+
+router.post(
+  "/set-initial",
+  authenticateJWT,
+  requireRole(SET_INITIAL_ROLES),
+  validateRequest(setInitialPasswordSchema),
+  (req: AuthRequest, res): void => {
+    // Self-service only, like the Google link routes: an impersonated
+    // session (a super admin acting as this user) must never add a password
+    // to someone else's account.
+    if (req.user?.impersonatorId !== undefined) {
+      res.status(403).json({ success: false, error: "Forbidden" });
+      return;
+    }
+    const tenantId = req.user?.tenantId;
+    const userId = req.user?.userId;
+    try {
+      if (tenantId === null || tenantId === undefined || !userId) {
+        res.json(refusal(PASSWORD_RESET_CODES.NOT_FOUND, "User not found"));
+        return;
+      }
+      const { password } = req.body as { password: string };
+      const now = new Date().toISOString();
+      const result = getPasswordResetService().setInitialPassword({
+        tenantId,
+        userId,
+        password,
+        now,
+        emailConfigured: isEmailConfigured(),
+        supportEmail: resolveSupportEmail(),
+      });
+      auditRest(req, {
+        action: "update",
+        entity_type: "user",
+        entity_id: String(userId),
+        summary: "Added a password for sign-in",
+        metadata: { via: "set_initial" },
+      });
+      res.json(createSuccessResponse(result));
+    } catch (error) {
+      if (isAppError(error) && error.isOperational) {
+        res.json(refusal(error.code, error.message));
+        return;
+      }
+      logger.error({ error, userId }, "Set initial password failed");
+      res
+        .status(500)
+        .json(refusal(ErrorCodes.INTERNAL_ERROR, "Failed to set the password"));
     }
   },
 );

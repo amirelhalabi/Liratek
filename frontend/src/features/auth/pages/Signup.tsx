@@ -58,6 +58,7 @@ import {
   currentHostname,
   navigateAway,
 } from "@/features/auth/utils/browserNavigation";
+import PasswordInput from "@/shared/components/PasswordInput";
 
 /**
  * Mirror of the server's slug rule so the field can be corrected before a
@@ -757,13 +758,15 @@ export default function Signup() {
             <label className={labelClass} htmlFor="signup-password">
               Admin password *
             </label>
-            <input
+            <PasswordInput
+              label=""
               id="signup-password"
-              data-testid="signup-password"
-              type="password"
+              name="signup-password"
+              testId="signup-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClass}
+              onChange={setPassword}
+              placeholder=""
+              inputClassName={inputClass}
               autoComplete="new-password"
             />
             <p className={hintClass}>At least {MIN_PASSWORD} characters.</p>

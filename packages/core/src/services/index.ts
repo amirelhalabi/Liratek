@@ -642,6 +642,8 @@ export type {
   PasswordResetCheckResult,
   PasswordResetDone,
   PasswordResetServiceDeps,
+  SetInitialPasswordParams,
+  SetInitialPasswordResult,
 } from "./PasswordResetService.js";
 export * from "../constants/passwordReset.js";
 

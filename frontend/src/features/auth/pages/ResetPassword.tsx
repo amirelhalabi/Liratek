@@ -8,6 +8,12 @@
  * `newPasswordSchema` applies), so the form never accepts a password the
  * server refuses. On success every device signed in to that account is
  * signed out, and the page links to sign-in.
+ *
+ * LIRA-291: for a user with NO password (joined with Google) the page says
+ * "Set a password" instead of "Choose a new password" (the check tells it).
+ * Both fields are `PasswordInput`s — show/hide eyes, `autocomplete=
+ * "new-password"` and distinct name/id, so a browser can generate and save
+ * the password.
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -25,6 +31,7 @@ import type {
 } from "@liratek/core";
 import { checkResetToken, isElectron, resetPassword } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
+import PasswordInput from "@/shared/components/PasswordInput";
 import { useTheme } from "@/contexts/ThemeContext";
 import logger from "@/utils/logger";
 
@@ -229,7 +236,11 @@ export default function ResetPassword() {
   return (
     <div className={pageClass}>
       <form onSubmit={handleSubmit} className={cardClass}>
-        <h1 className={clsx(headingClass, "mb-1")}>Choose a new password</h1>
+        <h1 className={clsx(headingClass, "mb-1")}>
+          {entry.target.hasPassword === false
+            ? "Set a password"
+            : "Choose a new password"}
+        </h1>
         <p className={clsx(subtleClass, "mb-6")}>
           For <strong>{entry.target.username}</strong> at{" "}
           <strong>{entry.target.shopName}</strong>.
@@ -239,17 +250,17 @@ export default function ResetPassword() {
 
         <div className="space-y-4">
           <div>
-            <label className={labelClass} htmlFor="reset-password">
-              New password *
-            </label>
-            <input
-              id="reset-password"
-              data-testid="reset-password"
-              type="password"
+            <PasswordInput
+              label="New password *"
+              id="new-password"
+              name="new-password"
+              testId="reset-password"
               autoComplete="new-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClass}
+              onChange={setPassword}
+              placeholder=""
+              labelClassName={labelClass}
+              inputClassName={inputClass}
               required
             />
             {password.length > 0 && !policy.valid ? (
@@ -261,23 +272,23 @@ export default function ResetPassword() {
             ) : (
               <p className={hintClass}>
                 At least {PASSWORD_REQUIREMENTS.minLength} characters, with an
-                uppercase letter, a lowercase letter, a number and a special
-                character (@$!%*?&amp;).
+                uppercase letter, a lowercase letter, a number and a symbol (for
+                example - _ . @ ! #).
               </p>
             )}
           </div>
           <div>
-            <label className={labelClass} htmlFor="reset-confirm">
-              Confirm new password *
-            </label>
-            <input
-              id="reset-confirm"
-              data-testid="reset-confirm"
-              type="password"
+            <PasswordInput
+              label="Confirm new password *"
+              id="confirm-password"
+              name="confirm-password"
+              testId="reset-confirm"
               autoComplete="new-password"
               value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              className={inputClass}
+              onChange={setConfirm}
+              placeholder=""
+              labelClassName={labelClass}
+              inputClassName={inputClass}
               required
             />
             {mismatch && (

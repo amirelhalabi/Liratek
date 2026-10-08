@@ -47,10 +47,12 @@ import { AppError, ValidationError } from "../utils/errors.js";
 import { authLogger } from "../utils/logger.js";
 import { formatInviteExpiry } from "./SignupInvitationService.js";
 import {
+  PASSWORD_ADDED_TEMPLATE,
   PASSWORD_RESET_CODES,
   PASSWORD_RESET_EVERY_SHOP_MAX,
   PASSWORD_RESET_PER_USER_LIMIT,
   PASSWORD_RESET_PER_USER_WINDOW_MS,
+  PASSWORD_SET_TEMPLATE,
   type PasswordResetCode,
 } from "../constants/passwordReset.js";
 
@@ -63,6 +65,9 @@ export const PASSWORD_RESET_TEMPLATE = "password-reset";
 
 /** The outbox data key holding the secret link. */
 export const PASSWORD_RESET_URL_KEY = "resetUrl";
+
+/** How long the outbox keeps trying a "password added" notice. */
+const PASSWORD_ADDED_GIVE_UP_MS = 24 * 60 * 60 * 1000;
 
 // =============================================================================
 // Types
@@ -106,9 +111,32 @@ export interface SendPasswordResetParams extends PasswordResetMailOptions {
   userId: number;
 }
 
+/** LIRA-291: a signed-in user with no password adds one (Settings). */
+export interface SetInitialPasswordParams {
+  /** The user's shop, from the JWT. */
+  tenantId: number;
+  /** The signed-in user, from the JWT — never the body. */
+  userId: number;
+  password: string;
+  /** UTC ISO. */
+  now: string;
+  /** False when the server has no mail transport: no notice is sent. */
+  emailConfigured: boolean;
+  supportEmail: string;
+}
+
+export interface SetInitialPasswordResult {
+  hasPassword: true;
+  /** True when the "a password was added" notice was queued. */
+  noticeSent: boolean;
+}
+
 export interface PasswordResetCheckResult {
   username: string;
   shopName: string;
+  /** LIRA-291: false = the user has no password yet, so the page says
+   * "Set a password" instead of "Choose a new password". */
+  hasPassword: boolean;
 }
 
 /** A completed reset — what the route needs for its audit row and reply. */
@@ -330,7 +358,14 @@ export class PasswordResetService {
   ): PasswordResetCheckResult | null {
     const target = this.usableTarget(token, now, hostTenantId);
     if (!target) return null;
-    return { username: target.user.username, shopName: target.tenant.name };
+    const hasPassword = runWithTenant(target.tenant.id, () =>
+      this.userRepo.hasPassword(target.user.id),
+    );
+    return {
+      username: target.user.username,
+      shopName: target.tenant.name,
+      hasPassword,
+    };
   }
 
   /**
@@ -380,6 +415,85 @@ export class PasswordResetService {
         };
       }),
     );
+  }
+
+  /**
+   * LIRA-291 — a signed-in user with NO password (joined with Google) adds
+   * one from Settings, without a current password (they have none). Order:
+   *   1. the password is checked against the one policy (ValidationError);
+   *   2. the user must be an active user of the shop (NOT_FOUND) with
+   *      `has_password = 0` (PASSWORD_ALREADY_SET otherwise — this never
+   *      replaces an existing password);
+   *   3. in ONE transaction: write the password through `updatePassword`
+   *      (which also sets has_password = 1) and, when email is on and the
+   *      user's email is CONFIRMED, queue the `password-added` notice — the
+   *      safeguard against a stolen session.
+   * Google stays connected and no session is revoked: the user is adding a
+   * way in, not recovering from a compromise.
+   */
+  setInitialPassword(
+    params: SetInitialPasswordParams,
+  ): SetInitialPasswordResult {
+    const policy = validatePasswordComplexity(params.password);
+    if (!policy.valid) throw new ValidationError(policy.errors.join(", "));
+
+    const tenant = this.activeTenant(params.tenantId);
+    if (!tenant) {
+      throw new PasswordResetRefusedError(
+        PASSWORD_RESET_CODES.NOT_FOUND,
+        "User not found",
+      );
+    }
+    const passwordHash = hashPassword(params.password);
+
+    return runWithTenant(tenant.id, () => {
+      const user = this.userRepo.findById(params.userId);
+      const info = user ? this.userRepo.getEmail(user.id) : null;
+      if (!user || !info) {
+        throw new PasswordResetRefusedError(
+          PASSWORD_RESET_CODES.NOT_FOUND,
+          "User not found",
+        );
+      }
+      if (this.userRepo.hasPassword(user.id)) {
+        throw new PasswordResetRefusedError(
+          PASSWORD_RESET_CODES.PASSWORD_ALREADY_SET,
+          "You already have a password.",
+        );
+      }
+      const notify =
+        params.emailConfigured && !!info.email && !!info.email_verified_at;
+
+      this.tokenRepo.transaction(() => {
+        if (!this.userRepo.updatePassword(user.id, passwordHash)) {
+          throw new PasswordResetRefusedError(
+            PASSWORD_RESET_CODES.NOT_FOUND,
+            "User not found",
+          );
+        }
+        if (notify) {
+          runWithoutTenant(() =>
+            this.outboxRepo.enqueue({
+              idempotencyKey: `password-added:${tenant.id}:${user.id}:${params.now}`,
+              template: PASSWORD_ADDED_TEMPLATE,
+              toEmail: info.email!,
+              data: {
+                username: user.username,
+                shopName: tenant.name,
+                supportEmail: params.supportEmail,
+              },
+              now: params.now,
+              giveUpAt: addMs(params.now, PASSWORD_ADDED_GIVE_UP_MS),
+            }),
+          );
+        }
+      });
+      authLogger.info(
+        { tenantId: tenant.id, userId: user.id, noticeSent: notify },
+        "Password added from Settings",
+      );
+      return { hasPassword: true as const, noticeSent: notify };
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -437,6 +551,12 @@ export class PasswordResetService {
    * Burns the user's older links, issues a new one and queues its email —
    * in ONE transaction (shared-DB mode). Runs inside the shop's scope; the
    * outbox write is platform-level.
+   *
+   * LIRA-291 set mode: a user with NO password (joined with Google) gets the
+   * `password-set` email ("Set a password for <username>") instead of
+   * `password-reset`. Same token, page, expiry and data. Every sender
+   * (forgot, forgot on www, the admin's send, the admin disconnect) goes
+   * through here, so the rule lives in one place.
    */
   private issue(
     target: ResetTarget,
@@ -447,6 +567,9 @@ export class PasswordResetService {
   ): void {
     const token = this.newToken();
     const expiresAt = addMs(mail.now, mail.ttlMinutes * 60 * 1000);
+    const template = this.userRepo.hasPassword(target.userId)
+      ? PASSWORD_RESET_TEMPLATE
+      : PASSWORD_SET_TEMPLATE;
 
     this.tokenRepo.transaction(() => {
       this.tokenRepo.invalidateForUser(target.userId, mail.now);
@@ -462,7 +585,7 @@ export class PasswordResetService {
           // The shop id is part of the key: token ids restart per shop file
           // in per-tenant mode, and the outbox is shared by every shop.
           idempotencyKey: `password-reset:${tenant.id}:${created.id}`,
-          template: PASSWORD_RESET_TEMPLATE,
+          template,
           toEmail: target.email,
           data: {
             [PASSWORD_RESET_URL_KEY]: resetUrl(baseUrl, token),

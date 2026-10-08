@@ -57,6 +57,12 @@ describe("password-reset template", () => {
     }
   });
 
+  it("LIRA-291: the heading names the username ('Reset the password for boss')", () => {
+    const { html, text } = renderTemplate(template(), DATA);
+    expect(html).toContain("Reset the password for boss</h1>");
+    expect(text.startsWith("Reset the password for boss")).toBe(true);
+  });
+
   it("escapes the shop name and username in HTML", () => {
     const { html } = renderTemplate(template(), {
       ...DATA,

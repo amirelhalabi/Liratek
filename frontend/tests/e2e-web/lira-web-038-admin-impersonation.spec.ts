@@ -140,9 +140,9 @@ test.describe("LIRA-099 — admin/impersonation", () => {
     // still-deterministic window never collide on the UNIQUE constraint.
     await page.getByPlaceholder("acme-retail").fill(tenantSlug);
     await page.locator('label:has-text("Admin username") + input').fill(tenantAdminUser);
-    await page
-      .locator('label:has-text("Admin password") + input')
-      .fill(tenantAdminPass);
+    // LIRA-291: the field is now a PasswordInput (show/hide eye), so it is
+    // no longer the label's next sibling; use its test id.
+    await page.getByTestId("add-tenant-admin-password").fill(tenantAdminPass);
     await page.getByRole("button", { name: "Create tenant" }).click();
 
     const tenantRow = page.locator("tbody tr").filter({ hasText: tenantName });

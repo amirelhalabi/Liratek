@@ -251,6 +251,24 @@ export class GoogleAccountInOtherShopError extends AppError {
   }
 }
 
+export const SET_PASSWORD_FIRST = "SET_PASSWORD_FIRST";
+
+/** The refusal shown when removing Google would leave no way to sign in. */
+export const SET_PASSWORD_FIRST_MESSAGE =
+  "Set a password first, so you can still sign in.";
+
+/**
+ * LIRA-291: a user with no password (`users.has_password = 0`) tried to
+ * disconnect their own Google — their last way to sign in. Refused until
+ * they set a password. The admin disconnect is NOT refused (it warns, then
+ * emails a set-password link).
+ */
+export class LastSigninMethodError extends AppError {
+  constructor(message: string = SET_PASSWORD_FIRST_MESSAGE) {
+    super(SET_PASSWORD_FIRST, message, 409, true);
+  }
+}
+
 /**
  * Type guard to check if an error is an AppError
  */

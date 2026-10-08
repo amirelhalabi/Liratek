@@ -17,7 +17,7 @@ import { runOutboxOnce, type OutboxWorkerDeps } from "../outboxWorker.js";
 import { FakeEmailTransport } from "../transports/fake.js";
 import { PermanentEmailError } from "../EmailTransport.js";
 import { EMAIL_PREVIEW_SAMPLES } from "../preview.js";
-import { listEmailTemplateNames } from "../templates/index.js";
+import { getEmailTemplate, listEmailTemplateNames } from "../templates/index.js";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const RealDatabase =
@@ -71,7 +71,11 @@ function enqueue(template: string) {
   });
 }
 
-const names = listEmailTemplateNames();
+// LIRA-291: a notice with no link (`password-added`) declares
+// `secretKeys: []` and is exempt — but it must then carry no secret at all.
+const allNames = listEmailTemplateNames();
+const names = allNames.filter((n) => getEmailTemplate(n).secretKeys.length > 0);
+const linkless = allNames.filter((n) => getEmailTemplate(n).secretKeys.length === 0);
 
 describe("outbox worker scrubs every template's link", () => {
   it("covers every registered template", () => {
@@ -85,6 +89,14 @@ describe("outbox worker scrubs every template's link", () => {
     );
     for (const name of names) {
       expect(JSON.stringify(EMAIL_PREVIEW_SAMPLES[name])).toContain(TOKEN_MARKER);
+    }
+  });
+
+  it("a template that declares no secret keys carries no link in its sample", () => {
+    for (const name of linkless) {
+      const sample = JSON.stringify(EMAIL_PREVIEW_SAMPLES[name]);
+      expect(sample).not.toContain(TOKEN_MARKER);
+      expect(sample).not.toMatch(/https?:\/\//);
     }
   });
 

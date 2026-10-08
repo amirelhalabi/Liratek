@@ -59,6 +59,7 @@ import {
 } from "../repositories/SessionRepository.js";
 import { generateToken, hashToken } from "../utils/crypto.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { LastSigninMethodError } from "../utils/errors.js";
 import {
   getSigninDirectoryService,
   type SigninDirectorySync,
@@ -397,17 +398,45 @@ export class GoogleAuthService {
     this.directory.syncUser(getCurrentTenantId(), input.userId, input.now);
   }
 
-  /** Removes a CURRENT-shop user's Google link (the user themself, or an
-   * admin from Settings -> Users). False when there was none. */
+  /** Removes a CURRENT-shop user's OWN Google link (Settings → Sign-in
+   * methods). False when there was none.
+   *
+   * LIRA-291: Google is the last way in for a user with no password, so
+   * removing it is refused with `LastSigninMethodError` (SET_PASSWORD_FIRST)
+   * and the link is kept. (An admin disconnect goes through
+   * `UserEmailService.adminUnlinkGoogle`, which warns instead.) */
   unlinkIdentity(userId: number, now: string): boolean {
+    this.assertCanUnlink(userId);
     const unlinked = this.identityRepo.unlink(userId, PROVIDER);
     if (unlinked) this.directory.syncUser(getCurrentTenantId(), userId, now);
     return unlinked;
   }
 
-  getLinkedEmail(userId: number): { linked: boolean; email: string | null } {
+  /** LIRA-291: throws `LastSigninMethodError` (SET_PASSWORD_FIRST) when the
+   * CURRENT-shop user has Google connected and no password — removing
+   * Google would leave them no way to sign in. Nothing linked: no refusal
+   * (there is nothing to remove). */
+  assertCanUnlink(userId: number): void {
+    if (
+      !this.userRepo.hasPassword(userId) &&
+      this.identityRepo.findByUser(userId, PROVIDER)
+    ) {
+      throw new LastSigninMethodError();
+    }
+  }
+
+  /** The user's Google link status and, LIRA-291, whether they have a
+   * password (Settings → Sign-in methods offers "Set a password"). */
+  getLinkedEmail(userId: number): {
+    linked: boolean;
+    email: string | null;
+    hasPassword: boolean;
+  } {
     const row = this.identityRepo.findByUser(userId, PROVIDER);
-    return row ? { linked: true, email: row.email } : { linked: false, email: null };
+    const hasPassword = this.userRepo.hasPassword(userId);
+    return row
+      ? { linked: true, email: row.email, hasPassword }
+      : { linked: false, email: null, hasPassword };
   }
 
   // ── Hand-off ───────────────────────────────────────────────────────────

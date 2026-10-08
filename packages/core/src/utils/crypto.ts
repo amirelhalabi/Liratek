@@ -70,6 +70,8 @@ export function needsMigration(stored?: string): boolean {
  */
 export {
   PASSWORD_REQUIREMENTS,
+  PASSWORD_SYMBOL_MESSAGE,
+  PASSWORD_SYMBOL_PATTERN,
   validatePasswordComplexity,
 } from "./passwordPolicy.js";
 

@@ -7954,13 +7954,21 @@ export async function setUserEmail(
   );
 }
 
+/** LIRA-291: when the member had no password, whether the "Set a password"
+ * link was emailed (`passwordLinkCode` says why not). Absent otherwise. */
+export interface AdminRemoveUserGoogleData {
+  user: UserEmailView;
+  passwordLink?: "sent" | "not_sent";
+  passwordLinkCode?: string;
+}
+
 /** LIRA-288: an admin disconnects a member's Google sign-in (this shop
  * only). Repeating it is harmless. */
 export async function adminRemoveUserGoogle(
   userId: number,
-): Promise<AccountRouteResult<{ user: UserEmailView }>> {
+): Promise<AccountRouteResult<AdminRemoveUserGoogleData>> {
   assertWebOnly("Disconnecting a user's Google sign-in");
-  return requestJson<AccountRouteResult<{ user: UserEmailView }>>(
+  return requestJson<AccountRouteResult<AdminRemoveUserGoogleData>>(
     `/api/user-email/${userId}/google`,
     { method: "DELETE" },
   );
@@ -8074,6 +8082,8 @@ import type {
   CheckResetTokenInput,
   ResetPasswordInput,
   PasswordResetCheckResult,
+  SetInitialPasswordInput,
+  SetInitialPasswordResult,
 } from "@liratek/core";
 
 /**
@@ -8121,6 +8131,20 @@ export async function resetPassword(input: ResetPasswordInput) {
   return requestJson<PasswordResetEnvelope<{ loginUrl: string | null }>>(
     "/api/password-reset/reset",
     { method: "POST", body: input, auth: false },
+  );
+}
+
+/**
+ * LIRA-291: a signed-in user with NO password (joined with Google) adds one
+ * from Settings → Sign-in methods. The user comes from the session. Refusal
+ * codes: PASSWORD_ALREADY_SET; a weak password is a zod refusal (string
+ * `error`). Google stays connected and no session is signed out.
+ */
+export async function setInitialPassword(input: SetInitialPasswordInput) {
+  assertWebOnly("Password reset");
+  return requestJson<PasswordResetEnvelope<SetInitialPasswordResult>>(
+    "/api/password-reset/set-initial",
+    { method: "POST", body: input },
   );
 }
 
@@ -8175,6 +8199,8 @@ export async function googleLinkStatus() {
       enabled: boolean;
       linked: boolean;
       email: string | null;
+      /** LIRA-291: false = joined with Google and never set a password. */
+      hasPassword: boolean;
     }>
   >("/api/auth/google/link");
 }
@@ -8190,7 +8216,8 @@ export async function googleLinkStart() {
   );
 }
 
-/** Disconnect the signed-in user's Google account. */
+/** Disconnect the signed-in user's Google account. LIRA-291: refused with
+ * `code: "SET_PASSWORD_FIRST"` while the user has no password. */
 export async function googleUnlink() {
   assertWebOnly("Google sign-in");
   return requestJson<GoogleRouteResult<{ unlinked: boolean }>>(

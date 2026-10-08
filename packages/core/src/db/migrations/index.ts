@@ -13991,6 +13991,75 @@ export const MIGRATIONS: Migration[] = [
       // Deliberately a no-op — see the description.
     },
   },
+  {
+    version: 202,
+    name: "users_has_password",
+    description:
+      "LIRA-291 (owner decisions 2026-10-08): record whether each user has a " +
+      "usable password, so a user who joined with Google can never be left " +
+      "with no way to sign in. users gains has_password INTEGER NOT NULL " +
+      "DEFAULT 1: the default keeps every writer outside core correct with " +
+      "no edit (desktop setup, per-tenant provisioning, seeds). Only " +
+      "UserInvitationService.acceptWithGoogle creates a user with 0, and " +
+      "UserRepository.updatePassword (the one shared password writer) sets " +
+      "it back to 1. Back-fill: 0 for a user whose audit trail shows a join " +
+      "with Google (metadata.via = 'invite_google') and NO later password: " +
+      "no 'Password reset by emailed link' row, no admin 'Changed user " +
+      "password' row, and no USED password_reset_tokens row. Merely sending " +
+      "a reset link ('Sent a password reset link') sets no password, so it " +
+      "does not count. Everyone else keeps 1, which is the safe direction: " +
+      "a user wrongly marked 1 behaves exactly as before this migration.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "users")) return;
+      if (!columnExists(db, "users", "has_password")) {
+        db.exec(
+          `ALTER TABLE users ADD COLUMN has_password INTEGER NOT NULL DEFAULT 1;`,
+        );
+      }
+      if (!tableExists(db, "audit_log")) return;
+      // Ids, not created_at, order the audit rows: audit_log.created_at has
+      // two formats (the column default vs AuditRepository's UTC ISO).
+      const usedToken = tableExists(db, "password_reset_tokens")
+        ? `OR EXISTS (SELECT 1 FROM password_reset_tokens t
+                       WHERE t.user_id = u.id AND t.used_at IS NOT NULL)`
+        : "";
+      db.exec(`
+        UPDATE users AS u SET has_password = 0
+         WHERE has_password = 1
+           -- Uncorrelated: one scan of audit_log finds the Google joins, so
+           -- the correlated check below runs only for those few users.
+           AND (u.id, u.tenant_id) IN (
+             SELECT CAST(j.entity_id AS INTEGER), j.tenant_id FROM audit_log j
+              WHERE j.entity_type = 'user'
+                AND json_valid(j.metadata)
+                AND json_extract(j.metadata, '$.via') = 'invite_google'
+           )
+           AND NOT (
+             EXISTS (
+               SELECT 1 FROM audit_log j, audit_log p
+                WHERE j.entity_type = 'user'
+                  AND j.entity_id = CAST(u.id AS TEXT)
+                  AND j.tenant_id IS u.tenant_id
+                  AND json_valid(j.metadata)
+                  AND json_extract(j.metadata, '$.via') = 'invite_google'
+                  AND p.entity_type = 'user'
+                  AND p.entity_id = j.entity_id
+                  AND p.tenant_id IS j.tenant_id
+                  AND p.id > j.id
+                  AND p.summary IN ('Password reset by emailed link',
+                                    'Changed user password')
+             )
+             ${usedToken}
+           );
+      `);
+    },
+    down(db: Database.Database) {
+      if (columnExists(db, "users", "has_password")) {
+        db.exec(`ALTER TABLE users DROP COLUMN has_password;`);
+      }
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

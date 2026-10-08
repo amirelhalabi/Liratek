@@ -8,7 +8,7 @@ import type {
   UserInvitationView,
 } from "@liratek/core";
 import PasswordInput from "@/shared/components/PasswordInput";
-import { validatePassword } from "@/shared/utils/validatePassword";
+import { signinMethodLabel, validatePasswordComplexity } from "@liratek/core";
 import { messageFrom } from "@/api/apiError";
 import {
   isElectron,
@@ -72,10 +72,8 @@ const EMAIL_INPUT_CLASS =
   "w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500";
 
 /** Invites the Users tab keeps showing: still usable, or lapsed (resendable). */
-const VISIBLE_INVITE_STATUSES: ReadonlySet<UserInvitationView["status"]> = new Set([
-  "pending",
-  "expired",
-]);
+const VISIBLE_INVITE_STATUSES: ReadonlySet<UserInvitationView["status"]> =
+  new Set(["pending", "expired"]);
 
 type AddUserMode = "create" | "invite";
 
@@ -181,7 +179,9 @@ export default function UsersManager() {
   const saveEmail = async (id: number) => {
     const trimmed = emailDraft.trim();
     // Built ONCE (rule 22); an empty field clears the address.
-    const payload: SetUserEmailInput = { email: trimmed === "" ? null : trimmed };
+    const payload: SetUserEmailInput = {
+      email: trimmed === "" ? null : trimmed,
+    };
     setBusyUserId(id);
     const result = await runAccountAction(
       () => setUserEmail(id, payload),
@@ -222,18 +222,47 @@ export default function UsersManager() {
 
   /** LIRA-288: an admin disconnects a member's Google (after confirming).
    * That Google account no longer signs in to this shop; the member can
-   * still use their password, or set one with "Forgot password". */
-  const removeGoogle = async (id: number) => {
+   * still use their password.
+   *
+   * LIRA-291: a member with NO password gets an emailed "Set a password"
+   * link from the server; `passwordLink` reports whether it went out. */
+  const removeGoogle = async (target: { id: number; username: string }) => {
     setConfirmGoogleFor(null);
-    setBusyUserId(id);
+    setBusyUserId(target.id);
     const result = await runAccountAction(
-      () => adminRemoveUserGoogle(id),
+      () => adminRemoveUserGoogle(target.id),
       "Failed to disconnect Google",
     );
     setBusyUserId(null);
     if (!result) return;
-    notifySuccess("Google sign-in disconnected");
+    if (result.passwordLink === "sent") {
+      notifySuccess(
+        `Google sign-in disconnected. A link to set a password was emailed to ${target.username}.`,
+      );
+    } else if (result.passwordLink === "not_sent") {
+      notifySuccess("Google sign-in disconnected");
+      notifyError(
+        null,
+        `No email could be sent, so ${target.username} can't sign in until a password is set. Use Set Password.`,
+      );
+    } else {
+      notifySuccess("Google sign-in disconnected");
+    }
     await loadEmails();
+  };
+
+  /** LIRA-291: the Disconnect Google confirm text, from what the list knows. */
+  const googleConfirmText = (target: { id: number; username: string }) => {
+    const info = emails[target.id];
+    const base = `${target.username} will no longer be able to sign in to this shop with Google.`;
+    if (info?.hasPassword !== false) {
+      return `${base} They can still sign in with their password.`;
+    }
+    const canEmail =
+      emailConfigured && Boolean(info.email && info.emailVerifiedAt);
+    return canEmail
+      ? `${base} ${target.username} has no password. We'll email them a link to set one.`
+      : `${base} ${target.username} won't be able to sign in until a password is set. You can set one here with Set Password.`;
   };
 
   const inviteByEmail = async () => {
@@ -281,7 +310,9 @@ export default function UsersManager() {
     await loadInvites();
   };
 
-  const visibleInvites = invites.filter((i) => VISIBLE_INVITE_STATUSES.has(i.status));
+  const visibleInvites = invites.filter((i) =>
+    VISIBLE_INVITE_STATUSES.has(i.status),
+  );
 
   const toggleActive = async (id: number, is_active: number) => {
     try {
@@ -317,7 +348,7 @@ export default function UsersManager() {
       notifyError(null, "Username and password required");
       return;
     }
-    const pwResult = validatePassword(newPassword);
+    const pwResult = validatePasswordComplexity(newPassword);
     if (!pwResult.valid) {
       notifyError(null, pwResult.errors.join(" "));
       return;
@@ -365,8 +396,8 @@ export default function UsersManager() {
       <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 space-y-2">
         {web && !emailConfigured && (
           <p className="text-xs text-amber-400">
-            Email is not set up on this server, so invitations and
-            verification emails cannot be sent.
+            Email is not set up on this server, so invitations and verification
+            emails cannot be sent.
           </p>
         )}
         <div className="flex items-center gap-2">
@@ -444,7 +475,7 @@ export default function UsersManager() {
         <DataTable
           columns={[
             "Username",
-            ...(web ? ["Email", "Google"] : []),
+            ...(web ? ["Email", "Google", "Sign-in"] : []),
             "Role",
             "Active",
             { header: "Actions", className: "p-2 text-right" },
@@ -535,7 +566,10 @@ export default function UsersManager() {
                         <span>{info.google.email ?? "Connected"}</span>
                         <button
                           onClick={() =>
-                            setConfirmGoogleFor({ id: u.id, username: u.username })
+                            setConfirmGoogleFor({
+                              id: u.id,
+                              username: u.username,
+                            })
                           }
                           disabled={busy}
                           className="text-xs text-red-300 hover:text-red-200 disabled:opacity-50"
@@ -546,6 +580,16 @@ export default function UsersManager() {
                     ) : (
                       <span className="text-slate-500">—</span>
                     )}
+                  </td>
+                )}
+                {web && (
+                  <td className="p-2" data-testid={`user-signin-${u.id}`}>
+                    {info
+                      ? signinMethodLabel({
+                          hasPassword: info.hasPassword !== false,
+                          google: Boolean(info.google),
+                        })
+                      : "—"}
                   </td>
                 )}
                 <td className="p-2">{u.role}</td>
@@ -593,14 +637,10 @@ export default function UsersManager() {
       <ConfirmModal
         isOpen={confirmGoogleFor !== null}
         title="Disconnect Google?"
-        message={
-          confirmGoogleFor
-            ? `${confirmGoogleFor.username} will no longer be able to sign in to this shop with Google. They can still sign in with a password, or set one with "Forgot password" if they never chose one.`
-            : ""
-        }
+        message={confirmGoogleFor ? googleConfirmText(confirmGoogleFor) : ""}
         confirmLabel="Disconnect"
         onConfirm={() => {
-          if (confirmGoogleFor) void removeGoogle(confirmGoogleFor.id);
+          if (confirmGoogleFor) void removeGoogle(confirmGoogleFor);
         }}
         onCancel={() => setConfirmGoogleFor(null)}
       />

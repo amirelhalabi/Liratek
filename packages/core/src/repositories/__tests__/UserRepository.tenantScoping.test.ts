@@ -48,7 +48,9 @@ function createTestDb(): Database.Database {
       username      TEXT UNIQUE,
       password_hash TEXT,
       role          TEXT DEFAULT 'staff',
-      is_active     BOOLEAN DEFAULT 1
+      is_active     BOOLEAN DEFAULT 1,
+      -- v202 (LIRA-291): updatePassword writes it.
+      has_password  INTEGER NOT NULL DEFAULT 1
     );
   `);
 

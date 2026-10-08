@@ -259,4 +259,19 @@ describe("JoinShop", () => {
       expect(screen.getByTestId("join-submit")).toBeInTheDocument();
     });
   });
+
+  it("LIRA-291: the password has a show/hide eye and is a new-password field", async () => {
+    render(<JoinShop />);
+    await screen.findByTestId("join-password");
+    // LIRA-291 (FR-012): a password-setting field has a show/hide eye, is a
+    // new-password field with a distinct name/id, so a browser can generate
+    // and save the password.
+    const pw = screen.getByTestId("join-password") as HTMLInputElement;
+    expect(pw.getAttribute("autocomplete")).toBe("new-password");
+    expect(pw.name).toBe("join-password");
+    expect(pw.id).toBe("join-password");
+    const eye = screen.getByRole("button", { name: /show password/i });
+    fireEvent.click(eye);
+    expect(pw.type).toBe("text");
+  });
 });

@@ -118,3 +118,17 @@ it("an email that already has a shop: the message with a Sign in instead link", 
     screen.getByRole("link", { name: /sign in instead/i }),
   ).toHaveAttribute("href", "/login");
 });
+
+it("LIRA-291: the admin password has a show/hide eye and is a new-password field", () => {
+  render(<GoogleSignupForm ticket={TICKET} />);
+  // LIRA-291 (FR-012): a password-setting field has a show/hide eye, is a
+  // new-password field with a distinct name/id, so a browser can generate
+  // and save the password.
+  const pw = screen.getByTestId("google-signup-password") as HTMLInputElement;
+  expect(pw.getAttribute("autocomplete")).toBe("new-password");
+  expect(pw.name).toBe("google-signup-password");
+  expect(pw.id).toBe("google-signup-password");
+  const eye = screen.getByRole("button", { name: /show password/i });
+  fireEvent.click(eye);
+  expect(pw.type).toBe("text");
+});

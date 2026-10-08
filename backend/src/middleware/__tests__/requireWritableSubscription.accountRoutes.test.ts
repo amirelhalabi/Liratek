@@ -78,6 +78,8 @@ describe("stays writable in read_only", () => {
     ["delete", "/api/auth/google/link"],
     // LIRA-288: an admin disconnecting a member's Google (offboarding)
     ["delete", "/api/user-email/5/google"],
+    // LIRA-291: a user with no password adding one is account safety
+    ["post", "/api/password-reset/set-initial"],
   ] as const)("%s %s", async (method, path) => {
     const res = await call(method, path).expect(200);
     expect(res.body.reached).toBe(true);

@@ -48,11 +48,14 @@ jest.mock("../../middleware/auth.js", () => {
     }
     const tenantId = Number(req.headers["x-test-tenant"] ?? 2);
     (req as Request & { user?: unknown }).user = {
-      userId: 20,
-      username: "boss",
+      userId: Number(req.headers["x-test-user"] ?? 20),
+      username: String(req.headers["x-test-username"] ?? "boss"),
       role,
       tenantId,
       sessionToken: "test-session",
+      ...(req.headers["x-test-impersonator"]
+        ? { impersonatorId: Number(req.headers["x-test-impersonator"]) }
+        : {}),
     };
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { runWithTenant } = require("@liratek/core");
@@ -195,7 +198,10 @@ beforeAll(async () => {
       (24, 2, 'clerk', 'old', 'staff', 1, 'clerk@shop.com', '2026-10-01T00:00:00.000Z'),
       (30, 3, 'otherboss', 'old', 'admin', 1, 'boss@other.com', '2026-10-01T00:00:00.000Z'),
       (31, 3, 'owner2', 'old', 'admin', 1, 'boss@shop.com', '2026-10-01T00:00:00.000Z'),
-      (32, 3, 'unverified', 'old', 'staff', 1, 'cashier@shop.com', NULL);
+      (32, 3, 'unverified', 'old', 'staff', 1, 'cashier@shop.com', NULL),
+      (25, 2, 'rami', 'random', 'staff', 1, 'rami@gmail.com', '2026-10-01T00:00:00.000Z');
+    INSERT INTO user_identities (user_id, tenant_id, provider, subject, email) VALUES
+      (25, 2, 'google', 'sub-rami', 'rami@gmail.com');
   `);
 
   core.resetTenantRepository();
@@ -350,7 +356,7 @@ describe("POST /check and /reset", () => {
     const res = await check(SHOP_HOST, token);
     expect(res.body).toEqual({
       success: true,
-      data: { username: "boss", shopName: "Cell City" },
+      data: { username: "boss", shopName: "Cell City", hasPassword: true },
     });
   });
 
@@ -498,3 +504,118 @@ describe("POST /send/:userId (LIRA-276)", () => {
     expect(outboxRows()).toBe(0);
   });
 });
+
+// =============================================================================
+// LIRA-291 — POST /set-initial: a signed-in user with no password adds one
+// =============================================================================
+
+describe("POST /set-initial (LIRA-291)", () => {
+  const CHROME = "xY7-pq_Rt.9mZ";
+  const setInitial = (
+    password: string,
+    as: { user: number; username: string; role?: string } = { user: 25, username: "rami" },
+  ) => {
+    const input = { password };
+    return request(app)
+      .post("/api/password-reset/set-initial")
+      .set("X-Forwarded-Host", SHOP_HOST)
+      .set("x-test-role", as.role ?? "staff")
+      .set("x-test-tenant", "2")
+      .set("x-test-user", String(as.user))
+      .set("x-test-username", as.username)
+      .send(input);
+  };
+  const flag = (id: number) =>
+    (db.prepare(`SELECT has_password FROM users WHERE id = ?`).get(id) as { has_password: number })
+      .has_password;
+
+  beforeEach(() => {
+    db.exec(`UPDATE users SET has_password = 0, password_hash = 'random' WHERE id = 25;
+      DELETE FROM sessions;
+      INSERT INTO sessions (tenant_id, user_id, token, expires_at) VALUES (2, 25, 's-rami', '2099-01-01');`);
+  });
+
+  it("needs a signed-in user", async () => {
+    const res = await request(app)
+      .post("/api/password-reset/set-initial")
+      .send({ password: CHROME });
+    expect(res.status).toBe(401);
+  });
+
+  it("sets the password for the JWT user (never the body), keeps Google and sessions, queues the notice, audits", async () => {
+    expect(core.setInitialPasswordSchema.safeParse({ password: CHROME }).success).toBe(true);
+    const res = await setInitial(CHROME);
+    expect(res.body).toEqual({
+      success: true,
+      data: { hasPassword: true, noticeSent: true },
+    });
+    const hash = (
+      db.prepare(`SELECT password_hash FROM users WHERE id = 25`).get() as { password_hash: string }
+    ).password_hash;
+    expect(core.verifyPassword(CHROME, hash)).toBe(true);
+    expect(flag(25)).toBe(1);
+    expect(count(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = 25`)).toBe(1);
+    expect(count(`SELECT COUNT(*) AS n FROM sessions WHERE user_id = 25`)).toBe(1);
+    const mail = db
+      .prepare(`SELECT template, to_email FROM email_outbox ORDER BY id DESC LIMIT 1`)
+      .get();
+    expect(mail).toEqual({ template: core.PASSWORD_ADDED_TEMPLATE, to_email: "rami@gmail.com" });
+    const audit = db
+      .prepare(
+        `SELECT tenant_id, user_id, entity_type, entity_id, summary, metadata FROM audit_log ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as Record<string, unknown>;
+    expect(audit).toMatchObject({
+      tenant_id: 2,
+      user_id: 25,
+      entity_type: "user",
+      entity_id: "25",
+      summary: "Added a password for sign-in",
+    });
+    expect(JSON.parse(String(audit.metadata))).toEqual({ via: "set_initial" });
+  });
+
+  it("refuses an impersonated session (a super admin acting as the user): 403, nothing changes", async () => {
+    const res = await request(app)
+      .post("/api/password-reset/set-initial")
+      .set("x-test-role", "admin")
+      .set("x-test-tenant", "2")
+      .set("x-test-user", "25")
+      .set("x-test-impersonator", "1")
+      .send({ password: CHROME });
+    expect(res.status).toBe(403);
+    expect(res.body.success).toBe(false);
+    expect(flag(25)).toBe(0);
+    expect(outboxRows()).toBe(0);
+  });
+
+  it("refuses PASSWORD_ALREADY_SET for a user who has a password", async () => {
+    const res = await setInitial(CHROME, { user: 20, username: "boss", role: "admin" });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.code).toBe(core.PASSWORD_RESET_CODES.PASSWORD_ALREADY_SET);
+    const hash = (
+      db.prepare(`SELECT password_hash FROM users WHERE id = 20`).get() as { password_hash: string }
+    ).password_hash;
+    expect(core.verifyPassword(CHROME, hash)).toBe(false);
+  });
+
+  it("refuses a weak password with the policy message; nothing changes", async () => {
+    const res = await setInitial("Abcdefg1");
+    expect(res.body.success).toBe(false);
+    expect(String(res.body.error)).toContain(core.PASSWORD_SYMBOL_MESSAGE);
+    expect(flag(25)).toBe(0);
+  });
+
+  it("email off: the password is still set, no notice", async () => {
+    emailConfigured = false;
+    const res = await setInitial(CHROME);
+    expect(res.body).toEqual({
+      success: true,
+      data: { hasPassword: true, noticeSent: false },
+    });
+    expect(outboxRows()).toBe(0);
+    expect(flag(25)).toBe(1);
+  });
+});
+

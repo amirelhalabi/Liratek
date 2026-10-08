@@ -55,6 +55,15 @@ jest.mock("../CarrierLinesManager", () => ({
   default: () => <div data-testid="panel-carrier-lines" />,
 }));
 
+jest.mock("../GoogleAccountPanel", () => ({
+  __esModule: true,
+  default: () => <div data-testid="panel-signin-methods" />,
+}));
+jest.mock("../SignedInDevices", () => ({
+  __esModule: true,
+  default: () => <div data-testid="panel-devices" />,
+}));
+
 let mockSearchParams = new URLSearchParams();
 jest.mock("react-router-dom", () => ({
   useSearchParams: () => [mockSearchParams],
@@ -128,6 +137,26 @@ describe("Settings — ?tab= deep link", () => {
       // LicensePanel isn't mocked in this file — if it mounted, its own
       // heading would appear. It must not.
       expect(screen.queryByText("Licence")).not.toBeInTheDocument();
+    });
+  });
+
+  // LIRA-291: on the web, sign-in methods and devices live in "My account"
+  // (/account, every role) — ONE place, not a second copy in Settings.
+  describe("web: no Signed-in Devices tab (it is in My account)", () => {
+    it("does not show the tab, and ?tab=devices falls back to Shop Config", () => {
+      mockSearchParams = new URLSearchParams({ tab: "devices" });
+      render(<Settings />);
+      expect(screen.queryByText("Signed-in Devices")).not.toBeInTheDocument();
+      expect(screen.getByTestId("panel-shop")).toBeInTheDocument();
+      expect(screen.queryByTestId("panel-devices")).not.toBeInTheDocument();
+    });
+
+    it("desktop keeps the tab (no My account there)", () => {
+      (window as any).api = {};
+      mockSearchParams = new URLSearchParams({ tab: "devices" });
+      render(<Settings />);
+      expect(screen.getByText("Signed-in Devices")).toBeInTheDocument();
+      expect(screen.getByTestId("panel-devices")).toBeInTheDocument();
     });
   });
 

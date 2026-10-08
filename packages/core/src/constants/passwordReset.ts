@@ -31,6 +31,9 @@ export const PASSWORD_RESET_CODES = {
   EMAIL_NOT_CONFIGURED: "EMAIL_NOT_CONFIGURED",
   /** `POST /send/:userId`: this user already got the hourly maximum. */
   RATE_LIMITED: "RATE_LIMITED",
+  /** `POST /set-initial` (LIRA-291): the user already has a password; this
+   * route only ADDS a first one (changing one needs the current password). */
+  PASSWORD_ALREADY_SET: "PASSWORD_ALREADY_SET",
 } as const;
 
 export type PasswordResetCode =
@@ -60,3 +63,16 @@ export const PASSWORD_RESET_INVALID_MESSAGE =
 export const PASSWORD_RESET_PER_USER_LIMIT = 3;
 /** ...within this rolling window. */
 export const PASSWORD_RESET_PER_USER_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * LIRA-291: the outbox template for a link sent to a user with NO password
+ * (joined with Google): "Set a password for <username>". Same token, page
+ * and expiry as `password-reset`; only the wording differs.
+ */
+export const PASSWORD_SET_TEMPLATE = "password-set";
+
+/**
+ * LIRA-291: the notice sent after a signed-in user added a password from
+ * Settings. No link and no secret.
+ */
+export const PASSWORD_ADDED_TEMPLATE = "password-added";

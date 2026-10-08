@@ -180,7 +180,10 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     password_hash TEXT,
     role TEXT DEFAULT 'staff',
-    is_active BOOLEAN DEFAULT 1, email TEXT DEFAULT NULL, email_verified_at TEXT DEFAULT NULL
+    is_active BOOLEAN DEFAULT 1, email TEXT DEFAULT NULL, email_verified_at TEXT DEFAULT NULL,
+    -- v202 (LIRA-291): 1 = the user has a usable password. Only a user who
+    -- joined with Google starts at 0; every password write sets it back to 1.
+    has_password INTEGER NOT NULL DEFAULT 1
 );
 
 -- Seed admin user if not exists
@@ -2709,4 +2712,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (200, 'signin_directory'),
     -- v201 (LIRA-290) back-fills tenants.contact_email from each shop's
     -- first admin's confirmed email: data only (a fresh DB has none).
-    (201, 'tenants_contact_email_from_first_admin');
+    (201, 'tenants_contact_email_from_first_admin'),
+    -- v202 (LIRA-291) adds users.has_password, declared above (back-fill is
+    -- data only: a fresh DB has no Google-joined users).
+    (202, 'users_has_password');

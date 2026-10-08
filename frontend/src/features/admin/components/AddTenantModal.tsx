@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { X } from "lucide-react";
 import type { AdminCreateTenantPayload } from "@/api/backendApi";
+import PasswordInput from "@/shared/components/PasswordInput";
 
 interface AddTenantModalProps {
   isOpen: boolean;
@@ -218,15 +219,22 @@ export function AddTenantModal({
               />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">
+              <label
+                className="text-xs text-slate-400 block mb-1"
+                htmlFor="add-tenant-admin-password"
+              >
                 Admin password *
               </label>
-              <input
-                type="password"
-                data-testid="add-tenant-admin-password"
+              <PasswordInput
+                label=""
+                id="add-tenant-admin-password"
+                name="add-tenant-admin-password"
+                testId="add-tenant-admin-password"
                 value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                onChange={setAdminPassword}
+                placeholder=""
+                autoComplete="new-password"
+                inputClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
                 required
               />
             </div>

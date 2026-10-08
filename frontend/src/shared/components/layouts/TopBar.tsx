@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { appEvents, useApi, type UINotification } from "@liratek/ui";
 import { subscribeToInvalidation } from "@/api/realtime";
 import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
-import { LogOut, Bell, X, Home, Sun, Moon } from "lucide-react";
+import { LogOut, Bell, X, Home, Sun, Moon, UserCircle } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/context/AuthContext";
+import { isElectron } from "@/api/backendApi";
 import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { CustomerSessionButton } from "@/features/sessions/components/CustomerSessionButton";
@@ -428,6 +429,20 @@ export default function TopBar({
               {user?.role || "Administrator"}
             </p>
           </div>
+
+          {/* LIRA-291: every role's own sign-in methods and devices
+              (Settings is admin-only). Web only. */}
+          {!isElectron() && (
+            <button
+              onClick={() => navigate("/account")}
+              className="p-2 text-slate-400 hover:text-white transition-colors"
+              title="My account"
+              aria-label="My account"
+              data-testid="my-account-link"
+            >
+              <UserCircle size={20} />
+            </button>
+          )}
 
           <button
             onClick={() => {

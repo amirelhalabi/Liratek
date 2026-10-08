@@ -535,6 +535,7 @@ export class UserInvitationService {
       username,
       hashPassword(params.password),
       params.now,
+      true,
     );
     return { ok: true, invite, user, shop: { id: shop.id, name: shop.name, slug: shop.slug } };
   }
@@ -579,7 +580,8 @@ export class UserInvitationService {
    * No password is chosen (owner decision 2026-10-08): the user gets a hash
    * of a random secret nobody ever sees, so a password sign-in cannot
    * succeed until they set one through "Forgot password" (their email is
-   * confirmed, so that works).
+   * confirmed, so that works) or Settings → Sign-in methods. The user is
+   * created with `has_password = 0` (v202, LIRA-291).
    */
   acceptWithGoogle(
     params: AcceptUserInvitationWithGoogleParams,
@@ -605,6 +607,9 @@ export class UserInvitationService {
       username,
       hashPassword(generateToken()),
       params.now,
+      // LIRA-291: recorded as having NO password, so the user cannot remove
+      // Google (their only way in) and "Forgot password" says "Set a password".
+      false,
       (userId) =>
         this.identityRepo.link({
           userId,
@@ -701,6 +706,7 @@ export class UserInvitationService {
     username: string,
     passwordHash: string,
     now: string,
+    hasPassword: boolean,
     withinTransaction?: (userId: number) => void,
   ): { id: number; username: string; role: UserInvitationRole } {
     const tenantId = invite.tenant_id;
@@ -718,6 +724,7 @@ export class UserInvitationService {
             tenant_id: tenantId,
             email: invite.email,
             email_verified_at: now,
+            has_password: hasPassword,
           });
           withinTransaction?.(created.id);
           if (!this.inviteRepo.finalize(invite.id, created.id, now)) {

@@ -17,7 +17,11 @@ import {
   GoogleTokenError,
   type FetchLike,
 } from "../GoogleAuthService.js";
-import { IDENTITY_ALREADY_LINKED } from "../../utils/errors.js";
+import {
+  IDENTITY_ALREADY_LINKED,
+  LastSigninMethodError,
+  SET_PASSWORD_FIRST,
+} from "../../utils/errors.js";
 
 type TestGlobal = typeof globalThis & {
   __LIRATEK_TEST_DB__?: Database.Database;
@@ -292,11 +296,40 @@ describe("identities, hand-off and session", () => {
       expect(svc().getLinkedEmail(20)).toEqual({
         linked: true,
         email: "owner@gmail.com",
+        hasPassword: true,
       });
       expect(svc().unlinkIdentity(20, NOW)).toBe(true);
-      expect(svc().getLinkedEmail(20)).toEqual({ linked: false, email: null });
+      expect(svc().getLinkedEmail(20)).toEqual({
+        linked: false,
+        email: null,
+        hasPassword: true,
+      });
       expect(svc().unlinkIdentity(20, NOW)).toBe(false);
     });
+  });
+
+  it("LIRA-291: a user with no password cannot remove Google (SET_PASSWORD_FIRST); the link is kept", () => {
+    db.exec(`UPDATE users SET has_password = 0 WHERE id = 21`);
+    linkIn(2, 21);
+    runWithTenant(2, () => {
+      expect(svc().getLinkedEmail(21)).toEqual({
+        linked: true,
+        email: "owner@gmail.com",
+        hasPassword: false,
+      });
+      let caught: unknown;
+      try {
+        svc().unlinkIdentity(21, NOW);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(LastSigninMethodError);
+      expect((caught as { code?: string }).code).toBe(SET_PASSWORD_FIRST);
+      expect(svc().getLinkedEmail(21).linked).toBe(true);
+    });
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = 21`).get(),
+    ).toEqual({ n: 1 });
   });
 
   it("LIRA-288: www sign-in matches come from the sign-in directory — active users, active shops, by shop name", () => {

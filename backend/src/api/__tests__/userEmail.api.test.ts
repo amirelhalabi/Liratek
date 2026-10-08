@@ -160,7 +160,8 @@ beforeEach(() => {
   emailConfigured = true;
   db.exec(
     `DELETE FROM email_verification_tokens; DELETE FROM email_outbox;
-     UPDATE users SET email = NULL, email_verified_at = NULL;
+     UPDATE users SET email = NULL, email_verified_at = NULL, has_password = 1;
+     DELETE FROM password_reset_tokens;
      DELETE FROM user_identities; DELETE FROM signin_directory; DELETE FROM audit_log;`,
   );
 });
@@ -186,6 +187,17 @@ describe("LIRA-288 GET /api/user-email — Google", () => {
   });
 });
 
+describe("LIRA-291 GET /api/user-email — hasPassword", () => {
+  it("each user carries hasPassword, for the Users list's Sign-in label", async () => {
+    db.prepare(`UPDATE users SET has_password = 0 WHERE id = ?`).run(ids.cell_other);
+    const admin = await loginToken("cell_admin");
+    const res = await request(app).get(BASE).set("Authorization", `Bearer ${admin}`);
+    const users = res.body.data.users as Array<{ id: number; hasPassword: boolean }>;
+    expect(users.find((u) => u.id === ids.cell_other)?.hasPassword).toBe(false);
+    expect(users.find((u) => u.id === ids.cell_admin)?.hasPassword).toBe(true);
+  });
+});
+
 describe("LIRA-288 DELETE /api/user-email/:userId/google (admin)", () => {
   it("disconnects a member's Google in this shop only, re-syncs the directory, audits google_link.remove {by: admin}; a repeat changes nothing", async () => {
     linkGoogle("cell_staff", 2, "sub-shared", "staff@gmail.com");
@@ -201,7 +213,9 @@ describe("LIRA-288 DELETE /api/user-email/:userId/google (admin)", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       success: true,
-      data: { user: { id: ids.cell_staff, email: null, emailVerifiedAt: null, google: null } },
+      data: {
+        user: { id: ids.cell_staff, email: null, emailVerifiedAt: null, google: null, hasPassword: true },
+      },
     });
     expect(count(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`, ids.cell_staff)).toBe(0);
     // The other shop's link is untouched, in both places.
@@ -248,6 +262,91 @@ describe("LIRA-288 DELETE /api/user-email/:userId/google (admin)", () => {
   });
 });
 
+// ── LIRA-291: an admin disconnect never strands a user silently ──────────
+
+describe("LIRA-291 DELETE /api/user-email/:userId/google — a user with no password", () => {
+  const VERIFIED = "2026-10-01T00:00:00.000Z";
+  function googleOnly(username: string, email: string | null, verified: string | null) {
+    db.prepare(
+      `UPDATE users SET has_password = 0, email = ?, email_verified_at = ? WHERE id = ?`,
+    ).run(email, verified, ids[username]);
+    linkGoogle(username, 2, `sub-${username}`, email ?? "x@gmail.com");
+  }
+  const disconnect = (token: string, username: string) =>
+    request(app)
+      .delete(`${BASE}/${ids[username]}/google`)
+      .set("Authorization", `Bearer ${token}`);
+  const outbox = () =>
+    db.prepare(`SELECT template, to_email FROM email_outbox ORDER BY id`).all();
+
+  it("confirmed email + email on: disconnected, ONE password-set email queued, passwordLink 'sent'", async () => {
+    googleOnly("cell_other", "rami@gmail.com", VERIFIED);
+    const admin = await loginToken("cell_admin");
+    const res = await disconnect(admin, "cell_other");
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.passwordLink).toBe("sent");
+    expect(res.body.data.passwordLinkCode).toBeUndefined();
+    expect(count(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`, ids.cell_other)).toBe(0);
+    expect(outbox()).toEqual([{ template: core.PASSWORD_SET_TEMPLATE, to_email: "rami@gmail.com" }]);
+    const audit = db
+      .prepare(`SELECT metadata FROM audit_log WHERE action = 'google_link.remove'`)
+      .get() as { metadata: string };
+    expect(JSON.parse(audit.metadata)).toEqual({ by: "admin", password_link: "sent" });
+  });
+
+  it.each([
+    ["email is off", "rami@gmail.com", VERIFIED, false, "EMAIL_NOT_CONFIGURED"],
+    ["no email", null, null, true, "USER_HAS_NO_EMAIL"],
+    ["an unconfirmed email", "rami@gmail.com", null, true, "EMAIL_NOT_VERIFIED"],
+  ] as const)("%s: still disconnected, nothing sent, passwordLink 'not_sent' with the code", async (_l, email, verified, on, code) => {
+    googleOnly("cell_other", email, verified);
+    emailConfigured = on;
+    const admin = await loginToken("cell_admin");
+    const res = await disconnect(admin, "cell_other");
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.passwordLink).toBe("not_sent");
+    expect(res.body.data.passwordLinkCode).toBe(code);
+    expect(count(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`, ids.cell_other)).toBe(0);
+    expect(outbox()).toEqual([]);
+  });
+
+  it("a user WITH a password: no email and no passwordLink (unchanged)", async () => {
+    db.prepare(`UPDATE users SET email = 'p@gmail.com', email_verified_at = ? WHERE id = ?`).run(
+      VERIFIED,
+      ids.cell_other,
+    );
+    linkGoogle("cell_other", 2, "sub-pw", "p@gmail.com");
+    const admin = await loginToken("cell_admin");
+    const res = await disconnect(admin, "cell_other");
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).not.toHaveProperty("passwordLink");
+    expect(outbox()).toEqual([]);
+  });
+
+  it("nothing linked: a harmless repeat sends nothing", async () => {
+    db.prepare(`UPDATE users SET has_password = 0, email = 'r@gmail.com', email_verified_at = ? WHERE id = ?`).run(
+      VERIFIED,
+      ids.cell_other,
+    );
+    const admin = await loginToken("cell_admin");
+    const res = await disconnect(admin, "cell_other");
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).not.toHaveProperty("passwordLink");
+    expect(outbox()).toEqual([]);
+  });
+
+  it("an admin with no password cannot disconnect their OWN Google here either (SET_PASSWORD_FIRST); the link is kept", async () => {
+    const admin = await loginToken("cell_admin");
+    googleOnly("cell_admin", "boss@gmail.com", VERIFIED);
+    const res = await disconnect(admin, "cell_admin");
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.code ?? res.body.error?.code).toBe(core.SET_PASSWORD_FIRST);
+    expect(count(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`, ids.cell_admin)).toBe(1);
+    expect(outbox()).toEqual([]);
+  });
+});
+
 describe("GET /api/user-email", () => {
   it("admin sees this shop's users only; staff 403; no token 401", async () => {
     db.prepare(`UPDATE users SET email = 'a@cell.test', email_verified_at = '2026-10-01T00:00:00.000Z' WHERE username = 'cell_staff'`).run();
@@ -264,6 +363,7 @@ describe("GET /api/user-email", () => {
       email: "a@cell.test",
       emailVerifiedAt: "2026-10-01T00:00:00.000Z",
       google: null,
+      hasPassword: true,
     });
 
     const staff = await loginToken("cell_staff");

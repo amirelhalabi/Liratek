@@ -19,6 +19,17 @@ export const PASSWORD_REQUIREMENTS = {
 };
 
 /**
+ * What counts as a symbol (LIRA-291): any character that is not a letter or
+ * a digit, so browser-generated passwords (- _ . :) pass. Exported so a
+ * form's requirement checklist uses the same test (rule 14).
+ */
+export const PASSWORD_SYMBOL_PATTERN = /[^A-Za-z0-9]/;
+
+/** The message shown when a password has no symbol (LIRA-291). */
+export const PASSWORD_SYMBOL_MESSAGE =
+  "Password must contain a symbol (for example - _ . @ ! #)";
+
+/**
  * Validate password meets complexity requirements.
  */
 export function validatePasswordComplexity(password: string): {
@@ -41,8 +52,13 @@ export function validatePasswordComplexity(password: string): {
   if (PASSWORD_REQUIREMENTS.requireNumber && !/\d/.test(password)) {
     errors.push("Password must contain a number");
   }
-  if (PASSWORD_REQUIREMENTS.requireSpecial && !/[@$!%*?&]/.test(password)) {
-    errors.push("Password must contain a special character (@$!%*?&)");
+  // LIRA-291: any character that is not a letter or a digit counts as a
+  // symbol, so browser-generated passwords (which use - _ . :) pass.
+  if (
+    PASSWORD_REQUIREMENTS.requireSpecial &&
+    !PASSWORD_SYMBOL_PATTERN.test(password)
+  ) {
+    errors.push(PASSWORD_SYMBOL_MESSAGE);
   }
 
   return { valid: errors.length === 0, errors };

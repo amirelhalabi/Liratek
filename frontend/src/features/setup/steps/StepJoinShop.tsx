@@ -10,7 +10,7 @@ import { useSetup } from "../context/SetupContext";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import PasswordInput from "@/shared/components/PasswordInput";
 import { TextInput, Select } from "@liratek/ui";
-import { validatePassword } from "@/shared/utils/validatePassword";
+import { validatePasswordComplexity } from "@liratek/core";
 
 export default function StepJoinShop() {
   const { payload, setStep } = useSetup();
@@ -27,7 +27,7 @@ export default function StepJoinShop() {
 
   const addUser = () => {
     if (!newUser.username.trim() || !newUser.password) return;
-    const pw = validatePassword(newUser.password);
+    const pw = validatePasswordComplexity(newUser.password);
     if (!pw.valid) {
       setError(pw.errors.join(" "));
       return;
@@ -48,7 +48,7 @@ export default function StepJoinShop() {
     // silently lost (validating its password the same way the + button does).
     const hasPending = !!(newUser.username.trim() && newUser.password);
     if (hasPending) {
-      const pw = validatePassword(newUser.password);
+      const pw = validatePasswordComplexity(newUser.password);
       if (!pw.valid) {
         setError(pw.errors.join(" "));
         return;

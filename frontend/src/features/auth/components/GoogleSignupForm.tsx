@@ -29,6 +29,7 @@ import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 import logger from "@/utils/logger";
+import PasswordInput from "@/shared/components/PasswordInput";
 
 /** Same derivation as the invite sign-up's slug field: a suggestion only;
  * the server's slug rule (validateTenantSlug) is the authority. */
@@ -126,8 +127,14 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
     "text-2xl font-bold",
     dark ? "text-white" : "text-gray-900",
   );
-  const subtleClass = clsx("text-sm", dark ? "text-slate-400" : "text-gray-600");
-  const hintClass = clsx("mt-1 text-xs", dark ? "text-slate-500" : "text-gray-500");
+  const subtleClass = clsx(
+    "text-sm",
+    dark ? "text-slate-400" : "text-gray-600",
+  );
+  const hintClass = clsx(
+    "mt-1 text-xs",
+    dark ? "text-slate-500" : "text-gray-500",
+  );
   const labelClass = clsx(
     "text-xs block mb-1",
     dark ? "text-slate-400" : "text-gray-600",
@@ -144,7 +151,9 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
           <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
-          <h1 className={clsx(headingClass, "mb-2")}>{created.name} is ready</h1>
+          <h1 className={clsx(headingClass, "mb-2")}>
+            {created.name} is ready
+          </h1>
           <p className={clsx(subtleClass, "mb-6")}>
             Sign in with Google, or with the username and password you just
             chose.
@@ -266,13 +275,15 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
           {field(
             "google-signup-password",
             "Admin password *",
-            <input
+            <PasswordInput
+              label=""
               id="google-signup-password"
-              data-testid="google-signup-password"
-              type="password"
+              name="google-signup-password"
+              testId="google-signup-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClass}
+              onChange={setPassword}
+              placeholder=""
+              inputClassName={inputClass}
               autoComplete="new-password"
             />,
             "You will also be able to sign in with this password, including in the desktop app.",

@@ -209,6 +209,29 @@ describe("acceptWithGoogle", () => {
     }
   });
 
+  it("LIRA-291: the Google-joined user is recorded with has_password = 0; a password accept gives 1", () => {
+    const flagOf = (id: number) =>
+      (db.prepare(`SELECT has_password FROM users WHERE id = ?`).get(id) as { has_password: number }).has_password;
+    const google = accept(invite());
+    expect(google.ok).toBe(true);
+    if (!google.ok) return;
+    expect(flagOf(google.user.id)).toBe(0);
+
+    const pwToken = invite("sara@gmail.com");
+    const pw = runWithTenant(2, () =>
+      service.accept({
+        token: pwToken,
+        username: "sara",
+        password: "Str0ng-Password!",
+        now: LATER,
+        requiredTenantId: 2,
+      }),
+    );
+    expect(pw.ok).toBe(true);
+    if (!pw.ok) return;
+    expect(flagOf(pw.user.id)).toBe(1);
+  });
+
   it("an account linked in ANOTHER shop joins fine (one user per shop)", () => {
     db.exec(
       `INSERT INTO user_identities (user_id, tenant_id, provider, subject, email) VALUES (30, 3, 'google', 'sub-rami', 'rami@gmail.com')`,

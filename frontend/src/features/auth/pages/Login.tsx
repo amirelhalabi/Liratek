@@ -257,6 +257,17 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                   id="username"
                   autoComplete="username"
                 />
+                {/* LIRA-291: people typed their email here and got "Invalid
+                    username or password". A hint, not a block: submitting
+                    still works (www's own page takes an email). */}
+                <p className="mt-1 text-xs text-slate-400">
+                  Not your email — use the username your admin gave you
+                </p>
+                {username.includes("@") && (
+                  <p role="status" className="mt-1 text-xs text-amber-400">
+                    Use your username, or Continue with Google
+                  </p>
+                )}
               </div>
 
               <div>

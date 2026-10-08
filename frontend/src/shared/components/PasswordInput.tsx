@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { PASSWORD_SYMBOL_PATTERN } from "@liratek/core";
 import { useCapsLock } from "@/hooks/useCapsLock";
 
 export interface PasswordInputProps {
@@ -20,6 +21,12 @@ export interface PasswordInputProps {
   /** Field name and id — password managers and <label> association rely on them. */
   name?: string;
   id?: string;
+  /** `data-testid` on the <input> itself. */
+  testId?: string;
+  /** Replaces the default input / label classes (a themed page's own look). */
+  inputClassName?: string;
+  labelClassName?: string;
+  required?: boolean;
 }
 
 export default function PasswordInput({
@@ -35,16 +42,21 @@ export default function PasswordInput({
   autoComplete = "new-password",
   name,
   id,
+  testId,
+  inputClassName,
+  labelClassName,
+  required,
 }: PasswordInputProps) {
   const [showPassword, setShowPassword] = useState(false);
   const { capsLock, capsLockProps } = useCapsLock();
 
-  const inputCls = compact
+  const defaultInputCls = compact
     ? "w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
     : "w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30";
-  const labelCls = compact
-    ? "sr-only"
-    : "block text-sm font-medium text-slate-400 mb-1";
+  const inputCls = inputClassName ?? defaultInputCls;
+  const labelCls =
+    labelClassName ??
+    (compact ? "sr-only" : "block text-sm font-medium text-slate-400 mb-1");
   const errorCls = "text-xs text-red-400 mt-1";
 
   return (
@@ -65,6 +77,8 @@ export default function PasswordInput({
           autoComplete={autoComplete}
           name={name}
           id={id}
+          data-testid={testId}
+          required={required}
           autoFocus={autoFocus}
           {...capsLockProps}
         />
@@ -98,8 +112,12 @@ export default function PasswordInput({
           <p className={value.length >= 8 ? "text-emerald-400" : ""}>
             ✓ At least 8 characters
           </p>
-          <p className={/[@$!%*?&]/.test(value) ? "text-emerald-400" : ""}>
-            ✓ Special character (@$!%*?&)
+          <p
+            className={
+              PASSWORD_SYMBOL_PATTERN.test(value) ? "text-emerald-400" : ""
+            }
+          >
+            ✓ A symbol (for example - _ . @ ! #)
           </p>
         </div>
       )}

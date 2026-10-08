@@ -60,6 +60,10 @@ const CustomServices = lazyWithReload(
 const Settings = lazyWithReload(
   () => import("@/features/settings/pages/Settings"),
 );
+// LIRA-291: every role's own sign-in methods and devices.
+const MyAccount = lazyWithReload(
+  () => import("@/features/account/pages/MyAccount"),
+);
 const Profits = lazyWithReload(
   () => import("@/features/profits/pages/Profits"),
 );
@@ -359,6 +363,16 @@ function AppRoutes() {
             <AdminRoute>
               <Settings />
             </AdminRoute>
+          }
+        />
+        {/* LIRA-291: NOT AdminRoute — staff manage their own sign-in methods
+            here (Settings is admin-only). */}
+        <Route
+          path="/account"
+          element={
+            <ProtectedRoute>
+              <MyAccount />
+            </ProtectedRoute>
           }
         />
         {/* Profits password gate (PROFITS_GATE_CONTRACT.md): visible to both

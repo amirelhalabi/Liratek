@@ -27,7 +27,9 @@ import express from "express";
 import {
   createSuccessResponse,
   createErrorResponse,
+  getPasswordResetService,
   getUserEmailService,
+  isAppError,
   setUserEmailSchema,
   verifyUserEmailSchema,
   ErrorCodes,
@@ -47,6 +49,7 @@ import {
   resolveSupportEmail,
 } from "../email/emailConfig.js";
 import { logger } from "../server.js";
+import { mailOptions as passwordResetMailOptions } from "./passwordReset.js";
 import {
   createPublicLinkLimiter,
   requirePositiveIdParam,
@@ -147,6 +150,13 @@ router.put(
 // sign-in (e.g. staff who left). This shop only; another shop's user (or a
 // super admin) is NOT_FOUND. Repeating it changes nothing and is not audited.
 // Linking stays self-only (it needs the person's own Google consent).
+//
+// LIRA-291: when the member has NO password (joined with Google), Google was
+// their only way in. The admin was warned by the confirm step; after the
+// disconnect a "Set a password" link is emailed (PasswordResetService set
+// mode). `passwordLink: "sent" | "not_sent"` (+ `passwordLinkCode` when not
+// sent) reports it. A failed send never undoes the disconnect. An admin with
+// no password cannot disconnect their OWN Google (SET_PASSWORD_FIRST).
 router.delete(
   "/:userId/google",
   authenticateJWT,
@@ -155,25 +165,58 @@ router.delete(
   (req: AuthRequest, res) => {
     const userId = Number(req.params.userId);
     try {
+      const tenantId = req.user!.tenantId!;
+      const now = new Date().toISOString();
       const { user, unlinked } = getUserEmailService().adminUnlinkGoogle(userId, {
-        tenantId: req.user!.tenantId!,
-        now: new Date().toISOString(),
+        tenantId,
+        now,
+        actorUserId: req.user!.userId,
       });
+      const link =
+        unlinked && !user.hasPassword
+          ? sendSetPasswordLink(tenantId, userId, now)
+          : null;
       if (unlinked) {
         auditRest(req, {
           action: "google_link.remove",
           entity_type: "user",
           entity_id: String(userId),
           summary: "Disconnected this user's Google sign-in",
-          metadata: { by: "admin" },
+          metadata: link
+            ? { by: "admin", password_link: link.passwordLink }
+            : { by: "admin" },
         });
       }
-      res.json(createSuccessResponse({ user }));
+      res.json(createSuccessResponse({ user, ...(link ?? {}) }));
     } catch (error) {
       sendFailure(res, error, "Admin Google disconnect failed", "Failed to disconnect Google");
     }
   },
 );
+
+/** LIRA-291: the "Set a password" link after an admin disconnect. Never
+ * throws: a refusal (email off, no / unconfirmed email, rate limit) is
+ * reported, never undoes the disconnect. */
+function sendSetPasswordLink(
+  tenantId: number,
+  userId: number,
+  now: string,
+): { passwordLink: "sent" | "not_sent"; passwordLinkCode?: string } {
+  try {
+    getPasswordResetService().sendForUser({
+      ...passwordResetMailOptions(now),
+      tenantId,
+      userId,
+    });
+    return { passwordLink: "sent" };
+  } catch (error) {
+    if (isAppError(error) && error.isOperational) {
+      return { passwordLink: "not_sent", passwordLinkCode: error.code };
+    }
+    logger.error({ error, userId }, "Set-password link after a Google disconnect failed");
+    return { passwordLink: "not_sent" };
+  }
+}
 
 // POST /:userId/send-verification — a fresh link to the current address.
 router.post(

@@ -44,6 +44,21 @@ export const EMAIL_PREVIEW_SAMPLES: Readonly<Record<string, TemplateVars>> = {
     expiresAtText: "10 October 2026, 09:00 UTC",
     supportEmail: "support@liratek.shop",
   },
+  // LIRA-291: the reset link worded for a user with no password.
+  "password-set": {
+    resetUrl:
+      "https://cellcity.liratek.shop/#/reset-password?token=PREVIEW_ONLY_not_a_real_token_0123456789",
+    username: "rami",
+    shopName: `Cell City <script>alert("hi")</script> & Sons`,
+    expiresAtText: "10 October 2026, 09:00 UTC",
+    supportEmail: "support@liratek.shop",
+  },
+  // LIRA-291: the notice after a password was added from Settings (no link).
+  "password-added": {
+    username: "rami",
+    shopName: `Cell City <script>alert("hi")</script> & Sons`,
+    supportEmail: "support@liratek.shop",
+  },
   // LIRA-287: www sign-in code. The code is the secret, so the sample
   // carries the marker every preview secret carries.
   "signin-code": {

@@ -71,8 +71,16 @@ function isTabKey(value: string | null): value is TabKey {
  *    - "license" — desktop licence-key entry; on the web a tenant's plan is
  *      carried in the JWT, not typed in. See LicensePanel.tsx's header.
  *  Do not "fix" either by adding a REST route for a file picker or an
- *  updater check — read the linked headers first. */
-const DESKTOP_ONLY_TABS: readonly TabKey[] = ["diagnostics", "license"];
+ *  updater check — read the linked headers first.
+ *    - "devices" (LIRA-291) — on the web, sign-in methods and signed-in
+ *      devices live on "My account" (/account), which every role can open
+ *      (Settings is admin-only). One place, not a second copy here. The
+ *      desktop app has no My account link, so it keeps this tab. */
+const DESKTOP_ONLY_TABS: readonly TabKey[] = [
+  "diagnostics",
+  "license",
+  "devices",
+];
 
 function isTabAvailable(key: TabKey): boolean {
   return isElectron() || !DESKTOP_ONLY_TABS.includes(key);

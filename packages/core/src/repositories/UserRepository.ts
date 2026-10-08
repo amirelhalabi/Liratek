@@ -119,6 +119,8 @@ export type UserWithEmail = UserEntity & UserEmailInfo;
 /** One row of `listEmails()`. */
 export interface UserEmailRow extends UserEmailInfo {
   id: number;
+  /** v202 (LIRA-291): 1 = the user has a usable password, 0 = none. */
+  has_password: number;
 }
 
 export interface CreateUserData {
@@ -138,6 +140,11 @@ export interface CreateUserData {
   email?: string | null;
   /** v196: UTC ISO instant the email was proven, or null. */
   email_verified_at?: string | null;
+  /**
+   * v202 (LIRA-291): whether the user has a usable password. Default `true`
+   * (the column's own default). Only Join with Google passes `false`.
+   */
+  has_password?: boolean;
 }
 
 export interface UpdateUserData {
@@ -532,11 +539,13 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
-   * Update user's password hash
+   * Update user's password hash. The ONE shared password writer (reset link,
+   * admin Set Password, change password, set-initial), so it also marks the
+   * user as having a password (v202, LIRA-291) in the same statement.
    */
   updatePassword(id: number, passwordHash: string): boolean {
     try {
-      const query = `UPDATE ${this.tableName} SET password_hash = ? WHERE id = ? AND tenant_id = ?`;
+      const query = `UPDATE ${this.tableName} SET password_hash = ?, has_password = 1 WHERE id = ? AND tenant_id = ?`;
       const result = this.execute(
         query,
         passwordHash,
@@ -565,13 +574,12 @@ export class UserRepository extends BaseRepository<UserEntity> {
         data.tenant_id !== undefined ? data.tenant_id : getCurrentTenantId();
 
       // The email columns are written only when the caller supplies them,
-      // so a caller (or test) on a pre-v196 table shape is unaffected.
+      // so a caller (or test) on a pre-v196 table shape is unaffected. Same
+      // for has_password (v202): it is written only when false, since the
+      // column's default (1) already means "has a password". Literal SQL per
+      // shape, so the tenant-scoping checker can read every INSERT.
       const withEmail = data.email !== undefined;
-      const query = withEmail
-        ? `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id, email, email_verified_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`
-        : `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id)
-                     VALUES (?, ?, ?, ?, ?)`;
+      const noPassword = data.has_password === false;
       const params: (string | number | null)[] = [
         data.username,
         data.password_hash,
@@ -583,6 +591,19 @@ export class UserRepository extends BaseRepository<UserEntity> {
         const email = data.email ? normalizeEmail(data.email) : null;
         params.push(email, email ? (data.email_verified_at ?? null) : null);
       }
+      if (noPassword) params.push(0);
+      const query =
+        withEmail && noPassword
+          ? `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id, email, email_verified_at, has_password)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          : withEmail
+            ? `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id, email, email_verified_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`
+            : noPassword
+              ? `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id, has_password)
+                     VALUES (?, ?, ?, ?, ?, ?)`
+              : `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id)
+                     VALUES (?, ?, ?, ?, ?)`;
 
       const result = this.execute(query, ...params);
       const insertedId = result.lastInsertRowid as number;
@@ -702,11 +723,31 @@ export class UserRepository extends BaseRepository<UserEntity> {
     }
   }
 
+  /**
+   * Whether a CURRENT-shop user has a usable password (v202, LIRA-291).
+   * False when the id is not a user of this shop.
+   */
+  hasPassword(userId: number): boolean {
+    try {
+      const row = this.queryOne<{ has_password: number }>(
+        `SELECT has_password FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`,
+        userId,
+        getCurrentTenantId(),
+      );
+      return row?.has_password === 1;
+    } catch (error) {
+      throw new DatabaseError("Failed to read whether the user has a password", {
+        cause: error,
+        entityId: userId,
+      });
+    }
+  }
+
   /** Every current-shop user's email (active or not), for the Users list. */
   listEmails(): UserEmailRow[] {
     try {
       return this.query<UserEmailRow>(
-        `SELECT id, email, email_verified_at FROM ${this.tableName} WHERE tenant_id = ? ORDER BY id`,
+        `SELECT id, email, email_verified_at, has_password FROM ${this.tableName} WHERE tenant_id = ? ORDER BY id`,
         getCurrentTenantId(),
       );
     } catch (error) {

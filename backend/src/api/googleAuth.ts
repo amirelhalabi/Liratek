@@ -25,7 +25,7 @@
  *     signup            -> https://www.<base>/#/signup?google=<ticket>
  *             the Gmail already owns a shop (LIRA-290)
  *                       -> https://www.<base>/#/auth/google?error=email_has_shop
- *     link              -> https://<slug>.<base>/#/settings?tab=devices&google=…
+ *     link              -> https://<slug>.<base>/#/account?google=…
  *     join (LIRA-288)   -> user created + linked -> the shop's /#/login?sso=
  *             refused   -> https://<slug>.<base>/#/join?invite=…&google=…
  *   POST /choose        the chooser's pick -> { redirectUrl } (hand-off)
@@ -57,6 +57,7 @@ import {
   GoogleAuthService,
   GoogleTokenError,
   IdentityAlreadyLinkedError,
+  LastSigninMethodError,
   createSuccessResponse,
   generateToken,
   getAuditService,
@@ -307,8 +308,9 @@ router.post("/start", (req, res): void => {
 
 type LinkResult = "linked" | "already_linked" | "error" | "cancelled";
 
-/** Where the browser goes when a LINK attempt ends (the shop's Settings, on
- * the tab that hosts the Google panel). */
+/** Where the browser goes when a LINK attempt ends: the shop's "My account"
+ * page, which hosts the Google panel and which every role can open
+ * (LIRA-291; Settings is admin-only). */
 function linkResultUrl(
   config: GoogleConfig,
   tenantId: number | undefined,
@@ -317,7 +319,7 @@ function linkResultUrl(
   const tenant = tenantId !== undefined ? activeTenant(tenantId) : null;
   const origin = tenant ? resolveShopLinkBaseUrl(tenant.slug) : null;
   if (!origin) return errorUrl(config, "failed");
-  return pageUrl(origin, "settings", { tab: "devices", google: result });
+  return pageUrl(origin, "account", { google: result });
 }
 
 /** Mints the 60-second hand-off and builds the shop's `/#/login?sso=`. */
@@ -814,8 +816,13 @@ router.post(
   },
 );
 
-// DELETE /link — disconnect MY Google account. The password still works
-// (a Google sign-up sets one too), so this can never lock anyone out.
+// DELETE /link — disconnect MY Google account.
+//
+// LIRA-291: a user who joined with Google has no password, so Google is
+// their only way in. Removing it is refused (SET_PASSWORD_FIRST) until they
+// set a password (POST /api/password-reset/set-initial). Checked FIRST, so
+// the answer is the same whether Google sign-in is on or off. The service
+// checks again inside the unlink.
 router.delete(
   "/link",
   authenticateJWT,
@@ -823,14 +830,24 @@ router.delete(
   (req, res): void => {
     const own = ownTenantAccount(req, res);
     if (!own) return;
-    if (!googleConfig()) {
-      refuseNotConfigured(res);
-      return;
+    let unlinked: boolean;
+    try {
+      getGoogleAuthService().assertCanUnlink(own.userId);
+      if (!googleConfig()) {
+        refuseNotConfigured(res);
+        return;
+      }
+      unlinked = getGoogleAuthService().unlinkIdentity(
+        own.userId,
+        new Date().toISOString(),
+      );
+    } catch (error) {
+      if (error instanceof LastSigninMethodError) {
+        refuse(res, error.code, error.message);
+        return;
+      }
+      throw error;
     }
-    const unlinked = getGoogleAuthService().unlinkIdentity(
-      own.userId,
-      new Date().toISOString(),
-    );
     if (unlinked) {
       auditRest(req, {
         action: "google_unlink",

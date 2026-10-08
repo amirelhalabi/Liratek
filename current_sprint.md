@@ -6537,6 +6537,20 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
+## LIRA-291: sign-in methods for users who joined with Google — DONE, not yet committed (owner decisions 2026-10-08)
+
+Found during the LIRA-288 production checks. Spec: `specs/291-signin-methods/`. Web only, except the shared password rule.
+
+- **Flag:** migration v202 adds `users.has_password INTEGER NOT NULL DEFAULT 1`. Only `UserInvitationService.acceptWithGoogle` creates a user with 0; `UserRepository.updatePassword` (the one shared password writer) sets it back to 1. Back-fill: 0 only for a Google join (`audit_log` `via = 'invite_google'`) with no later "Password reset by emailed link" / "Changed user password" row and no used reset token.
+- **Own disconnect:** `GoogleAuthService.assertCanUnlink` / `unlinkIdentity` refuse `SET_PASSWORD_FIRST` while the user has no password; `DELETE /api/auth/google/link` checks it before the Google on/off check. `GET /link` returns `hasPassword`.
+- **Set a password:** `POST /api/password-reset/set-initial` (JWT user only, impersonation refused, `PASSWORD_ALREADY_SET` otherwise). `PasswordResetService.setInitialPassword` keeps Google and sessions and queues a `password-added` notice to a confirmed email. The panel is now "Sign-in methods" with the form, on a new **My account** page (`/account`, ProtectedRoute — every role; owner-approved 2026-10-08) opened from the top bar's person icon (web only). On the web, Settings no longer has a Signed-in Devices tab (one place; desktop keeps it), and the Google link flow now lands on `/#/account?google=…`.
+- **Admin disconnect:** `DELETE /api/user-email/:userId/google` then emails a `password-set` link when the user had no password (`passwordLink: sent|not_sent` + code); a failed send never undoes the disconnect. An admin with no password cannot disconnect their own Google there either. UsersManager has a "Sign-in" column (`signinMethodLabel`) and confirm text that depends on the password and email.
+- **Wording:** `PasswordResetService.issue` picks `password-set` vs `password-reset` per user; `check` returns `hasPassword`; the reset email heading names the username.
+- **Password rule:** any non-letter, non-digit counts as a symbol (core `passwordPolicy.ts`, desktop too); the frontend copy `shared/utils/validatePassword.ts` is deleted. `PasswordInput` (eye toggle, `new-password`) on the reset page, sign-up, Google sign-up, join and Add shop.
+- **Login:** a username hint on the shop sign-in page, plus a message when an `@` is typed.
+
+**What users will notice:** Settings → Users shows how each person signs in; everyone has a "My account" page (top bar) for their own sign-in methods and devices; staff who joined with Google can set a password there and can't remove their last way to sign in; an admin disconnecting Google emails them a link to set a password; password emails name the username; show/hide on new-password fields; a username hint on the shop sign-in page; browser-suggested passwords are accepted (desktop app too).
+
 ## LIRA-290: one shop per owner email — sign-up says so on the page — DONE, not yet released (owner decisions 2026-10-08)
 
 Found on production: self-serve sign-up emailed a sign-up link to the Gmail that is already the owner (first admin) of cornertech and test. The "already has a shop" check only read `tenants.contact_email`, which is NULL for shops created before sign-up emails existed; the owner's address was on the admin user. Rule (owner): one shop per owner email / Google account; a STAFF member's email may open its own shop. (LIRA-289 was taken by the mobile app ticket.)

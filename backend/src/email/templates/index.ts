@@ -16,6 +16,10 @@ import { passwordResetTemplate } from "./passwordReset.js";
 // LIRA-287: www "email me a code" sign-in
 import { signinCodeTemplate } from "./signinCode.js";
 
+// LIRA-291: sign-in methods ("password added" notice, "set a password" link)
+import { passwordAddedTemplate } from "./passwordAdded.js";
+import { passwordSetTemplate } from "./passwordSet.js";
+
 const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
   [signupInviteTemplate.name]: signupInviteTemplate,
   // [auth-B] entries: "user-invite", "verify-email"
@@ -27,6 +31,10 @@ const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
 
   // LIRA-287: "signin-code"
   [signinCodeTemplate.name]: signinCodeTemplate,
+
+  // LIRA-291: "password-added", "password-set"
+  [passwordAddedTemplate.name]: passwordAddedTemplate,
+  [passwordSetTemplate.name]: passwordSetTemplate,
 };
 
 /** Throws for an unknown name: a row naming a template that does not exist

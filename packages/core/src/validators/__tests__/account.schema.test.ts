@@ -19,7 +19,9 @@ import {
   joinWithGoogleStartSchema,
   ssoExchangeSchema,
   newPasswordSchema,
+  setInitialPasswordSchema,
 } from "../index.js";
+import * as browserEntry from "../../browser.js";
 import { validatePasswordComplexity } from "../../utils/passwordPolicy.js";
 import { googleStartFormSchema } from "../googleAuth.js";
 
@@ -219,5 +221,23 @@ describe("Google sign-in", () => {
   it("ssoExchangeSchema: a non-empty token", () => {
     expect(ssoExchangeSchema.safeParse({ token: TOKEN }).success).toBe(true);
     expect(ssoExchangeSchema.safeParse({ token: "" }).success).toBe(false);
+  });
+
+  it("LIRA-291 setInitialPasswordSchema: { password } held to the one rule; a browser-generated password passes; userId never accepted", () => {
+    expect(setInitialPasswordSchema.parse({ password: "xY7-pq_Rt.9mZ" })).toEqual({
+      password: "xY7-pq_Rt.9mZ",
+    });
+    const weak = setInitialPasswordSchema.safeParse({ password: "Abcdefg1" });
+    expect(weak.success).toBe(false);
+    expect(weak.error?.issues.map((i) => i.message)).toEqual(
+      validatePasswordComplexity("Abcdefg1").errors,
+    );
+    // The user comes from the session, never the body.
+    expect(
+      setInitialPasswordSchema.parse({ password: "xY7-pq_Rt.9mZ", userId: 7 }),
+    ).not.toHaveProperty("userId");
+    expect(
+      (browserEntry as Record<string, unknown>).setInitialPasswordSchema,
+    ).toBe(setInitialPasswordSchema);
   });
 });
