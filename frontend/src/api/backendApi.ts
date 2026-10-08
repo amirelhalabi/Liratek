@@ -7899,6 +7899,7 @@ import type {
   JoinWithGoogleStartInput,
   UserEmailView,
   SetUserEmailResult,
+  OwnEmailView,
   UserInvitationView,
   UserInviteCheckResult,
 } from "@liratek/core";
@@ -7921,6 +7922,7 @@ export interface AccountRouteResult<T> {
 export type {
   UserEmailView,
   SetUserEmailResult,
+  OwnEmailView,
   UserInvitationView,
   UserInviteCheckResult,
 };
@@ -7941,6 +7943,17 @@ export async function listUserEmails(): Promise<UserEmailView[]> {
     throw new Error(messageFrom(res.error, "Failed to load user emails"));
   }
   return res.data.users;
+}
+
+/**
+ * LIRA-292: the signed-in user's OWN email (My account → Profile). The
+ * desktop app has no email at all, so there it answers `data: null` without
+ * a call — never the throw `assertWebOnly` would give — and Profile shows
+ * username, role and shop only.
+ */
+export async function getMyEmail(): Promise<AccountRouteResult<OwnEmailView | null>> {
+  if (isElectron()) return { success: true, data: null };
+  return requestJson<AccountRouteResult<OwnEmailView>>("/api/user-email/me");
 }
 
 export async function setUserEmail(

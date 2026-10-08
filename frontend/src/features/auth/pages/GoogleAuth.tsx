@@ -34,7 +34,7 @@ import {
 
 const ERROR_TEXT: Record<GoogleAuthErrorCode, string> = {
   no_account:
-    "No LiraTek account is connected to this Google account. Sign in with your username and password, then connect Google in Settings — or create a new shop.",
+    "No LiraTek account is connected to this Google account. Sign in with your username and password, then connect Google in My account — or create a new shop.",
   already_connected:
     "This Google account is already connected to a LiraTek shop. Sign in with Google instead, or use a different Google account to create a new shop.",
   signup_limit:

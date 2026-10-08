@@ -394,6 +394,7 @@ export type {
 export type {
   UserEmailView,
   SetUserEmailResult,
+  OwnEmailView,
 } from "./services/UserEmailService.js";
 
 // [auth-C] exports

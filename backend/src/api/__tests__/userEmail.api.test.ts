@@ -551,3 +551,32 @@ describe("POST /api/user-email/verify (public)", () => {
     expect(res.body.error.message).toBe(core.EMAIL_VERIFY_INVALID_MESSAGE);
   });
 });
+
+// ── LIRA-292: a user's OWN email, for My account → Profile ───────────────
+
+describe("LIRA-292 GET /api/user-email/me — my own email", () => {
+  it("a STAFF user reads their own email and verified stamp (from the JWT, never a param)", async () => {
+    db.prepare(
+      `UPDATE users SET email = 'me@cell.test', email_verified_at = '2026-10-01T00:00:00.000Z' WHERE id = ?`,
+    ).run(ids.cell_staff);
+    db.prepare(`UPDATE users SET email = 'other@cell.test' WHERE id = ?`).run(ids.cell_other);
+    const staff = await loginToken("cell_staff");
+    const res = await request(app).get(`${BASE}/me`).set("Authorization", `Bearer ${staff}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      data: { email: "me@cell.test", emailVerifiedAt: "2026-10-01T00:00:00.000Z" },
+    });
+  });
+
+  it("no email yet answers nulls", async () => {
+    const staff = await loginToken("cell_other");
+    const res = await request(app).get(`${BASE}/me`).set("Authorization", `Bearer ${staff}`);
+    expect(res.body).toMatchObject({ success: true, data: { email: null, emailVerifiedAt: null } });
+  });
+
+  it("needs a signed-in user", async () => {
+    const res = await request(app).get(`${BASE}/me`);
+    expect(res.status).toBe(401);
+  });
+});

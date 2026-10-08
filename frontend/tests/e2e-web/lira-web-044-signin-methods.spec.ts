@@ -276,4 +276,38 @@ test.describe("LIRA-291 — sign-in methods", () => {
       "new-password",
     );
   });
+
+  // LIRA-292: the per-device display options moved from Settings → Shop
+  // Config (admin-only) to My account, so a STAFF member can size their own
+  // screen. Same storage key as before (`ui_scale`), applied at once.
+  test("a STAFF member changes UI scale on My account (Display, this device)", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const username = `l292_staff_${ts}`;
+    const password = "L292Seed!pw1";
+    seedStaffUser(username, password);
+
+    await loginAsUser(page, username, password);
+    await closeAutoCheckpoint(page);
+    await page.getByTestId("my-account-link").click();
+    await page.waitForURL((url) => url.hash.startsWith("#/account"), { timeout: 15_000 });
+
+    const profile = page.getByRole("region", { name: "Profile" });
+    await expect(profile).toContainText(username, { timeout: 15_000 });
+    await expect(profile).toContainText("Staff");
+
+    const display = page.getByRole("region", { name: "Display (this device)" });
+    await expect(display).toContainText("Saved on this device only");
+    await display.getByRole("button", { name: "90%" }).click();
+    expect(await page.evaluate(() => localStorage.getItem("ui_scale"))).toBe("0.9");
+    expect(
+      await page.evaluate(() => document.documentElement.style.getPropertyValue("zoom")),
+    ).toBe("0.9");
+
+    // Put it back: this browser profile is per-test, but keep it tidy.
+    await display.getByRole("button", { name: "100%" }).click();
+    expect(await page.evaluate(() => localStorage.getItem("ui_scale"))).toBe("1");
+  });
 });

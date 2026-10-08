@@ -59,6 +59,9 @@ import {
 
 const router = express.Router();
 
+/** Every shop role (a super admin has no shop account here). */
+const TENANT_ROLES = ["admin", "staff"];
+
 const verifyLinkLimiter = createPublicLinkLimiter(
   "EMAIL_VERIFY_LINK_RATE_LIMIT_MAX",
   "email verify link",
@@ -104,6 +107,24 @@ router.post(
     } catch (error) {
       logger.error({ error }, "Email verification failed");
       genericRefusal(res);
+    }
+  },
+);
+
+// GET /me — LIRA-292: the caller's OWN email and verified stamp, for My
+// account → Profile. Every shop role; the user comes from the JWT, never a
+// param. Read-only, so an impersonated session may read it. Declared before
+// the `/:userId` routes. (No existing route answered this: `/api/auth/me`
+// deliberately skips the users table, and `GET /` is admin-only.)
+router.get(
+  "/me",
+  authenticateJWT,
+  requireRole(TENANT_ROLES),
+  (req: AuthRequest, res) => {
+    try {
+      res.json(createSuccessResponse(getUserEmailService().getOwn(req.user!.userId)));
+    } catch (error) {
+      sendFailure(res, error, "GET /api/user-email/me failed", "Failed to load your email");
     }
   },
 );

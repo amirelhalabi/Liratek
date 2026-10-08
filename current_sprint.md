@@ -6537,6 +6537,18 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
+## LIRA-292: My account — profile, display preferences, desktop link — DONE, not yet released (owner-approved 2026-10-08)
+
+No DB change.
+
+- **Display (this device):** the per-browser preferences (`layout_mode`, `home_columns`, `pos_show_images`, `pos_autofill_payment`, `ui_scale`) moved out of Settings → Shop Config into `features/account/components/DisplayPreferences.tsx` (the one copy), shown on My account for every role. Same storage keys and window events (`layout-mode-changed`, `pos-display-changed`, `saveAndApplyUiScale`), so nothing resets. Shop Config keeps only shop-wide settings and says "Display options moved to My account" with a link. `voicebot_enabled` is also per-browser but is saved by Shop Config's Save button; left there (follow-up candidate).
+- **Profile (read-only):** username and role (auth context), shop name (`useShopName`), email + Verified badge. No route returned the caller's own email (`/api/auth/me` deliberately skips the users table; `GET /api/user-email` is admin-only), so `GET /api/user-email/me` (admin|staff, user from the JWT) + `UserEmailService.getOwn` + adapter `getMyEmail` (answers `null` on desktop without a call). Desktop shows username, role, shop.
+- **Desktop:** the top-bar My account link now shows on desktop too. There the page shows Profile and Display only; Sign-in methods and Signed-in devices are rendered on the web only (desktop admins keep Settings → Signed-in Devices).
+- **Wording:** the Google "no account" message now says "connect Google in My account".
+- **Tests:** `MyAccount.test.tsx`, `ShopConfig.displayMoved.test.tsx`, `TopBar.myAccount.test.tsx` (desktop case inverted), `userEmail.api.test.ts` (GET /me), lira-web-044 (staff changes UI scale on My account).
+
+**What users will notice:** staff can set their own screen display (navigation style, items per row, POS display, auto-fill payment, UI scale) in My account; Settings → Shop Config points there. My account starts with a profile (username, role, shop, email). My account is now in the desktop app too.
+
 ## LIRA-291: sign-in methods for users who joined with Google — DONE, not yet committed (owner decisions 2026-10-08)
 
 Found during the LIRA-288 production checks. Spec: `specs/291-signin-methods/`. Web only, except the shared password rule.

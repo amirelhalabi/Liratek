@@ -226,6 +226,7 @@
 - Web app: a new "My account" page, opened from the person icon next to your name at the top, lets everyone — staff included — manage how they sign in (connect or disconnect Google, set a password) and see their signed-in devices. It replaces the Signed-in Devices tab in Settings.
 - Web app: staff who joined with Google can now set a password themselves in My account → Sign-in methods, without an old password. They get an email saying a password was added, and Google stays connected.
 - Web app: you can no longer disconnect Google from your own account while it is your only way to sign in. My account asks you to set a password first.
+- Web app: My account now starts with your profile — username, role, shop, and your email with a "Verified" badge once it is confirmed.
 - Web app, Settings → Users: when you disconnect Google from someone who has no password, the confirmation warns you first. If they have a confirmed email, they are emailed a link to set a password; if not, the warning says to set one for them with Set Password.
 - Web app: password emails now name the username. Someone who never had a password gets "Set a password for <username>", and the page they open says "Set a password" instead of "Choose a new password".
 - Web app: the page for choosing a new password has show/hide buttons on both fields, like the sign-in page, and your browser can suggest and save a password there. The sign-up, join-by-invitation and Add shop forms have the show/hide button too.
@@ -249,10 +250,12 @@
 - Settings › Reset Data now keeps your shop's setup: product categories, products (stock set to 0), Mobile Services items including the ones you added, service presets, and your partners and suppliers (balances set to 0). Sales, payments, clients, debts, stock history, closings and the audit log are still deleted.
 - Reset Data now also sets each product's minimum stock to 0, so no low-stock warnings appear right after a reset. Set a minimum on a product again to get its warnings back.
 - Passwords may now use any symbol, such as - _ . or :, not only @ $ ! % * ? &. Passwords your browser suggests are accepted. This applies to the desktop app and the web app.
+- Navigation style, items per row, POS product display, auto-fill payment and UI scale moved from Settings → Shop Config to My account → Display (this device), so staff can now set their own screen. They are saved on each device, and your current choices are kept.
 
 ## 📦 Inventory
 - A product with a minimum stock of 0 no longer shows low-stock warnings (top-bar alert, Dashboard count, red stock figure on the Inventory list).
 
 ## 🖥️ Desktop app
 
+- Desktop app: My account is now in the desktop app too (the person icon next to your name at the top). It shows your profile — username, role and shop — and your display options for this computer.
 - Windows desktop app: typing works straight away after closing a confirmation or top-up window.

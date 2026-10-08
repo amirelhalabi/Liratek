@@ -90,6 +90,12 @@ export interface UserEmailView {
   hasPassword: boolean;
 }
 
+/** LIRA-292: the signed-in user's own email (My account → Profile). */
+export interface OwnEmailView {
+  email: string | null;
+  emailVerifiedAt: string | null;
+}
+
 /** LIRA-288: an admin disconnected a member's Google. */
 export interface AdminUnlinkGoogleResult {
   user: UserEmailView;
@@ -207,6 +213,17 @@ export class UserEmailService {
     this.tenantRepo = tenantRepo;
     this.newToken = tokenGenerator;
     this.directory = directory ?? getSigninDirectoryService();
+  }
+
+  /**
+   * LIRA-292: the signed-in user's OWN email, for My account → Profile. The
+   * caller passes the id from the session, never from the request. NOT_FOUND
+   * for an id that is not a user of the current shop.
+   */
+  getOwn(userId: number): OwnEmailView {
+    const row = this.userRepo.getEmail(userId);
+    if (!row) throw new UserNotFoundInShopError();
+    return { email: row.email, emailVerifiedAt: row.email_verified_at };
   }
 
   /** Every current-shop user's email, and Google link (LIRA-288). */

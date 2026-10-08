@@ -2,8 +2,11 @@
 /**
  * LIRA-291 — the top bar's "My account" link, next to the signed-in user's
  * name and Sign out. Every role sees it (Settings is admin-only, and a staff
- * member who joined with Google must reach "Set a password"). Hidden on the
- * desktop app, where My account has nothing to offer.
+ * member who joined with Google must reach "Set a password").
+ *
+ * LIRA-292: shown on the desktop app too — My account now holds the
+ * device's display preferences and the user's profile, which both apply
+ * there.
  */
 
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -107,9 +110,10 @@ describe("TopBar — My account link (LIRA-291)", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/account");
   });
 
-  it("is hidden on the desktop app", () => {
+  it("is shown on the desktop app too (LIRA-292)", () => {
     (window as unknown as { api?: unknown }).api = {};
     render(<TopBar />);
-    expect(screen.queryByRole("button", { name: "My account" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "My account" }));
+    expect(mockNavigate).toHaveBeenCalledWith("/account");
   });
 });

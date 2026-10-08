@@ -623,6 +623,7 @@ export type {
   SetUserEmailResult,
   UserEmailSendContext,
   AdminUnlinkGoogleResult,
+  OwnEmailView,
 } from "./UserEmailService.js";
 
 // [auth-C] exports

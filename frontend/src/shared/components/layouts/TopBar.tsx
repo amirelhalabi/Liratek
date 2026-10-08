@@ -6,7 +6,6 @@ import { LogOut, Bell, X, Home, Sun, Moon, UserCircle } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import { isElectron } from "@/api/backendApi";
 import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { CustomerSessionButton } from "@/features/sessions/components/CustomerSessionButton";
@@ -430,19 +429,18 @@ export default function TopBar({
             </p>
           </div>
 
-          {/* LIRA-291: every role's own sign-in methods and devices
-              (Settings is admin-only). Web only. */}
-          {!isElectron() && (
-            <button
-              onClick={() => navigate("/account")}
-              className="p-2 text-slate-400 hover:text-white transition-colors"
-              title="My account"
-              aria-label="My account"
-              data-testid="my-account-link"
-            >
-              <UserCircle size={20} />
-            </button>
-          )}
+          {/* LIRA-291/292: every role's own account page (Settings is
+              admin-only) — profile and display on desktop and web, plus
+              sign-in methods and devices on the web. */}
+          <button
+            onClick={() => navigate("/account")}
+            className="p-2 text-slate-400 hover:text-white transition-colors"
+            title="My account"
+            aria-label="My account"
+            data-testid="my-account-link"
+          >
+            <UserCircle size={20} />
+          </button>
 
           <button
             onClick={() => {
