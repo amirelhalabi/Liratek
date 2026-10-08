@@ -227,6 +227,8 @@
 - Web app: staff who joined with Google can now set a password themselves in My account → Sign-in methods, without an old password. They get an email saying a password was added, and Google stays connected.
 - Web app: you can no longer disconnect Google from your own account while it is your only way to sign in. My account asks you to set a password first.
 - Web app: My account now starts with your profile — username, role, shop, and your email with a "Verified" badge once it is confirmed.
+- Web app: you can now change your own password in My account → Sign-in methods. Type your current password and the new one; your other devices are signed out, this one stays signed in, and you get an email saying your password was changed.
+- Web app: you can now change your own email in My account → Profile → Change email. We send a link to the new address and your email changes only after you open it; your old address gets a message about the change.
 - Web app, Settings → Users: when you disconnect Google from someone who has no password, the confirmation warns you first. If they have a confirmed email, they are emailed a link to set a password; if not, the warning says to set one for them with Set Password.
 - Web app: password emails now name the username. Someone who never had a password gets "Set a password for <username>", and the page they open says "Set a password" instead of "Choose a new password".
 - Web app: the page for choosing a new password has show/hide buttons on both fields, like the sign-in page, and your browser can suggest and save a password there. The sign-up, join-by-invitation and Add shop forms have the show/hide button too.
@@ -258,4 +260,5 @@
 ## 🖥️ Desktop app
 
 - Desktop app: My account is now in the desktop app too (the person icon next to your name at the top). It shows your profile — username, role and shop — and your display options for this computer.
+- Desktop app: you can now change your own password in My account. Type your current password and the new one; other signed-in sessions of your account are signed out.
 - Windows desktop app: typing works straight away after closing a confirmation or top-up window.

@@ -249,6 +249,9 @@ import {
   type SetUserPasswordInput,
   type SetUserActiveInput,
   type SetUserRoleInput,
+  // LIRA-293 — change your own password (the ONE password rule).
+  changeOwnPasswordSchema as coreChangeOwnPasswordSchema,
+  type ChangeOwnPasswordInput,
   // DC-10/DC-11 dashboard chart + net-profit-tile query validation
   // (OWNER_NOTES_2026-09-21.md §7.2) — shared with the REST routes via
   // packages/core/src/validators/dashboard.ts (rule 14/19b).
@@ -439,6 +442,9 @@ export const SetUserActiveSchema =
 
 export const SetUserRoleSchema =
   coreSetUserRoleSchema as unknown as z.ZodSchema<SetUserRoleInput>;
+
+export const ChangeOwnPasswordSchema =
+  coreChangeOwnPasswordSchema as unknown as z.ZodSchema<ChangeOwnPasswordInput>;
 
 // =============================================================================
 // Expenses

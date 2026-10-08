@@ -114,11 +114,34 @@ export const setInitialPasswordSchema = z.object({
   password: newPasswordSchema,
 });
 
+/**
+ * POST /api/password-reset/change and IPC `auth:change-own-password`
+ * (LIRA-293) — a signed-in user who HAS a password changes it. The user
+ * comes from the session, never the body; the new password meets the ONE
+ * password rule.
+ */
+export const changeOwnPasswordSchema = z.object({
+  currentPassword: z
+    .string()
+    .min(1, "Enter your current password")
+    .max(200),
+  newPassword: newPasswordSchema,
+});
+
 // ── A user's own email (LIRA-279) ────────────────────────────────────────
 
 /** PUT /api/users/:id/email — set (sends a verification link) or clear. */
 export const setUserEmailSchema = z.object({
   email: signupEmailSchema.nullable(),
+});
+
+/**
+ * POST /api/user-email/me/change (LIRA-293, web only) — a signed-in user
+ * asks to change their OWN email. A confirmation link goes to the new
+ * address; the email changes only when that link is opened.
+ */
+export const requestOwnEmailChangeSchema = z.object({
+  email: signupEmailSchema,
 });
 
 /** POST /api/auth/verify-email — open the emailed verification link. */
@@ -160,6 +183,10 @@ export type CheckResetTokenInput = z.input<typeof checkResetTokenSchema>;
 export type ResetPasswordInput = z.input<typeof resetPasswordSchema>;
 export type SetInitialPasswordInput = z.input<
   typeof setInitialPasswordSchema
+>;
+export type ChangeOwnPasswordInput = z.input<typeof changeOwnPasswordSchema>;
+export type RequestOwnEmailChangeInput = z.input<
+  typeof requestOwnEmailChangeSchema
 >;
 export type SetUserEmailInput = z.input<typeof setUserEmailSchema>;
 export type VerifyUserEmailInput = z.input<typeof verifyUserEmailSchema>;

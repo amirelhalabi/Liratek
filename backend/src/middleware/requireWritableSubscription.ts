@@ -149,6 +149,10 @@ const SUBSCRIPTION_GATE_EXEMPT: readonly RegExp[] = [
   // LIRA-288: an admin disconnecting a member's Google only REMOVES access
   // (offboarding), like DELETE /api/auth/google/link.
   /^\/api\/user-email\/\d+\/google$/,
+  // LIRA-293: changing your OWN email is account safety (your recovery
+  // address), not shop administration — like /api/password-reset/change,
+  // which is not under a gated prefix at all.
+  /^\/api\/user-email\/me\/change$/,
 ];
 
 function isSubscriptionGated(originalUrl: string): boolean {

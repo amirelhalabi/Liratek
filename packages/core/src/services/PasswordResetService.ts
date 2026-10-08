@@ -48,6 +48,7 @@ import { authLogger } from "../utils/logger.js";
 import { formatInviteExpiry } from "./SignupInvitationService.js";
 import {
   PASSWORD_ADDED_TEMPLATE,
+  PASSWORD_CHANGED_TEMPLATE,
   PASSWORD_RESET_CODES,
   PASSWORD_RESET_EVERY_SHOP_MAX,
   PASSWORD_RESET_PER_USER_LIMIT,
@@ -121,6 +122,18 @@ export interface SetInitialPasswordParams {
   /** UTC ISO. */
   now: string;
   /** False when the server has no mail transport: no notice is sent. */
+  emailConfigured: boolean;
+  supportEmail: string;
+}
+
+/** LIRA-293: who to tell that their password was changed. */
+export interface PasswordChangedNoticeParams {
+  /** The user's shop, from the JWT. */
+  tenantId: number;
+  /** The signed-in user, from the JWT. */
+  userId: number;
+  /** UTC ISO. */
+  now: string;
   emailConfigured: boolean;
   supportEmail: string;
 }
@@ -494,6 +507,47 @@ export class PasswordResetService {
       );
       return { hasPassword: true as const, noticeSent: notify };
     });
+  }
+
+  /**
+   * LIRA-293 — after a user changed their OWN password (My account), queue
+   * the `password-changed` notice to their CONFIRMED email, when email is
+   * on. No link and no secret. Returns whether it was queued; never throws
+   * (the password is already changed — a failed notice must not undo it).
+   */
+  notifyPasswordChanged(params: PasswordChangedNoticeParams): boolean {
+    if (!params.emailConfigured) return false;
+    try {
+      const tenant = this.activeTenant(params.tenantId);
+      if (!tenant) return false;
+      return runWithTenant(tenant.id, () => {
+        const user = this.userRepo.findById(params.userId);
+        const info = user ? this.userRepo.getEmail(user.id) : null;
+        if (!user || !info?.email || !info.email_verified_at) return false;
+        const toEmail = info.email;
+        runWithoutTenant(() =>
+          this.outboxRepo.enqueue({
+            idempotencyKey: `password-changed:${tenant.id}:${user.id}:${params.now}`,
+            template: PASSWORD_CHANGED_TEMPLATE,
+            toEmail,
+            data: {
+              username: user.username,
+              shopName: tenant.name,
+              supportEmail: params.supportEmail,
+            },
+            now: params.now,
+            giveUpAt: addMs(params.now, PASSWORD_ADDED_GIVE_UP_MS),
+          }),
+        );
+        return true;
+      });
+    } catch (error) {
+      authLogger.error(
+        { error, tenantId: params.tenantId, userId: params.userId },
+        "Password changed notice could not be queued",
+      );
+      return false;
+    }
   }
 
   // ---------------------------------------------------------------------------

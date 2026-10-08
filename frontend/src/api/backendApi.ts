@@ -7900,6 +7900,8 @@ import type {
   UserEmailView,
   SetUserEmailResult,
   OwnEmailView,
+  OwnEmailChangeResult,
+  RequestOwnEmailChangeInput,
   UserInvitationView,
   UserInviteCheckResult,
 } from "@liratek/core";
@@ -7954,6 +7956,22 @@ export async function listUserEmails(): Promise<UserEmailView[]> {
 export async function getMyEmail(): Promise<AccountRouteResult<OwnEmailView | null>> {
   if (isElectron()) return { success: true, data: null };
   return requestJson<AccountRouteResult<OwnEmailView>>("/api/user-email/me");
+}
+
+/**
+ * LIRA-293: the signed-in user asks to change their OWN email (web only —
+ * the desktop app has no email). A confirmation link goes to the NEW
+ * address; the account email changes only when it is opened. Refusal codes:
+ * EMAIL_UNCHANGED, EMAIL_TAKEN_IN_SHOP, EMAIL_NOT_CONFIGURED, RATE_LIMITED.
+ */
+export async function requestEmailChange(
+  input: RequestOwnEmailChangeInput,
+): Promise<AccountRouteResult<OwnEmailChangeResult>> {
+  assertWebOnly("Changing your email");
+  return requestJson<AccountRouteResult<OwnEmailChangeResult>>(
+    "/api/user-email/me/change",
+    { method: "POST", body: input },
+  );
 }
 
 export async function setUserEmail(
@@ -8097,6 +8115,8 @@ import type {
   PasswordResetCheckResult,
   SetInitialPasswordInput,
   SetInitialPasswordResult,
+  ChangeOwnPasswordInput,
+  ChangeOwnPasswordResult,
 } from "@liratek/core";
 
 /**
@@ -8158,6 +8178,44 @@ export async function setInitialPassword(input: SetInitialPasswordInput) {
   return requestJson<PasswordResetEnvelope<SetInitialPasswordResult>>(
     "/api/password-reset/set-initial",
     { method: "POST", body: input },
+  );
+}
+
+/**
+ * LIRA-293: a signed-in user who HAS a password changes it with the current
+ * one — both transports (rule 19): IPC `auth:change-own-password` on desktop,
+ * `POST /api/password-reset/change` on the web, ONE payload (rule 22, typed
+ * from core's schema, rule 21). Other sessions are signed out, this one is
+ * kept. Refusal codes: WRONG_PASSWORD, PASSWORD_NOT_SET; a weak password is
+ * a zod refusal (string `error`). The web's per-user limit is a 429, which
+ * becomes a refusal here (the message is the server's).
+ */
+export async function changeOwnPassword(
+  input: ChangeOwnPasswordInput,
+): Promise<PasswordResetEnvelope<ChangeOwnPasswordResult>> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().auth.changeOwnPassword(input);
+      return {
+        success: res.success,
+        data: res.data,
+        code: res.code,
+        error: res.error,
+      } as PasswordResetEnvelope<ChangeOwnPasswordResult>;
+    },
+    async () => {
+      try {
+        return await requestJson<PasswordResetEnvelope<ChangeOwnPasswordResult>>(
+          "/api/password-reset/change",
+          { method: "POST", body: input },
+        );
+      } catch (err) {
+        return {
+          success: false,
+          error: messageFrom(err, "Could not change the password."),
+        } as PasswordResetEnvelope<ChangeOwnPasswordResult>;
+      }
+    },
   );
 }
 

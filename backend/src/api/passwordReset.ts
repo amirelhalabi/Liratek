@@ -15,6 +15,9 @@
  *   POST /send/:userId    JWT + admin                  -> { sent: true }
  *   POST /set-initial     JWT + admin|staff  { password } -> { hasPassword, noticeSent }
  *                         (LIRA-291: a user with NO password adds one)
+ *   POST /change          JWT + admin|staff  { currentPassword, newPassword }
+ *                         -> { sessionsRevoked, noticeSent }
+ *                         (LIRA-293: change your own password)
  *
  * Envelopes: business refusals are HTTP 200 + `success:false`. Refusals
  * built with createErrorResponse carry `error: { code, message }` AND the
@@ -38,12 +41,14 @@ import {
   PASSWORD_RESET_EVERY_SHOP_MESSAGE,
   PASSWORD_RESET_INVALID_MESSAGE,
   PASSWORD_RESET_REQUEST_MESSAGE,
+  changeOwnPasswordSchema,
   checkResetTokenSchema,
   createErrorResponse,
   createSuccessResponse,
   ErrorCodes,
   forgotPasswordSchema,
   getAuditService,
+  getAuthService,
   getPasswordResetService,
   getTenantRepository,
   isAppError,
@@ -51,6 +56,7 @@ import {
   setInitialPasswordSchema,
   runWithTenant,
   runWithoutTenant,
+  type ChangeOwnPasswordResult,
   type PasswordResetMailOptions,
 } from "@liratek/core";
 import {
@@ -433,6 +439,115 @@ router.post(
       res
         .status(500)
         .json(refusal(ErrorCodes.INTERNAL_ERROR, "Failed to set the password"));
+    }
+  },
+);
+
+// =============================================================================
+// POST /change — a signed-in user changes their OWN password (LIRA-293)
+// =============================================================================
+//
+// Needs the current password. The user and the session to KEEP come from
+// the JWT, never the body. On success every OTHER session of the user is
+// signed out (AuthService.revokeOtherSessions — the same logic as "sign out
+// everywhere else"), a "password changed" notice goes to a confirmed email
+// when email is on, and an audit row is written. Impersonated sessions are
+// refused, like /set-initial. Not subscription-gated (account safety).
+//
+// Per-user limit: 5 failed attempts per 15 minutes (a wrong current password,
+// or any other refusal), keyed on shop + user from the verified session —
+// mounted AFTER authenticateJWT so `req.user` exists. Refusals are HTTP 200
+// (envelope parity), so success is marked on `res.locals` and only requests
+// WITHOUT that mark are counted. A blocked request is a 429 and never
+// reaches the password check.
+const CHANGE_PASSWORD_OK = "changePasswordOk";
+
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: envLimit("PASSWORD_CHANGE_RATE_LIMIT_MAX", 5),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const user = (req as AuthRequest).user;
+    return `tenant:${user?.tenantId ?? "none"}:user:${user?.userId ?? "none"}`;
+  },
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (_req, res) => res.locals[CHANGE_PASSWORD_OK] === true,
+  handler: (req, res) => {
+    logger.warn(
+      { userId: (req as AuthRequest).user?.userId, path: req.path },
+      "Rate limit exceeded - change password",
+    );
+    res.status(429).json({
+      success: false,
+      error: "Too many attempts. Please wait 15 minutes and try again.",
+    });
+  },
+});
+
+router.post(
+  "/change",
+  authenticateJWT,
+  requireRole(SET_INITIAL_ROLES),
+  (req: AuthRequest, res, next): void => {
+    // Self-service only: a super admin acting as this user must never
+    // change their password. Checked before the limiter and the body.
+    if (req.user?.impersonatorId !== undefined) {
+      res.status(403).json({ success: false, error: "Forbidden" });
+      return;
+    }
+    next();
+  },
+  changePasswordLimiter,
+  validateRequest(changeOwnPasswordSchema),
+  async (req: AuthRequest, res): Promise<void> => {
+    const tenantId = req.user?.tenantId;
+    const userId = req.user?.userId;
+    try {
+      if (tenantId === null || tenantId === undefined || !userId) {
+        res.json(refusal(PASSWORD_RESET_CODES.NOT_FOUND, "User not found"));
+        return;
+      }
+      const { currentPassword, newPassword } = req.body as {
+        currentPassword: string;
+        newPassword: string;
+      };
+      const changed = await getAuthService().changePassword(
+        userId,
+        currentPassword,
+        newPassword,
+        { keepSessionToken: req.user?.sessionToken ?? null },
+      );
+      const now = new Date().toISOString();
+      const noticeSent = getPasswordResetService().notifyPasswordChanged({
+        tenantId,
+        userId,
+        now,
+        emailConfigured: isEmailConfigured(),
+        supportEmail: resolveSupportEmail(),
+      });
+      const sessionsRevoked = changed.sessionsRevoked ?? 0;
+      auditRest(req, {
+        action: "update",
+        entity_type: "user",
+        entity_id: String(userId),
+        summary: "Changed own password",
+        metadata: { via: "change_own", sessions_revoked: sessionsRevoked },
+      });
+      res.locals[CHANGE_PASSWORD_OK] = true;
+      const result: ChangeOwnPasswordResult = { sessionsRevoked, noticeSent };
+      res.json(createSuccessResponse(result));
+    } catch (error) {
+      if (isAppError(error) && error.isOperational) {
+        res.json(refusal(error.code, error.message));
+        return;
+      }
+      logger.error({ error, userId }, "Change own password failed");
+      res
+        .status(500)
+        .json(
+          refusal(ErrorCodes.INTERNAL_ERROR, "Failed to change the password"),
+        );
     }
   },
 );

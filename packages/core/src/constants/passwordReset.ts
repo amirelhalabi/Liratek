@@ -76,3 +76,16 @@ export const PASSWORD_SET_TEMPLATE = "password-set";
  * Settings. No link and no secret.
  */
 export const PASSWORD_ADDED_TEMPLATE = "password-added";
+
+/**
+ * LIRA-293: the notice sent after a signed-in user changed their own
+ * password (My account). No link and no secret — the safeguard against a
+ * stolen session.
+ */
+export const PASSWORD_CHANGED_TEMPLATE = "password-changed";
+
+/**
+ * LIRA-293: the notice sent to a user's OLD confirmed address when they ask
+ * to change their email. Names the new address MASKED. No link.
+ */
+export const EMAIL_CHANGE_NOTICE_TEMPLATE = "email-change-notice";

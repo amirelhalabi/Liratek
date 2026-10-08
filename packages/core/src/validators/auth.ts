@@ -10,10 +10,8 @@ export const loginSchema = z.object({
   rememberMe: z.boolean().default(false),
 });
 
-export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, "Current password is required"),
-  newPassword: z.string().min(6, "New password must be at least 6 characters"),
-});
+// LIRA-293: the old `changePasswordSchema` (min 6 characters, never wired)
+// is retired. Changing your own password uses `changeOwnPasswordSchema` in
+// validators/account.ts, which applies the ONE password rule.
 
 export type LoginInput = z.infer<typeof loginSchema>;
-export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

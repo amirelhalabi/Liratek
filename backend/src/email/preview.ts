@@ -59,6 +59,19 @@ export const EMAIL_PREVIEW_SAMPLES: Readonly<Record<string, TemplateVars>> = {
     shopName: `Cell City <script>alert("hi")</script> & Sons`,
     supportEmail: "support@liratek.shop",
   },
+  // LIRA-293: after a user changed their own password (no link).
+  "password-changed": {
+    username: "rami",
+    shopName: `Cell City <script>alert("hi")</script> & Sons`,
+    supportEmail: "support@liratek.shop",
+  },
+  // LIRA-293: to the OLD address when a user asks to change their email.
+  "email-change-notice": {
+    username: "rami",
+    shopName: `Cell City <script>alert("hi")</script> & Sons`,
+    newEmailMasked: "n***@gmail.com",
+    supportEmail: "support@liratek.shop",
+  },
   // LIRA-287: www sign-in code. The code is the secret, so the sample
   // carries the marker every preview secret carries.
   "signin-code": {

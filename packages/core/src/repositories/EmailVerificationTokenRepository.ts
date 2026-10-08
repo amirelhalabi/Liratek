@@ -28,7 +28,16 @@ export interface EmailVerificationTokenEntity extends BaseEntity {
   email_outbox_id: number | null;
   created_at: string;
   updated_at: string;
+  /** v203 (LIRA-293): what opening the link does. */
+  purpose: EmailVerificationPurpose;
 }
+
+/**
+ * `verify`: confirm the address the user already has (only if it is still
+ * that address). `change`: the user asked to change their OWN email to the
+ * address this token carries; opening the link applies it (LIRA-293).
+ */
+export type EmailVerificationPurpose = "verify" | "change";
 
 export interface CreateEmailVerificationTokenData {
   /** A user of the CURRENT shop. */
@@ -39,6 +48,8 @@ export interface CreateEmailVerificationTokenData {
   expiresAt: string;
   /** UTC ISO — written to created_at/updated_at. */
   now: string;
+  /** Default `verify`. */
+  purpose?: EmailVerificationPurpose;
 }
 
 const COLUMNS = [
@@ -52,6 +63,7 @@ const COLUMNS = [
   "email_outbox_id",
   "created_at",
   "updated_at",
+  "purpose",
 ].join(", ");
 
 export class EmailVerificationTokenRepository extends BaseRepository<EmailVerificationTokenEntity> {
@@ -72,8 +84,8 @@ export class EmailVerificationTokenRepository extends BaseRepository<EmailVerifi
         .prepare(
           `INSERT INTO email_verification_tokens
              (tenant_id, user_id, email, token_hash, expires_at,
-              created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              created_at, updated_at, purpose)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           getCurrentTenantId(),
@@ -83,6 +95,7 @@ export class EmailVerificationTokenRepository extends BaseRepository<EmailVerifi
           data.expiresAt,
           data.now,
           data.now,
+          data.purpose ?? "verify",
         );
       const created = this.findById(Number(result.lastInsertRowid));
       if (!created) {

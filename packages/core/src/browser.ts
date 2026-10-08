@@ -72,6 +72,10 @@ export {
   IDENTITY_ALREADY_LINKED,
   SET_PASSWORD_FIRST,
   SET_PASSWORD_FIRST_MESSAGE,
+  WRONG_PASSWORD,
+  WRONG_PASSWORD_MESSAGE,
+  PASSWORD_NOT_SET,
+  EMAIL_UNCHANGED,
 } from "./utils/errors.js";
 
 // Lebanese phone-number normalization (CARRIER_LINES_VALIDITY_PLAN.md Phase 6)
@@ -395,6 +399,7 @@ export type {
   UserEmailView,
   SetUserEmailResult,
   OwnEmailView,
+  OwnEmailChangeResult,
 } from "./services/UserEmailService.js";
 
 // [auth-C] exports
@@ -404,6 +409,8 @@ export type {
   PasswordResetCheckResult,
   SetInitialPasswordResult,
 } from "./services/PasswordResetService.js";
+// LIRA-293: "Change password" answer (type-only, rule 29).
+export type { ChangeOwnPasswordResult } from "./services/AuthService.js";
 
 // LIRA-287: www "email me a code" sign-in — messages, limits and the
 // "your shops" shape (pure leaf module). The schemas arrive through the

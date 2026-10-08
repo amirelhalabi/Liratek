@@ -120,7 +120,9 @@ function flagOf(db: Database.Database, id: number): number {
 describe("v202 — users.has_password", () => {
   it("is registered as the next migration after v201", () => {
     expect(V202?.name).toBe("users_has_password");
-    expect(MIGRATIONS[MIGRATIONS.length - 1]?.version).toBe(202);
+    // Right after v201 (v203/v204 follow it since LIRA-293/294).
+    const versions = MIGRATIONS.map((m) => m.version);
+    expect(versions.indexOf(202)).toBe(versions.indexOf(201) + 1);
   });
 
   it("adds the column NOT NULL DEFAULT 1", () => {

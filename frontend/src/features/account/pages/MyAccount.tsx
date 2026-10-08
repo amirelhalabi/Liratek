@@ -13,6 +13,9 @@
  *     copies; the Google link flow lands back here (`/#/account?google=…`).
  *     On desktop they are not rendered: Sign-in methods is web-only, and
  *     desktop admins keep Settings → Signed-in Devices.
+ *   - LIRA-293: "Change password" (web: inside Sign-in methods for a user
+ *     who has a password; desktop: its own section) and, on the web,
+ *     Profile → "Change email".
  */
 
 import { PageHeader } from "@liratek/ui";
@@ -20,6 +23,7 @@ import GoogleAccountPanel from "@/features/settings/pages/Settings/GoogleAccount
 import SignedInDevices from "@/features/settings/pages/Settings/SignedInDevices";
 import ProfileSection from "@/features/account/components/ProfileSection";
 import DisplayPreferences from "@/features/account/components/DisplayPreferences";
+import ChangePasswordForm from "@/features/account/components/ChangePasswordForm";
 import { isElectron } from "@/api/backendApi";
 
 export default function MyAccount() {
@@ -27,7 +31,15 @@ export default function MyAccount() {
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 pb-6 flex flex-col gap-6 overflow-y-auto animate-in fade-in duration-500">
       <PageHeader title="My account" />
       <ProfileSection />
-      {!isElectron() && (
+      {isElectron() ? (
+        // LIRA-293: desktop users always have a password (no Google there).
+        <section
+          aria-label="Password"
+          className="rounded-xl border border-slate-700 bg-slate-800 p-4 pb-6"
+        >
+          <ChangePasswordForm />
+        </section>
+      ) : (
         <div className="rounded-xl border border-slate-700 bg-slate-800 p-4 pb-6">
           <GoogleAccountPanel />
           <SignedInDevices />

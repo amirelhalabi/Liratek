@@ -80,6 +80,10 @@ describe("stays writable in read_only", () => {
     ["delete", "/api/user-email/5/google"],
     // LIRA-291: a user with no password adding one is account safety
     ["post", "/api/password-reset/set-initial"],
+    // LIRA-293: changing your OWN password or email is account safety, not
+    // shop administration
+    ["post", "/api/password-reset/change"],
+    ["post", "/api/user-email/me/change"],
   ] as const)("%s %s", async (method, path) => {
     const res = await call(method, path).expect(200);
     expect(res.body.reached).toBe(true);

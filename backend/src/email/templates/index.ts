@@ -20,6 +20,10 @@ import { signinCodeTemplate } from "./signinCode.js";
 import { passwordAddedTemplate } from "./passwordAdded.js";
 import { passwordSetTemplate } from "./passwordSet.js";
 
+// LIRA-293: "password changed" and old-address "email being changed" notices
+import { passwordChangedTemplate } from "./passwordChanged.js";
+import { emailChangeNoticeTemplate } from "./emailChangeNotice.js";
+
 const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
   [signupInviteTemplate.name]: signupInviteTemplate,
   // [auth-B] entries: "user-invite", "verify-email"
@@ -35,6 +39,10 @@ const TEMPLATES: Readonly<Record<string, EmailTemplate>> = {
   // LIRA-291: "password-added", "password-set"
   [passwordAddedTemplate.name]: passwordAddedTemplate,
   [passwordSetTemplate.name]: passwordSetTemplate,
+
+  // LIRA-293: "password-changed", "email-change-notice"
+  [passwordChangedTemplate.name]: passwordChangedTemplate,
+  [emailChangeNoticeTemplate.name]: emailChangeNoticeTemplate,
 };
 
 /** Throws for an unknown name: a row naming a template that does not exist

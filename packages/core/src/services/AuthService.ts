@@ -43,6 +43,8 @@ import {
   ValidationError,
   ConflictError,
   BusinessRuleError,
+  PasswordNotSetError,
+  WrongPasswordError,
 } from "../utils/errors.js";
 
 // =============================================================================
@@ -82,6 +84,27 @@ export interface CreateUserResult {
 export interface ChangePasswordResult {
   success: boolean;
   error?: string;
+  /** LIRA-293 `changePassword`: how many OTHER sessions were signed out. */
+  sessionsRevoked?: number;
+}
+
+/** LIRA-293: what "Change password" answers on both transports. */
+export interface ChangeOwnPasswordResult {
+  /** Other sessions signed out (this one is kept). */
+  sessionsRevoked: number;
+  /** A "password changed" notice was queued (web, confirmed email only). */
+  noticeSent: boolean;
+}
+
+/** LIRA-293: options for a user changing their OWN password. */
+export interface ChangePasswordOptions {
+  /**
+   * The session making this call. Given: every OTHER session of the user is
+   * signed out and this one is kept. `null`: the caller could not resolve
+   * its own session, so NOTHING is revoked (revoking with an unknown token
+   * would end the caller's own session too). Omitted: nothing is revoked.
+   */
+  keepSessionToken?: string | null;
 }
 
 // =============================================================================
@@ -489,23 +512,37 @@ export class AuthService {
   }
 
   /**
-   * Change a user's password
+   * A user changes their OWN password with their current one (LIRA-293,
+   * My account; desktop IPC and web REST both call this). Order:
+   *   1. the user must exist and HAVE a password (`PasswordNotSetError` —
+   *      a user who joined with Google uses "Set a password");
+   *   2. the current password must match (`WrongPasswordError`, the one
+   *      generic refusal, code WRONG_PASSWORD);
+   *   3. the new password meets the ONE password rule (`ValidationError`);
+   *   4. the password is written (`updatePassword`, the one shared writer),
+   *      then, with `keepSessionToken`, every OTHER session of the user is
+   *      signed out (`revokeOtherSessions`) and that one is kept.
+   * The caller (route / IPC handler) audits and sends any notice email.
    */
   async changePassword(
     userId: number,
     currentPassword: string,
     newPassword: string,
+    options: ChangePasswordOptions = {},
   ): Promise<ChangePasswordResult> {
     // Find user with password hash
     const user = this.userRepo.findById(userId);
     if (!user) {
       throw new AuthenticationError("User not found");
     }
+    if (!this.userRepo.hasPassword(userId)) {
+      throw new PasswordNotSetError();
+    }
 
     // Verify current password
     const isValid = verifyPassword(currentPassword, user.password_hash);
     if (!isValid) {
-      throw new AuthenticationError("Current password is incorrect");
+      throw new WrongPasswordError();
     }
 
     // Validate new password
@@ -522,7 +559,11 @@ export class AuthService {
       throw new BusinessRuleError("Failed to update password");
     }
 
-    return { success: true };
+    const sessionsRevoked = options.keepSessionToken
+      ? await this.revokeOtherSessions(userId, options.keepSessionToken)
+      : 0;
+
+    return { success: true, sessionsRevoked };
   }
 
   /**

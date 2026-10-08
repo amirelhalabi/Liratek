@@ -30,6 +30,7 @@ import {
   getPasswordResetService,
   getUserEmailService,
   isAppError,
+  requestOwnEmailChangeSchema,
   setUserEmailSchema,
   verifyUserEmailSchema,
   ErrorCodes,
@@ -125,6 +126,43 @@ router.get(
       res.json(createSuccessResponse(getUserEmailService().getOwn(req.user!.userId)));
     } catch (error) {
       sendFailure(res, error, "GET /api/user-email/me failed", "Failed to load your email");
+    }
+  },
+);
+
+// POST /me/change — LIRA-293: the caller asks to change their OWN email. A
+// confirmation link goes to the NEW address (the email changes only when it
+// is opened, through POST /verify); the old confirmed address is told, with
+// the new one masked. Same rules as the admin path (UserEmailService). The
+// user comes from the JWT; impersonated sessions are refused. Rate-limited
+// by the service's shared limit (3 links per user per hour → RATE_LIMITED).
+router.post(
+  "/me/change",
+  authenticateJWT,
+  requireRole(TENANT_ROLES),
+  validateRequest(requestOwnEmailChangeSchema),
+  (req: AuthRequest, res) => {
+    if (req.user?.impersonatorId !== undefined) {
+      res.status(403).json({ success: false, error: "Forbidden" });
+      return;
+    }
+    const userId = req.user!.userId;
+    try {
+      const result = getUserEmailService().requestOwnEmailChange(
+        userId,
+        (req.body as { email: string }).email,
+        sendContext(req),
+      );
+      auditRest(req, {
+        action: "update",
+        entity_type: "user",
+        entity_id: String(userId),
+        summary: "Asked to change own email",
+        new_values: { pendingEmail: result.pendingEmail },
+      });
+      res.json(createSuccessResponse(result));
+    } catch (error) {
+      sendFailure(res, error, "Own email change failed", "Failed to change the email");
     }
   },
 );

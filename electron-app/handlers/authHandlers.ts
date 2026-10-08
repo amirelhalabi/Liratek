@@ -28,6 +28,7 @@ import {
   storeSessionTokenToFile,
 } from "../session.js";
 import {
+  ChangeOwnPasswordSchema,
   CreateUserSchema,
   SetPasswordSchema,
   SetUserActiveSchema,
@@ -599,6 +600,54 @@ export function registerAuthHandlers(): void {
           ? error.message
           : "Failed to revoke other sessions",
       };
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Change Own Password (LIRA-293) — desktop mirror of
+  // POST /api/password-reset/change (rule 19)
+  // ---------------------------------------------------------------------------
+  // The user is the CALLER (session guard), never the payload. The other
+  // sessions of the user are signed out and the caller's own is kept: its
+  // token comes from the encrypted session file, and when it cannot be
+  // resolved NOTHING is revoked (`keepSessionToken: null`) — passing "" would
+  // revoke the caller's own session too. No email on desktop: no notice.
+  // No per-user attempt limit here (the web route has one); see LIRA-293.
+  ipcMain.handle("auth:change-own-password", async (event, data: unknown) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(ChangeOwnPasswordSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    try {
+      const result = await authService.changePassword(
+        auth.userId,
+        v.data.currentPassword,
+        v.data.newPassword,
+        { keepSessionToken: getCurrentSessionToken(auth.userId) },
+      );
+      const sessionsRevoked = result.sessionsRevoked ?? 0;
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "user",
+        entity_id: String(auth.userId),
+        summary: "Changed own password",
+        metadata: { via: "change_own", sessions_revoked: sessionsRevoked },
+      });
+      return { success: true, data: { sessionsRevoked, noticeSent: false } };
+    } catch (error) {
+      if (isAppError(error) && error.isOperational) {
+        return { success: false, error: error.message, code: error.code };
+      }
+      authLogger.error(
+        {
+          error: error instanceof Error ? error.message : String(error),
+          userId: auth.userId,
+        },
+        "Change own password error",
+      );
+      return { success: false, error: "Failed to change the password" };
     }
   });
 

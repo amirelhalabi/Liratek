@@ -20,6 +20,9 @@ import type {
   CreateCustomServicePayload,
   // Rule 21 — session:checkout payload (core schema input).
   SessionCheckoutPayload,
+  // LIRA-293 — change your own password (core schema input + answer).
+  ChangeOwnPasswordInput,
+  ChangeOwnPasswordResult,
 } from "@liratek/core";
 
 /**
@@ -725,6 +728,12 @@ export interface ElectronAPI {
       success: boolean;
       data?: { revoked: number };
       error?: string;
+    }>;
+    changeOwnPassword: (data: ChangeOwnPasswordInput) => Promise<{
+      success: boolean;
+      data?: ChangeOwnPasswordResult;
+      error?: string;
+      code?: string;
     }>;
     getNonAdminUsers: () => Promise<
       Array<{ id: number; username: string; role: string; is_active: number }>

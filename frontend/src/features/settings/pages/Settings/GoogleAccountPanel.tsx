@@ -23,9 +23,10 @@
  * form is shown instead, using the one core password rule. Once a password
  * is set, Disconnect works.
  *
- * Hidden on desktop. While Google sign-in is dormant (no GOOGLE_CLIENT_ID)
- * it is hidden too — except for a user with no password, who still gets the
- * "Set a password" form (and no Google buttons).
+ * LIRA-293: a user WITH a password gets "Change password" here (current +
+ * new). While Google sign-in is dormant (no GOOGLE_CLIENT_ID) the panel
+ * still shows, with "Change password" or "Set a password" and no Google
+ * buttons. Hidden on desktop (My account shows Change password there).
  */
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
@@ -42,6 +43,7 @@ import {
   setInitialPassword,
 } from "@/api/backendApi";
 import PasswordInput from "@/shared/components/PasswordInput";
+import ChangePasswordForm from "@/features/account/components/ChangePasswordForm";
 import { messageFrom } from "@/api/apiError";
 import {
   hashQuery,
@@ -96,19 +98,16 @@ export default function GoogleAccountPanel() {
     if (!isElectron()) removeHashParam("google");
   }, []);
 
-  // `keepVisible`: right after a password was set with Google sign-in off,
-  // the panel would otherwise vanish before its "Password set" notice shows.
-  const load = useCallback(async (keepVisible = false) => {
+  // LIRA-293: the panel shows whenever the server answers — with Google
+  // sign-in off it still holds "Change password" (or "Set a password"), just
+  // no Google buttons.
+  const load = useCallback(async () => {
     if (isElectron()) return;
     try {
       const res = await googleLinkStatus();
       // An older server sends no hasPassword: treat it as "has a password".
       const hasPassword = res.data?.hasPassword !== false;
-      if (
-        res.success &&
-        res.data &&
-        (res.data.enabled || !hasPassword || keepVisible)
-      ) {
+      if (res.success && res.data) {
         setState({
           enabled: res.data.enabled,
           linked: res.data.linked,
@@ -210,7 +209,7 @@ export default function GoogleAccountPanel() {
       setNewPassword("");
       setConfirmPassword("");
       setNotice({ ok: true, text: PASSWORD_SET_TEXT });
-      await load(true);
+      await load();
     } catch (err) {
       setFormError(messageFrom(err, "Could not set the password."));
     } finally {
@@ -271,6 +270,7 @@ export default function GoogleAccountPanel() {
           </button>
         </form>
       )}
+      {state.hasPassword && <ChangePasswordForm />}
       {state.enabled && (
         <div className="mt-3 flex items-center justify-between gap-4">
           <p className="text-sm text-slate-400">

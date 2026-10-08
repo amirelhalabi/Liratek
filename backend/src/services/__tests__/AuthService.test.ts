@@ -269,6 +269,14 @@ describe("AuthService", () => {
         valid: true,
         errors: [],
       });
+      // LIRA-291 flag: only a user WITH a password can change it.
+      mockRepo.hasPassword = jest.fn(() => true);
+      mockSessionRepo.findActiveByUserId = jest.fn(() => [
+        { id: 10, token: "tok-mine" },
+        { id: 11, token: "tok-laptop" },
+        { id: 12, token: "tok-phone" },
+      ]);
+      mockSessionRepo.deleteByIdForUser = jest.fn(() => true);
     });
 
     it("changes password successfully", async () => {
@@ -294,13 +302,63 @@ describe("AuthService", () => {
       ).rejects.toThrow(AuthenticationError);
     });
 
-    it("throws AuthenticationError for incorrect current password", async () => {
+    // LIRA-293: the refusal is the generic WRONG_PASSWORD code both
+    // transports answer (was a bare AuthenticationError).
+    it("refuses an incorrect current password with WRONG_PASSWORD, writing nothing", async () => {
       mockRepo.findById.mockReturnValue(mockUser as any);
       (verifyPassword as jest.Mock).mockReturnValue(false);
 
       await expect(
         service.changePassword(1, "wrongPassword", "NewPassword123!"),
-      ).rejects.toThrow(AuthenticationError);
+      ).rejects.toMatchObject({ code: "WRONG_PASSWORD" });
+      expect(mockRepo.updatePassword).not.toHaveBeenCalled();
+    });
+
+    it("LIRA-293: refuses a user with NO password (PASSWORD_NOT_SET)", async () => {
+      mockRepo.findById.mockReturnValue(mockUser as any);
+      mockRepo.hasPassword = jest.fn(() => false);
+
+      await expect(
+        service.changePassword(1, "oldPassword", "NewPassword123!"),
+      ).rejects.toMatchObject({ code: "PASSWORD_NOT_SET" });
+      expect(mockRepo.updatePassword).not.toHaveBeenCalled();
+    });
+
+    it("LIRA-293: with keepSessionToken, signs out every OTHER session and keeps that one", async () => {
+      mockRepo.findById.mockReturnValue(mockUser as any);
+      mockRepo.updatePassword.mockReturnValue(true);
+      (verifyPassword as jest.Mock).mockReturnValue(true);
+
+      const result = await service.changePassword(
+        1,
+        "oldPassword",
+        "NewPassword123!",
+        {
+          keepSessionToken: "tok-mine",
+        },
+      );
+
+      expect(result).toMatchObject({ success: true, sessionsRevoked: 2 });
+      expect(mockSessionRepo.deleteByIdForUser).toHaveBeenCalledTimes(2);
+      expect(mockSessionRepo.deleteByIdForUser).not.toHaveBeenCalledWith(10, 1);
+    });
+
+    it("LIRA-293: with keepSessionToken null (unknown), revokes NOTHING", async () => {
+      mockRepo.findById.mockReturnValue(mockUser as any);
+      mockRepo.updatePassword.mockReturnValue(true);
+      (verifyPassword as jest.Mock).mockReturnValue(true);
+
+      const result = await service.changePassword(
+        1,
+        "oldPassword",
+        "NewPassword123!",
+        {
+          keepSessionToken: null,
+        },
+      );
+
+      expect(result).toMatchObject({ success: true, sessionsRevoked: 0 });
+      expect(mockSessionRepo.deleteByIdForUser).not.toHaveBeenCalled();
     });
 
     it("throws ValidationError for invalid new password", async () => {

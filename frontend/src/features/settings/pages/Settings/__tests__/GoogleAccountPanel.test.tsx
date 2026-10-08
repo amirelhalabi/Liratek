@@ -11,6 +11,7 @@ const googleLinkStatus = jest.fn();
 const googleLinkStart = jest.fn();
 const googleUnlink = jest.fn();
 const setInitialPassword = jest.fn();
+const changeOwnPassword = jest.fn();
 const submitPostForm = jest.fn();
 let electron = false;
 
@@ -19,6 +20,7 @@ jest.mock("@/api/backendApi", () => ({
   googleLinkStart: (...a: unknown[]) => googleLinkStart(...a),
   googleUnlink: (...a: unknown[]) => googleUnlink(...a),
   setInitialPassword: (...a: unknown[]) => setInitialPassword(...a),
+  changeOwnPassword: (...a: unknown[]) => changeOwnPassword(...a),
   isElectron: () => electron,
 }));
 jest.mock("@/features/auth/utils/browserNavigation", () => {
@@ -44,21 +46,48 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/#/settings");
 });
 
-it("is hidden on desktop and while Google is dormant", async () => {
+it("is hidden on desktop", async () => {
   electron = true;
   const first = render(<GoogleAccountPanel />);
   expect(first.container).toBeEmptyDOMElement();
   expect(googleLinkStatus).not.toHaveBeenCalled();
-  first.unmount();
+});
 
-  electron = false;
+// LIRA-293: with Google sign-in dormant, a user WITH a password still gets
+// the panel — for "Change password" — but no Google buttons. (Before, the
+// panel was empty there, which would have hidden the change form.)
+it("LIRA-293: while Google is dormant, a user with a password sees Change password and no Google buttons", async () => {
   googleLinkStatus.mockResolvedValue({
     success: true,
-    data: { enabled: false, linked: false, email: null },
+    data: { enabled: false, linked: false, email: null, hasPassword: true },
   });
-  const second = render(<GoogleAccountPanel />);
-  await waitFor(() => expect(googleLinkStatus).toHaveBeenCalled());
-  expect(second.container).toBeEmptyDOMElement();
+  render(<GoogleAccountPanel />);
+  expect(
+    await screen.findByRole("form", { name: "Change password" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /connect google/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: /disconnect/i })).toBeNull();
+});
+
+it("LIRA-293: a user with a password gets Change password, not Set a password", async () => {
+  googleLinkStatus.mockResolvedValue({
+    success: true,
+    data: { enabled: true, linked: true, email: "rami@gmail.com", hasPassword: true },
+  });
+  render(<GoogleAccountPanel />);
+  expect(
+    await screen.findByRole("form", { name: "Change password" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("form", { name: "Set a password" })).toBeNull();
+});
+
+it("LIRA-293: a user with NO password gets Set a password, not Change password", async () => {
+  googleLinkStatus.mockResolvedValue(googleOnly());
+  render(<GoogleAccountPanel />);
+  expect(
+    await screen.findByRole("form", { name: "Set a password" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("form", { name: "Change password" })).toBeNull();
 });
 
 it("Connect POSTs the link ticket to the www start (never in a URL)", async () => {

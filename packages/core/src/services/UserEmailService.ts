@@ -24,7 +24,10 @@ import {
   getUserRepository,
   normalizeEmail,
 } from "../repositories/UserRepository.js";
-import type { EmailVerificationTokenRepository } from "../repositories/EmailVerificationTokenRepository.js";
+import type {
+  EmailVerificationPurpose,
+  EmailVerificationTokenRepository,
+} from "../repositories/EmailVerificationTokenRepository.js";
 import { getEmailVerificationTokenRepository } from "../repositories/EmailVerificationTokenRepository.js";
 import type { EmailOutboxRepository } from "../repositories/EmailOutboxRepository.js";
 import { getEmailOutboxRepository } from "../repositories/EmailOutboxRepository.js";
@@ -38,8 +41,11 @@ import { generateToken, hashToken } from "../utils/crypto.js";
 import {
   AppError,
   EmailNotConfiguredError,
+  EmailTakenInShopError,
+  EmailUnchangedError,
   LastSigninMethodError,
 } from "../utils/errors.js";
+import { EMAIL_CHANGE_NOTICE_TEMPLATE } from "../constants/passwordReset.js";
 import { USER_ACCOUNT_CODES } from "../constants/userAccountCodes.js";
 import { authLogger } from "../utils/logger.js";
 import { formatInviteExpiry } from "./SignupInvitationService.js";
@@ -94,6 +100,15 @@ export interface UserEmailView {
 export interface OwnEmailView {
   email: string | null;
   emailVerifiedAt: string | null;
+}
+
+/** LIRA-293: the user asked to change their own email. */
+export interface OwnEmailChangeResult {
+  /** The NEW address the confirmation link was sent to. The account email
+   * is unchanged until that link is opened. */
+  pendingEmail: string;
+  /** The old confirmed address was told about the change. */
+  oldNotified: boolean;
 }
 
 /** LIRA-288: an admin disconnected a member's Google. */
@@ -168,6 +183,21 @@ export class EmailVerifyRateLimitedError extends AppError {
 function addMs(iso: string, ms: number): string {
   return new Date(Date.parse(iso) + ms).toISOString();
 }
+
+/**
+ * LIRA-293: an address with its local part hidden after the first letter
+ * ("newname@gmail.com" -> "n***@gmail.com"), for the notice to the OLD
+ * address. The domain stays readable; the full new address never goes to
+ * the old inbox.
+ */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return "***";
+  return `${email[0]}***${email.slice(at)}`;
+}
+
+/** How long the outbox keeps trying the old-address notice. */
+const EMAIL_CHANGE_NOTICE_GIVE_UP_MS = 24 * 60 * 60 * 1000;
 
 function verifyUrl(baseUrl: string, token: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/#/verify-email?token=${encodeURIComponent(token)}`;
@@ -358,6 +388,76 @@ export class UserEmailService {
   }
 
   /**
+   * LIRA-293 — the signed-in user asks to change their OWN email (web, My
+   * account). Same rules as the admin path (unique per shop, the directory
+   * follows the confirmed address) but the email is NOT changed here:
+   *
+   *   1. NOT_FOUND / EMAIL_UNCHANGED (same address) / EMAIL_TAKEN_IN_SHOP
+   *      (another user of this shop has it) / EMAIL_NOT_CONFIGURED (no link
+   *      can be sent) / RATE_LIMITED (the shared 3-links-per-hour limit);
+   *   2. in ONE transaction: burn the user's open links, issue a `change`
+   *      link to the NEW address (the verify-email template, via `issue`),
+   *      and — when the CURRENT address is confirmed — queue the
+   *      `email-change-notice` to it with the new address masked.
+   *
+   * Opening the link (`verify`) applies the address and confirms it.
+   */
+  requestOwnEmailChange(
+    userId: number,
+    email: string,
+    ctx: UserEmailSendContext,
+  ): OwnEmailChangeResult {
+    const normalized = normalizeEmail(email);
+    const current = this.userRepo.getEmail(userId);
+    if (!current) throw new UserNotFoundInShopError();
+    if (current.email === normalized) throw new EmailUnchangedError();
+    if (this.userRepo.isEmailTakenInShop(normalized, userId)) {
+      throw new EmailTakenInShopError();
+    }
+
+    const shop = this.shopById(ctx.tenantId);
+    const baseUrl = shop ? ctx.resolveLinkBase(shop.slug) : null;
+    if (!ctx.emailConfigured || !shop || !baseUrl) {
+      throw new EmailNotConfiguredError(
+        "Email is not configured on this server, so a link cannot be sent",
+      );
+    }
+    if (this.overLimit(userId, ctx.now)) throw new EmailVerifyRateLimitedError();
+
+    const oldConfirmed =
+      current.email && current.email_verified_at ? current.email : null;
+    const username = this.userRepo.findById(userId)?.username ?? "";
+
+    this.tokenRepo.transaction(() => {
+      this.tokenRepo.invalidateForUser(userId, ctx.now);
+      this.issue(userId, normalized, shop, baseUrl, ctx, "change");
+      if (oldConfirmed) {
+        runWithoutTenant(() =>
+          this.outboxRepo.enqueue({
+            idempotencyKey: `email-change-notice:${ctx.tenantId}:${userId}:${ctx.now}`,
+            template: EMAIL_CHANGE_NOTICE_TEMPLATE,
+            toEmail: oldConfirmed,
+            data: {
+              username,
+              shopName: shop.name,
+              newEmailMasked: maskEmail(normalized),
+              supportEmail: ctx.supportEmail,
+            },
+            now: ctx.now,
+            giveUpAt: addMs(ctx.now, EMAIL_CHANGE_NOTICE_GIVE_UP_MS),
+          }),
+        );
+      }
+    });
+
+    authLogger.info(
+      { userId, tenantId: ctx.tenantId, oldNotified: !!oldConfirmed },
+      "Own email change requested",
+    );
+    return { pendingEmail: normalized, oldNotified: !!oldConfirmed };
+  }
+
+  /**
    * Opens a verification link. True when the address was marked verified.
    * False — the one generic refusal — for an unknown, used or expired link,
    * another shop's link (checked BEFORE the token is spent), or a link for
@@ -373,7 +473,9 @@ export class UserEmailService {
     const row = this.tokenRepo.consume(tokenHash, now);
     if (!row) return false;
     const verified = runWithTenant(row.tenant_id, () =>
-      this.userRepo.markEmailVerified(row.user_id, row.email, now),
+      row.purpose === "change"
+        ? this.applyEmailChange(row.user_id, row.email, now)
+        : this.userRepo.markEmailVerified(row.user_id, row.email, now),
     );
     authLogger.info(
       { userId: row.user_id, tenantId: row.tenant_id, verified },
@@ -384,6 +486,18 @@ export class UserEmailService {
   }
 
   // ---------------------------------------------------------------------------
+
+  /** LIRA-293: a `change` link was opened — the address it carries becomes
+   * the user's email, confirmed. False (the generic refusal) when another
+   * user of the shop took the address in the meantime. */
+  private applyEmailChange(userId: number, email: string, now: string): boolean {
+    try {
+      return this.userRepo.setEmail(userId, email, now);
+    } catch (error) {
+      if (error instanceof EmailTakenInShopError) return false;
+      throw error;
+    }
+  }
 
   private overLimit(userId: number, now: string): boolean {
     return (
@@ -399,6 +513,7 @@ export class UserEmailService {
     shop: TenantEntity,
     baseUrl: string,
     ctx: UserEmailSendContext,
+    purpose: EmailVerificationPurpose = "verify",
   ): void {
     const token = this.newToken();
     const expiresAt = addMs(ctx.now, EMAIL_VERIFY_TTL_HOURS * 60 * 60 * 1000);
@@ -409,6 +524,7 @@ export class UserEmailService {
       tokenHash: hashToken(token),
       expiresAt,
       now: ctx.now,
+      purpose,
     });
     const outbox = runWithoutTenant(() =>
       this.outboxRepo.enqueue({

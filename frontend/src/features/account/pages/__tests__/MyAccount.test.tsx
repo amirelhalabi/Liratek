@@ -15,6 +15,7 @@
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { requestOwnEmailChangeSchema } from "@liratek/core";
 
 jest.mock("@/features/settings/pages/Settings/GoogleAccountPanel", () => ({
   __esModule: true,
@@ -34,7 +35,11 @@ jest.mock("@/hooks/useShopName", () => ({
 }));
 
 const mockGetMyEmail = jest.fn();
+const mockRequestEmailChange = jest.fn();
+const mockChangeOwnPassword = jest.fn();
 jest.mock("@/api/backendApi", () => ({
+  requestEmailChange: (...args: unknown[]) => mockRequestEmailChange(...args),
+  changeOwnPassword: (...args: unknown[]) => mockChangeOwnPassword(...args),
   isElectron: () =>
     typeof window !== "undefined" &&
     !!(window as unknown as { api?: unknown }).api,
@@ -116,7 +121,7 @@ it("changing UI scale and navigation style writes the SAME localStorage keys and
   }
 });
 
-it("desktop app: Profile and Display only — no sign-in methods, no devices, no email lookup", () => {
+it("desktop app: no sign-in methods panel, no devices, no email lookup", () => {
   setDesktop(true);
   render(<MyAccount />);
   expect(screen.getByRole("region", { name: "Profile" })).toHaveTextContent(
@@ -128,4 +133,68 @@ it("desktop app: Profile and Display only — no sign-in methods, no devices, no
   expect(screen.queryByTestId("panel-signin-methods")).toBeNull();
   expect(screen.queryByTestId("panel-devices")).toBeNull();
   expect(mockGetMyEmail).not.toHaveBeenCalled();
+});
+
+// ── LIRA-293 ──────────────────────────────────────────────────────────────
+
+it("LIRA-293 desktop: a Change password form (desktop users always have a password)", () => {
+  setDesktop(true);
+  render(<MyAccount />);
+  expect(
+    screen.getByRole("form", { name: "Change password" }),
+  ).toBeInTheDocument();
+});
+
+it("LIRA-293 web: Profile → Change email sends the schema's payload and says to check the inbox", async () => {
+  mockRequestEmailChange.mockResolvedValue({
+    success: true,
+    data: { pendingEmail: "new@example.com", oldNotified: true },
+  });
+  render(<MyAccount />);
+  const profile = screen.getByRole("region", { name: "Profile" });
+  await waitFor(() =>
+    expect(profile).toHaveTextContent("cashier1@example.com"),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Change email" }));
+  fireEvent.change(screen.getByLabelText("New email"), {
+    target: { value: "new@example.com" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Send confirmation link" }),
+  );
+  await waitFor(() => expect(mockRequestEmailChange).toHaveBeenCalledTimes(1));
+  const payload = mockRequestEmailChange.mock.calls[0]![0];
+  expect(requestOwnEmailChangeSchema.parse(payload)).toEqual(payload);
+  expect(await screen.findByText(/check your inbox/i)).toBeInTheDocument();
+  // The shown email is still the old one until the link is opened.
+  expect(profile).toHaveTextContent("cashier1@example.com");
+});
+
+it("LIRA-293 web: a refusal (address taken in this shop) is shown", async () => {
+  mockRequestEmailChange.mockResolvedValue({
+    success: false,
+    error: {
+      code: "EMAIL_TAKEN_IN_SHOP",
+      message: "Another user in this shop already uses this email",
+    },
+  });
+  render(<MyAccount />);
+  fireEvent.click(screen.getByRole("button", { name: "Change email" }));
+  fireEvent.change(screen.getByLabelText("New email"), {
+    target: { value: "taken@example.com" },
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Send confirmation link" }),
+  );
+  expect(
+    await screen.findByText(
+      "Another user in this shop already uses this email",
+    ),
+  ).toBeInTheDocument();
+});
+
+it("LIRA-293 desktop: no Change email (the desktop app has no email)", () => {
+  setDesktop(true);
+  render(<MyAccount />);
+  expect(screen.queryByRole("button", { name: "Change email" })).toBeNull();
 });

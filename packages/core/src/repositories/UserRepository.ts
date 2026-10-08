@@ -811,6 +811,27 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
+   * LIRA-293: does ANOTHER user of the CURRENT shop (active or not — the
+   * unique index covers both) already have this address? For the own
+   * email-change request, so it can refuse before sending a link.
+   */
+  isEmailTakenInShop(email: string, exceptUserId: number): boolean {
+    try {
+      const row = this.queryOne<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM ${this.tableName} WHERE tenant_id = ? AND email = ? AND id != ?`,
+        getCurrentTenantId(),
+        normalizeEmail(email),
+        exceptUserId,
+      );
+      return (row?.n ?? 0) > 0;
+    } catch (error) {
+      throw new DatabaseError("Failed to check the email in this shop", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
    * Gives a CURRENT-shop user an email only if they have none (LIRA-287:
    * connecting Google makes Google's verified address the account email).
    * Never overwrites. Returns false — and changes nothing — when the user

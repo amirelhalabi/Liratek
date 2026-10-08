@@ -12,6 +12,8 @@ export type {
   LoginResult,
   CreateUserResult,
   ChangePasswordResult,
+  ChangePasswordOptions,
+  ChangeOwnPasswordResult,
 } from "./AuthService.js";
 
 // Inventory Service
@@ -624,6 +626,7 @@ export type {
   UserEmailSendContext,
   AdminUnlinkGoogleResult,
   OwnEmailView,
+  OwnEmailChangeResult,
 } from "./UserEmailService.js";
 
 // [auth-C] exports
@@ -645,6 +648,7 @@ export type {
   PasswordResetServiceDeps,
   SetInitialPasswordParams,
   SetInitialPasswordResult,
+  PasswordChangedNoticeParams,
 } from "./PasswordResetService.js";
 export * from "../constants/passwordReset.js";
 

@@ -263,7 +263,10 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
     used_at TEXT,
     email_outbox_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- v203 (LIRA-293): 'verify' confirms the user's current address;
+    -- 'change' applies the address this row carries (own email change).
+    purpose TEXT NOT NULL DEFAULT 'verify' CHECK (purpose IN ('verify', 'change'))
 );
 CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_created
     ON email_verification_tokens(user_id, created_at);
@@ -2715,4 +2718,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (201, 'tenants_contact_email_from_first_admin'),
     -- v202 (LIRA-291) adds users.has_password, declared above (back-fill is
     -- data only: a fresh DB has no Google-joined users).
-    (202, 'users_has_password');
+    (202, 'users_has_password'),
+    -- v203 (LIRA-293) adds email_verification_tokens.purpose, declared above.
+    (203, 'email_verification_token_purpose');

@@ -26,6 +26,8 @@ import type {
   // Rule 21 — session:checkout and custom-services:add payloads.
   SessionCheckoutPayload,
   CreateCustomServicePayload,
+  // LIRA-293 — change your own password (core schema input, rule 21).
+  ChangeOwnPasswordInput,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -56,6 +58,10 @@ contextBridge.exposeInMainWorld("api", {
     revokeSession: (id: number) =>
       ipcRenderer.invoke("auth:revoke-session", id),
     revokeOtherSessions: () => ipcRenderer.invoke("auth:revoke-other-sessions"),
+    // LIRA-293: the CALLER changes their own password (user from the
+    // session guard, never the payload).
+    changeOwnPassword: (data: ChangeOwnPasswordInput) =>
+      ipcRenderer.invoke("auth:change-own-password", data),
     getNonAdminUsers: () => ipcRenderer.invoke("users:get-non-admins"),
     setUserActive: (id: number, is_active: number) =>
       ipcRenderer.invoke("users:set-active", { id, is_active }),

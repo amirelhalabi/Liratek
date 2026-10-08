@@ -269,6 +269,41 @@ export class LastSigninMethodError extends AppError {
   }
 }
 
+// ── LIRA-293: changing your own password / email ──────────────────────────
+
+export const WRONG_PASSWORD = "WRONG_PASSWORD";
+/** The ONE answer to a wrong current password (both transports). */
+export const WRONG_PASSWORD_MESSAGE = "Your current password is not correct.";
+
+/** "Change password" with a wrong current password. Generic: says nothing
+ * else about the account. Counts toward the per-user limit on the web. */
+export class WrongPasswordError extends AppError {
+  constructor(message: string = WRONG_PASSWORD_MESSAGE) {
+    super(WRONG_PASSWORD, message, 401, true);
+  }
+}
+
+export const PASSWORD_NOT_SET = "PASSWORD_NOT_SET";
+
+/** "Change password" by a user who has NO password (joined with Google):
+ * they use "Set a password" instead (LIRA-291). */
+export class PasswordNotSetError extends AppError {
+  constructor(
+    message: string = "You have no password yet. Use Set a password instead.",
+  ) {
+    super(PASSWORD_NOT_SET, message, 409, true);
+  }
+}
+
+export const EMAIL_UNCHANGED = "EMAIL_UNCHANGED";
+
+/** "Change email" to the address the user already has. */
+export class EmailUnchangedError extends AppError {
+  constructor(message: string = "That is already your email.") {
+    super(EMAIL_UNCHANGED, message, 409, true);
+  }
+}
+
 /**
  * Type guard to check if an error is an AppError
  */

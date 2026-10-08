@@ -14060,6 +14060,32 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 203,
+    name: "email_verification_token_purpose",
+    description:
+      "LIRA-293: a user can change their OWN email from My account. The " +
+      "confirmation link goes to the NEW address and the email changes only " +
+      "when it is opened, so a link must say what it does. " +
+      "email_verification_tokens gains purpose TEXT NOT NULL DEFAULT " +
+      "'verify' ('verify' = confirm the address the user already has; " +
+      "'change' = apply the address the token carries). Every existing row " +
+      "is an ordinary verify link, which the default records.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "email_verification_tokens")) return;
+      if (!columnExists(db, "email_verification_tokens", "purpose")) {
+        db.exec(
+          `ALTER TABLE email_verification_tokens ADD COLUMN purpose TEXT NOT NULL DEFAULT 'verify' CHECK (purpose IN ('verify', 'change'));`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      if (columnExists(db, "email_verification_tokens", "purpose")) {
+        db.exec(`ALTER TABLE email_verification_tokens DROP COLUMN purpose;`);
+      }
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
