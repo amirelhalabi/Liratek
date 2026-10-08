@@ -6658,6 +6658,10 @@ also meant to be the main selling point of the system: "run your shop's digital 
 > - **Day rule is about the drawer being closed, not about the device.** The phone can also be used during working
 >   hours, where it behaves exactly like the web app. Transactions recorded after closing belong to the NEXT business
 >   day (a "between days" window from closing to the next opening); a closed day's report never changes.
+>   **Revised 2026-10-08 after planning research:** LiraTek has no "day closed" state (a closing is a per-drawer count
+>   against a live balance, and the PDF is frozen), so a late sale cannot disturb a counted day. Owner decision:
+>   transactions count on the **local calendar day** they happened; the count screen lists sales since the last count.
+>   Prerequisite slice: make every day-grouped report (Transactions page, daily summary, cash flow) use the local date.
 > - **The client sends its own local day** (rule 27) — an after-midnight sale must not take the server's UTC date.
 > - **Owner (admin) only** for now.
 

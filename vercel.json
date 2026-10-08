@@ -6,6 +6,32 @@
       "installCommand": "cd .. && yarn install && yarn workspace @liratek/core build"
     }
   },
+  "routes": [
+    {
+      "src": "^/(api|health|socket\\.io)(/.*)?$",
+      "continue": true,
+      "transforms": [
+        {
+          "type": "request.headers",
+          "op": "delete",
+          "target": {
+            "key": "x-liratek-proxy-auth"
+          }
+        },
+        {
+          "type": "request.headers",
+          "op": "set",
+          "target": {
+            "key": "x-liratek-proxy-auth"
+          },
+          "args": "$LIRATEK_PROXY_SECRET",
+          "env": [
+            "LIRATEK_PROXY_SECRET"
+          ]
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/health",
@@ -75,8 +101,14 @@
           "key": "Cache-Control",
           "value": "no-store, no-cache, must-revalidate, proxy-revalidate"
         },
-        { "key": "Pragma", "value": "no-cache" },
-        { "key": "Expires", "value": "0" }
+        {
+          "key": "Pragma",
+          "value": "no-cache"
+        },
+        {
+          "key": "Expires",
+          "value": "0"
+        }
       ]
     },
     {
