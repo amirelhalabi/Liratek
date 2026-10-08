@@ -221,6 +221,7 @@
 - The app and liratek.shop now say "Sign in" everywhere (no more "Login"). liratek.shop's top bar has "Sign in" and a "Create your shop" button, in English and Arabic.
 - Web app: the sign-in page no longer shows a stray dot after the version number.
 - Web app: sign-up now tells you right away when an email already has a LiraTek shop, with a link to sign in, instead of emailing a sign-up link. Creating a shop with Google says the same when your Gmail address already owns a shop. This also covers shops created before sign-up emails, using the owner's confirmed email.
+- Web app: wrong-password lockouts and sign-up limits now count each shop's own internet connection. A few wrong passwords at one shop no longer lock other shops out of signing in for 15 minutes, and from now on each new sign-in records the shop's own address.
 
 ## 🧾 Expenses
 

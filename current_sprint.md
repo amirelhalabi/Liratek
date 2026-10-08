@@ -6609,6 +6609,22 @@ refusing spoofed headers on requests that reach Fly directly), verify on product
 limiters on it. Check the production values of `AUTH_RATE_LIMIT_MAX` / `SIGNUP_*` first — if they are the defaults,
 this is live now. Do not touch X-Forwarded-Host handling (tenant login depends on it).
 
+Status 2026-10-08: the `routes` `request.headers` transform from c02b98ef built "Ready" but production
+`/health/client-ip` still said `source:"direct", proxyVerified:false`. Replaced by Vercel Routing Middleware
+(`middleware.js` at the repo root, `"proxy"` in `vercel.json`, matcher /api, /health, /socket.io): it deletes any
+browser-sent `x-liratek-proxy-auth` / `x-liratek-client-ip`, sets the secret from `LIRATEK_PROXY_SECRET` and the
+client from Vercel's `x-real-ip`, keeps every other header (Host left to Vercel), and answers `x-liratek-edge: ok`.
+Guards: `scripts/__tests__/vercelMiddleware.test.mjs` (failing-first: ERR_MODULE_NOT_FOUND before middleware.js
+existed); the verifier now forges `X-Liratek-Client-IP` and the proxy secret through Vercel too (that test change
+NOT proven failing-first). Verified locally: `vercel build` puts the middleware route before the external rewrites;
+`vercel dev -L` against a local echo origin delivered the secret and the client IP and dropped the forged copies,
+for GET, POST bodies and socket.io polling. NOT verified until a real deploy: that production Vercel applies the
+middleware's request-header override on an EXTERNAL rewrite, and that no `x-middleware-*` header reaches the
+browser. Owner: `yarn api secrets set CLIENT_IP_HEADER=x-liratek-client-ip`, push, then `yarn api:verify`.
+
+What users will notice: on the web app, wrong-password lockouts and sign-up limits count each shop separately, and
+each new sign-in records the shop's own address.
+
 ---
 
 ## LIRA-284: "Add category" in Settings → Mobile Services does nothing — MEDIUM — DONE (owner decisions 2026-10-07)

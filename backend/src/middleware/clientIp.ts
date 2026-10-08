@@ -15,9 +15,10 @@
  * per request (and record any IP they like on a session). So a forwarded
  * header is believed ONLY when the request also carries the shared proxy
  * secret: `x-liratek-proxy-auth` equal to `CLIENT_IP_PROXY_SECRET`. Vercel
- * adds that header on its rewrite to Fly (a `request.headers` transform in
- * vercel.json, value from a Vercel environment variable — never in git, the
- * repo is public). A direct caller cannot know it.
+ * adds that header on its rewrite to Fly (the Routing Middleware in the repo
+ * root `middleware.js`, value from the Vercel environment variable
+ * LIRATEK_PROXY_SECRET — never in git, the repo is public). A direct caller
+ * cannot know it.
  *
  * Fail-closed: no secret configured, a secret shorter than
  * MIN_PROXY_SECRET_LENGTH, a missing/wrong header, or a header value that is
@@ -26,7 +27,9 @@
  *
  * Which header carries the client once the secret matches: `CLIENT_IP_HEADER`
  * when set, else `x-vercel-forwarded-for` (Vercel-specific, so Fly does not
- * append to it the way it appends to `x-forwarded-for`).
+ * append to it the way it appends to `x-forwarded-for`). Production sets
+ * CLIENT_IP_HEADER=x-liratek-client-ip: the middleware deletes any copy the
+ * browser sent and sets it from Vercel's own `x-real-ip`.
  *
  * `trust proxy` is deliberately NOT changed: `X-Forwarded-Host` tenant
  * routing depends on it (docs/OPERATIONS.md deploy checks).

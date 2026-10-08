@@ -18,22 +18,24 @@
 /** TEST-NET-3 (RFC 5737): never a real client. */
 export const FORGED_IP = "203.0.113.99";
 
-/** What a browser could forge: client-IP headers only. Sent THROUGH Vercel.
- * No proxy-auth header — Vercel's transform may not overwrite one that is
- * already present, and a real browser does not send it. */
+/** A guessed proxy secret: never the real one. */
+export const FORGED_PROXY_AUTH = "deploy-verifier-deliberately-wrong-secret";
+
+/** What a browser could forge: every client-IP header the API might read,
+ * including the one the Vercel middleware sets (`X-Liratek-Client-IP`), plus
+ * a guessed proxy secret. Sent THROUGH Vercel: the middleware (repo root
+ * `middleware.js`) must delete both of ours and set its own. */
 export const FORGED_IP_HEADERS = {
   "X-Forwarded-For": FORGED_IP,
   "X-Vercel-Forwarded-For": FORGED_IP,
   "X-Real-IP": FORGED_IP,
   "Fly-Client-IP": FORGED_IP,
+  "X-Liratek-Client-IP": FORGED_IP,
+  "x-liratek-proxy-auth": FORGED_PROXY_AUTH,
 };
 
-/** A direct caller's best attempt: forged IP headers plus a guessed secret.
- * Sent straight to Fly. */
-export const FORGED_DIRECT_HEADERS = {
-  ...FORGED_IP_HEADERS,
-  "x-liratek-proxy-auth": "deploy-verifier-deliberately-wrong-secret",
-};
+/** A direct caller's best attempt: the same forged headers, straight to Fly. */
+export const FORGED_DIRECT_HEADERS = { ...FORGED_IP_HEADERS };
 
 const usable = (r) =>
   r && r.status === 200 && r.json && r.json.success === true;
@@ -86,11 +88,11 @@ export function evaluateClientIpChecks({ direct, viaVercel, flySecretSet }) {
     );
   } else if (viaVercel.json.proxyVerified === true) {
     failures.push(
-      `the Vercel proxy secret arrived but the client-IP header was missing or not an IP — check CLIENT_IP_HEADER (now ${viaVercel.json.header ?? "default x-vercel-forwarded-for"}); every shop still shares one IP bucket`,
+      `the Vercel proxy secret arrived but the client-IP header was missing or not an IP — set the Fly secret CLIENT_IP_HEADER=x-liratek-client-ip (the header the Vercel middleware sets); every shop still shares one IP bucket`,
     );
   } else if (flySecretSet) {
     failures.push(
-      "CLIENT_IP_PROXY_SECRET is set on Fly but requests through Vercel do not carry it — check LIRATEK_PROXY_SECRET on Vercel (same value) and the vercel.json transform; until then every shop shares one IP bucket",
+      "CLIENT_IP_PROXY_SECRET is set on Fly but requests through Vercel do not carry it — check LIRATEK_PROXY_SECRET on Vercel (same value, 32+ characters, then redeploy) and that the Vercel middleware ran (curl -sI https://www.liratek.shop/health must show 'x-liratek-edge: ok'); until then every shop shares one IP bucket",
     );
   } else {
     infos.push(

@@ -84,10 +84,15 @@ test("a missing endpoint (HTML 404) directly is a failure; through Vercel it is 
   assert.ok(r.infos.length >= 1);
 });
 
-test("the via-Vercel probe sends NO proxy-auth header; the direct probe does", () => {
+test("both probes forge the proxy secret AND the middleware's own client-IP header", () => {
+  // The Vercel middleware (repo root middleware.js) deletes and re-sets
+  // both, so the via-Vercel probe must send them to prove the overwrite;
+  // the direct probe must send them to prove Fly ignores a guessed secret.
   const lower = (o) => Object.keys(o).map((k) => k.toLowerCase());
-  assert.ok(!lower(FORGED_IP_HEADERS).includes("x-liratek-proxy-auth"));
-  assert.ok(lower(FORGED_DIRECT_HEADERS).includes("x-liratek-proxy-auth"));
+  for (const probe of [FORGED_IP_HEADERS, FORGED_DIRECT_HEADERS]) {
+    assert.ok(lower(probe).includes("x-liratek-proxy-auth"));
+    assert.ok(lower(probe).includes("x-liratek-client-ip"));
+  }
 });
 
 test("secret arrived but no usable header = HARD failure pointing at CLIENT_IP_HEADER", () => {

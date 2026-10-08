@@ -573,18 +573,42 @@ proxy address for every shop (measured 2026-10-07: every session recorded
 is public, so a forwarded header cannot be trusted by name — anyone can call it
 directly with a forged one. The API therefore believes a forwarded header only
 when the request also carries `x-liratek-proxy-auth` equal to the Fly secret
-`CLIENT_IP_PROXY_SECRET` (32+ characters). Vercel adds that header on its
-rewrite from the Vercel environment variable `LIRATEK_PROXY_SECRET` (same
-value; never in git — the repo is public). The address is then read from
-`CLIENT_IP_HEADER`, default `x-vercel-forwarded-for`. Anything else — no
-secret, wrong secret, a value that is not an IP — falls back to `req.ip`, so a
-half-finished setup behaves exactly as before. `X-Forwarded-Host` handling and
-`trust proxy` are unchanged.
+`CLIENT_IP_PROXY_SECRET` (32+ characters). The address is then read from
+`CLIENT_IP_HEADER` (production: `x-liratek-client-ip`; default
+`x-vercel-forwarded-for`). Anything else — no secret, wrong secret, a value
+that is not an IP — falls back to `req.ip`, so a half-finished setup behaves
+exactly as before. `X-Forwarded-Host` handling and `trust proxy` are
+unchanged.
 
-To check: `yarn api:verify` calls `/health/client-ip` directly with forged
-headers (must be ignored) and through `www.liratek.shop` (must show your real
-IP). From a shop, open `https://www.liratek.shop/health/client-ip` and compare
-`ip` with the shop's public address.
+Vercel side: the Routing Middleware `middleware.js` (repo root, wired by
+`"proxy"` in `vercel.json`, matcher `/api`, `/health`, `/socket.io`) runs
+before the external rewrites. It deletes any `x-liratek-proxy-auth` and
+`x-liratek-client-ip` the browser sent, sets `x-liratek-proxy-auth` from the
+Vercel environment variable `LIRATEK_PROXY_SECRET` (same value as the Fly
+secret; never in git — the repo is public) and `x-liratek-client-ip` from
+`x-real-ip`, which Vercel's edge sets itself. Every other request header is
+kept; `Host` is left to Vercel so Fly still sees `api.liratek.shop`. It adds
+the response header `x-liratek-edge: ok` (or `nosecret` when the variable is
+missing or shorter than 32 characters) — never the secret. A `routes`
+`request.headers` transform was tried first (commit c02b98ef): it compiled
+but the header never reached Fly, so it was removed. socket.io runs on
+long-polling (plain HTTP) through the same middleware; WebSocket upgrades to
+an external origin do not work through Vercel anyway (§4b).
+
+To check: `curl -sI https://www.liratek.shop/health` shows
+`x-liratek-edge: ok` and no `x-middleware-*` header. `yarn api:verify` calls
+`/health/client-ip` directly with forged headers (must be ignored) and through
+`www.liratek.shop` with the same forgeries (must show your real IP,
+`source: "vercel"`). From a shop, open
+`https://www.liratek.shop/health/client-ip` and compare `ip` with the shop's
+public address.
+
+If `curl -sI` ever shows a header containing `x-liratek-proxy-auth`, the
+secret has reached browsers: revert the middleware commit, then rotate the
+secret on BOTH sides (a new 32+ character value as Fly `CLIENT_IP_PROXY_SECRET`
+via `yarn api secrets set …` and as Vercel `LIRATEK_PROXY_SECRET`, then
+redeploy Vercel). Rollback without leakage: revert the commit — the API falls
+back to `req.ip` on its own.
 
 The per-email limit (3 requests per hour) is fixed.
 
