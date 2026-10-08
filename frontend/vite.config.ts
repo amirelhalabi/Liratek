@@ -32,6 +32,17 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Local web dev only (`yarn dev:web`): serve the API from this same
+    // origin, as Vercel does in production. Google sign-in needs it — its
+    // callback is `<SIGNUP_INVITE_BASE_URL>/api/auth/google/callback`, and
+    // Google only redirects to a registered http address on localhost.
+    // Ordinary API calls still go straight to VITE_BACKEND_URL.
+    proxy: process.env.VITE_BACKEND_URL
+      ? {
+          "/api": { target: process.env.VITE_BACKEND_URL },
+          "/health": { target: process.env.VITE_BACKEND_URL },
+        }
+      : undefined,
     // Pre-transform the heaviest module graphs as soon as the dev server
     // starts. Without this, the FIRST route navigation (dev or e2e) pays a
     // ~10s on-demand compile toll for the shared graph (@liratek/ui source
