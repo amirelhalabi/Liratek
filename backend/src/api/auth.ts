@@ -55,10 +55,7 @@ import {
   isTurnstileConfigured,
   verifyTurnstile,
 } from "../security/turnstile.js";
-import {
-  clientIp,
-  resolveClientIp,
-} from "../middleware/clientIp.js";
+import { clientIp, resolveClientIp } from "../middleware/clientIp.js";
 import jwt from "jsonwebtoken";
 // [auth-D] imports: shared web session response + the Google sign-up branch
 import { sendWebLoginResponse } from "../services/webLoginSession.js";
@@ -705,10 +702,10 @@ router.post(
 
 // POST /api/auth/signup/request — "email me a sign-up link" (PUBLIC, US4)
 //
-// contracts/api.md + LIRA-278. Order: TEMP forwarded-header diagnostic ->
-// per-IP limiter (5/hour, 429, keyed on CLIENT_IP_HEADER when set) -> schema
-// -> self-serve available (switch + email)? -> Turnstile ONLY when its keys
-// are configured (fails closed) -> bot checks (honeypot, too fast) ->
+// contracts/api.md + LIRA-278. Order: per-IP limiter (5/hour, 429, keyed on
+// CLIENT_IP_HEADER when set) -> schema -> self-serve available (switch +
+// email)? -> Turnstile ONLY when its keys are configured (fails closed) ->
+// bot checks (honeypot, too fast) ->
 // requestSelfServe. Past the refusals, the answer is IDENTICAL whether the
 // link was sent, a bot check tripped, the per-email limit was hit or the
 // daily cap was reached (FR-028), so the form cannot tell which check a bot

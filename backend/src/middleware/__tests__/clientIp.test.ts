@@ -10,7 +10,6 @@
  */
 
 import { jest } from "@jest/globals";
-import crypto from "node:crypto";
 
 const routeLogger = {
   info: jest.fn(),
@@ -49,14 +48,6 @@ function directReq(
 ): Request {
   return { headers, ip } as unknown as Request;
 }
-
-const SALT = "test-salt";
-const sha12 = (value: string) =>
-  crypto
-    .createHash("sha256")
-    .update(SALT + value, "utf8")
-    .digest("hex")
-    .slice(0, 12);
 
 describe("resolveClientIp", () => {
   it("no header configured: reads x-vercel-forwarded-for, so another header alone is ignored", () => {
