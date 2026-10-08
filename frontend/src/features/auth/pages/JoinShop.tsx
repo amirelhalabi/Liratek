@@ -4,8 +4,18 @@
  * A shop admin invited this email from Settings -> Users. The link is
  * checked once; the page shows which shop and role, the invited email
  * LOCKED (the server takes it from the invite, never from this form), and
- * asks for a username and password. On success the person is sent to sign
+ * asks for a username — then EITHER "Join with Google" (LIRA-288) OR a
+ * password and "Create my account". On success the person is sent to sign
  * in on their shop's own address.
+ *
+ * Join with Google: shown only while Google sign-in is on. The server checks
+ * the link and the username first and returns a short join ticket, which is
+ * POSTed to the www start as a form (never a URL). Google must answer with
+ * the invited address; the callback then creates the account, connects
+ * Google and signs the person straight in. When joining did not happen the
+ * callback comes back here with `google=<reason>` (the invite still works).
+ * No password is needed: a Google-only member can set one later with
+ * "Forgot password".
  *
  * Web only: the desktop app has no invites (manual accounts only).
  */
@@ -17,12 +27,17 @@ import { AlertCircle, CheckCircle2 } from "lucide-react";
 import {
   validatePasswordComplexity,
   type AcceptUserInvitationInput,
+  type JoinWithGoogleResult,
+  type JoinWithGoogleStartInput,
   type UserInviteCheckResult,
 } from "@liratek/core";
 import {
   acceptUserInvitation,
   checkUserInvitation,
+  googleAuthStatus,
+  startJoinWithGoogle,
 } from "@/api/backendApi";
+import { submitPostForm } from "@/features/auth/utils/browserNavigation";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import logger from "@/utils/logger";
@@ -31,6 +46,30 @@ const INVITE_INVALID_FALLBACK =
   "This invite link is not valid. Ask the shop for a new invite.";
 const UNREACHABLE = "Could not reach the server. Please try again.";
 const MIN_USERNAME = 3;
+
+const GOOGLE_START_FAILED = "Joining with Google could not start. Please try again.";
+
+/** Why "Join with Google" did not join (the callback's `google=` value). */
+const JOIN_GOOGLE_TEXT: Record<JoinWithGoogleResult, string> = {
+  email_mismatch:
+    "This invite was sent to a different email. Choose the Google account that uses the invited email, or join with a password.",
+  already_linked:
+    "That Google account is already connected to another user in this shop. Choose another Google account, or join with a password.",
+  invite_invalid: INVITE_INVALID_FALLBACK,
+  shop_not_active:
+    "This shop is not active right now. Ask the shop owner to renew, then use the link again.",
+  username_taken: "That username is already taken in this shop. Choose another one.",
+  email_taken:
+    "A user in this shop already uses this email. Ask the shop owner for help.",
+  cancelled: "Joining with Google was cancelled.",
+  error: "Joining with Google did not work. Please try again.",
+};
+
+function joinGoogleText(code: string | null): string {
+  return code && code in JOIN_GOOGLE_TEXT
+    ? JOIN_GOOGLE_TEXT[code as JoinWithGoogleResult]
+    : "";
+}
 
 const ROLE_LABEL: Record<UserInviteCheckResult["role"], string> = {
   admin: "Admin",
@@ -57,7 +96,12 @@ export default function JoinShop() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  // Back from Google without joining (`google=<reason>`): shown once.
+  const [error, setError] = useState(() =>
+    joinGoogleText(searchParams.get("google")),
+  );
+  const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [startingGoogle, setStartingGoogle] = useState(false);
   const [joined, setJoined] = useState<{ loginUrl: string | null } | null>(null);
 
   // Check ONCE per link — the ref (not a cancelled flag) is what makes
@@ -85,12 +129,52 @@ export default function JoinShop() {
       });
   }, [token]);
 
+  // Is "Continue with Google" switched on here? Hidden on any doubt.
+  useEffect(() => {
+    let cancelled = false;
+    googleAuthStatus()
+      .then((res) => {
+        if (!cancelled) setGoogleEnabled(Boolean(res.success && res.data?.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setGoogleEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const usernameReady = username.trim().length >= MIN_USERNAME;
+  const canJoinWithGoogle =
+    entry.kind === "invite" && usernameReady && !submitting && !startingGoogle;
+
+  const handleJoinWithGoogle = async () => {
+    if (!canJoinWithGoogle || !token) return;
+    setError("");
+    setStartingGoogle(true);
+    try {
+      // Built ONCE (rule 22): only the link and the chosen name travel.
+      const payload: JoinWithGoogleStartInput = { token, username: username.trim() };
+      const res = await startJoinWithGoogle(payload);
+      if (res.success && res.data?.url && res.data.ticket) {
+        submitPostForm(res.data.url, { intent: "join", ticket: res.data.ticket });
+        return;
+      }
+      setError(messageFrom(res.error, GOOGLE_START_FAILED));
+    } catch (err) {
+      logger.error("Join with Google start failed:", err);
+      setError(messageFrom(err, UNREACHABLE));
+    } finally {
+      setStartingGoogle(false);
+    }
+  };
+
   const passwordProblems = password
     ? validatePasswordComplexity(password).errors
     : [];
   const canSubmit =
     entry.kind === "invite" &&
-    username.trim().length >= MIN_USERNAME &&
+    usernameReady &&
     password.length > 0 &&
     passwordProblems.length === 0 &&
     !submitting;
@@ -225,8 +309,10 @@ export default function JoinShop() {
       <form onSubmit={handleSubmit} className={cardClass}>
         <h1 className={clsx(headingClass, "mb-1")}>Join {invite.shopName}</h1>
         <p className={clsx(subtleClass, "mb-6")}>
-          You were invited as {ROLE_LABEL[invite.role]}. Choose your username
-          and password.
+          You were invited as {ROLE_LABEL[invite.role]}.{" "}
+          {googleEnabled
+            ? "Choose your username, then join with Google or with a password."
+            : "Choose your username and password."}
         </p>
 
         {error && errorBox(error)}
@@ -264,6 +350,32 @@ export default function JoinShop() {
               At least {MIN_USERNAME} characters. You will use it to sign in.
             </p>
           </div>
+
+          {googleEnabled && (
+            <div>
+              <button
+                type="button"
+                data-testid="join-google"
+                onClick={handleJoinWithGoogle}
+                disabled={!canJoinWithGoogle}
+                className={clsx(
+                  "w-full py-3 rounded-lg border font-semibold transition-colors disabled:opacity-50",
+                  dark
+                    ? "border-slate-600 bg-slate-900 text-white hover:bg-slate-700"
+                    : "border-gray-300 bg-white text-gray-900 hover:bg-gray-50",
+                )}
+              >
+                {startingGoogle ? "Opening Google..." : "Join with Google"}
+              </button>
+              <p className={hintClass}>
+                Use the Google account for {invite.email}. No password needed;
+                you can set one later with &quot;Forgot password&quot;.
+              </p>
+              <p className={clsx("mt-4 text-center text-xs", subtleClass)}>
+                or choose a password
+              </p>
+            </div>
+          )}
 
           <div>
             <label className={labelClass} htmlFor="join-password">

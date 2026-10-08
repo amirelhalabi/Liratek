@@ -17,10 +17,7 @@ import {
   GoogleTokenError,
   type FetchLike,
 } from "../GoogleAuthService.js";
-import {
-  GOOGLE_ACCOUNT_IN_OTHER_SHOP,
-  IDENTITY_ALREADY_LINKED,
-} from "../../utils/errors.js";
+import { IDENTITY_ALREADY_LINKED } from "../../utils/errors.js";
 
 type TestGlobal = typeof globalThis & {
   __LIRATEK_TEST_DB__?: Database.Database;
@@ -296,70 +293,61 @@ describe("identities, hand-off and session", () => {
         linked: true,
         email: "owner@gmail.com",
       });
-      expect(svc().unlinkIdentity(20)).toBe(true);
+      expect(svc().unlinkIdentity(20, NOW)).toBe(true);
       expect(svc().getLinkedEmail(20)).toEqual({ linked: false, email: null });
-      expect(svc().unlinkIdentity(20)).toBe(false);
+      expect(svc().unlinkIdentity(20, NOW)).toBe(false);
     });
   });
 
-  it("matches sign-ins by Google sub only, across shops, active users only", () => {
+  it("LIRA-288: www sign-in matches come from the sign-in directory — active users, active shops, by shop name", () => {
     linkIn(2, 20);
-    // Inactive user: never a match. Seeded raw — linkIdentity now refuses a
-    // second shop (one Google account = one shop).
+    linkIn(3, 30);
+    // A link in a SUSPENDED shop (seeded raw) is never a match.
     db.exec(
-      `INSERT INTO user_identities (user_id, tenant_id, provider, subject) VALUES (31, 3, 'google', 'google-sub-1')`,
+      `INSERT INTO user_identities (user_id, tenant_id, provider, subject) VALUES (40, 4, 'google', 'google-sub-1')`,
     );
-    expect(runWithoutTenant(() => svc().findSignInMatches("google-sub-1"))).toEqual([
-      expect.objectContaining({ tenant_id: 2, user_id: 20 }),
+    expect(
+      runWithoutTenant(() => svc().findSignInMatches("google-sub-1")).map((m) => [
+        m.tenant_id,
+        m.user_id,
+        m.shop_name,
+      ]),
+    ).toEqual([
+      [3, 30, "Three"],
+      [2, 20, "Two"],
     ]);
-    runWithTenant(3, () => svc().unlinkIdentity(31));
-    // A link made before one-account-one-shop (owner decision 2026-10-07):
-    // linkIdentity no longer creates it, so it is seeded raw. Such existing
-    // duplicates keep signing in through the shop chooser.
-    db.exec(
-      `INSERT INTO user_identities (user_id, tenant_id, provider, subject) VALUES (30, 3, 'google', 'google-sub-1')`,
-    );
+    // The directory is what www reads: a shop missing from it is not listed,
+    // even though its own records still hold the link...
+    db.exec(`DELETE FROM signin_directory WHERE target_tenant_id = 3`);
     expect(
-      runWithoutTenant(() => svc().findSignInMatches("google-sub-1")).map(
-        (m) => m.tenant_id,
-      ),
-    ).toEqual([2, 3]);
-    expect(runWithoutTenant(() => svc().findSignInMatches("someone-else"))).toEqual(
-      [],
-    );
+      runWithoutTenant(() => svc().findSignInMatches("google-sub-1")).map((m) => m.tenant_id),
+    ).toEqual([2]);
+    // ...while the explicit-shop lookup (shop address, chooser re-check)
+    // reads the shop's own records.
     expect(
-      runWithoutTenant(() => svc().findMatchInTenant("google-sub-1", 3))?.user_id,
+      runWithTenant(3, () => svc().findMatchInTenant("google-sub-1", 3))?.user_id,
     ).toBe(30);
+    expect(runWithoutTenant(() => svc().findSignInMatches("someone-else"))).toEqual([]);
   });
 
-  it("one Google account = one shop: a link in another shop refuses the link and is reported for sign-up", () => {
-    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-1"))).toBe(false);
+  it("LIRA-288: one Google account = one user PER SHOP — another shop is fine, another user of the same shop is refused", () => {
     linkIn(2, 20);
+    expect(() => linkIn(3, 30)).not.toThrow();
     let code: string | undefined;
     try {
-      linkIn(3, 30);
+      linkIn(2, 21);
     } catch (error) {
       code = (error as { code?: string }).code;
     }
-    expect(code).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
+    expect(code).toBe(IDENTITY_ALREADY_LINKED);
     // Same user again: idempotent, no error.
     expect(() => linkIn(2, 20)).not.toThrow();
-    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-1"))).toBe(true);
-    // Dead links (owner decision 2026-10-07) do not count, so a Google
-    // sign-up is allowed: a deactivated user's link, or a link in a
-    // suspended/archived shop. They stay in the DB.
-    linkIn(3, 31, "google-sub-2");
-    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-2"))).toBe(false);
-    linkIn(4, 40, "google-sub-3");
-    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-3"))).toBe(false);
-    db.exec(`UPDATE tenants SET status = 'archived' WHERE id = 4`);
-    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-3"))).toBe(false);
     expect(
-      (db.prepare(`SELECT COUNT(*) AS n FROM user_identities WHERE subject IN ('google-sub-2', 'google-sub-3')`).get() as { n: number }).n,
+      (db.prepare(`SELECT COUNT(*) AS n FROM user_identities WHERE subject = 'google-sub-1'`).get() as { n: number }).n,
     ).toBe(2);
-    // Disconnected: free again.
-    runWithTenant(2, () => svc().unlinkIdentity(20));
-    expect(runWithoutTenant(() => svc().isLinkedToAnyShop("google-sub-1"))).toBe(false);
+    // The old "linked to any shop" sign-up refusal is gone (rule 24: kept as
+    // a guard that the removed path is not taken).
+    expect("isLinkedToAnyShop" in svc()).toBe(false);
   });
 
   it("a hand-off token works once, stores only its hash, and names its shop", () => {

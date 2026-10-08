@@ -46,9 +46,8 @@
  */
 import { test, expect } from "./fixtures";
 
-// tsconfig.playwright.json doesn't include window-globals.d.ts, so the
-// ambient `Window.__e2eNotificationDurationMs` augmentation isn't visible
-// here — same locally-typed cast used by fixtures.ts and every opt-out spec
+// tsconfig.playwright.json now includes the shared window-globals.d.ts, but
+// this spec keeps its own local cast — same locally-typed cast used by fixtures.ts and every opt-out spec
 // (e.g. lira-144-inventory-filters.spec.ts) rather than a file-level
 // `declare global`, which would leak into every other spec's compilation
 // unit in this same tsconfig program.

@@ -17,13 +17,17 @@
  * Web-only: the desktop app keeps manual accounts (Settings -> Users ->
  * Create), recorded as a desktop exception like LIRA-267.
  *
- * Static paths (`/check`, `/accept`) are declared before `/:id/...`.
+ * Static paths (`/check`, `/accept`, `/google/start`) are declared before
+ * `/:id/...`.
  */
 
 import express from "express";
 import {
   acceptUserInvitationSchema,
   checkUserInvitationSchema,
+  joinWithGoogleStartSchema,
+  GOOGLE_NOT_CONFIGURED,
+  USER_ACCOUNT_CODES,
   createSuccessResponse,
   createErrorResponse,
   createUserInvitationSchema,
@@ -50,6 +54,11 @@ import {
   resolveTenantBaseUrl,
 } from "../email/emailConfig.js";
 import { logger } from "../server.js";
+import {
+  GOOGLE_START_PATH,
+  googleConfig,
+  signTicket,
+} from "../security/googleOAuth.js";
 import {
   createPublicLinkLimiter,
   requirePositiveIdParam,
@@ -179,6 +188,63 @@ router.post(
       );
     } catch (error) {
       sendFailure(res, error, "User invite accept failed", "Could not create the account");
+    }
+  },
+);
+
+// POST /google/start — "Join with Google" (LIRA-288). The invitee chose a
+// username on the page; the link and the name are checked HERE, before
+// leaving for Google, and nothing is claimed. Returns the www start URL and
+// a 10-minute join ticket (invite token + username + the invite's shop) that
+// the page POSTs there as a form — never in a URL. The callback then
+// accepts with Google (core `acceptWithGoogle`).
+router.post(
+  "/google/start",
+  userInviteLinkLimiter,
+  validateRequest(joinWithGoogleStartSchema),
+  (req, res): void => {
+    try {
+      const config = googleConfig();
+      if (!config) {
+        res.json(
+          createErrorResponse(GOOGLE_NOT_CONFIGURED, "Google sign-in is not available."),
+        );
+        return;
+      }
+      const scope = resolvePublicTokenScope(req);
+      if (!scope.ok) {
+        res.json(
+          createErrorResponse(USER_ACCOUNT_CODES.INVITE_INVALID, USER_INVITE_INVALID_MESSAGE),
+        );
+        return;
+      }
+      const username: string = req.body.username;
+      const prepared = scope.run(() =>
+        getUserInvitationService().prepareJoinWithGoogle({
+          token: req.body.token,
+          username,
+          now: new Date().toISOString(),
+          requiredTenantId: scope.requiredTenantId,
+        }),
+      );
+      if (!prepared) {
+        res.json(
+          createErrorResponse(USER_ACCOUNT_CODES.INVITE_INVALID, USER_INVITE_INVALID_MESSAGE),
+        );
+        return;
+      }
+      res.json(
+        createSuccessResponse({
+          url: `${config.platformBaseUrl}${GOOGLE_START_PATH}`,
+          ticket: signTicket("join", {
+            token: req.body.token,
+            username,
+            tenantId: prepared.tenantId,
+          }),
+        }),
+      );
+    } catch (error) {
+      sendFailure(res, error, "Join with Google start failed", "Could not start joining with Google");
     }
   },
 );

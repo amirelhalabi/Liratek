@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { render, screen, fireEvent, within } from "@testing-library/react";
-import { DataTable, type DataTableColumn } from "../DataTable";
+import { DataTable, type DataTableColumn } from "@liratek/ui";
 // @testing-library/jest-dom matchers are loaded globally (jest.setup.ts) — no import needed.
 
 /**
@@ -15,7 +15,10 @@ import { DataTable, type DataTableColumn } from "../DataTable";
 // ── Mock the export utils so we don't pull in xlsx/jspdf and can assert calls.
 const exportToExcel = jest.fn();
 const exportToPdf = jest.fn();
-jest.mock("@/shared/utils/tableExport", () => ({
+// The @liratek/ui ExportBar imports packages/ui/src/utils/tableExport — mock
+// THAT module (same form as DataTable.exportFragmentRows.test.tsx), not the
+// frontend's shared/utils copy, or the real export runs against jsdom.
+jest.mock("../../../../../packages/ui/src/utils/tableExport", () => ({
   exportToExcel: (...args: unknown[]) => exportToExcel(...args),
   exportToPdf: (...args: unknown[]) => exportToPdf(...args),
 }));
@@ -388,13 +391,20 @@ describe("DataTable", () => {
     const excelBtn = screen.getByTestId("export-excel-btn");
     const pdfBtn = screen.getByTestId("export-pdf-btn");
 
+    // The production ExportBar suffixes the filename with the local day as
+    // DD-MM-YYYY (e.g. "expenses-08-10-2026").
+    const datedFilename = expect.stringMatching(/^expenses-\d{2}-\d{2}-\d{4}$/);
+
     fireEvent.click(excelBtn);
     expect(exportToExcel).toHaveBeenCalledTimes(1);
-    expect(exportToExcel).toHaveBeenCalledWith(expect.anything(), "expenses");
+    expect(exportToExcel).toHaveBeenCalledWith(
+      expect.anything(),
+      datedFilename,
+    );
 
     fireEvent.click(pdfBtn);
     expect(exportToPdf).toHaveBeenCalledTimes(1);
-    expect(exportToPdf).toHaveBeenCalledWith(expect.anything(), "expenses");
+    expect(exportToPdf).toHaveBeenCalledWith(expect.anything(), datedFilename);
   });
 
   it("hides the export bar when there are no rows to export", () => {

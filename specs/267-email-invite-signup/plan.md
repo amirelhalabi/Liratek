@@ -162,3 +162,15 @@ docs/release-notes/UNRELEASED.md     # Web app line
 | HTTP status codes on the new routes (Constitution III says REST returns 200 on failure). Owner-approved 2026-10-07. | The routes are web-only, so there is no IPC response to stay identical to. They follow the existing conventions of `admin.ts` (201/404/409) and `/signup` (201/400/403), and the adapter reads `success` from the body on every status. | Returning 200 for only the new routes would make `admin.ts` inconsistent with itself, while protecting no desktop path. |
 | Server clock for invite expiry and retry give-up (Constitution I, rule 27) | Expiry is a security boundary. If the client supplied "now", anyone could extend a link. Rule 27 is about calendar-day logic, and these are absolute UTC times. | Taking "now" from the client defeats the expiry. |
 | Claim/finalize/release instead of one transaction | Per-tenant provisioning writes more than one database file. | A single transaction only works in shared mode, and per-tenant mode is the target layout. |
+
+## Built beyond this plan (2026-10-07/08)
+
+What shipped after this plan was written is designed in `docs/plans/todo_plans/SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md` (its contracts section) and in `specs/288-per-shop-google-signin/`. In short:
+- **LIRA-278:** self-serve without Turnstile (switch, bot trap, minimum fill time, daily cap of 20, client-IP-keyed limits).
+- **LIRA-279/281:** user emails and user invites.
+- **LIRA-275/276:** password reset.
+- **LIRA-280:** Google sign-in.
+- **LIRA-285:** the Checkpoint window after sign-in.
+- **LIRA-286/287:** the www front door with an identifier-first sign-in.
+- **Mechanisms:** a startup SMTP login check, and the secret link scrubbed from each template's stored data.
+

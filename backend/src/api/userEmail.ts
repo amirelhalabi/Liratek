@@ -18,6 +18,9 @@
  * Web-only: desktop has the column (the schema is shared) but no email.
  *
  * `/verify` is declared before `/:userId`.
+ *
+ * LIRA-288: GET / also shows each user's Google link, and an admin can
+ * disconnect it (DELETE /:userId/google).
  */
 
 import express from "express";
@@ -136,6 +139,38 @@ router.put(
       res.json(createSuccessResponse(result));
     } catch (error) {
       sendFailure(res, error, "Set user email failed", "Failed to save the email");
+    }
+  },
+);
+
+// DELETE /:userId/google — LIRA-288: an admin disconnects a member's Google
+// sign-in (e.g. staff who left). This shop only; another shop's user (or a
+// super admin) is NOT_FOUND. Repeating it changes nothing and is not audited.
+// Linking stays self-only (it needs the person's own Google consent).
+router.delete(
+  "/:userId/google",
+  authenticateJWT,
+  requireRole(["admin"]),
+  requirePositiveIdParam("userId"),
+  (req: AuthRequest, res) => {
+    const userId = Number(req.params.userId);
+    try {
+      const { user, unlinked } = getUserEmailService().adminUnlinkGoogle(userId, {
+        tenantId: req.user!.tenantId!,
+        now: new Date().toISOString(),
+      });
+      if (unlinked) {
+        auditRest(req, {
+          action: "google_link.remove",
+          entity_type: "user",
+          entity_id: String(userId),
+          summary: "Disconnected this user's Google sign-in",
+          metadata: { by: "admin" },
+        });
+      }
+      res.json(createSuccessResponse({ user }));
+    } catch (error) {
+      sendFailure(res, error, "Admin Google disconnect failed", "Failed to disconnect Google");
     }
   },
 );

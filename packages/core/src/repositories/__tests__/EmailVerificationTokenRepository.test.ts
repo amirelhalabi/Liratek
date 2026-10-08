@@ -21,6 +21,7 @@ const CREATE_DB_SQL = fs.readFileSync(
 
 const T0 = "2026-10-07T10:00:00.000Z";
 const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
 const plus = (iso: string, ms: number): string =>
   new Date(Date.parse(iso) + ms).toISOString();
 
@@ -97,5 +98,43 @@ describe("EmailVerificationTokenRepository", () => {
       expect(repo.linkOutbox(token.id, 7, T0)).toBe(true);
     });
     expect(repo.findUsableByTokenHash("h1", T0)?.email_outbox_id).toBe(7);
+  });
+});
+
+describe("EmailVerificationTokenRepository.deleteExpiredBefore (auth-row cleanup sweep)", () => {
+  function seedAt(tenantId: number, userId: number, tokenHash: string, expiresAt: string) {
+    db.prepare(
+      `INSERT INTO email_verification_tokens (tenant_id, user_id, email, token_hash, expires_at, used_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(tenantId, userId, 'x@example.com', tokenHash, expiresAt, null, T0, T0);
+  }
+  const remaining = (): string[] =>
+    (db.prepare(`SELECT token_hash FROM email_verification_tokens ORDER BY token_hash`).all() as { token_hash: string }[]).map(
+      (r) => r.token_hash,
+    );
+
+  it("deletes only rows that expired strictly before the cutoff — every shop, used or not", () => {
+    db.exec(`INSERT INTO tenants (id, name, slug) VALUES (3, 'Three', 'three');
+             INSERT INTO users (id, tenant_id, username, password_hash, role) VALUES (30, 3, 'other', '', 'admin');`);
+    const cutoff = T0;
+    seedAt(2, 20, "old-shop2", plus(cutoff, -1));
+    seedAt(3, 30, "old-shop3", plus(cutoff, -5 * HOUR));
+    seedAt(2, 20, "at-cutoff", cutoff);
+    seedAt(2, 20, "after-cutoff", plus(cutoff, 1));
+    seedAt(2, 20, "active", plus(cutoff, 10 * HOUR));
+    db.prepare(`UPDATE email_verification_tokens SET used_at = ? WHERE token_hash = 'old-shop2'`).run(T0);
+
+    // Called from inside one shop's context, it still sweeps every shop:
+    // the sweep is a global background job, like the session sweep.
+    const deleted = runWithTenant(2, () => repo.deleteExpiredBefore(cutoff));
+
+    expect(deleted).toBe(2);
+    expect(remaining()).toEqual(["active", "after-cutoff", "at-cutoff"]);
+  });
+
+  it("returns 0 and deletes nothing when nothing is past the cutoff", () => {
+    seedAt(2, 20, "fresh", plus(T0, HOUR));
+    expect(repo.deleteExpiredBefore(T0)).toBe(0);
+    expect(remaining()).toEqual(["fresh"]);
   });
 });

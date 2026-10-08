@@ -29,6 +29,10 @@ import type {
 // runtime either way.
 import type { SafeSession } from "../repositories/SessionRepository.js";
 import {
+  getSigninDirectoryService,
+  type SigninDirectorySync,
+} from "./SigninDirectoryService.js";
+import {
   validatePasswordComplexity,
   hashPassword,
   verifyPassword,
@@ -87,10 +91,30 @@ export interface ChangePasswordResult {
 export class AuthService {
   private userRepo: UserRepository;
   private sessionRepo: SessionRepository;
+  private directory: SigninDirectorySync;
 
-  constructor(userRepo?: UserRepository, sessionRepo?: SessionRepository) {
+  /** `directory` (LIRA-288): re-synced after deactivate / reactivate /
+   * role change, so www stops (or starts again) listing the shop. */
+  constructor(
+    userRepo?: UserRepository,
+    sessionRepo?: SessionRepository,
+    directory?: SigninDirectorySync,
+  ) {
     this.userRepo = userRepo ?? getUserRepository();
     this.sessionRepo = sessionRepo ?? getSessionRepository();
+    this.directory = directory ?? getSigninDirectoryService();
+  }
+
+  /** After a user-state commit: re-sync that user's directory rows in the
+   * CURRENT shop. Never throws (the sync logs its own failure). */
+  private syncDirectory(userId: number): void {
+    let tenantId: number;
+    try {
+      tenantId = getCurrentTenantId();
+    } catch {
+      return;
+    }
+    this.directory.syncUser(tenantId, userId);
   }
 
   // ---------------------------------------------------------------------------
@@ -557,7 +581,9 @@ export class AuthService {
       throw new BusinessRuleError("Cannot deactivate the last administrator");
     }
 
-    return this.userRepo.softDeleteById(userId);
+    const changed = this.userRepo.softDeleteById(userId);
+    if (changed) this.syncDirectory(userId);
+    return changed;
   }
 
   /**
@@ -569,7 +595,9 @@ export class AuthService {
       throw new AuthorizationError("Only administrators can reactivate users");
     }
 
-    return this.userRepo.restore(userId);
+    const changed = this.userRepo.restore(userId);
+    if (changed) this.syncDirectory(userId);
+    return changed;
   }
 
   /**
@@ -617,6 +645,7 @@ export class AuthService {
     }
 
     const updated = this.userRepo.updateUser(userId, { role });
+    if (updated !== null) this.syncDirectory(userId);
     return updated !== null;
   }
 

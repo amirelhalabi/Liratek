@@ -14,7 +14,7 @@
 
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
-import { USABLE_TOKEN_WHERE } from "./authTokenSql.js";
+import { EXPIRED_BEFORE_WHERE, USABLE_TOKEN_WHERE } from "./authTokenSql.js";
 
 export interface SsoHandoffTokenEntity extends BaseEntity {
   id: number;
@@ -107,7 +107,7 @@ export class SsoHandoffTokenRepository extends BaseRepository<SsoHandoffTokenEnt
   /** Housekeeping: deletes rows that expired before `beforeIso`. */
   deleteExpiredBefore(beforeIso: string): number {
     return this.db
-      .prepare(`DELETE FROM sso_handoff_tokens WHERE expires_at < ?`)
+      .prepare(`DELETE FROM sso_handoff_tokens WHERE ${EXPIRED_BEFORE_WHERE}`)
       .run(beforeIso).changes;
   }
 }

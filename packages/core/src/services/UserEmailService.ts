@@ -39,6 +39,14 @@ import { AppError, EmailNotConfiguredError } from "../utils/errors.js";
 import { USER_ACCOUNT_CODES } from "../constants/userAccountCodes.js";
 import { authLogger } from "../utils/logger.js";
 import { formatInviteExpiry } from "./SignupInvitationService.js";
+import {
+  getSigninDirectoryService,
+  type SigninDirectorySync,
+} from "./SigninDirectoryService.js";
+import {
+  getUserIdentityRepository,
+  type UserIdentityRepository,
+} from "../repositories/UserIdentityRepository.js";
 
 // =============================================================================
 // Constants
@@ -70,6 +78,16 @@ export interface UserEmailView {
   id: number;
   email: string | null;
   emailVerifiedAt: string | null;
+  /** LIRA-288: the user's Google sign-in link (the address Google
+   * reported), or null when Google is not connected. */
+  google: { email: string | null } | null;
+}
+
+/** LIRA-288: an admin disconnected a member's Google. */
+export interface AdminUnlinkGoogleResult {
+  user: UserEmailView;
+  /** False when nothing was linked (a harmless repeat — not audited). */
+  unlinked: boolean;
 }
 
 export interface SetUserEmailResult {
@@ -160,28 +178,76 @@ export class UserEmailService {
   private outboxRepo: EmailOutboxRepository;
   private tenantRepo: TenantRepository;
   private newToken: () => string;
+  private directory: SigninDirectorySync;
+  private identityRepo: UserIdentityRepository;
 
+  /** `directory` (LIRA-288): re-synced after every email change, so www's
+   * "your shops" lists follow confirmed emails. `identityRepo`: the Users
+   * list shows, and an admin can remove, each member's Google link. */
   constructor(
     userRepo: UserRepository,
     tokenRepo: EmailVerificationTokenRepository,
     outboxRepo: EmailOutboxRepository,
     tenantRepo: TenantRepository,
     tokenGenerator: () => string = generateToken,
+    directory?: SigninDirectorySync,
+    identityRepo?: UserIdentityRepository,
   ) {
+    this.identityRepo = identityRepo ?? getUserIdentityRepository();
     this.userRepo = userRepo;
     this.tokenRepo = tokenRepo;
     this.outboxRepo = outboxRepo;
     this.tenantRepo = tenantRepo;
     this.newToken = tokenGenerator;
+    this.directory = directory ?? getSigninDirectoryService();
   }
 
-  /** Every current-shop user's email. */
+  /** Every current-shop user's email, and Google link (LIRA-288). */
   list(): UserEmailView[] {
+    const google = new Map(
+      this.identityRepo
+        .listForCurrentShop("google")
+        .map((link) => [link.user_id, { email: link.email }]),
+    );
     return this.userRepo.listEmails().map((row) => ({
       id: row.id,
       email: row.email,
       emailVerifiedAt: row.email_verified_at,
+      google: google.get(row.id) ?? null,
     }));
+  }
+
+  /**
+   * An admin disconnects a member's Google sign-in (LIRA-288) — CURRENT
+   * shop only (another shop's user, or a super admin, is NOT_FOUND). That
+   * Google account no longer signs in to THIS shop; its links in other
+   * shops are untouched. The member's password (if they set one) and
+   * "Forgot password" still work. Then the sign-in directory is re-synced.
+   * Disconnecting nothing is a harmless repeat (`unlinked: false`).
+   */
+  adminUnlinkGoogle(
+    userId: number,
+    ctx: { tenantId: number; now: string },
+  ): AdminUnlinkGoogleResult {
+    const current = this.userRepo.getEmail(userId);
+    if (!current) throw new UserNotFoundInShopError();
+    const unlinked = this.identityRepo.unlink(userId, "google");
+    if (unlinked) {
+      this.directory.syncUser(ctx.tenantId, userId, ctx.now);
+      authLogger.info(
+        { userId, tenantId: ctx.tenantId },
+        "Google sign-in disconnected by an admin",
+      );
+    }
+    return {
+      user: {
+        id: userId,
+        email: current.email,
+        emailVerifiedAt: current.email_verified_at,
+        google: null,
+      },
+      unlinked,
+    };
   }
 
   /**
@@ -216,6 +282,9 @@ export class UserEmailService {
       { userId, tenantId: ctx.tenantId, cleared: normalized === null, verificationSent },
       "User email set",
     );
+    // After the shop commit (LIRA-288): an old confirmed address stops
+    // listing this shop on www at once. Never throws.
+    this.directory.syncUser(ctx.tenantId, userId, ctx.now);
     return { email: normalized, emailVerifiedAt: null, verificationSent };
   }
 
@@ -269,6 +338,7 @@ export class UserEmailService {
       { userId: row.user_id, tenantId: row.tenant_id, verified },
       "Email verification link used",
     );
+    if (verified) this.directory.syncUser(row.tenant_id, row.user_id, now);
     return verified;
   }
 

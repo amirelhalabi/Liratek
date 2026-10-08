@@ -14,39 +14,44 @@
  * The flow (all of it on the platform host, www):
  *   GET  /start     -> Google (authorization code + PKCE S256; state, nonce
  *                      and the verifier in a signed httpOnly cookie, 10 min)
- *   POST /start     the same, for linking: the link ticket comes in a form
- *                   body (never a URL)
+ *   POST /start     the same, for linking and joining: the link / join
+ *                   ticket comes in a form body (never a URL)
  *   GET  /callback  -> verify state, exchange the code, verify the ID token
  *                      (core GoogleAuthService), then by intent:
- *     login   one shop  -> https://<slug>.<base>/#/login?sso=<60 s token>
+ *     login   on a shop -> that shop's user (or error=no_account)
+ *             one shop  -> https://<slug>.<base>/#/login?sso=<60 s token>
  *             several   -> https://www.<base>/#/auth/google?choose=<ticket>
  *             none      -> https://www.<base>/#/auth/google?error=no_account
  *     signup            -> https://www.<base>/#/signup?google=<ticket>
- *             already linked anywhere -> …/#/auth/google?error=already_connected
  *     link              -> https://<slug>.<base>/#/settings?tab=devices&google=…
+ *     join (LIRA-288)   -> user created + linked -> the shop's /#/login?sso=
+ *             refused   -> https://<slug>.<base>/#/join?invite=…&google=…
  *   POST /choose        the chooser's pick -> { redirectUrl } (hand-off)
  *   POST /sso-exchange  on the shop's host: hand-off -> the SAME session
  *                       response as /api/auth/login
  *
  * Sign-in matches ONLY by the linked Google `sub` — never by email (owner
- * decision 2026-10-07); accounts are linked from Settings (link/start).
+ * decision 2026-10-07); accounts are linked from Settings (link/start), a
+ * Google sign-up, or "Join with Google" on an invite.
  *
- * ONE GOOGLE ACCOUNT = ONE SHOP (owner decision 2026-10-07): a link to an
- * account already connected in another shop comes back as
- * `google=in_other_shop`; a sign-up with an account connected anywhere is
- * refused (`error=already_connected`). Links made before the decision may
- * still open several shops, so the chooser stays.
+ * ONE GOOGLE ACCOUNT = ONE USER PER SHOP (LIRA-288, owner decision
+ * 2026-10-08): linking an account already linked in another shop succeeds;
+ * another user of THIS shop holding it is `google=already_linked`. A Google
+ * sign-up is open to an account linked in other shops.
  *
- * PER-TENANT DB MODE LIMITATION: the login lookup
- * (`findBySubjectAllTenants`) only sees every shop in SHARED mode. Before the
- * per-tenant database split goes live, a platform-level (provider, subject)
- * -> (tenant, user) index is needed (known follow-up, plan contracts §D).
+ * Where shops come from (LIRA-288):
+ *   - login started on a shop's own address (`shop=`): that shop's OWN
+ *     records, in its scope — that shop's user, or `error=no_account`;
+ *   - login on www: the platform sign-in directory (one shop -> hand-off,
+ *     several -> chooser, none -> no_account);
+ *   - the chooser's pick: re-checked in the chosen shop's own scope.
+ * So the answers are the same whether shops share one file or each has its
+ * own, and directory drift can never block sign-in on a shop's address.
  */
 
 import express, { type Request, type Response } from "express";
 import {
   GOOGLE_NOT_CONFIGURED,
-  GoogleAccountInOtherShopError,
   GoogleAuthService,
   GoogleTokenError,
   IdentityAlreadyLinkedError,
@@ -55,6 +60,7 @@ import {
   getAuditService,
   getGoogleAuthService,
   getTenantRepository,
+  getUserInvitationService,
   googleChooseSchema,
   googleStartFormSchema,
   googleStartQuerySchema,
@@ -64,7 +70,12 @@ import {
   ssoExchangeSchema,
   type GoogleAuthErrorCode,
   type GoogleIdentityClaims,
+  type JoinWithGoogleResult,
   type TenantEntity,
+  EmailTakenInShopError,
+  JoinGoogleEmailMismatchError,
+  UserInviteShopInactiveError,
+  UsernameTakenError,
 } from "@liratek/core";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { authLimiter } from "../middleware/rateLimit.js";
@@ -82,6 +93,7 @@ import {
   clearStateCookie,
   googleConfig,
   readChooseTicket,
+  readJoinTicket,
   readLinkTicket,
   readStateCookie,
   readStateTicket,
@@ -91,6 +103,7 @@ import {
   type ChooseShop,
   type GoogleConfig,
   type GoogleIntent,
+  type JoinTicket,
   type StateTicket,
 } from "../security/googleOAuth.js";
 import { sendWebLoginResponse } from "../services/webLoginSession.js";
@@ -148,6 +161,11 @@ function activeTenant(tenantId: number): TenantEntity | null {
   return tenant && tenant.status === "active" ? tenant : null;
 }
 
+function activeTenantBySlug(slug: string): TenantEntity | null {
+  const tenant = runWithoutTenant(() => getTenantRepository().getBySlug(slug));
+  return tenant && tenant.status === "active" ? tenant : null;
+}
+
 // ── GET /status ──────────────────────────────────────────────────────────
 
 router.get("/status", (req, res): void => {
@@ -180,10 +198,11 @@ function beginGoogleFlow(
     intent: GoogleIntent;
     shop?: string;
     link?: { userId: number; tenantId: number };
+    join?: JoinTicket;
   },
 ): void {
   const { verifier, challenge } = GoogleAuthService.createPkcePair();
-  const state: StateTicket = {
+  const state: Omit<StateTicket, "join"> = {
     state: generateToken(),
     verifier,
     nonce: generateToken(),
@@ -193,7 +212,17 @@ function beginGoogleFlow(
       ? { linkUserId: input.link.userId, linkTenantId: input.link.tenantId }
       : {}),
   };
-  setStateCookie(req, res, signTicket("state", state));
+  // The join fields travel flat in the signed, httpOnly state cookie
+  // (readStateTicket reads them back into `join`).
+  const payload = input.join
+    ? {
+        ...state,
+        joinToken: input.join.token,
+        joinUsername: input.join.username,
+        joinTenantId: input.join.tenantId,
+      }
+    : state;
+  setStateCookie(req, res, signTicket("state", payload));
   res.redirect(
     302,
     getGoogleAuthService().buildAuthorizationUrl({
@@ -222,9 +251,14 @@ router.get("/start", (req, res): void => {
   }
   // safeParse by hand: validateRequest reads the body only.
   const parsed = googleStartQuerySchema.safeParse(req.query);
-  // Linking is POST-only: its ticket must never sit in a URL (access logs,
-  // history), where anyone holding it could attach THEIR Google account.
-  if (!parsed.success || parsed.data.intent === "link") {
+  // Linking and joining are POST-only: their ticket must never sit in a URL
+  // (access logs, history), where anyone holding it could attach THEIR
+  // Google account (link) or join with the invite (join).
+  if (
+    !parsed.success ||
+    parsed.data.intent === "link" ||
+    parsed.data.intent === "join"
+  ) {
     res.redirect(302, errorUrl(config, "expired"));
     return;
   }
@@ -253,7 +287,9 @@ router.post("/start", (req, res): void => {
   const { intent, shop, ticket } = parsed.data;
   const link =
     intent === "link" ? readLinkTicket(verifyTicket("link", ticket)) : null;
-  if (intent === "link" && !link) {
+  const join =
+    intent === "join" ? readJoinTicket(verifyTicket("join", ticket)) : null;
+  if ((intent === "link" && !link) || (intent === "join" && !join)) {
     res.redirect(302, errorUrl(config, "expired"));
     return;
   }
@@ -261,17 +297,13 @@ router.post("/start", (req, res): void => {
     intent,
     ...(shop ? { shop } : {}),
     ...(link ? { link } : {}),
+    ...(join ? { join } : {}),
   });
 });
 
 // ── GET /callback ────────────────────────────────────────────────────────
 
-type LinkResult =
-  | "linked"
-  | "already_linked"
-  | "in_other_shop"
-  | "error"
-  | "cancelled";
+type LinkResult = "linked" | "already_linked" | "error" | "cancelled";
 
 /** Where the browser goes when a LINK attempt ends (the shop's Settings, on
  * the tab that hosts the Google panel). */
@@ -310,6 +342,27 @@ function signInRedirect(
   now: string,
 ): string {
   const service = getGoogleAuthService();
+
+  // Started from a shop's own login page (FR-004): THAT shop's user, read
+  // from the shop's own records in its own scope, or a refusal — never
+  // another shop, and never the www directory.
+  if (preferredShop) {
+    const tenant = activeTenantBySlug(preferredShop);
+    const match = tenant
+      ? runWithTenant(tenant.id, () =>
+          service.findMatchInTenant(claims.sub, tenant.id),
+        )
+      : null;
+    if (!tenant || !match) return errorUrl(config, "no_account");
+    return (
+      handoffUrl(
+        { tenantId: tenant.id, slug: tenant.slug, userId: match.user_id },
+        now,
+      ) ?? errorUrl(config, "failed")
+    );
+  }
+
+  // On www: every active shop the sign-in directory lists for this account.
   const shops: Array<ChooseShop & { userId: number }> = [];
   for (const match of runWithoutTenant(() =>
     service.findSignInMatches(claims.sub),
@@ -325,14 +378,9 @@ function signInRedirect(
     }
   }
   if (shops.length === 0) return errorUrl(config, "no_account");
-
-  // Started from a shop's own login page and that shop is one of them: go
-  // straight there rather than asking.
-  const preferred = preferredShop
-    ? shops.find((s) => s.slug === preferredShop)
-    : undefined;
-  const target = preferred ?? (shops.length === 1 ? shops[0] : undefined);
-  if (target) return handoffUrl(target, now) ?? errorUrl(config, "failed");
+  if (shops.length === 1) {
+    return handoffUrl(shops[0]!, now) ?? errorUrl(config, "failed");
+  }
 
   const ticket = signTicket("choose", {
     sub: claims.sub,
@@ -381,14 +429,106 @@ function linkIdentity(
     });
     return linkResultUrl(config, tenantId, "linked");
   } catch (error) {
-    if (error instanceof GoogleAccountInOtherShopError) {
-      return linkResultUrl(config, tenantId, "in_other_shop");
-    }
     if (error instanceof IdentityAlreadyLinkedError) {
       return linkResultUrl(config, tenantId, "already_linked");
     }
     logger.error({ error, tenantId }, "Google link failed");
     return linkResultUrl(config, tenantId, "error");
+  }
+}
+
+/** Where the browser goes when "Join with Google" did not join (LIRA-288):
+ * back to the invite page on the shop's address, with the invite and the
+ * reason. The invite stays usable unless it is `invite_invalid`. */
+function joinResultUrl(
+  config: GoogleConfig,
+  join: JoinTicket | undefined,
+  result: JoinWithGoogleResult,
+): string {
+  const tenant = join
+    ? runWithoutTenant(() => getTenantRepository().getById(join.tenantId))
+    : null;
+  const origin = tenant ? resolveShopLinkBaseUrl(tenant.slug) : null;
+  if (!join || !origin) return errorUrl(config, "failed");
+  return pageUrl(origin, "join", { invite: join.token, google: result });
+}
+
+/** The refusal each core error means on the join page. */
+function joinRefusal(error: unknown): JoinWithGoogleResult {
+  if (error instanceof JoinGoogleEmailMismatchError) return "email_mismatch";
+  if (error instanceof IdentityAlreadyLinkedError) return "already_linked";
+  if (error instanceof UsernameTakenError) return "username_taken";
+  if (error instanceof UserInviteShopInactiveError) return "shop_not_active";
+  if (error instanceof EmailTakenInShopError) return "email_taken";
+  return "error";
+}
+
+/**
+ * "Join with Google" (LIRA-288): create the invited user AND link this
+ * Google account in the invite's shop (core `acceptWithGoogle`, in that
+ * shop's scope), then hand off into the shop signed in.
+ */
+function joinWithGoogle(
+  config: GoogleConfig,
+  state: StateTicket,
+  claims: GoogleIdentityClaims,
+  now: string,
+): string {
+  const join = state.join;
+  if (!join) return errorUrl(config, "failed");
+  try {
+    const outcome = runWithTenant(join.tenantId, () =>
+      getUserInvitationService().acceptWithGoogle({
+        token: join.token,
+        username: join.username,
+        // verifyIdToken refuses anything but email_verified === true.
+        google: { sub: claims.sub, email: claims.email, emailVerified: true },
+        now,
+        requiredTenantId: join.tenantId,
+      }),
+    );
+    if (!outcome.ok) return joinResultUrl(config, join, "invite_invalid");
+
+    // Public flow, so no req.user: the actor is the user just created,
+    // audited in their own shop (as POST /api/user-invitations/accept).
+    runWithTenant(outcome.shop.id, () => {
+      try {
+        getAuditService().log({
+          user_id: outcome.user.id,
+          username: outcome.user.username,
+          role: outcome.user.role,
+          action: "create",
+          entity_type: "user",
+          entity_id: String(outcome.user.id),
+          summary: `Joined by email invite with Google as ${outcome.user.role}`,
+          new_values: {
+            username: outcome.user.username,
+            role: outcome.user.role,
+            email: outcome.invite.email,
+          },
+          metadata: { via: "invite_google", invitation_id: outcome.invite.id },
+        });
+      } catch {
+        // A failing audit never turns a committed join into an error.
+      }
+    });
+
+    return (
+      handoffUrl(
+        {
+          tenantId: outcome.shop.id,
+          slug: outcome.shop.slug,
+          userId: outcome.user.id,
+        },
+        now,
+      ) ?? errorUrl(config, "failed")
+    );
+  } catch (error) {
+    const result = joinRefusal(error);
+    if (result === "error") {
+      logger.error({ error, tenantId: join.tenantId }, "Join with Google failed");
+    }
+    return joinResultUrl(config, join, result);
   }
 }
 
@@ -413,7 +553,9 @@ router.get("/callback", async (req, res): Promise<void> => {
       302,
       state.intent === "link"
         ? linkResultUrl(config, state.linkTenantId, "cancelled")
-        : errorUrl(config, "cancelled"),
+        : state.intent === "join"
+          ? joinResultUrl(config, state.join, "cancelled")
+          : errorUrl(config, "cancelled"),
     );
     return;
   }
@@ -451,7 +593,9 @@ router.get("/callback", async (req, res): Promise<void> => {
       302,
       state.intent === "link"
         ? linkResultUrl(config, state.linkTenantId, "error")
-        : errorUrl(config, "failed"),
+        : state.intent === "join"
+          ? joinResultUrl(config, state.join, "error")
+          : errorUrl(config, "failed"),
     );
     return;
   }
@@ -463,17 +607,6 @@ router.get("/callback", async (req, res): Promise<void> => {
         res.redirect(302, signInRedirect(config, claims, state.shop, now));
         return;
       case "signup": {
-        // One Google account = one shop: an account already connected to a
-        // shop signs in instead. Checked first, so an existing owner is never
-        // told the daily limit was reached; re-checked at POST /signup.
-        if (
-          runWithoutTenant(() =>
-            getGoogleAuthService().isLinkedToAnyShop(claims.sub),
-          )
-        ) {
-          res.redirect(302, errorUrl(config, "already_connected"));
-          return;
-        }
         // The one public sign-up daily cap (email requests + Google
         // sign-ups). Checked here so nobody fills in the form for nothing;
         // the authoritative check is when the shop is created.
@@ -496,6 +629,9 @@ router.get("/callback", async (req, res): Promise<void> => {
       }
       case "link":
         res.redirect(302, linkIdentity(config, state, claims, now));
+        return;
+      case "join":
+        res.redirect(302, joinWithGoogle(config, state, claims, now));
         return;
     }
   } catch (error) {
@@ -523,7 +659,9 @@ router.post(
     }
     // The ticket is replayable for its 10 minutes, so the link is re-checked
     // against the database rather than trusted from the ticket.
-    const match = runWithoutTenant(() =>
+    // In the chosen shop's OWN scope: per-tenant mode keeps its links in
+    // its own file.
+    const match = runWithTenant(tenantId, () =>
       getGoogleAuthService().findMatchInTenant(ticket.sub, tenantId),
     );
     const tenant = activeTenant(tenantId);
@@ -680,7 +818,10 @@ router.delete(
       refuseNotConfigured(res);
       return;
     }
-    const unlinked = getGoogleAuthService().unlinkIdentity(own.userId);
+    const unlinked = getGoogleAuthService().unlinkIdentity(
+      own.userId,
+      new Date().toISOString(),
+    );
     if (unlinked) {
       auditRest(req, {
         action: "google_unlink",

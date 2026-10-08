@@ -1,10 +1,10 @@
 /**
  * UserIdentityRepository (v196, LIRA-280) — Google sign-in links.
  *
- * One Google account (`subject`) = one user in one shop, platform-wide
- * (owner decision 2026-10-07; enforced in `link()`, not by an index — see the
- * repository header). One user has at most one Google link. Links made
- * before that decision (the same account in two shops) keep working.
+ * One Google account (`subject`) = one user PER SHOP (LIRA-288, owner
+ * decision 2026-10-08, replacing LIRA-280's "one shop"): the same account
+ * may be linked in several shops, never to two users of one shop. One user
+ * has at most one Google link. Both are the schema's unique indexes.
  */
 
 import fs from "node:fs";
@@ -13,10 +13,7 @@ import Database from "better-sqlite3";
 import { runMigrations } from "../../db/migrations/index.js";
 import { runWithTenant } from "../../db/tenantContext.js";
 import { UserIdentityRepository } from "../UserIdentityRepository.js";
-import {
-  GOOGLE_ACCOUNT_IN_OTHER_SHOP,
-  IDENTITY_ALREADY_LINKED,
-} from "../../utils/errors.js";
+import { IDENTITY_ALREADY_LINKED } from "../../utils/errors.js";
 
 type TestGlobal = typeof globalThis & {
   __LIRATEK_TEST_DB__?: Database.Database;
@@ -85,75 +82,40 @@ describe("UserIdentityRepository", () => {
     });
   });
 
-  it("links made before one-account-one-shop (same account in two shops) still list both shops", () => {
-    // Legacy duplicates are seeded raw: link() no longer creates them.
-    db.exec(`
-      INSERT INTO user_identities (user_id, tenant_id, provider, subject) VALUES
-        (20, 2, 'google', 'sub-1'), (30, 3, 'google', 'sub-1');
-    `);
-    const matches = repo.findBySubjectAllTenants("google", "sub-1");
-    expect(matches.map((m) => [m.tenant_id, m.user_id])).toEqual([
+  // LIRA-288 (owner decision 2026-10-08): one Google account = one user PER
+  // SHOP. It may be linked in several shops; the schema's
+  // UNIQUE(provider, subject, tenant_id) is the whole rule.
+  function rawLinks(subject = "sub-1"): number[][] {
+    return (
+      db
+        .prepare(
+          `SELECT tenant_id, user_id FROM user_identities WHERE subject = ? ORDER BY tenant_id`,
+        )
+        .all(subject) as { tenant_id: number; user_id: number }[]
+    ).map((r) => [r.tenant_id, r.user_id]);
+  }
+
+  it("links a Google account already linked in ANOTHER shop (one user per shop)", () => {
+    link(2, 20);
+    expect(link(3, 30).tenant_id).toBe(3);
+    expect(rawLinks()).toEqual([
       [2, 20],
       [3, 30],
     ]);
   });
 
-  it("refuses a Google account already linked in ANOTHER shop with GOOGLE_ACCOUNT_IN_OTHER_SHOP, and writes nothing", () => {
-    link(2, 20);
-    expect(codeOf(() => link(3, 30))).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
-    expect(
-      repo.findLiveLinksBySubject("google", "sub-1").map((l) => [l.tenant_id, l.user_id]),
-    ).toEqual([[2, 20]]);
-  });
-
-  // Owner decision 2026-10-07: a link to a DEACTIVATED user, or in a
-  // SUSPENDED/ARCHIVED shop, is a dead link — ignored (not deleted) by the
-  // one-shop rule.
-  describe("dead links do not count", () => {
-    function rawLinks(subject = "sub-1"): number[][] {
-      return (
-        db
-          .prepare(
-            `SELECT tenant_id, user_id FROM user_identities WHERE subject = ? ORDER BY tenant_id`,
-          )
-          .all(subject) as { tenant_id: number; user_id: number }[]
-      ).map((r) => [r.tenant_id, r.user_id]);
-    }
-
-    it("a link held by a DEACTIVATED user in another shop does not block, and stays in the DB", () => {
-      link(3, 31);
+  it.each(["active", "provisioning", "suspended", "archived"])(
+    "a link in another shop (status %s) never blocks",
+    (status) => {
+      link(3, 30);
+      db.prepare(`UPDATE tenants SET status = ? WHERE id = 3`).run(status);
       expect(link(2, 20).tenant_id).toBe(2);
       expect(rawLinks()).toEqual([
         [2, 20],
-        [3, 31],
+        [3, 30],
       ]);
-    });
-
-    it.each(["suspended", "archived"])(
-      "a link in a %s shop does not block, and stays in the DB",
-      (status) => {
-        link(3, 30);
-        db.prepare(`UPDATE tenants SET status = ? WHERE id = 3`).run(status);
-        expect(link(2, 20).tenant_id).toBe(2);
-        expect(rawLinks()).toEqual([
-          [2, 20],
-          [3, 30],
-        ]);
-      },
-    );
-
-    it("a link in a PROVISIONING shop (being created) still blocks", () => {
-      link(3, 30);
-      db.exec(`UPDATE tenants SET status = 'provisioning' WHERE id = 3`);
-      expect(codeOf(() => link(2, 20))).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
-    });
-
-    it("an active user in an active shop still blocks", () => {
-      link(3, 30);
-      expect(codeOf(() => link(2, 20))).toBe(GOOGLE_ACCOUNT_IN_OTHER_SHOP);
-      expect(rawLinks()).toEqual([[3, 30]]);
-    });
-  });
+    },
+  );
 
   it("re-linking the same account to the same user is idempotent", () => {
     const first = link(2, 20);
@@ -180,11 +142,10 @@ describe("UserIdentityRepository", () => {
     expect(codeOf(() => link(2, 30))).toBeDefined();
   });
 
-  it("by-subject lookups skip deactivated users", () => {
+  it("the by-subject lookup skips deactivated users", () => {
     db.exec(
       `INSERT INTO user_identities (user_id, tenant_id, provider, subject) VALUES (31, 3, 'google', 'sub-x')`,
     );
-    expect(repo.findBySubjectAllTenants("google", "sub-x")).toEqual([]);
     expect(repo.findBySubjectInTenant("google", "sub-x", 3)).toBeNull();
   });
 
@@ -208,6 +169,6 @@ describe("UserIdentityRepository", () => {
   it("deleting the user removes the link (ON DELETE CASCADE)", () => {
     link(2, 21);
     db.exec(`DELETE FROM users WHERE id = 21`);
-    expect(repo.findBySubjectAllTenants("google", "sub-1")).toEqual([]);
+    expect(rawLinks()).toEqual([]);
   });
 });

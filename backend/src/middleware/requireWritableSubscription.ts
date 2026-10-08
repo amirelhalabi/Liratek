@@ -142,8 +142,13 @@ const SUBSCRIPTION_GATED_PREFIXES = [
  * public token routes, and revoking an invite (it only removes access). */
 const SUBSCRIPTION_GATE_EXEMPT: readonly RegExp[] = [
   /^\/api\/user-invitations\/(check|accept)$/,
+  // LIRA-288: "Join with Google" start — a public token route like accept.
+  /^\/api\/user-invitations\/google\/start$/,
   /^\/api\/user-invitations\/\d+\/revoke$/,
   /^\/api\/user-email\/verify$/,
+  // LIRA-288: an admin disconnecting a member's Google only REMOVES access
+  // (offboarding), like DELETE /api/auth/google/link.
+  /^\/api\/user-email\/\d+\/google$/,
 ];
 
 function isSubscriptionGated(originalUrl: string): boolean {

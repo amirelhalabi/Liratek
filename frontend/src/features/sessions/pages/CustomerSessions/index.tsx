@@ -9,8 +9,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { PageHeader, useApi } from "@liratek/ui";
-import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
+import { PageHeader, useApi, DateRangeFilter } from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 interface SessionSummary {

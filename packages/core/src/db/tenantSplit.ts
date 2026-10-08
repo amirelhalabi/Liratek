@@ -131,6 +131,10 @@ const PLATFORM_ONLY_TABLES: readonly string[] = [
   // v199 (LIRA-287): www "email me a code" sign-in codes. A code belongs to
   // an email, not a shop, so it has no tenant_id and stays platform-level.
   "signin_codes",
+  // v200 (LIRA-288): the www sign-in directory. Its rows NAME a shop
+  // (target_tenant_id) but belong to the platform: www reads it before any
+  // shop is chosen, so it stays whole in platform.db.
+  "signin_directory",
 ];
 
 const KNOWN_TABLES_WITHOUT_TENANT_ID = new Set([

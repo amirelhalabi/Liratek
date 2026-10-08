@@ -150,7 +150,7 @@ export const RESET_KEEP_TABLES: readonly string[] = [
 ];
 
 /**
- * EXCLUDED — global, not tenant-scopable (5). No `tenant_id` column exists
+ * EXCLUDED — global, not tenant-scopable (7). No `tenant_id` column exists
  * on any of these tables (see `BaseRepository`'s "control-plane/global tables"
  * doc comment), so they are left alone entirely rather than risk an
  * unscoped cross-tenant DELETE.
@@ -159,6 +159,7 @@ export const RESET_EXCLUDED_TABLES: readonly string[] = [
   "email_outbox",
   "signup_invitations",
   "signin_codes",
+  "signin_directory",
   "sso_handoff_tokens",
   "sync_errors",
   "sync_queue",

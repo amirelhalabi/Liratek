@@ -27,6 +27,12 @@ export const USER_ACCOUNT_CODES = {
   /** The invite is otherwise valid, but its shop's subscription has lapsed
    * to read-only: the link works again once the shop renews. */
   SHOP_NOT_ACTIVE: "SHOP_NOT_ACTIVE",
+  /** LIRA-288: an invite link that cannot be used (unknown, expired, used,
+   * revoked, claimed, another shop's) — "Join with Google" start. */
+  INVITE_INVALID: "INVITE_INVALID",
+  /** LIRA-288: "Join with Google" with a Google account whose verified
+   * email is not the invited address. The invite stays usable. */
+  GOOGLE_EMAIL_MISMATCH: "GOOGLE_EMAIL_MISMATCH",
 } as const;
 
 export type UserAccountCode =

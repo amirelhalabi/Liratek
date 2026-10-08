@@ -1,5 +1,6 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { X, AlertTriangle } from "lucide-react";
+import { useModalFocusFix } from "../../hooks/useModalFocusFix";
 
 export interface ConfirmModalProps {
   isOpen: boolean;
@@ -22,19 +23,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   onCancel,
   variant = "danger",
 }) => {
-  // Fix Electron/Windows focus bug: nudge window focus when modal closes
-  useEffect(() => {
-    if (!isOpen) return;
-    const isWindows = navigator.userAgent.includes("Windows");
-    if (!isWindows) return;
-    return () => {
-      try {
-        (window as any).api?.display?.fixFocus?.();
-      } catch {
-        /* ignore */
-      }
-    };
-  }, [isOpen]);
+  // Electron/Windows focus bug: re-focus inputs while open, and cycle window
+  // focus only after the overlay has unmounted (see useModalFocusFix).
+  useModalFocusFix(isOpen);
 
   if (!isOpen) return null;
 

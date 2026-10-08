@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { render, screen, fireEvent } from "@testing-library/react";
-import { DateRangeFilter } from "../DateRangeFilter";
+import { DateRangeFilter } from "@liratek/ui";
 // @testing-library/jest-dom matchers are loaded globally (jest.setup.ts) — no import needed.
 
 /**
@@ -12,7 +12,9 @@ import { DateRangeFilter } from "../DateRangeFilter";
  * page relies on to perform its filtering.
  */
 describe("DateRangeFilter", () => {
-  function setup(overrides: Partial<{ from: string; to: string }> = {}) {
+  function setup(
+    overrides: Partial<{ from: string; to: string; variant: "compact" }> = {},
+  ) {
     const onFromChange = jest.fn();
     const onToChange = jest.fn();
     render(
@@ -21,6 +23,7 @@ describe("DateRangeFilter", () => {
         to={overrides.to ?? ""}
         onFromChange={onFromChange}
         onToChange={onToChange}
+        {...(overrides.variant ? { variant: overrides.variant } : {})}
       />,
     );
     return {
@@ -40,6 +43,23 @@ describe("DateRangeFilter", () => {
     expect(toInput).toBeInTheDocument();
     expect(fromInput).toHaveAttribute("type", "date");
     expect(toInput).toHaveAttribute("type", "date");
+  });
+
+  // The "compact" variant (Profits, Inventory product list) keeps its own
+  // look: colon-less labels and the smaller gray inputs.
+  it("renders colon-less labels and compact inputs for variant=compact", () => {
+    const { fromInput, toInput } = setup({ variant: "compact" });
+
+    expect(screen.getByText("From")).toBeInTheDocument();
+    expect(screen.getByText("To")).toBeInTheDocument();
+    expect(screen.queryByText("From:")).not.toBeInTheDocument();
+    expect(fromInput).toHaveClass("bg-gray-800", "px-2", "py-1");
+    expect(toInput).toHaveClass("bg-gray-800", "px-2", "py-1");
+  });
+
+  it("uses the slate inputs by default", () => {
+    const { fromInput } = setup();
+    expect(fromInput).toHaveClass("bg-slate-900", "px-4", "py-2");
   });
 
   it("reflects the controlled from/to values", () => {

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, Banknote } from "lucide-react";
-import { DataTable } from "@liratek/ui";
-import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
+import { DataTable, DateRangeFilter } from "@liratek/ui";
 import { localDay, localMonth } from "@/shared/utils/localDay";
 import { getCashFlowByDate } from "@/api/backendApi";
 

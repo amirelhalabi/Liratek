@@ -4,6 +4,7 @@ import {
   getToken,
   isImpersonationActive,
   clearImpersonationSession,
+  storeNewLoginToken,
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
@@ -395,7 +396,8 @@ export async function login(
     // the tab had to be closed. Observed live with an impersonation token 7.5
     // hours older than the fresh login sitting next to it.
     clearImpersonationSession();
-    setToken(payload.token);
+    // Also ends this browser's PREVIOUS sign-in on the server (best effort).
+    await storeNewLoginToken(payload.token);
   }
   return {
     success: res.success,
@@ -7892,6 +7894,7 @@ import type {
   CreateUserInvitationInput,
   CheckUserInvitationInput,
   AcceptUserInvitationInput,
+  JoinWithGoogleStartInput,
   UserEmailView,
   SetUserEmailResult,
   UserInvitationView,
@@ -7946,6 +7949,18 @@ export async function setUserEmail(
   return requestJson<AccountRouteResult<SetUserEmailResult>>(
     `/api/user-email/${userId}`,
     { method: "PUT", body: input },
+  );
+}
+
+/** LIRA-288: an admin disconnects a member's Google sign-in (this shop
+ * only). Repeating it is harmless. */
+export async function adminRemoveUserGoogle(
+  userId: number,
+): Promise<AccountRouteResult<{ user: UserEmailView }>> {
+  assertWebOnly("Disconnecting a user's Google sign-in");
+  return requestJson<AccountRouteResult<{ user: UserEmailView }>>(
+    `/api/user-email/${userId}/google`,
+    { method: "DELETE" },
   );
 }
 
@@ -8030,6 +8045,21 @@ export async function acceptUserInvitation(
   assertWebOnly("Accepting an invitation");
   return requestJson<AccountRouteResult<{ loginUrl: string | null }>>(
     "/api/user-invitations/accept",
+    { method: "POST", body: input, auth: false },
+  );
+}
+
+/**
+ * PUBLIC (LIRA-288): "Join with Google" — checks the link and the chosen
+ * username, and returns the www start URL plus a join ticket. The caller
+ * POSTs `{ intent: "join", ticket }` to `data.url` as a form, never a URL.
+ */
+export async function startJoinWithGoogle(
+  input: JoinWithGoogleStartInput,
+): Promise<AccountRouteResult<{ url: string; ticket: string }>> {
+  assertWebOnly("Joining with Google");
+  return requestJson<AccountRouteResult<{ url: string; ticket: string }>>(
+    "/api/user-invitations/google/start",
     { method: "POST", body: input, auth: false },
   );
 }
@@ -8192,7 +8222,8 @@ export async function ssoExchange(input: SsoExchangeInput) {
   });
   if (res.success && res.data?.token) {
     clearImpersonationSession();
-    setToken(res.data.token);
+    // Also ends this browser's PREVIOUS sign-in on the server (best effort).
+    await storeNewLoginToken(res.data.token);
     localStorage.setItem("sessionToken", res.data.sessionToken);
   }
   return res;

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Shield, ArrowLeftRight, Banknote } from "lucide-react";
-import { PageHeader, Select, MultiSelect } from "@liratek/ui";
-import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
+import { PageHeader, Select, MultiSelect, DateRangeFilter } from "@liratek/ui";
 import AuditLogViewer from "./AuditLogViewer";
 import TransactionsViewer from "./TransactionsViewer";
 import CashReportModal from "../components/CashReportModal";

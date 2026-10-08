@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { Calendar, RefreshCw, X, Ban, Pencil, Check } from "lucide-react";
-import { DataTable } from "@liratek/ui";
+import { DataTable, DateRangeFilter } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
-import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { updateExpenseMetadata } from "@/api/backendApi";
 import { localDay } from "@/shared/utils/localDay";

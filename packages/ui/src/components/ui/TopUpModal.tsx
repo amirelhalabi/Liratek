@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Wallet, X, AlertTriangle, Info, UserRound, Users } from "lucide-react";
 import type { TopUpFromClientInput } from "@liratek/core";
 import MultiPaymentInput from "./MultiPaymentInput";
+import { useModalFocusFix } from "../../hooks/useModalFocusFix";
 import type { PaymentLine } from "./MultiPaymentInput";
 
 function fmtCommas(value: string): string {
@@ -140,19 +141,8 @@ export default function TopUpModal({
   destinationDrawer,
   defaultSourceDrawer,
 }: TopUpModalProps) {
-  // Fix Electron/Windows focus bug: nudge window focus when modal closes
-  useEffect(() => {
-    if (!isOpen) return;
-    const isWindows = navigator.userAgent.includes("Windows");
-    if (!isWindows) return;
-    return () => {
-      try {
-        (window as any).api?.display?.fixFocus?.();
-      } catch {
-        /* ignore */
-      }
-    };
-  }, [isOpen]);
+  // Electron/Windows focus bug: the shared hook (one copy, @liratek/ui).
+  useModalFocusFix(isOpen);
 
   // OMT App: unlike iPick/Katsh (supplier credit is the ONLY option), the
   // owner kept the drawer-to-drawer transfer available as an explicit

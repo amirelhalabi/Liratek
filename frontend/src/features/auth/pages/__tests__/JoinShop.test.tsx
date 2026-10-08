@@ -8,18 +8,36 @@
  *      through the core schema, so a stray `email` key would fail).
  *   3. A refusal (username taken) keeps the form and shows the reason.
  *   4. A dead or missing link shows the generic message and no form.
+ *   5. LIRA-288 "Join with Google": shown only while Google sign-in is on;
+ *      the username comes first, then the page asks the server for a join
+ *      ticket ({ token, username } — rule 24, the schema's own keys) and
+ *      POSTs it to the www start as a form (never a URL). Coming back with
+ *      `google=<reason>` shows why joining did not happen; the form stays.
  */
 
 import { StrictMode } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { acceptUserInvitationSchema, USER_ACCOUNT_CODES } from "@liratek/core";
+import {
+  acceptUserInvitationSchema,
+  joinWithGoogleStartSchema,
+  USER_ACCOUNT_CODES,
+} from "@liratek/core";
 
 const checkUserInvitation = jest.fn();
 const acceptUserInvitation = jest.fn();
+const googleAuthStatus = jest.fn();
+const startJoinWithGoogle = jest.fn();
 jest.mock("@/api/backendApi", () => ({
   checkUserInvitation: (...a: unknown[]) => checkUserInvitation(...a),
   acceptUserInvitation: (...a: unknown[]) => acceptUserInvitation(...a),
+  googleAuthStatus: (...a: unknown[]) => googleAuthStatus(...a),
+  startJoinWithGoogle: (...a: unknown[]) => startJoinWithGoogle(...a),
   isElectron: () => false,
+}));
+
+const submitPostForm = jest.fn();
+jest.mock("@/features/auth/utils/browserNavigation", () => ({
+  submitPostForm: (...a: unknown[]) => submitPostForm(...a),
 }));
 
 // Rule 25: one params object for the whole file.
@@ -48,9 +66,27 @@ beforeEach(() => {
   searchParams = new URLSearchParams("invite=abc");
   checkUserInvitation.mockReset();
   acceptUserInvitation.mockReset();
+  googleAuthStatus.mockReset();
+  startJoinWithGoogle.mockReset();
+  submitPostForm.mockReset();
   navigate.mockReset();
   checkUserInvitation.mockResolvedValue({ success: true, data: INVITE });
+  googleAuthStatus.mockResolvedValue({
+    success: true,
+    data: { enabled: false, startUrl: null, shop: null },
+  });
 });
+
+function googleOn() {
+  googleAuthStatus.mockResolvedValue({
+    success: true,
+    data: {
+      enabled: true,
+      startUrl: "https://www.liratek.shop/api/auth/google/start",
+      shop: "cellcity",
+    },
+  });
+}
 
 function fillAndSubmit(username: string) {
   fireEvent.change(screen.getByTestId("join-username"), { target: { value: username } });
@@ -161,5 +197,66 @@ describe("JoinShop", () => {
     render(<JoinShop />);
     expect(await screen.findByRole("alert")).toHaveTextContent("This invite link is not valid");
     expect(checkUserInvitation).not.toHaveBeenCalled();
+  });
+
+  describe("LIRA-288 — Join with Google", () => {
+    it("is not offered while Google sign-in is off", async () => {
+      render(<JoinShop />);
+      await screen.findByText(/Cell City/);
+      await waitFor(() => expect(googleAuthStatus).toHaveBeenCalled());
+      expect(screen.queryByTestId("join-google")).toBeNull();
+      // Nor mentioned: the page never points at an option that is not there.
+      expect(screen.queryByText(/google/i)).toBeNull();
+    });
+
+    it("needs a username first, then POSTs the join ticket to the www start — no password", async () => {
+      googleOn();
+      startJoinWithGoogle.mockResolvedValue({
+        success: true,
+        data: { url: "https://www.liratek.shop/api/auth/google/start", ticket: "join-ticket" },
+      });
+      render(<JoinShop />);
+      const button = (await screen.findByTestId("join-google")) as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      fireEvent.change(screen.getByTestId("join-username"), { target: { value: " newbie " } });
+      expect(button.disabled).toBe(false);
+      fireEvent.click(button);
+
+      await waitFor(() => expect(submitPostForm).toHaveBeenCalledTimes(1));
+      const body = startJoinWithGoogle.mock.calls[0]![0] as Record<string, unknown>;
+      expect(Object.keys(body).sort()).toEqual(Object.keys(joinWithGoogleStartSchema.shape).sort());
+      expect(joinWithGoogleStartSchema.parse(body)).toEqual({ token: "abc", username: "newbie" });
+      expect(submitPostForm).toHaveBeenCalledWith(
+        "https://www.liratek.shop/api/auth/google/start",
+        { intent: "join", ticket: "join-ticket" },
+      );
+      expect(acceptUserInvitation).not.toHaveBeenCalled();
+    });
+
+    it("a refusal before Google (username taken) shows the reason and stays on the page", async () => {
+      googleOn();
+      startJoinWithGoogle.mockResolvedValue({
+        success: false,
+        error: { code: USER_ACCOUNT_CODES.USERNAME_TAKEN, message: "This username is already taken in this shop" },
+      });
+      render(<JoinShop />);
+      fireEvent.change(await screen.findByTestId("join-username"), { target: { value: "cashier1" } });
+      fireEvent.click(await screen.findByTestId("join-google"));
+      expect(await screen.findByRole("alert")).toHaveTextContent("already taken");
+      expect(submitPostForm).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["email_mismatch", /different email/i],
+      ["already_linked", /already connected to another user in this shop/i],
+      ["username_taken", /username/i],
+      ["cancelled", /cancelled/i],
+    ])("back from Google with google=%s: says why, and the form is still there", async (code, text) => {
+      googleOn();
+      searchParams = new URLSearchParams(`invite=abc&google=${code}`);
+      render(<JoinShop />);
+      expect(await screen.findByRole("alert")).toHaveTextContent(text);
+      expect(screen.getByTestId("join-submit")).toBeInTheDocument();
+    });
   });
 });

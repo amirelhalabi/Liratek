@@ -7,7 +7,10 @@ export {
   todayISO,
   daysAgoISO,
 } from "./DateRangeFilter";
-export type { DateRangeFilterProps } from "./DateRangeFilter";
+export type {
+  DateRangeFilterProps,
+  DateRangeFilterVariant,
+} from "./DateRangeFilter";
 export { default as ServiceTypeTabs } from "./ServiceTypeTabs";
 export type {
   ServiceTypeTabsProps,

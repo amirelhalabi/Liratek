@@ -8,12 +8,13 @@
  * username filled in; the password is still typed there. A code proves the
  * inbox and nothing else — it never opens a session.
  *
- * No SQL here (rule 13): the code, user and outbox repositories do it.
+ * No SQL here (rule 13): the code, sign-in directory and outbox
+ * repositories do it.
  *
- * Who gets a code: only an email that signs in somewhere
- * (`UserRepository.findSigninAccountsByEmail` — active, verified user in an
- * active shop). Every other case sends nothing; the route answers all of
- * them with the same message.
+ * Who gets a code: only an email that signs in somewhere — a row in the
+ * platform sign-in directory (LIRA-288: an active user, never a super admin,
+ * whose email is CONFIRMED, in an active shop). Every other case sends
+ * nothing; the route answers all of them with the same message.
  *
  * Storage: only `hashToken("<email>:<code>")`. Binding the email into the
  * hash means a code is only ever compared against the row of the email it
@@ -24,11 +25,11 @@
  * server's clock on purpose (the same rule-27 exception as every link): a
  * client-supplied "now" would let anyone extend a code.
  *
- * Scoping: the code table and the outbox are platform-level, so the code row
- * and its email are one transaction even in per-tenant mode. The by-email
- * user lookup is cross-tenant and only sees every shop in SHARED DB mode
- * (production today); see `findSigninAccountsByEmail`. Call inside
- * `runWithoutTenant` (every method also enters it itself).
+ * Scoping: the code table, the sign-in directory and the outbox are all
+ * platform-level, so everything here reads and writes the platform file —
+ * the same answers whether shops share one file or each has its own
+ * (LIRA-288). Call inside `runWithoutTenant` (every method also enters it
+ * itself).
  *
  * NODE ONLY (node:crypto): exported from `services/index.ts`, never from
  * `browser.ts` (rule 29).
@@ -40,11 +41,11 @@ import {
   getSigninCodeRepository,
   type SigninCodeRepository,
 } from "../repositories/SigninCodeRepository.js";
+import { normalizeEmail } from "../repositories/UserRepository.js";
 import {
-  getUserRepository,
-  normalizeEmail,
-  type UserRepository,
-} from "../repositories/UserRepository.js";
+  getSigninDirectoryRepository,
+  type SigninDirectoryRepository,
+} from "../repositories/SigninDirectoryRepository.js";
 import {
   getEmailOutboxRepository,
   type EmailOutboxRepository,
@@ -94,7 +95,8 @@ export interface VerifySigninCodeParams {
 
 export interface SigninCodeServiceDeps {
   codeRepo: SigninCodeRepository;
-  userRepo: UserRepository;
+  /** LIRA-288: "which shops does this email sign in to?". */
+  directoryRepo: SigninDirectoryRepository;
   outboxRepo: EmailOutboxRepository;
   /** Makes a code; injectable so tests know it. */
   newCode: () => string;
@@ -125,13 +127,13 @@ function addMs(iso: string, ms: number): string {
 
 export class SigninCodeService {
   private readonly codeRepo: SigninCodeRepository;
-  private readonly userRepo: UserRepository;
+  private readonly directoryRepo: SigninDirectoryRepository;
   private readonly outboxRepo: EmailOutboxRepository;
   private readonly newCode: () => string;
 
   constructor(deps: Partial<SigninCodeServiceDeps> = {}) {
     this.codeRepo = deps.codeRepo ?? getSigninCodeRepository();
-    this.userRepo = deps.userRepo ?? getUserRepository();
+    this.directoryRepo = deps.directoryRepo ?? getSigninDirectoryRepository();
     this.outboxRepo = deps.outboxRepo ?? getEmailOutboxRepository();
     this.newCode = deps.newCode ?? generateSigninCode;
   }
@@ -157,7 +159,7 @@ export class SigninCodeService {
     if (!params.emailConfigured) return outcome("not_configured");
 
     return runWithoutTenant(() => {
-      if (this.userRepo.findSigninAccountsByEmail(email).length === 0) {
+      if (this.directoryRepo.findByEmail(email).length === 0) {
         return outcome("no_account");
       }
       const since = addMs(params.now, -SIGNIN_CODE_PER_EMAIL_WINDOW_MS);
@@ -221,8 +223,8 @@ export class SigninCodeService {
         return null;
       }
       if (!this.codeRepo.consume(row.id, params.now)) return null;
-      const shops = this.userRepo
-        .findSigninAccountsByEmail(email)
+      const shops = this.directoryRepo
+        .findByEmail(email)
         .map((a) => ({ slug: a.slug, name: a.shop_name, username: a.username }));
       authLogger.info(
         { emailHash: hashToken(email), shops: shops.length },

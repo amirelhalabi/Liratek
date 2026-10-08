@@ -3,10 +3,8 @@
  * DataTable export — Fragment-wrapped rows (LIRA-067).
  *
  * Imports the REAL component from @liratek/ui (packages/ui/src/components/ui/
- * DataTable.tsx) — NOT the stale duplicate at frontend/src/shared/components/
- * DataTable.tsx that the sibling DataTable.test.tsx in this folder exercises
- * (that copy is unused by every page; every real consumer, including
- * TransactionsViewer, imports from @liratek/ui).
+ * DataTable.tsx), the only copy — every consumer, including
+ * TransactionsViewer, imports from @liratek/ui.
  *
  * A `renderRow`/`exportRow` can return a Fragment of multiple <tr>s (e.g. a
  * transaction row plus an indented payment-leg detail row). Before this fix,
@@ -18,8 +16,7 @@ import { Fragment } from "react";
 import { DataTable, type DataTableColumn } from "@liratek/ui";
 
 // The REAL DataTable's ExportBar (packages/ui/src/components/ui/ExportBar.tsx)
-// imports from packages/ui/src/utils/tableExport — a different module than
-// frontend/src/shared/utils/tableExport, which only the stale duplicate uses.
+// imports from packages/ui/src/utils/tableExport — mock that exact module.
 const exportToExcel = jest.fn();
 const exportToPdf = jest.fn();
 jest.mock("../../../../../packages/ui/src/utils/tableExport", () => ({

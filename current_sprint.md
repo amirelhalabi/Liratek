@@ -6537,6 +6537,18 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
+## LIRA-288: Google sign-in for every user, scoped per shop + platform sign-in directory — DONE, not yet released (owner decisions 2026-10-08)
+
+Spec: `specs/288-per-shop-google-signin/`. Rule change: **one Google account = one user per shop** (replaces LIRA-280's "one Gmail = one shop"; the schema's `UNIQUE(provider, subject, tenant_id)` + `UNIQUE(user_id, provider)` are the whole rule; `isLinkedToAnyShop` / `LIVE_LINK_FROM` / `findBySubjectAllTenants` / `findSigninAccountsByEmail` deleted; `GoogleAccountInOtherShopError` kept deprecated for one release). New PLATFORM table `signin_directory` (v200, back-filled in shared mode): one row per confirmed email / Google link of an active non-super-admin user, shop status applied at read time (`DIRECTORY_USABLE`: `active` only). Kept in step by `SigninDirectoryService.syncUser` after every writer (email set/verify, Google link/unlink, invite accept, deactivate/reactivate/role, shop provision → `syncTenant`, shop delete → `deleteForTenant`); never throws. www readers (email code, www forgot password, www Google) read only the directory, so they work in per-tenant mode; Google on a shop's own address and the chooser re-check read the shop's own records in its own scope (FR-004: a shop with no linked user now refuses with `no_account` instead of going to another shop). "Join with Google" on invites (`POST /api/user-invitations/google/start` → 10-min join ticket → `acceptWithGoogle`: verified Google email must equal the invite email; user + link in one shop transaction; Google-only members get an unusable random password hash). Settings → Users: Google column + admin Disconnect (`DELETE /api/user-email/:userId/google`, audited `google_link.remove {by:"admin"}`). Operator CLI `node dist/scripts/signinDirectoryCli.js [--write]` + a boot drift warning. Web only (desktop has no Google, invites or email).
+
+**What users will notice:** one Google account works in several shops (one user each); staff can use Google; invitations offer "Join with Google"; admins see and can disconnect a user's Google in Settings → Users.
+
+**Owner, after deploy:** run `yarn api ssh console -C "node dist/scripts/signinDirectoryCli.js"` and expect zero differences (SC-005; judge by the exit code — stdout also carries dotenv/migration lines before the JSON).
+
+**Open owner decision:** "one shop per contact email" (LIRA-267, `idx_tenants_contact_email`) still applies to a Google sign-up, so an owner cannot create a SECOND shop with the Gmail that already created their first one (`EMAIL_ALREADY_HAS_SHOP`); a staff member's Gmail (not a contact email) can. Unchanged by LIRA-288.
+
+**Also in this batch (owner-approved 2026-10-08, no ticket of its own):** signing in again on the same browser (password or the Google hand-off) ends the previous session behind the replaced token (best effort, ≤2 s, never touches impersonation). **What users will notice:** Settings → Signed-in Devices no longer fills up with old sessions of the same browser.
+
 ## LIRA-287: identifier-first sign-in on www (Slack/Shopify-style) — DONE, not yet released (owner-approved 2026-10-07)
 
 www.liratek.shop becomes "Sign in to LiraTek": (1) remembered shops — after a sign-in on `<slug>.liratek.shop` (password or Google hand-off) the shop's slug + name go in an `lt_shops` cookie on `.liratek.shop` (Lax, Secure, not httpOnly, ≤10 shops, 1 year, no user data), shown on www as "Continue" rows with "Forget this shop"; (2) email → 6-digit code (new `signin-code` email, code scrubbed via `secretKeys`, only `sha256(email:code)` stored in the new PLATFORM table `signin_codes`, v199; 10-min TTL, 5 wrong tries lock a code, a new code burns the old ones, 5 codes/email/hour, 10 requests + 30 checks per IP/hour, one generic reply; mailed only to an email that is a verified active user of an active shop) → "Your shops" (only after a valid code) → `https://<slug>.liratek.shop/#/login?u=<username>` with the username filled in and the cursor in the password — the code never signs anyone in; (3) Continue with Google unchanged; (4) "Create your shop" as its own button. The shop-address field and the "Platform admin sign in" button are gone; super admins sign in at the unlinked `#/platform`. "Forgot password?" on www asks only the email and mails one reset link per shop the email signs in to (localhost/previews still ask for the shop). Connecting Google in Settings now sets `users.email` = the Gmail address (verified) when the user has none and no other user in the shop holds it; migration v198 backfills existing links (cornertech/test admins). Wording: "Sign in" / "Create your shop" everywhere, landing header gets both (AR "تسجيل الدخول" / "أنشئ متجرك"). Sign-up shows "1 Email · 2 Shop details".
@@ -6614,3 +6626,51 @@ types in `backendApi.ts` / `ApiAdapter` (rule 21 debt, pre-existing).
 What users will notice: "Category" in Settings → Mobile Services now works, admins can add a new category from the
 Recharge page, and Settings changes show on the Recharge page without a reload.
 
+
+---
+
+## LIRA-289: Mobile app — owner records and tracks digital sales from the phone, including after closing — TODO (owner decisions 2026-10-08)
+
+Origin: a web-app customer gets requests after the shop is closed (Whish App transfers, iPEC/Katch vouchers) and does
+them from his phone. He wants to record and track them in LiraTek from the phone, outside the shop. The mobile app is
+also meant to be the main selling point of the system: "run your shop's digital sales from anywhere". Big feature
+(web + backend + core, new day-boundary rule) — goes through Spec Kit as `specs/289-…`.
+
+> Owner answers 2026-10-08:
+> - **Scope = flows with no physical hand-over.** In: WHISH_APP / OMT_APP transfers, iPEC/Katch vouchers, MTC/Alfa
+>   recharge if doable from a phone, maybe Binance. Out: OMT/Whish counter services, exchange, POS, maintenance —
+>   anything that gives out cash or an item.
+> - **Payment:** the owner picks per transaction — customer account (debt), or paid into the Whish app, OMT app or
+>   Binance wallet. No cash.
+> - **Day rule is about the drawer being closed, not about the device.** The phone can also be used during working
+>   hours, where it behaves exactly like the web app. Transactions recorded after closing belong to the NEXT business
+>   day (a "between days" window from closing to the next opening); a closed day's report never changes.
+> - **The client sends its own local day** (rule 27) — an after-midnight sale must not take the server's UTC date.
+> - **Owner (admin) only** for now.
+
+> Owner answers 2026-10-08 (second round): a real Android + iOS app built with **Expo** (React Native); sign in with
+> Google (opens the shop where that account is the owner; no shop list) or shop address + username + password
+> (username checked inside that shop only); no Sign in with Apple for now; "Create your shop" in the app sends the
+> existing email sign-up link, rest on the web. Depends on
+> LIRA-288 for Google sign-in across shops / per-tenant DB mode. Spec: `specs/289-mobile-after-hours-sales/`.
+
+Build direction: Expo app (new screens; reuses the existing API, core rules and accounts); push notifications later. Web tenants first —
+desktop tenants keep their data on the shop PC (no cloud sync), so they cannot use it until a sync exists.
+
+Open questions for the spec:
+- How the closing's expected balance is computed today — "since the last closing" or "this calendar date". This
+  decides how much work the between-days window needs.
+- How the next opening shows the after-hours transactions and includes them in the expected wallet balances.
+- Whether MTC/Alfa recharge and Binance are really done from the phone by this customer.
+
+Acceptance criteria (draft):
+- From a phone, the owner can record each in-scope transaction with a client and one of the four payment options;
+  client, debt and wallet balances are the same as if it were recorded at the counter.
+- A transaction recorded while the shop is open lands in today, exactly like the web app.
+- A transaction recorded after closing does not change the closed day's report, and appears in the next opening.
+- The owner can list the transactions done after hours and see the current wallet / voucher / SIM balances.
+- Non-admin users cannot use the mobile flows.
+- Works in the web app; desktop unaffected.
+
+What users will notice: (when built) shop owners on the web app can record Whish App / OMT App transfers and voucher
+sales from their phone, even after closing, and see them in the next day's opening.

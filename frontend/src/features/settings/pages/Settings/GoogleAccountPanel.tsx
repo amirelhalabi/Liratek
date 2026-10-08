@@ -6,8 +6,14 @@
  * 2026-10-07): never automatically by matching an email. Connect asks the
  * server for the www start URL and a signed ticket that names the caller,
  * POSTs the ticket there as a form (never in a URL) and so leaves for Google; the callback returns here with
- * `?tab=devices&google=linked|already_linked|in_other_shop|error|cancelled`, which this
+ * `?tab=devices&google=linked|already_linked|error|cancelled`, which this
  * panel reports once and removes from the address bar.
+ *
+ * LIRA-288: one Google account = one user PER SHOP, so the same account may
+ * be connected here and in other shops; `already_linked` means another user
+ * of THIS shop has it (or this user already has another one). The callback
+ * no longer sends `in_other_shop`; its text is kept for one release for a
+ * page left open from before.
  *
  * Hidden on desktop and while Google sign-in is dormant (no GOOGLE_CLIENT_ID).
  * Disconnecting never locks anyone out: every account keeps its password.
@@ -34,7 +40,7 @@ const RESULT_TEXT: Record<string, { ok: boolean; text: string }> = {
     ok: false,
     text: "That Google account is already connected to another user in this shop, or you already have one connected.",
   },
-  // One Google account = one shop (owner decision 2026-10-07).
+  // Deprecated (LIRA-288): no longer sent; kept for one release.
   in_other_shop: { ok: false, text: GOOGLE_ACCOUNT_IN_OTHER_SHOP_MESSAGE },
   error: { ok: false, text: "Google could not be connected. Please try again." },
   cancelled: { ok: false, text: "Connecting Google was cancelled." },

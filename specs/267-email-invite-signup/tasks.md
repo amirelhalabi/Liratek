@@ -352,7 +352,7 @@
   - `.env.deploy.example`, and `docs/DEPLOYMENT.md` §5b/5c (:349-357, :457-482).
   - `docs/OPERATIONS.md:129`.
   - In Login.tsx, `canSignUp` becomes `selfServeEnabled` only, dropping the Stage A `|| enabled`. The **Sign up** link shows exactly when self-serve is on (spec FR-025). Update the T055 test to match.
-- [ ] T045 (open: owner unsets SIGNUP_INVITE_CODE on Fly after deploy) After the Stage B deploy, the owner runs `yarn api secrets unset SIGNUP_INVITE_CODE`. Then check quickstart §5 step 5.
+- [X] T045 (done 2026-10-07: owner ran the unset; verified absent from Fly secrets) After the Stage B deploy, the owner runs `yarn api secrets unset SIGNUP_INVITE_CODE`. Then check quickstart §5 step 5.
 
 ---
 

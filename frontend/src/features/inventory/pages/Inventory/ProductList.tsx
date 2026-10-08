@@ -1052,6 +1052,7 @@ export default function ProductList() {
           />
 
           <DateRangeFilter
+            variant="compact"
             from={filters.addedFrom}
             to={filters.addedTo}
             onFromChange={(addedFrom) =>

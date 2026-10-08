@@ -357,6 +357,14 @@ describe("splitTenantDatabase", () => {
          VALUES ('sso-hash', ?, 5, '2026-10-07T00:01:00.000Z')`,
       )
       .run(admin5);
+    // LIRA-288: the www sign-in directory is platform-only too (no
+    // tenant_id; target_tenant_id names the shop).
+    sourceDb!
+      .prepare(
+        `INSERT INTO signin_directory (kind, value, target_tenant_id, target_user_id, username, display_email, created_at, updated_at)
+         VALUES ('google', 'sub-five', 5, ?, 'admin5', 'five@example.com', '2026-10-07T00:00:00.000Z', '2026-10-07T00:00:00.000Z')`,
+      )
+      .run(admin5);
 
     const outputDir = path.join(tmpDir, "out-v196");
     const report = splitTenantDatabase({ sourceDbPath, outputDir, write: true });
@@ -384,6 +392,9 @@ describe("splitTenantDatabase", () => {
       expect(count(five, "sso_handoff_tokens")).toBe(0);
       expect(count(one, "sso_handoff_tokens")).toBe(0);
       expect(count(platform, "sso_handoff_tokens")).toBe(1);
+      expect(count(five, "signin_directory")).toBe(0);
+      expect(count(one, "signin_directory")).toBe(0);
+      expect(count(platform, "signin_directory")).toBe(1);
     } finally {
       five.close();
       one.close();

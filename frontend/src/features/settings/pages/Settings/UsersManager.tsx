@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Select, appEvents, useApi } from "@liratek/ui";
+import { ConfirmModal, Select, appEvents, useApi } from "@liratek/ui";
 import { DataTable, TextInput } from "@liratek/ui";
 import type {
   CreateUserInvitationInput,
@@ -20,6 +20,7 @@ import {
   revokeUserInvitation,
   resendUserInvitation,
   sendPasswordReset,
+  adminRemoveUserGoogle,
   type AccountRouteResult,
 } from "@/api/backendApi";
 
@@ -122,6 +123,11 @@ export default function UsersManager() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
   const [busyInviteId, setBusyInviteId] = useState<number | null>(null);
+  // LIRA-288: the member whose Google sign-in the admin is about to remove.
+  const [confirmGoogleFor, setConfirmGoogleFor] = useState<{
+    id: number;
+    username: string;
+  } | null>(null);
 
   const loadEmails = async () => {
     try {
@@ -212,6 +218,22 @@ export default function UsersManager() {
     );
     setBusyUserId(null);
     if (result) notifySuccess("Password reset email sent");
+  };
+
+  /** LIRA-288: an admin disconnects a member's Google (after confirming).
+   * That Google account no longer signs in to this shop; the member can
+   * still use their password, or set one with "Forgot password". */
+  const removeGoogle = async (id: number) => {
+    setConfirmGoogleFor(null);
+    setBusyUserId(id);
+    const result = await runAccountAction(
+      () => adminRemoveUserGoogle(id),
+      "Failed to disconnect Google",
+    );
+    setBusyUserId(null);
+    if (!result) return;
+    notifySuccess("Google sign-in disconnected");
+    await loadEmails();
   };
 
   const inviteByEmail = async () => {
@@ -422,7 +444,7 @@ export default function UsersManager() {
         <DataTable
           columns={[
             "Username",
-            ...(web ? ["Email"] : []),
+            ...(web ? ["Email", "Google"] : []),
             "Role",
             "Active",
             { header: "Actions", className: "p-2 text-right" },
@@ -506,6 +528,26 @@ export default function UsersManager() {
                     )}
                   </td>
                 )}
+                {web && (
+                  <td className="p-2" data-testid={`user-google-${u.id}`}>
+                    {info?.google ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{info.google.email ?? "Connected"}</span>
+                        <button
+                          onClick={() =>
+                            setConfirmGoogleFor({ id: u.id, username: u.username })
+                          }
+                          disabled={busy}
+                          className="text-xs text-red-300 hover:text-red-200 disabled:opacity-50"
+                        >
+                          Disconnect Google
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-slate-500">—</span>
+                    )}
+                  </td>
+                )}
                 <td className="p-2">{u.role}</td>
                 <td className="p-2">{u.is_active ? "Yes" : "No"}</td>
                 <td className="p-2 text-right space-x-2">
@@ -547,6 +589,21 @@ export default function UsersManager() {
           }}
         />
       </div>
+
+      <ConfirmModal
+        isOpen={confirmGoogleFor !== null}
+        title="Disconnect Google?"
+        message={
+          confirmGoogleFor
+            ? `${confirmGoogleFor.username} will no longer be able to sign in to this shop with Google. They can still sign in with a password, or set one with "Forgot password" if they never chose one.`
+            : ""
+        }
+        confirmLabel="Disconnect"
+        onConfirm={() => {
+          if (confirmGoogleFor) void removeGoogle(confirmGoogleFor.id);
+        }}
+        onCancel={() => setConfirmGoogleFor(null)}
+      />
 
       {web && visibleInvites.length > 0 && (
         <div className="space-y-2">

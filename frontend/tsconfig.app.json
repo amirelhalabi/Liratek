@@ -45,6 +45,6 @@
     "noImplicitOverride": true,
     "exactOptionalPropertyTypes": true
   },
-  "include": ["./src"],
+  "include": ["./src", "../packages/ui/src/types/window-globals.d.ts"],
   "exclude": ["./src/**/*.test.ts", "src/**/*.test.tsx", "src/**/__tests__/**"]
 }

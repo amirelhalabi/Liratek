@@ -1,14 +1,15 @@
 /** @jest-environment jsdom */
 
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ConfirmModal } from "../ConfirmModal";
+import { ConfirmModal } from "@liratek/ui";
 // @testing-library/jest-dom matchers are global (jest.setup.ts) — no import needed.
 
-// useModalFocusFix is a non-pure dependency (touches window.api / navigator).
-// It is a no-op outside Windows, but mock it so these tests stay isolated.
-jest.mock("@/shared/hooks/useModalFocusFix", () => ({
-  useModalFocusFix: jest.fn(),
-}));
+// ConfirmModal uses the shared `useModalFocusFix` hook (owned by @liratek/ui).
+// It is a no-op under jsdom's default non-Windows user agent, so the
+// rendering tests below need no mocking; the focus-fix behaviour itself is
+// pinned in the "Windows focus fix" block at the bottom of this file.
 
 interface RenderOptions {
   isOpen?: boolean;
@@ -159,5 +160,94 @@ describe("ConfirmModal", () => {
     const confirmBtn = screen.getByTestId("confirm-modal-confirm-btn");
     expect(confirmBtn.className).toContain("bg-violet-600");
     expect(confirmBtn.className).not.toContain("bg-red-600");
+  });
+});
+
+describe("ConfirmModal — Windows focus fix (useModalFocusFix)", () => {
+  const WINDOWS_UA =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Electron/31.0.0";
+
+  function modal(isOpen: boolean) {
+    return (
+      <ConfirmModal
+        isOpen={isOpen}
+        title="Delete product"
+        message="Sure?"
+        onConfirm={jest.fn()}
+        onCancel={jest.fn()}
+      />
+    );
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    Reflect.deleteProperty(window, "api");
+  });
+
+  it("desktop on Windows: calls fixFocus only AFTER the modal is gone, not during close", () => {
+    jest.spyOn(navigator, "userAgent", "get").mockReturnValue(WINDOWS_UA);
+    const fixFocus = jest.fn();
+    Object.defineProperty(window, "api", {
+      value: { display: { fixFocus } },
+      configurable: true,
+      writable: true,
+    });
+
+    const { rerender } = render(modal(true));
+    rerender(modal(false));
+
+    // Firing synchronously in the close cleanup runs while the fixed overlay
+    // is still in the DOM, which leaves the Chromium compositor confused.
+    expect(screen.queryByTestId("confirm-modal")).not.toBeInTheDocument();
+    expect(fixFocus).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(300);
+    expect(fixFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it("web on Windows (no preload bridge): open/close never throws", () => {
+    jest.spyOn(navigator, "userAgent", "get").mockReturnValue(WINDOWS_UA);
+    Reflect.deleteProperty(window, "api");
+
+    const { rerender } = render(modal(true));
+    expect(() => {
+      rerender(modal(false));
+      jest.advanceTimersByTime(1000);
+    }).not.toThrow();
+    expect(screen.queryByTestId("confirm-modal")).not.toBeInTheDocument();
+  });
+
+  it("non-Windows (browser/web, mac desktop): never touches window.api", () => {
+    const apiGetter = jest.fn(() => undefined);
+    Object.defineProperty(window, "api", {
+      get: apiGetter,
+      configurable: true,
+    });
+
+    const { rerender } = render(modal(true));
+    rerender(modal(false));
+    jest.advanceTimersByTime(1000);
+
+    expect(apiGetter).not.toHaveBeenCalled();
+  });
+
+  it("source guard: no `any` and no raw window.api access in ConfirmModal", () => {
+    // packages/ui's "lint" is tsc only (no-explicit-any is not enforced
+    // there), so this is the only check that keeps the cast out.
+    const src = readFileSync(
+      resolve(
+        __dirname,
+        "../../../../../packages/ui/src/components/ui/ConfirmModal.tsx",
+      ),
+      "utf8",
+    );
+    expect(src).not.toMatch(/\bas any\b|:\s*any\b/);
+    expect(src).not.toMatch(/window\s*(as\s+[^)]*\))?\s*\)?\s*\.api/);
+    expect(src).toMatch(/useModalFocusFix\(isOpen\)/);
   });
 });

@@ -124,6 +124,9 @@ beforeAll(async () => {
   `);
 
   core.resetEmailOutboxRepository();
+  // LIRA-288: www reads the platform sign-in directory, which the app keeps
+  // in step with the users; seeded raw above, so it is built once here.
+  new core.SigninDirectoryService().rebuildAll(new Date().toISOString());
 
   const routes = (await import("../signinCode")).default;
   app = express();

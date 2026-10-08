@@ -314,6 +314,27 @@ CREATE TABLE IF NOT EXISTS signin_codes (
 CREATE INDEX IF NOT EXISTS idx_signin_codes_email_created
     ON signin_codes(email, created_at);
 
+-- www sign-in directory (LIRA-288). PLATFORM-level, no tenant_id: one row per
+-- sign-in method (a CONFIRMED email, or a Google sub) of an active,
+-- non-super-admin shop user, naming the shop (target_tenant_id) and the user
+-- (target_user_id, no FK: in per-tenant mode the user is in the shop's own
+-- file). An index kept in step by SigninDirectoryService, never the source of
+-- truth. Shop status is applied at read time.
+CREATE TABLE IF NOT EXISTS signin_directory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK (kind IN ('email', 'google')),
+    value TEXT NOT NULL,
+    target_tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    target_user_id INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    display_email TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (kind, value, target_tenant_id)
+);
+CREATE INDEX IF NOT EXISTS idx_signin_directory_target
+    ON signin_directory(target_tenant_id, target_user_id);
+
 -- Sessions (for unified session management across Electron and Web)
 -- NOTE: token is random-unique already; tenant_id is just added (denormalized
 -- from user) — not part of any constraint.
@@ -2683,4 +2704,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v198 (LIRA-287) backfills users.email from Google links: data only.
     (198, 'google_link_email_backfill'),
     -- v199 (LIRA-287) adds signin_codes, declared above.
-    (199, 'signin_codes');
+    (199, 'signin_codes'),
+    -- v200 (LIRA-288) adds signin_directory, declared above.
+    (200, 'signin_directory');

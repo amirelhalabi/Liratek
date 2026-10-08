@@ -65,6 +65,8 @@ describe("stays writable in read_only", () => {
     // public token routes
     ["post", "/api/user-invitations/check"],
     ["post", "/api/user-invitations/accept"],
+    // LIRA-288: "Join with Google" start, on the public invite page
+    ["post", "/api/user-invitations/google/start"],
     ["post", "/api/user-email/verify"],
     ["post", "/api/password-reset/forgot"],
     ["post", "/api/password-reset/check"],
@@ -74,6 +76,8 @@ describe("stays writable in read_only", () => {
     // removing access is never blocked
     ["post", "/api/user-invitations/12/revoke"],
     ["delete", "/api/auth/google/link"],
+    // LIRA-288: an admin disconnecting a member's Google (offboarding)
+    ["delete", "/api/user-email/5/google"],
   ] as const)("%s %s", async (method, path) => {
     const res = await call(method, path).expect(200);
     expect(res.body.reached).toBe(true);

@@ -98,29 +98,17 @@ export interface UserEmailInfo {
 }
 
 /**
- * "This email can sign in to that shop" (LIRA-287), defined once (rule 14):
- * an ACTIVE user (never a super admin) whose email is VERIFIED, in an
- * ACTIVE shop. It gates the www sign-in code (a code is only mailed to such
- * an email), builds the "your shops" list a valid code returns, and picks
- * the shops a www "Forgot password?" mails a reset link for. `u` is users,
- * `t` is tenants. Bind: the normalised email.
+ * What the www sign-in directory needs to know about one shop user
+ * (LIRA-288): `SigninDirectoryService.buildDirectoryRows` turns this into
+ * directory rows. Read in the user's OWN shop scope.
  */
-const SIGNIN_ACCOUNT_FROM = `
-  FROM users u
-  JOIN tenants t ON t.id = u.tenant_id
- WHERE u.email = ?
-   AND u.email_verified_at IS NOT NULL
-   AND u.is_active = 1
-   AND u.role <> 'super_admin'
-   AND t.status = 'active'`;
-
-/** One shop an email signs in to (see `SIGNIN_ACCOUNT_FROM`). */
-export interface SigninAccount {
-  tenant_id: number;
-  slug: string;
-  shop_name: string;
-  user_id: number;
+export interface SigninUserFacts {
+  id: number;
   username: string;
+  role: "super_admin" | "admin" | "staff";
+  is_active: number;
+  email: string | null;
+  email_verified_at: string | null;
 }
 
 /** A user row plus its account email — returned by the by-email lookups. */
@@ -707,6 +695,39 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
+   * One CURRENT-shop user's sign-in facts (active OR not), or null when the
+   * id is not a user of this shop. For the sign-in directory (LIRA-288).
+   */
+  getSigninFacts(userId: number): SigninUserFacts | null {
+    try {
+      return this.queryOne<SigninUserFacts>(
+        `SELECT id, username, role, is_active, email, email_verified_at FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`,
+        userId,
+        getCurrentTenantId(),
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to load user sign-in facts", {
+        cause: error,
+        entityId: userId,
+      });
+    }
+  }
+
+  /** Every CURRENT-shop user's sign-in facts (active or not), by id. */
+  listSigninFacts(): SigninUserFacts[] {
+    try {
+      return this.query<SigninUserFacts>(
+        `SELECT id, username, role, is_active, email, email_verified_at FROM ${this.tableName} WHERE tenant_id = ? ORDER BY id`,
+        getCurrentTenantId(),
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to list user sign-in facts", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
    * The ACTIVE user with this email in an explicit shop (forgot password,
    * invite duplicate check). The realm is passed by the caller — resolved
    * from the request host or a typed shop address before any tenant context
@@ -750,30 +771,6 @@ export class UserRepository extends BaseRepository<UserEntity> {
       throw new DatabaseError("Failed to set user email", {
         cause: error,
         entityId: userId,
-      });
-    }
-  }
-
-  /**
-   * Every shop this email signs in to (`SIGNIN_ACCOUNT_FROM`), by shop name.
-   * Cross-tenant by design: the www sign-in has no shop yet. SHARED DB mode
-   * only — in per-tenant mode each shop's users live in their own file, so a
-   * platform-level email -> (shop, user) index is needed before that split
-   * goes live (the same follow-up as `UserIdentityRepository
-   * .findBySubjectAllTenants`).
-   */
-  findSigninAccountsByEmail(email: string): SigninAccount[] {
-    try {
-      return this.query<SigninAccount>(
-        `SELECT t.id AS tenant_id, t.slug AS slug, t.name AS shop_name,
-                u.id AS user_id, u.username AS username
-           ${SIGNIN_ACCOUNT_FROM} /* tenant-exempt: www sign-in lists every shop an email signs in to, before any shop is chosen */
-          ORDER BY t.name COLLATE NOCASE, t.id, u.username COLLATE NOCASE`,
-        normalizeEmail(email),
-      );
-    } catch (error) {
-      throw new DatabaseError("Failed to find shops by email", {
-        cause: error,
       });
     }
   }

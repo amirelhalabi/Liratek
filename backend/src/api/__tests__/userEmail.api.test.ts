@@ -160,8 +160,92 @@ beforeEach(() => {
   emailConfigured = true;
   db.exec(
     `DELETE FROM email_verification_tokens; DELETE FROM email_outbox;
-     UPDATE users SET email = NULL, email_verified_at = NULL;`,
+     UPDATE users SET email = NULL, email_verified_at = NULL;
+     DELETE FROM user_identities; DELETE FROM signin_directory; DELETE FROM audit_log;`,
   );
+});
+
+// ── LIRA-288: an admin sees and disconnects members' Google ──────────────
+
+function linkGoogle(username: string, tenantId: number, subject: string, email: string) {
+  db.prepare(
+    `INSERT INTO user_identities (user_id, tenant_id, provider, subject, email, created_at, updated_at)
+     VALUES (?, ?, 'google', ?, ?, '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z')`,
+  ).run(ids[username], tenantId, subject, email);
+  new core.SigninDirectoryService().rebuildAll("2026-10-01T00:00:00.000Z");
+}
+
+describe("LIRA-288 GET /api/user-email — Google", () => {
+  it("each user carries google: { email } when connected, null otherwise", async () => {
+    linkGoogle("cell_staff", 2, "sub-staff", "staff@gmail.com");
+    const admin = await loginToken("cell_admin");
+    const res = await request(app).get(BASE).set("Authorization", `Bearer ${admin}`);
+    const users = res.body.data.users as Array<{ id: number; google: { email: string | null } | null }>;
+    expect(users.find((u) => u.id === ids.cell_staff)?.google).toEqual({ email: "staff@gmail.com" });
+    expect(users.find((u) => u.id === ids.cell_admin)?.google).toBeNull();
+  });
+});
+
+describe("LIRA-288 DELETE /api/user-email/:userId/google (admin)", () => {
+  it("disconnects a member's Google in this shop only, re-syncs the directory, audits google_link.remove {by: admin}; a repeat changes nothing", async () => {
+    linkGoogle("cell_staff", 2, "sub-shared", "staff@gmail.com");
+    linkGoogle("fone_staff", 3, "sub-shared", "staff@gmail.com");
+    expect(
+      count(`SELECT COUNT(*) AS n FROM signin_directory WHERE kind = 'google' AND value = 'sub-shared'`),
+    ).toBe(2);
+
+    const admin = await loginToken("cell_admin");
+    const res = await request(app)
+      .delete(`${BASE}/${ids.cell_staff}/google`)
+      .set("Authorization", `Bearer ${admin}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: true,
+      data: { user: { id: ids.cell_staff, email: null, emailVerifiedAt: null, google: null } },
+    });
+    expect(count(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`, ids.cell_staff)).toBe(0);
+    // The other shop's link is untouched, in both places.
+    expect(count(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`, ids.fone_staff)).toBe(1);
+    expect(
+      db
+        .prepare(`SELECT target_tenant_id AS t FROM signin_directory WHERE kind = 'google' AND value = 'sub-shared'`)
+        .all(),
+    ).toEqual([{ t: 3 }]);
+    const audit = db
+      .prepare(`SELECT action, entity_id, metadata FROM audit_log WHERE action = 'google_link.remove'`)
+      .all() as Array<{ action: string; entity_id: string; metadata: string }>;
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.entity_id).toBe(String(ids.cell_staff));
+    expect(JSON.parse(audit[0]!.metadata)).toMatchObject({ by: "admin" });
+
+    const again = await request(app)
+      .delete(`${BASE}/${ids.cell_staff}/google`)
+      .set("Authorization", `Bearer ${admin}`);
+    expect(again.body.success).toBe(true);
+    expect(count(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'google_link.remove'`)).toBe(1);
+  });
+
+  it("NOT_FOUND for another shop's user; 403 for staff (even their own); 401 without a token; a bad id is refused", async () => {
+    linkGoogle("fone_staff", 3, "sub-fone", "fone@gmail.com");
+    linkGoogle("cell_other", 2, "sub-other", "other@gmail.com");
+    const admin = await loginToken("cell_admin");
+    const other = await request(app)
+      .delete(`${BASE}/${ids.fone_staff}/google`)
+      .set("Authorization", `Bearer ${admin}`);
+    expect(other.body.success).toBe(false);
+    expect(other.body.error.code).toBe("NOT_FOUND");
+    expect(count(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`, ids.fone_staff)).toBe(1);
+
+    const staff = await loginToken("cell_staff");
+    expect(
+      (await request(app).delete(`${BASE}/${ids.cell_other}/google`).set("Authorization", `Bearer ${staff}`)).status,
+    ).toBe(403);
+    expect((await request(app).delete(`${BASE}/${ids.cell_other}/google`)).status).toBe(401);
+    expect(count(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`, ids.cell_other)).toBe(1);
+
+    const bad = await request(app).delete(`${BASE}/abc/google`).set("Authorization", `Bearer ${admin}`);
+    expect(bad.body.success).toBe(false);
+  });
 });
 
 describe("GET /api/user-email", () => {
@@ -179,6 +263,7 @@ describe("GET /api/user-email", () => {
       id: ids.cell_staff,
       email: "a@cell.test",
       emailVerifiedAt: "2026-10-01T00:00:00.000Z",
+      google: null,
     });
 
     const staff = await loginToken("cell_staff");

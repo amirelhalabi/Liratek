@@ -30,6 +30,27 @@ jest.mock("../../server.js", () => ({
   },
 }));
 
+/** LIRA-288: "Join with Google" needs Google configured; toggled here so
+ * the real ticket signing in security/googleOAuth.ts still runs. */
+let googleOn = true;
+jest.mock("../../security/googleOAuth.js", () => {
+  const actual = jest.requireActual<typeof import("../../security/googleOAuth.js")>(
+    "../../security/googleOAuth.js",
+  );
+  return {
+    ...actual,
+    googleConfig: () =>
+      googleOn
+        ? {
+            clientId: "cid",
+            clientSecret: "secret",
+            platformBaseUrl: "https://www.liratek.test",
+            redirectUri: "https://www.liratek.test/api/auth/google/callback",
+          }
+        : null,
+  };
+});
+
 let emailConfigured = true;
 jest.mock("../../email/createTransport.js", () => ({
   isEmailConfigured: () => emailConfigured,
@@ -113,6 +134,9 @@ async function invite(
 beforeAll(async () => {
   process.env.JWT_SECRET = "user-invitations-test-secret-0123456789-0123456789";
   process.env.APP_BASE_DOMAIN = "liratek.test";
+  // Every public link route in this file shares ONE per-IP limiter (30 an
+  // hour by default); the suite makes more calls than that from one IP.
+  process.env.USER_INVITE_LINK_RATE_LIMIT_MAX = "1000";
 
   db = new RealDatabase(":memory:");
   db.pragma("foreign_keys = ON");
@@ -168,6 +192,7 @@ afterAll(() => {
 beforeEach(() => {
   core.resetTenantContext();
   emailConfigured = true;
+  googleOn = true;
   db.exec(
     `DELETE FROM user_invitations; DELETE FROM email_outbox; DELETE FROM tenant_subscriptions WHERE tenant_id IN (2, 3);`,
   );
@@ -620,5 +645,95 @@ describe("an invite into a LAPSED (read-only) shop", () => {
       .post(`${BASE}/accept`)
       .send(acceptBody({ token, username: "grace_joiner", password: NEW_PASSWORD }));
     expect(ok.body.success).toBe(true);
+  });
+});
+
+// ── LIRA-288: Join with Google — the start, on the invite page ────────────
+
+describe("POST /api/user-invitations/google/start (public)", () => {
+  /** Rule 24: the body's keys are the schema's own. */
+  function joinBody(input: { token: string; username: string }) {
+    expect(Object.keys(input).sort()).toEqual(
+      Object.keys(core.joinWithGoogleStartSchema.shape).sort(),
+    );
+    return input;
+  }
+
+  async function pendingInvite(email: string): Promise<string> {
+    const admin = await loginToken("cell_admin");
+    expect((await invite(admin, email)).body.success).toBe(true);
+    return tokenFromOutbox(email).token;
+  }
+
+  const start = (hostName: string | null, body: { token: string; username: string }) => {
+    let req = request(app).post(`${BASE}/google/start`);
+    if (hostName) req = req.set("Host", hostName);
+    return req.send(joinBody(body));
+  };
+
+  it("returns the www start URL and a join ticket naming the invite, the username and the shop — and claims nothing", async () => {
+    const token = await pendingInvite("google.joiner@b.co");
+    const res = await start(host("cellcity"), { token, username: "  gjoiner " });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.url).toBe("https://www.liratek.test/api/auth/google/start");
+    const { readJoinTicket, verifyTicket } = jest.requireActual<
+      typeof import("../../security/googleOAuth.js")
+    >("../../security/googleOAuth.js");
+    expect(readJoinTicket(verifyTicket("join", res.body.data.ticket))).toEqual({
+      token,
+      username: "gjoiner",
+      tenantId: 2,
+    });
+    // Nothing claimed: the link is still usable.
+    expect((await request(app).post(`${BASE}/check`).send({ token })).body.success).toBe(true);
+  });
+
+  it("refuses an unusable link (unknown, another shop's host) with INVITE_INVALID", async () => {
+    const token = await pendingInvite("google.bad@b.co");
+    for (const res of [
+      await start(host("cellcity"), { token: "nope", username: "gjoiner" }),
+      await start(host("fonefix"), { token, username: "gjoiner" }),
+    ]) {
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("INVITE_INVALID");
+    }
+  });
+
+  it("refuses a username already taken in the shop with USERNAME_TAKEN", async () => {
+    const token = await pendingInvite("google.taken@b.co");
+    const res = await start(host("cellcity"), { token, username: "CELL_STAFF" });
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe("USERNAME_TAKEN");
+  });
+
+  it("refuses a lapsed (read-only) shop with SHOP_NOT_ACTIVE", async () => {
+    const token = await pendingInvite("google.lapsed@b.co");
+    db.prepare(
+      `INSERT INTO tenant_subscriptions (tenant_id, plan, status) VALUES (2, 'standard', 'read_only')
+       ON CONFLICT(tenant_id) DO UPDATE SET status = excluded.status`,
+    ).run();
+    const res = await start(host("cellcity"), { token, username: "gjoiner" });
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe("SHOP_NOT_ACTIVE");
+  });
+
+  it("refuses with GOOGLE_NOT_CONFIGURED while Google sign-in is off", async () => {
+    const token = await pendingInvite("google.off@b.co");
+    googleOn = false;
+    const res = await start(host("cellcity"), { token, username: "gjoiner" });
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe(core.GOOGLE_NOT_CONFIGURED);
+  });
+
+  it("refuses a too-short username through the schema (200 + success:false)", async () => {
+    const token = await pendingInvite("google.short@b.co");
+    const res = await request(app)
+      .post(`${BASE}/google/start`)
+      .set("Host", host("cellcity"))
+      .send({ token, username: "ab" });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
   });
 });

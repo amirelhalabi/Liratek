@@ -101,13 +101,30 @@ const svc = {
   linkIdentity: jest.fn<(input: Record<string, unknown>) => void>(),
   unlinkIdentity: jest.fn<(userId: number) => boolean>(),
   getLinkedEmail: jest.fn<(userId: number) => { linked: boolean; email: string | null }>(),
-  isLinkedToAnyShop: jest.fn<(sub: string) => boolean>(),
 };
+
+/** Which scope the route was in when a service method ran: a shop id
+ * (runWithTenant), "platform" (runWithoutTenant) or null (none). LIRA-288:
+ * the explicit-shop Google lookups must run in THAT shop's scope, or
+ * per-tenant mode reads the platform file and finds nobody. */
+let scope: number | "platform" | null = null;
+function inScope<T>(next: number | "platform", fn: () => T): T {
+  const outer = scope;
+  scope = next;
+  try {
+    return fn();
+  } finally {
+    scope = outer;
+  }
+}
 
 const provisionTenant = jest.fn<(input: Record<string, unknown>) => unknown>();
 /** The ONE public sign-up daily cap (email requests + Google sign-ups). */
 const capReached = jest.fn<(input: { now: string; dailyCap: number }) => boolean>();
 const auditLog = jest.fn();
+/** LIRA-288 "Join with Google": the core service is a stub here (its own
+ * behaviour is core's UserInvitationService.joinWithGoogle.test.ts). */
+const acceptWithGoogle = jest.fn<(input: Record<string, unknown>) => unknown>();
 
 const TENANTS: Record<number, { id: number; name: string; slug: string; status: string }> = {
   2: { id: 2, name: "Two Shop", slug: "two", status: "active" },
@@ -123,6 +140,7 @@ jest.mock("@liratek/core", () => {
     getTenantProvisioningService: () => ({ provisionTenant }),
     getSignupInvitationService: () => ({ isPublicSignupCapReached: capReached }),
     getAuditService: () => ({ log: auditLog }),
+    getUserInvitationService: () => ({ acceptWithGoogle }),
     getAuditRepository: () => ({ log: auditLog }),
     getAuthService: () => ({ login: jest.fn(), logout: jest.fn() }),
     getUserRepository: () => ({
@@ -138,8 +156,8 @@ jest.mock("@liratek/core", () => {
         Object.values(TENANTS).find((t) => t.slug === slug) ?? null,
       getById: (id: number) => TENANTS[id] ?? null,
     }),
-    runWithoutTenant: (fn: () => unknown) => fn(),
-    runWithTenant: (_id: number, fn: () => unknown) => fn(),
+    runWithoutTenant: (fn: () => unknown) => inScope("platform", fn),
+    runWithTenant: (id: number, fn: () => unknown) => inScope(id, fn),
     JWT_SECRET: "test-secret-at-least-32-characters-long!",
     JWT_EXPIRES_IN: "7d",
     get GOOGLE_CLIENT_ID() {
@@ -169,9 +187,14 @@ import {
   IdentityAlreadyLinkedError,
   GOOGLE_NOT_CONFIGURED,
   googleSignupSchema,
+  EmailTakenInShopError,
+  JoinGoogleEmailMismatchError,
+  UserInviteShopInactiveError,
+  UsernameTakenError,
 } from "@liratek/core";
 import googleAuthRoutes from "../googleAuth.js";
 import authRoutes from "../auth.js";
+import { signTicket } from "../../security/googleOAuth.js";
 
 const WWW = "www.liratek.shop";
 
@@ -198,7 +221,7 @@ beforeEach(() => {
   baseDomain = "liratek.shop";
   selfServe = false;
   capReached.mockReturnValue(false);
-  svc.isLinkedToAnyShop.mockReturnValue(false);
+  scope = null;
   svc.createHandoff.mockReturnValue("handoff-token");
   svc.exchangeCodeForClaims.mockResolvedValue({
     sub: "g-sub",
@@ -497,6 +520,44 @@ describe("callback", () => {
     expect(hashParams(url).get("error")).toBe("no_account");
   });
 
+  // LIRA-288 FR-004: started on a shop's own address, Google signs in THAT
+  // shop's user — read from the shop's own records, never the www directory
+  // — or refuses; it never goes to another shop.
+  describe("login started on a shop's own address", () => {
+    it("signs in that shop's linked user, looked up in that shop's scope", async () => {
+      enable();
+      svc.findMatchInTenant.mockImplementation((_sub, tenantId) => {
+        expect(scope).toBe(tenantId);
+        return { identity_id: 1, user_id: 20, tenant_id: 2, username: "boss", role: "admin" };
+      });
+      const url = await signInFlow(buildApp(), "intent=login&shop=two");
+      expect(url.origin).toBe("https://two.liratek.shop");
+      expect(url.hash).toBe("#/login?sso=handoff-token");
+      expect(svc.findMatchInTenant).toHaveBeenCalledWith("g-sub", 2);
+      expect(svc.findSignInMatches).not.toHaveBeenCalled();
+    });
+
+    it("refuses with error=no_account when this shop has no linked user, even if another shop does", async () => {
+      enable();
+      svc.findMatchInTenant.mockReturnValue(null);
+      svc.findSignInMatches.mockReturnValue([
+        { tenant_id: 3, slug: "three", shop_name: "Three Shop", user_id: 30, username: "boss3" },
+      ]);
+      const url = await signInFlow(buildApp(), "intent=login&shop=two");
+      expect(url.origin).toBe("https://www.liratek.shop");
+      expect(hashParams(url).get("error")).toBe("no_account");
+      expect(svc.createHandoff).not.toHaveBeenCalled();
+    });
+
+    it("refuses a shop that is not active", async () => {
+      enable();
+      svc.findMatchInTenant.mockReturnValue({ identity_id: 1, user_id: 50, tenant_id: 5, username: "x", role: "admin" });
+      const url = await signInFlow(buildApp(), "intent=login&shop=closed");
+      expect(hashParams(url).get("error")).toBe("no_account");
+      expect(svc.createHandoff).not.toHaveBeenCalled();
+    });
+  });
+
   describe("login, several shops", () => {
     const TWO_SHOPS = [
       { identity_id: 1, user_id: 20, tenant_id: 2, username: "boss", role: "admin" },
@@ -515,7 +576,11 @@ describe("callback", () => {
       expect(shops.map((s) => s.name)).toEqual(["Two Shop", "Three Shop"]);
       expect(svc.createHandoff).not.toHaveBeenCalled();
 
-      svc.findMatchInTenant.mockReturnValue(TWO_SHOPS[1]!);
+      const chooseScopes: Array<number | "platform" | null> = [];
+      svc.findMatchInTenant.mockImplementation(() => {
+        chooseScopes.push(scope);
+        return TWO_SHOPS[1]!;
+      });
       const res = await request(app)
         .post("/api/auth/google/choose")
         .send({ ticket, tenantId: 3 });
@@ -523,8 +588,10 @@ describe("callback", () => {
         success: true,
         data: { redirectUrl: "https://three.liratek.shop/#/login?sso=handoff-token" },
       });
-      // Re-checked against the database, not trusted from the ticket.
+      // Re-checked against the database, not trusted from the ticket — in
+      // the chosen shop's own scope (its file, in per-tenant mode).
       expect(svc.findMatchInTenant).toHaveBeenCalledWith("g-sub", 3);
+      expect(chooseScopes).toEqual([3]);
       expect(svc.createHandoff).toHaveBeenCalledWith(
         expect.objectContaining({ userId: 30, tenantId: 3 }),
       );
@@ -790,30 +857,32 @@ describe("Google sign-up: always open when configured, inside the one daily cap"
     );
   });
 
-  it("one Google account = one shop: an account already connected anywhere is refused at the callback, before the cap", async () => {
+  // LIRA-288 FR-003 (owner decision 2026-10-08: one Google account = one
+  // user PER SHOP): an account already linked in other shops can still
+  // create a new shop; its admin gets the link.
+  it("an account linked in other shops gets the sign-up form at the callback", async () => {
     enable();
-    svc.isLinkedToAnyShop.mockReturnValue(true);
-    capReached.mockReturnValue(true);
+    svc.findSignInMatches.mockReturnValue([
+      { tenant_id: 2, slug: "two", shop_name: "Two Shop", user_id: 20, username: "boss" },
+    ]);
     const url = await signInFlow(buildApp(), "intent=signup");
     expect(url.origin).toBe("https://www.liratek.shop");
-    expect(url.hash).toContain("error=already_connected");
-    expect(url.hash).not.toContain("google=");
-    expect(svc.isLinkedToAnyShop).toHaveBeenCalledWith("g-sub");
+    expect(url.hash.startsWith("#/signup?google=")).toBe(true);
+    expect(url.hash).not.toContain("already_connected");
   });
 
-  it("one Google account = one shop: re-checked when the form is submitted (connected meanwhile), nothing created", async () => {
+  it("an account linked in other shops creates the shop and links its admin when the form is submitted", async () => {
     enable();
     const app = buildApp();
     const googleTicket = hashParams(await signInFlow(app, "intent=signup")).get("google")!;
-    expect(googleTicket).toBeTruthy();
-    svc.isLinkedToAnyShop.mockReturnValue(true);
+    provisionTenant.mockReturnValue({ id: 9, name: "New Shop", slug: "newshop" });
     const res = await request(app).post("/api/auth/signup").send({ ...shopFields, googleTicket });
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(false);
-    expect(res.body.code).toBe("GOOGLE_ACCOUNT_IN_OTHER_SHOP");
-    expect(String(res.body.error)).toMatch(/already connected/i);
-    expect(provisionTenant).not.toHaveBeenCalled();
-    expect(svc.linkIdentity).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(provisionTenant).toHaveBeenCalledTimes(1);
+    expect(svc.linkIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 99, subject: "g-sub" }),
+    );
+    expect(res.body.code).not.toBe("GOOGLE_ACCOUNT_IN_OTHER_SHOP");
   });
 
   it("sign-in with Google is never subject to the sign-up cap", async () => {
@@ -867,14 +936,16 @@ describe("link / unlink from Settings", () => {
     expect(hashParams(url).get("google")).toBe("already_linked");
   });
 
-  it("one Google account = one shop: an account connected in another shop comes back as google=in_other_shop", async () => {
+  // LIRA-288: `in_other_shop` is no longer produced. The deprecated error
+  // (never raised now) is just a failed link, never "in another shop".
+  it("never reports google=in_other_shop", async () => {
     enable();
     svc.linkIdentity.mockImplementationOnce(() => {
       throw new GoogleAccountInOtherShopError();
     });
     const url = await linkFlow(buildApp());
     expect(url.origin).toBe("https://two.liratek.shop");
-    expect(hashParams(url).get("google")).toBe("in_other_shop");
+    expect(hashParams(url).get("google")).toBe("error");
   });
 
   it("refuses impersonation sessions and the platform super admin", async () => {
@@ -908,6 +979,124 @@ describe("link / unlink from Settings", () => {
       .set("x-test-role", "admin")
       .send({ userId: 7 });
     expect(res.body).toEqual({ success: true, data: { unlinked: true } });
-    expect(svc.unlinkIdentity).toHaveBeenCalledWith(42);
+    expect(svc.unlinkIdentity).toHaveBeenCalledWith(42, expect.any(String));
+  });
+});
+
+// ── Join with Google (LIRA-288) ──────────────────────────────────────────
+
+describe("Join with Google (invite links)", () => {
+  const JOIN = { token: "invite-token-abc", username: "rami", tenantId: 2 };
+
+  async function joinFlow(app: Express, join: object = JOIN): Promise<URL> {
+    const { cookie, google } = await startForm(app, {
+      intent: "join",
+      ticket: signTicket("join", join),
+    });
+    return callback(app, cookie, `code=c1&state=${google.searchParams.get("state")}`);
+  }
+
+  function joinParams(url: URL): URLSearchParams {
+    expect(url.hash.startsWith("#/join?")).toBe(true);
+    return hashParams(url);
+  }
+
+  it("a join ticket in a URL (GET) is refused even when valid", async () => {
+    enable();
+    const res = await request(buildApp())
+      .get(`/api/auth/google/start?intent=join&ticket=${signTicket("join", JOIN)}`)
+      .set("Host", WWW);
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.location as string).hash).toContain("error=expired");
+  });
+
+  it("a forged or wrong-purpose join ticket is refused before Google", async () => {
+    enable();
+    const res = await request(buildApp())
+      .post("/api/auth/google/start")
+      .set("Host", WWW)
+      .type("form")
+      .send({ intent: "join", ticket: signTicket("link", { userId: 1, tenantId: 2 }) });
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.location as string).hash).toContain("error=expired");
+  });
+
+  it("success: accepts in the invite's shop scope with Google's identity, then hands off into that shop", async () => {
+    enable();
+    const scopes: Array<number | "platform" | null> = [];
+    acceptWithGoogle.mockImplementation(() => {
+      scopes.push(scope);
+      return {
+        ok: true,
+        invite: { id: 7, email: "owner@gmail.com" },
+        user: { id: 77, username: "rami", role: "staff" },
+        shop: { id: 2, name: "Two Shop", slug: "two" },
+      };
+    });
+    const url = await joinFlow(buildApp());
+    expect(url.origin).toBe("https://two.liratek.shop");
+    expect(url.hash).toBe("#/login?sso=handoff-token");
+    expect(acceptWithGoogle).toHaveBeenCalledWith({
+      token: "invite-token-abc",
+      username: "rami",
+      google: { sub: "g-sub", email: "owner@gmail.com", emailVerified: true },
+      now: expect.any(String),
+      requiredTenantId: 2,
+    });
+    expect(scopes).toEqual([2]);
+    expect(svc.createHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 77, tenantId: 2 }),
+    );
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: 77,
+        action: "create",
+        entity_type: "user",
+        metadata: expect.objectContaining({ via: "invite_google", invitation_id: 7 }),
+      }),
+    );
+  });
+
+  it.each([
+    ["email_mismatch", () => new JoinGoogleEmailMismatchError()],
+    ["already_linked", () => new IdentityAlreadyLinkedError()],
+    ["username_taken", () => new UsernameTakenError()],
+    ["shop_not_active", () => new UserInviteShopInactiveError()],
+    ["email_taken", () => new EmailTakenInShopError()],
+    ["error", () => new Error("boom")],
+  ])("a refusal comes back to the shop's join page with google=%s and the invite", async (code, makeError) => {
+    enable();
+    acceptWithGoogle.mockImplementation(() => {
+      throw makeError();
+    });
+    const url = await joinFlow(buildApp());
+    expect(url.origin).toBe("https://two.liratek.shop");
+    const params = joinParams(url);
+    expect(params.get("google")).toBe(code);
+    expect(params.get("invite")).toBe("invite-token-abc");
+    expect(svc.createHandoff).not.toHaveBeenCalled();
+  });
+
+  it("an unusable invite comes back as google=invite_invalid", async () => {
+    enable();
+    acceptWithGoogle.mockReturnValue({ ok: false });
+    const params = joinParams(await joinFlow(buildApp()));
+    expect(params.get("google")).toBe("invite_invalid");
+  });
+
+  it("a cancelled consent comes back to the join page as google=cancelled", async () => {
+    enable();
+    const app = buildApp();
+    const { cookie, google } = await startForm(app, {
+      intent: "join",
+      ticket: signTicket("join", JOIN),
+    });
+    const url = await callback(
+      app,
+      cookie,
+      `error=access_denied&state=${google.searchParams.get("state")}`,
+    );
+    expect(joinParams(url).get("google")).toBe("cancelled");
+    expect(acceptWithGoogle).not.toHaveBeenCalled();
   });
 });

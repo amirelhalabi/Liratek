@@ -6,6 +6,23 @@
  */
 
 import { jest } from "@jest/globals";
+
+// Hermetic: the functions under test DEFAULT their parameters from core's
+// parsed env, and passing `undefined` explicitly selects that default. A
+// developer's backend/.env (APP_BASE_DOMAIN, EMAIL_*, SMTP_*) would otherwise
+// leak into the "unset" cases. Every env value these functions read is
+// pinned to unset here.
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual<typeof import("@liratek/core")>("@liratek/core"),
+  APP_BASE_DOMAIN: undefined,
+  SIGNUP_INVITE_BASE_URL: undefined,
+  EMAIL_FILE_DIR: undefined,
+  EMAIL_REPLY_TO: undefined,
+  SMTP_HOST: undefined,
+  SMTP_PASS: undefined,
+  SMTP_PORT: undefined,
+  SMTP_USER: undefined,
+}));
 import { emailLogger } from "@liratek/core";
 import {
   createTransport,

@@ -16,10 +16,12 @@ import {
   setUserEmailSchema,
   verifyUserEmailSchema,
   googleStartQuerySchema,
+  joinWithGoogleStartSchema,
   ssoExchangeSchema,
   newPasswordSchema,
 } from "../index.js";
 import { validatePasswordComplexity } from "../../utils/passwordPolicy.js";
+import { googleStartFormSchema } from "../googleAuth.js";
 
 const GOOD_PASSWORD = "Str0ng-Pass!";
 const TOKEN = "a".repeat(43);
@@ -189,6 +191,29 @@ describe("Google sign-in", () => {
       googleStartQuerySchema.safeParse({ intent: "login", shop: "../x" })
         .success,
     ).toBe(false);
+  });
+
+  it("LIRA-288: 'join' is a Google intent (form POST), alongside login|signup|link", () => {
+    expect(googleStartQuerySchema.parse({ intent: "join" })).toEqual({ intent: "join" });
+    expect(
+      googleStartFormSchema.parse({ intent: "join", ticket: "t" }),
+    ).toEqual({ intent: "join", ticket: "t" });
+  });
+
+  it("LIRA-288 joinWithGoogleStartSchema: invite token + trimmed username (3..100), no password", () => {
+    expect(
+      joinWithGoogleStartSchema.parse({ token: TOKEN, username: "  rami  " }),
+    ).toEqual({ token: TOKEN, username: "rami" });
+    expect(
+      joinWithGoogleStartSchema.safeParse({ token: TOKEN, username: "ab" }).success,
+    ).toBe(false);
+    expect(
+      joinWithGoogleStartSchema.safeParse({ token: "", username: "rami" }).success,
+    ).toBe(false);
+    // A password is never part of joining with Google.
+    expect(
+      joinWithGoogleStartSchema.parse({ token: TOKEN, username: "rami", password: "x" }),
+    ).not.toHaveProperty("password");
   });
 
   it("ssoExchangeSchema: a non-empty token", () => {

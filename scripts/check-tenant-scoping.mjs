@@ -160,6 +160,8 @@ const NON_TENANT_TABLES = new Set([
   "sso_handoff_tokens",
   // v199 (LIRA-287): www sign-in codes, platform-level (no tenant_id).
   "signin_codes",
+  // v200 (LIRA-288): www sign-in directory, platform-level (no tenant_id).
+  "signin_directory",
   "sqlite_sequence",
   "sqlite_master",
 ]);

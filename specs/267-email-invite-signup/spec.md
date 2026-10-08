@@ -25,7 +25,7 @@
 - Q: Should the admin "Add shop" form ask for an email? → A: Yes, as an optional and unverified field.
 - Q: Should a welcome email be sent after sign-up? → A: Not in this feature.
 - Q: Should people be able to sign up by themselves? → A: Yes. The sign-up page asks only for an email. The link then opens the full form with the email locked, and submitting creates an active shop (owner, 2026-10-07). This reverses the earlier "admin invites only" assumption.
-- Q: How is self-serve sign-up protected from abuse? → A: Rate limits plus Cloudflare Turnstile.
+- Q: How is self-serve sign-up protected from abuse? → A: Rate limits plus Cloudflare Turnstile. **Superseded 2026-10-07 (LIRA-278):** no Turnstile for now. Protection comes from rate limits, a hidden trap field, a minimum fill time and a daily cap of 20. The self-serve switch is `SIGNUP_SELF_SERVE_ENABLED`.
 - Q: Where does the admin "Send invite" feature live? → A: On the super-admin Tenants page, not a separate page.
 - Q: What is the login-page link called? → A: "Sign up", replacing "Create your shop". It is shown whenever self-serve sign-up is available.
 - Q: Should there be a test for the sender's address? → A: No (owner).
@@ -112,7 +112,7 @@ Invite emails carry the LiraTek look and arrive in both rich and plain-text form
 - **Shop creation fails partway, for example because the shop address is taken:** the invite stays unused so the person can try again with another name.
 - **Address casing and spaces:** the owner types the address with different capital letters or extra spaces. The address is trimmed and compared without regard to case.
 - **Address already has a shop:** the owner invites an address that is already a shop's contact email. The invite is refused. The database also enforces this, so two sign-ups cannot race past it. A second pending invite to the same address is allowed.
-- **Human check service unavailable:** Turnstile verification fails closed. The request is refused with "Please try again in a few minutes" and nothing is queued. Admin invites keep working as the fallback.
+- **Human check service unavailable (only when Turnstile is configured):** Turnstile verification fails closed. The request is refused with "Please try again in a few minutes" and nothing is queued. Admin invites keep working as the fallback.
 - **Link copied or forwarded to someone else:** the link works once, for whoever uses it first, and the shop records the invited email. This is the accepted risk of a link-based invite.
 - **Sign-up page opened without an invite link:** when self-serve is on, the page shows the email request form (FR-026). When self-serve is off, it says "Sign-up is not available right now" and shows no form.
 
@@ -163,12 +163,12 @@ Invite emails carry the LiraTek look and arrive in both rich and plain-text form
 
 **Self-serve sign-up**
 
-- **FR-025**: The web login page MUST show a **Sign up** link, replacing "Create your shop", whenever self-serve sign-up is available. Self-serve is available when email sending and the human check are both configured.
-- **FR-026**: The sign-up page opened without an invite link MUST ask only for an email address and MUST run the Cloudflare Turnstile human check.
-- **FR-027**: A request that passes the human check and the limits MUST create an invite marked as self-requested, with the same 72-hour, single-use link and the same email design as an admin invite.
+- **FR-025**: When self-serve sign-up is available, the platform sign-in page (www.liratek.shop) MUST offer **Create your shop**. A shop's own sign-in page MUST NOT offer it (LIRA-286). Self-serve is available when email sending works and the owner's switch `SIGNUP_SELF_SERVE_ENABLED` is on (LIRA-278). *(Revised 2026-10-08 to match what shipped; it originally said "Sign up" on every login page, gated on Turnstile.)*
+- **FR-026**: The sign-up page opened without an invite link MUST ask for an email address and an optional shop name, and MUST include the bot checks: a hidden trap field and a minimum time on the form (LIRA-278). The Cloudflare Turnstile check MUST run **only when it is configured**. In production it is not configured (owner decision).
+- **FR-027**: A request that passes the human check and the limits MUST create an invite marked as self-requested, with the same 72-hour, single-use link and the same email design as an admin invite, **except that the email never includes the shop name the visitor typed**. That name only pre-fills the form behind the link, so spammers cannot put their text into our emails. Admin invites still show it.
 - **FR-028**: Every request that passes the human check MUST get the same response ("If this address can be used, we've emailed a link"). This applies whether the email was sent, the address already has a shop, the per-email limit was hit, or the daily cap was reached, so the form cannot reveal which addresses have shops. The per-visitor IP limit is the one exception. It may answer "Too many requests, please try again later" because that answer does not depend on the email.
-- **FR-029**: Self-serve requests MUST be limited per visitor IP (5 per hour) and per email address (3 per hour). There MUST also be a platform-wide daily cap (50 per day by default, configurable). When the daily cap is reached, requests stop sending email and the owner is alerted in the logs.
-- **FR-030**: When the human check is not configured, self-serve sign-up MUST be switched off. That means the Sign up link is hidden, and requests are refused. Admin invites keep working.
+- **FR-029**: Self-serve requests MUST be limited per visitor IP (5 per hour) and per email address (3 per hour). There MUST also be a platform-wide daily cap (**20 per day** by default, configurable), shared by every public sign-up, by email and by Google (LIRA-278/280). When the daily cap is reached, requests stop sending email and the owner is alerted in the logs.
+- **FR-030**: When the owner's switch is off, or email sending is not working, self-serve sign-up MUST be off. Create your shop is then hidden, requests are refused, and admin invites keep working. Turnstile is an optional extra check, not a switch. *(Revised 2026-10-08.)*
 - **FR-031**: Admin invites MUST be sent and listed from the existing super-admin Tenants page, not from a separate page. The list MUST show whether each invite was sent by an admin or self-requested.
 
 ### Key Entities *(include if feature involves data)*
@@ -199,9 +199,9 @@ Invite emails carry the LiraTek look and arrive in both rich and plain-text form
 
 ## Assumptions
 
-- **Self-serve is in scope, protected by Turnstile and rate limits** (FR-025 to FR-030). It ships before or with launch. Owner approval of each new shop (`OPEN_PUBLIC_SIGNUP_PLAN.md` §3.2) is not part of this feature.
+- **Self-serve is in scope, protected by rate limits, a hidden bot-trap field, a minimum fill time and the daily cap. Turnstile is optional** (FR-025 to FR-030; owner decision 2026-10-07: no Turnstile for now). It ships before or with launch. Owner approval of each new shop (`OPEN_PUBLIC_SIGNUP_PLAN.md` §3.2) is not part of this feature.
 - **No email when the address already has a shop.** For now, a self-serve request for an address that already has a shop sends nothing. A "you already have a shop" reminder email is a possible later addition.
-- **Owner setup for Turnstile.** The owner creates a Turnstile widget in Cloudflare for `www.liratek.shop` and supplies its site key and secret key.
+- **Turnstile setup (optional, not done).** If the owner switches Turnstile on later, they create a widget in Cloudflare for `www.liratek.shop` and add its two keys to `.env.fly`.
 - **72-hour expiry.** This is a default chosen to cover a weekend. It is not a stated requirement.
 - **Mailbox setup is a manual step for the owner.** The owner creates the `mail@liratek.shop` mailbox on Spaceship and adds its DNS records in Cloudflare by hand. DNS stays on Cloudflare, because shop web addresses are created there automatically.
 - **Spacemail SMTP is the chosen mail provider.** Whether the server can reach Spacemail's SMTP port must be tested early. If it cannot, a transactional provider such as Resend is the fallback.

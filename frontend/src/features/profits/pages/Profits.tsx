@@ -1201,6 +1201,7 @@ export default function Profits() {
           onFromChange={setFrom}
           onToChange={setTo}
           className="ml-auto"
+          variant="compact"
         />
       </div>
 

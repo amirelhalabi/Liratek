@@ -37,6 +37,10 @@ import {
 
 import { assertValidTenantSlug } from "../utils/tenantSlug.js";
 import { tenantLogger } from "../utils/logger.js";
+import {
+  getSigninDirectoryService,
+  type SigninDirectoryService,
+} from "./SigninDirectoryService.js";
 
 /**
  * Tenant 1 is the seeded tenant: every desktop install runs as it, and on
@@ -87,6 +91,7 @@ export class TenantProvisioningService {
   private userRepo: UserRepository;
   private subscriptionRepo: SubscriptionRepository;
   private storageProvisioner: TenantStorageProvisioner;
+  private directory: Pick<SigninDirectoryService, "syncTenant" | "deleteForTenant">;
 
   /**
    * `storageProvisioner` resolution order:
@@ -106,7 +111,9 @@ export class TenantProvisioningService {
     userRepo?: UserRepository,
     subscriptionRepo?: SubscriptionRepository,
     storageProvisioner?: TenantStorageProvisioner,
+    directory?: Pick<SigninDirectoryService, "syncTenant" | "deleteForTenant">,
   ) {
+    this.directory = directory ?? getSigninDirectoryService();
     this.tenantRepo = tenantRepo ?? getTenantRepository();
     this.userRepo = userRepo ?? getUserRepository();
     this.subscriptionRepo = subscriptionRepo ?? getSubscriptionRepository();
@@ -196,6 +203,10 @@ export class TenantProvisioningService {
         { tenantId: tenant.id, slug: tenant.slug, adminUsername },
         "Tenant provisioned",
       );
+      // LIRA-288: one place for BOTH storage modes (rather than inside each
+      // provisioner): the first admin's confirmed email lists the new shop
+      // on www. After the commit; never throws.
+      this.directory.syncTenant(tenant.id);
       return tenant;
     } catch (error) {
       tenantLogger.error({ error, slug: data.slug }, "provisionTenant failed");
@@ -245,6 +256,10 @@ export class TenantProvisioningService {
     // actually succeeded — see TenantStorageProvisioner.deleteTenant's doc
     // comment for the ordering guarantee.
     const result = this.storageProvisioner.deleteTenant(tenant);
+    // LIRA-288: explicit in both modes — the FK cascade depends on the
+    // connection's foreign_keys pragma, and per-tenant mode deletes the
+    // registry row elsewhere. Never throws.
+    this.directory.deleteForTenant(tenantId);
     tenantLogger.warn(
       { tenantId, slug: tenant.slug, ...result },
       "Tenant permanently deleted",

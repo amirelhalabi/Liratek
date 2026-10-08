@@ -11,10 +11,9 @@ import {
   AlertTriangle,
   Printer,
 } from "lucide-react";
-import { DataTable, useApi } from "@liratek/ui";
+import { DataTable, useApi, DateRangeFilter } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
-import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useShopInfo } from "@/hooks/useShopName";

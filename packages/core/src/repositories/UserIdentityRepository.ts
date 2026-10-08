@@ -1,38 +1,25 @@
 /**
- * User Identity Repository — TENANT-scoped (v196, LIRA-280).
+ * User Identity Repository — TENANT-scoped (v196, LIRA-280; rule LIRA-288).
  *
  * Links a user to an external sign-in identity (today only Google, keyed by
  * Google's stable `sub`, stored as `subject`).
  *
- * ONE GOOGLE ACCOUNT = ONE SHOP (owner decision 2026-10-07): a Google account
- * may be linked to one user in one shop, platform-wide. Enforced by `link()`
- * — a check and the insert inside one IMMEDIATE transaction — NOT by a unique
- * index on (provider, subject): production already holds links made before
- * the decision (one account in two shops), which such an index could not be
- * built over, and those existing links keep working (sign-in shows the shop
- * chooser) until the owner disconnects one. The schema still enforces:
- *   - UNIQUE (provider, subject, tenant_id): at most one user per shop.
+ * ONE GOOGLE ACCOUNT = ONE USER PER SHOP (LIRA-288, owner decision
+ * 2026-10-08, replacing LIRA-280's "one shop"): the same Google account may
+ * be linked in several shops, but to at most one user in each. That is
+ * exactly the schema's two unique indexes, so there is no application check:
+ *   - UNIQUE (provider, subject, tenant_id): at most one user per shop;
  *   - UNIQUE (user_id, provider): one Google account per user.
- * Owner decision (2026-10-07): links are created from Settings (or by a
- * Google sign-up) only — never automatically by matching an email.
+ * Either violation is `IdentityAlreadyLinkedError`. Links are created from
+ * Settings, a Google sign-up, or "Join with Google" on an invite — never
+ * automatically by matching an email.
  *
- * WHICH LINKS COUNT for that rule (owner decision 2026-10-07): only LIVE
- * links — an active user in a shop that is 'active' or 'provisioning' (being
- * created). A link to a deactivated user, or in a 'suspended'/'archived'
- * shop, is a DEAD link: ignored by the rule, never deleted. Defined once in
- * `LIVE_LINK_FROM` (rule 14), used by `link()` and by the Google sign-up
- * check (`findLiveLinksBySubject`). If a dead link later comes back to life
- * (shop reactivated, user re-enabled) while the account is linked in another
- * shop too, sign-in shows the existing shop chooser.
- *
- * Scoping: `link`, `findByUser`, `unlink` run in the CURRENT shop.
- * `findBySubjectInTenant` takes an explicit shop. `findBySubjectAllTenants`
- * (the www "which shops can this Google account open?" lookup) and
- * `findLiveLinksBySubject` (the one-shop check) are deliberately cross-tenant —
- * they only see every shop in SHARED DB mode. In per-tenant mode each shop's
- * rows live in its own file, so both lookups — and therefore the one-shop
- * rule — need a platform-level (provider, subject) index before that split
- * goes live (follow-up; documented in the plan's contracts §D).
+ * Scoping: every method reads/writes ONE shop's records. `link`,
+ * `findByUser`, `listForCurrentShop`, `unlink` use the CURRENT shop;
+ * `findBySubjectInTenant` takes an explicit shop and must run in that shop's
+ * scope (`runWithTenant`) so per-tenant mode reads the right file. The www
+ * "which shops can this Google account open?" question is answered by the
+ * platform sign-in directory (`SigninDirectoryRepository`), never here.
  */
 
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
@@ -40,7 +27,6 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
   AppError,
   DatabaseError,
-  GoogleAccountInOtherShopError,
   IdentityAlreadyLinkedError,
 } from "../utils/errors.js";
 import { normalizeEmail } from "./UserRepository.js";
@@ -69,13 +55,7 @@ export interface LinkUserIdentityData {
   now: string;
 }
 
-/** Where an identity is LIVE-linked (see `LIVE_LINK_FROM`). */
-export interface IdentityLink {
-  user_id: number;
-  tenant_id: number;
-}
-
-/** One shop a provider identity can open (by-subject lookups). */
+/** The user a provider identity opens in one shop (by-subject lookup). */
 export interface IdentityMatch {
   identity_id: number;
   user_id: number;
@@ -95,22 +75,12 @@ const COLUMNS = [
   "updated_at",
 ].join(", ");
 
-/** The one projection behind both by-subject lookups (rule 14): only
- * ACTIVE users can be signed into. */
+/** The by-subject projection: only ACTIVE users can be signed into. */
 const MATCH_SELECT = `
   SELECT ui.id AS identity_id, ui.user_id, ui.tenant_id, u.username, u.role
     FROM user_identities ui
     JOIN users u ON u.id = ui.user_id AND u.tenant_id = ui.tenant_id
    WHERE ui.provider = ? AND ui.subject = ? AND u.is_active = 1`;
-
-/** A LIVE link: an active user in an 'active' or 'provisioning' shop — the
- * only links the one-account-one-shop rule counts (owner decision
- * 2026-10-07). The single definition (rule 14); `ui` is user_identities. */
-const LIVE_LINK_FROM = `
-  FROM user_identities ui
-  JOIN users u ON u.id = ui.user_id AND u.tenant_id = ui.tenant_id
-  JOIN tenants t ON t.id = ui.tenant_id
- WHERE u.is_active = 1 AND t.status IN ('active', 'provisioning')`;
 
 /** Duck-typed (not `instanceof Error`): better-sqlite3's SqliteError can
  * come from another realm. */
@@ -134,19 +104,15 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
   /**
    * Links an identity to a user of the CURRENT shop. Linking the same
    * account to the same user again is a no-op that returns the existing row.
-   * Throws:
-   *   - `GoogleAccountInOtherShopError` (GOOGLE_ACCOUNT_IN_OTHER_SHOP) when
-   *     the account is LIVE-linked in ANOTHER shop (one account = one shop;
-   *     dead links — deactivated user, suspended/archived shop — are
-   *     ignored and kept);
+   * Being linked in OTHER shops never matters (LIRA-288). Throws:
    *   - `IdentityAlreadyLinkedError` (IDENTITY_ALREADY_LINKED) when it is
    *     linked to another user here, or the user already has another one;
    *   - `DatabaseError` when the user is not in the current shop.
    */
   link(data: LinkUserIdentityData): UserIdentityEntity {
     const tenantId = getCurrentTenantId();
-    // IMMEDIATE: the write lock is taken before the check, so no other
-    // writer can link the same account between the check and the insert.
+    // IMMEDIATE: the write lock is taken before the reads, so the
+    // idempotence check and the insert see the same state.
     const linkOnce = this.db.transaction((): UserIdentityEntity => {
       // Refuse a user of another shop up front: the FK alone would accept
       // any existing user id.
@@ -160,10 +126,6 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
       }
       const existing = this.findByUser(data.userId, data.provider);
       if (existing && existing.subject === data.subject) return existing;
-      const links = this.findLiveLinksBySubject(data.provider, data.subject);
-      if (links.some((l) => l.tenant_id !== tenantId)) {
-        throw new GoogleAccountInOtherShopError();
-      }
       const result = this.db
         .prepare(
           `INSERT INTO user_identities
@@ -194,25 +156,6 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
     }
   }
 
-  /**
-   * Every LIVE link of this identity, in every shop (`LIVE_LINK_FROM`) — the
-   * one-account-one-shop check (`link`, and the Google sign-up refusal).
-   * Dead links are not returned. Cross-tenant by design; SHARED DB mode only
-   * (see header).
-   */
-  findLiveLinksBySubject(
-    provider: IdentityProvider,
-    subject: string,
-  ): IdentityLink[] {
-    return this.db
-      .prepare(
-        `SELECT ui.user_id, ui.tenant_id ${LIVE_LINK_FROM} /* tenant-exempt: one Google account = one shop is a platform-wide rule */
-            AND ui.provider = ? AND ui.subject = ?
-          ORDER BY ui.tenant_id, ui.user_id`,
-      )
-      .all(provider, subject) as IdentityLink[];
-  }
-
   /** A CURRENT-shop user's link for one provider, or null. */
   findByUser(
     userId: number,
@@ -228,6 +171,18 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
         | UserIdentityEntity
         | undefined) ?? null
     );
+  }
+
+  /** Every CURRENT-shop link for one provider (the sign-in directory's
+   * per-shop rebuild, LIRA-288). */
+  listForCurrentShop(provider: IdentityProvider): UserIdentityEntity[] {
+    return this.db
+      .prepare(
+        `SELECT ${COLUMNS} FROM user_identities
+          WHERE provider = ? AND tenant_id = ?
+          ORDER BY user_id`,
+      )
+      .all(provider, getCurrentTenantId()) as UserIdentityEntity[];
   }
 
   /** Removes a CURRENT-shop user's link. False when there was none. */
@@ -255,22 +210,6 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
         )
         .get(provider, subject, tenantId) as IdentityMatch | undefined) ?? null
     );
-  }
-
-  /**
-   * Every shop (active user) this identity opens, by shop id. Cross-tenant
-   * by design — the www Google sign-in has no shop yet. SHARED DB mode only;
-   * see header.
-   */
-  findBySubjectAllTenants(
-    provider: IdentityProvider,
-    subject: string,
-  ): IdentityMatch[] {
-    return this.db
-      .prepare(
-        `${MATCH_SELECT} /* tenant-exempt: www sign-in resolves which shops a Google account opens, before any shop is chosen */ ORDER BY ui.tenant_id, ui.user_id`,
-      )
-      .all(provider, subject) as IdentityMatch[];
   }
 }
 

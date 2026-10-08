@@ -27,8 +27,8 @@ export type {
   UpdateUserData,
   UserEmailInfo,
   UserWithEmail,
-  SigninAccount,
   UserEmailRow,
+  SigninUserFacts,
 } from "./UserRepository.js";
 
 // Product Repository
@@ -848,6 +848,21 @@ export type {
   SigninCodeEntity,
   CreateSigninCodeData,
 } from "./SigninCodeRepository.js";
+// LIRA-288: the www sign-in directory (platform level, v200). Node-only
+// consumers; never re-exported from browser.ts.
+export {
+  SigninDirectoryRepository,
+  getSigninDirectoryRepository,
+  resetSigninDirectoryRepository,
+  DIRECTORY_USABLE,
+} from "./SigninDirectoryRepository.js";
+export type {
+  SigninDirectoryKind,
+  SigninDirectoryRowInput,
+  SigninDirectoryTenantRow,
+  SigninDirectoryEntry,
+  DirectoryAccount,
+} from "./SigninDirectoryRepository.js";
 
 // Money posting helpers (moneyPosting.ts — seeded by the Payment-Legs
 // Integrity plan's S2 hard-reject leg reconciliation; grown by CQ-3 with the

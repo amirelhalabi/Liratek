@@ -21,7 +21,7 @@
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
-import { USABLE_TOKEN_WHERE } from "./authTokenSql.js";
+import { EXPIRED_BEFORE_WHERE, USABLE_TOKEN_WHERE } from "./authTokenSql.js";
 
 export interface PasswordResetTokenEntity extends BaseEntity {
   id: number;
@@ -168,6 +168,19 @@ export class PasswordResetTokenRepository extends BaseRepository<PasswordResetTo
       )
       .get(userId, getCurrentTenantId(), sinceIso) as { n: number };
     return row.n;
+  }
+
+  /**
+   * Housekeeping: deletes rows that expired before `beforeIso`, in EVERY
+   * shop of the current file — the cleanup sweep is a global background
+   * job (same rationale as `SessionRepository.deleteExpiredSessions`).
+   */
+  deleteExpiredBefore(beforeIso: string): number {
+    return this.db
+      .prepare(
+        `DELETE FROM password_reset_tokens /* tenant-exempt: global expired-token cleanup sweep — background maintenance job, must purge every tenant, not just the current context */ WHERE ${EXPIRED_BEFORE_WHERE}`,
+      )
+      .run(beforeIso).changes;
   }
 }
 

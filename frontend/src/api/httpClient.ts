@@ -104,6 +104,59 @@ export function setToken(token: string | null): void {
   localStorage.setItem(JWT_STORAGE_KEY, token);
 }
 
+/** How long storing a new sign-in waits, at most, for the previous session
+ * to be ended on the server. */
+export const END_REPLACED_SESSION_WAIT_MS = 2000;
+
+/**
+ * Stores a NEW normal-login token (password sign-in, Google hand-off) and
+ * ends the session behind the one it replaces in THIS browser, if any
+ * (owner-approved 2026-10-08). Before, the old token was simply overwritten
+ * and its server session lived on until idle expiry, cluttering
+ * Settings -> Signed-in Devices.
+ *
+ * Best effort, and never at the new sign-in's expense:
+ *   - only the normal-login slot (localStorage) is read; an impersonation
+ *     token (sessionStorage) is never sent anywhere;
+ *   - the new token is stored FIRST, so an in-flight request's 401 for the
+ *     old session can never wipe it (requestJson's "still the same token"
+ *     guard), and the session being stored is never the one ended;
+ *   - the old token is sent straight to POST /api/auth/logout (not through
+ *     requestJson, whose 401 handling belongs to the CURRENT session),
+ *     `keepalive` so a page reload right after cannot cancel it;
+ *   - any failure is ignored, and the wait is capped at
+ *     END_REPLACED_SESSION_WAIT_MS.
+ */
+export async function storeNewLoginToken(token: string): Promise<void> {
+  const previous = localStorage.getItem(JWT_STORAGE_KEY);
+  setToken(token);
+  if (!previous || previous === token) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const ended = fetch(`${getBaseUrl()}/api/auth/logout`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${previous}`,
+    },
+    keepalive: true,
+  }).then(
+    () => undefined,
+    () => undefined,
+  );
+  try {
+    await Promise.race([
+      ended,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, END_REPLACED_SESSION_WAIT_MS);
+      }),
+    ]);
+  } catch {
+    // Never fails a sign-in.
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function clearToken(): void {
   setToken(null);
 }

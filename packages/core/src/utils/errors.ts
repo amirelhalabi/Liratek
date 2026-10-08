@@ -226,15 +226,17 @@ export class IdentityAlreadyLinkedError extends AppError {
 
 export const GOOGLE_ACCOUNT_IN_OTHER_SHOP = "GOOGLE_ACCOUNT_IN_OTHER_SHOP";
 
-/** Shown wherever a Google account is refused because it already belongs to
- * a shop (owner decision 2026-10-07: one Google account = one shop). */
+/** @deprecated LIRA-288 — no longer produced (one Google account = one user
+ * PER SHOP, owner decision 2026-10-08). Kept for one release so a page still
+ * open from before can show it; remove afterwards. */
 export const GOOGLE_ACCOUNT_IN_OTHER_SHOP_MESSAGE =
   "This Google account is already connected to another LiraTek shop. Disconnect it there first, or use a different Google account.";
 
 /**
- * Owner decision 2026-10-07: ONE Google account = ONE shop, platform-wide.
- * This Google account is already linked to a user of ANOTHER shop (or to
- * another user anywhere). Raised by `UserIdentityRepository.link`.
+ * @deprecated LIRA-288 — no longer raised anywhere. LIRA-280's "one Google
+ * account = one shop" was replaced by "one Google account = one user PER
+ * SHOP" (owner decision 2026-10-08); a second user of the SAME shop is
+ * `IdentityAlreadyLinkedError`. Kept exported for one release; remove after.
  */
 export class GoogleAccountInOtherShopError extends AppError {
   constructor(message: string = GOOGLE_ACCOUNT_IN_OTHER_SHOP_MESSAGE) {

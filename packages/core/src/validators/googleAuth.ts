@@ -32,8 +32,9 @@ export const GOOGLE_AUTH_ERRORS = [
   "not_configured",
   "signup_limit",
   "no_account",
-  // Sign-up refused: this Google account is already connected to a shop
-  // (one Google account = one shop, owner decision 2026-10-07).
+  // Deprecated (LIRA-288): no longer sent — an account linked in other
+  // shops may create a new shop. Kept for one release so a page left open
+  // from before still has its message.
   "already_connected",
   "cancelled",
   "expired",
@@ -41,12 +42,38 @@ export const GOOGLE_AUTH_ERRORS = [
 ] as const;
 export type GoogleAuthErrorCode = (typeof GOOGLE_AUTH_ERRORS)[number];
 
+/**
+ * LIRA-288 "Join with Google": the `google=` values the callback sends a
+ * browser back to the invite page with (`/#/join?invite=…&google=…`) when
+ * joining did not happen. The join page compares these, never message text.
+ * Every one of them leaves the invite usable (unless it was already used,
+ * expired or revoked — `invite_invalid`).
+ */
+export const JOIN_WITH_GOOGLE_RESULTS = [
+  /** The Google account's email is not the invited address. */
+  "email_mismatch",
+  /** Another user of this shop already has that Google account. */
+  "already_linked",
+  /** The invite is unknown, expired, used or revoked. */
+  "invite_invalid",
+  /** The shop's subscription has lapsed to read-only. */
+  "shop_not_active",
+  /** The chosen username was taken meanwhile. */
+  "username_taken",
+  /** Another user of this shop already has the invited email. */
+  "email_taken",
+  "cancelled",
+  "error",
+] as const;
+export type JoinWithGoogleResult = (typeof JOIN_WITH_GOOGLE_RESULTS)[number];
+
 /** Signed tickets are short JWTs; bounded generously. */
 const ticketSchema = z.string().min(1).max(4000);
 
 /**
- * POST /api/auth/google/start (a form the Settings page submits) — the
- * foundation's start schema plus the link ticket from `POST /link/start`.
+ * POST /api/auth/google/start (a form the Settings page or, LIRA-288, the
+ * invite page submits) — the foundation's start schema plus the ticket from
+ * `POST /link/start` or `POST /api/user-invitations/google/start`.
  * The ticket travels in a POST body, never a URL, so it never lands in access
  * logs or browser history. Without the extension zod would strip `ticket`
  * silently (rule 23).

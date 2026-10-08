@@ -68,6 +68,21 @@ export const acceptUserInvitationSchema = z.object({
   password: newPasswordSchema,
 });
 
+/** The invitee's username — the same rules as `acceptUserInvitationSchema`
+ * (one definition, rule 14). */
+const inviteUsernameSchema = acceptUserInvitationSchema.shape.username;
+
+/**
+ * POST /api/user-invitations/google/start (LIRA-288) — "Join with Google":
+ * the invite token and the chosen username, checked BEFORE leaving for
+ * Google. No password: a Google-only member can set one later through
+ * "Forgot password" (owner decision 2026-10-08).
+ */
+export const joinWithGoogleStartSchema = z.object({
+  token: linkTokenSchema,
+  username: inviteUsernameSchema,
+});
+
 // ── Forgot / reset password (LIRA-275/276) ───────────────────────────────
 
 /**
@@ -104,9 +119,10 @@ export const verifyUserEmailSchema = z.object({
 
 // ── Google sign-in (LIRA-280) ────────────────────────────────────────────
 
-/** GET /api/auth/google/start?intent=…&shop=… (query string). */
+/** GET /api/auth/google/start?intent=…&shop=… (query string). `link` and
+ * `join` (LIRA-288) are POST-only: their ticket never sits in a URL. */
 export const googleStartQuerySchema = z.object({
-  intent: z.enum(["login", "signup", "link"]),
+  intent: z.enum(["login", "signup", "link", "join"]),
   shop: shopSlugSchema.optional(),
 });
 
@@ -126,6 +142,9 @@ export type CheckUserInvitationInput = z.input<
 >;
 export type AcceptUserInvitationInput = z.input<
   typeof acceptUserInvitationSchema
+>;
+export type JoinWithGoogleStartInput = z.input<
+  typeof joinWithGoogleStartSchema
 >;
 export type ForgotPasswordInput = z.input<typeof forgotPasswordSchema>;
 export type CheckResetTokenInput = z.input<typeof checkResetTokenSchema>;

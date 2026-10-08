@@ -28,6 +28,10 @@ import type { PasswordResetTokenRepository } from "../repositories/PasswordReset
 import { getPasswordResetTokenRepository } from "../repositories/PasswordResetTokenRepository.js";
 import type { UserRepository } from "../repositories/UserRepository.js";
 import { getUserRepository } from "../repositories/UserRepository.js";
+import {
+  getSigninDirectoryRepository,
+  type SigninDirectoryRepository,
+} from "../repositories/SigninDirectoryRepository.js";
 import type { SessionRepository } from "../repositories/SessionRepository.js";
 import { getSessionRepository } from "../repositories/SessionRepository.js";
 import type { EmailOutboxRepository } from "../repositories/EmailOutboxRepository.js";
@@ -123,6 +127,8 @@ export interface PasswordResetServiceDeps {
   sessionRepo: SessionRepository;
   outboxRepo: EmailOutboxRepository;
   tenantRepo: TenantRepository;
+  /** LIRA-288: the www fan-out's "which shops does this email sign in to?". */
+  directoryRepo: SigninDirectoryRepository;
   newToken: () => string;
 }
 
@@ -162,6 +168,7 @@ export class PasswordResetService {
   private readonly sessionRepo: SessionRepository;
   private readonly outboxRepo: EmailOutboxRepository;
   private readonly tenantRepo: TenantRepository;
+  private readonly directoryRepo: SigninDirectoryRepository;
   private readonly newToken: () => string;
 
   constructor(deps: Partial<PasswordResetServiceDeps> = {}) {
@@ -170,6 +177,7 @@ export class PasswordResetService {
     this.sessionRepo = deps.sessionRepo ?? getSessionRepository();
     this.outboxRepo = deps.outboxRepo ?? getEmailOutboxRepository();
     this.tenantRepo = deps.tenantRepo ?? getTenantRepository();
+    this.directoryRepo = deps.directoryRepo ?? getSigninDirectoryRepository();
     this.newToken = deps.newToken ?? generateToken;
   }
 
@@ -217,19 +225,20 @@ export class PasswordResetService {
 
   /**
    * "Forgot password?" on www, where no shop is named (LIRA-287): one reset
-   * link per shop this email signs in to (`findSigninAccountsByEmail` —
-   * verified, active user, active shop; at most
+   * link per shop this email signs in to (the platform sign-in directory,
+   * LIRA-288 — confirmed email, active user, active shop; at most
    * PASSWORD_RESET_EVERY_SHOP_MAX), each through `requestByEmail`, so every
    * per-shop rule (verified only, per-user limit, the shop's own link
    * address, one email per link) applies unchanged. The existing email
    * already names the account and the shop. Never throws for a business
-   * outcome. Cross-tenant lookup: SHARED DB mode only (see the repository).
+   * outcome. The directory is platform-level, so this works whether shops
+   * share one file or each has its own.
    */
   requestByEmailEveryShop(
     params: Omit<RequestPasswordResetParams, "tenantId">,
   ): { queued: number } {
     const accounts = runWithoutTenant(() =>
-      this.userRepo.findSigninAccountsByEmail(params.email),
+      this.directoryRepo.findByEmail(params.email),
     );
     const shopIds = [...new Set(accounts.map((a) => a.tenant_id))].slice(
       0,

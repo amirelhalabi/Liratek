@@ -741,6 +741,7 @@ function DataTableInner<T>({
                         onChange={(e) => selectAll.onChange(e.target.checked)}
                         className="w-4 h-4 rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
                         title="Select all (all pages)"
+                        data-testid="select-all-checkbox"
                       />
                     ) : (
                       <span

@@ -58,6 +58,10 @@ jest.mock("@liratek/ui", () => {
     // sibling CustomServices.test.tsx uses for its unrelated form tests,
     // would make every assertion below vacuously pass).
     DataTable: actual.DataTable,
+    // HistoryModal renders the @liratek/ui DateRangeFilter (the only copy).
+    DateRangeFilter: actual.DateRangeFilter,
+    // The app's useModalFocusFix re-exports the @liratek/ui hook.
+    useModalFocusFix: actual.useModalFocusFix,
     DecimalInput: ({
       id,
       value,

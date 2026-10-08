@@ -77,6 +77,10 @@ jest.mock("@liratek/ui", () => {
     }),
     // Real DataTable — HistoryModal's renderRow must actually execute.
     DataTable: actual.DataTable,
+    // HistoryModal renders the @liratek/ui DateRangeFilter (the only copy).
+    DateRangeFilter: actual.DateRangeFilter,
+    // The app's useModalFocusFix re-exports the @liratek/ui hook.
+    useModalFocusFix: actual.useModalFocusFix,
     DecimalInput: ({
       id,
       value,

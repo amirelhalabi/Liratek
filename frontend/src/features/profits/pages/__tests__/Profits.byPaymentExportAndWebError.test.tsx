@@ -67,7 +67,7 @@ import Profits from "../Profits";
 // `exportToExcel`/`exportToPdf` from packages/ui/src/utils/tableExport — a
 // DIFFERENT module than frontend/src/shared/utils/tableExport, which only
 // the unused, stale frontend/src/shared/components/DataTable.tsx duplicate
-// calls (see DataTable.exportFragmentRows.test.tsx's identical note, the
+// called (both since deleted; see DataTable.exportFragmentRows.test.tsx, the
 // precedent this fix copies). Mocking the wrong module left `exportToExcel`
 // un-mocked, so the ORIGINAL export ran for real against jsdom and the
 // assertions below never had a chance to inspect the filename.

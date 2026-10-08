@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
-import { PageHeader, Select, useApi } from "@liratek/ui";
+import { PageHeader, Select, useApi, DateRangeFilter } from "@liratek/ui";
 import { Clock, Eye, X, Check, AlertTriangle } from "lucide-react";
 import { DataTable, appEvents } from "@liratek/ui";
 import { DRAWER_CONFIGS, DRAWER_ORDER } from "../../config/drawers";

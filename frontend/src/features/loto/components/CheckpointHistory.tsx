@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
-import { useApi, DataTable } from "@liratek/ui";
+import { useApi, DataTable, DateRangeFilter } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
-import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import {
   Calendar,
   RefreshCw,

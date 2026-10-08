@@ -73,6 +73,9 @@ export const TICKET_TTL_SECONDS = {
   choose: 10 * 60,
   /** Long enough to fill the sign-up form. */
   signup: 30 * 60,
+  /** LIRA-288 "Join with Google": invite + chosen username, from the join
+   * page to the www start. */
+  join: 10 * 60,
 } as const;
 
 export type TicketPurpose = keyof typeof TICKET_TTL_SECONDS;
@@ -118,7 +121,16 @@ export function verifyTicket(
 // ── Ticket shapes (parsed defensively; a valid signature is necessary, the
 // shape check is what the TypeScript types then rely on) ───────────────────
 
-export type GoogleIntent = "login" | "signup" | "link";
+export type GoogleIntent = "login" | "signup" | "link" | "join";
+
+/** LIRA-288: what "Join with Google" carries from the join page to the
+ * callback — the invite link's token, the username chosen on the page, and
+ * the invite's shop (checked at /google/start). */
+export interface JoinTicket {
+  token: string;
+  username: string;
+  tenantId: number;
+}
 
 export interface StateTicket {
   state: string;
@@ -129,6 +141,8 @@ export interface StateTicket {
   /** link intent only: whose account, in which shop (from the link ticket). */
   linkUserId?: number;
   linkTenantId?: number;
+  /** join intent only (LIRA-288): from the join ticket. */
+  join?: JoinTicket;
 }
 
 export interface ChooseShop {
@@ -144,8 +158,19 @@ export function readStateTicket(claims: Record<string, unknown> | null): StateTi
   if (!claims) return null;
   const { state, verifier, nonce, intent, shop, linkUserId, linkTenantId } = claims;
   if (!isStr(state) || !isStr(verifier) || !isStr(nonce)) return null;
-  if (intent !== "login" && intent !== "signup" && intent !== "link") return null;
+  if (intent !== "login" && intent !== "signup" && intent !== "link" && intent !== "join") {
+    return null;
+  }
   if (intent === "link" && (!isNum(linkUserId) || !isNum(linkTenantId))) return null;
+  const join =
+    intent === "join"
+      ? readJoinTicket({
+          token: claims.joinToken,
+          username: claims.joinUsername,
+          tenantId: claims.joinTenantId,
+        })
+      : null;
+  if (intent === "join" && !join) return null;
   return {
     state,
     verifier,
@@ -153,7 +178,23 @@ export function readStateTicket(claims: Record<string, unknown> | null): StateTi
     intent,
     ...(isStr(shop) ? { shop } : {}),
     ...(isNum(linkUserId) && isNum(linkTenantId) ? { linkUserId, linkTenantId } : {}),
+    ...(join ? { join } : {}),
   };
+}
+
+/** The join ticket's claims (LIRA-288), or null when malformed. */
+export function readJoinTicket(
+  claims: Record<string, unknown> | null,
+): JoinTicket | null {
+  if (
+    !claims ||
+    !isStr(claims.token) ||
+    !isStr(claims.username) ||
+    !isNum(claims.tenantId)
+  ) {
+    return null;
+  }
+  return { token: claims.token, username: claims.username, tenantId: claims.tenantId };
 }
 
 export function readLinkTicket(

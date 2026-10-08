@@ -20,6 +20,7 @@ import {
   HOST,
   logger,
   validateProductionEnv,
+  getSigninDirectoryService,
 } from "@liratek/core";
 
 // Validate production environment (will throw if required vars are missing)
@@ -108,6 +109,8 @@ import { invalidateOnMutation } from "./middleware/invalidateOnMutation.js";
 import { requireWritableSubscription } from "./middleware/requireWritableSubscription.js";
 import { startLapseSweep } from "./services/lapseSweep.js";
 import { startSessionSweep } from "./services/sessionSweep.js";
+import { startAuthCleanupSweep } from "./services/authCleanupSweep.js";
+import { scheduleSigninDirectoryCheck } from "./database/signinDirectoryCheck.js";
 import { startEmailOutbox, stopEmailOutbox } from "./email/outboxWorker.js";
 app.use(invalidateOnMutation);
 
@@ -321,6 +324,16 @@ httpServer.listen(PORT, HOST, () => {
   // serves (platform + every tenant file in per-tenant mode). Idempotent
   // and every 5 minutes, matching desktop's own sweep -- see sessionSweep.ts.
   startSessionSweep();
+
+  // Delete sign-in codes, hand-off tokens and reset/verify links once they
+  // have been expired for 7 days (platform + every tenant file). Hourly,
+  // first run ~30s after boot -- see authCleanupSweep.ts.
+  startAuthCleanupSweep();
+
+  // LIRA-288: once, a minute after boot, compare the www sign-in directory
+  // with every shop's records and WARN on drift (never fixes, never blocks)
+  // -- see database/signinDirectoryCheck.ts. The repair is the operator CLI.
+  scheduleSigninDirectoryCheck(getSigninDirectoryService(), logger);
 
   // Send queued email (sign-up invites). A durable outbox polled every 30s;
   // not started when EMAIL_TRANSPORT=disabled or the mail config is invalid

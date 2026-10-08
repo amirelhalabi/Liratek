@@ -13860,6 +13860,74 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`DROP TABLE IF EXISTS signin_codes;`);
     },
   },
+  {
+    version: 200,
+    name: "signin_directory",
+    description:
+      "LIRA-288: the www sign-in DIRECTORY — one row per sign-in method of " +
+      "an active, non-super-admin shop user: kind 'email' (a CONFIRMED " +
+      "email, lowercased) or kind 'google' (the Google sub), naming the shop " +
+      "(target_tenant_id) and the user (target_user_id). www answers 'your " +
+      "shops' from this table alone, so it keeps working when each shop has " +
+      "its own database file. PLATFORM-level like sso_handoff_tokens: no " +
+      "tenant_id column. An index, never the source of truth: the shop's own " +
+      "users/user_identities are, and SigninDirectoryService rebuilds it. " +
+      "Shop status is applied at read time (joined to tenants). Back-fills " +
+      "from users + user_identities when they are in the same file (shared " +
+      "mode); a per-tenant platform file holds only super admins, so nothing " +
+      "is inserted there and the operator runs signinDirectoryCli --write.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "signin_directory")) {
+        db.exec(`
+          CREATE TABLE signin_directory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL CHECK (kind IN ('email', 'google')),
+            value TEXT NOT NULL,
+            target_tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+            target_user_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            display_email TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (kind, value, target_tenant_id)
+          );
+        `);
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_signin_directory_target
+           ON signin_directory(target_tenant_id, target_user_id);`,
+      );
+      if (!tableExists(db, "users") || !tableExists(db, "user_identities")) {
+        return;
+      }
+      // One-time back-fill (shared mode). The live invariant is
+      // SigninDirectoryService.buildDirectoryRows; this is its frozen
+      // snapshot at v200. OR IGNORE: idempotent on a re-run.
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT OR IGNORE INTO signin_directory
+           (kind, value, target_tenant_id, target_user_id, username, display_email, created_at, updated_at)
+         SELECT 'email', lower(trim(u.email)), u.tenant_id, u.id, u.username, NULL, ?, ?
+           FROM users u
+           JOIN tenants t ON t.id = u.tenant_id
+          WHERE u.email IS NOT NULL AND trim(u.email) <> ''
+            AND u.email_verified_at IS NOT NULL
+            AND u.is_active = 1 AND u.role <> 'super_admin'
+         UNION ALL
+         SELECT 'google', i.subject, i.tenant_id, u.id, u.username,
+                CASE WHEN i.email IS NULL OR trim(i.email) = '' THEN NULL ELSE lower(trim(i.email)) END, ?, ?
+           FROM user_identities i
+           JOIN users u ON u.id = i.user_id AND u.tenant_id = i.tenant_id
+           JOIN tenants t ON t.id = i.tenant_id
+          WHERE i.provider = 'google'
+            AND u.is_active = 1 AND u.role <> 'super_admin'`,
+      ).run(now, now, now, now);
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS signin_directory;`);
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

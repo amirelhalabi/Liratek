@@ -20,6 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { runWithoutTenant } from "../../db/tenantContext.js";
+import { SigninDirectoryService } from "../SigninDirectoryService.js";
 import {
   SigninCodeService,
   SIGNIN_CODE_TEMPLATE,
@@ -73,6 +74,9 @@ beforeEach(() => {
       (41, 4, 'only4', 'x', 'admin', 1, 'only4@gmail.com', '2026-10-01T00:00:00.000Z');
   `);
   (globalThis as TestGlobal).__LIRATEK_TEST_DB__ = db;
+  // LIRA-288: www reads the sign-in directory, which the app keeps in step
+  // with the users above; seeded raw here, so it is built once.
+  new SigninDirectoryService().rebuildAll(NOW);
 });
 
 afterEach(() => {
@@ -132,6 +136,27 @@ describe("requestCode", () => {
     expect(result).toEqual({ queued: false, reason: "no_account" });
     expect(count(`SELECT COUNT(*) AS n FROM signin_codes`)).toBe(0);
     expect(outbox()).toHaveLength(0);
+  });
+
+  it("LIRA-288: reads the sign-in directory only — a confirmed user not (yet) in it gets no code and is not listed", () => {
+    // Written straight to the shop records, never synced: www must not see
+    // it (in per-tenant mode it would live in another file entirely).
+    db.exec(`
+      INSERT INTO users (id, tenant_id, username, password_hash, role, is_active, email, email_verified_at)
+      VALUES (31, 3, 'unsynced', 'x', 'staff', 1, 'unsynced@gmail.com', '2026-10-01T00:00:00.000Z')
+    `);
+    expect(
+      runWithoutTenant(() => svc().requestCode({ ...mail(), email: "unsynced@gmail.com" })),
+    ).toEqual({ queued: false, reason: "no_account" });
+    // And a directory row alone is enough (the shop records are not re-read).
+    db.exec(
+      `INSERT INTO signin_directory (kind, value, target_tenant_id, target_user_id, username, display_email, created_at, updated_at)
+       VALUES ('email', 'unsynced@gmail.com', 3, 31, 'unsynced', NULL, '${NOW}', '${NOW}')`,
+    );
+    db.exec(`UPDATE users SET email_verified_at = NULL WHERE id = 31`);
+    expect(
+      runWithoutTenant(() => svc().requestCode({ ...mail(), email: "unsynced@gmail.com" })).queued,
+    ).toBe(true);
   });
 
   it("sends nothing when mail is not configured", () => {

@@ -195,7 +195,11 @@
 
 - Web app: your browser now recognises the sign-in form. It offers to save your username and password after you sign in, and fills them in next time.
 - Web app: you can now sign in with Google. Connect your Google account once in Settings, then use "Continue with Google" on the login page. You can also create a new shop with Google. Your username and password keep working as before.
-- Web app: a Google account can now be connected to one shop only. If it is already connected to another shop, "Connect Google" in Settings says so — disconnect it there first, or use a different Google account. Creating a new shop with a Google account that is already connected to a shop is refused too; sign in with Google instead. A connection to a suspended or archived shop, or to a deactivated user, does not count. Accounts already connected to more than one shop keep working until you disconnect one.
+- Web app: one Google account can now be used in several shops — for example as a cashier in one shop and the owner of another. In each shop it belongs to one user only: if another user of the same shop already connected it, "Connect Google" in Settings says so. You can also create a new shop with a Google account you already use in another shop, unless that Gmail address is already the email a shop was created with.
+- Web app: "Continue with Google" on your shop's own address signs you straight in to that shop. On www.liratek.shop it lists every shop where your Google account is connected, and you pick one.
+- Web app: an email invitation now offers "Join with Google". Choose a username, then pick the Google account that uses the invited email — your account is created, your email is confirmed, Google is connected and you are signed in, in one step. No password is needed; you can set one later with "Forgot password". A Google account with a different email is refused, and the invitation still works.
+- Web app, Settings → Users: admins now see which users have Google connected, with the Google email, and can disconnect it (for example for a staff member who left). That person can then no longer sign in to your shop with Google; their password still works, and "Forgot password" can set one.
+- Web app: signing in again on the same browser now ends your previous session there, so Settings → Signed-in Devices only lists real devices.
 - Web app: a customer's gift cards now show up as a payment option (they were missing in the browser).
 - liratek.shop now opens an information page about LiraTek, in English and Arabic. Shops keep signing in at their own address, as before, and the page has a box to jump to your shop's sign-in page.
 - Web app: sign-up no longer uses an invite code. New shops join through an email invitation from LiraTek: open the link in the email to finish creating your shop.
@@ -237,3 +241,7 @@
 
 ## 📦 Inventory
 - A product with a minimum stock of 0 no longer shows low-stock warnings (top-bar alert, Dashboard count, red stock figure on the Inventory list).
+
+## 🖥️ Desktop app
+
+- Windows desktop app: typing works straight away after closing a confirmation or top-up window.

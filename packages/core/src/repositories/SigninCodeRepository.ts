@@ -18,7 +18,7 @@
 
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
-import { USABLE_TOKEN_WHERE } from "./authTokenSql.js";
+import { EXPIRED_BEFORE_WHERE, USABLE_TOKEN_WHERE } from "./authTokenSql.js";
 import { SIGNIN_CODE_MAX_ATTEMPTS } from "../constants/signinCode.js";
 
 export interface SigninCodeEntity extends BaseEntity {
@@ -164,7 +164,7 @@ export class SigninCodeRepository extends BaseRepository<SigninCodeEntity> {
   /** Housekeeping: deletes rows that expired before `beforeIso`. */
   deleteExpiredBefore(beforeIso: string): number {
     return this.db
-      .prepare(`DELETE FROM signin_codes WHERE expires_at < ?`)
+      .prepare(`DELETE FROM signin_codes WHERE ${EXPIRED_BEFORE_WHERE}`)
       .run(beforeIso).changes;
   }
 }

@@ -62,9 +62,9 @@ A re-send is not a separate route. The owner creates a new invite with `POST`; t
 ### `POST /api/auth/signup/request` (self-serve)
 
 - **Middleware:** a dedicated `signupRequestLimiter` (5 per hour per IP; when exceeded it returns 429 "Too many requests, please try again later", the same for any email), then `validateRequest(requestSignupLinkSchema)`.
-- **Body:** `{ email: string (email, ≤254, trimmed + lowercased), turnstileToken: string (1..2048) }`.
+- **Body:** `{ email, shopNameHint?, website? (honeypot), formElapsedMs?, turnstileToken? }`. `turnstileToken` is required only when Turnstile is configured (LIRA-278; revised 2026-10-08).
 - **Order of checks:**
-  1. If self-serve is not available (email or Turnstile not configured): 200 `{ success: false, error: "Sign-up is not available right now." }`
+  1. If self-serve is not available (email not working, or `SIGNUP_SELF_SERVE_ENABLED` off): 200 `{ success: false, error: "Sign-up is not available right now." }`
   2. Verify Turnstile server-side (`https://challenges.cloudflare.com/turnstile/v0/siteverify` with `TURNSTILE_SECRET_KEY` and the client IP). If the token is rejected: 200 `{ success: false, error: "Please complete the check and try again." }`. If Cloudflare is unreachable or times out (5 seconds): 200 `{ success: false, error: "Please try again in a few minutes." }`. The check fails closed.
   3. Otherwise **always** return 200 `{ success: true, data: { message: "If this address can be used, we've emailed a link." } }`. Behind that response, the server sends nothing if the address already has a shop (FR-028), if the address made 3 or more requests in the last hour, or if the daily cap is reached (the cap also logs a warning). Otherwise it calls `service.create({ source: "self", invitedByUserId: null, … })`.
 - **Audit log:** none, because there is no tenant or actor. A `logger.info` records the outcome with the email hashed, never the plain address.

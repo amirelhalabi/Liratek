@@ -33,16 +33,30 @@ const DB_PATH = path.join(
 
 const GENERIC = "If this email has a LiraTek account, we've sent a code.";
 
-/** Gives the seeded user a verified email; returns tenant 1's slug + name. */
+/**
+ * Gives the seeded user a verified email; returns tenant 1's slug + name.
+ *
+ * LIRA-288: www finds shops through the platform sign-in directory, which
+ * the app keeps in step whenever IT confirms an email. This write bypasses
+ * the app, so it also writes the one directory row the app's sync would
+ * (`SigninDirectoryService.buildDirectoryRows`: kind 'email', lowercased).
+ */
 function verifyEmailOf(
   username: string,
   email: string,
 ): { slug: string; name: string } {
   const db = new Database(DB_PATH);
   try {
+    const now = new Date().toISOString();
     db.prepare(
       `UPDATE users SET email = ?, email_verified_at = ? WHERE username = ? AND tenant_id = 1`,
-    ).run(email, new Date().toISOString(), username);
+    ).run(email, now, username);
+    db.prepare(
+      `INSERT OR REPLACE INTO signin_directory
+         (kind, value, target_tenant_id, target_user_id, username, display_email, created_at, updated_at)
+       SELECT 'email', lower(?), 1, id, username, NULL, ?, ?
+         FROM users WHERE username = ? AND tenant_id = 1`,
+    ).run(email, now, now, username);
     const row = db
       .prepare(`SELECT slug, name FROM tenants WHERE id = 1`)
       .get() as { slug: string; name: string } | undefined;

@@ -50,6 +50,10 @@ import type {
   TenantRepository,
 } from "../repositories/TenantRepository.js";
 import { getTenantRepository } from "../repositories/TenantRepository.js";
+import {
+  getUserIdentityRepository,
+  type UserIdentityRepository,
+} from "../repositories/UserIdentityRepository.js";
 import { runWithTenant, runWithoutTenant } from "../db/tenantContext.js";
 import {
   generateToken,
@@ -67,6 +71,10 @@ import {
 } from "../utils/errors.js";
 import { USER_ACCOUNT_CODES } from "../constants/userAccountCodes.js";
 import { getSubscriptionService } from "./SubscriptionService.js";
+import {
+  getSigninDirectoryService,
+  type SigninDirectorySync,
+} from "./SigninDirectoryService.js";
 import { authLogger } from "../utils/logger.js";
 import {
   formatInviteExpiry,
@@ -228,6 +236,32 @@ export class UserInviteShopInactiveError extends AppError {
   }
 }
 
+/** GOOGLE_EMAIL_MISMATCH (LIRA-288): the Google account's verified email
+ * is not the invited address. The invite is released, still usable. */
+export class JoinGoogleEmailMismatchError extends AppError {
+  constructor(message: string = "This invite was sent to a different email") {
+    super(USER_ACCOUNT_CODES.GOOGLE_EMAIL_MISMATCH, message, 403, true);
+  }
+}
+
+/** What "Join with Google" proves about the Google account (LIRA-288). */
+export interface JoinGoogleIdentity {
+  /** Google's stable account id. */
+  sub: string;
+  email: string;
+  emailVerified: boolean;
+}
+
+export interface AcceptUserInvitationWithGoogleParams {
+  token: string;
+  username: string;
+  google: JoinGoogleIdentity;
+  /** UTC ISO. */
+  now: string;
+  /** The invite's shop as checked at /google/start (or the host's). */
+  requiredTenantId: number | null;
+}
+
 /** NOT_FOUND for an invite id that is not this shop's. */
 export class UserInvitationNotFoundError extends AppError {
   constructor() {
@@ -269,6 +303,8 @@ export class UserInvitationService {
   private tenantRepo: TenantRepository;
   private newToken: () => string;
   private shopCanWrite: (tenantId: number) => boolean;
+  private directory: SigninDirectorySync;
+  private identityRepo: UserIdentityRepository;
 
   /**
    * `shopCanWrite` is the subscription question ("is this shop read-only?"),
@@ -283,13 +319,17 @@ export class UserInvitationService {
     tenantRepo: TenantRepository,
     tokenGenerator: () => string = generateToken,
     shopCanWrite: (tenantId: number) => boolean = () => true,
+    directory?: SigninDirectorySync,
+    identityRepo?: UserIdentityRepository,
   ) {
+    this.identityRepo = identityRepo ?? getUserIdentityRepository();
     this.inviteRepo = inviteRepo;
     this.userRepo = userRepo;
     this.outboxRepo = outboxRepo;
     this.tenantRepo = tenantRepo;
     this.newToken = tokenGenerator;
     this.shopCanWrite = shopCanWrite;
+    this.directory = directory ?? getSigninDirectoryService();
   }
 
   /**
@@ -455,23 +495,9 @@ export class UserInvitationService {
     now: string,
     requiredTenantId: number | null,
   ): UserInviteCheckResult | null {
-    const invite = this.inviteRepo.findByTokenHash(hashToken(token));
-    if (!invite) return null;
-    if (requiredTenantId !== null && invite.tenant_id !== requiredTenantId) {
-      return null;
-    }
-    if (deriveUserInvitationStatus(invite, now) !== "pending") return null;
-    if (
-      invite.claimed_at &&
-      Date.parse(invite.claimed_at) >= Date.parse(now) - USER_INVITE_CLAIM_STALE_MS
-    ) {
-      return null;
-    }
-    const shop = this.shopById(invite.tenant_id);
-    if (!shop || shop.status !== "active") return null;
-    if (!this.isShopWritable(invite.tenant_id)) {
-      throw new UserInviteShopInactiveError();
-    }
+    const usable = this.findUsable(token, now, requiredTenantId);
+    if (!usable) return null;
+    const { invite, shop } = usable;
     return {
       email: invite.email,
       role: invite.role,
@@ -499,36 +525,187 @@ export class UserInvitationService {
       throw new ValidationError(complexity.errors.join(", "));
     }
 
-    const invite = this.inviteRepo.claim(
-      hashToken(params.token),
-      params.now,
-      addMs(params.now, -USER_INVITE_CLAIM_STALE_MS),
-    );
-    if (!invite) return { ok: false };
+    const claimed = this.claimForAccept(params.token, params.now, params.requiredTenantId);
+    if (!claimed) return { ok: false };
+    const { invite, shop } = claimed;
+    this.requireWritableOrRelease(invite, params.now);
 
-    const tenantId = invite.tenant_id;
-    if (params.requiredTenantId !== null && tenantId !== params.requiredTenantId) {
-      this.releaseQuietly(invite, params.now);
-      return { ok: false };
-    }
-    const shop = this.shopById(tenantId);
-    if (!shop || shop.status !== "active") {
-      this.releaseQuietly(invite, params.now);
-      return { ok: false };
-    }
-    if (!this.isShopWritable(tenantId)) {
+    const user = this.createInvitedUser(
+      invite,
+      username,
+      hashPassword(params.password),
+      params.now,
+    );
+    return { ok: true, invite, user, shop: { id: shop.id, name: shop.name, slug: shop.slug } };
+  }
+
+  /**
+   * "Join with Google", before leaving for Google (LIRA-288): is the link
+   * usable (exactly as `check`) and the chosen username free in the
+   * invite's shop? Returns the invite's shop — what the join ticket names —
+   * or null for any unusable link. Throws `UserInviteShopInactiveError` and
+   * `UsernameTakenError`. Read-only: nothing is claimed.
+   */
+  prepareJoinWithGoogle(params: {
+    token: string;
+    username: string;
+    now: string;
+    requiredTenantId: number | null;
+  }): { tenantId: number } | null {
+    const usable = this.findUsable(params.token, params.now, params.requiredTenantId);
+    if (!usable) return null;
+    const tenantId = usable.invite.tenant_id;
+    const taken = runWithTenant(tenantId, () =>
+      this.userRepo.usernameExistsInRealm(params.username.trim(), tenantId),
+    );
+    if (taken) throw new UsernameTakenError();
+    return { tenantId };
+  }
+
+  /**
+   * "Join with Google" (LIRA-288), after Google answered: claim -> (host
+   * shop check) -> the Google account's VERIFIED email must be the invited
+   * address (case-insensitive) -> create the user (invited role, chosen
+   * username, email CONFIRMED) AND link Google in ONE shop transaction ->
+   * finalize -> sync the sign-in directory. Any refusal after the claim
+   * releases it, so the link works again at once.
+   *
+   *   - unusable / other shop's link: `{ ok: false }`;
+   *   - GOOGLE_EMAIL_MISMATCH, SHOP_NOT_ACTIVE, USERNAME_TAKEN,
+   *     EMAIL_TAKEN_IN_SHOP, IDENTITY_ALREADY_LINKED (another user of THIS
+   *     shop has that Google account): thrown, the claim released, nothing
+   *     created. Linked in OTHER shops is fine (one user per shop).
+   *
+   * No password is chosen (owner decision 2026-10-08): the user gets a hash
+   * of a random secret nobody ever sees, so a password sign-in cannot
+   * succeed until they set one through "Forgot password" (their email is
+   * confirmed, so that works).
+   */
+  acceptWithGoogle(
+    params: AcceptUserInvitationWithGoogleParams,
+  ): AcceptUserInvitationOutcome {
+    const username = params.username.trim();
+    const claimed = this.claimForAccept(params.token, params.now, params.requiredTenantId);
+    if (!claimed) return { ok: false };
+    const { invite, shop } = claimed;
+
+    const googleEmail = params.google.email ? normalizeEmail(params.google.email) : "";
+    if (!params.google.emailVerified || googleEmail !== invite.email) {
       this.releaseQuietly(invite, params.now);
       authLogger.info(
-        { invitationId: invite.id, tenantId },
-        "User invite refused: the shop is read-only",
+        { invitationId: invite.id, tenantId: invite.tenant_id },
+        "Join with Google refused: the Google email is not the invited address",
       );
+      throw new JoinGoogleEmailMismatchError();
+    }
+    this.requireWritableOrRelease(invite, params.now);
+
+    const user = this.createInvitedUser(
+      invite,
+      username,
+      hashPassword(generateToken()),
+      params.now,
+      (userId) =>
+        this.identityRepo.link({
+          userId,
+          provider: "google",
+          subject: params.google.sub,
+          email: googleEmail,
+          now: params.now,
+        }),
+    );
+    return { ok: true, invite, user, shop: { id: shop.id, name: shop.name, slug: shop.slug } };
+  }
+
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The one "is this /#/join link usable?" read (rule 14), shared by `check`
+   * and `prepareJoinWithGoogle`: null for unknown, expired, used, revoked,
+   * claimed-by-an-accept-in-progress, another shop's, or a shop that is not
+   * active. Throws `UserInviteShopInactiveError` LAST, so a bad link never
+   * learns anything about the shop's subscription.
+   */
+  private findUsable(
+    token: string,
+    now: string,
+    requiredTenantId: number | null,
+  ): { invite: UserInvitationEntity; shop: TenantEntity } | null {
+    const invite = this.inviteRepo.findByTokenHash(hashToken(token));
+    if (!invite) return null;
+    if (requiredTenantId !== null && invite.tenant_id !== requiredTenantId) {
+      return null;
+    }
+    if (deriveUserInvitationStatus(invite, now) !== "pending") return null;
+    if (
+      invite.claimed_at &&
+      Date.parse(invite.claimed_at) >= Date.parse(now) - USER_INVITE_CLAIM_STALE_MS
+    ) {
+      return null;
+    }
+    const shop = this.shopById(invite.tenant_id);
+    if (!shop || shop.status !== "active") return null;
+    if (!this.isShopWritable(invite.tenant_id)) {
       throw new UserInviteShopInactiveError();
     }
+    return { invite, shop };
+  }
 
-    const passwordHash = hashPassword(params.password);
+  /** Claims a link for an accept (password or Google): null — the claim
+   * already released — for an unusable link, another shop's, or a shop that
+   * is not active. */
+  private claimForAccept(
+    token: string,
+    now: string,
+    requiredTenantId: number | null,
+  ): { invite: UserInvitationEntity; shop: TenantEntity } | null {
+    const invite = this.inviteRepo.claim(
+      hashToken(token),
+      now,
+      addMs(now, -USER_INVITE_CLAIM_STALE_MS),
+    );
+    if (!invite) return null;
+    if (requiredTenantId !== null && invite.tenant_id !== requiredTenantId) {
+      this.releaseQuietly(invite, now);
+      return null;
+    }
+    const shop = this.shopById(invite.tenant_id);
+    if (!shop || shop.status !== "active") {
+      this.releaseQuietly(invite, now);
+      return null;
+    }
+    return { invite, shop };
+  }
+
+  /** SHOP_NOT_ACTIVE for a read-only shop: released, nothing created, so the
+   * link works again once the shop renews. */
+  private requireWritableOrRelease(invite: UserInvitationEntity, now: string): void {
+    if (this.isShopWritable(invite.tenant_id)) return;
+    this.releaseQuietly(invite, now);
+    authLogger.info(
+      { invitationId: invite.id, tenantId: invite.tenant_id },
+      "User invite refused: the shop is read-only",
+    );
+    throw new UserInviteShopInactiveError();
+  }
+
+  /**
+   * Creates the invited user in the invite's shop with the INVITE's email,
+   * confirmed — opening the emailed link (or Google's verified address)
+   * proved it — runs `withinTransaction` (the Google link) and marks the
+   * invite used, all in ONE shop transaction; then syncs the sign-in
+   * directory. Any failure releases the claim and is rethrown.
+   */
+  private createInvitedUser(
+    invite: UserInvitationEntity,
+    username: string,
+    passwordHash: string,
+    now: string,
+    withinTransaction?: (userId: number) => void,
+  ): { id: number; username: string; role: UserInvitationRole } {
+    const tenantId = invite.tenant_id;
     let user;
     try {
-      // The user and the "used" stamp commit together, in the shop's file.
       user = runWithTenant(tenantId, () =>
         this.inviteRepo.transaction(() => {
           if (this.userRepo.usernameExistsInRealm(username, tenantId)) {
@@ -540,10 +717,10 @@ export class UserInvitationService {
             role: invite.role,
             tenant_id: tenantId,
             email: invite.email,
-            // Opening the emailed link proved the address.
-            email_verified_at: params.now,
+            email_verified_at: now,
           });
-          if (!this.inviteRepo.finalize(invite.id, created.id, params.now)) {
+          withinTransaction?.(created.id);
+          if (!this.inviteRepo.finalize(invite.id, created.id, now)) {
             // Cannot happen while we hold the claim; the user exists, so it
             // is logged, never thrown.
             authLogger.warn(
@@ -555,7 +732,7 @@ export class UserInvitationService {
         }),
       );
     } catch (error) {
-      this.releaseQuietly(invite, params.now);
+      this.releaseQuietly(invite, now);
       throw error;
     }
 
@@ -563,15 +740,11 @@ export class UserInvitationService {
       { invitationId: invite.id, tenantId, userId: user.id },
       "User invite used",
     );
-    return {
-      ok: true,
-      invite,
-      user: { id: user.id, username: user.username, role: invite.role },
-      shop: { id: shop.id, name: shop.name, slug: shop.slug },
-    };
+    // LIRA-288: the new user's confirmed email (and Google link) list this
+    // shop on www. After the commit; never throws.
+    this.directory.syncUser(tenantId, user.id, now);
+    return { id: user.id, username: user.username, role: invite.role };
   }
-
-  // ---------------------------------------------------------------------------
 
   /**
    * Fails OPEN, like every other subscription check: a failed lookup must

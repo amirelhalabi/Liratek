@@ -119,6 +119,28 @@ and informational in `api:verify`.
 
 `mail@liratek.shop` on Spacemail; app sends over SMTP (`mail.spacemail.com:465`); MX/SPF/DKIM/DMARC records live in **Cloudflare** (not Spaceship — Spaceship's DNS page is inactive by design). New domain ⇒ early mail may land in Spam (reputation, not config). **Pending: LIRA-277** — around 2026-10-21, if invites reach the Inbox, change `_dmarc` from `p=none` to `p=quarantine` (`current_sprint.md` has the exact record).
 
+## Sign-in directory (LIRA-288)
+
+www's "your shops" answers (email code, Continue with Google, Forgot password)
+come from one platform table, `signin_directory`: one row per **confirmed
+email** or **linked Google account** of an active shop user, naming the shop.
+It is an **index**, not the source of truth — each shop's own `users` /
+`user_identities` are — and the app updates it after every email, Google,
+activation and shop change. A shop's own address never reads it, so drift can
+only hide a shop from the www lists, never lock anyone out.
+
+```bash
+yarn api ssh console -C "node dist/scripts/signinDirectoryCli.js"           # dry run: JSON diff, exit 1 on any difference
+yarn api ssh console -C "node dist/scripts/signinDirectoryCli.js --write"   # rebuild from every shop's records
+```
+
+Judge it by the exit code (0 = clean / rebuilt, 1 = differences or an
+unreadable shop): stdout also carries the dotenv and `[MIGRATIONS]` lines
+ahead of the JSON. Run the dry run after the deploy that ships it (expect zero differences — the
+v200 migration back-fills it) and whenever the boot log warns `Sign-in
+directory differs from the shops' records`. After the per-tenant split, run
+`--write` once (the migration back-fill only sees a shared file).
+
 ## Secrets
 
 Runtime config lives in **Fly secrets**, never in the image, never in git.

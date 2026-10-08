@@ -449,6 +449,8 @@ describe("DatabaseResetRepository", () => {
         "email_outbox",
         "signup_invitations",
         "signin_codes",
+        // LIRA-288: the www sign-in directory (platform level).
+        "signin_directory",
         "sso_handoff_tokens",
         "sync_errors",
         "sync_queue",

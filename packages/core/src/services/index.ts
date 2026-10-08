@@ -547,6 +547,16 @@ export {
   resetSessionSweepService,
 } from "./SessionSweepService.js";
 export type { SessionSweepResult } from "./SessionSweepService.js";
+export {
+  AuthTokenCleanupService,
+  getAuthTokenCleanupService,
+  resetAuthTokenCleanupService,
+  AUTH_TOKEN_PURGE_GRACE_MS,
+} from "./AuthTokenCleanupService.js";
+export type {
+  AuthTokenCleanupResult,
+  AuthTokenCleanupRepositories,
+} from "./AuthTokenCleanupService.js";
 
 // =============================================================================
 // Account features (SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md "Contracts"): one
@@ -570,6 +580,7 @@ export {
   UserInviteRateLimitedError,
   UserInvitationNotFoundError,
   UserInviteShopInactiveError,
+  JoinGoogleEmailMismatchError,
   userInviteIdempotencyKey,
   USER_INVITE_CLAIM_STALE_MS,
   USER_INVITE_DAILY_LIMIT,
@@ -588,6 +599,8 @@ export type {
   RevokeUserInvitationResult,
   AcceptUserInvitationParams,
   AcceptUserInvitationOutcome,
+  AcceptUserInvitationWithGoogleParams,
+  JoinGoogleIdentity,
 } from "./UserInvitationService.js";
 export {
   UserEmailService,
@@ -609,6 +622,7 @@ export type {
   UserEmailView,
   SetUserEmailResult,
   UserEmailSendContext,
+  AdminUnlinkGoogleResult,
 } from "./UserEmailService.js";
 
 // [auth-C] exports
@@ -649,6 +663,21 @@ export type {
   SigninCodeServiceDeps,
 } from "./SigninCodeService.js";
 export * from "../constants/signinCode.js";
+
+// LIRA-288: the www sign-in directory (platform level, v200). Node-only.
+export {
+  SigninDirectoryService,
+  getSigninDirectoryService,
+  resetSigninDirectoryService,
+  buildDirectoryRows,
+} from "./SigninDirectoryService.js";
+export type {
+  SigninDirectorySync,
+  DirectoryIdentityFacts,
+  SigninDirectoryDiff,
+  SigninDirectoryRebuildResult,
+  SigninDirectoryServiceDeps,
+} from "./SigninDirectoryService.js";
 
 // [auth-D] exports
 // Continue with Google (LIRA-280). The service is Node-only (node:crypto,

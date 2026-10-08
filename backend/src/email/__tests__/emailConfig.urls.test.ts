@@ -8,6 +8,16 @@
 
 jest.mock("../createTransport.js", () => ({ isEmailConfigured: () => true }));
 
+// Hermetic: every resolver here DEFAULTS its parameters from core's parsed env,
+// and passing `undefined` explicitly selects that default. A developer's
+// backend/.env (APP_BASE_DOMAIN, SIGNUP_INVITE_BASE_URL) would otherwise leak
+// into the "neither is configured" cases. Pinned to unset here.
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual<typeof import("@liratek/core")>("@liratek/core"),
+  APP_BASE_DOMAIN: undefined,
+  SIGNUP_INVITE_BASE_URL: undefined,
+}));
+
 import {
   resolveInviteBaseUrl,
   resolveShopLinkBaseUrl,

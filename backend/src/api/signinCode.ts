@@ -19,8 +19,9 @@
  *
  * Web-only: the desktop app signs in with a username on its own machine and
  * has no www (the same recorded exception as LIRA-267's sign-up links), so
- * there is no IPC mirror. Cross-shop lookup by email works in SHARED DB mode
- * only (production today) — see UserRepository.findSigninAccountsByEmail.
+ * there is no IPC mirror. "Which shops does this email sign in to?" comes
+ * from the platform sign-in directory (LIRA-288), so it works whether shops
+ * share one file or each has its own.
  */
 
 import express, { type Request } from "express";

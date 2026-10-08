@@ -18,25 +18,19 @@
  * Sign-in matches ONLY through a linked Google `sub` (owner decision
  * 2026-10-07): there is no lookup by email anywhere in this file.
  *
- * ONE GOOGLE ACCOUNT = ONE SHOP (owner decision 2026-10-07): `linkIdentity`
- * refuses an account already linked in another shop, and a Google sign-up is
- * refused for an account linked anywhere (`isLinkedToAnyShop`). Only LIVE
- * links count — a deactivated user's link, or one in a suspended/archived
- * shop, is ignored (and kept); defined once in UserIdentityRepository. Links made
- * before that decision (one account in two shops) are kept, so sign-in can
- * still return several matches and the shop chooser stays.
+ * ONE GOOGLE ACCOUNT = ONE USER PER SHOP (LIRA-288, owner decision
+ * 2026-10-08): the same Google account may be linked in several shops, to
+ * one user in each; a second user of the same shop is refused by the
+ * repository (`IdentityAlreadyLinkedError`). On www, "which shops does this
+ * account open?" comes from the platform sign-in directory
+ * (`findSignInMatches`), so it works whether shops share one file or each
+ * has its own. Links and unlinks re-sync the directory.
  *
  * Scoping is the caller's job, per method (the route knows which shop):
- *   - `findSignInMatches`, `findMatchInTenant`, `isLinkedToAnyShop`,
- *     `createHandoff`, `consumeHandoff`: inside `runWithoutTenant`.
- *   - `openSession`, `linkIdentity`, `unlinkIdentity`, `getLinkedEmail`:
- *     inside `runWithTenant(<the shop>)`.
- *
- * PER-TENANT DB MODE LIMITATION: `findSignInMatches`, `isLinkedToAnyShop`
- * and the one-shop check inside `linkIdentity` rely on cross-tenant lookups
- * of `user_identities`, which only see every shop in SHARED mode. In per-tenant mode each shop's identities live in its own
- * file, so a platform-level (provider, subject) -> (tenant, user) index is
- * needed before that split goes live (known follow-up, plan contracts §D).
+ *   - `findSignInMatches`, `createHandoff`, `consumeHandoff`: inside
+ *     `runWithoutTenant` (platform).
+ *   - `findMatchInTenant`, `openSession`, `linkIdentity`, `unlinkIdentity`,
+ *     `getLinkedEmail`: inside `runWithTenant(<the shop>)`.
  */
 
 import crypto from "node:crypto";
@@ -45,6 +39,11 @@ import {
   type IdentityMatch,
   type UserIdentityRepository,
 } from "../repositories/UserIdentityRepository.js";
+import {
+  getSigninDirectoryRepository,
+  type DirectoryAccount,
+  type SigninDirectoryRepository,
+} from "../repositories/SigninDirectoryRepository.js";
 import {
   getSsoHandoffTokenRepository,
   type SsoHandoffTokenRepository,
@@ -59,6 +58,11 @@ import {
   type SessionRepository,
 } from "../repositories/SessionRepository.js";
 import { generateToken, hashToken } from "../utils/crypto.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
+import {
+  getSigninDirectoryService,
+  type SigninDirectorySync,
+} from "./SigninDirectoryService.js";
 
 // ── Google's published endpoints ─────────────────────────────────────────
 
@@ -116,6 +120,10 @@ export interface GoogleAuthServiceOptions {
   handoffRepo?: SsoHandoffTokenRepository;
   userRepo?: UserRepository;
   sessionRepo?: SessionRepository;
+  /** LIRA-288: re-synced after a link or unlink. */
+  directory?: SigninDirectorySync;
+  /** LIRA-288: where www sign-in matches come from. */
+  directoryRepo?: SigninDirectoryRepository;
 }
 
 interface JsonWebKeyWithKid extends crypto.JsonWebKey {
@@ -154,6 +162,8 @@ export class GoogleAuthService {
   private readonly handoffRepo: SsoHandoffTokenRepository;
   private readonly userRepo: UserRepository;
   private readonly sessionRepo: SessionRepository;
+  private readonly directory: SigninDirectorySync;
+  private readonly directoryRepo: SigninDirectoryRepository;
   private jwks: { keys: Map<string, crypto.KeyObject>; expiresAtMs: number } | null =
     null;
 
@@ -164,6 +174,8 @@ export class GoogleAuthService {
     this.handoffRepo = options.handoffRepo ?? getSsoHandoffTokenRepository();
     this.userRepo = options.userRepo ?? getUserRepository();
     this.sessionRepo = options.sessionRepo ?? getSessionRepository();
+    this.directory = options.directory ?? getSigninDirectoryService();
+    this.directoryRepo = options.directoryRepo ?? getSigninDirectoryRepository();
   }
 
   // ── PKCE + authorization URL ───────────────────────────────────────────
@@ -339,29 +351,24 @@ export class GoogleAuthService {
 
   // ── Identities ─────────────────────────────────────────────────────────
 
-  /** Every shop this Google account opens (active users only). Cross-tenant;
-   * SHARED DB mode only — see the header. Call inside `runWithoutTenant`. */
-  findSignInMatches(subject: string): IdentityMatch[] {
-    return this.identityRepo.findBySubjectAllTenants(PROVIDER, subject);
+  /** Every ACTIVE shop this Google account opens, by shop name — from the
+   * platform sign-in directory (never a scan of shops). Call inside
+   * `runWithoutTenant`. */
+  findSignInMatches(subject: string): DirectoryAccount[] {
+    return this.directoryRepo.findByGoogleSubject(subject);
   }
 
-  /** The user this Google account opens in one shop, or null. */
+  /** The user this Google account opens in ONE shop, from that shop's own
+   * records, or null. Call inside `runWithTenant(tenantId)` so per-tenant
+   * mode reads the shop's file. */
   findMatchInTenant(subject: string, tenantId: number): IdentityMatch | null {
     return this.identityRepo.findBySubjectInTenant(PROVIDER, subject, tenantId);
   }
 
-  /** Is this Google account LIVE-linked in any shop (active user, shop not
-   * suspended/archived)? The Google sign-up refusal; dead links are ignored.
-   * Cross-tenant; SHARED DB mode only — see the header. Call inside
-   * `runWithoutTenant`. */
-  isLinkedToAnyShop(subject: string): boolean {
-    return this.identityRepo.findLiveLinksBySubject(PROVIDER, subject).length > 0;
-  }
-
   /** Links Google to a user of the CURRENT shop; the same link again is a
-   * no-op. Throws `GoogleAccountInOtherShopError`
-   * (GOOGLE_ACCOUNT_IN_OTHER_SHOP) or `IdentityAlreadyLinkedError`
-   * (IDENTITY_ALREADY_LINKED).
+   * no-op. Linked in other shops is fine (LIRA-288). Throws
+   * `IdentityAlreadyLinkedError` (IDENTITY_ALREADY_LINKED) when another user
+   * of this shop has it, or this user already has another Google account.
    *
    * LIRA-287 (owner decision 2026-10-07): Google's verified address becomes
    * the user's CONFIRMED email when they have none — never overwriting one,
@@ -385,10 +392,17 @@ export class GoogleAuthService {
     if (input.email.trim()) {
       this.userRepo.setEmailIfAbsent(input.userId, input.email, input.now);
     }
+    // LIRA-288: www now finds this shop for this Google account (and for the
+    // email just confirmed). Never throws.
+    this.directory.syncUser(getCurrentTenantId(), input.userId, input.now);
   }
 
-  unlinkIdentity(userId: number): boolean {
-    return this.identityRepo.unlink(userId, PROVIDER);
+  /** Removes a CURRENT-shop user's Google link (the user themself, or an
+   * admin from Settings -> Users). False when there was none. */
+  unlinkIdentity(userId: number, now: string): boolean {
+    const unlinked = this.identityRepo.unlink(userId, PROVIDER);
+    if (unlinked) this.directory.syncUser(getCurrentTenantId(), userId, now);
+    return unlinked;
   }
 
   getLinkedEmail(userId: number): { linked: boolean; email: string | null } {
