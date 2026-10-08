@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { appEvents, useApi, type UINotification } from "@liratek/ui";
 import { subscribeToInvalidation } from "@/api/realtime";
 import { POLL_MS, isTabVisible } from "@/api/pollingCadence";
-import { LogOut, Bell, X, Home, Sun, Moon, UserCircle } from "lucide-react";
+import { LogOut, Bell, X, Home, Sun, Moon } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/context/AuthContext";
+import AccountAvatar from "@/features/account/components/AccountAvatar";
 import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { CustomerSessionButton } from "@/features/sessions/components/CustomerSessionButton";
@@ -439,7 +440,8 @@ export default function TopBar({
             aria-label="My account"
             data-testid="my-account-link"
           >
-            <UserCircle size={20} />
+            {/* LIRA-294: the Google photo when there is one (web). */}
+            <AccountAvatar url={user?.pictureUrl} size={20} />
           </button>
 
           <button

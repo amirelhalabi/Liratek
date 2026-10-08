@@ -164,7 +164,8 @@ describe("PKCE + authorization URL", () => {
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(url.searchParams.get("state")).toBe("st");
     expect(url.searchParams.get("nonce")).toBe(NONCE);
-    expect(url.searchParams.get("scope")).toBe("openid email");
+    // LIRA-294: `profile` adds the `picture` claim (the account photo).
+    expect(url.searchParams.get("scope")).toBe("openid email profile");
     expect(url.searchParams.get("redirect_uri")).toBe(
       "https://www.liratek.shop/api/auth/google/callback",
     );
@@ -186,7 +187,11 @@ describe("code exchange + ID token verification", () => {
   it("sends the PKCE verifier to Google's token endpoint and returns verified claims", async () => {
     const { fetchImpl, calls } = makeFetch(signIdToken(goodClaims()));
     const claims = await exchange(new GoogleAuthService({ fetchImpl }));
-    expect(claims).toEqual({ sub: "google-sub-1", email: "owner@gmail.com" });
+    expect(claims).toEqual({
+      sub: "google-sub-1",
+      email: "owner@gmail.com",
+      picture: null,
+    });
     const tokenCall = calls.find((c) => c.url.includes("/token"));
     expect(tokenCall?.url).toBe("https://oauth2.googleapis.com/token");
     const form = new URLSearchParams(tokenCall?.body ?? "");
@@ -201,7 +206,7 @@ describe("code exchange + ID token verification", () => {
       signIdToken(goodClaims({ iss: "accounts.google.com" })),
     );
     await expect(exchange(new GoogleAuthService({ fetchImpl }))).resolves.toEqual(
-      { sub: "google-sub-1", email: "owner@gmail.com" },
+      { sub: "google-sub-1", email: "owner@gmail.com", picture: null },
     );
   });
 
@@ -297,12 +302,14 @@ describe("identities, hand-off and session", () => {
         linked: true,
         email: "owner@gmail.com",
         hasPassword: true,
+        pictureUrl: null,
       });
       expect(svc().unlinkIdentity(20, NOW)).toBe(true);
       expect(svc().getLinkedEmail(20)).toEqual({
         linked: false,
         email: null,
         hasPassword: true,
+        pictureUrl: null,
       });
       expect(svc().unlinkIdentity(20, NOW)).toBe(false);
     });
@@ -316,6 +323,7 @@ describe("identities, hand-off and session", () => {
         linked: true,
         email: "owner@gmail.com",
         hasPassword: false,
+        pictureUrl: null,
       });
       let caught: unknown;
       try {
@@ -488,5 +496,96 @@ describe("connecting Google confirms the user's email (LIRA-287)", () => {
     expect(
       runWithTenant(2, () => svc().getLinkedEmail(20)).linked,
     ).toBe(true);
+  });
+});
+
+// ── LIRA-294: the Google profile photo ────────────────────────────────────
+
+describe("LIRA-294 profile photo", () => {
+  const PHOTO = "https://lh3.googleusercontent.com/a/ACg8ocK-photo=s96-c";
+  const exchange = (svc: GoogleAuthService) =>
+    svc.exchangeCodeForClaims({
+      code: "auth-code",
+      codeVerifier: "the-verifier",
+      clientId: CLIENT_ID,
+      clientSecret: "secret",
+      redirectUri: "https://www.liratek.shop/api/auth/google/callback",
+      nonce: NONCE,
+      nowMs: NOW_MS,
+    });
+
+  it("passes a googleusercontent `picture` claim through the verifier", async () => {
+    const { fetchImpl } = makeFetch(signIdToken(goodClaims({ picture: PHOTO })));
+    const claims = await exchange(new GoogleAuthService({ fetchImpl }));
+    expect(claims.picture).toBe(PHOTO);
+  });
+
+  it("drops a picture on any other host (stored as null, the sign-in still works)", async () => {
+    const { fetchImpl } = makeFetch(
+      signIdToken(goodClaims({ picture: "https://evil.example.com/me.png" })),
+    );
+    const claims = await exchange(new GoogleAuthService({ fetchImpl }));
+    expect(claims).toMatchObject({ sub: "google-sub-1", picture: null });
+  });
+
+  it("stores the photo on link, refreshes it on sign-in, and reports it in the link status", () => {
+    const svc = new GoogleAuthService();
+    runWithTenant(2, () => {
+      svc.linkIdentity({
+        userId: 20,
+        subject: "google-sub-1",
+        email: "owner@gmail.com",
+        picture: PHOTO,
+        now: NOW,
+      });
+      expect(svc.getPictureUrl(20)).toBe(PHOTO);
+      expect(svc.getLinkedEmail(20).pictureUrl).toBe(PHOTO);
+
+      const newer = "https://lh3.googleusercontent.com/a/newer=s96-c";
+      svc.refreshPicture("google-sub-1", newer, NOW);
+      expect(svc.getPictureUrl(20)).toBe(newer);
+
+      // A bad URL on refresh clears it rather than storing it.
+      svc.refreshPicture("google-sub-1", "javascript:alert(1)", NOW);
+      expect(svc.getPictureUrl(20)).toBeNull();
+    });
+  });
+
+  it("a repeat link of the same account refreshes the photo", () => {
+    const svc = new GoogleAuthService();
+    runWithTenant(2, () => {
+      svc.linkIdentity({ userId: 20, subject: "google-sub-1", email: "o@g.com", now: NOW });
+      expect(svc.getPictureUrl(20)).toBeNull();
+      svc.linkIdentity({
+        userId: 20,
+        subject: "google-sub-1",
+        email: "o@g.com",
+        picture: PHOTO,
+        now: NOW,
+      });
+      expect(svc.getPictureUrl(20)).toBe(PHOTO);
+    });
+  });
+
+  it("refresh only touches THIS shop's link of that account", () => {
+    const svc = new GoogleAuthService();
+    runWithTenant(2, () =>
+      svc.linkIdentity({ userId: 20, subject: "google-sub-1", email: "o@g.com", picture: PHOTO, now: NOW }),
+    );
+    runWithTenant(3, () =>
+      svc.linkIdentity({ userId: 30, subject: "google-sub-1", email: "o@g.com", picture: PHOTO, now: NOW }),
+    );
+    runWithTenant(3, () => svc.refreshPicture("google-sub-1", null, NOW));
+    expect(runWithTenant(2, () => svc.getPictureUrl(20))).toBe(PHOTO);
+    expect(runWithTenant(3, () => svc.getPictureUrl(30))).toBeNull();
+  });
+
+  it("disconnecting Google removes the photo with the link", () => {
+    const svc = new GoogleAuthService();
+    runWithTenant(2, () => {
+      svc.linkIdentity({ userId: 20, subject: "google-sub-1", email: "o@g.com", picture: PHOTO, now: NOW });
+      svc.unlinkIdentity(20, NOW);
+      expect(svc.getPictureUrl(20)).toBeNull();
+    });
   });
 });

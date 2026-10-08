@@ -580,3 +580,30 @@ describe("LIRA-292 GET /api/user-email/me — my own email", () => {
     expect(res.status).toBe(401);
   });
 });
+
+// ── LIRA-294: the account photo on the session user ──────────────────────
+
+describe("LIRA-294 pictureUrl on login and /api/auth/me", () => {
+  const PHOTO = "https://lh3.googleusercontent.com/a/photo=s96-c";
+
+  it("the login envelope and /me carry the Google link's photo", async () => {
+    db.prepare(
+      `INSERT INTO user_identities (user_id, tenant_id, provider, subject, email, picture_url, created_at, updated_at)
+       VALUES (?, 2, 'google', 'sub-photo', 'p@gmail.com', ?, '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z')`,
+    ).run(ids.cell_staff, PHOTO);
+    const login = await request(app)
+      .post("/api/auth/login")
+      .send({ username: "cell_staff", password: PASSWORD });
+    expect(login.body.data.user.pictureUrl).toBe(PHOTO);
+    const me = await request(app)
+      .get("/api/auth/me")
+      .set("Authorization", `Bearer ${login.body.data.token as string}`);
+    expect(me.body.user.pictureUrl).toBe(PHOTO);
+  });
+
+  it("no Google link: pictureUrl is null", async () => {
+    const token = await loginToken("cell_other");
+    const me = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+    expect(me.body.user).toHaveProperty("pictureUrl", null);
+  });
+});

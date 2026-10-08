@@ -13,6 +13,7 @@ import {
 } from "@/api/httpClient";
 import { localDay } from "@/shared/utils/localDay";
 import { consumeFreshSignIn } from "@/features/auth/utils/freshSignIn";
+import type { AccountPicture } from "@liratek/core";
 
 interface User {
   id: number;
@@ -25,6 +26,8 @@ interface User {
   /** Web-mode only — decoded client-side from the JWT. `null` only for
    * `super_admin`; `undefined` when there's nothing to decode (Electron). */
   tenantId?: number | null;
+  /** LIRA-294 (web): the account photo (Google profile picture), or null. */
+  pictureUrl?: AccountPicture["pictureUrl"];
 }
 
 interface AuthContextType {

@@ -22,6 +22,7 @@ import {
   type OwnEmailView,
 } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
+import AccountAvatar from "@/features/account/components/AccountAvatar";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -165,9 +166,18 @@ export default function ProfileSection() {
       aria-labelledby="profile-heading"
       className="rounded-xl border border-slate-700 bg-slate-800 p-4"
     >
-      <h2 id="profile-heading" className="text-sm font-semibold text-white">
-        Profile
-      </h2>
+      <div className="flex items-center gap-3">
+        {/* LIRA-294: the account photo (Google), larger; icon otherwise. */}
+        <AccountAvatar
+          url={user?.pictureUrl}
+          size={48}
+          alt="Account photo"
+          className="text-slate-400"
+        />
+        <h2 id="profile-heading" className="text-sm font-semibold text-white">
+          Profile
+        </h2>
+      </div>
       <dl className="mt-2">
         <Row label="Username">{user?.username ?? ""}</Row>
         <Row label="Role">{ROLE_LABELS[role] ?? role}</Row>

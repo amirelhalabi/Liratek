@@ -229,6 +229,7 @@
 - Web app: My account now starts with your profile — username, role, shop, and your email with a "Verified" badge once it is confirmed.
 - Web app: you can now change your own password in My account → Sign-in methods. Type your current password and the new one; your other devices are signed out, this one stays signed in, and you get an email saying your password was changed.
 - Web app: you can now change your own email in My account → Profile → Change email. We send a link to the new address and your email changes only after you open it; your old address gets a message about the change.
+- Web app: if you sign in with Google, your Google profile photo now shows next to your name at the top and in My account. It appears from your next Google sign-in (or the next time you connect Google); without one you keep the person icon.
 - Web app, Settings → Users: when you disconnect Google from someone who has no password, the confirmation warns you first. If they have a confirmed email, they are emailed a link to set a password; if not, the warning says to set one for them with Set Password.
 - Web app: password emails now name the username. Someone who never had a password gets "Set a password for <username>", and the page they open says "Set a password" instead of "Choose a new password".
 - Web app: the page for choosing a new password has show/hide buttons on both fields, like the sign-in page, and your browser can suggest and save a password there. The sign-up, join-by-invitation and Add shop forms have the show/hide button too.

@@ -42,6 +42,8 @@ export interface UserIdentityEntity extends BaseEntity {
   email: string | null;
   created_at: string;
   updated_at: string;
+  /** v204 (LIRA-294): the Google profile photo, or null. */
+  picture_url: string | null;
 }
 
 export interface LinkUserIdentityData {
@@ -51,6 +53,9 @@ export interface LinkUserIdentityData {
   subject: string;
   /** The provider's email at link time (informational; normalised). */
   email: string | null;
+  /** LIRA-294: the profile photo URL, ALREADY checked by
+   * `safeGooglePictureUrl` (null = none). Refreshed on a repeat link. */
+  pictureUrl?: string | null;
   /** UTC ISO — written to created_at/updated_at. */
   now: string;
 }
@@ -73,6 +78,7 @@ const COLUMNS = [
   "email",
   "created_at",
   "updated_at",
+  "picture_url",
 ].join(", ");
 
 /** The by-subject projection: only ACTIVE users can be signed into. */
@@ -125,12 +131,24 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
         });
       }
       const existing = this.findByUser(data.userId, data.provider);
-      if (existing && existing.subject === data.subject) return existing;
+      if (existing && existing.subject === data.subject) {
+        // LIRA-294: the same link again refreshes the photo.
+        if (data.pictureUrl !== undefined) {
+          this.db
+            .prepare(
+              `UPDATE user_identities SET picture_url = ?, updated_at = ?
+                WHERE id = ? AND tenant_id = ?`,
+            )
+            .run(data.pictureUrl, data.now, existing.id, tenantId);
+          return { ...existing, picture_url: data.pictureUrl };
+        }
+        return existing;
+      }
       const result = this.db
         .prepare(
           `INSERT INTO user_identities
-             (user_id, tenant_id, provider, subject, email, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             (user_id, tenant_id, provider, subject, email, created_at, updated_at, picture_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           data.userId,
@@ -140,6 +158,7 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
           data.email ? normalizeEmail(data.email) : null,
           data.now,
           data.now,
+          data.pictureUrl ?? null,
         );
       const created = this.findById(Number(result.lastInsertRowid));
       if (!created) {
@@ -183,6 +202,28 @@ export class UserIdentityRepository extends BaseRepository<UserIdentityEntity> {
           ORDER BY user_id`,
       )
       .all(provider, getCurrentTenantId()) as UserIdentityEntity[];
+  }
+
+  /**
+   * LIRA-294: refresh the profile photo of the CURRENT shop's link for this
+   * provider account (on a Google sign-in). `pictureUrl` is already checked
+   * (`safeGooglePictureUrl`); null clears it. False when there is no link.
+   */
+  setPicture(
+    provider: IdentityProvider,
+    subject: string,
+    pictureUrl: string | null,
+    now: string,
+  ): boolean {
+    return (
+      this.db
+        .prepare(
+          `UPDATE user_identities SET picture_url = ?, updated_at = ?
+            WHERE provider = ? AND subject = ? AND tenant_id = ?`,
+        )
+        .run(pictureUrl, now, provider, subject, getCurrentTenantId()).changes >
+      0
+    );
   }
 
   /** Removes a CURRENT-shop user's link. False when there was none. */

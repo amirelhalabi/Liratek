@@ -14086,6 +14086,28 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 204,
+    name: "user_identities_picture_url",
+    description:
+      "LIRA-294 (owner request 2026-10-08): the Google profile photo as the " +
+      "account picture (web only). user_identities gains picture_url TEXT " +
+      "NULL, set or refreshed on every Google link and sign-in, and only " +
+      "ever an https URL on *.googleusercontent.com (anything else is stored " +
+      "as NULL). Existing links stay NULL until their next Google sign-in.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "user_identities")) return;
+      if (!columnExists(db, "user_identities", "picture_url")) {
+        db.exec(`ALTER TABLE user_identities ADD COLUMN picture_url TEXT;`);
+      }
+    },
+    down(db: Database.Database) {
+      if (columnExists(db, "user_identities", "picture_url")) {
+        db.exec(`ALTER TABLE user_identities DROP COLUMN picture_url;`);
+      }
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

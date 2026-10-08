@@ -639,9 +639,16 @@ origins, which is why the flow does not run on `<shop>.liratek.shop`.
    project, e.g. "LiraTek".
 2. **OAuth consent screen.** User type **External**; app name `LiraTek`;
    support email `mail@liratek.shop`; authorized domain `liratek.shop`
-   (verify it in Google Search Console if asked). Scopes: only `openid` and
-   `email` — LiraTek asks for nothing else. Publish the app (move it out of
-   "Testing"), or only listed test users can sign in.
+   (verify it in Google Search Console if asked). Scopes: `openid`, `email`
+   and `profile` — LiraTek asks for nothing else. `profile` (added by
+   LIRA-294, 2026-10-08) carries the person's profile photo, shown as their
+   account picture in the web app; it is a non-sensitive scope, but the
+   consent screen now lists it ("name and profile picture"), so add it to the
+   consent screen's scope list too. Only the photo URL is stored
+   (`user_identities.picture_url`), and only when it is an https URL on
+   `*.googleusercontent.com` — the same host the web app's CSP `img-src`
+   allows. Publish the app (move it out of "Testing"), or only listed test
+   users can sign in.
 3. **OAuth client.** Credentials → Create credentials → OAuth client ID →
    **Web application**:
    - Authorized JavaScript origin: `https://www.liratek.shop`

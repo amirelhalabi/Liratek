@@ -35,6 +35,8 @@ export * from "./utils/logger.js";
 export * from "./utils/errors.js";
 // LIRA-291: the one wording for a user's sign-in methods (pure).
 export * from "./utils/signinMethods.js";
+// LIRA-294: the Google profile photo URL rule (pure).
+export * from "./utils/googlePicture.js";
 export * from "./utils/barcode.js";
 export * from "./utils/payments.js";
 export * from "./utils/saleMargin.js";

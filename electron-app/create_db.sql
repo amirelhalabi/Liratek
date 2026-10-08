@@ -284,6 +284,9 @@ CREATE TABLE IF NOT EXISTS user_identities (
     email TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- v204 (LIRA-294): the Google profile photo (https, *.googleusercontent.com
+    -- only), refreshed on every link and sign-in; NULL otherwise.
+    picture_url TEXT,
     UNIQUE (provider, subject, tenant_id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identities_user_provider
@@ -2720,4 +2723,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- data only: a fresh DB has no Google-joined users).
     (202, 'users_has_password'),
     -- v203 (LIRA-293) adds email_verification_tokens.purpose, declared above.
-    (203, 'email_verification_token_purpose');
+    (203, 'email_verification_token_purpose'),
+    -- v204 (LIRA-294) adds user_identities.picture_url, declared above.
+    (204, 'user_identities_picture_url');

@@ -62,6 +62,8 @@ export * from "./validators/index.js";
 export * from "./utils/passwordPolicy.js";
 // LIRA-291: the one wording for a user's sign-in methods (pure).
 export * from "./utils/signinMethods.js";
+// LIRA-294: the Google profile photo URL rule (pure).
+export * from "./utils/googlePicture.js";
 export {
   EMAIL_ALREADY_HAS_SHOP,
   EMAIL_ALREADY_HAS_SHOP_MESSAGE,
@@ -411,6 +413,12 @@ export type {
 } from "./services/PasswordResetService.js";
 // LIRA-293: "Change password" answer (type-only, rule 29).
 export type { ChangeOwnPasswordResult } from "./services/AuthService.js";
+// LIRA-294: the account photo on the session user and the own link status
+// (type-only, rule 29).
+export type {
+  AccountPicture,
+  GoogleLinkView,
+} from "./services/GoogleAuthService.js";
 
 // LIRA-287: www "email me a code" sign-in — messages, limits and the
 // "your shops" shape (pure leaf module). The schemas arrive through the

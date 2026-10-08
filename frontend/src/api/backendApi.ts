@@ -109,6 +109,8 @@ import type {
   ChartDataPoint,
 } from "@liratek/ui";
 
+import type { AccountPicture, GoogleLinkView } from "@liratek/core";
+
 export type { ProductListFilters };
 
 export function isElectron(): boolean {
@@ -152,6 +154,9 @@ export type ApiUser = {
    * JWTs, and never carry a tenant concept.
    */
   tenantId?: number | null;
+  /** LIRA-294 (web): the account photo — the user's Google profile picture
+   * (https, *.googleusercontent.com only) — or null / absent. */
+  pictureUrl?: AccountPicture["pictureUrl"];
 };
 
 /** Merges a decoded JWT's `tenantId` claim onto a login/me response user
@@ -8265,15 +8270,11 @@ export async function googleAuthStatus() {
 /** The signed-in user's own Google link (Settings). */
 export async function googleLinkStatus() {
   assertWebOnly("Google sign-in");
-  return requestJson<
-    GoogleRouteResult<{
-      enabled: boolean;
-      linked: boolean;
-      email: string | null;
-      /** LIRA-291: false = joined with Google and never set a password. */
-      hasPassword: boolean;
-    }>
-  >("/api/auth/google/link");
+  // LIRA-291 `hasPassword` (false = joined with Google and never set one);
+  // LIRA-294 `pictureUrl`. The shape is core's GoogleLinkView (rule 21).
+  return requestJson<GoogleRouteResult<GoogleLinkView & { enabled: boolean }>>(
+    "/api/auth/google/link",
+  );
 }
 
 /** Where to start linking Google to the SIGNED-IN user (Settings), plus the

@@ -60,6 +60,8 @@ import {
 import { generateToken, hashToken } from "../utils/crypto.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { LastSigninMethodError } from "../utils/errors.js";
+import { safeGooglePictureUrl } from "../utils/googlePicture.js";
+import { authLogger } from "../utils/logger.js";
 import {
   getSigninDirectoryService,
   type SigninDirectorySync,
@@ -105,6 +107,23 @@ export interface GoogleIdentityClaims {
   sub: string;
   /** Verified by Google (`email_verified === true`); trimmed + lowercased. */
   email: string;
+  /** LIRA-294: the profile photo (`picture` claim, needs the `profile`
+   * scope), only when it is an https URL on *.googleusercontent.com
+   * (`safeGooglePictureUrl`); otherwise null. */
+  picture: string | null;
+}
+
+/** The own link status (GET /api/auth/google/link, minus `enabled`). */
+export interface GoogleLinkView extends AccountPicture {
+  linked: boolean;
+  email: string | null;
+  hasPassword: boolean;
+}
+
+/** LIRA-294: the account photo, as the session user data and the own link
+ * status carry it. */
+export interface AccountPicture {
+  pictureUrl: string | null;
 }
 
 /** Every refusal of Google's answer. `reason` is for logs, never shown. */
@@ -202,7 +221,9 @@ export class GoogleAuthService {
       client_id: input.clientId,
       redirect_uri: input.redirectUri,
       response_type: "code",
-      scope: "openid email",
+      // LIRA-294: `profile` adds the `picture` claim (the account photo).
+      // Non-sensitive; the consent screen now lists it.
+      scope: "openid email profile",
       state: input.state,
       nonce: input.nonce,
       code_challenge: input.codeChallenge,
@@ -309,7 +330,11 @@ export class GoogleAuthService {
     ) {
       throw new GoogleTokenError("claims");
     }
-    return { sub: claims.sub, email: claims.email.trim().toLowerCase() };
+    return {
+      sub: claims.sub,
+      email: claims.email.trim().toLowerCase(),
+      picture: safeGooglePictureUrl(claims.picture),
+    };
   }
 
   /** Google's public key for `kid`; refetches the JWKS once when the key is
@@ -381,6 +406,8 @@ export class GoogleAuthService {
     userId: number;
     subject: string;
     email: string;
+    /** LIRA-294: the photo from the ID token (re-checked here). */
+    picture?: string | null;
     now: string;
   }): void {
     this.identityRepo.link({
@@ -388,6 +415,7 @@ export class GoogleAuthService {
       provider: PROVIDER,
       subject: input.subject,
       email: input.email,
+      pictureUrl: safeGooglePictureUrl(input.picture),
       now: input.now,
     });
     if (input.email.trim()) {
@@ -425,18 +453,44 @@ export class GoogleAuthService {
     }
   }
 
+  /**
+   * LIRA-294: on a Google sign-in, refresh the photo of THIS account's link
+   * in the CURRENT shop (call inside `runWithTenant`). Never throws: a photo
+   * must never stop a sign-in.
+   */
+  refreshPicture(subject: string, picture: string | null, now: string): void {
+    try {
+      this.identityRepo.setPicture(
+        PROVIDER,
+        subject,
+        safeGooglePictureUrl(picture),
+        now,
+      );
+    } catch (error) {
+      authLogger.warn({ error }, "Google photo refresh failed");
+    }
+  }
+
+  /** LIRA-294: the CURRENT-shop user's account photo (their Google link's),
+   * or null. */
+  getPictureUrl(userId: number): string | null {
+    return this.identityRepo.findByUser(userId, PROVIDER)?.picture_url ?? null;
+  }
+
   /** The user's Google link status and, LIRA-291, whether they have a
-   * password (Settings → Sign-in methods offers "Set a password"). */
-  getLinkedEmail(userId: number): {
-    linked: boolean;
-    email: string | null;
-    hasPassword: boolean;
-  } {
+   * password (Settings → Sign-in methods offers "Set a password"), and,
+   * LIRA-294, the account photo. */
+  getLinkedEmail(userId: number): GoogleLinkView {
     const row = this.identityRepo.findByUser(userId, PROVIDER);
     const hasPassword = this.userRepo.hasPassword(userId);
     return row
-      ? { linked: true, email: row.email, hasPassword }
-      : { linked: false, email: null, hasPassword };
+      ? {
+          linked: true,
+          email: row.email,
+          hasPassword,
+          pictureUrl: row.picture_url ?? null,
+        }
+      : { linked: false, email: null, hasPassword, pictureUrl: null };
   }
 
   // ── Hand-off ───────────────────────────────────────────────────────────

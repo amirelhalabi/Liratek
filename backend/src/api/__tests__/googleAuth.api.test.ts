@@ -92,7 +92,9 @@ const svc = {
     });
     return `https://accounts.google.com/o/oauth2/v2/auth?${p.toString()}`;
   }),
-  exchangeCodeForClaims: jest.fn<(input: Record<string, unknown>) => Promise<{ sub: string; email: string }>>(),
+  exchangeCodeForClaims: jest.fn<
+    (input: Record<string, unknown>) => Promise<{ sub: string; email: string; picture?: string | null }>
+  >(),
   findSignInMatches: jest.fn<(sub: string) => Array<Record<string, unknown>>>(),
   findMatchInTenant: jest.fn<(sub: string, tenantId: number) => Record<string, unknown> | null>(),
   createHandoff: jest.fn<(input: Record<string, unknown>) => string>(),
@@ -102,8 +104,16 @@ const svc = {
   unlinkIdentity: jest.fn<(userId: number) => boolean>(),
   assertCanUnlink: jest.fn<(userId: number) => void>(),
   getLinkedEmail: jest.fn<
-    (userId: number) => { linked: boolean; email: string | null; hasPassword: boolean }
+    (userId: number) => {
+      linked: boolean;
+      email: string | null;
+      hasPassword: boolean;
+      pictureUrl?: string | null;
+    }
   >(),
+  // LIRA-294: the account photo, refreshed on every Google sign-in.
+  refreshPicture: jest.fn<(sub: string, picture: string | null, now: string) => void>(),
+  getPictureUrl: jest.fn<(userId: number) => string | null>(),
 };
 
 /** Which scope the route was in when a service method ran: a shop id
@@ -1224,5 +1234,66 @@ describe("Join with Google (invite links)", () => {
     );
     expect(joinParams(url).get("google")).toBe("cancelled");
     expect(acceptWithGoogle).not.toHaveBeenCalled();
+  });
+});
+
+// ── LIRA-294: the Google profile photo ────────────────────────────────────
+
+describe("LIRA-294 profile photo", () => {
+  const PHOTO = "https://lh3.googleusercontent.com/a/photo=s96-c";
+
+  it("/start asks Google for the profile scope (the photo) — via the core URL builder", async () => {
+    // The scope itself lives in core's buildAuthorizationUrl (unit-tested
+    // there); the route must use that builder, never its own URL.
+    enable();
+    await start(buildApp(), "intent=login");
+    expect(svc.buildAuthorizationUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("a sign-in on a shop's own address refreshes the photo in THAT shop's scope", async () => {
+    enable();
+    svc.exchangeCodeForClaims.mockResolvedValue({ sub: "g-sub", email: "owner@gmail.com", picture: PHOTO });
+    svc.findMatchInTenant.mockReturnValue({ identity_id: 1, user_id: 20, tenant_id: 2, username: "boss", role: "admin" });
+    const scopes: Array<number | "platform" | null> = [];
+    svc.refreshPicture.mockImplementation(() => {
+      scopes.push(scope);
+    });
+    await signInFlow(buildApp(), "intent=login&shop=two");
+    expect(svc.refreshPicture).toHaveBeenCalledWith("g-sub", PHOTO, expect.any(String));
+    expect(scopes).toEqual([2]);
+  });
+
+  it("a sign-in on www refreshes the photo in every shop the account opens", async () => {
+    enable();
+    svc.exchangeCodeForClaims.mockResolvedValue({ sub: "g-sub", email: "owner@gmail.com", picture: PHOTO });
+    svc.findSignInMatches.mockReturnValue([
+      { identity_id: 1, user_id: 20, tenant_id: 2, username: "boss", role: "admin" },
+      { identity_id: 2, user_id: 30, tenant_id: 3, username: "boss3", role: "admin" },
+    ]);
+    const scopes: Array<number | "platform" | null> = [];
+    svc.refreshPicture.mockImplementation(() => {
+      scopes.push(scope);
+    });
+    await signInFlow(buildApp());
+    expect(scopes).toEqual([2, 3]);
+  });
+
+  it("no refresh when this shop has no linked user", async () => {
+    enable();
+    svc.findMatchInTenant.mockReturnValue(null);
+    await signInFlow(buildApp(), "intent=login&shop=two");
+    expect(svc.refreshPicture).not.toHaveBeenCalled();
+  });
+
+  it("GET /link carries pictureUrl", async () => {
+    enable();
+    svc.getLinkedEmail.mockReturnValue({
+      linked: true,
+      email: "owner@gmail.com",
+      hasPassword: true,
+      pictureUrl: PHOTO,
+    });
+    const res = await request(buildApp()).get("/api/auth/google/link").set("x-test-role", "admin");
+    expect(res.body.data.pictureUrl).toBe(PHOTO);
   });
 });

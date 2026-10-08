@@ -9,7 +9,7 @@
  * there.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import TopBar from "../TopBar";
 
 const mockGetClients = jest.fn();
@@ -36,9 +36,10 @@ jest.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigate,
 }));
 
+let mockPictureUrl: string | null = null;
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({
-    user: { username: "cashier", role: "staff" },
+    user: { username: "cashier", role: "staff", pictureUrl: mockPictureUrl },
     logout: jest.fn(),
   }),
 }));
@@ -94,6 +95,7 @@ describe("TopBar — My account link (LIRA-291)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockActiveSession = null;
+    mockPictureUrl = null;
     mockGetLowStockProducts.mockResolvedValue([]);
     mockGetAllSettings.mockResolvedValue([]);
     mockGetSystemExpectedBalancesDynamic.mockResolvedValue({});
@@ -115,5 +117,50 @@ describe("TopBar — My account link (LIRA-291)", () => {
     render(<TopBar />);
     fireEvent.click(screen.getByRole("button", { name: "My account" }));
     expect(mockNavigate).toHaveBeenCalledWith("/account");
+  });
+});
+
+// LIRA-294: the Google photo replaces the person icon, at the SAME size, in a
+// circle; the icon comes back when there is no photo or it fails to load.
+describe("TopBar — account photo (LIRA-294)", () => {
+  const PHOTO = "https://lh3.googleusercontent.com/a/photo=s96-c";
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockActiveSession = null;
+    mockGetLowStockProducts.mockResolvedValue([]);
+    mockGetAllSettings.mockResolvedValue([]);
+    mockGetSystemExpectedBalancesDynamic.mockResolvedValue({});
+    mockGetClients.mockResolvedValue([]);
+  });
+
+  it("shows the photo in a circle the size of the icon, without a referrer", () => {
+    mockPictureUrl = PHOTO;
+    render(<TopBar />);
+    const link = screen.getByTestId("my-account-link");
+    const img = within(link).getByRole("img", { name: "My account" });
+    expect(img).toHaveAttribute("src", PHOTO);
+    expect(img).toHaveAttribute("referrerpolicy", "no-referrer");
+    expect(img).toHaveAttribute("width", "20");
+    expect(img).toHaveAttribute("height", "20");
+    expect(img.className).toContain("rounded-full");
+    expect(img.className).toContain("object-cover");
+    expect(link.querySelector("svg")).toBeNull();
+  });
+
+  it("falls back to the icon when the photo fails to load", () => {
+    mockPictureUrl = PHOTO;
+    render(<TopBar />);
+    const link = screen.getByTestId("my-account-link");
+    fireEvent.error(within(link).getByRole("img", { name: "My account" }));
+    expect(within(link).queryByRole("img", { name: "My account" })).toBeNull();
+    expect(link.querySelector("svg")).not.toBeNull();
+  });
+
+  it("no photo: the icon", () => {
+    mockPictureUrl = null;
+    render(<TopBar />);
+    const link = screen.getByTestId("my-account-link");
+    expect(link.querySelector("img")).toBeNull();
+    expect(link.querySelector("svg")).not.toBeNull();
   });
 });

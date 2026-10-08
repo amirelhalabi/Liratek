@@ -220,11 +220,17 @@ export function readChooseTicket(
 
 export function readSignupTicket(
   claims: Record<string, unknown> | null,
-): { sub: string; email: string; verifiedAt: string } | null {
+): { sub: string; email: string; verifiedAt: string; picture: string | null } | null {
   if (!claims || !isStr(claims.sub) || !isStr(claims.email) || !isStr(claims.verifiedAt)) {
     return null;
   }
-  return { sub: claims.sub, email: claims.email, verifiedAt: claims.verifiedAt };
+  return {
+    sub: claims.sub,
+    email: claims.email,
+    verifiedAt: claims.verifiedAt,
+    // LIRA-294: optional; re-checked by safeGooglePictureUrl when linked.
+    picture: isStr(claims.picture) ? claims.picture : null,
+  };
 }
 
 // ── State cookie ─────────────────────────────────────────────────────────

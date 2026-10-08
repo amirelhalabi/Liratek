@@ -76,6 +76,7 @@ import {
   type SigninDirectorySync,
 } from "./SigninDirectoryService.js";
 import { authLogger } from "../utils/logger.js";
+import { safeGooglePictureUrl } from "../utils/googlePicture.js";
 import {
   formatInviteExpiry,
   toSignupInviteEmailStatus,
@@ -250,6 +251,8 @@ export interface JoinGoogleIdentity {
   sub: string;
   email: string;
   emailVerified: boolean;
+  /** LIRA-294: the profile photo from the ID token (checked again here). */
+  picture?: string | null;
 }
 
 export interface AcceptUserInvitationWithGoogleParams {
@@ -616,6 +619,7 @@ export class UserInvitationService {
           provider: "google",
           subject: params.google.sub,
           email: googleEmail,
+          pictureUrl: safeGooglePictureUrl(params.google.picture),
           now: params.now,
         }),
     );

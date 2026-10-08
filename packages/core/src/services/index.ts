@@ -717,6 +717,8 @@ export {
 export type {
   FetchLike,
   GoogleIdentityClaims,
+  GoogleLinkView,
+  AccountPicture,
   GoogleAuthServiceOptions,
 } from "./GoogleAuthService.js";
 export * from "../validators/googleAuth.js";

@@ -191,6 +191,7 @@ function handleGoogleSignup(req: Request, res: Response): void {
           userId: admin.id,
           subject: ticket.sub,
           email: ticket.email,
+          picture: ticket.picture,
           now,
         });
       } catch (error) {

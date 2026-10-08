@@ -58,7 +58,10 @@ import {
 import { clientIp, resolveClientIp } from "../middleware/clientIp.js";
 import jwt from "jsonwebtoken";
 // [auth-D] imports: shared web session response + the Google sign-up branch
-import { sendWebLoginResponse } from "../services/webLoginSession.js";
+import {
+  accountPictureUrl,
+  sendWebLoginResponse,
+} from "../services/webLoginSession.js";
 import { googleSignupRoute, isGoogleSignupBody } from "./googleSignup.js";
 
 const router = express.Router();
@@ -311,6 +314,8 @@ router.get("/me", authenticateJWT, async (req, res): Promise<void> => {
         username: req.user.username,
         role: req.user.role,
         tenantId: req.user.tenantId,
+        // LIRA-294: the account photo (Google link), for the top bar.
+        pictureUrl: accountPictureUrl(req.user.tenantId, req.user.userId),
       },
     });
   } catch (error) {

@@ -16,6 +16,7 @@ import {
   JWT_SECRET,
   createSuccessResponse,
   getAuditService,
+  getGoogleAuthService,
   runWithTenant,
 } from "@liratek/core";
 import type { LiratekJwtPayload } from "../middleware/auth.js";
@@ -34,6 +35,25 @@ export interface WebLoginOptions {
   summary?: string;
   /** Extra audit metadata (e.g. `{ via: "google" }`). */
   metadata?: Record<string, unknown>;
+}
+
+/**
+ * LIRA-294: the account photo for a shop user (their Google link's), or
+ * null — a super admin, no link, or any failure (a photo never blocks a
+ * sign-in). One helper for the login envelope and GET /api/auth/me.
+ */
+export function accountPictureUrl(
+  tenantId: number | null | undefined,
+  userId: number,
+): string | null {
+  if (tenantId === null || tenantId === undefined) return null;
+  try {
+    return runWithTenant(tenantId, () =>
+      getGoogleAuthService().getPictureUrl(userId),
+    );
+  } catch {
+    return null;
+  }
 }
 
 /** Signs the JWT, writes the login audit row and sends the success envelope.
@@ -84,6 +104,7 @@ export function sendWebLoginResponse(
         id: user.id,
         username: user.username,
         role: user.role,
+        pictureUrl: accountPictureUrl(user.tenant_id, user.id),
       },
       token: jwtToken,
       sessionToken: options.sessionToken,

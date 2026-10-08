@@ -353,9 +353,12 @@ function signInRedirect(
   if (preferredShop) {
     const tenant = activeTenantBySlug(preferredShop);
     const match = tenant
-      ? runWithTenant(tenant.id, () =>
-          service.findMatchInTenant(claims.sub, tenant.id),
-        )
+      ? runWithTenant(tenant.id, () => {
+          const found = service.findMatchInTenant(claims.sub, tenant.id);
+          // LIRA-294: every Google sign-in refreshes the account photo.
+          if (found) service.refreshPicture(claims.sub, claims.picture, now);
+          return found;
+        })
       : null;
     if (!tenant || !match) return errorUrl(config, "no_account");
     return (
@@ -373,6 +376,10 @@ function signInRedirect(
   )) {
     const tenant = activeTenant(match.tenant_id);
     if (tenant) {
+      // LIRA-294: refresh the photo in every shop this account opens.
+      runWithTenant(tenant.id, () =>
+        service.refreshPicture(claims.sub, claims.picture, now),
+      );
       shops.push({
         tenantId: tenant.id,
         name: tenant.name,
@@ -414,6 +421,7 @@ function linkIdentity(
         userId,
         subject: claims.sub,
         email: claims.email,
+        picture: claims.picture,
         now,
       });
       try {
@@ -486,7 +494,12 @@ function joinWithGoogle(
         token: join.token,
         username: join.username,
         // verifyIdToken refuses anything but email_verified === true.
-        google: { sub: claims.sub, email: claims.email, emailVerified: true },
+        google: {
+          sub: claims.sub,
+          email: claims.email,
+          emailVerified: true,
+          picture: claims.picture,
+        },
         now,
         requiredTenantId: join.tenantId,
       }),
@@ -631,6 +644,8 @@ router.get("/callback", async (req, res): Promise<void> => {
           sub: claims.sub,
           email: claims.email,
           verifiedAt: now,
+          // LIRA-294: carried to the shop's creation, where Google is linked.
+          ...(claims.picture ? { picture: claims.picture } : {}),
         });
         res.redirect(
           302,

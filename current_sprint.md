@@ -6537,6 +6537,19 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
+## LIRA-294: Google profile photo as the account picture (web only) — DONE, not yet released (owner request 2026-10-08)
+
+Migration v204: `user_identities.picture_url TEXT NULL`.
+
+- **Scope:** the Google request asks `openid email profile` (was `openid email`), so the ID token carries `picture`; `verifyIdToken` passes it through `safeGooglePictureUrl` (core `utils/googlePicture.ts`, pure: https only, host `*.googleusercontent.com`, no credentials/port, ≤ 2048 chars, else null) and types it on `GoogleIdentityClaims.picture`. DEPLOYMENT.md §5b-google: add `profile` to the consent screen.
+- **Stored per Google link:** set on link (`linkIdentity` / repository `link`, a repeat link refreshes it), on Join with Google (`acceptWithGoogle`), on the Google sign-up link step (the signup ticket carries `picture`), and refreshed on every Google sign-in (`refreshPicture` in each shop the account opens, via `UserIdentityRepository.setPicture`). Disconnect deletes the row, so the photo goes with it.
+- **Exposed:** `GET /api/auth/google/link` (`GoogleLinkView.pictureUrl`), and the session user from `POST /api/auth/login` (incl. the Google hand-off exchange, same helper) and `GET /api/auth/me` (`accountPictureUrl`) — `pictureUrl: string | null`, types from core (`AccountPicture`, `GoogleLinkView`).
+- **UI:** `AccountAvatar` — the photo in a circle the same size as the icon (top bar My account link, `object-cover`, `referrerPolicy="no-referrer"`, alt "My account"), falling back to the icon on null or load error; larger in My account → Profile. Desktop unchanged (no Google link → icon).
+- **CSP:** `frontend/index.html` `img-src 'self' data: https://*.googleusercontent.com` (nothing broader). `vercel.json` and `middleware.js` set no CSP.
+- **Tests:** not proven failing-first (owner-chosen order: production code first).
+
+**What users will notice:** on the web app, people who sign in with Google see their Google photo at the top and in My account, from their next Google sign-in.
+
 ## LIRA-293: change your own password and your own email — DONE, not yet released (owner-approved 2026-10-08)
 
 Migration v203: `email_verification_tokens.purpose` ('verify' | 'change', default 'verify').
