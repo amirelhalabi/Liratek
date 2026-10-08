@@ -30,8 +30,10 @@ const USERNAME_MATCH = "username COLLATE NOCASE = ?";
 /**
  * "A shop's FIRST ADMIN", defined once (rule 14): the lowest-id ACTIVE user
  * with role 'admin' in the shop. Used by impersonation ("connect as" lands on
- * this account) and by migration v196's email backfill, which restates it in
- * SQL because migrations cannot import repositories — keep the two equal.
+ * this account), by ShopContactEmailService (a shop's contact email is its
+ * first admin's confirmed email, LIRA-290), and by migrations v196 (email
+ * backfill) and v201 (contact_email backfill), which restate it in SQL
+ * because migrations cannot import repositories — keep them all equal.
  * Bind: tenant_id.
  */
 export const FIRST_ADMIN_WHERE =
@@ -662,6 +664,24 @@ export class UserRepository extends BaseRepository<UserEntity> {
       throw new DatabaseError("Failed to mark user email verified", {
         cause: error,
         entityId: userId,
+      });
+    }
+  }
+
+  /**
+   * The CURRENT shop's first admin's email (FIRST_ADMIN_WHERE / ORDER), or
+   * null when the shop has no active admin. The caller decides whether an
+   * unconfirmed address counts (LIRA-290: it does not).
+   */
+  getFirstAdminEmail(): UserEmailInfo | null {
+    try {
+      return this.queryOne<UserEmailInfo>(
+        `SELECT email, email_verified_at FROM ${this.tableName} /* tenant-exempt: IS scoped — FIRST_ADMIN_WHERE starts with tenant_id = ?, bound to getCurrentTenantId(); the checker cannot resolve the constant */ WHERE ${FIRST_ADMIN_WHERE} ${FIRST_ADMIN_ORDER}`,
+        getCurrentTenantId(),
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to load the first admin's email", {
+        cause: error,
       });
     }
   }

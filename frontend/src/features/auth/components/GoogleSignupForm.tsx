@@ -8,7 +8,7 @@
  * form). The person still picks the shop address, an admin username AND a
  * password — owner decision 2026-10-07, so the POS login and the desktop app
  * keep working. The server enforces both (googleSignupSchema), and "one shop
- * per contact email" still applies.
+ * per owner email" still applies (EmailHasShopNotice, LIRA-290).
  *
  * A separate component, not a mode inside Signup.tsx, so the invite and
  * self-serve modes that page owns stay untouched.
@@ -18,7 +18,12 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
-import { validateTenantSlug, type GoogleSignupBodyInput } from "@liratek/core";
+import {
+  EMAIL_ALREADY_HAS_SHOP,
+  validateTenantSlug,
+  type GoogleSignupBodyInput,
+} from "@liratek/core";
+import EmailHasShopNotice from "@/features/auth/components/EmailHasShopNotice";
 import { googleSignup } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -54,6 +59,9 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // LIRA-290: the Google email already owns a shop (normally caught at the
+  // callback; this is a shop created in between).
+  const [emailHasShop, setEmailHasShop] = useState(false);
   const [created, setCreated] = useState<{
     name: string;
     slug: string;
@@ -73,6 +81,7 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
     e.preventDefault();
     if (!canSubmit) return;
     setError("");
+    setEmailHasShop(false);
     setLoading(true);
     try {
       // Built ONCE (rule 22), typed from the core schema (rule 21).
@@ -90,6 +99,10 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
           slug: result.data.tenant.slug,
           loginUrl: result.data.loginUrl ?? null,
         });
+        return;
+      }
+      if (result.code === EMAIL_ALREADY_HAS_SHOP) {
+        setEmailHasShop(true);
         return;
       }
       setError(messageFrom(result.error, "Signup failed"));
@@ -176,6 +189,7 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
           Settings.
         </p>
 
+        {emailHasShop && <EmailHasShopNotice className="mb-4" />}
         {error && (
           <div
             role="alert"

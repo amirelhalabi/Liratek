@@ -55,6 +55,17 @@ it("explains that no shop uses this Google account, and offers sign-up", () => {
   expect(screen.getByRole("link", { name: /sign up/i })).toBeInTheDocument();
 });
 
+// LIRA-290: Google sign-up with a Gmail that already owns a shop.
+it("explains that the email already has a shop, with a Sign in instead link", () => {
+  renderAt("#/auth/google?error=email_has_shop");
+  const notice = screen.getByTestId("signup-email-has-shop");
+  expect(notice).toHaveTextContent("This email already has a LiraTek shop.");
+  expect(
+    screen.getByRole("link", { name: /sign in instead/i }),
+  ).toHaveAttribute("href", "/login");
+  expect(screen.queryByText(/did not work/i)).toBeNull();
+});
+
 it("explains that today's limit for new shops was reached", () => {
   renderAt("#/auth/google?error=signup_limit");
   expect(screen.getByText(/limit for new shops/i)).toBeInTheDocument();

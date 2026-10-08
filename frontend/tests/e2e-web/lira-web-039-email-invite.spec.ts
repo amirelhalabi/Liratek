@@ -15,6 +15,8 @@
  *      email and a shop name (LIRA-278: self-serve switched on, Turnstile
  *      off), checks the email does NOT echo that shop name, completes
  *      sign-up from the emailed link (shop name prefilled) and logs in.
+ *      Asking again with the same email (LIRA-290) shows "This email already
+ *      has a LiraTek shop." with a Sign in link, and queues nothing.
  *
  * Shared accumulating DB (rule 15): every email, slug and username is
  * `Date.now()`-unique, emails are matched by their `to` address (never by file
@@ -60,6 +62,22 @@ function contactEmailOf(slug: string): string | null {
       .prepare(`SELECT contact_email FROM tenants WHERE slug = ?`)
       .get(slug) as { contact_email: string | null } | undefined;
     return row?.contact_email ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+/** How many self-serve sign-up invites exist for `email`. */
+function selfInviteCount(email: string): number {
+  const db = new Database(DB_PATH, { readonly: true });
+  try {
+    return (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM signup_invitations WHERE source = 'self' AND email = ?`,
+        )
+        .get(email) as { n: number }
+    ).n;
   } finally {
     db.close();
   }
@@ -271,7 +289,28 @@ test.describe("LIRA-267 — email invites and self-serve sign-up", () => {
     });
     expect(contactEmailOf(slug)).toBe(email);
 
-    // ── 3. The new owner can log in ──
+    // ── 3. LIRA-290: the same email cannot ask for a second shop — the page
+    //    says so under the email field, with a Sign in link, and nothing is
+    //    emailed (still exactly one self-serve invite for this address). ──
+    await page.goto("/#/login");
+    await page.getByRole("link", { name: "Create your shop" }).click();
+    const againField = page.getByTestId("signup-request-email");
+    await expect(againField).toBeVisible({ timeout: 15_000 });
+    await againField.fill(email);
+    await page.waitForTimeout(3_500);
+    await page.getByTestId("signup-request-submit").click();
+    const notice = page.getByTestId("signup-email-has-shop");
+    await expect(notice).toContainText(
+      "This email already has a LiraTek shop.",
+      { timeout: 15_000 },
+    );
+    await expect(
+      notice.getByRole("link", { name: /sign in instead/i }),
+    ).toBeVisible();
+    await expect(page.getByText("Check your inbox")).toHaveCount(0);
+    expect(selfInviteCount(email)).toBe(1);
+
+    // ── 4. The new owner can log in ──
     await loginAsUser(page, username, password);
     await expect(page).not.toHaveURL(/\/login/);
   });

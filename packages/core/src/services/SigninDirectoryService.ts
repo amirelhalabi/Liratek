@@ -14,6 +14,12 @@
  * own address never reads the directory, so drift can only hide a shop from
  * the www lists, never lock anyone out of their shop.
  *
+ * The same hook also fills the shop's contact email from its first admin's
+ * confirmed email when the shop has none (LIRA-290,
+ * `ShopContactEmailService`): the writers that change a sign-in fact are
+ * exactly the ones that can change it, so every writer — and every future
+ * one — keeps "one shop per owner email" complete without a second call.
+ *
  * Which rows a user gets is decided ONCE, by `buildDirectoryRows` (rule 14):
  * an active, non-super-admin user gets an `email` row when their email is
  * confirmed, and a `google` row when they have a Google link.
@@ -45,6 +51,10 @@ import {
 import { listTenantDatabaseIds } from "../db/tenantDatabaseIds.js";
 import { runWithTenant, runWithoutTenant } from "../db/tenantContext.js";
 import { normalizeEmail } from "../repositories/UserRepository.js";
+import {
+  ShopContactEmailService,
+  type ShopContactEmailFill,
+} from "./ShopContactEmailService.js";
 import { authLogger } from "../utils/logger.js";
 
 const PROVIDER = "google" as const;
@@ -86,6 +96,10 @@ export interface SigninDirectoryServiceDeps {
   tenantRepo: TenantRepository;
   /** Shop ids with their own database file (per-tenant mode), or null. */
   listTenantFileIds: () => number[] | null;
+  /** LIRA-290: fills a shop's NULL contact email. Never throws. */
+  contactEmail: ShopContactEmailFill & {
+    backfillAll(): { filled: number[] };
+  };
 }
 
 /**
@@ -155,6 +169,7 @@ export class SigninDirectoryService implements SigninDirectorySync {
   private readonly identityRepo: UserIdentityRepository;
   private readonly tenantRepo: TenantRepository;
   private readonly listTenantFileIds: () => number[] | null;
+  private readonly contactEmail: SigninDirectoryServiceDeps["contactEmail"];
 
   constructor(deps: Partial<SigninDirectoryServiceDeps> = {}) {
     this.directoryRepo = deps.directoryRepo ?? getSigninDirectoryRepository();
@@ -162,6 +177,15 @@ export class SigninDirectoryService implements SigninDirectorySync {
     this.identityRepo = deps.identityRepo ?? getUserIdentityRepository();
     this.tenantRepo = deps.tenantRepo ?? getTenantRepository();
     this.listTenantFileIds = deps.listTenantFileIds ?? listTenantDatabaseIds;
+    // Built from THIS service's repositories and file lister, so it reads
+    // and writes exactly what the directory does.
+    this.contactEmail =
+      deps.contactEmail ??
+      new ShopContactEmailService({
+        userRepo: this.userRepo,
+        tenantRepo: this.tenantRepo,
+        listTenantFileIds: this.listTenantFileIds,
+      });
   }
 
   /**
@@ -170,6 +194,8 @@ export class SigninDirectoryService implements SigninDirectorySync {
    * (logged); the repair command fixes it.
    */
   syncUser(tenantId: number, userId: number, now: string = nowIso()): boolean {
+    // LIRA-290: independent of the directory write below; never throws.
+    this.contactEmail.fillFromFirstAdmin(tenantId);
     try {
       const rows = runWithTenant(tenantId, () => {
         const user = this.userRepo.getSigninFacts(userId);
@@ -194,6 +220,8 @@ export class SigninDirectoryService implements SigninDirectorySync {
 
   /** Makes the directory match ONE shop's records (a new shop). Never throws. */
   syncTenant(tenantId: number, now: string = nowIso()): boolean {
+    // LIRA-290: independent of the directory write below; never throws.
+    this.contactEmail.fillFromFirstAdmin(tenantId);
     try {
       const rows = this.expectedRowsForTenant(tenantId);
       runWithoutTenant(() =>
@@ -250,8 +278,13 @@ export class SigninDirectoryService implements SigninDirectorySync {
    * transaction. A shop whose records cannot be read keeps its current rows
    * (reported in `failedTenantIds`) — a broken file must never empty the
    * www lists for that shop.
+   *
+   * Also back-fills every shop's NULL contact email from its first admin
+   * (LIRA-290) — in per-tenant mode this repair command is the only way the
+   * back-fill reaches users, since migration v201 sees none there.
    */
   rebuildAll(now: string): SigninDirectoryRebuildResult {
+    this.contactEmail.backfillAll();
     const { rows, shops, failedTenantIds } = this.computeExpected();
     const failed = new Set(failedTenantIds);
     const kept = runWithoutTenant(() => this.directoryRepo.listAll())

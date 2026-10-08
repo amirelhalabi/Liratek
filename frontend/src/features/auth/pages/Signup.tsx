@@ -36,10 +36,12 @@ import {
   requestSignupLink,
   type SignupInput,
 } from "@/api/backendApi";
-import type {
-  RequestSignupLinkInput,
-  SignupInviteCheckResult,
+import {
+  EMAIL_ALREADY_HAS_SHOP,
+  type RequestSignupLinkInput,
+  type SignupInviteCheckResult,
 } from "@liratek/core";
+import EmailHasShopNotice from "@/features/auth/components/EmailHasShopNotice";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import { TurnstileWidget } from "@/features/auth/components/TurnstileWidget";
@@ -122,6 +124,9 @@ export default function Signup() {
   const [widgetKey, setWidgetKey] = useState(0);
   const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState("");
+  // LIRA-290: the typed email already owns a shop — shown under the email
+  // field with a Sign in link, nothing emailed. Cleared when it changes.
+  const [emailHasShop, setEmailHasShop] = useState(false);
   const [requestSent, setRequestSent] = useState<string | null>(null);
 
   const [shopName, setShopName] = useState("");
@@ -240,6 +245,7 @@ export default function Signup() {
     if (!canRequest) return;
 
     setRequestError("");
+    setEmailHasShop(false);
     setRequesting(true);
     try {
       const startedAt = requestFormShownAt.current ?? performance.now();
@@ -266,8 +272,13 @@ export default function Signup() {
         );
         return;
       }
-      setRequestError(messageFrom(res.error, "Could not send the link"));
+      // The server spent the Turnstile token either way.
       spendTurnstileToken();
+      if (res.code === EMAIL_ALREADY_HAS_SHOP) {
+        setEmailHasShop(true);
+        return;
+      }
+      setRequestError(messageFrom(res.error, "Could not send the link"));
     } catch (err) {
       logger.error("Sign-up link request failed:", err);
       setRequestError(messageFrom(err, UNREACHABLE));
@@ -588,12 +599,17 @@ export default function Signup() {
                 data-testid="signup-request-email"
                 type="email"
                 value={requestEmail}
-                onChange={(e) => setRequestEmail(e.target.value)}
+                onChange={(e) => {
+                  setRequestEmail(e.target.value);
+                  setEmailHasShop(false);
+                }}
                 className={inputClass}
                 placeholder="you@example.com"
                 autoComplete="email"
                 autoFocus
+                aria-invalid={emailHasShop || undefined}
               />
+              {emailHasShop && <EmailHasShopNotice className="mt-2" />}
             </div>
 
             <div>

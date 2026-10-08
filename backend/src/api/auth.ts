@@ -15,6 +15,7 @@ import {
   JWT_SECRET,
   AppError,
   EMAIL_ALREADY_HAS_SHOP,
+  EMAIL_ALREADY_HAS_SHOP_MESSAGE,
   SIGNUP_INVITE_INVALID_MESSAGE,
   checkSignupInviteSchema,
   requestSignupLinkSchema,
@@ -710,10 +711,13 @@ router.post(
 // -> self-serve available (switch + email)? -> Turnstile ONLY when its keys
 // are configured (fails closed) -> bot checks (honeypot, too fast) ->
 // requestSelfServe. Past the refusals, the answer is IDENTICAL whether the
-// link was sent, a bot check tripped, the address already has a shop, the
-// per-email limit was hit or the daily cap was reached (FR-028), so the
-// form cannot be used to learn which addresses have shops, nor which check
-// a bot failed. The address is logged only as hashToken(email). No audit
+// link was sent, a bot check tripped, the per-email limit was hit or the
+// daily cap was reached (FR-028), so the form cannot tell which check a bot
+// failed. ONE exception (owner decision 2026-10-08, LIRA-290): an address
+// that already owns a shop is told so on the page — 200 success:false
+// EMAIL_ALREADY_HAS_SHOP, the shop never named, nothing emailed. Bots still
+// get the generic reply (their check runs first), and the per-IP limiter
+// still caps how many addresses one visitor can test. The address is logged only as hashToken(email). No audit
 // row: there is no tenant and no actor.
 const SELF_SERVE_NOT_AVAILABLE = "Sign-up is not available right now.";
 const SELF_SERVE_TURNSTILE_REJECTED =
@@ -831,6 +835,14 @@ router.post(
         { emailHash, queued: outcome.queued, reason: outcome.reason },
         "Self-serve sign-up request handled",
       );
+      if (outcome.reason === "has_shop") {
+        res.json({
+          success: false,
+          code: EMAIL_ALREADY_HAS_SHOP,
+          error: EMAIL_ALREADY_HAS_SHOP_MESSAGE,
+        });
+        return;
+      }
       res.json(createSuccessResponse({ message: SELF_SERVE_GENERIC_MESSAGE }));
     } catch (error) {
       logger.error({ error, emailHash }, "Self-serve sign-up request failed");

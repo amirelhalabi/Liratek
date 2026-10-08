@@ -679,6 +679,19 @@ export type {
   SigninDirectoryServiceDeps,
 } from "./SigninDirectoryService.js";
 
+// LIRA-290: a shop's contact email = its first admin's confirmed email
+// (filled, never overwritten). Node-only.
+export {
+  ShopContactEmailService,
+  getShopContactEmailService,
+  resetShopContactEmailService,
+} from "./ShopContactEmailService.js";
+export type {
+  ShopContactEmailFill,
+  ShopContactEmailBackfillResult,
+  ShopContactEmailServiceDeps,
+} from "./ShopContactEmailService.js";
+
 // [auth-D] exports
 // Continue with Google (LIRA-280). The service is Node-only (node:crypto,
 // network) — never export it from browser.ts (rule 29). The validators file

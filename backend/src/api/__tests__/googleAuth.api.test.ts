@@ -121,6 +121,8 @@ function inScope<T>(next: number | "platform", fn: () => T): T {
 const provisionTenant = jest.fn<(input: Record<string, unknown>) => unknown>();
 /** The ONE public sign-up daily cap (email requests + Google sign-ups). */
 const capReached = jest.fn<(input: { now: string; dailyCap: number }) => boolean>();
+/** LIRA-290: the ONE "this email already owns a shop" check. */
+const ownsShop = jest.fn<(email: string) => { id: number; slug: string } | null>();
 const auditLog = jest.fn();
 /** LIRA-288 "Join with Google": the core service is a stub here (its own
  * behaviour is core's UserInvitationService.joinWithGoogle.test.ts). */
@@ -138,7 +140,10 @@ jest.mock("@liratek/core", () => {
     ...actual,
     getGoogleAuthService: () => svc,
     getTenantProvisioningService: () => ({ provisionTenant }),
-    getSignupInvitationService: () => ({ isPublicSignupCapReached: capReached }),
+    getSignupInvitationService: () => ({
+      isPublicSignupCapReached: capReached,
+      findShopOwnedByEmail: ownsShop,
+    }),
     getAuditService: () => ({ log: auditLog }),
     getUserInvitationService: () => ({ acceptWithGoogle }),
     getAuditRepository: () => ({ log: auditLog }),
@@ -221,6 +226,7 @@ beforeEach(() => {
   baseDomain = "liratek.shop";
   selfServe = false;
   capReached.mockReturnValue(false);
+  ownsShop.mockReturnValue(null);
   scope = null;
   svc.createHandoff.mockReturnValue("handoff-token");
   svc.exchangeCodeForClaims.mockResolvedValue({
@@ -775,7 +781,10 @@ describe("sign-up with a Google ticket", () => {
     expect(provisionTenant).not.toHaveBeenCalled();
   });
 
-  it("one shop per email still applies", async () => {
+  // LIRA-290: this used to expect HTTP 400 with the code nested in
+  // `error`, which the page's requestJson THREW on, losing the code. The
+  // refusal is now the contract envelope: 200 + top-level `code`.
+  it("one shop per email still applies (a shop appearing after the check: the unique index)", async () => {
     enable();
     const app = buildApp();
     const googleTicket = await signupTicket(app);
@@ -784,9 +793,49 @@ describe("sign-up with a Google ticket", () => {
       throw new EmailAlreadyHasShopError();
     });
     const res = await request(app).post("/api/auth/signup").send({ ...shopFields, googleTicket });
-    expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe("EMAIL_ALREADY_HAS_SHOP");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: false,
+      code: "EMAIL_ALREADY_HAS_SHOP",
+      error: "This email already has a LiraTek shop.",
+    });
     expect(svc.linkIdentity).not.toHaveBeenCalled();
+  });
+
+  it("an OWNER's Gmail is refused at the callback: back to the Google page with error=email_has_shop, no ticket", async () => {
+    enable();
+    ownsShop.mockReturnValue({ id: 2, slug: "two" });
+    const url = await signInFlow(buildApp(), "intent=signup");
+    expect(url.origin).toBe("https://www.liratek.shop");
+    expect(url.hash).toContain("auth/google?");
+    expect(hashParams(url).get("error")).toBe("email_has_shop");
+    expect(url.hash).not.toContain("google=");
+    // The shop is never named in the URL.
+    expect(url.href).not.toContain("two");
+    expect(ownsShop).toHaveBeenCalledWith("owner@gmail.com");
+  });
+
+  it("an OWNER's Gmail is refused when the form is submitted, before provisioning: 200 EMAIL_ALREADY_HAS_SHOP", async () => {
+    enable();
+    const app = buildApp();
+    const googleTicket = await signupTicket(app);
+    ownsShop.mockReturnValue({ id: 2, slug: "two" });
+    const res = await request(app).post("/api/auth/signup").send({ ...shopFields, googleTicket });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      success: false,
+      code: "EMAIL_ALREADY_HAS_SHOP",
+      error: "This email already has a LiraTek shop.",
+    });
+    expect(provisionTenant).not.toHaveBeenCalled();
+    expect(svc.linkIdentity).not.toHaveBeenCalled();
+  });
+
+  it("a Gmail that owns no shop (e.g. a staff member's) gets the sign-up form", async () => {
+    enable();
+    const url = await signInFlow(buildApp(), "intent=signup");
+    expect(url.hash.startsWith("#/signup?google=")).toBe(true);
+    expect(ownsShop).toHaveBeenCalledWith("owner@gmail.com");
   });
 
   it("an invite-link sign-up body still goes to the invite route", async () => {

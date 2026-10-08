@@ -239,12 +239,49 @@ describe("POST /api/auth/signup/request", () => {
     expect(outboxRows()).toBe(1);
   });
 
-  it("an address that already has a shop: the same generic 200, nothing queued", async () => {
+  // LIRA-290 (owner decision 2026-10-08): this used to assert the generic
+  // reply (FR-028). An address that owns a shop is now TOLD so on the page,
+  // without naming the shop, and still nothing is emailed.
+  it("an address that already has a shop: 200 success:false EMAIL_ALREADY_HAS_SHOP, shop not named, nothing queued", async () => {
     const res = await post(nextIp(), { email: "Taken@Example.com" });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual(GENERIC);
+    expect(res.body).toEqual({
+      success: false,
+      code: core.EMAIL_ALREADY_HAS_SHOP,
+      error: "This email already has a LiraTek shop.",
+    });
+    expect(JSON.stringify(res.body)).not.toContain("cellcity");
     expect(selfInvites()).toBe(0);
     expect(outboxRows()).toBe(0);
+  });
+
+  it("the OWNER email of a shop created before sign-up emails (contact email back-filled from its first admin): told, nothing queued", async () => {
+    db.exec(`
+      INSERT OR IGNORE INTO tenants (id, name, slug, status, contact_email)
+        VALUES (3, 'Corner Tech', 'cornertech', 'active', NULL);
+      INSERT OR IGNORE INTO users (id, tenant_id, username, password_hash, role, is_active, email, email_verified_at)
+        VALUES (30, 3, 'boss', 'x', 'admin', 1, 'owner@gmail.com', '2026-09-01T08:00:00.000Z');
+    `);
+    core.getShopContactEmailService().backfillAll();
+    const res = await post(nextIp(), { email: "Owner@Gmail.com" });
+    expect(res.body).toMatchObject({
+      success: false,
+      code: core.EMAIL_ALREADY_HAS_SHOP,
+    });
+    expect(selfInvites()).toBe(0);
+    expect(outboxRows()).toBe(0);
+  });
+
+  it("a STAFF member's confirmed email may open its own shop: the generic 200, queued", async () => {
+    db.exec(`
+      INSERT OR IGNORE INTO users (id, tenant_id, username, password_hash, role, is_active, email, email_verified_at)
+        VALUES (21, 2, 'cashier', 'x', 'staff', 1, 'staff@gmail.com', '2026-09-01T08:00:00.000Z');
+    `);
+    core.getShopContactEmailService().backfillAll();
+    const res = await post(nextIp(), { email: "staff@gmail.com" });
+    expect(res.body).toEqual(GENERIC);
+    expect(selfInvites("staff@gmail.com")).toBe(1);
+    expect(outboxRows()).toBe(1);
   });
 
   it("the 4th request in an hour for one email: the same generic 200, nothing more queued", async () => {
@@ -360,6 +397,16 @@ describe("POST /api/auth/signup/request — LIRA-278 bot checks and shop name", 
     expect(selfInvites()).toBe(0);
     expect(outboxRows()).toBe(0);
     expect(JSON.stringify(routeLogger.info.mock.calls)).toContain("honeypot");
+  });
+
+  it("a bot asking about an address that owns a shop still gets the generic success (the bot check comes first)", async () => {
+    const res = await postNoTurnstile(nextIp(), {
+      email: "taken@example.com",
+      website: "http://spam.example",
+      formElapsedMs: 10_000,
+    });
+    expect(res.body).toEqual(GENERIC);
+    expect(outboxRows()).toBe(0);
   });
 
   it("form submitted in under 3 seconds: the SAME generic success, nothing queued, the reason logged", async () => {

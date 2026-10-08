@@ -195,7 +195,7 @@
 
 - Web app: your browser now recognises the sign-in form. It offers to save your username and password after you sign in, and fills them in next time.
 - Web app: you can now sign in with Google. Connect your Google account once in Settings, then use "Continue with Google" on the login page. You can also create a new shop with Google. Your username and password keep working as before.
-- Web app: one Google account can now be used in several shops — for example as a cashier in one shop and the owner of another. In each shop it belongs to one user only: if another user of the same shop already connected it, "Connect Google" in Settings says so. You can also create a new shop with a Google account you already use in another shop, unless that Gmail address is already the email a shop was created with.
+- Web app: one Google account can now be used in several shops — for example as a cashier in one shop and the owner of another. In each shop it belongs to one user only: if another user of the same shop already connected it, "Connect Google" in Settings says so. You can also create a new shop with a Google account you already use in another shop, unless that Gmail address is already a shop owner's email.
 - Web app: "Continue with Google" on your shop's own address signs you straight in to that shop. On www.liratek.shop it lists every shop where your Google account is connected, and you pick one.
 - Web app: an email invitation now offers "Join with Google". Choose a username, then pick the Google account that uses the invited email — your account is created, your email is confirmed, Google is connected and you are signed in, in one step. No password is needed; you can set one later with "Forgot password". A Google account with a different email is refused, and the invitation still works.
 - Web app, Settings → Users: admins now see which users have Google connected, with the Google email, and can disconnect it (for example for a staff member who left). That person can then no longer sign in to your shop with Google; their password still works, and "Forgot password" can set one.
@@ -220,6 +220,7 @@
 - Web app: "Create your shop" now shows two steps — 1 Email, 2 Shop details — so it can't be mistaken for the sign-in page.
 - The app and liratek.shop now say "Sign in" everywhere (no more "Login"). liratek.shop's top bar has "Sign in" and a "Create your shop" button, in English and Arabic.
 - Web app: the sign-in page no longer shows a stray dot after the version number.
+- Web app: sign-up now tells you right away when an email already has a LiraTek shop, with a link to sign in, instead of emailing a sign-up link. Creating a shop with Google says the same when your Gmail address already owns a shop. This also covers shops created before sign-up emails, using the owner's confirmed email.
 
 ## 🧾 Expenses
 

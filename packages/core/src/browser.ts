@@ -62,6 +62,7 @@ export * from "./validators/index.js";
 export * from "./utils/passwordPolicy.js";
 export {
   EMAIL_ALREADY_HAS_SHOP,
+  EMAIL_ALREADY_HAS_SHOP_MESSAGE,
   EMAIL_NOT_CONFIGURED,
   EMAIL_TAKEN_IN_SHOP,
   GOOGLE_ACCOUNT_IN_OTHER_SHOP,

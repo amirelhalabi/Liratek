@@ -11,7 +11,9 @@
  * Opens the database exactly as the server does (`database/connection.ts`:
  * the platform file, plus every shop file in per-tenant mode), so the
  * comparison reads the same records the app does. The dry run only reads;
- * `--write` replaces the directory in one platform transaction. Both are
+ * `--write` replaces the directory in one platform transaction, and first
+ * fills every shop's empty contact email from its first admin's confirmed
+ * email (LIRA-290 — the per-tenant-mode back-fill migration v201 cannot do). Both are
  * safe while the server runs (SQLite WAL; the rebuild is idempotent).
  *
  * Prints the JSON report to stdout via `process.stdout.write` (backend lint's

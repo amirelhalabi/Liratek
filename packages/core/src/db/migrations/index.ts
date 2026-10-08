@@ -13928,6 +13928,69 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`DROP TABLE IF EXISTS signin_directory;`);
     },
   },
+  {
+    version: 201,
+    name: "tenants_contact_email_from_first_admin",
+    description:
+      "LIRA-290 (owner decision 2026-10-08): one shop per OWNER email. Shops " +
+      "created before sign-up emails existed have tenants.contact_email NULL " +
+      "while the owner's address is on the shop's FIRST ADMIN, so the " +
+      "'this email already has a shop' check missed them. Back-fills a NULL " +
+      "contact_email with the first admin's CONFIRMED email (trimmed + " +
+      "lowercased). 'First admin' is UserRepository's FIRST_ADMIN_WHERE / " +
+      "ORDER (lowest-id active role='admin'), restated in SQL because " +
+      "migrations cannot import repositories. Never overwrites; skips an " +
+      "unconfirmed address; skips an address another shop already holds as " +
+      "its contact_email (idx_tenants_contact_email is unique), shops taken " +
+      "in ascending id so the lowest id wins. Shared mode only: a per-tenant " +
+      "platform file has no shop users, so nothing changes there and " +
+      "signinDirectoryCli --write fills them (ShopContactEmailService). " +
+      "From now on ShopContactEmailService fills it whenever the first " +
+      "admin's email changes. down() is a deliberate no-op: a back-filled " +
+      "row cannot be told apart from one sign-up wrote (both equal the " +
+      "first admin's email), and clearing either would reopen sign-up to " +
+      "an address that owns a shop.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (
+        !tableExists(db, "tenants") ||
+        !tableExists(db, "users") ||
+        !columnExists(db, "tenants", "contact_email") ||
+        !columnExists(db, "users", "email")
+      ) {
+        return;
+      }
+      const shops = db
+        .prepare(
+          `SELECT id FROM tenants WHERE contact_email IS NULL ORDER BY id`,
+        )
+        .all() as { id: number }[];
+      const firstAdmin = db.prepare(
+        `SELECT email, email_verified_at FROM users
+          WHERE tenant_id = ? AND role = 'admin' AND is_active = 1
+          ORDER BY id LIMIT 1`,
+      );
+      const held = db.prepare(
+        `SELECT 1 FROM tenants WHERE contact_email = ? LIMIT 1`,
+      );
+      const setContact = db.prepare(
+        `UPDATE tenants SET contact_email = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND contact_email IS NULL`,
+      );
+      for (const shop of shops) {
+        const admin = firstAdmin.get(shop.id) as
+          | { email: string | null; email_verified_at: string | null }
+          | undefined;
+        const email = admin?.email?.trim().toLowerCase() ?? "";
+        if (!email || !admin?.email_verified_at) continue;
+        if (held.get(email) !== undefined) continue;
+        setContact.run(email, shop.id);
+      }
+    },
+    down() {
+      // Deliberately a no-op — see the description.
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

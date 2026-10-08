@@ -8,7 +8,11 @@
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { googleSignupSchema } from "@liratek/core";
+import {
+  EMAIL_ALREADY_HAS_SHOP,
+  EMAIL_ALREADY_HAS_SHOP_MESSAGE,
+  googleSignupSchema,
+} from "@liratek/core";
 
 const googleSignup = jest.fn();
 
@@ -82,15 +86,35 @@ it("sends the ticket with the shop fields, never an email", async () => {
   expect(await screen.findByText(/Corner Tech is ready/)).toBeInTheDocument();
 });
 
-it("shows the server's refusal (e.g. the email already has a shop)", async () => {
+it("shows the server's refusal", async () => {
   googleSignup.mockRejectedValue({
     status: 400,
-    message: "This email already has a shop.",
+    message: "That shop address is taken.",
   });
   render(<GoogleSignupForm ticket={TICKET} />);
   set("google-signup-shop-name", "Corner Tech");
   set("google-signup-username", "amir");
   set("google-signup-password", "Str0ng-Password!");
   fireEvent.click(screen.getByTestId("google-signup-submit"));
-  expect(await screen.findByText(/already has a shop/)).toBeInTheDocument();
+  expect(await screen.findByText(/address is taken/)).toBeInTheDocument();
+});
+
+// LIRA-290: the refusal is now 200 + code (it used to be a thrown 400, which
+// lost the code). The page shows the message with a Sign in link.
+it("an email that already has a shop: the message with a Sign in instead link", async () => {
+  googleSignup.mockResolvedValue({
+    success: false,
+    code: EMAIL_ALREADY_HAS_SHOP,
+    error: EMAIL_ALREADY_HAS_SHOP_MESSAGE,
+  });
+  render(<GoogleSignupForm ticket={TICKET} />);
+  set("google-signup-shop-name", "Corner Tech");
+  set("google-signup-username", "amir");
+  set("google-signup-password", "Str0ng-Password!");
+  fireEvent.click(screen.getByTestId("google-signup-submit"));
+  const notice = await screen.findByTestId("signup-email-has-shop");
+  expect(notice).toHaveTextContent("This email already has a LiraTek shop.");
+  expect(
+    screen.getByRole("link", { name: /sign in instead/i }),
+  ).toHaveAttribute("href", "/login");
 });

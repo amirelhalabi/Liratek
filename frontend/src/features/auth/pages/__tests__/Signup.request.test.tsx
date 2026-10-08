@@ -21,7 +21,11 @@
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
-import { requestSignupLinkSchema } from "@liratek/core";
+import {
+  EMAIL_ALREADY_HAS_SHOP,
+  EMAIL_ALREADY_HAS_SHOP_MESSAGE,
+  requestSignupLinkSchema,
+} from "@liratek/core";
 
 const signup = jest.fn();
 const checkSignupInvite = jest.fn();
@@ -195,6 +199,38 @@ describe("Signup — request a link (self-serve on)", () => {
       (requestSignupLink.mock.calls[1]![0] as { turnstileToken: string })
         .turnstileToken,
     ).toBe("tok-2");
+  });
+
+  // LIRA-290 (owner decision 2026-10-08): an email that already owns a shop
+  // is told so on the page, with a way to sign in — the form stays.
+  it("an email that already has a shop: the message under the email field, a Sign in link, the form kept, no 'Check your inbox'", async () => {
+    requestSignupLink.mockResolvedValueOnce({
+      success: false,
+      code: EMAIL_ALREADY_HAS_SHOP,
+      error: EMAIL_ALREADY_HAS_SHOP_MESSAGE,
+    });
+    render(<Signup />);
+    const email = await screen.findByTestId("signup-request-email");
+    fireEvent.change(email, { target: { value: "owner@gmail.com" } });
+    fireEvent.click(screen.getByTestId("signup-request-submit"));
+
+    const notice = await screen.findByTestId("signup-email-has-shop");
+    expect(notice).toHaveTextContent("This email already has a LiraTek shop.");
+    const signIn = screen.getByRole("link", { name: /sign in instead/i });
+    expect(signIn).toHaveAttribute("href", "/login");
+    expect(notice).toContainElement(signIn);
+    // Under the email field: right after it in the document.
+    expect(
+      email.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId("signup-request-email")).toHaveValue("owner@gmail.com");
+    expect(screen.queryByText(/check your inbox/i)).toBeNull();
+    // The server spent the Turnstile token: the widget remounts.
+    await waitFor(() => expect(widgetMounts).toHaveLength(2));
+
+    // Typing another address clears it.
+    fireEvent.change(email, { target: { value: "new@gmail.com" } });
+    expect(screen.queryByTestId("signup-email-has-shop")).toBeNull();
   });
 
   it("shows the 429 message when the limiter throws", async () => {

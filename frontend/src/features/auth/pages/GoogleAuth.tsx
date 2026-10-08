@@ -4,7 +4,8 @@
  *
  *   ?error=<code>   the sign-in did not go through. Codes, never message text
  *                   (GOOGLE_AUTH_ERRORS): no_account, already_connected,
- *                   signup_limit, cancelled, expired, failed, not_configured.
+ *                   signup_limit, cancelled, expired, failed, not_configured,
+ *                   email_has_shop (LIRA-290: shown with a Sign in link).
  *   ?choose=<ticket> the Google account is connected in several shops (only
  *                   links made before one-account-one-shop, 2026-10-07). The
  *                   ticket is signed by the server and lists them; the page
@@ -17,7 +18,11 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { AlertCircle, Store } from "lucide-react";
-import type { GoogleAuthErrorCode } from "@liratek/core";
+import {
+  EMAIL_ALREADY_HAS_SHOP_MESSAGE,
+  type GoogleAuthErrorCode,
+} from "@liratek/core";
+import EmailHasShopNotice from "@/features/auth/components/EmailHasShopNotice";
 import { googleChooseShop } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -38,6 +43,8 @@ const ERROR_TEXT: Record<GoogleAuthErrorCode, string> = {
   expired: "This Google sign-in took too long. Please try again.",
   failed: "Google sign-in did not work. Please try again.",
   not_configured: "Google sign-in is not available.",
+  // Shown by <EmailHasShopNotice> (with its Sign in link), not errorBox.
+  email_has_shop: EMAIL_ALREADY_HAS_SHOP_MESSAGE,
 };
 
 const CHOOSE_FAILED =
@@ -167,8 +174,12 @@ export default function GoogleAuth() {
     body = (
       <>
         <h1 className={headingClass}>Continue with Google</h1>
-        {errorBox(
-          isErrorCode(errorParam) ? ERROR_TEXT[errorParam] : ERROR_TEXT.failed,
+        {errorParam === "email_has_shop" ? (
+          <EmailHasShopNotice className="mb-4" />
+        ) : (
+          errorBox(
+            isErrorCode(errorParam) ? ERROR_TEXT[errorParam] : ERROR_TEXT.failed,
+          )
         )}
       </>
     );

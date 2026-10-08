@@ -153,6 +153,13 @@ export class ConflictError extends AppError {
 
 export const EMAIL_ALREADY_HAS_SHOP = "EMAIL_ALREADY_HAS_SHOP";
 
+/** What a member of the PUBLIC is told when their email already owns a shop
+ * (LIRA-290): the self-serve request, the Google sign-up page and POST
+ * /signup with Google all show this, with a "Sign in instead" link. Never
+ * names the shop. One definition for the server and the page (rule 14). */
+export const EMAIL_ALREADY_HAS_SHOP_MESSAGE =
+  "This email already has a LiraTek shop.";
+
 /**
  * LIRA-267 FR-013a: a shop already exists for this contact email. Raised by
  * `TenantRepository.create` from SQLite's UNIQUE error on

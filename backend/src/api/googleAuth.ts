@@ -23,6 +23,8 @@
  *             several   -> https://www.<base>/#/auth/google?choose=<ticket>
  *             none      -> https://www.<base>/#/auth/google?error=no_account
  *     signup            -> https://www.<base>/#/signup?google=<ticket>
+ *             the Gmail already owns a shop (LIRA-290)
+ *                       -> https://www.<base>/#/auth/google?error=email_has_shop
  *     link              -> https://<slug>.<base>/#/settings?tab=devices&google=…
  *     join (LIRA-288)   -> user created + linked -> the shop's /#/login?sso=
  *             refused   -> https://<slug>.<base>/#/join?invite=…&google=…
@@ -107,7 +109,7 @@ import {
   type StateTicket,
 } from "../security/googleOAuth.js";
 import { sendWebLoginResponse } from "../services/webLoginSession.js";
-import { isGoogleSignupCapReached } from "./googleSignup.js";
+import { googleEmailOwnsShop, isGoogleSignupCapReached } from "./googleSignup.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
@@ -612,6 +614,13 @@ router.get("/callback", async (req, res): Promise<void> => {
         // the authoritative check is when the shop is created.
         if (isGoogleSignupCapReached(now)) {
           res.redirect(302, errorUrl(config, "signup_limit"));
+          return;
+        }
+        // One shop per OWNER email (LIRA-290): told here, before the form,
+        // so nobody fills it in for nothing. Re-checked when the shop is
+        // created. The shop is never named.
+        if (googleEmailOwnsShop(claims.email)) {
+          res.redirect(302, errorUrl(config, "email_has_shop"));
           return;
         }
         // The instant Google confirmed the address is what the new admin's

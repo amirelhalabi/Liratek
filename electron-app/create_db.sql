@@ -2706,4 +2706,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v199 (LIRA-287) adds signin_codes, declared above.
     (199, 'signin_codes'),
     -- v200 (LIRA-288) adds signin_directory, declared above.
-    (200, 'signin_directory');
+    (200, 'signin_directory'),
+    -- v201 (LIRA-290) back-fills tenants.contact_email from each shop's
+    -- first admin's confirmed email: data only (a fresh DB has none).
+    (201, 'tenants_contact_email_from_first_admin');

@@ -13,9 +13,11 @@
  *     confirmed it;
  *   - the admin still sets a username AND a password (owner decision
  *     2026-10-07), enforced by `googleSignupSchema`;
- *   - "one shop per contact email" (LIRA-267) still holds: provisioning's
- *     unique index throws EMAIL_ALREADY_HAS_SHOP, answered like the invite
- *     route answers it. That index is also what stops one ticket from
+ *   - "one shop per OWNER email" (LIRA-267, LIRA-290): refused up front by
+ *     the ONE check (`findShopOwnedByEmail`, also asked at the callback) and,
+ *     for a shop appearing in between, by provisioning's unique index. Both
+ *     answer 200 + `code: EMAIL_ALREADY_HAS_SHOP` with the public message
+ *     (never the shop). The index is also what stops one ticket from
  *     creating a second shop;
  *   - one Google account = one user PER SHOP (LIRA-288, owner decision
  *     2026-10-08): an account already linked in other shops may create a
@@ -32,6 +34,7 @@ import type { Request, Response, RequestHandler } from "express";
 import {
   AppError,
   EMAIL_ALREADY_HAS_SHOP,
+  EMAIL_ALREADY_HAS_SHOP_MESSAGE,
   ErrorCodes,
   GOOGLE_NOT_CONFIGURED,
   SIGNUP_DAILY_CAP,
@@ -96,6 +99,26 @@ export function isGoogleSignupCapReached(now: string): boolean {
   );
 }
 
+/**
+ * Does this Google email already own a shop (LIRA-290)? The ONE check
+ * (`SignupInvitationService.findShopOwnedByEmail`), on the platform tables.
+ * Asked at the callback and again when the shop is created.
+ */
+export function googleEmailOwnsShop(email: string): boolean {
+  return runWithoutTenant(
+    () => getSignupInvitationService().findShopOwnedByEmail(email) !== null,
+  );
+}
+
+/** Contract refusal for an email that owns a shop: 200 + top-level code. */
+function refuseEmailHasShop(res: Response): void {
+  res.json({
+    success: false,
+    code: EMAIL_ALREADY_HAS_SHOP,
+    error: EMAIL_ALREADY_HAS_SHOP_MESSAGE,
+  });
+}
+
 function handleGoogleSignup(req: Request, res: Response): void {
   // Owner decision 2026-10-07: creating a shop with Google is open whenever
   // Google is configured — it does NOT follow the self-serve email switch.
@@ -129,6 +152,12 @@ function handleGoogleSignup(req: Request, res: Response): void {
       error: SIGNUP_DAILY_CAP_MESSAGE,
       code: SIGNUP_DAILY_CAP,
     });
+    return;
+  }
+
+  if (googleEmailOwnsShop(ticket.email)) {
+    logger.warn({ slug: body.slug }, "Google sign-up refused: email has a shop");
+    refuseEmailHasShop(res);
     return;
   }
 
@@ -203,9 +232,7 @@ function handleGoogleSignup(req: Request, res: Response): void {
   } catch (error) {
     if (error instanceof AppError && error.code === EMAIL_ALREADY_HAS_SHOP) {
       logger.warn({ slug: body.slug }, "Google sign-up refused: email has a shop");
-      res
-        .status(400)
-        .json(createErrorResponse(EMAIL_ALREADY_HAS_SHOP, "This email already has a shop."));
+      refuseEmailHasShop(res);
       return;
     }
     const message = error instanceof Error ? error.message : "Signup failed";

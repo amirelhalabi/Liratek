@@ -329,6 +329,8 @@ export async function requestSignupLink(input: RequestSignupLinkInput) {
     success: boolean;
     data?: { message: string };
     error?: PublicRouteError;
+    /** LIRA-290: `EMAIL_ALREADY_HAS_SHOP` when the email owns a shop. */
+    code?: string;
   }>("/api/auth/signup/request", {
     method: "POST",
     body: input,

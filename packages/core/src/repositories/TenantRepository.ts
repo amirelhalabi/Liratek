@@ -599,6 +599,32 @@ export class TenantRepository {
     }
   }
 
+  /**
+   * Give a shop a contact email ONLY when it has none (LIRA-290: a shop's
+   * contact email is its first admin's confirmed email). The address must
+   * already be normalised (trimmed + lowercased). Never overwrites. Returns
+   * false — and changes nothing — when the shop already has one, does not
+   * exist, or another shop holds the address (`idx_tenants_contact_email`
+   * is unique: the shop that got it first keeps it).
+   */
+  setContactEmailIfAbsent(id: number, email: string): boolean {
+    try {
+      const result = this.db
+        .prepare(
+          `UPDATE tenants SET contact_email = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND contact_email IS NULL`,
+        )
+        .run(email, id);
+      return result.changes > 0;
+    } catch (error) {
+      if (isContactEmailUniqueViolation(error)) return false;
+      throw new DatabaseError("Failed to set tenant contact email", {
+        cause: error,
+        entityId: id,
+      });
+    }
+  }
+
   update(id: number, data: UpdateTenantData): TenantEntity | null {
     try {
       const fields: string[] = [];

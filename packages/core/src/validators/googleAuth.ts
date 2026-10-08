@@ -39,6 +39,9 @@ export const GOOGLE_AUTH_ERRORS = [
   "cancelled",
   "expired",
   "failed",
+  // LIRA-290: sign-up with a Gmail that already owns a shop (its contact
+  // email). The page says so, with a "Sign in instead" link.
+  "email_has_shop",
 ] as const;
 export type GoogleAuthErrorCode = (typeof GOOGLE_AUTH_ERRORS)[number];
 

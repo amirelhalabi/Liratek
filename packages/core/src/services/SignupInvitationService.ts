@@ -18,6 +18,7 @@
 import type {
   SignupInvitationEntity,
   SignupInvitationListRow,
+  TenantByContactEmail,
   SignupInvitationRepository,
   SignupInvitationSource,
   SignupInvitationStatus,
@@ -171,8 +172,9 @@ export interface RequestSelfServeParams {
   dailyCap: number;
 }
 
-/** Why a self-serve request did or did not queue an email. Internal only:
- * the route answers every one of these identically (FR-028). */
+/** Why a self-serve request did or did not queue an email. The route
+ * answers every one of these identically (FR-028), except `has_shop`, which
+ * it tells the visitor (owner decision 2026-10-08, LIRA-290). */
 export type SelfServeRequestReason =
   | "queued"
   | "has_shop"
@@ -286,6 +288,22 @@ export class SignupInvitationService {
   }
 
   /**
+   * THE "this email can't open a new shop" check (LIRA-290, owner decision
+   * 2026-10-08: one shop per OWNER email), defined once (rule 14) and asked
+   * by every door: self-serve request, admin invite, Google sign-up (the
+   * callback and POST /signup). An address owns a shop when it is any
+   * shop's contact email — which, since v201 and `ShopContactEmailService`,
+   * includes the first admin's confirmed email of shops created before
+   * sign-up emails existed. Any status, like `idx_tenants_contact_email`
+   * that provisioning would hit anyway. A staff member's email is never a
+   * contact email, so staff may open their own shop. The shop is returned
+   * for the ADMIN's message only; public replies never name it.
+   */
+  findShopOwnedByEmail(email: string): TenantByContactEmail | null {
+    return this.inviteRepo.findTenantByContactEmail(email);
+  }
+
+  /**
    * Creates an invite and queues its email, in ONE transaction: either both
    * rows exist (linked) or neither does. Refuses EMAIL_NOT_CONFIGURED when
    * there is no mail transport and EMAIL_ALREADY_HAS_SHOP (with the shop's
@@ -299,7 +317,7 @@ export class SignupInvitationService {
         );
       }
 
-      const existing = this.inviteRepo.findTenantByContactEmail(params.email);
+      const existing = this.findShopOwnedByEmail(params.email);
       if (existing) {
         throw new EmailAlreadyHasShopError(
           `This email already has a shop: ${existing.slug}`,
@@ -372,9 +390,10 @@ export class SignupInvitationService {
    * `isPublicSignupCapReached`) -> creates a `source: 'self'` invite with no
    * inviter. Admin invites count toward neither limit.
    *
-   * Never throws for a business outcome: the route answers every reason
-   * identically (FR-028), so a shop appearing between the check and the
-   * insert is reported as `has_shop`, not as a 409. The address is logged
+   * Never throws for a business outcome: a shop appearing between the
+   * check and the insert is reported as `has_shop`, not as a 409. The route
+   * answers every reason identically (FR-028) EXCEPT `has_shop`, which it
+   * shows on the page (owner decision 2026-10-08, LIRA-290). The address is logged
    * only as `hashToken(email)`.
    */
   /**
@@ -403,7 +422,7 @@ export class SignupInvitationService {
       return { queued: false, reason };
     };
 
-    if (this.inviteRepo.findTenantByContactEmail(params.email)) {
+    if (this.findShopOwnedByEmail(params.email)) {
       return refused("has_shop");
     }
 
