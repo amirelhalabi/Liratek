@@ -193,6 +193,7 @@
 
 ## 🌐 Web app
 
+- Web app: pages and pop-ups no longer get cut off at the bottom when the screen is enlarged. To make things bigger or smaller, use your browser's zoom (Ctrl + / Ctrl −, or ⌘ + / ⌘ − on a Mac); the size option in My account is now only in the desktop app.
 - The LiraTek website now has its own Arabic page at liratek.shop/ar, and the language button switches between the English and Arabic pages.
 - Web app: your browser now recognises the sign-in form. It offers to save your username and password after you sign in, and fills them in next time.
 - Web app: you can now sign in with Google. Connect your Google account once in My account, then use "Continue with Google" on the login page. You can also create a new shop with Google. Your username and password keep working as before.

@@ -22,6 +22,7 @@ import { useState } from "react";
 import { PanelLeft, LayoutGrid, Image, List, Monitor } from "lucide-react";
 import clsx from "clsx";
 import { saveAndApplyUiScale } from "@/shared/utils/uiScale";
+import { isElectron } from "@/api/backendApi";
 
 const UI_SCALE_OPTIONS = [
   { value: 0.75, label: "75%" },
@@ -363,35 +364,46 @@ export default function DisplayPreferences() {
         </label>
       </div>
 
-      {/* UI Scale */}
-      <div className="pt-6 border-t border-slate-700">
-        <span className="block text-sm text-slate-400 mb-3">UI Scale</span>
-        <div className="flex gap-4 items-start">
-          <div className="flex items-center gap-3">
-            <Monitor size={20} className="text-slate-400" />
-            <div className="flex gap-1">
-              {UI_SCALE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => handleUiScaleChange(opt.value)}
-                  className={clsx(
-                    "px-3 py-2 rounded-lg text-sm font-medium transition-all",
-                    uiScale === opt.value
-                      ? "bg-violet-600 text-white shadow-lg shadow-violet-900/30"
-                      : "bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white",
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
+      {/* UI Scale — desktop only (LIRA-295). On the web the browser's own
+          zoom does it properly; a CSS zoom cut off the bottom of pages. */}
+      {!isElectron() ? (
+        <div className="pt-6 border-t border-slate-700">
+          <span className="block text-sm text-slate-400 mb-1">Size</span>
+          <p className="text-xs text-slate-500">
+            To make things bigger or smaller, use your browser's zoom: Ctrl + /
+            Ctrl − (⌘ + / ⌘ − on a Mac).
+          </p>
+        </div>
+      ) : (
+        <div className="pt-6 border-t border-slate-700">
+          <span className="block text-sm text-slate-400 mb-3">UI Scale</span>
+          <div className="flex gap-4 items-start">
+            <div className="flex items-center gap-3">
+              <Monitor size={20} className="text-slate-400" />
+              <div className="flex gap-1">
+                {UI_SCALE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => handleUiScaleChange(opt.value)}
+                    className={clsx(
+                      "px-3 py-2 rounded-lg text-sm font-medium transition-all",
+                      uiScale === opt.value
+                        ? "bg-violet-600 text-white shadow-lg shadow-violet-900/30"
+                        : "bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+          <p className="text-xs text-slate-500 mt-2">
+            Scale the entire app UI. Use a smaller scale on POS screens to fit
+            more content, or a larger scale for touch displays.
+          </p>
         </div>
-        <p className="text-xs text-slate-500 mt-2">
-          Scale the entire app UI. Use a smaller scale on POS screens to fit
-          more content, or a larger scale for touch displays.
-        </p>
-      </div>
+      )}
     </section>
   );
 }

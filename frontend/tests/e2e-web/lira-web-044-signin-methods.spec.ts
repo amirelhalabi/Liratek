@@ -98,7 +98,9 @@ const flagOf = (userId: number): number =>
   withDb(
     (db) =>
       (
-        db.prepare(`SELECT has_password FROM users WHERE id = ?`).get(userId) as {
+        db
+          .prepare(`SELECT has_password FROM users WHERE id = ?`)
+          .get(userId) as {
           has_password: number;
         }
       ).has_password,
@@ -109,7 +111,9 @@ const identities = (userId: number): number =>
     (db) =>
       (
         db
-          .prepare(`SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`)
+          .prepare(
+            `SELECT COUNT(*) AS n FROM user_identities WHERE user_id = ?`,
+          )
           .get(userId) as { n: number }
       ).n,
   );
@@ -118,7 +122,9 @@ const outboxTemplatesTo = (to: string): string[] =>
   withDb((db) =>
     (
       db
-        .prepare(`SELECT template FROM email_outbox WHERE to_email = ? ORDER BY id`)
+        .prepare(
+          `SELECT template FROM email_outbox WHERE to_email = ? ORDER BY id`,
+        )
         .all(to) as { template: string }[]
     ).map((r) => r.template),
   );
@@ -131,12 +137,15 @@ function findSetLink(to: string): string | null {
     if (!/^password-set-\d+\.json$/.test(name)) continue;
     const jsonPath = path.join(EMAIL_FILE_DIR, name);
     try {
-      const meta = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as { to?: string };
+      const meta = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as {
+        to?: string;
+      };
       if (meta.to !== to) continue;
       const text = fs.readFileSync(jsonPath.replace(/\.json$/, ".txt"), "utf8");
-      const link = /https?:\/\/\S+\/#\/reset-password\?token=[A-Za-z0-9_%-]+/.exec(
-        text,
-      )?.[0];
+      const link =
+        /https?:\/\/\S+\/#\/reset-password\?token=[A-Za-z0-9_%-]+/.exec(
+          text,
+        )?.[0];
       if (link) matches.push({ link, mtime: fs.statSync(jsonPath).mtimeMs });
     } catch {
       continue;
@@ -163,9 +172,14 @@ test.describe("LIRA-291 — sign-in methods", () => {
     // ── 1. Own disconnect: refused by the server, the link is kept ──
     const headers = await staffHeaders(page, username, seeded);
     const refused = await (
-      await page.request.delete(`${BACKEND_URL}/api/auth/google/link`, { headers })
+      await page.request.delete(`${BACKEND_URL}/api/auth/google/link`, {
+        headers,
+      })
     ).json();
-    expect(refused).toMatchObject({ success: false, code: "SET_PASSWORD_FIRST" });
+    expect(refused).toMatchObject({
+      success: false,
+      code: "SET_PASSWORD_FIRST",
+    });
     expect(identities(userId)).toBe(1);
     const status = await (
       await page.request.get(`${BACKEND_URL}/api/auth/google/link`, { headers })
@@ -176,20 +190,36 @@ test.describe("LIRA-291 — sign-in methods", () => {
     await loginAsUser(page, username, seeded);
     await closeAutoCheckpoint(page);
     await page.goto("/#/settings");
-    await page.waitForURL((url) => !url.hash.includes("settings"), { timeout: 15_000 });
+    await page.waitForURL((url) => !url.hash.includes("settings"), {
+      timeout: 15_000,
+    });
     await page.getByTestId("my-account-link").click();
-    await page.waitForURL((url) => url.hash.startsWith("#/account"), { timeout: 15_000 });
-    await expect(page.getByRole("heading", { name: "My account" })).toBeVisible({
+    await page.waitForURL((url) => url.hash.startsWith("#/account"), {
       timeout: 15_000,
     });
-    await expect(page.getByRole("heading", { name: "Sign-in methods" })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(page.getByText(/You sign in with Google only/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "My account" })).toBeVisible(
+      {
+        timeout: 15_000,
+      },
+    );
+    // The panel was redesigned (96d1ff86): a "Sign-in options" region whose
+    // Password row says "No password set" and opens the form on demand.
+    const signin = page.getByRole("region", { name: "Sign-in options" });
+    await expect(signin).toBeVisible({ timeout: 15_000 });
+    await expect(
+      signin.getByText("No password set", { exact: true }),
+    ).toBeVisible();
+    await signin
+      .getByRole("button", { name: "Set a password", exact: true })
+      .click();
     await page.locator("#set-password-new").fill(chosen);
     await page.locator("#set-password-confirm").fill(chosen);
-    await page.getByRole("button", { name: "Set a password", exact: true }).click();
-    await expect(page.getByText(/^Password set\./)).toBeVisible({ timeout: 15_000 });
+    await page
+      .getByRole("button", { name: "Set a password", exact: true })
+      .click();
+    await expect(page.getByText(/^Password set\./)).toBeVisible({
+      timeout: 15_000,
+    });
 
     expect(flagOf(userId)).toBe(1);
     expect(identities(userId)).toBe(1); // Google stays connected
@@ -197,7 +227,9 @@ test.describe("LIRA-291 — sign-in methods", () => {
 
     // The same DELETE now passes the password rule (Google itself is off).
     const after = await (
-      await page.request.delete(`${BACKEND_URL}/api/auth/google/link`, { headers })
+      await page.request.delete(`${BACKEND_URL}/api/auth/google/link`, {
+        headers,
+      })
     ).json();
     expect(after.code).not.toBe("SET_PASSWORD_FIRST");
 
@@ -205,9 +237,12 @@ test.describe("LIRA-291 — sign-in methods", () => {
     // Over REST first, then through the sign-in form in a fresh browser
     // (which needs the suite's backend address, as the `test` fixture does).
     await staffHeaders(page, username, chosen);
-    const fresh = await browser.newContext({ baseURL: `http://localhost:${WEB_PORT}` });
+    const fresh = await browser.newContext({
+      baseURL: `http://localhost:${WEB_PORT}`,
+    });
     await fresh.addInitScript((url: string) => {
-      (globalThis as { __LIRATEK_BACKEND_URL?: string }).__LIRATEK_BACKEND_URL = url;
+      (globalThis as { __LIRATEK_BACKEND_URL?: string }).__LIRATEK_BACKEND_URL =
+        url;
     }, BACKEND_URL);
     try {
       const other = await fresh.newPage();
@@ -240,9 +275,7 @@ test.describe("LIRA-291 — sign-in methods", () => {
       `${username} has no password. We'll email them a link to set one.`,
     );
     await page.getByTestId("confirm-modal-confirm-btn").click();
-    await expect
-      .poll(() => identities(userId), { timeout: 15_000 })
-      .toBe(0);
+    await expect.poll(() => identities(userId), { timeout: 15_000 }).toBe(0);
     expect(outboxTemplatesTo(email)).toEqual(["password-set"]);
     await expect(row.getByTestId(`user-signin-${userId}`)).toHaveText("None", {
       timeout: 15_000,
@@ -261,26 +294,35 @@ test.describe("LIRA-291 — sign-in methods", () => {
 
     const setPage = await page.context().newPage();
     await setPage.goto(link);
-    await expect(setPage.getByRole("heading", { name: "Set a password" })).toBeVisible({
+    await expect(
+      setPage.getByRole("heading", { name: "Set a password" }),
+    ).toBeVisible({
       timeout: 15_000,
     });
     await expect(setPage.getByText(username)).toBeVisible();
     const eyes = setPage.getByRole("button", { name: "Show password" });
     await expect(eyes).toHaveCount(2);
     await setPage.getByTestId("reset-password").fill("Abc-def_1.x");
-    await expect(setPage.getByTestId("reset-password")).toHaveAttribute("type", "password");
+    await expect(setPage.getByTestId("reset-password")).toHaveAttribute(
+      "type",
+      "password",
+    );
     await eyes.first().click();
-    await expect(setPage.getByTestId("reset-password")).toHaveAttribute("type", "text");
+    await expect(setPage.getByTestId("reset-password")).toHaveAttribute(
+      "type",
+      "text",
+    );
     await expect(setPage.getByTestId("reset-confirm")).toHaveAttribute(
       "autocomplete",
       "new-password",
     );
   });
 
-  // LIRA-292: the per-device display options moved from Settings → Shop
-  // Config (admin-only) to My account, so a STAFF member can size their own
-  // screen. Same storage key as before (`ui_scale`), applied at once.
-  test("a STAFF member changes UI scale on My account (Display, this device)", async ({
+  // LIRA-292 moved the per-device display options to My account so STAFF can
+  // set them. LIRA-295: the WEB app has no UI scale any more — the browser's
+  // own zoom does it (a CSS zoom cut off the bottom of pages). A scale saved
+  // by an older build must be ignored, not re-applied.
+  test("a STAFF member sees Display on My account; the web has no UI scale and ignores a saved one", async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -289,10 +331,15 @@ test.describe("LIRA-291 — sign-in methods", () => {
     const password = "L292Seed!pw1";
     seedStaffUser(username, password);
 
+    // A scale saved before LIRA-295, on this browser.
+    await page.addInitScript(() => localStorage.setItem("ui_scale", "1.25"));
+
     await loginAsUser(page, username, password);
     await closeAutoCheckpoint(page);
     await page.getByTestId("my-account-link").click();
-    await page.waitForURL((url) => url.hash.startsWith("#/account"), { timeout: 15_000 });
+    await page.waitForURL((url) => url.hash.startsWith("#/account"), {
+      timeout: 15_000,
+    });
 
     const profile = page.getByRole("region", { name: "Profile" });
     await expect(profile).toContainText(username, { timeout: 15_000 });
@@ -300,14 +347,13 @@ test.describe("LIRA-291 — sign-in methods", () => {
 
     const display = page.getByRole("region", { name: "Display (this device)" });
     await expect(display).toContainText("Saved on this device only");
-    await display.getByRole("button", { name: "90%" }).click();
-    expect(await page.evaluate(() => localStorage.getItem("ui_scale"))).toBe("0.9");
+    await expect(display).toContainText("use your browser's zoom");
+    await expect(display.getByRole("button", { name: "90%" })).toHaveCount(0);
+    // The saved 1.25 was NOT applied as a CSS zoom.
     expect(
-      await page.evaluate(() => document.documentElement.style.getPropertyValue("zoom")),
-    ).toBe("0.9");
-
-    // Put it back: this browser profile is per-test, but keep it tidy.
-    await display.getByRole("button", { name: "100%" }).click();
-    expect(await page.evaluate(() => localStorage.getItem("ui_scale"))).toBe("1");
+      await page.evaluate(() =>
+        document.documentElement.style.getPropertyValue("zoom"),
+      ),
+    ).toBe("");
   });
 });

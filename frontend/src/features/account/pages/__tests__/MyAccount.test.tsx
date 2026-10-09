@@ -114,10 +114,23 @@ it("a staff user sees Display (this device), saved on this device only", () => {
   expect(display).toHaveTextContent("Navigation Style");
   expect(display).toHaveTextContent("POS Product Display");
   expect(display).toHaveTextContent("Auto-fill Payment Amount");
+  // LIRA-295: no UI Scale on the web — the browser's own zoom does it.
+  expect(display).not.toHaveTextContent("UI Scale");
+  expect(display).toHaveTextContent("use your browser's zoom");
+  expect(screen.queryByRole("button", { name: "90%" })).toBeNull();
+});
+
+it("desktop app: Display keeps the UI Scale setting", () => {
+  setDesktop(true);
+  render(<MyAccount />);
+  const display = screen.getByRole("region", { name: "Display (this device)" });
   expect(display).toHaveTextContent("UI Scale");
+  expect(display).not.toHaveTextContent("use your browser's zoom");
 });
 
 it("changing UI scale and navigation style writes the SAME localStorage keys and events", () => {
+  // UI Scale exists only in the desktop app (LIRA-295).
+  setDesktop(true);
   const layoutEvents: string[] = [];
   const onLayout = () => layoutEvents.push("layout-mode-changed");
   window.addEventListener("layout-mode-changed", onLayout);

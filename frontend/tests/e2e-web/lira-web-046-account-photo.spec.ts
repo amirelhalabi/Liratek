@@ -81,8 +81,9 @@ test.describe("LIRA-294 — account photo", () => {
     await expect(img).toHaveAttribute("src", photo);
     await expect(img).toHaveAttribute("referrerpolicy", "no-referrer");
     const box = await img.boundingBox();
-    expect(Math.round(box!.width)).toBe(20);
-    expect(Math.round(box!.height)).toBe(20);
+    // Owner-sized (96d1ff86): 35px.
+    expect(Math.round(box!.width)).toBe(35);
+    expect(Math.round(box!.height)).toBe(35);
     expect(served).toBeGreaterThan(0);
 
     await link.click();

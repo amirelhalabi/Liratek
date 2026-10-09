@@ -85,6 +85,12 @@ test.describe("LIRA-293 — change your own password and email", () => {
 
     await loginAsUser(page, username, oldPassword);
     await openMyAccount(page);
+    // Redesigned panel (96d1ff86): "Sign-in options" → Password row opens the
+    // form on demand.
+    const signin = page.getByRole("region", { name: "Sign-in options" });
+    await signin
+      .getByRole("button", { name: "Change password", exact: true })
+      .click({ timeout: 15_000 });
     const form = page.getByRole("form", { name: "Change password" });
     await expect(form).toBeVisible({ timeout: 15_000 });
     await expect(page.locator("#change-password-current")).toHaveAttribute(
@@ -158,14 +164,16 @@ test.describe("LIRA-293 — change your own password and email", () => {
     await openMyAccount(page);
     const profile = page.getByRole("region", { name: "Profile" });
     await expect(profile).toContainText(oldEmail, { timeout: 15_000 });
-    await expect(profile).toContainText("Verified");
+    // Redesigned panel (96d1ff86): the email row lives in "Sign-in options".
+    const signin = page.getByRole("region", { name: "Sign-in options" });
+    await expect(signin).toContainText("Verified", { timeout: 15_000 });
 
-    await profile.getByRole("button", { name: "Change email" }).click();
-    await profile.getByLabel("New email").fill(newEmail);
-    await profile
+    await signin.getByRole("button", { name: "Change email" }).click();
+    await signin.getByLabel("New email").fill(newEmail);
+    await signin
       .getByRole("button", { name: "Send confirmation link" })
       .click();
-    await expect(profile.getByText(/check your inbox/i)).toBeVisible({
+    await expect(signin.getByText(/Open the link we sent/)).toBeVisible({
       timeout: 15_000,
     });
 

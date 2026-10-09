@@ -9,14 +9,16 @@
  * changed a pixel. A setting that silently no-ops is worse than one that is
  * absent, because the operator re-picks it and concludes the app is broken.
  *
- * In the browser the equivalent is the CSS `zoom` property on the root
- * element, which reflows the page the same way the Electron zoom factor does
- * — not a `transform: scale()`, which would scale a snapshot of the layout and
- * leave hit targets, scroll extents and fixed positioning wrong.
+ * The WEB app has no UI scale (LIRA-295, owner decision 2026-10-09): the
+ * browser's own zoom (Ctrl/⌘ + / −) does it properly. The CSS `zoom` on
+ * <html> this used to apply multiplied every viewport-height size
+ * (`h-screen`, `max-h-[90vh]`) by the scale, so at 125% the bottom of each
+ * page and modal fell below the window and the `h-screen overflow-hidden`
+ * shell would not scroll to it. On the web this now only clears a zoom an
+ * older build may have left, and My account → Display hides the control.
  *
  * One definition (rule 14) because there are two callers — App.tsx restores
- * the saved value at boot, ShopConfig applies it on change — and they drifted
- * before: only one of them is where a future zoom bug would be noticed.
+ * the saved value at boot, My account → Display applies it on change.
  */
 
 const UI_SCALE_KEY = "ui_scale";
@@ -27,23 +29,21 @@ function isUsableScale(value: number): boolean {
 }
 
 /**
- * Set the zoom level. Desktop routes to Electron; the browser falls back to
- * CSS zoom. Safe to call with anything — a non-finite or non-positive scale is
- * ignored rather than blanking the screen.
+ * Set the zoom level — desktop only, through Electron. On the web it does
+ * nothing except remove a CSS zoom an older build may have set (a saved
+ * `ui_scale` from before LIRA-295 is therefore ignored). Safe to call with
+ * anything — a non-finite or non-positive scale is ignored rather than
+ * blanking the screen.
  */
 export function applyUiScale(scale: number): void {
-  if (!isUsableScale(scale)) return;
-
   const setZoomFactor = window.api?.display?.setZoomFactor;
   if (setZoomFactor) {
-    setZoomFactor(scale);
+    if (isUsableScale(scale)) setZoomFactor(scale);
     return;
   }
 
   if (typeof document !== "undefined") {
-    // `zoom` is not in the CSSStyleDeclaration type in every lib.dom version,
-    // so it is written through setProperty rather than cast away.
-    document.documentElement.style.setProperty("zoom", String(scale));
+    document.documentElement.style.removeProperty("zoom");
   }
 }
 

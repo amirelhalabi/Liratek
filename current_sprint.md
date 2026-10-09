@@ -6537,6 +6537,15 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
+## LIRA-295: web app has no UI scale — the browser's zoom is the scale (desktop keeps it) — DONE, not yet released (owner decision 2026-10-09)
+
+- **Bug:** on the web, UI Scale set CSS `zoom` on `<html>`. Chrome multiplies every viewport-height size (`h-screen`, `max-h-[90vh]`) by it, so at 125% the bottom of each page and modal fell below the window and the `h-screen overflow-hidden` shell (LeftPanelLayout / HomeViewLayout) would not scroll to it.
+- **Decision:** browsers already zoom properly (Ctrl/⌘ + / −), the desktop app cannot, so the setting is desktop-only. `applyUiScale` on the web only removes a CSS zoom an older build may have left; a saved `ui_scale` is ignored. My account → Display shows "use your browser's zoom" on the web; desktop keeps UI Scale (Electron zoom factor).
+- **Tests:** `uiScale.webFixed.test.ts` (2 web cases proven failing-first against the old code; a first draft that read back `style.zoom` passed vacuously — jsdom drops `zoom` — and was rewritten to spy), `MyAccount.test.tsx` (web hides UI Scale and shows the hint; desktop keeps it), `lira-web-044` (a saved 1.25 is not applied). Also aligned `lira-web-044`'s LIRA-291 staff test to the redesigned "Sign-in options" panel (96d1ff86).
+- **Later (owner):** POS layout at large scale (product grid sized to its panel, flexible cart width, card overflow, sidebar reachable above the parked-sale chip, "1 item").
+
+**What users will notice:** in the web app, pages and pop-ups no longer get cut off at the bottom when zoomed; use your browser's zoom (Ctrl + / Ctrl −) to make things bigger. The desktop app keeps its UI Scale setting in My account.
+
 ## LIRA-294: Google profile photo as the account picture (web only) — DONE, not yet released (owner request 2026-10-08)
 
 Migration v204: `user_identities.picture_url TEXT NULL`.

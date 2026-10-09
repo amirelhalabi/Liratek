@@ -458,9 +458,9 @@ function AppRoutes() {
 function App() {
   const { isLoaded } = useVoiceBotSettings();
 
-  // Apply saved UI scale on startup. Goes through applyUiScale so the web
-  // build gets CSS zoom instead of silently skipping — this used to be gated
-  // on `window.api?.display?.setZoomFactor`, which is undefined in a browser.
+  // Apply saved UI scale on startup — desktop only (Electron zoom factor).
+  // On the web applyUiScale ignores it: the browser's own zoom is the scale
+  // there (LIRA-295).
   useEffect(() => {
     const saved = readSavedUiScale();
     if (saved !== null) applyUiScale(saved);
