@@ -1,0 +1,4 @@
+# The LiraTek app (www.liratek.shop and every <shop>.liratek.shop) is not
+# for search engines. The public site is liratek.shop (landing/).
+User-agent: *
+Disallow: /

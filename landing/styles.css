@@ -132,6 +132,14 @@ a {
   border-color: var(--accent);
 }
 
+/* The switch is a link to the other language's page (/ or /ar). Beat the
+   generic ".topnav a" colour so it keeps its pill look. */
+.topnav a.lang-toggle {
+  display: inline-block;
+  color: var(--text);
+  white-space: nowrap;
+}
+
 /* ---- buttons ---- */
 .btn {
   display: inline-flex;

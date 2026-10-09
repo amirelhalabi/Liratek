@@ -1,12 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset
+  xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+  xmlns:xhtml="http://www.w3.org/1999/xhtml"
+>
   <url>
     <loc>https://liratek.shop/</loc>
+    <lastmod>2026-10-09</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://liratek.shop/" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://liratek.shop/ar" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://liratek.shop/" />
+  </url>
+  <url>
+    <loc>https://liratek.shop/ar</loc>
+    <lastmod>2026-10-09</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://liratek.shop/" />
+    <xhtml:link rel="alternate" hreflang="ar" href="https://liratek.shop/ar" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://liratek.shop/" />
   </url>
   <url>
     <loc>https://liratek.shop/privacy</loc>
+    <lastmod>2026-10-09</lastmod>
   </url>
   <url>
     <loc>https://liratek.shop/terms</loc>
+    <lastmod>2026-10-09</lastmod>
   </url>
 </urlset>

@@ -1,27 +1,19 @@
 <!doctype html>
-<html lang="en" dir="ltr">
+<html lang="ar" dir="rtl">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LiraTek — POS &amp; Phone Shop Software for Lebanon</title>
+    <title>LiraTek — برنامج محل خليوي ونقطة بيع في لبنان</title>
     <meta
       name="description"
-      content="POS and phone shop software for Lebanon: sales and stock in USD and LBP, OMT and Whish transfers, MTC and Alfa recharge tracking, and customer debts."
+      content="برنامج محل خليوي في لبنان: مبيع ومخزون بالدولار والليرة، تحويلات OMT وWhish، تشريج MTC وAlfa، دفتر ديون الزبائن وإقفال الصندوق اليومي."
     />
-    <link rel="canonical" href="https://liratek.shop/" />
-    <!-- The Arabic page is its own URL (/ar, ar.html); tell search engines
-         the two are translations of each other. -->
+    <link rel="canonical" href="https://liratek.shop/ar" />
+    <!-- English is / (index.html). This is its Arabic translation, a page of
+         its own so search engines can index it. -->
     <link rel="alternate" hreflang="en" href="https://liratek.shop/" />
     <link rel="alternate" hreflang="ar" href="https://liratek.shop/ar" />
     <link rel="alternate" hreflang="x-default" href="https://liratek.shop/" />
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "LiraTek",
-        "url": "https://liratek.shop/"
-      }
-    </script>
     <!-- No "offers" or rating on purpose: there is no public price on this
          page, and structured data must never invent one. -->
     <script type="application/ld+json">
@@ -45,11 +37,11 @@
           {
             "@type": "SoftwareApplication",
             "name": "LiraTek",
-            "url": "https://liratek.shop/",
+            "url": "https://liratek.shop/ar",
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Web, Windows",
-            "inLanguage": "en",
-            "description": "Point of sale and phone shop software for Lebanon: sales and stock, prices and drawers in USD and LBP, OMT and Whish transfers, MTC and Alfa recharges, customer debts, repairs and daily closing.",
+            "inLanguage": "ar",
+            "description": "برنامج نقطة بيع لمحلات الخليوي في لبنان: المبيعات والمخزون، الأسعار والصناديق بالدولار والليرة، تحويلات OMT وWhish، تشريج MTC وAlfa، دفتر ديون الزبائن، التصليحات وإقفال اليوم.",
             "publisher": { "@id": "https://liratek.shop/#organization" }
           }
         ]
@@ -62,44 +54,45 @@
          crawlers do not run JavaScript. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="LiraTek" />
-    <meta property="og:locale" content="en_US" />
-    <meta property="og:locale:alternate" content="ar_LB" />
-    <meta property="og:url" content="https://liratek.shop/" />
-    <meta property="og:title" content="LiraTek — POS for phone shops in Lebanon" />
+    <meta property="og:locale" content="ar_LB" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:url" content="https://liratek.shop/ar" />
+    <meta property="og:title" content="LiraTek — برنامج محل خليوي ونقطة بيع في لبنان" />
     <meta
       property="og:description"
-      content="Sales, stock, USD + LBP, OMT/Whish, MTC/Alfa, debts and daily closing — in one system."
+      content="المبيعات والمخزون، الدولار والليرة، OMT وWhish، MTC وAlfa، دفتر الديون وإقفال اليوم — في نظام واحد."
     />
     <meta property="og:image" content="https://liratek.shop/assets/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="LiraTek — your whole shop, in dollars and lira, in one place" />
+    <meta property="og:image:alt" content="LiraTek — محلك كله، بالدولار والليرة، في مكان واحد" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="LiraTek — POS for phone shops in Lebanon" />
+    <meta name="twitter:title" content="LiraTek — برنامج محل خليوي ونقطة بيع في لبنان" />
     <meta
       name="twitter:description"
-      content="Sales, stock, USD + LBP, OMT/Whish, MTC/Alfa, debts and daily closing — in one system."
+      content="المبيعات والمخزون، الدولار والليرة، OMT وWhish، MTC وAlfa، دفتر الديون وإقفال اليوم — في نظام واحد."
     />
     <meta name="twitter:image" content="https://liratek.shop/assets/og.png" />
-    <meta name="twitter:image:alt" content="LiraTek — your whole shop, in dollars and lira, in one place" />
+    <meta name="twitter:image:alt" content="LiraTek — محلك كله، بالدولار والليرة، في مكان واحد" />
 
     <!-- The hero poster is the largest paint: fetch it first. Bump ?v= here
          AND on the <video> together. -->
     <link rel="preload" as="image" href="/assets/poster.webp?v=3" fetchpriority="high" />
     <!-- Fonts load without blocking the first paint (display=swap). This page
-         needs only Inter; the Arabic page loads IBM Plex Sans Arabic. -->
+         needs only IBM Plex Sans Arabic (it has Latin letters too); the English
+         page loads Inter. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="preload"
       as="style"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap"
       onload="this.onload=null;this.rel='stylesheet'"
     />
     <noscript>
       <link
         rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap"
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap"
       />
     </noscript>
     <link rel="stylesheet" href="/styles.css" />
@@ -117,16 +110,16 @@
   <body>
     <header class="topbar">
       <div class="wrap topbar-inner">
-        <a class="brand" href="/" aria-label="LiraTek">
+        <a class="brand" href="/ar" aria-label="LiraTek">
           <img src="/assets/favicon.svg" alt="" width="32" height="32" />
           <span>LiraTek</span>
         </a>
         <nav class="topnav">
-          <a class="nav-signin" href="https://www.liratek.shop/#/login" data-i18n="nav.login">Sign in</a>
+          <a class="nav-signin" href="https://www.liratek.shop/#/login" data-i18n="nav.login">تسجيل الدخول</a>
           <a class="btn btn-primary nav-cta" href="https://www.liratek.shop/#/signup">
-            <span class="nav-cta-long" data-i18n="nav.signup">Create your shop</span><span class="nav-cta-short" data-i18n="nav.signupShort">Create shop</span>
+            <span class="nav-cta-long" data-i18n="nav.signup">أنشئ متجرك</span><span class="nav-cta-short" data-i18n="nav.signupShort">أنشئ متجرك</span>
           </a>
-          <a class="lang-toggle" id="lang-toggle" href="/ar" hreflang="ar" lang="ar">العربية</a>
+          <a class="lang-toggle" id="lang-toggle" href="/" hreflang="en" lang="en">English</a>
         </nav>
       </div>
     </header>
@@ -135,29 +128,25 @@
       <section class="hero">
         <div class="wrap hero-grid">
           <div class="hero-copy">
-            <p class="eyebrow" data-i18n="hero.eyebrow">Built for Lebanese phone shops</p>
-            <h1 data-i18n="hero.title">Your whole shop, in dollars and lira, in one place.</h1>
-            <p class="lead" data-i18n="hero.lead">
-              Sell, track stock, send OMT and Whish transfers, recharge MTC and
-              Alfa, follow customer debts and close the day — every amount in USD
-              and LBP, every drawer balanced.
-            </p>
+            <p class="eyebrow" data-i18n="hero.eyebrow">برنامج محل خليوي مصمّم للبنان</p>
+            <h1 data-i18n="hero.title">محلك كله، بالدولار والليرة، في مكان واحد.</h1>
+            <p class="lead" data-i18n="hero.lead">بِع، تابع المخزون، أرسل واستلم تحويلات OMT وWhish، اشحن MTC وAlfa، تابع ديون الزبائن وأقفل اليوم — كل مبلغ بالدولار والليرة، وكل صندوق مضبوط.</p>
             <div class="cta-row">
               <a
                 class="btn btn-primary"
                 id="whatsapp-cta"
-                href="/wa"
+                href="/wa?lang=ar"
                 target="_blank"
                 rel="noopener"
               >
                 <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>
-                <span data-i18n="cta.whatsapp">Talk to us on WhatsApp</span>
+                <span data-i18n="cta.whatsapp">تواصل معنا على واتساب</span>
               </a>
-              <a class="btn btn-ghost" href="#features" data-i18n="cta.features">See what it does</a>
+              <a class="btn btn-ghost" href="#features" data-i18n="cta.features">اكتشف الميزات</a>
             </div>
             <p class="invite">
-              <span data-i18n="cta.invite">New to LiraTek?</span>
-              <a href="https://www.liratek.shop/#/signup" data-i18n="cta.signup">Create your shop</a>
+              <span data-i18n="cta.invite">جديد على LiraTek؟</span>
+              <a href="https://www.liratek.shop/#/signup" data-i18n="cta.signup">أنشئ متجرك</a>
             </p>
           </div>
 
@@ -181,8 +170,8 @@
               class="sound-toggle"
               id="sound-toggle"
               aria-pressed="false"
-              aria-label="Turn sound on"
-              title="Turn sound on"
+              aria-label="تشغيل الصوت"
+              title="تشغيل الصوت"
             >
               <!-- Speaker with a cross (muted) / with waves (sound on). -->
               <svg class="icon-muted" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -200,39 +189,39 @@
 
       <section class="features" id="features">
         <div class="wrap">
-          <h2 data-i18n="features.title">Everything a phone shop does in a day</h2>
+          <h2 data-i18n="features.title">كل ما يحتاجه محل الخليوي في يومه</h2>
           <div class="feature-grid">
             <article class="card">
-              <h3 data-i18n="f.pos.t">Sales and stock</h3>
-              <p data-i18n="f.pos.d">Fast checkout, barcodes, stock levels, and phones tracked by IMEI.</p>
+              <h3 data-i18n="f.pos.t">المبيعات والمخزون</h3>
+              <p data-i18n="f.pos.d">بيع سريع، باركود، كميات المخزون، وتتبّع الهواتف برقم IMEI.</p>
             </article>
             <article class="card">
-              <h3 data-i18n="f.cur.t">Dollars and lira together</h3>
-              <p data-i18n="f.cur.d">Prices, payments, change and drawers in USD and LBP. Split a payment across both, and run currency exchange.</p>
+              <h3 data-i18n="f.cur.t">الدولار والليرة معاً</h3>
+              <p data-i18n="f.cur.d">الأسعار والدفعات والفكّة والصناديق بالدولار والليرة. قسّم الدفعة بين العملتين، وصرّف العملات.</p>
             </article>
             <article class="card">
-              <h3 data-i18n="f.omt.t">OMT and Whish</h3>
-              <p data-i18n="f.omt.d">Send and receive transfers with fees worked out, and check your balance against OMT's statement.</p>
+              <h3 data-i18n="f.omt.t">OMT وWhish</h3>
+              <p data-i18n="f.omt.d">أرسل واستلم التحويلات مع حساب العمولة تلقائياً، وطابق رصيدك مع كشف OMT.</p>
             </article>
             <article class="card">
-              <h3 data-i18n="f.rec.t">MTC and Alfa</h3>
-              <p data-i18n="f.rec.d">Credit and days recharges, with what you owe each supplier kept up to date.</p>
+              <h3 data-i18n="f.rec.t">MTC وAlfa</h3>
+              <p data-i18n="f.rec.d">تشريج رصيد وأيام، مع تحديث ما عليك لكل مورّد.</p>
             </article>
             <article class="card">
-              <h3 data-i18n="f.debt.t">Customer debts</h3>
-              <p data-i18n="f.debt.d">Sell on credit, take repayments in either currency, and see who owes what.</p>
+              <h3 data-i18n="f.debt.t">دفتر ديون الزبائن</h3>
+              <p data-i18n="f.debt.d">بِع بالدين، استلم الدفعات بأي عملة، واعرف ما على كل زبون.</p>
             </article>
             <article class="card">
-              <h3 data-i18n="f.rep.t">Repairs</h3>
-              <p data-i18n="f.rep.d">Repair jobs from intake to pickup, with the parts used and what the customer paid.</p>
+              <h3 data-i18n="f.rep.t">التصليحات</h3>
+              <p data-i18n="f.rep.d">أشغال التصليح من الاستلام حتى التسليم، مع القطع المستعملة وما دفعه الزبون.</p>
             </article>
             <article class="card">
-              <h3 data-i18n="f.close.t">Daily closing and profits</h3>
-              <p data-i18n="f.close.d">Close each drawer at the end of the day and see the profit from every part of the shop.</p>
+              <h3 data-i18n="f.close.t">إقفال اليوم والأرباح</h3>
+              <p data-i18n="f.close.d">أقفل كل صندوق في نهاية اليوم واطّلع على الربح من كل قسم في المحل.</p>
             </article>
             <article class="card">
-              <h3 data-i18n="f.where.t">On your computer or in the browser</h3>
-              <p data-i18n="f.where.d">Use the desktop app in the shop, or sign in from any browser at your shop's own address.</p>
+              <h3 data-i18n="f.where.t">على الكمبيوتر أو من المتصفح</h3>
+              <p data-i18n="f.where.d">استعمل تطبيق الكمبيوتر في المحل، أو ادخل من أي متصفح على عنوان محلك الخاص.</p>
             </article>
           </div>
         </div>
@@ -241,11 +230,11 @@
       <section class="login" id="login">
         <div class="wrap login-box">
           <div>
-            <h2 data-i18n="login.title">Already a LiraTek shop?</h2>
-            <p data-i18n="login.lead">Type your shop's name to go to its sign-in page.</p>
+            <h2 data-i18n="login.title">عندك محل على LiraTek؟</h2>
+            <p data-i18n="login.lead">اكتب اسم محلك لتنتقل إلى صفحة تسجيل الدخول.</p>
           </div>
           <form id="shop-form" class="shop-form" novalidate>
-            <label class="sr-only" for="shop-name" data-i18n="login.label">Shop name</label>
+            <label class="sr-only" for="shop-name" data-i18n="login.label">اسم المحل</label>
             <div class="shop-input" dir="ltr">
               <span class="prefix">https://</span>
               <input
@@ -262,7 +251,7 @@
               />
               <span class="suffix">.liratek.shop</span>
             </div>
-            <button class="btn btn-primary" type="submit" id="shop-go" data-i18n="login.go">Go to my shop</button>
+            <button class="btn btn-primary" type="submit" id="shop-go" data-i18n="login.go">ادخل إلى محلي</button>
             <p class="form-msg" id="shop-msg" role="status" aria-live="polite"></p>
           </form>
         </div>
@@ -270,9 +259,9 @@
 
       <section class="closing-cta">
         <div class="wrap">
-          <h2 data-i18n="end.title">Want to see it in your shop?</h2>
-          <p data-i18n="end.lead">Message us — we'll show you how it works and talk about pricing.</p>
-          <a class="btn btn-primary" id="whatsapp-cta-2" href="/wa" target="_blank" rel="noopener" data-i18n="cta.whatsapp">Talk to us on WhatsApp</a>
+          <h2 data-i18n="end.title">تريد أن تراه في محلك؟</h2>
+          <p data-i18n="end.lead">راسلنا لنريك كيف يعمل ونتحدث عن الأسعار.</p>
+          <a class="btn btn-primary" id="whatsapp-cta-2" href="/wa?lang=ar" target="_blank" rel="noopener" data-i18n="cta.whatsapp">تواصل معنا على واتساب</a>
         </div>
       </section>
     </main>
@@ -280,9 +269,9 @@
     <footer class="footer">
       <div class="wrap footer-inner">
         <span>© <span id="year">2026</span> LiraTek</span>
-        <a href="/wa" id="whatsapp-footer" target="_blank" rel="noopener" dir="ltr">+961 81 077 357</a>
-        <a href="/privacy">Privacy</a>
-        <a href="/terms">Terms</a>
+        <a href="/wa?lang=ar" id="whatsapp-footer" target="_blank" rel="noopener" dir="ltr">+961 81 077 357</a>
+        <a href="/privacy" hreflang="en">الخصوصية</a>
+        <a href="/terms" hreflang="en">الشروط</a>
       </div>
     </footer>
 

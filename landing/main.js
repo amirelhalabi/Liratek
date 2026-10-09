@@ -1,72 +1,14 @@
-// LiraTek landing page — language toggle and the "go to my shop" box.
-// English is the page's own HTML (what crawlers and link previews see);
-// Arabic is applied on top by swapping text from the table below.
+// LiraTek landing page — the "go to my shop" box, the demo video's sound
+// button, and the few strings that JavaScript writes at run time.
+//
+// Each language is its own static page: English at / (index.html) and Arabic
+// at /ar (ar.html), so search engines and link previews see both. The page's
+// own <html lang> decides which strings below are used.
 
 (function () {
   "use strict";
 
   var BASE_DOMAIN = "liratek.shop";
-  var STORAGE_KEY = "liratek.landing.lang";
-
-  // DRAFT Arabic copy — to be reviewed by the owner before launch.
-  var AR = {
-    "page.title": "LiraTek — نظام بيع لمحلات الهواتف في لبنان",
-    "nav.login": "تسجيل الدخول",
-    "nav.signup": "أنشئ متجرك",
-    "nav.signupShort": "أنشئ متجرك",
-    "hero.eyebrow": "مصمّم لمحلات الهواتف في لبنان",
-    "hero.title": "محلك كله، بالدولار والليرة، في مكان واحد.",
-    "hero.lead":
-      "بِع، تابع المخزون، أرسل واستلم تحويلات OMT وWhish، اشحن MTC وAlfa، تابع ديون الزبائن وأقفل اليوم — كل مبلغ بالدولار والليرة، وكل صندوق مضبوط.",
-    "cta.whatsapp": "تواصل معنا على واتساب",
-    "cta.features": "اكتشف الميزات",
-    "cta.invite": "جديد على LiraTek؟",
-    "cta.signup": "أنشئ متجرك",
-    "features.title": "كل ما يحتاجه محل الهواتف في يومه",
-    "f.pos.t": "المبيعات والمخزون",
-    "f.pos.d": "بيع سريع، باركود، كميات المخزون، وتتبّع الهواتف برقم IMEI.",
-    "f.cur.t": "الدولار والليرة معاً",
-    "f.cur.d":
-      "الأسعار والدفعات والفكّة والصناديق بالدولار والليرة. قسّم الدفعة بين العملتين، وصرّف العملات.",
-    "f.omt.t": "OMT وWhish",
-    "f.omt.d":
-      "أرسل واستلم التحويلات مع حساب العمولة تلقائياً، وطابق رصيدك مع كشف OMT.",
-    "f.rec.t": "MTC وAlfa",
-    "f.rec.d": "شحن رصيد وأيام، مع تحديث ما عليك لكل مورّد.",
-    "f.debt.t": "ديون الزبائن",
-    "f.debt.d": "بِع بالدين، استلم الدفعات بأي عملة، واعرف ما على كل زبون.",
-    "f.rep.t": "التصليحات",
-    "f.rep.d":
-      "أشغال التصليح من الاستلام حتى التسليم، مع القطع المستعملة وما دفعه الزبون.",
-    "f.close.t": "إقفال اليوم والأرباح",
-    "f.close.d":
-      "أقفل كل صندوق في نهاية اليوم واطّلع على الربح من كل قسم في المحل.",
-    "f.where.t": "على الكمبيوتر أو من المتصفح",
-    "f.where.d":
-      "استعمل تطبيق الكمبيوتر في المحل، أو ادخل من أي متصفح على عنوان محلك الخاص.",
-    "login.title": "عندك محل على LiraTek؟",
-    "login.lead": "اكتب اسم محلك لتنتقل إلى صفحة تسجيل الدخول.",
-    "login.label": "اسم المحل",
-    "login.placeholder": "yourshop",
-    "login.go": "ادخل إلى محلي",
-    "end.title": "تريد أن تراه في محلك؟",
-    "end.lead": "راسلنا لنريك كيف يعمل ونتحدث عن الأسعار.",
-    "msg.invalid": "استعمل أحرفاً إنكليزية وأرقاماً وشرطة (-) فقط.",
-    "msg.notfound": "لم نجد محلاً بهذا الاسم. تأكد من الاسم.",
-    "msg.checking": "جارٍ التحقق…",
-    "video.soundOn": "تشغيل الصوت",
-    "video.soundOff": "كتم الصوت",
-  };
-
-  var EN = {
-    "page.title": document.title,
-    "msg.invalid": "Use English letters, numbers and dashes only.",
-    "msg.notfound":
-      "We couldn't find a shop with that name. Check the spelling.",
-    "msg.checking": "Checking…",
-    "video.soundOn": "Turn sound on",
-    "video.soundOff": "Turn sound off",
-  };
 
   // Before this page existed, liratek.shop redirected to www, so old links
   // and bookmarks may carry an app route (liratek.shop/#/login). Send those
@@ -76,80 +18,40 @@
     return;
   }
 
-  var lang = "en";
+  var lang = document.documentElement.lang === "ar" ? "ar" : "en";
+
+  // Old shared links to the Arabic version were /?lang=ar (one page, switched
+  // by script). Arabic has its own address now. Only an explicit ?lang=ar is
+  // redirected — never a browser setting or a stored choice, so / always
+  // stays reachable as the default page.
+  if (
+    lang === "en" &&
+    new URLSearchParams(location.search).get("lang") === "ar"
+  ) {
+    location.replace("/ar" + location.hash);
+    return;
+  }
+
+  var STRINGS = {
+    en: {
+      "msg.invalid": "Use English letters, numbers and dashes only.",
+      "msg.notfound":
+        "We couldn't find a shop with that name. Check the spelling.",
+      "msg.checking": "Checking…",
+      "video.soundOn": "Turn sound on",
+      "video.soundOff": "Turn sound off",
+    },
+    ar: {
+      "msg.invalid": "استعمل أحرفاً إنكليزية وأرقاماً وشرطة (-) فقط.",
+      "msg.notfound": "لم نجد محلاً بهذا الاسم. تأكد من الاسم.",
+      "msg.checking": "جارٍ التحقق…",
+      "video.soundOn": "تشغيل الصوت",
+      "video.soundOff": "كتم الصوت",
+    },
+  };
 
   function t(key) {
-    var table = lang === "ar" ? AR : EN;
-    return table[key] !== undefined ? table[key] : EN[key];
-  }
-
-  // Remember each element's English text the first time we touch it, so
-  // switching back needs no second copy of the English strings.
-  function captureEnglish() {
-    document.querySelectorAll("[data-i18n]").forEach(function (el) {
-      EN[el.getAttribute("data-i18n")] = el.textContent.trim();
-    });
-    document.querySelectorAll("[data-i18n-attr]").forEach(function (el) {
-      var parts = el.getAttribute("data-i18n-attr").split(":");
-      EN[parts[1]] = el.getAttribute(parts[0]);
-    });
-  }
-
-  // WhatsApp links go through /wa (wa.html), which counts the click as a page
-  // view and then opens the chat with the message in this language.
-  function whatsappUrl() {
-    return lang === "ar" ? "/wa?lang=ar" : "/wa";
-  }
-
-  function apply(next) {
-    lang = next === "ar" ? "ar" : "en";
-    var root = document.documentElement;
-    root.lang = lang;
-    root.dir = lang === "ar" ? "rtl" : "ltr";
-    document.title = t("page.title");
-
-    document.querySelectorAll("[data-i18n]").forEach(function (el) {
-      el.textContent = t(el.getAttribute("data-i18n"));
-    });
-    document.querySelectorAll("[data-i18n-attr]").forEach(function (el) {
-      var parts = el.getAttribute("data-i18n-attr").split(":");
-      el.setAttribute(parts[0], t(parts[1]));
-    });
-    ["whatsapp-cta", "whatsapp-cta-2", "whatsapp-footer"].forEach(
-      function (id) {
-        var a = document.getElementById(id);
-        if (a) a.href = whatsappUrl();
-      },
-    );
-
-    var toggle = document.getElementById("lang-toggle");
-    toggle.textContent = lang === "ar" ? "English" : "العربية";
-    toggle.lang = lang === "ar" ? "en" : "ar";
-
-    setMessage("", false);
-    if (soundToggle) syncSoundLabel();
-  }
-
-  function savedLang() {
-    var fromUrl = new URLSearchParams(location.search).get("lang");
-    if (fromUrl === "ar" || fromUrl === "en") return fromUrl;
-    try {
-      var stored = localStorage.getItem(STORAGE_KEY);
-      if (stored === "ar" || stored === "en") return stored;
-    } catch (e) {
-      // Storage blocked (private mode, previews) — fall through.
-    }
-    return (navigator.language || "").toLowerCase().indexOf("ar") === 0
-      ? "ar"
-      : "en";
-  }
-
-  function saveLang(value) {
-    try {
-      localStorage.setItem(STORAGE_KEY, value);
-    } catch (e) {
-      // Not essential; the page still works.
-    }
+    return STRINGS[lang][key];
   }
 
   // ---- "Go to my shop" ----------------------------------------------------
@@ -224,15 +126,6 @@
     });
 
   // ---- startup --------------------------------------------------------------
-
-  captureEnglish();
-  apply(savedLang());
-
-  document.getElementById("lang-toggle").addEventListener("click", function () {
-    var next = lang === "ar" ? "en" : "ar";
-    saveLang(next);
-    apply(next);
-  });
 
   document.getElementById("year").textContent = String(
     new Date().getFullYear(),

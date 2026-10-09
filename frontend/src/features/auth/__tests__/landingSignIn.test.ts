@@ -4,8 +4,12 @@
  * as the app (LIRA-287): "Sign in" — never "Shop login" / "login page" —
  * paired with "Create your shop". Its header carries BOTH: a quiet "Sign in"
  * link to www's sign-in page and a highlighted "Create your shop" button to
- * www's sign-up page, then the language toggle (owner addition 2026-10-07).
+ * www's sign-up page, then the language switch (owner addition 2026-10-07).
  * Arabic: "تسجيل الدخول" / "أنشئ متجرك".
+ *
+ * Since 2026-10-09 the Arabic version is its own page (landing/ar.html,
+ * served at /ar) instead of a script that rewrote the English page, so
+ * search engines can index it. The language switch is a link between the two.
  *
  * The landing page is static files with no build, so this reads them as
  * text and parses the HTML with the DOM.
@@ -15,16 +19,17 @@ import fs from "node:fs";
 import path from "node:path";
 
 const LANDING = path.resolve(__dirname, "../../../../../landing");
-const html = fs.readFileSync(path.join(LANDING, "index.html"), "utf8");
-const mainJs = fs.readFileSync(path.join(LANDING, "main.js"), "utf8");
-const doc = new DOMParser().parseFromString(html, "text/html");
+function parse(file: string): Document {
+  const html = fs.readFileSync(path.join(LANDING, file), "utf8");
+  return new DOMParser().parseFromString(html, "text/html");
+}
 
-/** The AR table entry for `key`, as written in main.js. */
+const doc = parse("index.html");
+const arDoc = parse("ar.html");
+
+/** The Arabic page's text for the element carrying `data-i18n="key"`. */
 function arabic(key: string): string | undefined {
-  const match = new RegExp(`"${key.replace(".", "\\.")}":\\s*"([^"]*)"`).exec(
-    mainJs,
-  );
-  return match?.[1];
+  return arDoc.querySelector(`[data-i18n="${key}"]`)?.textContent ?? undefined;
 }
 
 describe("landing page header", () => {
@@ -33,7 +38,9 @@ describe("landing page header", () => {
   it("has a quiet 'Sign in' link to www's sign-in page", () => {
     const signIn = nav.querySelector('a[data-i18n="nav.login"]')!;
     expect(signIn.textContent?.trim()).toBe("Sign in");
-    expect(signIn.getAttribute("href")).toBe("https://www.liratek.shop/#/login");
+    expect(signIn.getAttribute("href")).toBe(
+      "https://www.liratek.shop/#/login",
+    );
     expect(signIn.classList.contains("btn-primary")).toBe(false);
   });
 
@@ -52,18 +59,26 @@ describe("landing page header", () => {
     ).toBe("Create shop");
   });
 
-  it("orders them: Sign in, Create your shop, then the language toggle", () => {
-    const order = Array.from(nav.children).map((el) =>
-      el.matches('a[data-i18n="nav.login"]')
-        ? "signin"
-        : el.matches("a.nav-cta")
-          ? "create"
-          : el.id === "lang-toggle"
-            ? "lang"
-            : "other",
-    );
-    expect(order).toEqual(["signin", "create", "lang"]);
-  });
+  it.each([
+    ["index.html", doc],
+    ["ar.html", arDoc],
+  ])(
+    "%s orders them: Sign in, Create your shop, then the language switch",
+    (_file, page) => {
+      const order = Array.from(
+        page.querySelector("header .topnav")!.children,
+      ).map((el) =>
+        el.matches('a[data-i18n="nav.login"]')
+          ? "signin"
+          : el.matches("a.nav-cta")
+            ? "create"
+            : el.id === "lang-toggle"
+              ? "lang"
+              : "other",
+      );
+      expect(order).toEqual(["signin", "create", "lang"]);
+    },
+  );
 
   it("has the Arabic labels", () => {
     expect(arabic("nav.login")).toBe("تسجيل الدخول");
@@ -86,4 +101,58 @@ describe("landing page wording", () => {
       "Already a LiraTek shop?",
     );
   });
+});
+
+describe("English and Arabic pages", () => {
+  it("are separate pages that link to each other", () => {
+    expect(doc.documentElement.lang).toBe("en");
+    expect(arDoc.documentElement.lang).toBe("ar");
+    expect(arDoc.documentElement.dir).toBe("rtl");
+    expect(doc.getElementById("lang-toggle")?.getAttribute("href")).toBe("/ar");
+    expect(arDoc.getElementById("lang-toggle")?.getAttribute("href")).toBe("/");
+  });
+
+  // Two hand-kept copies of one page: catch a section, button or link added
+  // to one language and forgotten in the other.
+  it("carry the same text slots and the same outgoing links", () => {
+    const keys = (d: Document) =>
+      Array.from(d.querySelectorAll("[data-i18n]")).map((el) =>
+        el.getAttribute("data-i18n"),
+      );
+    expect(keys(arDoc)).toEqual(keys(doc));
+
+    const links = (d: Document) =>
+      Array.from(
+        d.querySelectorAll("main a, header a.btn, header a.nav-signin"),
+      )
+        .map((a) => a.getAttribute("href")!.replace("/wa?lang=ar", "/wa"))
+        .filter((href) => href !== "/" && href !== "/ar");
+    expect(links(arDoc)).toEqual(links(doc));
+  });
+
+  it("send Arabic visitors' WhatsApp message in Arabic", () => {
+    const wa = Array.from(arDoc.querySelectorAll('a[href^="/wa"]'));
+    expect(wa.length).toBeGreaterThan(0);
+    wa.forEach((a) => expect(a.getAttribute("href")).toBe("/wa?lang=ar"));
+  });
+
+  it.each([
+    ["index.html", doc, "https://liratek.shop/"],
+    ["ar.html", arDoc, "https://liratek.shop/ar"],
+  ])(
+    "%s has one h1, its canonical, and both hreflang alternates",
+    (_f, page, url) => {
+      expect(page.querySelectorAll("h1")).toHaveLength(1);
+      expect(
+        page.querySelector('link[rel="canonical"]')?.getAttribute("href"),
+      ).toBe(url);
+      const alt = (lang: string) =>
+        page
+          .querySelector(`link[rel="alternate"][hreflang="${lang}"]`)
+          ?.getAttribute("href");
+      expect(alt("en")).toBe("https://liratek.shop/");
+      expect(alt("ar")).toBe("https://liratek.shop/ar");
+      expect(alt("x-default")).toBe("https://liratek.shop/");
+    },
+  );
 });

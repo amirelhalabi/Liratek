@@ -30,6 +30,18 @@
   ],
   "redirects": [
     {
+      "source": "/",
+      "has": [
+        {
+          "type": "query",
+          "key": "lang",
+          "value": "ar"
+        }
+      ],
+      "destination": "/ar",
+      "permanent": true
+    },
+    {
       "source": "/login",
       "destination": "https://www.liratek.shop/#/login",
       "permanent": false
