@@ -141,10 +141,8 @@ export default function SignedInDevices() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-slate-400 text-sm">
-          Every device currently signed in to your account. End a session on a
-          device you no longer control — the current device shows a{" "}
-          <span className="text-slate-300">This device</span> badge and can only
-          sign itself out normally.
+          Review your active sessions. Sign out of devices you no longer use.
+          To sign out this device, use its Sign out button.
         </p>
         <button
           onClick={handleRevokeOthers}

@@ -441,7 +441,7 @@ export default function TopBar({
             data-testid="my-account-link"
           >
             {/* LIRA-294: the Google photo when there is one (web). */}
-            <AccountAvatar url={user?.pictureUrl} size={20} />
+            <AccountAvatar url={user?.pictureUrl} size={35} />
           </button>
 
           <button

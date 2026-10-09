@@ -6,7 +6,8 @@
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-
+const getMyEmail = jest.fn();
+const requestEmailChange = jest.fn();
 const googleLinkStatus = jest.fn();
 const googleLinkStart = jest.fn();
 const googleUnlink = jest.fn();
@@ -16,6 +17,8 @@ const submitPostForm = jest.fn();
 let electron = false;
 
 jest.mock("@/api/backendApi", () => ({
+  getMyEmail: (...a: unknown[]) => getMyEmail(...a),
+  requestEmailChange: (...a: unknown[]) => requestEmailChange(...a),
   googleLinkStatus: (...a: unknown[]) => googleLinkStatus(...a),
   googleLinkStart: (...a: unknown[]) => googleLinkStart(...a),
   googleUnlink: (...a: unknown[]) => googleUnlink(...a),
@@ -37,6 +40,7 @@ import {
   PASSWORD_SYMBOL_MESSAGE,
   SET_PASSWORD_FIRST,
   SET_PASSWORD_FIRST_MESSAGE,
+  requestOwnEmailChangeSchema,
   setInitialPasswordSchema,
 } from "@liratek/core";
 
@@ -44,6 +48,13 @@ beforeEach(() => {
   jest.clearAllMocks();
   electron = false;
   window.history.replaceState(null, "", "/#/settings");
+  getMyEmail.mockResolvedValue({
+    success: true,
+    data: {
+      email: "owner@example.com",
+      emailVerifiedAt: "2026-10-01T10:00:00.000Z",
+    },
+  });
 });
 
 it("is hidden on desktop", async () => {
@@ -53,18 +64,14 @@ it("is hidden on desktop", async () => {
   expect(googleLinkStatus).not.toHaveBeenCalled();
 });
 
-// LIRA-293: with Google sign-in dormant, a user WITH a password still gets
-// the panel — for "Change password" — but no Google buttons. (Before, the
-// panel was empty there, which would have hidden the change form.)
-it("LIRA-293: while Google is dormant, a user with a password sees Change password and no Google buttons", async () => {
+it("LIRA-293: while Google is dormant, a user with a password sees account actions and no Google buttons", async () => {
   googleLinkStatus.mockResolvedValue({
     success: true,
     data: { enabled: false, linked: false, email: null, hasPassword: true },
   });
   render(<GoogleAccountPanel />);
-  expect(
-    await screen.findByRole("form", { name: "Change password" }),
-  ).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "Change password" })).toBeInTheDocument();
+  expect(await screen.findByText(/^Verified$/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /connect google/i })).toBeNull();
   expect(screen.queryByRole("button", { name: /disconnect/i })).toBeNull();
 });
@@ -75,18 +82,17 @@ it("LIRA-293: a user with a password gets Change password, not Set a password", 
     data: { enabled: true, linked: true, email: "rami@gmail.com", hasPassword: true },
   });
   render(<GoogleAccountPanel />);
-  expect(
-    await screen.findByRole("form", { name: "Change password" }),
-  ).toBeInTheDocument();
-  expect(screen.queryByRole("form", { name: "Set a password" })).toBeNull();
+  expect(await screen.findByRole("button", { name: "Change password" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Set a password" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+  expect(await screen.findByRole("form", { name: "Change password" })).toBeInTheDocument();
 });
 
 it("LIRA-293: a user with NO password gets Set a password, not Change password", async () => {
   googleLinkStatus.mockResolvedValue(googleOnly());
   render(<GoogleAccountPanel />);
-  expect(
-    await screen.findByRole("form", { name: "Set a password" }),
-  ).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "Set a password" }));
+  expect(await screen.findByRole("form", { name: "Set a password" })).toBeInTheDocument();
   expect(screen.queryByRole("form", { name: "Change password" })).toBeNull();
 });
 
@@ -123,7 +129,7 @@ it("Disconnect unlinks and shows the account as not connected", async () => {
   jest.spyOn(window, "confirm").mockReturnValue(true);
   render(<GoogleAccountPanel />);
   expect(await screen.findByText(/owner@gmail.com/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /disconnect/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^disconnect$/i }));
   await waitFor(() => expect(googleUnlink).toHaveBeenCalledTimes(1));
   expect(await screen.findByRole("button", { name: /connect google/i })).toBeInTheDocument();
 });
@@ -167,34 +173,115 @@ function googleOnly(enabled = true) {
   };
 }
 
-it("LIRA-291: is headed 'Sign-in methods'", async () => {
+it("LIRA-291: shows sign-in options without a section heading", async () => {
   googleLinkStatus.mockResolvedValue({
     success: true,
     data: { enabled: true, linked: false, email: null, hasPassword: true },
   });
   render(<GoogleAccountPanel />);
   expect(
-    await screen.findByRole("heading", { name: "Sign-in methods" }),
+    await screen.findByRole("region", { name: "Sign-in options" }),
   ).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Sign-in methods" })).toBeNull();
 });
 
-it("LIRA-291: a Google-only user sees 'You sign in with Google only' and a Set a password form (new-password fields with eye toggles)", async () => {
+it("LIRA-293: changing account email keeps the current address until the new address is verified", async () => {
+  requestEmailChange.mockResolvedValue({
+    success: true,
+    data: { pendingEmail: "new@example.com", oldNotified: true },
+  });
+  googleLinkStatus.mockResolvedValue({
+    success: true,
+    data: { enabled: true, linked: false, email: null, hasPassword: true },
+  });
+  render(<GoogleAccountPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: "Change email" }));
+  fireEvent.change(screen.getByLabelText("New email"), {
+    target: { value: "new@example.com" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Send confirmation link" }));
+  await waitFor(() => expect(requestEmailChange).toHaveBeenCalledTimes(1));
+  const payload = requestEmailChange.mock.calls[0]![0];
+  expect(requestOwnEmailChangeSchema.parse(payload)).toEqual(payload);
+  expect(await screen.findByText(/open the link we sent to confirm the new address/i)).toBeInTheDocument();
+  expect(screen.getByText(/^Verified$/)).toBeInTheDocument();
+});
+
+it("LIRA-293: allows adding an email when the account has none", async () => {
+  getMyEmail.mockResolvedValue({ success: true, data: null });
+  googleLinkStatus.mockResolvedValue({
+    success: true,
+    data: { enabled: true, linked: false, email: null, hasPassword: true },
+  });
+
+  render(<GoogleAccountPanel />);
+
+  expect(await screen.findByText("No email added")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("button", { name: "Add email" }),
+  ).toBeEnabled();
+});
+
+it("LIRA-293: uses the account page's email state without fetching it again", async () => {
+  googleLinkStatus.mockResolvedValue({
+    success: true,
+    data: { enabled: true, linked: false, email: null, hasPassword: true },
+  });
+  render(
+    <GoogleAccountPanel
+      accountEmail={{
+        email: "owner@example.com",
+        emailVerifiedAt: "2026-10-01T10:00:00.000Z",
+      }}
+      emailLoaded
+      emailLoadError={null}
+    />,
+  );
+
+  expect(await screen.findByText(/^Verified$/)).toBeInTheDocument();
+  expect(screen.queryByText("owner@example.com")).toBeNull();
+  expect(getMyEmail).not.toHaveBeenCalled();
+});
+
+it("LIRA-293: only one account action is open at a time and forms can be cancelled", async () => {
+  googleLinkStatus.mockResolvedValue({
+    success: true,
+    data: { enabled: true, linked: true, email: "rami@gmail.com", hasPassword: true },
+  });
+  render(<GoogleAccountPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: "Change email" }));
+  expect(await screen.findByRole("form", { name: "Change email" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Change email" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+  expect(screen.queryByRole("form", { name: "Change email" })).toBeNull();
+  expect(await screen.findByRole("form", { name: "Change password" })).toBeInTheDocument();
+  expect(
+    screen.getAllByRole("button", { name: "Change password" }),
+  ).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("form", { name: "Change password" })).toBeNull();
+});
+
+it("LIRA-291: a Google-only user can open Set a password, with the explanation and password rules", async () => {
   googleLinkStatus.mockResolvedValue(googleOnly());
   const { container } = render(<GoogleAccountPanel />);
-  expect(await screen.findByText(/you sign in with google only/i)).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "Set a password" }));
+  expect(
+    await screen.findByText(/set a password so you can also sign in with your username/i),
+  ).toBeInTheDocument();
   const fields = container.querySelectorAll('input[autocomplete="new-password"]');
   expect(fields).toHaveLength(2);
   expect(
     screen.getAllByRole("button", { name: /show password/i }),
   ).toHaveLength(2);
-  expect(screen.getByRole("button", { name: /^set a password$/i })).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: /^set a password$/i })).toHaveLength(1);
 });
 
 it("LIRA-291: Disconnect with no password shows the refusal and does not call the server", async () => {
   googleLinkStatus.mockResolvedValue(googleOnly());
   const confirmSpy = jest.spyOn(window, "confirm").mockReturnValue(true);
   render(<GoogleAccountPanel />);
-  fireEvent.click(await screen.findByRole("button", { name: /disconnect/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
   expect(await screen.findByText(SET_PASSWORD_FIRST_MESSAGE)).toBeInTheDocument();
   expect(googleUnlink).not.toHaveBeenCalled();
   expect(confirmSpy).not.toHaveBeenCalled();
@@ -212,7 +299,7 @@ it("LIRA-291: the server's SET_PASSWORD_FIRST refusal is shown as is", async () 
   });
   jest.spyOn(window, "confirm").mockReturnValue(true);
   render(<GoogleAccountPanel />);
-  fireEvent.click(await screen.findByRole("button", { name: /disconnect/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
   expect(await screen.findByText(SET_PASSWORD_FIRST_MESSAGE)).toBeInTheDocument();
 });
 
@@ -234,7 +321,8 @@ it("LIRA-291: Set a password sends the schema's payload, then Disconnect works",
   googleUnlink.mockResolvedValue({ success: true, data: { unlinked: true } });
   jest.spyOn(window, "confirm").mockReturnValue(true);
   const { container } = render(<GoogleAccountPanel />);
-  await screen.findByText(/you sign in with google only/i);
+  fireEvent.click(await screen.findByRole("button", { name: "Set a password" }));
+  await screen.findByText(/set a password so you can also sign in with your username/i);
   const [pw, confirmPw] = Array.from(
     container.querySelectorAll<HTMLInputElement>('input[autocomplete="new-password"]'),
   );
@@ -244,9 +332,13 @@ it("LIRA-291: Set a password sends the schema's payload, then Disconnect works",
   await waitFor(() => expect(setInitialPassword).toHaveBeenCalledTimes(1));
   const payload = setInitialPassword.mock.calls[0]![0];
   expect(setInitialPasswordSchema.parse(payload)).toEqual(payload);
-  expect(await screen.findByText(/password set/i)).toBeInTheDocument();
+  expect(
+    await screen.findByText(
+      "Password set. You can now sign in with your username and this password.",
+    ),
+  ).toBeInTheDocument();
 
-  fireEvent.click(await screen.findByRole("button", { name: /disconnect/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
   await waitFor(() => expect(googleUnlink).toHaveBeenCalledTimes(1));
   expect(await screen.findByRole("button", { name: /connect google/i })).toBeInTheDocument();
 });
@@ -254,7 +346,8 @@ it("LIRA-291: Set a password sends the schema's payload, then Disconnect works",
 it("LIRA-291: the form applies the one password rule and the confirm match before calling the server", async () => {
   googleLinkStatus.mockResolvedValue(googleOnly());
   const { container } = render(<GoogleAccountPanel />);
-  await screen.findByText(/you sign in with google only/i);
+  fireEvent.click(await screen.findByRole("button", { name: "Set a password" }));
+  await screen.findByText(/set a password so you can also sign in with your username/i);
   const [pw, confirmPw] = Array.from(
     container.querySelectorAll<HTMLInputElement>('input[autocomplete="new-password"]'),
   );
@@ -275,7 +368,7 @@ it("LIRA-291: with Google sign-in off, a user with no password still gets Set a 
   expect(
     await screen.findByRole("button", { name: /^set a password$/i }),
   ).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /disconnect/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^disconnect$/i })).toBeNull();
   expect(screen.queryByRole("button", { name: /connect google/i })).toBeNull();
 });
 
@@ -290,7 +383,7 @@ it("LIRA-291: with Google off, the 'Password set' notice stays visible after the
     data: { hasPassword: true, noticeSent: false },
   });
   const { container } = render(<GoogleAccountPanel />);
-  await screen.findByRole("button", { name: /^set a password$/i });
+  fireEvent.click(await screen.findByRole("button", { name: /^set a password$/i }));
   const [pw, confirmPw] = Array.from(
     container.querySelectorAll<HTMLInputElement>('input[autocomplete="new-password"]'),
   );
@@ -298,6 +391,10 @@ it("LIRA-291: with Google off, the 'Password set' notice stays visible after the
   fireEvent.change(confirmPw!, { target: { value: CHROME } });
   fireEvent.click(screen.getByRole("button", { name: /^set a password$/i }));
   await waitFor(() => expect(googleLinkStatus).toHaveBeenCalledTimes(2));
-  expect(await screen.findByText(/password set/i)).toBeInTheDocument();
+  expect(
+    await screen.findByText(
+      "Password set. You can now sign in with your username and this password.",
+    ),
+  ).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /^set a password$/i })).toBeNull();
 });

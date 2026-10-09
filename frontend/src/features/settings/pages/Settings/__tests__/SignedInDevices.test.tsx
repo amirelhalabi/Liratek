@@ -87,6 +87,18 @@ describe("SignedInDevices — real error messages reach the screen", () => {
     stopCapture();
   });
 
+  it("explains how to review sessions and sign out this device", async () => {
+    listUserSessions.mockResolvedValue([CURRENT, OTHER]);
+
+    render(<SignedInDevices />);
+
+    expect(
+      await screen.findByText(
+        "Review your active sessions. Sign out of devices you no longer use. To sign out this device, use its Sign out button.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("shows the server's reason when loading the list fails, not the generic fallback", async () => {
     listUserSessions.mockRejectedValue(apiThrow("Session store unreachable"));
 

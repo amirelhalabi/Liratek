@@ -20,7 +20,11 @@ import PasswordInput from "@/shared/components/PasswordInput";
 
 const FAILED = "Could not change the password.";
 
-export default function ChangePasswordForm() {
+export default function ChangePasswordForm({
+  onCancel,
+}: {
+  onCancel?: () => void;
+}) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -113,13 +117,25 @@ export default function ChangePasswordForm() {
           {done}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={busy}
-        className="rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-500 disabled:opacity-60"
-      >
-        Change password
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-500 disabled:opacity-60"
+        >
+          Change password
+        </button>
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="rounded px-3 py-1.5 text-sm text-slate-300 hover:text-white disabled:opacity-60"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
   );
 }

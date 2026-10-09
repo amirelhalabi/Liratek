@@ -7955,8 +7955,7 @@ export async function listUserEmails(): Promise<UserEmailView[]> {
 /**
  * LIRA-292: the signed-in user's OWN email (My account → Profile). The
  * desktop app has no email at all, so there it answers `data: null` without
- * a call — never the throw `assertWebOnly` would give — and Profile shows
- * username, role and shop only.
+ * a call — never the throw `assertWebOnly` would give.
  */
 export async function getMyEmail(): Promise<AccountRouteResult<OwnEmailView | null>> {
   if (isElectron()) return { success: true, data: null };

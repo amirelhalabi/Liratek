@@ -14,8 +14,7 @@
  * web-only (desktop admins keep Settings → Signed-in Devices).
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { requestOwnEmailChangeSchema } from "@liratek/core";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 
 jest.mock("@/features/settings/pages/Settings/GoogleAccountPanel", () => ({
   __esModule: true,
@@ -34,16 +33,14 @@ jest.mock("@/hooks/useShopName", () => ({
   useShopName: () => "Corner Shop",
 }));
 
-const mockGetMyEmail = jest.fn();
-const mockRequestEmailChange = jest.fn();
 const mockChangeOwnPassword = jest.fn();
+const mockGetMyEmail = jest.fn();
 jest.mock("@/api/backendApi", () => ({
-  requestEmailChange: (...args: unknown[]) => mockRequestEmailChange(...args),
   changeOwnPassword: (...args: unknown[]) => mockChangeOwnPassword(...args),
+  getMyEmail: (...args: unknown[]) => mockGetMyEmail(...args),
   isElectron: () =>
     typeof window !== "undefined" &&
     !!(window as unknown as { api?: unknown }).api,
-  getMyEmail: (...args: unknown[]) => mockGetMyEmail(...args),
 }));
 
 import MyAccount from "../MyAccount";
@@ -57,35 +54,57 @@ beforeEach(() => {
   jest.clearAllMocks();
   localStorage.clear();
   setDesktop(false);
-  mockGetMyEmail.mockResolvedValue({
-    success: true,
-    data: {
-      email: "cashier1@example.com",
-      emailVerifiedAt: "2026-10-01T10:00:00.000Z",
-    },
-  });
+  mockGetMyEmail.mockResolvedValue({ success: true, data: null });
 });
 afterEach(() => setDesktop(false));
 
-it("is titled 'My account' and shows Sign-in methods and Signed-in devices (web)", () => {
+it("is titled 'My account' and shows account sign-in controls and signed-in devices (web)", () => {
   render(<MyAccount />);
-  expect(
-    screen.getByRole("heading", { name: "My account" }),
-  ).toBeInTheDocument();
+  const pageTitle = screen.getByRole("heading", { name: "My account" });
+  expect(pageTitle).toHaveClass("sr-only");
+  expect(pageTitle.parentElement).toHaveClass("p-6", "flex", "gap-6");
+  expect(pageTitle.nextElementSibling).not.toHaveClass("max-w-4xl");
   expect(screen.getByTestId("panel-signin-methods")).toBeInTheDocument();
   expect(screen.getByTestId("panel-devices")).toBeInTheDocument();
 });
 
-it("Profile: username, role, shop and the confirmed email with a Verified badge", async () => {
+it("Profile: shows username and role together without field labels", () => {
   render(<MyAccount />);
   const profile = screen.getByRole("region", { name: "Profile" });
-  expect(profile).toHaveTextContent("cashier1");
-  expect(profile).toHaveTextContent("Staff");
-  expect(profile).toHaveTextContent("Corner Shop");
-  await waitFor(() =>
-    expect(profile).toHaveTextContent("cashier1@example.com"),
-  );
-  expect(screen.getByText("Verified")).toBeInTheDocument();
+  expect(profile).toHaveTextContent("cashier1 - Staff");
+  expect(profile).not.toHaveTextContent("Username");
+  expect(profile).not.toHaveTextContent("Role");
+  expect(profile).not.toHaveTextContent("Corner Shop");
+  expect(screen.queryByRole("button", { name: "Change email" })).toBeNull();
+});
+
+it("Profile: shows the account email under the username and role when one exists", async () => {
+  mockGetMyEmail.mockResolvedValue({
+    success: true,
+    data: {
+      email: "cashier@example.com",
+      emailVerifiedAt: "2026-10-01T10:00:00.000Z",
+    },
+  });
+
+  render(<MyAccount />);
+
+  const profile = screen.getByRole("region", { name: "Profile" });
+  expect(await screen.findByText("cashier@example.com")).toBeInTheDocument();
+  expect(profile).toHaveTextContent("cashier1 - Staff");
+  expect(profile).toHaveTextContent("cashier@example.com");
+});
+
+it("Profile: does not show an email line when the account has no email", async () => {
+  render(<MyAccount />);
+
+  const profile = screen.getByRole("region", { name: "Profile" });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(mockGetMyEmail).toHaveBeenCalledTimes(1);
+  expect(profile.querySelectorAll("p")).toHaveLength(1);
+  expect(profile).not.toHaveTextContent("Email");
 });
 
 it("a staff user sees Display (this device), saved on this device only", () => {
@@ -121,7 +140,7 @@ it("changing UI scale and navigation style writes the SAME localStorage keys and
   }
 });
 
-it("desktop app: no sign-in methods panel, no devices, no email lookup", () => {
+it("desktop app: no sign-in methods panel or devices", () => {
   setDesktop(true);
   render(<MyAccount />);
   expect(screen.getByRole("region", { name: "Profile" })).toHaveTextContent(
@@ -132,10 +151,7 @@ it("desktop app: no sign-in methods panel, no devices, no email lookup", () => {
   ).toBeInTheDocument();
   expect(screen.queryByTestId("panel-signin-methods")).toBeNull();
   expect(screen.queryByTestId("panel-devices")).toBeNull();
-  expect(mockGetMyEmail).not.toHaveBeenCalled();
 });
-
-// ── LIRA-293 ──────────────────────────────────────────────────────────────
 
 it("LIRA-293 desktop: a Change password form (desktop users always have a password)", () => {
   setDesktop(true);
@@ -143,58 +159,4 @@ it("LIRA-293 desktop: a Change password form (desktop users always have a passwo
   expect(
     screen.getByRole("form", { name: "Change password" }),
   ).toBeInTheDocument();
-});
-
-it("LIRA-293 web: Profile → Change email sends the schema's payload and says to check the inbox", async () => {
-  mockRequestEmailChange.mockResolvedValue({
-    success: true,
-    data: { pendingEmail: "new@example.com", oldNotified: true },
-  });
-  render(<MyAccount />);
-  const profile = screen.getByRole("region", { name: "Profile" });
-  await waitFor(() =>
-    expect(profile).toHaveTextContent("cashier1@example.com"),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Change email" }));
-  fireEvent.change(screen.getByLabelText("New email"), {
-    target: { value: "new@example.com" },
-  });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Send confirmation link" }),
-  );
-  await waitFor(() => expect(mockRequestEmailChange).toHaveBeenCalledTimes(1));
-  const payload = mockRequestEmailChange.mock.calls[0]![0];
-  expect(requestOwnEmailChangeSchema.parse(payload)).toEqual(payload);
-  expect(await screen.findByText(/check your inbox/i)).toBeInTheDocument();
-  // The shown email is still the old one until the link is opened.
-  expect(profile).toHaveTextContent("cashier1@example.com");
-});
-
-it("LIRA-293 web: a refusal (address taken in this shop) is shown", async () => {
-  mockRequestEmailChange.mockResolvedValue({
-    success: false,
-    error: {
-      code: "EMAIL_TAKEN_IN_SHOP",
-      message: "Another user in this shop already uses this email",
-    },
-  });
-  render(<MyAccount />);
-  fireEvent.click(screen.getByRole("button", { name: "Change email" }));
-  fireEvent.change(screen.getByLabelText("New email"), {
-    target: { value: "taken@example.com" },
-  });
-  fireEvent.click(
-    screen.getByRole("button", { name: "Send confirmation link" }),
-  );
-  expect(
-    await screen.findByText(
-      "Another user in this shop already uses this email",
-    ),
-  ).toBeInTheDocument();
-});
-
-it("LIRA-293 desktop: no Change email (the desktop app has no email)", () => {
-  setDesktop(true);
-  render(<MyAccount />);
-  expect(screen.queryByRole("button", { name: "Change email" })).toBeNull();
 });
