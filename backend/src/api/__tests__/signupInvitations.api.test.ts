@@ -73,6 +73,10 @@ beforeAll(async () => {
   process.env.JWT_SECRET =
     "signup-invitations-test-secret-0123456789-0123456789";
   process.env.APP_BASE_DOMAIN = "liratek.test";
+  // The invite URL below is derived from APP_BASE_DOMAIN; a developer's
+  // local backend/.env may set SIGNUP_INVITE_BASE_URL, which would win. Set it
+  // EMPTY (not deleted): dotenv never overrides a key that already exists.
+  process.env.SIGNUP_INVITE_BASE_URL = "";
 
   db = new RealDatabase(":memory:");
   db.pragma("foreign_keys = ON");
@@ -129,7 +133,9 @@ describe("POST /api/admin/signup-invitations", () => {
   const url = "/api/admin/signup-invitations";
 
   it("401 without a token", async () => {
-    const res = await request(app).post(url).send(body({ email: "a@b.co" }));
+    const res = await request(app)
+      .post(url)
+      .send(body({ email: "a@b.co" }));
     expect(res.status).toBe(401);
     expect(count("signup_invitations")).toBe(0);
   });
@@ -149,7 +155,9 @@ describe("POST /api/admin/signup-invitations", () => {
     const res = await request(app)
       .post(url)
       .set("Authorization", `Bearer ${token}`)
-      .send(body({ email: "  New.Owner@Example.com ", shopNameHint: "Fone Fix" }));
+      .send(
+        body({ email: "  New.Owner@Example.com ", shopNameHint: "Fone Fix" }),
+      );
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -162,7 +170,12 @@ describe("POST /api/admin/signup-invitations", () => {
       usedAt: null,
       usedByTenant: null,
       revokedAt: null,
-      emailDelivery: { status: "queued", attempts: 0, lastError: null, sentAt: null },
+      emailDelivery: {
+        status: "queued",
+        attempts: 0,
+        lastError: null,
+        sentAt: null,
+      },
     });
 
     // The real token only exists in the queued email's link.
@@ -171,9 +184,9 @@ describe("POST /api/admin/signup-invitations", () => {
       .get() as { data_json: string; idempotency_key: string };
     const inviteUrl = (JSON.parse(outbox.data_json) as { inviteUrl: string })
       .inviteUrl;
-    expect(inviteUrl.startsWith("https://www.liratek.test/#/signup?invite=")).toBe(
-      true,
-    );
+    expect(
+      inviteUrl.startsWith("https://www.liratek.test/#/signup?invite="),
+    ).toBe(true);
     const rawToken = new URLSearchParams(
       new URL(inviteUrl).hash.split("?")[1] ?? "",
     ).get("invite")!;
@@ -385,7 +398,9 @@ describe("GET /api/admin/signup-invitations", () => {
   // LIRA-278: the Invitations list's Source filter.
   it("?source=self / ?source=admin return only that source; no source returns both", async () => {
     const token = await loginToken("root");
-    const adminId = await createInvite(token, { email: "by-admin@example.com" });
+    const adminId = await createInvite(token, {
+      email: "by-admin@example.com",
+    });
     const now = new Date().toISOString();
     const selfId = Number(
       db
@@ -411,8 +426,12 @@ describe("GET /api/admin/signup-invitations", () => {
 
     const selfQuery: ListSignupInvitationsQuery = { source: "self" };
     const adminQuery: ListSignupInvitationsQuery = { source: "admin" };
-    expect(ids(await list(selfQuery as Record<string, string>))).toEqual([selfId]);
-    expect(ids(await list(adminQuery as Record<string, string>))).toEqual([adminId]);
+    expect(ids(await list(selfQuery as Record<string, string>))).toEqual([
+      selfId,
+    ]);
+    expect(ids(await list(adminQuery as Record<string, string>))).toEqual([
+      adminId,
+    ]);
     expect(ids(await list({})).sort()).toEqual([adminId, selfId].sort());
 
     const bad = await list({ source: "everyone" });

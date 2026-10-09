@@ -90,7 +90,6 @@ jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => ({ activeSession: mockActiveSession }),
 }));
 
-
 describe("TopBar — My account link (LIRA-291)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -133,15 +132,15 @@ describe("TopBar — account photo (LIRA-294)", () => {
     mockGetClients.mockResolvedValue([]);
   });
 
-  it("shows the photo in a circle the size of the icon, without a referrer", () => {
+  it("shows the photo in a 35px circle (owner-sized), without a referrer", () => {
     mockPictureUrl = PHOTO;
     render(<TopBar />);
     const link = screen.getByTestId("my-account-link");
     const img = within(link).getByRole("img", { name: "My account" });
     expect(img).toHaveAttribute("src", PHOTO);
     expect(img).toHaveAttribute("referrerpolicy", "no-referrer");
-    expect(img).toHaveAttribute("width", "20");
-    expect(img).toHaveAttribute("height", "20");
+    expect(img).toHaveAttribute("width", "35");
+    expect(img).toHaveAttribute("height", "35");
     expect(img.className).toContain("rounded-full");
     expect(img.className).toContain("object-cover");
     expect(link.querySelector("svg")).toBeNull();

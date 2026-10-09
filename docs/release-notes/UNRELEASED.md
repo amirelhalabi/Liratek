@@ -193,6 +193,7 @@
 
 ## 🌐 Web app
 
+- The LiraTek website now has its own Arabic page at liratek.shop/ar, and the language button switches between the English and Arabic pages.
 - Web app: your browser now recognises the sign-in form. It offers to save your username and password after you sign in, and fills them in next time.
 - Web app: you can now sign in with Google. Connect your Google account once in My account, then use "Continue with Google" on the login page. You can also create a new shop with Google. Your username and password keep working as before.
 - Web app: one Google account can now be used in several shops — for example as a cashier in one shop and the owner of another. In each shop it belongs to one user only: if another user of the same shop already connected it, "Connect Google" in My account says so. You can also create a new shop with a Google account you already use in another shop, unless that Gmail address is already a shop owner's email.

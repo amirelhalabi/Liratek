@@ -1,4 +1,9 @@
 # The LiraTek app (www.liratek.shop and every <shop>.liratek.shop) is not
-# for search engines. The public site is liratek.shop (landing/).
+# for search engines. Crawling is ALLOWED on purpose: every response carries
+# `X-Robots-Tag: noindex, nofollow` (root vercel.json) and the page has a
+# robots noindex meta. A `Disallow: /` here would stop Google from ever
+# fetching a page and seeing that noindex, so an already-indexed login page
+# could stay in results ("Indexed, though blocked by robots.txt").
+# The public site is liratek.shop (landing/), which is indexable.
 User-agent: *
-Disallow: /
+Allow: /
