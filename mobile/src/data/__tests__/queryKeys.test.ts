@@ -8,6 +8,8 @@ const ALL = (shop: string) => [
   queryKeys.recent(shop, 15),
   queryKeys.debtors(shop),
   queryKeys.clientBalance(shop, 7),
+  queryKeys.catalog(shop),
+  queryKeys.rates(shop),
 ];
 
 describe("query keys (LIRA-300)", () => {

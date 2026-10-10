@@ -7,13 +7,13 @@ const asSet = (keys: readonly (readonly unknown[])[]) => new Set(keys.map((k) =>
 const MONEY_VIEWS = [queryKeys.balances(S), queryKeys.sinceLastCountAll(S), queryKeys.recentAll(S)];
 
 describe("keysToInvalidate — data-model invalidation map (LIRA-300)", () => {
-  it.each(["WHISH", "OMT"])("transfer paid into the %s wallet: balances, since-last-count, recent only", (paidBy) => {
-    const keys = keysToInvalidate(S, { kind: "transfer", paidBy, clientId: 12 });
+  it.each(["WHISH", "OMT"])("sale paid into the %s wallet: balances, since-last-count, recent only", (paidBy) => {
+    const keys = keysToInvalidate(S, { kind: "sale", paidBy, clientId: 12 });
     expect(asSet(keys)).toEqual(asSet(MONEY_VIEWS));
   });
 
-  it("transfer on the customer's account also marks the debt list and that customer's balance", () => {
-    const keys = keysToInvalidate(S, { kind: "transfer", paidBy: "CUSTOMER_ACCOUNT", clientId: 12 });
+  it("sale on the customer's account also marks the debt list and that customer's balance", () => {
+    const keys = keysToInvalidate(S, { kind: "sale", paidBy: "CUSTOMER_ACCOUNT", clientId: 12 });
     expect(asSet(keys)).toEqual(asSet([...MONEY_VIEWS, queryKeys.debtors(S), queryKeys.clientBalance(S, 12)]));
   });
 

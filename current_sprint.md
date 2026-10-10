@@ -6575,7 +6575,7 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
-## LIRA-302: phone app — Katsh / iPick catalog sales (vouchers, cards) — PLANNED (owner decisions 2026-10-10)
+## LIRA-302: phone app — Katsh / iPick catalog sales (vouchers, cards) — DONE on the simulator, not yet released (owner decisions 2026-10-10)
 
 The second half of the after-hours use case (LIRA-289): a customer asks for a Katsh or iPick voucher/card at night;
 the owner records it from the phone, booked exactly as at the counter.
@@ -6613,6 +6613,13 @@ customer's debt; no supplier row (prepaid drawdown); profit = price − cost. Ca
    and phone (LIRA-301 wording).
 
 **Decided 2026-10-10 (owner):** the customer can pay in LBP or USD; USD is converted at the day's rate, booked as the web books it (`tender_exchange_rate` + `checkoutTotal`). Spec: `specs/302-mobile-catalog-sales/`.
+
+**Built 2026-10-10:** core `buildCatalogSalePayload` (+ `usdForLbp`, `readUsdLbpRates`, `formatCatalogItemName`) used by
+the web's `KatshForm` plain cart (web check passed before and after the switch; 71 recharge suites green) and by the
+phone's new `/sell/catalog/[provider]` screen (pick → review → client → on account / Whish / OMT, LBP or USD at the
+buy rate, Idempotency-Key, stale-cart re-check on Save). Money suite on the real schema: 18 cases (both providers ×
+3 methods × 2 currencies, void to zero; USD on account books a USD debt). Simulator checks: on-account LBP cart,
+USD Whish sale, stale item blocked. Open: web-vs-phone parity sale (T028), APK, push.
 
 **What users will notice:** the phone app can record Katsh and iPick voucher and card sales.
 

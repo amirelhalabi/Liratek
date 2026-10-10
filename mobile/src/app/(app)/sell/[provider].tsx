@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { NO_CONNECTION } from "@/api/client";
-import { createClient, searchClients, type ClientSummary } from "@/api/clients";
 import { newIdempotencyKey, recordServiceSale } from "@/api/sales";
+import { ClientPicker, useClientPicker } from "@/components/ClientPicker";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { Segmented } from "@/components/Segmented";
@@ -59,11 +59,8 @@ export default function SaleScreen() {
   const [currency, setCurrency] = useState<Currency>("USD");
   const [fee, setFee] = useState("");
   const [method, setMethod] = useState<PayMethod>("CUSTOMER_ACCOUNT");
-  const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState<ClientSummary[]>([]);
-  const [client, setClient] = useState<ClientSummary | null>(null);
-  const [newName, setNewName] = useState("");
-  const [newPhone, setNewPhone] = useState("");
+  const picker = useClientPicker();
+  const { client, newName, newPhone } = picker;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // One key per Save tap, kept across retries of that tap; a new sale or an
@@ -84,31 +81,13 @@ export default function SaleScreen() {
     idemKey.current = null;
   }, [amount, currency, fee, method, client, newName, newPhone]);
 
-  useEffect(() => {
-    if (client || query.trim().length < 2) {
-      setMatches([]);
-      return;
-    }
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      void searchClients(query.trim()).then((r) => {
-        if (!cancelled && r.success) setMatches(r.data.slice(0, 6));
-      });
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [query, client]);
-
   async function onSave() {
     setError(null);
     if (parsedAmount <= 0) {
       setError("Enter the amount to send.");
       return;
     }
-    const name = client?.full_name ?? newName.trim();
-    const phone = client?.phone_number ?? newPhone.trim();
+    const { name, phone } = picker;
     // Same rule as the web (rule 14): putting it on account needs a client
     // with a name and a phone.
     if (method === "CUSTOMER_ACCOUNT" && !canChargeToCustomerAccount({ name, phone, clientId: client?.id ?? null })) {
@@ -116,17 +95,13 @@ export default function SaleScreen() {
       return;
     }
     setSaving(true);
-    let clientId = client?.id ?? null;
-    if (!clientId && name && phone) {
-      const created = await createClient({ full_name: name, phone_number: phone, whatsapp_opt_in: false });
-      if (!created.success) {
-        setSaving(false);
-        setError(created.error === NO_CONNECTION ? messageFor(NO_CONNECTION) : `Could not register the client: ${created.error}`);
-        return;
-      }
-      clientId = created.data;
-      setClient({ id: clientId, full_name: name, phone_number: phone });
+    const ensured = await picker.ensureClient();
+    if (!ensured.ok) {
+      setSaving(false);
+      setError(ensured.error);
+      return;
     }
+    const clientId = ensured.id;
     const body = buildWalletTransferPayload({
       provider,
       serviceType: "SEND",
@@ -146,7 +121,7 @@ export default function SaleScreen() {
     }
     idemKey.current = null;
     // Home, Activity and (on account) Debts show the sale next time (LIRA-300 FR-012).
-    void invalidateAfter(slug, { kind: "transfer", paidBy: method, clientId });
+    void invalidateAfter(slug, { kind: "sale", paidBy: method, clientId });
     Alert.alert("Saved", `${TITLES[provider]} of ${formatMoneyAmount(fees.walletAmount, currency)} recorded.`, [
       { text: "OK", onPress: () => router.back() },
     ]);
@@ -173,30 +148,7 @@ export default function SaleScreen() {
 
         <View style={card}>
           <Text style={[styles.section, { color: t.text }]}>Customer</Text>
-          {client ? (
-            <View style={[styles.chosen, { borderColor: t.border }]}>
-              <View style={styles.flex}>
-                <Text style={{ color: t.text, fontWeight: "600" }}>{client.full_name}</Text>
-                <Text style={{ color: t.textMuted }}>{client.phone_number}</Text>
-              </View>
-              <Pressable onPress={() => { setClient(null); setQuery(""); }} hitSlop={10}>
-                <Text style={{ color: t.link, fontWeight: "600" }}>Change</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <>
-              <TextField label="Search clients" value={query} onChangeText={setQuery} placeholder="Name or phone" autoCorrect={false} />
-              {matches.map((m) => (
-                <Pressable key={m.id} onPress={() => { setClient(m); setMatches([]); }} style={[styles.match, { borderColor: t.border }]}>
-                  <Text style={{ color: t.text }}>{m.full_name}</Text>
-                  <Text style={{ color: t.textMuted }}>{m.phone_number}</Text>
-                </Pressable>
-              ))}
-              <Text style={{ color: t.textMuted, fontSize: 13 }}>Or a new client:</Text>
-              <TextField label="Name" value={newName} onChangeText={setNewName} />
-              <TextField label="Phone" value={newPhone} onChangeText={setNewPhone} keyboardType="phone-pad" />
-            </>
-          )}
+          <ClientPicker picker={picker} />
         </View>
 
         <View style={card}>
@@ -227,8 +179,6 @@ const styles = StyleSheet.create({
   body: { padding: spacing.lg, gap: spacing.lg },
   card: { borderRadius: radius.xl, borderWidth: 1, padding: spacing.lg, gap: spacing.md },
   section: { fontSize: 16, fontWeight: "600" },
-  chosen: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: radius.lg, padding: spacing.md },
-  match: { flexDirection: "row", justifyContent: "space-between", borderWidth: 1, borderRadius: radius.lg, padding: spacing.md },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   amount: { fontSize: 16, fontWeight: "700" },
 });

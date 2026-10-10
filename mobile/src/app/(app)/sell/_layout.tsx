@@ -20,6 +20,7 @@ export default function SellLayout() {
     >
       <Stack.Screen name="index" options={{ title: "Sell" }} />
       <Stack.Screen name="[provider]" options={{ title: "Record a sale" }} />
+      <Stack.Screen name="catalog/[provider]" options={{ title: "Catalog" }} />
     </Stack>
   );
 }

@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { Send, Zap } from "lucide-react-native";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 
 import { ModuleTile } from "@/components/ModuleTile";
 import { spacing } from "@/theme/tokens";
@@ -10,7 +10,7 @@ import { spacing } from "@/theme/tokens";
 const INDIGO = "#818cf8";
 const SKY = "#38bdf8";
 
-// The four in-scope phone sales (LIRA-289 FR-001). Vouchers are not built yet.
+// The four in-scope phone sales (LIRA-289 FR-001). Katsh / iPick open the catalog (LIRA-302).
 const SALES = [
   { key: "WHISH_APP", label: "Whish App transfer", Icon: Send, color: INDIGO },
   { key: "OMT_APP", label: "OMT App transfer", Icon: Send, color: INDIGO },
@@ -23,7 +23,7 @@ function openSale(key: string) {
     router.push({ pathname: "/sell/[provider]", params: { provider: key } });
     return;
   }
-  Alert.alert("Coming next", "Recording vouchers from the phone is the next step being built.");
+  router.push({ pathname: "/sell/catalog/[provider]", params: { provider: key } });
 }
 
 /** Sell tab (LIRA-300 FR-004): the sales the phone can record. Loads no data. */

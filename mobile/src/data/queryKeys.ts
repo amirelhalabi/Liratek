@@ -11,4 +11,7 @@ export const queryKeys = {
   recent: (shop: string, limit: number) => [shop, "recent", limit] as const,
   debtors: (shop: string) => [shop, "debtors"] as const,
   clientBalance: (shop: string, clientId: number) => [shop, "clientBalance", clientId] as const,
+  // LIRA-302: the Katsh / iPick catalog and the day's rates.
+  catalog: (shop: string) => [shop, "catalog"] as const,
+  rates: (shop: string) => [shop, "rates"] as const,
 };

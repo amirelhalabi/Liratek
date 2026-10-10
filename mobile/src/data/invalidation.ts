@@ -5,7 +5,7 @@ import { queryKeys } from "./queryKeys";
 
 /** A money action the phone just booked successfully (data-model § Invalidation map). */
 export type BookedAction =
-  | { kind: "transfer"; paidBy: string; clientId: number | null }
+  | { kind: "sale"; paidBy: string; clientId: number | null }
   | { kind: "repayment"; clientId: number };
 
 /** Which cached reads an action makes out of date. Pure, so it is unit-tested. */

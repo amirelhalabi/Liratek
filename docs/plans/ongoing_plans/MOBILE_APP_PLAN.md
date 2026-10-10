@@ -28,4 +28,5 @@ The plan for this feature is the Spec Kit folder, not this file. This page exist
 1. Release the phone APK to cornertech: push the local commits, then rebuild the APK.
 2. Phone UI tests (Maestro), and web/desktop e2e for the count panel.
 3. Store readiness (`docs/OPERATIONS.md`, "Phone app").
-4. Deferred by the owner: Google sign-in, Binance as a phone payment, and Katsh/iPick vouchers.
+4. Deferred by the owner: Google sign-in and Binance as a phone payment. Katsh/iPick catalog sales (vouchers,
+   cards) were built 2026-10-10 in LIRA-302 (`specs/302-mobile-catalog-sales/`); bills stay on web/desktop.
