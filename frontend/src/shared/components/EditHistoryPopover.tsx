@@ -6,6 +6,7 @@ import {
   AlertCircle,
   History,
 } from "lucide-react";
+import { useApi } from "@liratek/ui";
 import type { AuditLogEntry } from "@/types/electron";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 
@@ -110,6 +111,11 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
   const [entries, setEntries] = useState<AuditLogEntry[] | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  // Dual-mode adapter (rule 19), read through a ref so `fetchHistory` needs no
+  // `api` dependency (rule 25).
+  const api = useApi();
+  const apiRef = useRef(api);
+  apiRef.current = api;
 
   // ── Close on outside click ─────────────────────────────────────────────────
   useEffect(() => {
@@ -133,12 +139,12 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const result = await window.api.audit.getByEntity(
+      const result = await apiRef.current.audit.getByEntity(
         entityType,
         String(entityId),
       );
       if (result.success) {
-        setEntries(result.rows ?? []);
+        setEntries((result.rows ?? []) as AuditLogEntry[]);
       } else {
         setError(result.error ?? "Failed to load edit history.");
       }

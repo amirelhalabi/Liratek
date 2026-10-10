@@ -1,0 +1,98 @@
+[
+  {
+    "file": "components/VoiceBotButton.tsx",
+    "namespaces": ["voicebot"],
+    "reason": "Desktop-only: voice commands run through the Electron bridge (no server route); TopBar renders the button only when isElectron() (LIRA-297, owner decision 2026-10-10)."
+  },
+  {
+    "file": "features/auth/context/AuthContext.tsx",
+    "namespaces": ["(bare)", "setup", "auth"],
+    "reason": "Electron-only: setup-wizard check and the main process's encrypted IPC session restore + session:expired event. The web branch is the explicit `else if (getToken())` \u2192 api.me() path."
+  },
+  {
+    "file": "features/setup/steps/Step3DatabasePath.tsx",
+    "namespaces": ["setup"],
+    "reason": "setup wizard is desktop-only: isSetupRequired is only ever set inside AuthContext's window.api branch (local database path test)."
+  },
+  {
+    "file": "features/setup/steps/StepDetect.tsx",
+    "namespaces": ["(bare)", "setup"],
+    "reason": "setup wizard is desktop-only: LAN database detection and native file browse."
+  },
+  {
+    "file": "features/setup/steps/StepJoinShop.tsx",
+    "namespaces": ["setup"],
+    "reason": "setup wizard is desktop-only: join an existing shop database, then relaunch the Electron app."
+  },
+  {
+    "file": "features/setup/steps/StepComplete.tsx",
+    "namespaces": ["currencies"],
+    "reason": "setup wizard is desktop-only; the call is already behind isElectron()."
+  },
+  {
+    "file": "features/settings/pages/Settings/Diagnostics.tsx",
+    "namespaces": [
+      "diagnostics",
+      "report",
+      "settings",
+      "database",
+      "inventory"
+    ],
+    "reason": "Electron-only: Diagnostics tab (local backups, database path, FK check, sync errors) is hidden on web by DESKTOP_ONLY_TABS (owner decision \u2014 the web DB lives on Fly with Litestream); mount effect is isElectron()-guarded."
+  },
+  {
+    "file": "features/settings/pages/Settings/UpdatesPanel.tsx",
+    "namespaces": ["updater"],
+    "reason": "desktop updater (electron-updater); every effect self-guards on isElectron() and the panel renders null on web."
+  },
+  {
+    "file": "features/settings/pages/Settings/LicensePanel.tsx",
+    "namespaces": ["license"],
+    "reason": "Electron-only: desktop license key; gated on isElectron() && window.api.license.status existing, with a one-line explanation on web."
+  },
+  {
+    "file": "features/settings/pages/Settings/ShopConfig.tsx",
+    "namespaces": ["print"],
+    "reason": "Electron-only: OS printer list for silent printing; no browser API can enumerate printers, web prints through the window.print() dialog."
+  },
+  {
+    "file": "shared/utils/printReceipt.ts",
+    "namespaces": ["print", "display"],
+    "reason": "Electron-only: silent print to a named printer / main-process print dialog, with an explicit window.print() web fallback below; display.fixFocus is the Windows focus workaround."
+  },
+  {
+    "file": "features/inventory/pages/Inventory/ProductForm.tsx",
+    "namespaces": ["print", "display"],
+    "reason": "Electron-only: silent barcode print with an explicit else-branch window.print() web fallback; display.fixFocus is the Windows focus workaround."
+  },
+  {
+    "file": "shared/utils/uiScale.ts",
+    "namespaces": ["display"],
+    "reason": "Electron-only: setZoomFactor; on web the browser's own zoom is the control and the function deliberately clears any stale CSS zoom (LIRA-295)."
+  },
+  {
+    "file": "features/inventory/pages/Inventory/ProductList.tsx",
+    "namespaces": ["display"],
+    "reason": "Electron-only: display.fixFocus \u2014 Windows focus workaround after a modal/dialog closes; optional-chained no-op in the browser, which has no such bug."
+  },
+  {
+    "file": "features/sales/pages/POS/index.tsx",
+    "namespaces": ["display"],
+    "reason": "Electron-only: display.fixFocus \u2014 Windows focus workaround; no-op in the browser."
+  },
+  {
+    "file": "features/sales/pages/POS/components/SaleDetailModal.tsx",
+    "namespaces": ["display"],
+    "reason": "Electron-only: display.fixFocus \u2014 Windows focus workaround; no-op in the browser."
+  },
+  {
+    "file": "features/settings/pages/Settings/ResetDataModal.tsx",
+    "namespaces": ["display"],
+    "reason": "Electron-only: display.fixFocus behind isElectron() \u2014 Windows focus workaround."
+  },
+  {
+    "file": "shared/components/layouts/MainLayout.tsx",
+    "namespaces": ["display"],
+    "reason": "Electron-only: display.fixFocus \u2014 Windows focus workaround; no-op in the browser."
+  }
+]

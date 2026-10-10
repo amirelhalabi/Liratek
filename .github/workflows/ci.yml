@@ -105,9 +105,17 @@ jobs:
       - name: Bind-arity check (prepared statements' ? count == bound args)
         run: yarn check:bind-arity
 
-      # `yarn test:scripts` runs two node:test files (pure JS, no
-      # build/native-module dependency), named explicitly rather than via a
-      # glob (see the LIRA-123 note below):
+      # LIRA-297 (rules 19/22): no payload built per transport (A1), and no
+      # raw `window.api` access in frontend/src outside the reviewed
+      # scripts/transport-parity-allowlist.json (C1). Stale entries fail too.
+      - name: Transport-parity check (no per-transport payloads, no unreviewed window.api)
+        run: yarn check:transport-parity
+
+      # `yarn test:scripts` runs the node:test files listed in package.json
+      # (no build/native-module dependency — but transportParity.test.mjs
+      # needs the `typescript` package, so this must stay after the
+      # dependency restore above), named explicitly rather than via a glob
+      # (see the LIRA-123 note below). Among them:
       #
       #   - scripts/__tests__/tenantMigrationLogCheck.test.mjs guards
       #     scripts/lib/tenantMigrationLogCheck.mjs — the per-tenant deploy
@@ -123,6 +131,9 @@ jobs:
       #     `file://${argv[1]}` string, which never matches on Windows
       #     (`file:///C:/...` vs `file://C:/...`), so the whole passthrough
       #     silently no-op'd (exit 0, no output) on the owner's machine.
+      #   - scripts/__tests__/transportParity.test.mjs guards the A1/C1 rule
+      #     logic behind `yarn check:transport-parity` (LIRA-297), including
+      #     the comment/string false-positive cases.
       #
       # LIRA-123 lesson (rule 28a): a step that runs nothing and exits 0 is
       # indistinguishable from a pass. Empirically (2026-09-27), `node --test`

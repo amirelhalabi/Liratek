@@ -6865,3 +6865,20 @@ sales from their phone, even after closing, and see the sales made since the las
 >
 > What users will notice (Dashboard, web and desktop): drawer balances and Cash on Hand always show dollars and lira,
 > even at zero; other currencies appear only when the drawer holds some.
+
+---
+
+## LIRA-297: transport-parity guard + typed adapters (web maturity track) — HIGH — IN PROGRESS (started 2026-10-10)
+
+Plan: `docs/plans/ongoing_plans/TRANSPORT_PARITY_AUDIT_PLAN.md` §2–§4 (phases 3–4 were never started). Owner chose the
+web-maturity track 2026-10-10. Measured today: 39 `any`-typed payload parameters left in `frontend/src/api/backendApi.ts`,
+15 in `ElectronApiAdapter.ts`, 2 `unknown` payloads in `packages/ui/src/api/types.ts`; ~45 files under `frontend/src`
+still mention `window.api` (some legitimately desktop-only, some comments); no `scripts/check-transport-parity.mjs`.
+
+Scope:
+1. `scripts/check-transport-parity.mjs` (wired into `ci.yml` like `check:tenant-scoping`): rule A1 (a `window.api ? … : …`
+   gate whose branches build object literals), rule C1 (`window.api?.` / `!window.api` / raw `window.api.` in
+   `frontend/src/**` outside a reviewed allowlist with a one-line reason per entry). New unexplained entries fail CI.
+2. Fix what the guard finds that is a real web defect (known: `Debts/index.tsx` `loadServiceDebtDetails`
+   `if (!window.api) return;`, and the four latent `window.api ? … : …` gates there).
+3. Type every remaining write-path adapter payload from its core schema (`z.input<…>`, rule 21), money paths first.

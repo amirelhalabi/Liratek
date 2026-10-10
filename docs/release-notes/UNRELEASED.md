@@ -259,6 +259,8 @@
 - Web app: the page for choosing a new password has show/hide buttons on both fields, like the sign-in page, and your browser can suggest and save a password there. The sign-up, join-by-invitation and Add shop forms have the show/hide button too.
 - Web app: your shop's sign-in page now says under the username field that it is not your email. If you type an email there, it suggests using your username or "Continue with Google".
 - New LiraTek logo on the sign-in page, and the new LiraTek icon in the browser tab.
+- Web app: the edit-history popup (the clock icon on edited rows in the Exchange, Expenses, Loto, Custom Services, Recharge and Maintenance history lists) now shows the history instead of an error.
+- Web app: the voice-command (microphone) button in the top bar is hidden for now — voice commands only work on the desktop app.
 
 ## 🧾 Expenses
 

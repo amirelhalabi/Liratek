@@ -1,3 +1,4 @@
+import { isElectron } from "@/api/backendApi";
 import { useEffect, useRef, useState } from "react";
 import { appEvents, useApi, type UINotification } from "@liratek/ui";
 import { subscribeToInvalidation } from "@/api/realtime";
@@ -348,8 +349,10 @@ export default function TopBar({
           </div>
         )}
 
-        {/* Voice Bot Button */}
-        {voiceBotConfig.enabled && (
+        {/* Voice Bot Button — desktop only: voice commands run through the
+            Electron bridge and have no server route yet (LIRA-297, owner
+            decision 2026-10-10). */}
+        {voiceBotConfig.enabled && isElectron() && (
           <div className="relative">
             <VoiceBotButton />
           </div>

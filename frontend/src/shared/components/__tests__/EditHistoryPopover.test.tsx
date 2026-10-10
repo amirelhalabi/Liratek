@@ -15,11 +15,21 @@ type GetByEntityResult = {
 
 const getByEntity = jest.fn<Promise<GetByEntityResult>, [string, string]>();
 
+// LIRA-297: the popover reads history through the dual-mode adapter
+// (`useApi().audit.getByEntity`), never raw `window.api` — which is undefined
+// in the browser, where the old code threw a TypeError in all six history
+// modals. One STABLE mock object (rule 25).
+const mockApi = { audit: { getByEntity } };
+jest.mock("@liratek/ui", () => ({
+  ...jest.requireActual("@liratek/ui"),
+  useApi: () => mockApi,
+}));
+
 beforeEach(() => {
   getByEntity.mockReset();
-  (window as unknown as { api: Record<string, unknown> }).api = {
-    audit: { getByEntity },
-  };
+  // Web mode: no Electron bridge at all (rule 24 — the old premise mocked
+  // window.api; this guards that the popover no longer needs it).
+  delete (window as unknown as { api?: unknown }).api;
 });
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
