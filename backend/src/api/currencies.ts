@@ -76,7 +76,7 @@ router.put(
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
-        res.status(400).json({ success: false, error: "Invalid currency ID" });
+        res.status(200).json({ success: false, error: "Invalid currency ID" });
         return;
       }
 

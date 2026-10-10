@@ -48,9 +48,29 @@ export function localDay(date: Date = new Date()): string {
  * An unparsable value falls back to its first 10 characters.
  */
 export function localDayOfUtcTimestamp(ts: string): string {
-  const iso = ts.includes("T") ? ts : `${ts.replace(" ", "T")}Z`;
-  const ms = Date.parse(iso);
+  const ms = parseUtcTimestampMs(ts);
   return Number.isNaN(ms) ? ts.slice(0, 10) : localDay(new Date(ms));
+}
+
+/**
+ * The calendar day (`YYYY-MM-DD`) of a UTC timestamp (same input forms as
+ * {@link localDayOfUtcTimestamp}) on a wall clock `offsetMinutes` ahead of
+ * UTC (the JS convention `-date.getTimezoneOffset()`; Beirut summer = 180).
+ * Independent of this machine's zone. Unparsable: its first 10 characters.
+ */
+export function dayOfUtcTimestampAtOffset(
+  ts: string,
+  offsetMinutes: number,
+): string {
+  const ms = parseUtcTimestampMs(ts);
+  return Number.isNaN(ms)
+    ? ts.slice(0, 10)
+    : new Date(ms + offsetMinutes * 60_000).toISOString().slice(0, 10);
+}
+
+/** Epoch ms of a stored UTC timestamp (SQLite `YYYY-MM-DD HH:MM:SS` or ISO). */
+function parseUtcTimestampMs(ts: string): number {
+  return Date.parse(ts.includes("T") ? ts : `${ts.replace(" ", "T")}Z`);
 }
 
 /** Local calendar month as `YYYY-MM`. */

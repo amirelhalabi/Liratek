@@ -128,7 +128,7 @@ import {
   type ProductUnitEntity,
 } from "./ProductUnitRepository.js";
 import { addMonthsIso } from "../utils/dates.js";
-import { clientDay } from "../utils/requestDay.js";
+import { clientDay, clientDayOfUtcTimestamp } from "../utils/requestDay.js";
 import { resolveWarrantyMonths } from "../utils/warrantyState.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 
@@ -899,9 +899,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // SHOP's own day — `client_day` from the client, falling back to the
         // request's day (`clientDay()`: X-Client-Day on web, the machine's
         // own day on desktop). Never the server's UTC date (LIRA-296, rule
-        // 27): a web sale at 00:30 Beirut is 21:30 UTC the day before.
+        // 27): a web sale at 00:30 Beirut is 21:30 UTC the day before. The
+        // backdated instant is UTC too, so it is read on the shop's clock
+        // (the request's tz offset, else the machine's zone) — and
+        // `client_day` (TODAY, even on a backdated sale) never wins over it.
         const saleDateIso = sale.transaction_time
-          ? sale.transaction_time.slice(0, 10)
+          ? clientDayOfUtcTimestamp(sale.transaction_time)
           : (sale.client_day ?? clientDay());
 
         // LIRA-296 P3: the category's serial rule (BLOCK | WARN), read only

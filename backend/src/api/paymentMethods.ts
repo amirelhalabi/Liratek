@@ -54,7 +54,8 @@ router.post(
       const service = getPaymentMethodService();
       const result = service.create(req.body);
       if (!result.success) {
-        res.status(400).json(result);
+        // Rule 19c: HTTP 200 + the IPC envelope (requestJson throws on 4xx).
+        res.status(200).json(result);
         return;
       }
       // Mirrors paymentMethodHandlers.ts's payment-methods:create audit
@@ -81,7 +82,8 @@ router.put("/reorder", requireRole(["admin"]), (req, res): void => {
     const service = getPaymentMethodService();
     const result = service.reorder(req.body.ids);
     if (!result.success) {
-      res.status(400).json(result);
+      // Rule 19c: HTTP 200 + the IPC envelope.
+      res.status(200).json(result);
       return;
     }
     // Mirrors paymentMethodHandlers.ts's payment-methods:reorder audit
@@ -110,13 +112,14 @@ router.put(
     try {
       const service = getPaymentMethodService();
       const id = parseInt(req.params.id, 10);
+      // Rule 19c: refusals answer HTTP 200 + the IPC envelope.
       if (isNaN(id)) {
-        res.status(400).json({ success: false, error: "Invalid id" });
+        res.status(200).json({ success: false, error: "Invalid id" });
         return;
       }
       const result = service.update(id, req.body);
       if (!result.success) {
-        res.status(400).json(result);
+        res.status(200).json(result);
         return;
       }
       // Mirrors paymentMethodHandlers.ts's payment-methods:update audit

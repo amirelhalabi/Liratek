@@ -1134,8 +1134,10 @@ export async function createProduct(
         const id = res.id ?? res.data?.id;
         return id != null ? { ...res, id } : res;
       } catch (err) {
-        // The create route still answers a refusal with 400/409, which
-        // `requestJson` throws — recover the server's message.
+        // A refusal (incl. DUPLICATE_BARCODE + suggested_barcode) now comes
+        // back as HTTP 200 + the envelope above (rule 19c). This catch only
+        // sees real HTTP failures (403 role refusal, 5xx, network) —
+        // recover the server's message.
         const e = err as { message?: string };
         return {
           success: false,

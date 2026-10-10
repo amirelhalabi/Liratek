@@ -176,17 +176,22 @@ describe("REST audit wiring (LIRA-104, Implementer B)", () => {
     });
 
     it("business failure: records nothing", async () => {
-      jest.spyOn(getPaymentMethodService(), "update").mockReturnValue({
+      const serviceResult = {
         success: false,
         error: "Payment method not found",
-      });
+      };
+      jest
+        .spyOn(getPaymentMethodService(), "update")
+        .mockReturnValue(serviceResult);
 
       const res = await request(app)
         .put("/api/payment-methods/999")
         .set("x-test-role", "admin")
         .send({ label: "New Label" });
 
-      expect(res.status).toBe(400);
+      // Rule 19c: a refusal is HTTP 200 + the service's own envelope.
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(serviceResult);
       expect(logSpy).not.toHaveBeenCalled();
     });
   });

@@ -17,7 +17,11 @@ import {
   getContextClientDay,
   getContextClientTzOffsetMinutes,
 } from "../db/tenantContext.js";
-import { localDay } from "./localDate.js";
+import {
+  dayOfUtcTimestampAtOffset,
+  localDay,
+  localDayOfUtcTimestamp,
+} from "./localDate.js";
 
 /**
  * The CLIENT's own local calendar day (`YYYY-MM-DD`) for a REQUEST-path
@@ -58,4 +62,18 @@ export function clientDay(): string {
  */
 export function clientTzOffsetMinutes(): number | undefined {
   return getContextClientTzOffsetMinutes();
+}
+
+/**
+ * The SHOP's calendar day (`YYYY-MM-DD`) of a stored/ISO UTC timestamp for a
+ * REQUEST-path caller — e.g. a backdated sale's `transaction_time`, whose
+ * UTC day is a day early for 00:00–03:00 Beirut (rule 27). Uses the request's
+ * client tz offset when one was supplied (web), else this machine's own zone
+ * (desktop: the shop's PC) — the same split as `localtimeModifier()`.
+ */
+export function clientDayOfUtcTimestamp(ts: string): string {
+  const minutes = clientTzOffsetMinutes();
+  return minutes === undefined
+    ? localDayOfUtcTimestamp(ts)
+    : dayOfUtcTimestampAtOffset(ts, minutes);
 }

@@ -1060,7 +1060,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     const params: any[] = [getCurrentTenantId()];
 
     if (filter?.date) {
-      query += ` AND DATE(created_at) = ?`;
+      // The shop's day, not the UTC day (rule 27).
+      query += ` AND ${localDayExpr("created_at")} = ?`;
       params.push(filter.date);
     }
 

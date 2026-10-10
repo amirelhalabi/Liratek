@@ -194,6 +194,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Settings → Categories: each category that tracks serials chooses what happens when an item is sold without picking its serial — block the sale (as before) or allow it with a warning shown at the till.
 - Warranty page (admins): a faulty item can be sent back to its supplier ("Send to supplier" in Defective items — the supplier it was bought from is picked for you). In the new "Supplier returns" list, record the supplier's answer: Credited (the supplier's balance goes down by the credit, in dollars and/or LBP, and the warranty cost goes down by the same amount), Replaced (the item goes back in stock) or Rejected (with a note; the item comes back to Defective items). Voiding the claim later undoes the supplier's credit or replacement too.
 - Warranty page (admins): a new "Report" tab shows the items still under warranty, by category with their end dates (export to Excel or PDF), and the claims in the period you pick — how many repairs, replacements and refunds, what they cost the shop, what suppliers gave back, and the net cost (the same as the Profits "Warranty cost" line for those days).
+- POS: when you enter a sale for an earlier day and pick a time just after midnight, its warranty now starts on that day, not the day before. From now on only.
 
 ## 🛒 POS
 
@@ -288,6 +289,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Web app: the voice-command (microphone) button in the top bar is hidden for now — voice commands only work on the desktop app.
 - Web app: selling more than one iPick or Katsh item (or bill) in one checkout no longer adds the extra items' price to the cash drawer (or to the customer's account) a second time — the drawer now shows only what the customer actually paid. From now on; earlier multi-item checkouts on the web app may have left the drawer too high.
 - Web app: OMT and Whish transfers on the Services page now save both the sender's and the receiver's name and phone, like the desktop app. From now on.
+- Web app, Inventory: when you add a product with a barcode that another product already uses, the form now says "Duplicate Barcode Detected", suggests a free barcode, and offers a button to use it — like the desktop app.
 
 ## 🧾 Expenses
 

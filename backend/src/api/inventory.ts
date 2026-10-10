@@ -15,9 +15,7 @@ import {
   resolveScanCodeSchema,
   createCategorySchema,
   updateCategorySchema,
-  createErrorResponse,
   createSuccessResponse,
-  ErrorCodes,
 } from "@liratek/core";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
@@ -314,18 +312,14 @@ router.post(
     );
 
     if (!result.success) {
-      const errorMsg = result.error || "Failed to create product";
-      const statusCode = errorMsg.includes("already") ? 409 : 400;
-      res
-        .status(statusCode)
-        .json(
-          createErrorResponse(
-            errorMsg.includes("already")
-              ? ErrorCodes.DUPLICATE_BARCODE
-              : ErrorCodes.VALIDATION_ERROR,
-            errorMsg,
-          ),
-        );
+      // Rule 19c envelope parity: HTTP 200 + the service result unchanged
+      // ({ success:false, error, code?, suggested_barcode? }), exactly what
+      // inventory:create-product returns on desktop. This used to be a
+      // 409/400 with an object-shaped `error`; `requestJson` throws on
+      // non-2xx, so the web ProductForm lost `code: "DUPLICATE_BARCODE"` and
+      // `suggested_barcode` and could not offer the suggested barcode.
+      // See inventoryProductCreateEnvelope.api.test.ts.
+      res.status(200).json(result);
       return;
     }
 
@@ -430,7 +424,8 @@ router.post(
 router.put("/products/:id", requireRole(["admin", "staff"]), (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: "Invalid id" });
+    // Rule 19c: HTTP 200 + envelope, same as the DELETE sibling below.
+    res.status(200).json({ success: false, error: "Invalid id" });
     return;
   }
 
