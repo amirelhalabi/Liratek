@@ -10,6 +10,10 @@
 > **each** claimed artifact against source — the migration, the table/column, the constant, the
 > repository method, the REST route, the component, the spec file. **No status line was taken at
 > face value.** Where a plan's header disagreed with the code, the code won.
+>
+> **Last updated 2026-10-10** — audit refresh: `OWNER_NOTES_2026-09-21` references cleared (closed
+> 2026-10-02), six finished plans archived, §2d rebuilt from the real open owner questions, and the
+> web-parity / transport-parity rows brought up to LIRA-297.
 
 ---
 
@@ -20,12 +24,15 @@ The 2026-09-16 sweep checked 26 plans and found **11 of them finished and filed 
 out of `todo_plans` (which means "nothing built yet") into `ongoing_plans`.
 
 **The sweep left a real board of 17 plans** — much smaller than the folders used to suggest.
-**Now 21** — counted from the folders on 2026-09-25, not from this line's history: **15 ongoing +
-6 todo**, the two new ongoing entries being `LIRA-219_CLOSING_PROFIT_PARITY.md` and
-`OWNER_NOTES_REMAINING_BUILD.md`, both implemented and unit-verified 2026-09-25, uncommitted. The
-sixth `todo_plans/` entry is `OWNER_NOTES_2026-09-21.md`, added 2026-09-21 and missing
-from this index until 2026-09-23 — which mattered, because that document declares itself HIGHEST
-PRIORITY and says it supersedes §5 below. It is now in the table and in §5.
+**Now 16** — counted from the folders on 2026-10-10: **12 ongoing + 4 todo** (plus this file).
+`OWNER_NOTES_2026-09-21.md`, `OWNER_NOTES_REMAINING_BUILD.md` and
+`LIRA-219_CLOSING_PROFIT_PARITY.md` all shipped in `9ed8d90f` (2026-09-25) and were archived
+2026-10-02 (`340a9446`) — all 29 owner notes done or owner-decided. **Archived 2026-10-10:**
+`PRIMARY_CASH_DRAWER_PLAN.md` (cosmetic tail done in `34703ade`), `OWNER_NOTES_TASK_PLAN.md`
+(LIRA-083/084/086/087 in `b802dae7`, LIRA-088 in `9ed8d90f`), `MULTI_TENANT_IMPLEMENTATION_PLAN.md`
+(WP9 = `lira-web-038`, `640a7c76`, LIRA-099), `SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md`
+(LIRA-278–281), `profit-audit-2026-09/` (LIRA-185) and `POSTING_INTEGRITY_PLAN.md` (LIRA-258; only
+the optional Phase 5 is left, noted below).
 `OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` was archived 2026-09-21 when its confirming web run came back
 green — the last thing it was waiting on. `LIRA-194` was archived the same day: opened by the
 owner 2026-09-20, shipped 2026-09-21 (`9c0194cd`) — one day on the board, moved with its code.
@@ -47,18 +54,11 @@ audit scope is **BROAD** (staff keep both the Transactions and the Audit Log tab
 actions stay **visible** to staff rather than being hidden behind a role check. Nine follow-up
 tickets — **LIRA-220 … LIRA-228** — were filed out of that work; **LIRA-229** and **LIRA-230** came out of the 2026-09-24 Profits audit, and **LIRA-231** (POS refunds via the payment form) out of the owner's 2026-09-26 test; **LIRA-232 … LIRA-235** (session item refund, #14 slice 3, two transport fixes, the web staff-login helper) were filed the same day; **LIRA-236** (refund form exchange rate) on 2026-09-27. **LIRA-237 … LIRA-239** (web timezone reports, old-data repairs, #28 verify) were filed on 2026-09-28. **LIRA-240 … LIRA-250** came out of the 2026-09-28 exploratory web test. **LIRA-251** (tenant-scoping linter gap) was filed on 2026-09-28. The next free ID is **LIRA-252**.
 
-**2026-09-25 — the rest of `OWNER_NOTES_2026-09-21.md` implemented and unit-verified, still
-uncommitted.** All four money bugs (#4/#15 D1, #6, #7/LIRA-203, #8/LIRA-204, #10/LIRA-206,
-#22/LIRA-088, #26/LIRA-215, #27/LIRA-217), the Profits-page audit (§6, PA-0..PA-4, including
-**LIRA-183** and **LIRA-209**'s #29/#14-slices-1-2), the Dashboard chart/tile (§7, DC-1..DC-12), the
-widened **LIRA-219** (own plan, `LIRA-219_CLOSING_PROFIT_PARITY.md`), and the remaining notes
-(#11, #13, #16, #19-21, #24, #28, lira-141, per the new `OWNER_NOTES_REMAINING_BUILD.md`) are all
-built. Gates are green (core/backend/electron/frontend jest, typecheck, lint, schema-equivalence,
-tenant-scoping, bind-arity); desktop e2e 310/3 failed and web e2e 118/3 failed/1 skipped, with all
-6 failures being stale specs that are now fixed but await the owner's re-run. **Nothing is
-committed.** What is left of the 29 notes: #1 and #25 (customer to confirm), #5 (voice note), #17
-(parked), #14 slice 3, a single-item basket reversal, and the two follow-ups this batch filed,
-**LIRA-229** and **LIRA-230** (still TODO).
+**2026-09-25 → 2026-10-02 — `OWNER_NOTES_2026-09-21.md` finished.** The batch (four money bugs,
+the Profits-page audit, the Dashboard chart/tile, the widened LIRA-219 and the remaining notes)
+shipped in `9ed8d90f` (2026-09-25); the follow-ups and the confirming e2e landed in `24651e83` and
+`8cf9361d`; the plan was closed and archived on 2026-10-02 (`340a9446`) with all 29 notes done or
+owner-decided. Nothing from it is open on this board.
 
 Two plans were opened **and** closed on 2026-09-20 without ever outliving a day on this board:
 `REMAINING_DESKTOP_E2E_FAILURES.md` (4 desktop specs) and `LIRA-195` (4 web specs). Both were
@@ -83,77 +83,82 @@ the eleven archived plans were completed by a commit landing *days after* that p
 **Size** is the remaining work only, not the original plan. **Money** means the remaining work
 writes transactions, payments, drawers, ledgers or profit.
 
-### `ongoing_plans/` — started, unfinished (13)
+### `ongoing_plans/` — started, unfinished (12)
 
 | Plan | What's actually left | Size | Money |
 | --- | --- | --- | --- |
-| ~~`LIRA-219_CLOSING_PROFIT_PARITY.md`~~ | **DONE — shipped and committed `9ed8d90f`; archived to `done_plans/`** (2026-10-02 docs sweep) | — | — |
-| ~~`OWNER_NOTES_REMAINING_BUILD.md`~~ | **Already archived to `done_plans/`** — moved with `OWNER_NOTES_2026-09-21.md` once its confirming run came back green (commit `340a9446`) | — | — |
-| `PRIMARY_CASH_DRAWER_PLAN.md` | Cosmetic tail only. Dead `getBalance()` closure (`DrawerTopUpRepository.ts:617`), unused `primaryCashDrawerName` import (`FinancialServiceRepository.ts:23`), ~3 JSDoc blocks still describing the withdrawn `InsufficientDrawerFundsError` as live. **Header still says "PLANNED" — it shipped long ago** | Small | no |
 | `COMMISSION_AT_SETTLEMENT_PLAN.md` | **One doc edit + one owner question.** Phase 2 shipped (`43948a35`); Phase 3 shipped in FOUR commits (`8c453764`, `8a868fe3`, `7d595c24`, `b5619433`) **except its LIRA-108-residual bullet** — `ProfitRepository.ts:2605-2608` still says the `provider IN (COMMISSION_PROVIDERS)` narrowing is *"deliberately NOT adopted … a separate owner-facing semantics question"*. Phase 4 is the `docs/COUNTERPARTY_LEDGERS.md` rewrite for the gross/at-settlement model, never done. Header corrected 2026-09-22, re-corrected 2026-09-23 | Small | no |
-| `MULTI_TENANT_IMPLEMENTATION_PLAN.md` | **WP9 only** — a browser e2e covering super-admin → provision → impersonate → tenant isolation. Everything else is live: `tenantContext.ts`, admin routes, impersonation banner, CI scoping linter | Small | yes |
 | `TOPUP_CASHFLOW_DIRECTION_AUDIT.md` | 1 finding. Primary scope fixed (`7b076724`); the self-declared "bonus finding" is open — `EXCHANGE` is hardcoded `direction: "both"` (`transactionPresentation.ts:80`), ignoring the for-partner variant | Small | no (badges) |
 | `BALANCE_PAGES_UX_AUDIT.md` | 3 of 7 convergence items, all cosmetic. Critical colour bugs fixed (`d40fd6e5`, shared `balanceColor.ts`). Open: unify money formatters, Partners reversal-row marker, "Refunded" vs "VOIDED" wording | Small | no |
-| `PARTNER_DISBURSEMENT_MATRIX.md` | **No code — one unanswered question.** All 3 money-risk findings fixed (`2e9e822a`, `43c7450e`). The audit flagged an assumption that was never put to you: should "we always pay" extend to **FOR-mode RECEIVE**? | Question only | yes |
+| `PARTNER_DISBURSEMENT_MATRIX.md` | **No code — one unanswered question.** All 3 money-risk findings fixed (`2e9e822a`, `43c7450e`). The audit flagged an assumption that was never put to you: on a FOR-partner **RECEIVE**, does the shop hand the customer cash (drawer goes down) or does the partner pay? (§2d) | Question only | yes |
 | `SUBSCRIPTION_MANAGEMENT_PLAN.md` | `tenants.email` + grace-period notices — needs a mail capability, now **provided by LIRA-267** (email outbox + SMTP, live in production 2026-10-07, plus `tenants.contact_email`); plus one e2e. Its §7 is stale: the "no owner UI" gap was closed by `PlanModal.tsx` (`e78da1b3`) | Medium | yes |
-| `TRANSPORT_PARITY_AUDIT_PLAN.md` | Phase 3 (type the 31 `any` adapter fns, money paths first), Phase 4 (rule C1 + allowlist across 19 `window.api?.` components), and `scripts/check-transport-parity.mjs` — **which does not exist**. One of the few headers that tells the truth | Medium | yes |
-| `OWNER_NOTES_TASK_PLAN.md` | LIRA-083 (custom-service work-status lifecycle), LIRA-084 (partial keep-change), LIRA-086 (checkpoint value-drift colouring). Plus LIRA-088, blocked on your answer | Medium | LIRA-088 only |
+| `TRANSPORT_PARITY_AUDIT_PLAN.md` | **Essentially done by LIRA-297** (2026-10-10): `scripts/check-transport-parity.mjs` exists and runs in `ci.yml` (`yarn check:transport-parity`, allowlist for rule C1), and write-path adapter payloads are typed from core schemas — no `any` payload params left. Left: ~80 `Promise<any…>` return types in `packages/ui/src/api/types.ts` | Small | no |
 | `DESKTOP_LICENSING_PLAN.md` | Phases 1-5: `last_check_in` + machine fingerprint, Ed25519-signed licence blob, key moved to `userData`/`safeStorage`, 30-day grace UI, clock-tamper freeze. Its own "🔴 URGENT" hazard was already fixed by `805fc45a` — *one minute before the doc was committed* | Large | yes |
 | `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` | **Only Phase D left** (the switch to per-tenant files). Phases A–C shipped 2026-09-27/28 (`4dcd16c0`…`7c150b2f`, deployed, prod still `TENANT_DB_MODE=shared`); the split was dry-run on a production snapshot and passed. Runbook § 12.4; owner schedules the window | Small | yes |
 | `NEXT_STEPS_AFTER_FLY_MIGRATION.md` | `DATABASE_KEY` log line still lies (no canary in `sqlcipher.ts:39`); signup URL-code prefill. Its per-tenant-split item now points at the hosting plan (resolved 2026-09-28, see §4) | Medium | yes |
 | `LANDING_PAGE_PLAN.md` 🆕 | Landing page LIVE on `liratek.shop` since 2026-10-07 (Phases 1–2, verified). Video chosen (/brag, 3b) and shipped. Left: SPF/DMARC + Search Console (4) | Small | no |
 | `MOBILE_APP_PLAN.md` 🆕 | **LIRA-289, first phone version built 2026-10-10 (39/62 tasks).** Expo SDK 55 app (`mobile/`), with sign-in by shop address, live balances, Whish/OMT App transfers on account or into a wallet, customer debts and wallet repayments, and the since-last-count view. Server: mobile login, Idempotency-Key (v208), since-last-count on both transports. Shared with web: the wallet-transfer builder, local-date reports and the count panel. Left: APK release to cornertech, phone UI tests, store readiness. Deferred: Google, Binance and vouchers | Medium | yes (posts through existing money routes, money-tested) |
-| `WEB_PARITY_ROADMAP.md` 📖 | **Living tracker — never archive.** Phase 3 count is badly stale: it says "7 of 87 specs, ~43 remain"; today there are **117 desktop specs against the same 7-spec allowlist, so ~110 remain**. Two §9 items are already fixed but still listed | Large | yes |
+| `WEB_PARITY_ROADMAP.md` 📖 | **Living tracker — never archive.** Phase 3 is essentially done: **117 of 118 desktop specs run in web mode** (LIRA-297, `37015d45` + follow-ups); only `lira-085` stays desktop-only (the setup wizard is Electron-only). Its own Phase 3 count ("7 of 87 specs") is stale, and two §9 items are already fixed but still listed | Small | yes |
 
-### `todo_plans/` — genuinely not started (5)
+### `todo_plans/` — genuinely not started (4)
 
 | Plan | What's there | Size | Money |
 | --- | --- | --- | --- |
-| ~~`OWNER_NOTES_2026-09-21.md`~~ 🔴 | **CLOSED and archived to `done_plans/`** (commit `340a9446`): #5 verified live on cornertech; the four money bugs, the Profits-page audit, the Dashboard chart/tile and the widened LIRA-219 all shipped. Remaining items split into their own tickets (LIRA-229/230/238, etc.) | — | — |
-| ~~`LIRA-196_TENANT_DAY_BOUNDARY.md`~~ 🔴 | **CLOSED, archived to `done_plans/`** (re-audited and the owner-decision blocker turned out moot): LIRA-237 (commit `8cf9361d`) already converted all ~37 of the originally-scoped queries via the per-request `X-Client-Tz-Offset` header threaded through `reportingTimeFragments.ts`/`clientDay()` — no tenant-timezone-column decision needed. Re-sweep found one more instance LIRA-237 missed (`ExpenseRepository.getTodayExpenses()`, bare `DATE('now')`, not even `'localtime'`), fixed the same way. Full `packages/core` sweep found nothing else | — | — |
-| `POSTING_INTEGRITY_PLAN.md` ✅ | **LIRA-258 DONE 2026-10-10.** Every gap G1–G46 fixed and committed or closed by owner decision (`docs/POSTING_MAP.md` §7). Optional left: Phase 5 posting rules for 18 transaction types (`postingRules.ts` `todo-phase5`) and the G31 stale comments | Small (optional) | no |
-| `SYRIA_REMITTANCE_PLAN.md` 🆕 | Everything. A custom transfer provider that can **pay OUT** — today `useSystemDrawerFlow = isOMT \|\| isWHISH` (`FinancialServiceRepository.ts:2878`) means any other provider's RECEIVE **credits** the drawer instead of debiting it. Mostly reuse: the `ExchangeRepository` FOR-partner posting shape + the existing provider taxonomy. **6 owner decisions first** — D6 asks whether to reverse the recorded "Syria belongs in Custom Services" position | Medium | yes |
-| ~~`WARRANTY_ANY_ITEM_PLAN.md`~~ ✅ | **LIRA-296 DONE 2026-10-10, archived to `done_plans/`** (three local commits P1–P3, not pushed): lookup without an IMEI (G1), serials for any category (G2), state on every sale line (G3), claims repair/replace/refund (G4), supplier returns (G5), category defaults + till edit + terms (G6), repair warranty (G7), report (G8). Spec Kit folder `specs/296-warranty-any-item/` | — | — |
+| `SYRIA_REMITTANCE_PLAN.md` | **Possibly superseded.** A Syria pay-out was already built as `OWNER_NOTES_2026-09-21` #16 Route A (a "Pay out" direction on Custom Services → Via Partner, migration v185, `9ed8d90f`). The plan's generic custom-transfer-provider build is only worth doing if the answer to its **D5** is "several corridors" — otherwise archive it (§2d) | Medium, or none | yes |
+| `OFFLINE_DESKTOP_FALLBACK_PLAN.md` | Everything of its own: desktop as an outage fallback for web shops, with the web read-only during the outage and offline work synced back (owner decisions recorded, its §2). Its step 1 is the per-tenant split, which waits only on `PRODUCTION_DATABASE_AND_HOSTING` Phase D | Large | yes |
 | `OPEN_PUBLIC_SIGNUP_PLAN.md` | LIRA-267 covers Turnstile and the verified contact email (§3.1, §3.3). Turnstile is built (LIRA-267) but not configured in production (owner decision 2026-10-07); `SIGNUP_INVITE_CODE` is removed (sign-up is by emailed invite link only). Still open: `pending` tenant status (CHECK still `active/suspended/archived`), verified contact email, URL invite-code prefill. The signup page it gates already shipped. **The only plan whose header is honest about being untouched** | Large | no |
-| ~~`profit-audit-2026-09/`~~ ✅ | **CLOSED 2026-10-10 (LIRA-185):** all 19 confirmed divergences fixed; the crashed leads re-run as `ProfitAudit.<module>` tests (68 pass); last leftover (Expenses History "Cash") fixed. See §3 | — | — |
-| `SPRINT_INVENTORY_2026-08-12.md` 🗑️ | A stale snapshot, not a build plan. Its counts are no longer trustworthy and a **second** ticket file now exists that it never knew about (`docs/tickets/CURRENT_SPRINT.md`). Its §3 inventory is **18** open line items as of 2026-09-22 (LIRA-110 struck — closed by LIRA-158 + LIRA-160). Re-run it or drop it | Re-run | no |
+| `SPRINT_INVENTORY_2026-08-12.md` 🗑️ | **Stale artifact — to drop** (not deleted here; owner's call). A stale snapshot, not a build plan. Its counts are no longer trustworthy and a **second** ticket file now exists that it never knew about (`docs/tickets/CURRENT_SPRINT.md`). Its §3 inventory is **18** open line items as of 2026-09-22 (LIRA-110 struck — closed by LIRA-158 + LIRA-160). Re-run it or drop it | Re-run | no |
+
+**Archived 2026-10-10** (moved to `done_plans/`, so no longer in the tables above):
+`PRIMARY_CASH_DRAWER_PLAN.md`, `OWNER_NOTES_TASK_PLAN.md`, `MULTI_TENANT_IMPLEMENTATION_PLAN.md`,
+`SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md`, `profit-audit-2026-09/`, `POSTING_INTEGRITY_PLAN.md` (see §0
+for the commits), alongside the earlier `WARRANTY_ANY_ITEM_PLAN.md` (LIRA-296) and
+`LIRA-196_TENANT_DAY_BOUNDARY.md`. **Optional leftover** from `POSTING_INTEGRITY_PLAN.md`: Phase 5
+posting rules for 18 transaction types (`postingRules.ts` `todo-phase5`) and the G31 stale
+comments — not tracked as a plan.
 
 ---
 
 ## 2. The work queue
 
-### 2a. Tidy-ups — one day total, closes 4 plans outright
+### 2a. Tidy-ups — one day total, closes 3 plans outright
 
-1. `COMMISSION_AT_SETTLEMENT` — rewrite `docs/COUNTERPARTY_LEDGERS.md` for the gross model.
-2. `PRIMARY_CASH_DRAWER` — delete 2 dead symbols, fix ~3 stale JSDoc blocks.
-3. `BALANCE_PAGES_UX_AUDIT` — 3 cosmetic convergence items.
-4. `TOPUP_CASHFLOW_DIRECTION_AUDIT` — the EXCHANGE for-partner badge.
+1. `COMMISSION_AT_SETTLEMENT` — Phase 4: rewrite `docs/COUNTERPARTY_LEDGERS.md` for the gross model (Small).
+2. `BALANCE_PAGES_UX_AUDIT` — 3 cosmetic convergence items (Small).
+3. `TOPUP_CASHFLOW_DIRECTION_AUDIT` — the EXCHANGE for-partner badge (Small).
+4. `NEXT_STEPS_AFTER_FLY_MIGRATION` — the `DATABASE_KEY` canary (Small).
 
-### 2b. Small and well-specified — closes 2 more
+### 2b. Small and well-specified
 
 - ~~LIRA-191~~ built 2026-09-20; ~~`OMT_OPEN_CREDIT_ACCOUNT`'s confirming e2e run~~ green 2026-09-21 (desktop 312 + a clean full web run) — **plan archived to `done_plans/`**.
 - ~~The 4 remaining desktop e2e failures~~ done 2026-09-20 — all four were stale SPECS, not product bugs; fixed and verified green (archived to `done_plans/`).
-- **WP9** (`MULTI_TENANT`) — the super-admin/impersonation e2e.
+- ~~**WP9** (`MULTI_TENANT`)~~ — done: `lira-web-038` (`640a7c76`, LIRA-099); plan archived 2026-10-10.
+- `SUBSCRIPTION_MANAGEMENT` — grace/expiry emails over the LIRA-267 outbox, plus one e2e (Medium).
+- `LANDING_PAGE` — ops only: SPF/DMARC + Search Console (Small).
 
 ### 2c. The large tracks — pick ONE and finish it
 
 | Track | Plans | Why you'd pick it |
 | --- | --- | --- |
 | ~~**Money correctness**~~ | ~~`profit-audit-2026-09`~~ | **Done 2026-10-10** — LIRA-185 closed (§3); posting integrity (LIRA-258) closed too |
-| **Web maturity** | `TRANSPORT_PARITY_AUDIT` → `WEB_PARITY_ROADMAP` | The guard script *prevents* the defect class the 110 specs merely *detect* |
+| ~~**Web maturity**~~ | ~~`TRANSPORT_PARITY_AUDIT` → `WEB_PARITY_ROADMAP`~~ | **Essentially done 2026-10-10 (LIRA-297)** — the guard script is in CI and 117 of 118 desktop specs run in web mode; left: ~80 `Promise<any…>` return types |
 | **Commercial** | `SUBSCRIPTION_MANAGEMENT` → `DESKTOP_LICENSING` → `OPEN_PUBLIC_SIGNUP` | The only chain with real sequencing; the email capability it needed is provided by LIRA-267 |
 | **Mobile app** | `MOBILE_APP_PLAN` (LIRA-289) | The selling point the owner chose; a real customer asked for it. Its first slice (local-date reports) fixes desktop and web too |
 | **Infrastructure** | `PRODUCTION_DATABASE_AND_HOSTING` → `OFFLINE_DESKTOP_FALLBACK` | Phase D (the switch) is the last step of the split; it unblocks the offline-desktop plan |
 
-### 2d. Blocked on you — five entries, no code possible until answered
+### 2d. Blocked on you — seven questions, no code possible until answered
 
-| Question | Plan |
-| --- | --- |
-| **D1-D6**: is the Syria counterparty always a partner; where does the commission sit; is profit deferred to settlement; own drawer or General; one corridor or many; **and does Syria move out of Custom Services at all?** | `SYRIA_REMITTANCE` |
-| Should "we always pay" extend to **FOR-mode RECEIVE**? | `PARTNER_DISBURSEMENT_MATRIX` |
-| LIRA-088: which balance did you mean — shop-SIM credits, or resale provider-drawer balance? | `OWNER_NOTES_TASK_PLAN` |
-| D1: subscription pricing — per shop, per machine, or per seat? | `SUBSCRIPTION_MANAGEMENT` + `DESKTOP_LICENSING` |
-| ~~Used the OMT account enough to start LIRA-191?~~ Answered yes 2026-09-20; built. | `OMT_OPEN_CREDIT_ACCOUNT` |
+| # | Question | Plan |
+| --- | --- | --- |
+| 1 | On a FOR-partner **RECEIVE**, do we hand the customer cash (drawer goes down), or does the partner pay? | `PARTNER_DISBURSEMENT_MATRIX` |
+| 2 | Profits "Commission" row (LIRA-108 residual): only OMT/Whish/Katsh (`COMMISSION_PROVIDERS`), or every provider? | `COMMISSION_AT_SETTLEMENT` |
+| 3 | D1: price per shop, per machine, or per seat? | `SUBSCRIPTION_MANAGEMENT` + `DESKTOP_LICENSING` |
+| 4 | D5: one corridor or several — or archive the plan as superseded (Syria pay-out already built as owner note #16 Route A, v185)? | `SYRIA_REMITTANCE` |
+| 5 | §3.2: should new self-serve shops wait for your approval (`pending` status)? | `OPEN_PUBLIC_SIGNUP` |
+| 6 | LIRA-265: the missing Whish App catalog item list | `current_sprint.md` |
+| 7 | Phase D: the cutover window | `PRODUCTION_DATABASE_AND_HOSTING` |
+
+LIRA-088 and LIRA-224, listed here before, were answered and built (`9ed8d90f`, `8cf9361d`).
 
 ---
 
@@ -186,31 +191,18 @@ points there and keeps its original text only as history.
 
 ## 5. Suggested order
 
-> **⚠ `done_plans/OWNER_NOTES_2026-09-21.md` outranks this list.** That document says so in its own
-> header, and the reason is sound: everything else on this board is an audit finding, a doc chore or
-> an infrastructure track, while that one is the only record of what a human hit while running the
-> shop. The order below is what to do *around* it — it is not a competing ranking. Reconciled
-> 2026-09-23; before that, this file did not mention the document at all.
+`OWNER_NOTES_2026-09-21.md` used to outrank this list; it closed on 2026-10-02 (`340a9446`) and no
+longer does.
 
-**0. `OWNER_NOTES_2026-09-21.md`, in its own §2 order.** Its §2b — three owner answers, minutes of
-your time — comes first, because two of the 19 open tickets *reverse* decisions you confirmed
-recently (D18, D1) and one (#21) answers the question that has blocked LIRA-088 for weeks. Then its
-§2a: the four money bugs, each a rule-17 candidate (reproduce → failing test → fix).
+1. **Answer the seven questions in §2d.** Minutes of your time; unblocks five plans and LIRA-265.
+2. **Do the §2a tidy-ups** — one commit, clears three plans off the board entirely. Note
+   `COMMISSION_AT_SETTLEMENT` is not purely a doc edit: its Phase 3 LIRA-108 residual needs your
+   answer on the Commission row's provider set (§2d #2) before the doc can honestly say "shipped".
+3. **Finish `MOBILE_APP_PLAN` (LIRA-289, in progress)** — APK release, phone UI tests, store
+   readiness.
+4. **Then pick one large track from §2c** and finish it rather than starting several.
 
-1. **Answer the four questions in §2d** (plus LIRA-224, filed 2026-09-23: should the product form
-   offer *Save & adjust*?). Minutes of your time; unblocks four plans.
-2. **Do the §2a tidy-ups** — one commit, clears four plans off the board entirely. Note
-   `COMMISSION_AT_SETTLEMENT` is no longer purely a doc edit: its Phase 3 LIRA-108 residual needs an
-   owner answer about the Commission row's provider set before the doc can honestly say "shipped".
-3. **Close the security follow-up, LIRA-220** — small, and it is the one item this batch *created*
-   rather than found: widening audit reads to staff made `dbHandlers.ts`'s unredacted settings audit
-   rows staff-readable.
-4. **Re-run the profit-audit verify phase** (§3). The only unknown that touches money.
-5. **WP9** (§2b) — the one small item left there now that `OMT_OPEN_CREDIT_ACCOUNT` has closed.
-6. **Then pick one large track from §2c** and finish it rather than starting several.
-
-Do 1-5 and the board drops from 19 plans to 13, with only one genuinely large item per track left —
-plus `OWNER_NOTES`, which is not a track but a queue and shrinks ticket by ticket.
+Do 1-2 and the board drops from 16 plans to about 12, with one genuinely large item per track left.
 
 ---
 
@@ -228,7 +220,7 @@ walked end to end — only a docs edit, some dead code and one deferred ticket r
 
 ```mermaid
 graph TD
-  PCD["🔶 PRIMARY_CASH_DRAWER<br/>dead code only"]
+  PCD["✅ PRIMARY_CASH_DRAWER<br/>archived 2026-10-10"]
   CAS["🔶 COMMISSION_AT_SETTLEMENT<br/>one docs edit"]
   OMT["✅ OMT_OPEN_CREDIT_ACCOUNT<br/>archived 2026-09-21"]
   PDM["🔶 PARTNER_DISBURSEMENT_MATRIX<br/>one open question"]
@@ -244,10 +236,10 @@ graph TD
 
 **Reading it:** `PRIMARY_CASH_DRAWER` was the keystone — its `grossOwedDelta`/`resolveServiceCashDrawer`
 made the commission gross-flip possible, which made the OMT open-credit account possible. Nothing
-here blocks anything now. Total remaining across the first four: one doc rewrite, two dead symbols,
-one deferred ticket, one question for you. **`SYRIA_REMITTANCE` is the one piece of real build work
-left in this cluster** — and the cluster is why it is cheap: the partner ledger, the settlement UI
-and the payout posting shape all already exist.
+here blocks anything now. Total remaining across the first four: one doc rewrite and two questions
+for you (§2d #1, #2). **`SYRIA_REMITTANCE` is the only possible build work left in this cluster**,
+and only if §2d #4 says "several corridors" — a Syria pay-out already shipped as owner note #16
+(v185).
 
 ### 6b. Tenancy, hosting & commercialisation
 
@@ -255,24 +247,24 @@ and the payout posting shape all already exist.
 
 ```mermaid
 graph TD
-  MT["🔶 MULTI_TENANT<br/>one e2e short"]
+  MT["✅ MULTI_TENANT<br/>archived 2026-10-10"]
   PDH["🔶 PRODUCTION_DATABASE_AND_HOSTING<br/>A–C shipped · Phase D (switch) left"]
   NSF["🔶 NEXT_STEPS_AFTER_FLY_MIGRATION<br/>post-migration punch list"]
-  SUB["🔶 SUBSCRIPTION_MANAGEMENT<br/>needs email capability"]
+  SUB["🔶 SUBSCRIPTION_MANAGEMENT<br/>grace/expiry emails + e2e"]
   LIC["🔶 DESKTOP_LICENSING<br/>Ed25519 + grace + fingerprint"]
   OPEN["⬜ OPEN_PUBLIC_SIGNUP<br/>Turnstile + pending status"]
 
   MT -->|"tenants table"| PDH
   MT -->|"tenant realm"| SUB
   SUB -->|"license_key +<br/>entitled_modules"| LIC
-  SUB -.->|"both need<br/>email, which<br/>does not exist"| OPEN
-  PDH <-.->|"⚠ SAME WORK<br/>specified twice"| NSF
+  SUB -.->|"both use the<br/>LIRA-267<br/>email outbox"| OPEN
+  PDH <-.->|"duplicate resolved<br/>2026-09-28 (§4)"| NSF
 ```
 
-**Reading it:** `MULTI_TENANT` is the root and is essentially done. The live decision is which
-branch to take — infrastructure (`PDH`, large) or commercial (`SUB → LIC`, also large).
-**Both `SUB` and `OPEN` need a mail capability that exists nowhere in the repo**, so whichever you
-do first pays that cost. `OPEN_PUBLIC_SIGNUP` is no longer blocked by anything: the invite-gated
+**Reading it:** `MULTI_TENANT` is the root and is done (archived 2026-10-10). The live decision is
+which branch to take — infrastructure (`PDH`, Phase D only) or commercial (`SUB → LIC`, large).
+The mail capability both `SUB` and `OPEN` needed now exists: **LIRA-267's email outbox** (SMTP,
+live in production 2026-10-07). `OPEN_PUBLIC_SIGNUP` is no longer blocked by anything: the
 signup page it sits behind has already shipped.
 
 ### 6c. Desktop ⇄ web parity
@@ -281,17 +273,17 @@ Two companions answering different questions about the same surface.
 
 ```mermaid
 graph LR
-  MT2["🔶 MULTI_TENANT"]
+  MT2["✅ MULTI_TENANT"]
   WPR["📖 WEB_PARITY_ROADMAP<br/>WHICH modules work on web"]
-  TPA["🔶 TRANSPORT_PARITY_AUDIT<br/>whether they work CORRECTLY"]
+  TPA["🔶 TRANSPORT_PARITY_AUDIT<br/>essentially done (LIRA-297)"]
 
   MT2 --> WPR
   WPR <-.->|"reachable vs<br/>reachable-correctly"| TPA
 ```
 
-**Reading it:** not a dependency, a division of labour. `TRANSPORT_PARITY_AUDIT` is the
-higher-value of the two right now — its Phase 3/4 guard script would *prevent* the defect class
-that `WEB_PARITY_ROADMAP`'s remaining 110 specs would merely *detect*.
+**Reading it:** not a dependency, a division of labour. Both are essentially done since LIRA-297
+(2026-10-10): the transport-parity guard runs in CI and *prevents* the defect class, and 117 of
+118 desktop specs run in web mode to *detect* it (only `lira-085`, desktop-only by design, does not).
 
 ### 6d. Standalone audits & backlogs
 
@@ -299,25 +291,14 @@ No dependencies in either direction. Pick them up whenever.
 
 ```mermaid
 graph TD
-  PA["✅ profit-audit-2026-09<br/>closed 2026-10-10 (LIRA-185)"]
   BAL["🔶 BALANCE_PAGES_UX_AUDIT<br/>3 cosmetic items"]
   TOP["🔶 TOPUP_CASHFLOW_DIRECTION_AUDIT<br/>1 bonus finding"]
-  OWN["🔶 OWNER_NOTES_TASK_PLAN<br/>LIRA-083/084/086/088"]
-  SPR["🗑️ SPRINT_INVENTORY_2026-08-12<br/>stale · 2 sprint files now"]
-  ON21["🔴 OWNER_NOTES_2026-09-21<br/>19 open of 22 · HIGHEST PRIORITY"]
-
-  SPR -.->|"counts tickets<br/>from every cluster"| OWN
-  ON21 -.->|"#21 answers the<br/>question blocking LIRA-088"| OWN
-  ON21 -.->|"#14/#26 are the same<br/>profit surfaces (LIRA-185)"| PA
-  ON21 -.->|"#4/#15 challenge D1;<br/>Phase 3's residual is open"| CAS2["🔶 COMMISSION_AT_SETTLEMENT"]
+  SPR["🗑️ SPRINT_INVENTORY_2026-08-12<br/>stale · to drop"]
+  MOB["🔶 MOBILE_APP_PLAN<br/>LIRA-289 in progress"]
 ```
 
-**Reading it:** `OWNER_NOTES_2026-09-21` has no *hard* dependency in either direction — which is
-why it can be worked immediately — but it touches three other plans as the thing that resolves or
-challenges them. Its note #21 supplies the answer `OWNER_NOTES_TASK_PLAN`'s LIRA-088 has been
-waiting on; its notes #14/#26 land on the same profit surfaces `profit-audit-2026-09` is
-compromised about; and its notes #4/#15 ask to reverse `COMMISSION_AT_SETTLEMENT`'s D1, whose
-Phase 3 also still owes the LIRA-108 residual.
+**Reading it:** four independent items. `profit-audit-2026-09` (LIRA-185), `OWNER_NOTES_TASK_PLAN`
+and `OWNER_NOTES_2026-09-21` used to sit here; all three are closed and archived.
 
 ### 6e. Master dependency table
 
@@ -326,41 +307,38 @@ satisfied.
 
 | Plan | Blocked by | Unlocks |
 | --- | --- | --- |
-| `PRIMARY_CASH_DRAWER_PLAN` | – | `COMMISSION_AT_SETTLEMENT` ✅, `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
+| ~~`PRIMARY_CASH_DRAWER_PLAN`~~ *(archived 2026-10-10)* | – | `COMMISSION_AT_SETTLEMENT` ✅, `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
 | `COMMISSION_AT_SETTLEMENT_PLAN` | `PRIMARY_CASH_DRAWER` ✅ | `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
 | ~~`OMT_OPEN_CREDIT_ACCOUNT_PLAN`~~ *(archived 2026-09-21)* | `PRIMARY_CASH_DRAWER` ✅, `COMMISSION_AT_SETTLEMENT` ✅ | – |
 | `PARTNER_DISBURSEMENT_MATRIX` | – | – |
-| `SYRIA_REMITTANCE_PLAN` | – *(5 owner decisions, not a code dependency)* | – |
-| `MULTI_TENANT_IMPLEMENTATION_PLAN` | – | `PRODUCTION_DATABASE`, `SUBSCRIPTION_MANAGEMENT`, `WEB_PARITY_ROADMAP` |
-| `PRODUCTION_DATABASE_AND_HOSTING_PLAN` | `MULTI_TENANT` ✅ | – *(duplicated by `NEXT_STEPS_AFTER_FLY_MIGRATION`)* |
-| `NEXT_STEPS_AFTER_FLY_MIGRATION` | – | – *(duplicates `PRODUCTION_DATABASE_AND_HOSTING`)* |
+| `SYRIA_REMITTANCE_PLAN` | – *(owner decision D5, not a code dependency)* | – |
+| ~~`MULTI_TENANT_IMPLEMENTATION_PLAN`~~ *(archived 2026-10-10)* | – | `PRODUCTION_DATABASE` ✅, `SUBSCRIPTION_MANAGEMENT` ✅, `WEB_PARITY_ROADMAP` ✅ |
+| `PRODUCTION_DATABASE_AND_HOSTING_PLAN` | `MULTI_TENANT` ✅ | `OFFLINE_DESKTOP_FALLBACK` |
+| `NEXT_STEPS_AFTER_FLY_MIGRATION` | – | – *(per-tenant split item now points at `PRODUCTION_DATABASE_AND_HOSTING`, §4)* |
+| `OFFLINE_DESKTOP_FALLBACK_PLAN` | `PRODUCTION_DATABASE_AND_HOSTING` Phase D | – |
 | `SUBSCRIPTION_MANAGEMENT_PLAN` | `MULTI_TENANT` ✅ | `DESKTOP_LICENSING` |
 | `DESKTOP_LICENSING_PLAN` | `SUBSCRIPTION_MANAGEMENT` *(schema half ✅)* | – |
 | `OPEN_PUBLIC_SIGNUP_PLAN` | – *(signup page already shipped)* | – |
 | `WEB_PARITY_ROADMAP` | `MULTI_TENANT` ✅ | – |
 | `TRANSPORT_PARITY_AUDIT_PLAN` | – | – |
-| `OWNER_NOTES_TASK_PLAN` | – | – |
 | `TOPUP_CASHFLOW_DIRECTION_AUDIT` | – | – |
 | `BALANCE_PAGES_UX_AUDIT` | – | – |
-| `profit-audit-2026-09` | – | – |
+| `MOBILE_APP_PLAN` | – | – |
+| `LANDING_PAGE_PLAN` | – | – |
 | `SPRINT_INVENTORY_2026-08-12` | – | – |
-| `OWNER_NOTES_2026-09-21` 🔴 | – *(3 owner answers gate 3 of its 19 tickets, not a code dependency)* | answers `OWNER_NOTES_TASK_PLAN`'s LIRA-088 question |
 
 ### 6f. What the shape tells you
 
 - **Only one cluster has real sequencing** — tenancy/commercial (§6b). Everywhere else the plans
   are independent, so "what unlocks what" is almost never your constraint. **You can pick on value
   alone.**
-- **The money core is finished.** §6a's chain is fully walked; what remains is a doc rewrite, two
-  dead symbols and a ticket you chose to defer. This is not where your remaining work is.
-- **11 of 19 live plans have no links at all.** Most of the board's apparent complexity was
-  finished work nobody re-filed — and that has now been cleared.
-- **The board's real queue is not a plan at all.** `OWNER_NOTES_2026-09-21` holds 19 open tickets,
-  four of them money bugs, and it is the only item sourced from someone actually running the shop.
-  Everything in §2c is optional next to it.
+- **The money core is finished.** §6a's chain is fully walked; what remains is a doc rewrite and two
+  owner questions. This is not where your remaining work is.
+- **Most live plans have no links at all.** Most of the board's apparent complexity was finished
+  work nobody re-filed — and that has now been cleared (again, 2026-10-10).
 - **The critical path for the commercial product** is
-  `MULTI_TENANT ✅ → SUBSCRIPTION_MANAGEMENT → DESKTOP_LICENSING`, with an unbuilt email
-  dependency sitting across it.
+  `MULTI_TENANT ✅ → SUBSCRIPTION_MANAGEMENT → DESKTOP_LICENSING`; the email capability it needed
+  is now provided by LIRA-267.
 
 ---
 
@@ -370,9 +348,7 @@ Every row was checked against source. Three carry caveats:
 
 | Plan | Confidence | Why |
 | --- | --- | --- |
-| `profit-audit-2026-09` | **High** | Re-checked 2026-10-10: all 19 fixed (commits cited in §3); 68 `ProfitAudit` tests run green |
-| `WEB_PARITY_ROADMAP` | **Medium** | The 117-vs-7 spec count is a hard number, but the specs were not individually audited for shim status |
+| `WEB_PARITY_ROADMAP` | **Medium** | "117 of 118 desktop specs in web mode" comes from LIRA-297's own progress notes and commits (`37015d45`, `8c2d4e9c`); the shared-spec list was not re-counted file by file on 2026-10-10 |
 | `SPRINT_INVENTORY_2026-08-12` | **Medium** | Proven dated, but its **18** line items (19 before LIRA-110 was struck 2026-09-22) were not each re-verified against HEAD |
-| `OWNER_NOTES_2026-09-21` | **Medium** | Its §4a ticket mapping was checked against source. **Updated 2026-09-25:** all four money bugs and the remaining notes are now implemented and unit-verified (jest/typecheck/lint green); confidence stays Medium only because the confirming desktop/web e2e re-run (6 stale specs, now fixed) and the commit itself are still pending with the owner |
 | `COMMISSION_AT_SETTLEMENT_PLAN` | **Medium** | Phases 0-2 and three of Phase 3's five bullets are source-verified; Phase 3's LIRA-108 residual is confirmed OPEN for the provider-set half and **unverified** for the other two halves |
 | All others | **High** | Named artifact located in source, or a clean negative grep for a specific unambiguous symbol |

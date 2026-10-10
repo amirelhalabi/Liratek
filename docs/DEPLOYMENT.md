@@ -926,5 +926,5 @@ else fixed how the app _builds and finds its API_, which every deployment needs.
 | ----------------------------------- | ----------------------------------------------------------- |
 | Dual-transport architecture & rules | `CLAUDE.md`                                                 |
 | Web-parity status per module        | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md`               |
-| Multi-tenant decisions              | `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` |
+| Multi-tenant decisions              | `docs/plans/done_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` |
 | Money-path invariants               | `docs/FEATURE_GUIDE.md`                                     |

@@ -5,6 +5,10 @@
 > **Last Restructured:** 2026-08-12 (see "How to keep this file honest" below)
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW` | `PARTIAL`
 
+> **CLOSED 2026-10-02 (`340a9446`) — all 29 notes done or closed; the batch shipped in `9ed8d90f`
+> (2026-09-25) and `8cf9361d`/`24651e83`. The banner below is kept for the record and is no longer
+> current (it is no longer uncommitted, and no longer the top priority).**
+>
 > **⬆ HIGHEST PRIORITY, updated 2026-09-25: `docs/plans/done_plans/OWNER_NOTES_2026-09-21.md`** — 29
 > notes from the customer actually running the shop on the web app. **Implemented and unit-verified
 > 2026-09-25** (see the dated section near the end of this file for the full breakdown): the four
@@ -1194,14 +1198,14 @@ generic reversal path cannot safely undo. Blocked on owner answers before any co
 
 ---
 
-## LIRA-083: Service Status Workflow for Custom Services
+## LIRA-083: Service Status Workflow for Custom Services — DONE 2026-10-03 (`b802dae7`)
 
 | Field                | Value           |
 | -------------------- | --------------- |
 | **Epic**             | Custom Services |
 | **Type**             | Feature         |
 | **Priority**         | Medium          |
-| **Status**           | DONE 2026-10-03 (not yet committed) — owner decisions: four states Received -> In_Progress -> Ready -> Delivered (matching Maintenance's own `status` vocabulary exactly, not the existing `fulfillment_status`/LIRA-155 enum which is a different, strict-transition insurance concept reserved for that ticket); freeform transitions, any value to any value (mirrors `MaintenanceRepository.updateJob`'s own whole-form-resubmit model, not `insuranceFulfillment.ts`'s forward-only one — a single-operator housekeeping field doesn't need enforcement); every pre-migration row backfills to 'Delivered' (new rows default 'Received'). Migration v190 (`packages/core/src/db/migrations/index.ts`, mirrored in `electron-app/create_db.sql`) adds `custom_services.work_status` via ALTER with NO CHECK constraint (SQLite limitation, same convention as v185's `direction`), vocabulary enforced at the Zod layer (`updateCustomServiceWorkStatusSchema`, `packages/core/src/validators/customService.ts`) via the one shared definition `packages/core/src/utils/customServiceWorkStatus.ts` (exported from both `index.ts` and `browser.ts`). Dual-transport (rule 19): IPC `custom-services:set-work-status` (`electron-app/handlers/customServiceHandlers.ts`) + REST `POST /api/custom-services/work-status` (`backend/src/api/customServices.ts`), both calling `CustomServiceService.setWorkStatus`; `getAll`/`getServices`/the list IPC/REST routes gained an optional `workStatus` filter too. Frontend: `HistoryModal.tsx` gained a "Work Status" column (a per-row `<select>`, disabled once refunded) plus an "All work status" filter dropdown; `CustomServiceRepository`/`CustomServiceService`/preload/`electron.d.ts`/`backendApi.ts`/`ElectronApiAdapter.ts`/`packages/ui/src/api/types.ts` all updated (rules 12, 21). Caught and fixed along the way: 7 pre-existing core test fixtures' hand-rolled in-memory `custom_services` schemas were missing the new column (the documented "test schemas silently void whole files" trap) — patched; and `WORK_STATUS_LABELS`' derived-not-literal construction exists specifically to avoid tripping `maintenanceInProgressLiteral.guard.test.ts`, a core-wide guard against a quoted "In Progress" (space) string (the real value is `In_Progress`, underscore) — first attempt used a hand-typed label and was caught red by this pre-existing guard; fixed by deriving the label (`s.replace(/_/g, " ")`) instead of spelling it out, which also means the guard's regex never appears literally anywhere in this ticket's own source. Verified: `packages/core` full jest (469 suites / 4557 tests, 85.7s) green; `packages/core`, `backend`, `electron-app`, `frontend` (`tsconfig.app.json`, 15.4s), `packages/ui` typechecks all clean; `backend` customServices API tests, `electron-app` customServiceHandlers tests, and `frontend/src/features/custom-services` (11 suites / 68 tests, including the new `CustomServices.workStatus.test.tsx`) all green — one pre-existing frontend test (`CustomServices.insuranceFulfillmentHistory.test.tsx`) needed a `{ selector: "span" }` disambiguator since the new column's "Delivered" `<option>` is now a second text match in the same row; not a regression, a legitimately more specific query. E2E skipped per this session's lean-test-routine owner rule (no e2e this pass) — flagged for the owner/next e2e pass; no spec file added or touched. |
+| **Status**           | DONE 2026-10-03 — committed `b802dae7` — owner decisions: four states Received -> In_Progress -> Ready -> Delivered (matching Maintenance's own `status` vocabulary exactly, not the existing `fulfillment_status`/LIRA-155 enum which is a different, strict-transition insurance concept reserved for that ticket); freeform transitions, any value to any value (mirrors `MaintenanceRepository.updateJob`'s own whole-form-resubmit model, not `insuranceFulfillment.ts`'s forward-only one — a single-operator housekeeping field doesn't need enforcement); every pre-migration row backfills to 'Delivered' (new rows default 'Received'). Migration v190 (`packages/core/src/db/migrations/index.ts`, mirrored in `electron-app/create_db.sql`) adds `custom_services.work_status` via ALTER with NO CHECK constraint (SQLite limitation, same convention as v185's `direction`), vocabulary enforced at the Zod layer (`updateCustomServiceWorkStatusSchema`, `packages/core/src/validators/customService.ts`) via the one shared definition `packages/core/src/utils/customServiceWorkStatus.ts` (exported from both `index.ts` and `browser.ts`). Dual-transport (rule 19): IPC `custom-services:set-work-status` (`electron-app/handlers/customServiceHandlers.ts`) + REST `POST /api/custom-services/work-status` (`backend/src/api/customServices.ts`), both calling `CustomServiceService.setWorkStatus`; `getAll`/`getServices`/the list IPC/REST routes gained an optional `workStatus` filter too. Frontend: `HistoryModal.tsx` gained a "Work Status" column (a per-row `<select>`, disabled once refunded) plus an "All work status" filter dropdown; `CustomServiceRepository`/`CustomServiceService`/preload/`electron.d.ts`/`backendApi.ts`/`ElectronApiAdapter.ts`/`packages/ui/src/api/types.ts` all updated (rules 12, 21). Caught and fixed along the way: 7 pre-existing core test fixtures' hand-rolled in-memory `custom_services` schemas were missing the new column (the documented "test schemas silently void whole files" trap) — patched; and `WORK_STATUS_LABELS`' derived-not-literal construction exists specifically to avoid tripping `maintenanceInProgressLiteral.guard.test.ts`, a core-wide guard against a quoted "In Progress" (space) string (the real value is `In_Progress`, underscore) — first attempt used a hand-typed label and was caught red by this pre-existing guard; fixed by deriving the label (`s.replace(/_/g, " ")`) instead of spelling it out, which also means the guard's regex never appears literally anywhere in this ticket's own source. Verified: `packages/core` full jest (469 suites / 4557 tests, 85.7s) green; `packages/core`, `backend`, `electron-app`, `frontend` (`tsconfig.app.json`, 15.4s), `packages/ui` typechecks all clean; `backend` customServices API tests, `electron-app` customServiceHandlers tests, and `frontend/src/features/custom-services` (11 suites / 68 tests, including the new `CustomServices.workStatus.test.tsx`) all green — one pre-existing frontend test (`CustomServices.insuranceFulfillmentHistory.test.tsx`) needed a `{ selector: "span" }` disambiguator since the new column's "Delivered" `<option>` is now a second text match in the same row; not a regression, a legitimately more specific query. E2E skipped per this session's lean-test-routine owner rule (no e2e this pass) — flagged for the owner/next e2e pass; no spec file added or touched. |
 | **Affected Modules** | Custom Services |
 | **Assigned To**      | —               |
 | **Depends On**       | —               |
@@ -1234,14 +1238,14 @@ progresses.
 
 ---
 
-## LIRA-084: Partial Keep-Change
+## LIRA-084: Partial Keep-Change — DONE 2026-10-02 (`b802dae7`)
 
 | Field                | Value                                            |
 | -------------------- | ------------------------------------------------ |
 | **Epic**             | Payments                                         |
 | **Type**             | Enhancement                                      |
 | **Priority**         | Medium                                           |
-| **Status**           | DONE 2026-10-02 (not yet committed)              |
+| **Status**           | DONE 2026-10-02 — committed `b802dae7` (2026-10-03) |
 | **Affected Modules** | MultiPaymentInput (shared)                       |
 | **Assigned To**      | —                                                |
 | **Depends On**       | T3 Keep Change (shipped — this is the follow-up) |
@@ -1290,14 +1294,14 @@ of a 140,000 LBP change, return 100,000 LBP and keep 40,000 on the customer's ac
 
 ---
 
-## LIRA-087: Product-Supplier — Record Debt Now, Attach Products Later
+## LIRA-087: Product-Supplier — Record Debt Now, Attach Products Later — DONE 2026-10-02 (`b802dae7`)
 
 | Field                | Value                 |
 | -------------------- | --------------------- |
 | **Epic**             | Suppliers / Inventory |
 | **Type**             | Feature               |
 | **Priority**         | Medium                |
-| **Status**           | DONE 2026-10-02 (not yet committed) — migration v189 |
+| **Status**           | DONE 2026-10-02 — committed `b802dae7` (2026-10-03) — migration v189 |
 | **Affected Modules** | Suppliers, Inventory  |
 | **Assigned To**      | —                     |
 | **Depends On**       | —                     |
@@ -1348,14 +1352,14 @@ items. Add a flow to record the debt first, then attach the related products to 
 
 ---
 
-## LIRA-088: MTC/Alfa Provider-Balance Decrement Adjustment
+## LIRA-088: MTC/Alfa Provider-Balance Decrement Adjustment — DONE 2026-09-25 (`9ed8d90f`)
 
 | Field                | Value                |
 | -------------------- | -------------------- |
 | **Epic**             | Recharge             |
 | **Type**             | Feature              |
 | **Priority**         | Medium               |
-| **Status**           | DONE 2026-09-25 (uncommitted batch) — built as #21's shop-line checkbox (buy back vs charge the customer) + #22's signed decrement, per `OWNER_NOTES_REMAINING_BUILD.md`; unit/typecheck/lint green |
+| **Status**           | DONE 2026-09-25 — committed `9ed8d90f` — built as #21's shop-line checkbox (buy back vs charge the customer) + #22's signed decrement, per `OWNER_NOTES_REMAINING_BUILD.md`; unit/typecheck/lint green |
 | **Affected Modules** | Recharge > MTC, Alfa |
 | **Assigned To**      | —                    |
 | **Depends On**       | —                    |
@@ -1372,7 +1376,7 @@ half.
 drawer-free by design) may already cover this if the owner meant the shop-SIM credits reading.
 If they meant the _resale_ provider-drawer balance, the decrement gap remains. Downgraded to
 NEEDS INTERVIEW — confirm which balance the owner meant before building
-(see `docs/plans/ongoing_plans/OWNER_NOTES_TASK_PLAN.md` §B).
+(see `docs/plans/done_plans/OWNER_NOTES_TASK_PLAN.md` §B).
 
 ### Acceptance Criteria
 
@@ -1401,7 +1405,7 @@ NEEDS INTERVIEW — confirm which balance the owner meant before building
 | **Affected Modules** | Admin, Multi-Tenant                                                          |
 | **Assigned To**      | —                                                                            |
 | **Depends On**       | —                                                                            |
-| **Source Plan**      | `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` (WP9, last item) |
+| **Source Plan**      | `docs/plans/done_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` (WP9, last item) |
 
 ### Summary
 
@@ -1424,8 +1428,9 @@ browser (`impersonat` has zero hits across all of `frontend/tests/`).
       `yarn test:e2e:web`, plus `yarn check:tenant-scoping`, `yarn check:bind-arity`,
       `yarn typecheck && yarn lint` repo-wide — **out of scope for this pass** (the orchestrator runs
       suites; this agent was asked only for the new spec, not the full-suite proof run).
-- [ ] Once the full-suite proof above is run and green, archive `MULTI_TENANT_IMPLEMENTATION_PLAN.md` to
-      `done_plans/`.
+- [x] Once the full-suite proof above is run and green, archive `MULTI_TENANT_IMPLEMENTATION_PLAN.md` to
+      `done_plans/`. — archived 2026-10-10 (plan-board refresh): WP9's spec shipped in `640a7c76`, and
+      full desktop + web suites have since run green repeatedly (e.g. desktop 312 on 2026-09-21).
 
 ### Files to Modify
 
@@ -1446,7 +1451,7 @@ browser (`impersonat` has zero hits across all of `frontend/tests/`).
 | **Affected Modules** | Suppliers, Financial Services                                             |
 | **Assigned To**      | —                                                                         |
 | **Depends On**       | —                                                                         |
-| **Source Plan**      | `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md` (§6, remaining items) |
+| **Source Plan**      | `docs/plans/done_plans/PRIMARY_CASH_DRAWER_PLAN.md` (§6, remaining items) |
 
 ### Summary
 
@@ -1878,14 +1883,14 @@ Add favorite/pinned **quick links** to a page (starting with Whish App) in the h
 
 ---
 
-## LIRA-086: Dashboard Checkpoint Freshness Coloring
+## LIRA-086: Dashboard Checkpoint Freshness Coloring — DONE 2026-10-03 (`b802dae7`)
 
 | Field                | Value       |
 | -------------------- | ----------- |
 | **Epic**             | Dashboard   |
 | **Type**             | Enhancement |
 | **Priority**         | Low         |
-| **Status**           | DONE 2026-10-03 (not yet committed) — thresholds per owner decision 2026-10-02: green within $1 (or 100,000 LBP), orange >$1 up to $10, red >$10, defined once as `CHECKPOINT_VARIANCE_GREEN_MAX_USD`/`CHECKPOINT_VARIANCE_ORANGE_MAX_USD` (`frontend/src/features/dashboard/pages/Dashboard.tsx`). Source of the counted-vs-expected numbers: `ClosingRepository.getLastCheckpointPerDrawer()` (already shipped, already returns `{physical, expected}` per currency per drawer — this ticket is purely a new read + a color mapping, no backend change). An LBP variance converts to its USD-equivalent via the shop's own sell rate (`useSellRate()`, the existing shared hook — "convert LBP at the shop rate" per the ticket) before bucketing, rather than a second hardcoded LBP threshold that could drift from the USD one. Rendered as a small colored dot next to the EXISTING checkpoint-time text (kept as-is — that one is a different, already-shipped signal: how long ago, not how accurate) with a title tooltip giving the exact dollar drift; no dot at all when the drawer has never been checkpointed. `drawerStatuses` state widened to carry the `amounts` field the API already returned but the page was dropping. Verified: `frontend` typecheck (`tsconfig.app.json`, 15.9s) clean; `src/features/dashboard` full suite (15 suites / 83 tests) green, including a new `Dashboard.checkpointVarianceColor.test.tsx` (5 tests: green/orange/red/LBP-conversion/no-checkpoint). Fixing this also surfaced and fixed a latent gap in 6 PRE-EXISTING dashboard test files: none mocked `api.getRates()`, which the newly-added `useSellRate()` call now reaches on every Dashboard render — unmocked, it threw synchronously inside the dashboard's load effect and broke those suites; each gained a one-line `getRates: jest.fn().mockResolvedValue([])` mock (not a behavior change, a fixture completeness fix, listed in Files below). Eslint on touched files: 0 errors (pre-existing `any` warnings only, same count as before this ticket). |
+| **Status**           | DONE 2026-10-03 — committed `b802dae7` — thresholds per owner decision 2026-10-02: green within $1 (or 100,000 LBP), orange >$1 up to $10, red >$10, defined once as `CHECKPOINT_VARIANCE_GREEN_MAX_USD`/`CHECKPOINT_VARIANCE_ORANGE_MAX_USD` (`frontend/src/features/dashboard/pages/Dashboard.tsx`). Source of the counted-vs-expected numbers: `ClosingRepository.getLastCheckpointPerDrawer()` (already shipped, already returns `{physical, expected}` per currency per drawer — this ticket is purely a new read + a color mapping, no backend change). An LBP variance converts to its USD-equivalent via the shop's own sell rate (`useSellRate()`, the existing shared hook — "convert LBP at the shop rate" per the ticket) before bucketing, rather than a second hardcoded LBP threshold that could drift from the USD one. Rendered as a small colored dot next to the EXISTING checkpoint-time text (kept as-is — that one is a different, already-shipped signal: how long ago, not how accurate) with a title tooltip giving the exact dollar drift; no dot at all when the drawer has never been checkpointed. `drawerStatuses` state widened to carry the `amounts` field the API already returned but the page was dropping. Verified: `frontend` typecheck (`tsconfig.app.json`, 15.9s) clean; `src/features/dashboard` full suite (15 suites / 83 tests) green, including a new `Dashboard.checkpointVarianceColor.test.tsx` (5 tests: green/orange/red/LBP-conversion/no-checkpoint). Fixing this also surfaced and fixed a latent gap in 6 PRE-EXISTING dashboard test files: none mocked `api.getRates()`, which the newly-added `useSellRate()` call now reaches on every Dashboard render — unmocked, it threw synchronously inside the dashboard's load effect and broke those suites; each gained a one-line `getRates: jest.fn().mockResolvedValue([])` mock (not a behavior change, a fixture completeness fix, listed in Files below). Eslint on touched files: 0 errors (pre-existing `any` warnings only, same count as before this ticket). |
 | **Affected Modules** | Dashboard   |
 | **Assigned To**      | —           |
 | **Depends On**       | —           |
@@ -3766,14 +3771,14 @@ confirm or rule out this exact mechanism.
 
 ---
 
-## LIRA-219: LBP-denominated profit is dropped from BOTH closing totals, not deferred — MEDIUM
+## LIRA-219: LBP-denominated profit is dropped from BOTH closing totals, not deferred — MEDIUM — DONE 2026-09-25 (`9ed8d90f`)
 
 > **⚠ Renumbered 2026-09-22 — was LIRA-176.** That number collided with
 > `docs/plans/done_plans/LIRA-176_MAINTENANCE_PARTS_PLAN.md` (Maintenance Parts / Parts Profit /
 > Job Detail Panel, DONE, shipped `396b0dfa`). The maintenance ticket keeps LIRA-176 because
 > commits and an archived plan filename already reference it; this one moved to the next free ID.
 > Same failure mode as the LIRA-070/094 collision recorded in
-> `docs/plans/ongoing_plans/OWNER_NOTES_TASK_PLAN.md:20-24`.
+> `docs/plans/done_plans/OWNER_NOTES_TASK_PLAN.md:20-24`.
 
 **Priority:** Medium · **Epic:** Closing · **Status:** DONE 2026-09-25 — committed `9ed8d90f` — **WIDENED 2026-09-24**, built per `docs/plans/done_plans/LIRA-219_CLOSING_PROFIT_PARITY.md`; unit/typecheck/lint green, desktop+web e2e green apart from unrelated stale specs (lira-158/lira-103 e2e updated but not yet re-run) · **Found:** 2026-09-04, while building LIRA-174
 
@@ -4156,7 +4161,7 @@ spec now derives its expected value independently from its own constants
 
 ---
 
-## LIRA-183: every LBP row shows 0% margin on Profits → By Module — DONE 2026-09-25 (uncommitted batch) — Medium
+## LIRA-183: every LBP row shows 0% margin on Profits → By Module — DONE 2026-09-25 (`9ed8d90f`) — Medium
 
 > **DONE 2026-09-25.** Fixed as part of the Profits audit's PA-4.21 (`OWNER_NOTES_2026-09-21.md`
 > §6.4/§6.6): server-side `margin_pct`/`margin_converted` on `ProfitByModule`, rate-free for
@@ -4178,7 +4183,7 @@ than silently converting them.
 
 ---
 
-## LIRA-184: "sales margin" is hand-written in six places; three ignore quantity — **DONE 2026-10-02 (not yet committed)** — Medium-High
+## LIRA-184: "sales margin" is hand-written in six places; three ignore quantity — **DONE 2026-10-02 (`1540a56e`)** — Medium-High
 
 **Re-verified against current `main` before touching anything (per LIRA-185's own caveat that this
 audit read a working tree being edited in parallel) — the premise was stale.** Of the original six
@@ -4248,7 +4253,7 @@ refuted → LIRA-184). For the other six modules the 73 are **leads, not finding
 arithmetic is misleading: when all three verifiers for a divergence errored, the code saw zero votes
 and dropped it as unconfirmed — so "19 confirmed of 73" does **not** mean 54 were refuted.
 
-All raw output is preserved at `docs/plans/todo_plans/profit-audit-2026-09/` — `raw-workflow-result.json`
+All raw output is preserved at `docs/plans/done_plans/profit-audit-2026-09/` — `raw-workflow-result.json`
 (582 KB) and `journal.jsonl` (456 agent records, all 8 audit agents' full returns). The expensive
 discovery work is banked; re-running only the verification for the six remaining modules is
 comparatively cheap and is the recommended next step.
@@ -4388,14 +4393,14 @@ a real router.
 
 ---
 
-## EPIC LIRA-187 → LIRA-192: OMT open-credit account — iPick + OMT App roll up under the OMT supplier — **BUILT, UNCOMMITTED** — **HIGHEST PRIORITY**
+## EPIC LIRA-187 → LIRA-192: OMT open-credit account — iPick + OMT App roll up under the OMT supplier — **DONE 2026-09-15 (`40a184c8`)**
 
 | Field        | Value                                                                                                     |
 | ------------ | --------------------------------------------------------------------------------------------------------- |
 | **Epic**     | Suppliers / OMT                                                                                           |
 | **Type**     | Money model change (rules 16, 17, 18, 20)                                                                 |
 | **Priority** | **HIGHEST** (owner, 2026-09-11)                                                                           |
-| **Status**   | **BUILT 2026-09-15, NOT COMMITTED** — awaiting the owner's diff review. 77 paths (+4,967/-135). Gates run by the orchestrator: build / typecheck / lint exit 0; full suite **639 suites, 5,941 tests, 0 failures**. **Desktop + web e2e specs written but NEVER RUN** (needs the owner's `yarn dev` → stop → e2e cycle). LIRA-191 deliberately NOT built (deferred, D9). |
+| **Status**   | **DONE 2026-09-15 — committed `40a184c8`** (LIRA-187/188/189/190/192). Originally built 2026-09-15 as 77 paths (+4,967/-135). Gates run by the orchestrator: build / typecheck / lint exit 0; full suite **639 suites, 5,941 tests, 0 failures**. **Desktop + web e2e specs written but NEVER RUN** (needs the owner's `yarn dev` → stop → e2e cycle). LIRA-191 deliberately NOT built (deferred, D9). |
 | **Plan**     | `docs/plans/ongoing_plans/OMT_OPEN_CREDIT_ACCOUNT_PLAN.md` — decisions D1–D16, code facts, full ticket bodies |
 
 OMT is ONE open-credit account: the counter (OMT SEND/RECEIVE), the OMT App wallet, and iPick credit
@@ -4426,14 +4431,14 @@ before this ships.
 
 ---
 
-## LIRA-193: a supplier settlement can mark a debt paid while ZERO money moves — **FIXED 2026-09-15, uncommitted** — HIGH (money)
+## LIRA-193: a supplier settlement can mark a debt paid while ZERO money moves — **DONE 2026-09-15 (`40a184c8`)** — HIGH (money)
 
 | Field        | Value                                                                                                  |
 | ------------ | ------------------------------------------------------------------------------------------------------ |
 | **Epic**     | Suppliers                                                                                              |
 | **Type**     | Money bug, pre-existing                                                                                |
 | **Priority** | **High** — silent, and it surfaces as an unexplained drawer shortfall at closing, not as an error       |
-| **Status**   | **FIXED 2026-09-15** (uncommitted, with the OMT epic). Found while hardening LIRA-189, then fixed on the owner's go. Gates: build/typecheck/lint exit 0, full suite **5,963 tests, 0 failures**. **Three defects closed, not one** — see the fix note below. |
+| **Status**   | **FIXED 2026-09-15 — committed `40a184c8`** (with the OMT epic). Found while hardening LIRA-189, then fixed on the owner's go. Gates: build/typecheck/lint exit 0, full suite **5,963 tests, 0 failures**. **Three defects closed, not one** — see the fix note below. |
 | **Found by** | Three independent adversarial agents, each reproducing it with an executed test against `settleAccount`'s identical pre-fix shape |
 
 ### What is wrong
@@ -4531,13 +4536,14 @@ was relying on the removed leniency.
 
 ---
 
-## LIRA-216: a shipped code comment says a guard test is stale; the test was fixed in the same commit — LOW
+## LIRA-216: a shipped code comment says a guard test is stale; the test was fixed in the same commit — LOW — DONE 2026-10-10 (`bd387510`, done under LIRA-164)
 
 | Field                | Value                                                   |
 | -------------------- | ------------------------------------------------------- |
 | **Epic**             | Commission / Suppliers                                  |
 | **Type**             | Doc defect in source + an unexecuted re-derivation      |
 | **Priority**         | Low (no money at risk; costs an agent a wrong hunt)     |
+| **Status**           | DONE 2026-10-10 — committed `bd387510` under LIRA-164 (comment corrected; the "re-break to prove it" step is not done — rule 17) |
 | **Affected Modules** | omt_whish                                               |
 | **Source Plan**      | COMMISSION_AT_SETTLEMENT_PLAN.md Phase 2; OWNER_NOTES_2026-09-21.md §0.3 |
 
@@ -5542,7 +5548,7 @@ The typed rate also converts the account-first part of a session item refund.
 
 ---
 
-## LIRA-237: web daily reports may put 00:00–03:00 Beirut rows on the previous day — HIGH — INVESTIGATE
+## LIRA-237: web daily reports may put 00:00–03:00 Beirut rows on the previous day — HIGH — DONE 2026-09-28 (`8cf9361d`)
 
 | Field                | Value                                                                              |
 | -------------------- | ---------------------------------------------------------------------------------- |
@@ -5598,7 +5604,7 @@ shop line's balance matches the credits actually left after SMS fees.
 
 ---
 
-## LIRA-239: verify that refunding a "sold ahead" days sale plus the later line recharge nets to zero — MEDIUM — VERIFY
+## LIRA-239: verify that refunding a "sold ahead" days sale plus the later line recharge nets to zero — MEDIUM — DONE 2026-09-28 (`8cf9361d`)
 
 | Field                | Value                                                                              |
 | -------------------- | ---------------------------------------------------------------------------------- |
@@ -6028,13 +6034,13 @@ warning with both amounts, so the shop can fix it with a checkpoint.
 
 ---
 
-## LIRA-253: "Undo refund" for an item refunded inside a customer-session basket — MEDIUM
+## LIRA-253: "Undo refund" for an item refunded inside a customer-session basket — MEDIUM — DONE 2026-10-02 (`b802dae7`)
 
 | Field | Value |
 | --- | --- |
 | **Type** | Feature (follow-up to LIRA-147) |
 | **Priority** | Medium |
-| **Status** | DONE 2026-10-02 (not yet committed) — SALE-member scope only, see note below |
+| **Status** | DONE 2026-10-02 — committed `b802dae7` (2026-10-03) — SALE-member scope only, see note below |
 | **Affected Modules** | sessions, pos, transactions |
 
 ### Summary
@@ -6236,7 +6242,7 @@ with them.
 | Type     | Bug                                                            |
 | Priority | High                                                           |
 | Status   | IN PROGRESS 2026-10-06                                         |
-| Source   | Plan `docs/plans/ongoing_plans/POSTING_INTEGRITY_PLAN.md` batch 1 (gap list: `docs/POSTING_MAP.md` §7) |
+| Source   | Plan `docs/plans/done_plans/POSTING_INTEGRITY_PLAN.md` batch 1 (gap list: `docs/POSTING_MAP.md` §7) |
 
 ### Summary
 
@@ -6475,7 +6481,7 @@ Spec, plan and tasks: `specs/267-email-invite-signup/`. Branch `267-email-invite
 
 ## LIRA-275: "Forgot password?" on the login page (web app) — DONE (deployed 2026-10-07, commit 713634ea)
 
-Built 2026-10-07 (feature C of `docs/plans/todo_plans/SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md`, contract C): `/api/password-reset/forgot|check|reset`, core `PasswordResetService`, `password-reset` email template, `/#/forgot-password` and `/#/reset-password` pages, "Forgot password?" link on the web login page. Decided by the v196 foundation: option (a), `users.email`; mail goes only to a VERIFIED email (owner to confirm). No Turnstile: per-IP limit (5/hour) + per-user limit (3/hour) instead. Web e2e `lira-web-040` written, not yet run.
+Built 2026-10-07 (feature C of `docs/plans/done_plans/SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md`, contract C): `/api/password-reset/forgot|check|reset`, core `PasswordResetService`, `password-reset` email template, `/#/forgot-password` and `/#/reset-password` pages, "Forgot password?" link on the web login page. Decided by the v196 foundation: option (a), `users.email`; mail goes only to a VERIFIED email (owner to confirm). No Turnstile: per-IP limit (5/hour) + per-user limit (3/hour) instead. Web e2e `lira-web-040` written, not yet run.
 
 Owner request 2026-10-07. The email capability now exists (LIRA-267: Spacemail SMTP, `email_outbox`, templates, retries).
 
@@ -6528,7 +6534,7 @@ basket shows $0 and goes on the partner's account only.
 
 ## LIRA-278: self-serve "Create your shop" by email — DONE (deployed 2026-10-07, switched on)
 
-Plan: `docs/plans/todo_plans/SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md` (Phase 1). `/signup` asks for email + optional shop name and emails the same one-time link as an admin invite. On with `SIGNUP_SELF_SERVE_ENABLED=true` in `.env.fly` (no Turnstile, owner decision). Protection: hidden bot-trap field, minimum fill time, 3 requests/hour per email, one daily cap of 20 public sign-ups (email + Google), identical reply in every case; the visitor's shop name is never put in the email. Platform Invitations list has an All/Admin/Self filter. Temporary IP diagnostic on `/signup/request` until `CLIENT_IP_HEADER` is chosen (LIRA-283).
+Plan: `docs/plans/done_plans/SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md` (Phase 1). `/signup` asks for email + optional shop name and emails the same one-time link as an admin invite. On with `SIGNUP_SELF_SERVE_ENABLED=true` in `.env.fly` (no Turnstile, owner decision). Protection: hidden bot-trap field, minimum fill time, 3 requests/hour per email, one daily cap of 20 public sign-ups (email + Google), identical reply in every case; the visitor's shop name is never put in the email. Platform Invitations list has an All/Admin/Self filter. Temporary IP diagnostic on `/signup/request` until `CLIENT_IP_HEADER` is chosen (LIRA-283).
 
 **What users will notice:** on the web app, "Sign up" on the login page opens "Create your shop": enter your email (and shop name if you like) and open the link we email you to finish.
 
@@ -6660,18 +6666,19 @@ USD Whish sale, stale item blocked. Open: web-vs-phone parity sale (T028), APK, 
 - **What:** the checkout sends `transaction_time` when the cashier backdates a sale (`CheckoutModal.tsx:542`), but `saleProcessSchema` (`packages/core/src/validators/sale.ts:49`) has no `transaction_time` key, so Zod strips it and the sale, its transaction row, drawer movements and profit are all dated "now". `createSaleSchema` (:146) has the key; the POS path does not use it. Verified for the web route (`backend/src/api/sales.ts:169` validates with `saleProcessSchema`); **desktop path not yet checked** (`salesHandlers.ts`).
 - **Also reported (unverified):** `deferPayment` may be stripped the same way on the sale-process path.
 - **Fix:** rule 23 three-way key diff (schema / `preload.ts` binding / handler-forwarded fields) for `sales:process` and `POST /api/sales/process`; add the missing keys to `saleProcessSchema`; failing-first tests on both transports that a backdated sale lands on its chosen day in Sales, Transactions, drawers and Profits.
+- **Progress (2026-10-10):** cause confirmed on BOTH transports (IPC handler test showed `transaction_time` stripped on desktop too). Fix: `transaction_time: transactionTimeSchema` in `saleProcessSchema`; `SalesRepository` applies the time to `sales.created_at` only on COMPLETION (INSERT and draft-UPDATE branches, `created_at = COALESCE(?, created_at)`): completing a resumed draft with a backdate left `sales.created_at` — and so Profits, which buckets by it — on the draft's day, and a draft save must not stamp it (the checkout does not restore the custom time on resume, so it would split the sale from its transactions row). Key diff: the only other dropped key is `currency` (CheckoutModal sends it, no layer reads it — dead field). `deferPayment` is NOT a bug: server-only session-basket flag set by `SessionCheckoutService.processCartItem` (formData never passes `saleProcessSchema`); stripping it from clients is intended (same as recharge/customService validators). Payment rows keep the real posting time like every module (dashboard "cash collected today" counts legs on the day they posted); `debt_ledger` 'Sale Debt' and the FOR-partner `partner_ledger` row are not backdated either (no module backdates `bookClientDebtCharge`). Tests: `saleProcess.transactionTime.schema.test.ts`, `SalesRepository.backdatedSale.test.ts`, `sales.processTransactionTime.api.test.ts`, `salesHandlers.processTransactionTime.test.ts`, web e2e `lira-web-050-pos-backdated-sale.spec.ts`.
+- **Follow-up (FIXED 2026-10-10, LIRA-296 code):** the warranty start day was `transaction_time.slice(0, 10)` — the UTC day, so a sale backdated to 00:00–03:00 Beirut started its warranty one day early (rule 27); POS sends `client_day = localDay()` (today) even when backdated, so it could not be used as-is. Now `clientDayOfUtcTimestamp(transaction_time)` (`utils/requestDay.ts`): the request's client tz offset on web, the machine's zone on desktop; `client_day` never wins over a backdated time. Same pass: `CustomServiceRepository.getAll({ date })` used `DATE(created_at)` (UTC day) → `localDayExpr("created_at")` (no screen passes `date` today). Failing-first tests: `SalesRepository.backdatedWarrantyDay.test.ts`, `CustomServiceRepository.dateFilterTzOffset.test.ts` (4/5 red before the fix, green under TZ=Asia/Beirut, UTC, America/New_York).
+- **Follow-up (pre-existing, unchanged):** a draft completed on a later day WITHOUT a custom time keeps the draft's day on `sales.created_at` (Sales/Profits) while its transactions row is dated at completion — owner call whether completion should re-date the sale.
 
-**What users will notice:** a sale entered for an earlier day is recorded on that day in Sales, Transactions and Profits (also when finishing a saved draft), not today. From now on only; the dashboard's "cash collected today" still includes the cash.
+**What users will notice:** a sale entered for an earlier day is recorded on that day in Sales, Transactions and Profits (also when finishing a saved draft), not today. From now on only; the dashboard's "cash collected today" still includes the cash. A sale entered for just after midnight now starts its warranty on that day, not the day before.
 
 ## LIRA-299: sales by date range uses the server's UTC day — MEDIUM — DONE 2026-10-10, not yet released (found during LIRA-296)
 
 - **What:** `SalesRepository.findByDateRange` filters `WHERE DATE(s.created_at) BETWEEN ? AND ?` on the UTC timestamp, while the caller passes shop (Beirut) days. On the web (server in UTC) a sale made between 00:00 and 03:00 Beirut time falls on the previous day (rule 27). LIRA-296 SF-2 exposed this route on the web (`GET /api/sales/by-date-range`), so it is now reachable there; no screen uses it yet.
 - **Fix:** use the existing client-day / timezone-offset fragments (`reportingTimeFragments.ts`, LIRA-237) for the date bounds; failing-first test with a sale at 01:00 Beirut.
+- **Done (2026-10-10):** `findByDateRange` now filters on `localDayExpr("s.created_at")` (shared fragment, rule 14). No transport change: the web already sends `X-Client-Tz-Offset` (httpClient → `authenticateJWT` → `runWithTenant`), desktop falls back to `'localtime'` on the shop PC. Guard `SalesRepository.findByDateRange.localDay.test.ts` written first; on the old query Oct 10 returned `[]` and Oct 9 returned the 01:00-Beirut sales (2 of 3 failed); passes after the fix under TZ Beirut/UTC/Los Angeles. The old query had no `'localtime'`, so desktop IPC bucketed by the UTC day too; fixed on both. Only date predicate of its kind in `SalesRepository`. No release note: checked 2026-10-10 that no page/hook in `frontend/src`, `packages/ui/src` or `mobile/src` calls `getSalesByDateRange`. Sibling found, not fixed: `CustomServiceRepository.getAll({ date })` uses `DATE(created_at) = ?` (UTC on both transports); the only screen caller (`useCustomServices`) passes no date, so it is route-reachable only.
 
 **What users will notice:** nothing today (no screen uses it yet); prevents wrong-day sales lists on the web when one does.
-- **Progress (2026-10-10):** cause confirmed on BOTH transports (IPC handler test showed `transaction_time` stripped on desktop too). Fix: `transaction_time: transactionTimeSchema` in `saleProcessSchema`; `SalesRepository` applies the time to `sales.created_at` only on COMPLETION (INSERT and draft-UPDATE branches, `created_at = COALESCE(?, created_at)`): completing a resumed draft with a backdate left `sales.created_at` — and so Profits, which buckets by it — on the draft's day, and a draft save must not stamp it (the checkout does not restore the custom time on resume, so it would split the sale from its transactions row). Key diff: the only other dropped key is `currency` (CheckoutModal sends it, no layer reads it — dead field). `deferPayment` is NOT a bug: server-only session-basket flag set by `SessionCheckoutService.processCartItem` (formData never passes `saleProcessSchema`); stripping it from clients is intended (same as recharge/customService validators). Payment rows keep the real posting time like every module (dashboard "cash collected today" counts legs on the day they posted); `debt_ledger` 'Sale Debt' and the FOR-partner `partner_ledger` row are not backdated either (no module backdates `bookClientDebtCharge`). Tests: `saleProcess.transactionTime.schema.test.ts`, `SalesRepository.backdatedSale.test.ts`, `sales.processTransactionTime.api.test.ts`, `salesHandlers.processTransactionTime.test.ts`, web e2e `lira-web-050-pos-backdated-sale.spec.ts`.
-- **Follow-up (not fixed, LIRA-296 code):** with `transaction_time` now reaching the repository, the warranty start day is `transaction_time.slice(0, 10)` — the UTC day. A sale backdated to 00:00–03:00 Beirut starts its warranty one day early (rule 27). POS sends `client_day = localDay()` (today) even when backdated, so it cannot be used as-is.
-- **Follow-up (pre-existing, unchanged):** a draft completed on a later day WITHOUT a custom time keeps the draft's day on `sales.created_at` (Sales/Profits) while its transactions row is dated at completion — owner call whether completion should re-date the sale.
 
 ## LIRA-296: warranty for any item, not just phones — P1 + P2 + P3 DONE, not yet released (owner request 2026-10-10; decisions D1–D4 2026-10-10)
 
@@ -6679,7 +6686,6 @@ Spec: `specs/296-warranty-any-item/`. Plan: `docs/plans/done_plans/WARRANTY_ANY_
 
 - **P1 DONE (local commit, not pushed):** one receipt number `RCP-<sale id>` (core `receiptNumberFor`/`parseReceiptNumber`); one warranty-state helper (core `warrantyState`, replaces `computeWarrantyStatus` + the frontend copy); v205 (`product_categories.warranty_months`, `sale_items.warranty_months`/`warranty_set_by`, `idx_sale_items_warranty_until`); warranty search (`WarrantyRepository`/`WarrantyService`, IPC `warranty:search`, REST `GET /api/warranty/search`, adapter `searchWarranties`, `/warranty` page + sidebar); state on every sale line incl. partial refunds; category default + till edit (`resolveWarrantyMonths`, `client_day` starts the clock, rule 27); warranty terms setting + receipts; side fixes SF-1 (web recent-sales day), SF-2 (`GET /api/sales/by-date-range` + `getSalesByDateRange`), SF-3 (receipt header prints).
 - **P2 DONE (local commit, not pushed):** migration v206 (`warranty_claims`, `defective_items`, maintenance/consumption/unit warranty columns); `WARRANTY_COST` type (no legs, `is_auto`, NON_REVERSIBLE, posting rule); `refundSaleItem({ restock: false })` + claim-owned undo; `WarrantyService.createClaim` (REPAIR/REPLACE/REFUND, guards), `voidClaim` (nets every ledger to 0 — `voidNetsZero.test.ts`), `resolveDefective`; warranty jobs free + cost booked once at delivery (`notWarrantyJob`); Profits "Warranty cost" line (totals, detail, By Date/By Cashier, Overview card); IPC + REST + adapters for claims/defective; ClaimModal / ClaimHistory / DefectiveItems; repair warranty (months, stamped at Delivered_Paid from `client_day`, on the receipt, in the search, claimable).
-- **Done (2026-10-10):** `findByDateRange` now filters on `localDayExpr("s.created_at")` (shared fragment, rule 14). No transport change: the web already sends `X-Client-Tz-Offset` (httpClient → `authenticateJWT` → `runWithTenant`), desktop falls back to `'localtime'` on the shop PC. Guard `SalesRepository.findByDateRange.localDay.test.ts` written first; on the old query Oct 10 returned `[]` and Oct 9 returned the 01:00-Beirut sales (2 of 3 failed); passes after the fix under TZ Beirut/UTC/Los Angeles. The old query had no `'localtime'`, so desktop IPC bucketed by the UTC day too; fixed on both. Only date predicate of its kind in `SalesRepository`. No release note: checked 2026-10-10 that no page/hook in `frontend/src`, `packages/ui/src` or `mobile/src` calls `getSalesByDateRange`. Sibling found, not fixed: `CustomServiceRepository.getAll({ date })` uses `DATE(created_at) = ?` (UTC on both transports); the only screen caller (`useCustomServices`) passes no date, so it is route-reachable only.
 - **P3 DONE (local commit, not pushed):** migration v207 (`product_categories.serial_label`/`serial_required`, `supplier_returns` with the links its outcome wrote); serial label through every layer (Settings, cart picker, checkout receipt, sale details + reprint via `getSaleItems.serial_label`, product form units section; core `serialLabelFor`); a sale without the unit: BLOCK → `code: SERIAL_REQUIRED`, WARN → `warnings[]` + a till warning; supplier returns (`SupplierReturnRepository`, `WarrantyService.createSupplierReturn/closeSupplierReturn/listSupplierReturns`; CREDITED = paper ADJUSTMENT −credit + `WARRANTY_COST` +credit per currency, REPLACED = restock batch + +cost, REJECTED = back to HELD; `voidClaim` undoes closed returns and refuses an open one); warranty report (`WarrantyReportRepository`, `WarrantyService.report`, net = −Profits "Warranty cost"); IPC + REST + adapters; `SupplierReturns.tsx`, `WarrantyReport.tsx`, "Send to supplier" in Defective items.
 
 - **Follow-up (owner decision 2026-10-10), DONE locally:** resale warranty is chosen at the till, so the refund pop-up's "Returned phones" section lost its warranty-date input (Defective stays; `buildUnitExtras` never sends `warranty_override_until`, which the server still accepts and REPLACE claims still use). Core `unitWarrantyDisplay` (browser-safe): an IN_STOCK unit shows `NOT_SOLD` whatever override it carries; `ProductUnitService` stamps `warranty_display` on list + story; Phone Units, its export and the story card share one badge ("Not sold", or "Not sold (6 mo from sale)" when the model has a term — supersedes the 2026-08-26/27 "6 mo — starts at sale" / story-card "Void (refunded)" mappings). Warranty search: `WarrantyService.searchWithStock` adds `inStockUnits` (exact serial, IN_STOCK, tenant-scoped) beside the envelope's `data` on IPC + REST; adapter `searchWarranties` now returns `WarrantySearchResult`; the Warranty page shows "In stock, not sold — warranty starts when it's sold."

@@ -9,7 +9,7 @@
 > float model … I think the float model is something wrongly implemented."_ PR #66 does not
 > merge as designed; it is superseded, not abandoned mid-review.
 >
-> **Authoritative spec now:** `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md`. The
+> **Authoritative spec now:** `docs/plans/done_plans/PRIMARY_CASH_DRAWER_PLAN.md`. The
 > canonical money rules live in `docs/FEATURE_GUIDE.md` §7/§8/§8.1, already rewritten for the
 > new **primary-cash-drawer** model — read those, not §1 below, for what the system drawer
 > means today.
@@ -316,7 +316,7 @@ twice in full. This is architecture-wide — `createTopUp`, `createTopUpFromDraw
 //TODO   confirmed against code: the float model (§1: OMT_System/Whish_System as a spendable
 //TODO   in-provider-system balance) was superseded by the primary-cash-drawer (PCD) model,
 //TODO   implemented in commit 9553807 "fix(money)!: OMT/Whish system drawer becomes the
-//TODO   primary CASH drawer (#68)" per docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md.
+//TODO   primary CASH drawer (#68)" per docs/plans/done_plans/PRIMARY_CASH_DRAWER_PLAN.md.
 //TODO   Do not implement anything from §1/§2/§5 of this file — they describe a model that
 //TODO   was deleted before merge. The successor plan's own §8bis/§8bis.1 record Phases A-G
 //TODO   as implemented and second-owner-pass triaged; this pass independently re-verified
