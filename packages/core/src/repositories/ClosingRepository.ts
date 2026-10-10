@@ -52,6 +52,8 @@ export interface SinceLastCountRow {
   id: number;
   type: string;
   summary: string | null;
+  /** Provider / service type, for the shared title wording (LIRA-301). */
+  metadata_json: string | null;
   client_id: number | null;
   client_name: string | null;
   amount_usd: number;
@@ -1225,7 +1227,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
-        `SELECT t.id, t.type, t.summary, t.client_id, c.full_name AS client_name,
+        `SELECT t.id, t.type, t.summary, t.metadata_json, t.client_id, c.full_name AS client_name,
                 t.amount_usd, t.amount_lbp, t.created_at,
                 p.currency_code, ROUND(SUM(p.amount), 2) AS drawer_amount
            FROM payments p

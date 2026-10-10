@@ -17,7 +17,9 @@ export interface RecentTransaction {
   amount_usd: number;
   amount_lbp: number;
   client_name?: string | null;
-  summary?: string | null;
+  summary: string | null;
+  /** Provider / service type: the shared title wording reads it (LIRA-301). */
+  metadata_json: string | null;
   created_at: string;
 }
 
@@ -32,6 +34,7 @@ export interface SinceLastCountTxn {
   id: number;
   type: string;
   summary: string | null;
+  metadata_json: string | null;
   client_name: string | null;
   created_at: string;
   drawer_amounts: Record<string, number>;

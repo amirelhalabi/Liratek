@@ -22,12 +22,12 @@
  * slate colour, `direction: null`) is preferable to an absent one: it is a
  * decision on the record rather than an omission nobody can see.
  *
- * The import is `import type` — erased at compile time — so this module stays
- * runtime-dependency-free and can be imported by `cashFlow.ts` (deliberately
- * unit-testable without the Electron/DB stack) and by frontend jest, whose
- * `@liratek/core` mapping points at core's BROWSER entry.
+ * Labels come from core's TRANSACTION_TYPE_LABELS (LIRA-301), shared with the
+ * phone app; only colour and badge direction are decided here. Core's browser
+ * entry is pure, so this module stays unit-testable without the Electron/DB
+ * stack (cashFlow.ts and frontend jest import it).
  */
-import type { TransactionType } from "@liratek/core";
+import { TRANSACTION_TYPE_LABELS, type TransactionType } from "@liratek/core";
 
 /** Which way cash physically moved — drives the green ↓ / red ↑ badge.
  *  `null` renders no badge at all (a paper entry where no cash moved). */
@@ -67,40 +67,40 @@ export const TRANSACTION_PRESENTATION: Record<
   TransactionPresentation
 > = {
   // ── Revenue ───────────────────────────────────────────────────────────
-  SALE: { label: null, color: "text-green-400", direction: "in" },
+  SALE: { label: TRANSACTION_TYPE_LABELS.SALE, color: "text-green-400", direction: "in" },
   // Label AND colour are provider-derived (OMT / Whish / iPick / Katsh /
   // Binance …); direction depends on service_type — a SEND/BILL takes the
   // customer's cash, a RECEIVE pays them out, and a fee-on-top RECEIVE does
   // both. The values here are the fallbacks when metadata says nothing.
   FINANCIAL_SERVICE: {
-    label: null,
+    label: TRANSACTION_TYPE_LABELS.FINANCIAL_SERVICE,
     color: "text-blue-400",
     direction: "dynamic",
   },
-  EXCHANGE: { label: null, color: "text-yellow-400", direction: "both" },
+  EXCHANGE: { label: TRANSACTION_TYPE_LABELS.EXCHANGE, color: "text-yellow-400", direction: "both" },
   WALLET_EXCHANGE: {
-    label: null,
+    label: TRANSACTION_TYPE_LABELS.WALLET_EXCHANGE,
     color: "text-yellow-300",
     direction: "both",
   },
   // LIRA-090 §5.2: an internal stock transfer between the shop's own drawers
   // and its own carrier line. No customer, so no cash badge.
   TELECOM_SELF_CHARGE: {
-    label: null,
+    label: TRANSACTION_TYPE_LABELS.TELECOM_SELF_CHARGE,
     color: "text-slate-300",
     direction: null,
   },
   // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7): the shop BUYS credits back
   // from the customer and pays cash out — the opposite of a RECHARGE sale.
   TELECOM_CREDIT_BUYBACK: {
-    label: null,
+    label: TRANSACTION_TYPE_LABELS.TELECOM_CREDIT_BUYBACK,
     color: "text-slate-300",
     direction: "out",
   },
   // Primary Cash Drawer plan §8.6: a same-shop transfer between two of our
   // own drawers — one leg each way, hence "both".
-  DRAWER_TRANSFER: { label: null, color: "text-slate-300", direction: "both" },
-  RECHARGE: { label: null, color: "text-purple-400", direction: "in" },
+  DRAWER_TRANSFER: { label: TRANSACTION_TYPE_LABELS.DRAWER_TRANSFER, color: "text-slate-300", direction: "both" },
+  RECHARGE: { label: TRANSACTION_TYPE_LABELS.RECHARGE, color: "text-purple-400", direction: "in" },
   // LIRA-252 wave 2 — a manual SIM-line hand-edit (create/edit/quick-update/
   // deactivate/reactivate/archive, Settings → Carrier Lines or the
   // Recharge-tab inline balance update). `amount_usd` is a SIGNED credits
@@ -111,14 +111,14 @@ export const TRANSACTION_PRESENTATION: Record<
   // 03924245: +$200.00 (edited)" detail is the row's own `summary` (rendered
   // verbatim by SummaryCell); this is just the Type-column label.
   CARRIER_LINE_ADJUSTMENT: {
-    label: "Line Adjustment",
+    label: TRANSACTION_TYPE_LABELS.CARRIER_LINE_ADJUSTMENT,
     color: "text-violet-200",
     direction: "dynamic",
   },
   // Four funding/destination shapes (TOPUP_CASHFLOW_DIRECTION_AUDIT.md) —
   // resolved from metadata, never from the type.
   RECHARGE_TOPUP: {
-    label: null,
+    label: TRANSACTION_TYPE_LABELS.RECHARGE_TOPUP,
     color: "text-purple-300",
     direction: "dynamic",
   },
@@ -130,17 +130,17 @@ export const TRANSACTION_PRESENTATION: Record<
   // resolve — styled like the existing DRAWER_CASHOUT entry (fixed "out",
   // rose family) rather than the dynamic RECHARGE_TOPUP above it.
   WALLET_CASHOUT: {
-    label: "OMT App Cash-Out",
+    label: TRANSACTION_TYPE_LABELS.WALLET_CASHOUT,
     color: "text-rose-300",
     direction: "out",
   },
   MTC_TOPUP: {
-    label: "MTC Top-up",
+    label: TRANSACTION_TYPE_LABELS.MTC_TOPUP,
     color: "text-violet-400",
     direction: "in",
   },
   ALFA_TOPUP: {
-    label: "Alfa Top-up",
+    label: TRANSACTION_TYPE_LABELS.ALFA_TOPUP,
     color: "text-violet-300",
     direction: "in",
   },
@@ -150,51 +150,51 @@ export const TRANSACTION_PRESENTATION: Record<
   // shape. Every other custom service (the overwhelming majority — no
   // partner, For-Partner, or ordinary Via-Partner IN) still resolves to
   // "in", exactly as before; only the new payout shape reads "out".
-  CUSTOM_SERVICE: { label: null, color: "text-cyan-400", direction: "dynamic" },
-  MAINTENANCE: { label: null, color: "text-amber-400", direction: "in" },
+  CUSTOM_SERVICE: { label: TRANSACTION_TYPE_LABELS.CUSTOM_SERVICE, color: "text-cyan-400", direction: "dynamic" },
+  MAINTENANCE: { label: TRANSACTION_TYPE_LABELS.MAINTENANCE, color: "text-amber-400", direction: "in" },
 
   // ── Loto ──────────────────────────────────────────────────────────────
   // B7: LOTO and LOTO_CASH_PRIZE were both unmapped (blank badge) before the
   // cash-flow audit — a ticket sale takes cash in, a prize pays cash out.
-  LOTO: { label: "Loto", color: "text-lime-500", direction: "in" },
+  LOTO: { label: TRANSACTION_TYPE_LABELS.LOTO, color: "text-lime-500", direction: "in" },
   LOTO_CASH_PRIZE: {
-    label: "Loto Prize",
+    label: TRANSACTION_TYPE_LABELS.LOTO_CASH_PRIZE,
     color: "text-lime-400",
     direction: "out",
   },
   LOTO_SETTLEMENT: {
-    label: "Loto Settlement",
+    label: TRANSACTION_TYPE_LABELS.LOTO_SETTLEMENT,
     color: "text-lime-300",
     direction: "out",
   },
   LOTO_MONTHLY_FEE: {
-    label: "Loto Monthly Fee",
+    label: TRANSACTION_TYPE_LABELS.LOTO_MONTHLY_FEE,
     color: "text-lime-400",
     direction: "out",
   },
 
   // ── Outflows ──────────────────────────────────────────────────────────
-  EXPENSE: { label: null, color: "text-red-400", direction: "out" },
+  EXPENSE: { label: TRANSACTION_TYPE_LABELS.EXPENSE, color: "text-red-400", direction: "out" },
   // LIRA-262 — "the shop used its own stock": an expense at cost. Owner
   // decision 2026-10-06: badge reads OUT (value left the shop — out of stock
   // or a provider's prepaid balance), even though no cash drawer moves.
   EXPENSE_INVENTORY: {
-    label: "Expense · Stock",
+    label: TRANSACTION_TYPE_LABELS.EXPENSE_INVENTORY,
     color: "text-red-400",
     direction: "out",
   },
   EXPENSE_KATSH: {
-    label: "Expense · Katsh",
+    label: TRANSACTION_TYPE_LABELS.EXPENSE_KATSH,
     color: "text-red-400",
     direction: "out",
   },
   EXPENSE_IPICK: {
-    label: "Expense · iPick",
+    label: TRANSACTION_TYPE_LABELS.EXPENSE_IPICK,
     color: "text-red-400",
     direction: "out",
   },
   EXPENSE_WHISH_APP: {
-    label: "Expense · Whish App",
+    label: TRANSACTION_TYPE_LABELS.EXPENSE_WHISH_APP,
     color: "text-red-400",
     direction: "out",
   },
@@ -204,24 +204,24 @@ export const TRANSACTION_PRESENTATION: Record<
   // mode debits a real source drawer into General, so it reads "both" —
   // distinguished by `metadata.source_drawer`, hence dynamic.
   DRAWER_TOPUP: {
-    label: "General Top-up",
+    label: TRANSACTION_TYPE_LABELS.DRAWER_TOPUP,
     color: "text-slate-300",
     direction: "dynamic",
   },
   DRAWER_CASHOUT: {
-    label: "General Cash-Out",
+    label: TRANSACTION_TYPE_LABELS.DRAWER_CASHOUT,
     color: "text-rose-300",
     direction: "out",
   },
 
   // ── Hold money ────────────────────────────────────────────────────────
   HOLD_MONEY: {
-    label: "Money Held",
+    label: TRANSACTION_TYPE_LABELS.HOLD_MONEY,
     color: "text-orange-400",
     direction: null,
   },
   HOLD_MONEY_COLLECT: {
-    label: "Hold Returned",
+    label: TRANSACTION_TYPE_LABELS.HOLD_MONEY_COLLECT,
     color: "text-orange-300",
     direction: null,
   },
@@ -229,49 +229,49 @@ export const TRANSACTION_PRESENTATION: Record<
   // voiding a HOLD_MONEY_COLLECT pickup re-credits every drawer it paid out
   // of, so cash flows back IN.
   HOLD_MONEY_COLLECT_VOID: {
-    label: "Hold Pickup Voided",
+    label: TRANSACTION_TYPE_LABELS.HOLD_MONEY_COLLECT_VOID,
     color: "text-orange-200",
     direction: "in",
   },
 
   // ── Debt & supplier & partner ─────────────────────────────────────────
-  DEBT_REPAYMENT: { label: null, color: "text-emerald-400", direction: "in" },
+  DEBT_REPAYMENT: { label: TRANSACTION_TYPE_LABELS.DEBT_REPAYMENT, color: "text-emerald-400", direction: "in" },
   CREDIT_CASH_OUT: {
-    label: null,
+    label: TRANSACTION_TYPE_LABELS.CREDIT_CASH_OUT,
     color: "text-slate-300",
     direction: "out",
   },
   CREDIT_CASH_IN: {
-    label: "Account Credit",
+    label: TRANSACTION_TYPE_LABELS.CREDIT_CASH_IN,
     color: "text-emerald-400",
     direction: "in",
   },
   DEBT_CASH_OUT: {
-    label: "Cash Advance",
+    label: TRANSACTION_TYPE_LABELS.DEBT_CASH_OUT,
     color: "text-rose-400",
     direction: "out",
   },
   // T3: a profit-only row, amount 0 — the tender is booked by the basket's
   // own payment legs, so this row moves no cash of its own.
-  KEPT_CHANGE: { label: null, color: "text-slate-300", direction: null },
+  KEPT_CHANGE: { label: TRANSACTION_TYPE_LABELS.KEPT_CHANGE, color: "text-slate-300", direction: null },
   // LIRA-296 — the cost of honouring a warranty (or a recovery offsetting
   // it): profit-only, no payment legs, no drawer — so no cash badge.
   WARRANTY_COST: {
-    label: "Warranty Cost",
+    label: TRANSACTION_TYPE_LABELS.WARRANTY_COST,
     color: "text-amber-300",
     direction: null,
   },
   // Spans both directions: paying a supplier empties the drawer, a supplier
   // paying us back fills it — read from the CQ-8 counterparty contract.
   SUPPLIER_PAYMENT: {
-    label: null,
+    label: TRANSACTION_TYPE_LABELS.SUPPLIER_PAYMENT,
     color: "text-indigo-400",
     direction: "dynamic",
   },
   // "out" for a normal net settlement, "in" for the bills-only
   // commission-at-settlement shape (LIRA-137).
   SUPPLIER_SETTLEMENT: {
-    label: "Supplier Settlement",
+    label: TRANSACTION_TYPE_LABELS.SUPPLIER_SETTLEMENT,
     color: "text-indigo-300",
     direction: "dynamic",
   },
@@ -280,12 +280,12 @@ export const TRANSACTION_PRESENTATION: Record<
   // the same cool-hue neighbourhood. Direction comes from the counterparty
   // flow, with a signed-amount fallback for pre-contract rows.
   PARTNER_SETTLEMENT: {
-    label: "Partner Settlement",
+    label: TRANSACTION_TYPE_LABELS.PARTNER_SETTLEMENT,
     color: "text-sky-400",
     direction: "dynamic",
   },
   PARTNER_PAYMENT: {
-    label: "Partner Payment",
+    label: TRANSACTION_TYPE_LABELS.PARTNER_PAYMENT,
     color: "text-sky-300",
     direction: "dynamic",
   },
@@ -294,17 +294,17 @@ export const TRANSACTION_PRESENTATION: Record<
   // blank badge: a green/red arrow would misrepresent a row where no cash
   // moved.
   PARTNER_ADJUSTMENT: {
-    label: "Partner Adjustment",
+    label: TRANSACTION_TYPE_LABELS.PARTNER_ADJUSTMENT,
     color: "text-sky-200",
     direction: null,
   },
   ACCOUNT_ADJUSTMENT: {
-    label: "Account Adjustment",
+    label: TRANSACTION_TYPE_LABELS.ACCOUNT_ADJUSTMENT,
     color: "text-emerald-300",
     direction: null,
   },
   SUPPLIER_ADJUSTMENT: {
-    label: "Supplier Adjustment",
+    label: TRANSACTION_TYPE_LABELS.SUPPLIER_ADJUSTMENT,
     color: "text-indigo-200",
     direction: null,
   },
@@ -316,7 +316,7 @@ export const TRANSACTION_PRESENTATION: Record<
   // path can undo a mistaken delivery — see ACTIONABLE_TYPES in
   // auditConstants.ts, which is what actually renders the Void button.
   SUPPLIER_STOCK_INTAKE: {
-    label: "Stock Received",
+    label: TRANSACTION_TYPE_LABELS.SUPPLIER_STOCK_INTAKE,
     color: "text-indigo-200",
     direction: null,
   },
@@ -324,7 +324,7 @@ export const TRANSACTION_PRESENTATION: Record<
   // line yet is the same "paper, no cash moved" shape as SUPPLIER_STOCK_INTAKE
   // immediately above (one ledger debit, no payment legs/drawer delta).
   SUPPLIER_RECORDED_DEBT: {
-    label: "Supplier Debt Recorded",
+    label: TRANSACTION_TYPE_LABELS.SUPPLIER_RECORDED_DEBT,
     color: "text-indigo-200",
     direction: null,
   },
@@ -332,7 +332,7 @@ export const TRANSACTION_PRESENTATION: Record<
   // partner) — the row's metadata.counterparty says which. Fuchsia is
   // otherwise unused, keeping "Discount" distinct from every other family.
   COUNTERPARTY_DISCOUNT: {
-    label: "Discount",
+    label: TRANSACTION_TYPE_LABELS.COUNTERPARTY_DISCOUNT,
     color: "text-fuchsia-400",
     direction: null,
   },
@@ -340,15 +340,15 @@ export const TRANSACTION_PRESENTATION: Record<
   // ── Bookkeeping ───────────────────────────────────────────────────────
   // A count, not a movement. The Amount column shows the counted physical
   // totals from metadata; the badge stays blank.
-  CHECKPOINT: { label: "Checkpoint", color: "text-slate-400", direction: null },
+  CHECKPOINT: { label: TRANSACTION_TYPE_LABELS.CHECKPOINT, color: "text-slate-400", direction: null },
   // A REFUND's money movement is carried by its own reversal payment legs,
   // which the legs subtext renders; the type alone implies no direction.
-  REFUND: { label: null, color: "text-rose-400", direction: null },
+  REFUND: { label: TRANSACTION_TYPE_LABELS.REFUND, color: "text-rose-400", direction: null },
   // LIRA-147 — same reasoning as REFUND immediately above: an admin "Undo
   // refund" row's money movement is carried by its own payment legs (the
   // negated inverse of the refund's), rendered by the same legs subtext.
   REFUND_UNDO: {
-    label: "Undo Refund",
+    label: TRANSACTION_TYPE_LABELS.REFUND_UNDO,
     color: "text-amber-400",
     direction: null,
   },
@@ -357,9 +357,9 @@ export const TRANSACTION_PRESENTATION: Record<
   // CLIENT_CREATED is blanket-hidden from the table (HIDDEN_TRANSACTION_TYPES)
   // but still needs an entry: the record is exhaustive by design, and the
   // other two render.
-  CLIENT_CREATED: { label: null, color: "text-teal-400", direction: null },
-  CLIENT_UPDATED: { label: null, color: "text-teal-300", direction: null },
-  CLIENT_DELETED: { label: null, color: "text-teal-500", direction: null },
+  CLIENT_CREATED: { label: TRANSACTION_TYPE_LABELS.CLIENT_CREATED, color: "text-teal-400", direction: null },
+  CLIENT_UPDATED: { label: TRANSACTION_TYPE_LABELS.CLIENT_UPDATED, color: "text-teal-300", direction: null },
+  CLIENT_DELETED: { label: TRANSACTION_TYPE_LABELS.CLIENT_DELETED, color: "text-teal-500", direction: null },
 };
 
 /**

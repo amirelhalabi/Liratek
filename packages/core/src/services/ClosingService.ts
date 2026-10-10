@@ -91,6 +91,8 @@ export interface SinceLastCountTransaction {
   id: number;
   type: string;
   summary: string | null;
+  /** Provider / service type, for the shared title wording (LIRA-301). */
+  metadata_json: string | null;
   client_id: number | null;
   client_name: string | null;
   amount_usd: number;
@@ -525,6 +527,7 @@ export class ClosingService {
             id: r.id,
             type: r.type,
             summary: r.summary,
+            metadata_json: r.metadata_json,
             client_id: r.client_id,
             client_name: r.client_name,
             amount_usd: r.amount_usd,

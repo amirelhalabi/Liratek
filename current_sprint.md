@@ -6575,6 +6575,14 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
+## LIRA-301: one transaction wording for web, desktop and phone — DONE, not yet released (owner request 2026-10-10)
+
+- **What:** the phone listed rows as the raw type ("FINANCIAL SERVICE · Amir") while the web showed "Whish App Send". The web's title rules, provider names (`PROVIDER_LABELS`), recharge subtype labels, per-type labels and the summary re-wording moved, unchanged, into core `utils/transactionText.ts` (`transactionTitle`, `transactionSummary`, `TRANSACTION_TYPE_LABELS`, browser-safe). The web re-exports them under the old names (846 audit/shared tests pass unchanged); the web registry keeps only colours and badge direction. The phone's Activity tab and the web count window's "since the last count" list use the same functions; that list now carries `metadata_json`.
+- **Adding a service** (Katsh/iPick on the phone, or a new provider): one entry in `PROVIDER_LABELS` (and a title rule in `transactionTitle` if it needs a Send/Bill suffix) — every app names it the same.
+- **Not changed:** the stored `transactions.summary` text (audit record, written at booking); titles are worked out on display, so a rename reaches past rows too.
+
+**What users will notice:** the count window's list names each sale the same way as the Transactions page (for example "Whish App Send"), with its details.
+
 ## LIRA-300: phone app — bottom tabs, one page per section, cached data — DONE on the simulator, Android check open (owner request 2026-10-10)
 
 - **What:** the phone home screen today loads balances, the latest transactions and "since the last count" together, and every other section (sales, debts, settings) is a pushed screen. Owner asked for a menu that splits the app into pages so each opens faster. Agreed direction: a bottom tab bar (Home / Sell / Debts / Activity / Settings) instead of a burger menu; each tab fetches only its own data; data is cached (TanStack Query) so switching tabs shows the last data at once and refreshes it in the background.

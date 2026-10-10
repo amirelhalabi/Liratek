@@ -17,7 +17,11 @@
 import type { CSSProperties } from "react";
 import {
   CHECKPOINT_ADJUSTMENT_METHOD,
+  PROVIDER_LABELS,
   REFUND_KEPT_CHANGE_META,
+  formatCashMoney,
+  transactionSummary,
+  transactionTitle,
 } from "@liratek/core";
 import {
   formatLegAmount,
@@ -25,105 +29,17 @@ import {
   type TransactionPaymentLeg,
 } from "./cashFlow";
 import { presentationFor } from "./transactionPresentation";
-import { RECHARGE_SUBTYPE_LABELS } from "@/shared/utils/rechargeLabels";
 import type { TransactionRow } from "./hooks/useTransactionRows";
 
 // Type label helpers
 // ---------------------------------------------------------------------------
 
-export const PROVIDER_LABELS: Record<string, string> = {
-  // OMT / WHISH: the classic FINANCIAL_SERVICE provider (SEND/RECEIVE run on
-  // that system), as opposed to the app wallet below — unaffected by the
-  // Primary Cash Drawer relabel.
-  OMT: "OMT System",
-  WHISH: "Whish System",
-  OMT_APP: "OMT App",
-  WHISH_APP: "Whish App",
-  // OMT_SYSTEM / WHISH_SYSTEM: the RECHARGE_TOPUP provider that tops up the
-  // OMT_System/Whish_System drawer — under the Primary Cash Drawer model
-  // (plan §1) that drawer is the physical cash till, not a provider system
-  // balance, so the label follows the "Cash Drawer" wording used elsewhere
-  // (auditConstants.ts FILTER_GROUPS).
-  OMT_SYSTEM: "OMT Cash Drawer",
-  WHISH_SYSTEM: "Whish Cash Drawer",
-  iPick: "iPick",
-  Katsh: "Katsh",
-  BINANCE: "Binance",
-  MTC: "MTC",
-  Alfa: "Alfa",
-};
+// Provider names and the title rules live in core (LIRA-301), shared with
+// the phone app; re-exported under their existing names for this app.
+export { PROVIDER_LABELS };
 
-// The fixed per-type labels moved into `../transactionPresentation` (one
-// exhaustive registry shared with the colour and badge-direction lookups —
-// see that module's header for why). Only the metadata-derived labels below
-// stay here; they run FIRST and fall through to the registry's static label,
-// then to the humanised type string.
 export function getTypeLabel(row: TransactionRow): string {
-  try {
-    const meta = JSON.parse(row.metadata_json ?? "{}") as Record<
-      string,
-      unknown
-    >;
-    const p = meta.provider as string | undefined;
-    const st = meta.service_type as string | undefined;
-    const ik = meta.item_key;
-
-    if (row.type === "FINANCIAL_SERVICE") {
-      const base = (p && PROVIDER_LABELS[p]) ?? "Financial Service";
-      if (p === "OMT_APP" || p === "BINANCE" || (p === "WHISH_APP" && !ik)) {
-        if (st === "SEND") return `${base} Send`;
-        if (st === "RECEIVE") return `${base} Recv`;
-      }
-      if (p === "WHISH_APP" && ik) return "Whish App Bills";
-      if ((p === "iPick" || p === "Katsh") && st === "BILL")
-        return `${base} Bill`;
-      return base;
-    }
-
-    if (row.type === "RECHARGE") {
-      const provLabel = (p && PROVIDER_LABELS[p]) ?? p ?? "Recharge";
-      const subLabel =
-        (meta.type && RECHARGE_SUBTYPE_LABELS[meta.type as string]) ?? "";
-      return subLabel ? `${provLabel} ${subLabel}` : provLabel;
-    }
-
-    if (row.type === "RECHARGE_TOPUP") {
-      const provLabel = (p && PROVIDER_LABELS[p]) ?? p ?? "Recharge";
-      return `${provLabel} Top-up`;
-    }
-
-    if (row.type === "WALLET_EXCHANGE") {
-      const drawerName = meta.drawer_name as string | undefined;
-      const drawerLabel =
-        drawerName === "Whish_App"
-          ? "Whish App"
-          : drawerName === "OMT_App"
-            ? "OMT App"
-            : "Wallet";
-      return `${drawerLabel} Exchange`;
-    }
-
-    // A cashless supplier credit (e.g. bill commission) — distinct from a real
-    // "Supplier Payment" (cash we pay them / they pay us).
-    if (row.type === "SUPPLIER_PAYMENT" && meta.is_credit === true) {
-      return "Supplier Credit";
-    }
-
-    if (row.type === "CHECKPOINT") {
-      const notes = meta.notes as string | undefined;
-      if (
-        notes &&
-        (notes.toLowerCase().includes("initial") ||
-          notes.toLowerCase().includes("setup"))
-      ) {
-        return "Initial Setup";
-      }
-    }
-  } catch {
-    // fall through
-  }
-
-  return presentationFor(row.type).label ?? row.type.replace(/_/g, " ");
+  return transactionTitle(row);
 }
 
 // ---------------------------------------------------------------------------
@@ -265,17 +181,6 @@ export function displayAmountFields(
   return { usd: row.amount_usd, lbp: row.amount_lbp };
 }
 
-/** "$5.00" / "450,000 LBP" — two decimals for USD so cents read as cents
- *  ("$0.50", not "$0.5") in the cash-movement wording. */
-function formatCashMoney(amount: number, currency: string): string {
-  return currency === "USD"
-    ? `$${amount.toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`
-    : `${amount.toLocaleString()} ${currency}`;
-}
-
 /** Per-currency total of one side's legs, e.g. "$5.00 + 450,000 LBP". */
 function sumSide(
   legs: TransactionPaymentLeg[],
@@ -387,46 +292,9 @@ export function sessionReversalLine(
   return parts.length ? `Basket reversed: ${parts.join(" · ")}` : null;
 }
 
-/** Summary prefixes the void/refund paths prepend (`_voidTransactionInternal`,
- *  `_createRefundRow`) — kept when a summary is re-worded for display. */
-const REVERSAL_SUMMARY_PREFIXES = ["VOID: ", "REFUND: "] as const;
-
-/**
- * The Summary text to SHOW for a row — the stored summary, except for a
- * supplier TOP_UP ledger row. `SupplierRepository.addLedgerEntry` writes those
- * with the raw entry code ("Supplier TOP_UP: $-100 + 0 LBP") — every auto
- * OMT/Whish SEND and RECEIVE sibling, plus the auto recharge and loto
- * supplier rows. The sign is the meaning ("+" = the shop owes the supplier
- * more, "−" = less: a RECEIVE reduces it), so it reads "Owed to OMT reduced
- * by $100.00" / "Owed to OMT increased by $105.00". Display only — the
- * stored summary, and search over it, are unchanged.
- */
+/** The summary line to SHOW for a row — core's shared wording (LIRA-301). */
 export function displaySummary(row: TransactionRow): string | null {
-  if (row.type !== "SUPPLIER_PAYMENT" || !row.metadata_json) return row.summary;
-  try {
-    const m = JSON.parse(row.metadata_json) as {
-      entry_type?: unknown;
-      is_credit?: unknown;
-      counterparty?: { name?: unknown } | null;
-    };
-    if (m.entry_type !== "TOP_UP" || m.is_credit === true) return row.summary;
-    const signed = row.amount_usd || row.amount_lbp;
-    if (!signed) return row.summary;
-    const name =
-      typeof m.counterparty?.name === "string" && m.counterparty.name
-        ? m.counterparty.name
-        : "supplier";
-    const amounts: string[] = [];
-    if (row.amount_usd)
-      amounts.push(formatCashMoney(Math.abs(row.amount_usd), "USD"));
-    if (row.amount_lbp)
-      amounts.push(formatCashMoney(Math.abs(row.amount_lbp), "LBP"));
-    const prefix =
-      REVERSAL_SUMMARY_PREFIXES.find((p) => row.summary?.startsWith(p)) ?? "";
-    return `${prefix}Owed to ${name} ${signed > 0 ? "increased" : "reduced"} by ${amounts.join(" + ")}`;
-  } catch {
-    return row.summary;
-  }
+  return transactionSummary(row);
 }
 
 // ---------------------------------------------------------------------------

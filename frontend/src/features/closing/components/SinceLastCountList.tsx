@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { formatMoneyAmount, type SinceLastCountDrawer } from "@liratek/core";
+import { formatMoneyAmount, transactionSummary, transactionTitle, type SinceLastCountDrawer } from "@liratek/core";
 import { useApi } from "@liratek/ui";
 
 interface Props {
@@ -83,9 +83,12 @@ export function SinceLastCountList({ drawer }: Props) {
             <li key={t.id} className="flex items-start justify-between gap-3 px-4 py-2 text-sm">
               <div className="min-w-0">
                 <p className="truncate text-white">
-                  {t.summary || t.type.replace(/_/g, " ")}
+                  {transactionTitle(t)}
                   {t.client_name ? ` · ${t.client_name}` : ""}
                 </p>
+                {transactionSummary(t) ? (
+                  <p className="truncate text-xs text-slate-300">{transactionSummary(t)}</p>
+                ) : null}
                 <p className="text-xs text-slate-400">{localTime(t.created_at)}</p>
               </div>
               <div className="shrink-0 text-right font-semibold text-white">

@@ -1,21 +1,7 @@
-/**
- * Recharge subtype → human label. Mirrors packages/core's own
- * RECHARGE_TYPE_LABELS/describeRechargeAmount/rechargeDetailLabel
- * (RechargeRepository.ts) — kept as a SEPARATE frontend copy since
- * frontend/src can never import from packages/core/repositories
- * (main-process only, pulls in better-sqlite3).
- */
-export const RECHARGE_SUBTYPE_LABELS: Record<string, string> = {
-  CREDIT_TRANSFER: "Credits",
-  VOUCHER: "Voucher",
-  DAYS: "Days",
-  TOP_UP: "Top-up",
-  ALFA_GIFT: "Gift",
-  CREDIT_BUYBACK: "Credit Buy-back",
-  // Owner note #21, case 2 (migration v182): shop-line checkbox unticked —
-  // the customer used the shop's own line for a call.
-  SHOP_LINE_USE: "Shop Line Use",
-};
+import { RECHARGE_SUBTYPE_LABELS } from "@liratek/core";
+
+/** Recharge subtype → human label — core's shared list (LIRA-301), re-exported for this app. */
+export { RECHARGE_SUBTYPE_LABELS };
 
 /**
  * "what was actually recharged" detail, distinct from the price charged:
