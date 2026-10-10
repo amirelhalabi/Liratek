@@ -254,6 +254,7 @@
 - Desktop app: an expense entered with an earlier date and time now keeps that time (it was saved as "now").
 - Recording an expense now has a separate Bill amount. If you hand the vendor more than the bill, enter the change you got back — it goes back into your drawer, and any change the vendor kept is added to the expense. From now on.
 - From now on, an expense saves the exchange rate shown in its payment box, including one you type by hand, instead of the day's market rate.
+- Expenses → History: the payment column now shows how each expense was actually paid (for example Whish or Binance) instead of always "Cash".
 
 ## ⚙️ Settings
 

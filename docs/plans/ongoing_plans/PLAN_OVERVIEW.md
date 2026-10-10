@@ -110,11 +110,11 @@ writes transactions, payments, drawers, ledgers or profit.
 | --- | --- | --- | --- |
 | ~~`OWNER_NOTES_2026-09-21.md`~~ 🔴 | **CLOSED and archived to `done_plans/`** (commit `340a9446`): #5 verified live on cornertech; the four money bugs, the Profits-page audit, the Dashboard chart/tile and the widened LIRA-219 all shipped. Remaining items split into their own tickets (LIRA-229/230/238, etc.) | — | — |
 | ~~`LIRA-196_TENANT_DAY_BOUNDARY.md`~~ 🔴 | **CLOSED, archived to `done_plans/`** (re-audited and the owner-decision blocker turned out moot): LIRA-237 (commit `8cf9361d`) already converted all ~37 of the originally-scoped queries via the per-request `X-Client-Tz-Offset` header threaded through `reportingTimeFragments.ts`/`clientDay()` — no tenant-timezone-column decision needed. Re-sweep found one more instance LIRA-237 missed (`ExpenseRepository.getTodayExpenses()`, bare `DATE('now')`, not even `'localtime'`), fixed the same way. Full `packages/core` sweep found nothing else | — | — |
-| `POSTING_INTEGRITY_PLAN.md` 🆕 | **Moved to `ongoing_plans/` 2026-10-06, batch 1 in progress (LIRA-258).** Added 2026-10-06 from the multi-ledger audit (`docs/POSTING_MAP.md` §7, gaps G1–G31): the FOR-partner OMT/WHISH SEND that writes no supplier record (owner-reported, D1 answered), plus a shared posting-test helper that guards the class. 9 owner decisions (D2–D10) gate later items | Large | yes |
+| `POSTING_INTEGRITY_PLAN.md` ✅ | **LIRA-258 DONE 2026-10-10.** Every gap G1–G46 fixed and committed or closed by owner decision (`docs/POSTING_MAP.md` §7). Optional left: Phase 5 posting rules for 18 transaction types (`postingRules.ts` `todo-phase5`) and the G31 stale comments | Small (optional) | no |
 | `SYRIA_REMITTANCE_PLAN.md` 🆕 | Everything. A custom transfer provider that can **pay OUT** — today `useSystemDrawerFlow = isOMT \|\| isWHISH` (`FinancialServiceRepository.ts:2878`) means any other provider's RECEIVE **credits** the drawer instead of debiting it. Mostly reuse: the `ExchangeRepository` FOR-partner posting shape + the existing provider taxonomy. **6 owner decisions first** — D6 asks whether to reverse the recorded "Syria belongs in Custom Services" position | Medium | yes |
 | `WARRANTY_ANY_ITEM_PLAN.md` 🆕 | **LIRA-296, owner request 2026-10-10.** Warranty for any item, not just phones. `warranty_months` / `sale_items.warranty_until` already work for every product (LIRA-143); what is missing is finding and acting on a warranty without an IMEI: lookup by customer/receipt (G1), serials for non-phones (G2), state on every sale line (G3), claim flow repair/replace/refund (G4), supplier RMA (G5), category defaults (G6), repair warranty (G7), report (G8). **4 owner decisions first** (D1–D4); suggested first slice G1+G3+G6 | Medium–Large | yes (G4/G5/G7) |
 | `OPEN_PUBLIC_SIGNUP_PLAN.md` | LIRA-267 covers Turnstile and the verified contact email (§3.1, §3.3). Turnstile is built (LIRA-267) but not configured in production (owner decision 2026-10-07); `SIGNUP_INVITE_CODE` is removed (sign-up is by emailed invite link only). Still open: `pending` tenant status (CHECK still `active/suspended/archived`), verified contact email, URL invite-code prefill. The signup page it gates already shipped. **The only plan whose header is honest about being untouched** | Large | no |
-| `profit-audit-2026-09/` ⚠️ | **19 confirmed profit divergences, unfixed — and 50 more that were never actually checked.** See §3 | Large | yes |
+| ~~`profit-audit-2026-09/`~~ ✅ | **CLOSED 2026-10-10 (LIRA-185):** all 19 confirmed divergences fixed; the crashed leads re-run as `ProfitAudit.<module>` tests (68 pass); last leftover (Expenses History "Cash") fixed. See §3 | — | — |
 | `SPRINT_INVENTORY_2026-08-12.md` 🗑️ | A stale snapshot, not a build plan. Its counts are no longer trustworthy and a **second** ticket file now exists that it never knew about (`docs/tickets/CURRENT_SPRINT.md`). Its §3 inventory is **18** open line items as of 2026-09-22 (LIRA-110 struck — closed by LIRA-158 + LIRA-160). Re-run it or drop it | Re-run | no |
 
 ---
@@ -138,7 +138,7 @@ writes transactions, payments, drawers, ledgers or profit.
 
 | Track | Plans | Why you'd pick it |
 | --- | --- | --- |
-| **Money correctness** | `profit-audit-2026-09` | The only open item where the map itself is wrong about money (§3) |
+| ~~**Money correctness**~~ | ~~`profit-audit-2026-09`~~ | **Done 2026-10-10** — LIRA-185 closed (§3); posting integrity (LIRA-258) closed too |
 | **Web maturity** | `TRANSPORT_PARITY_AUDIT` → `WEB_PARITY_ROADMAP` | The guard script *prevents* the defect class the 110 specs merely *detect* |
 | **Commercial** | `SUBSCRIPTION_MANAGEMENT` → `DESKTOP_LICENSING` → `OPEN_PUBLIC_SIGNUP` | The only chain with real sequencing; the email capability it needed is provided by LIRA-267 |
 | **Infrastructure** | `PRODUCTION_DATABASE_AND_HOSTING` → `OFFLINE_DESKTOP_FALLBACK` | Phase D (the switch) is the last step of the split; it unblocks the offline-desktop plan |
@@ -155,26 +155,22 @@ writes transactions, payments, drawers, ledgers or profit.
 
 ---
 
-## 3. ⚠️ The one item that should worry you
+## 3. ✅ Resolved 2026-10-10 — the profit audit is closed
 
-**`profit-audit-2026-09/` misrepresents itself about money.**
+`profit-audit-2026-09/` used to be the one worrying item: 19 confirmed profit divergences
+(sales 7, custom services 8, expenses 4) and ~50 leads whose verify phase crashed on a billing
+limit. **Re-checked 2026-10-10 against source and git history:**
 
-It ran 228 agents over profit computation across 8 modules × 5 surfaces. Its summary says
-*"73 divergences claimed, 19 confirmed"* — which reads as though the other 54 were checked and
-cleared. They were not.
-
-Every `verify` call for **recharge, financial_services, maintenance, loto and exchange** failed
-with `You've hit your org's monthly spend limit` — **324 such failures** in `raw-workflow-result.json`.
-Those five modules are recorded as *"0 confirmed / all refuted."* **That "refuted" is a billing
-crash wearing a verdict's clothing.** Fifty claimed profit divergences were never examined.
-
-What is solid: three modules got a real adversarial pass — sales (7 confirmed), custom_services
-(8), expenses (4). Those **19 are real and, on a 2-of-19 spot check, still unfixed today** (no
-shared `saleMargin` fragment exists anywhere in `packages/core/src`; `HistoryModal.tsx:204` still
-hardcodes `<td>Cash</td>` for every expense row regardless of `paid_by_method`).
-
-**Recommended: re-run the verify phase for the 5 crashed modules before trusting any label in that
-directory, and treat the 19 as an open money-correctness backlog.**
+- **All 19 confirmed divergences are fixed** — LIRA-185 money batch `0eaf8251`, display batch
+  `1d6822f9`, owner decisions `e451662e` (2026-10-02), on top of `9ed8d90f` (LIRA-219 closing
+  single source, DC-10, PA-3.1, PA-4.23) and `1540a56e` (LIRA-196, `utils/saleMargin.ts`).
+- **The crashed leads were re-run as code, not agents:** every non-sales module has a
+  `ProfitAudit.<module>.test.ts` (recharge, financial services, maintenance, loto, exchange,
+  expenses, custom services) that runs each lead against real code and records CONFIRMED-then-
+  fixed / REFUTED / ALREADY_FIXED. Run 2026-10-10: **7 suites, 68 tests, all pass.**
+- **Last leftover fixed 2026-10-10:** the Expenses History payment column hard-coded "Cash" for
+  every row (expenses lead 5); it now shows each expense's own payment method.
+- Unlabelled in the tests, status unknown: financial-services lead 10, maintenance D6.
 
 ---
 
@@ -301,7 +297,7 @@ No dependencies in either direction. Pick them up whenever.
 
 ```mermaid
 graph TD
-  PA["⚠️ profit-audit-2026-09<br/>19 confirmed · 50 unverified"]
+  PA["✅ profit-audit-2026-09<br/>closed 2026-10-10 (LIRA-185)"]
   BAL["🔶 BALANCE_PAGES_UX_AUDIT<br/>3 cosmetic items"]
   TOP["🔶 TOPUP_CASHFLOW_DIRECTION_AUDIT<br/>1 bonus finding"]
   OWN["🔶 OWNER_NOTES_TASK_PLAN<br/>LIRA-083/084/086/088"]
@@ -372,7 +368,7 @@ Every row was checked against source. Three carry caveats:
 
 | Plan | Confidence | Why |
 | --- | --- | --- |
-| `profit-audit-2026-09` | **Low** | Partially-crashed automated run; 2 of 19 findings spot-checked, the rest assumed open |
+| `profit-audit-2026-09` | **High** | Re-checked 2026-10-10: all 19 fixed (commits cited in §3); 68 `ProfitAudit` tests run green |
 | `WEB_PARITY_ROADMAP` | **Medium** | The 117-vs-7 spec count is a hard number, but the specs were not individually audited for shim status |
 | `SPRINT_INVENTORY_2026-08-12` | **Medium** | Proven dated, but its **18** line items (19 before LIRA-110 was struck 2026-09-22) were not each re-verified against HEAD |
 | `OWNER_NOTES_2026-09-21` | **Medium** | Its §4a ticket mapping was checked against source. **Updated 2026-09-25:** all four money bugs and the remaining notes are now implemented and unit-verified (jest/typecheck/lint green); confidence stays Medium only because the confirming desktop/web e2e re-run (6 stale specs, now fixed) and the commit itself are still pending with the owner |

@@ -4236,7 +4236,7 @@ test).
 
 ---
 
-## LIRA-185: profit-surface audit: 73 leads, 6 of 8 modules unverified — TODO — Medium
+## LIRA-185: profit-surface audit: 73 leads, 6 of 8 modules unverified — DONE (closed 2026-10-10)
 
 A workflow audited all 8 modules across 5 surfaces each (module page preview, module table columns,
 the `transactions` profit stamp, the Profits query, the Closing sub-query) and claimed **73
@@ -4270,6 +4270,15 @@ Built after the display batch (it touches the same files). The money batch was c
 
 **Decision 1 follow-up (cap = margin − SMS fee; receipt line) — built 2026-10-02, not yet committed.** A CREDIT_TRANSFER sale also books its own `SMS_Transfer_Fee` expense (`planSmsTransfer`, `utils/telecomCredit.ts`) on top of `cost`, so a discount at the plain margin netted a loss equal to that fee. `maxRechargeDiscount`/`applyRechargeDiscount` (`utils/rechargeDiscount.ts`) now take an optional `extraFee`, subtracted from the cap; `RechargeRepository.processRecharge` computes it for CREDIT_TRANSFER only (fee converted to the sale's currency at the same rate stamped on the transaction) and passes 0 for every other type (DAYS/VOUCHER/ALFA_GIFT/SHOP_LINE_USE/CREDIT_BUYBACK — unchanged). `TelecomForm.tsx`'s sheet cap mirrors it (gated on the SUBMITTED type via `deriveSubmittedRechargeType`, not the tab); `CardGridPayView.tsx` (Alfa Gift only, no SMS fee) switched its hand-rolled `Math.max(0, sell-cost)` to the same shared helper. Receipt (owner decision #3): `buildServiceReceiptText` (`frontend/src/shared/utils/serviceReceipt.ts`) now prints "Price / Discount / Total" instead of a single "Amount" line when `metadata_json.discount > 0`, reading `list_price`/`discount` already stamped by the repository; no line when the discount is 0. Dual-transport: the receipt builder already reads through `window.api` (works on both desktop and web, unchanged infra). Guards (all red-proven first, by toggling the fix off and back on — not a git revert): `rechargeDiscount.test.ts` (new, pure-function boundary math), `RechargeRepository.discount.test.ts` (new `describe` block — real writers, real SMS expense row, net-to-zero check at the real $3/300,000/255,000/1-SMS archetype), `TelecomForm.discountSmsCap.test.tsx` (new, captures the `maxDiscount` prop via a mocked `PaymentSheet`), `serviceReceipt.test.ts` (2 new cases). Full `yarn workspace @liratek/core test`: 464 suites / 4516 tests green.
 **What users will notice:** the MTC/Alfa Discount cap on a Credit Transfer now also leaves room for the SMS cost of sending the credit, so a maxed-out discount still never loses money; a discounted MTC/Alfa sale's receipt shows the full price, the discount, and the total charged.
+
+Closed 2026-10-10: re-checked against source and git — all 19 confirmed divergences fixed (`0eaf8251`, `1d6822f9`,
+`e451662e`, plus `9ed8d90f`, `1540a56e`); every module's leads run as `ProfitAudit.<module>.test.ts` (7 suites, 68
+tests, green). Last leftover fixed today: Expenses → History showed "Cash" in the payment column for every expense; it
+now shows each expense's own payment method. Unlabelled leads, status unknown: financial-services 10, maintenance D6.
+
+What users will notice: in Expenses → History, the payment column shows how each expense was actually paid (for
+example Whish or Binance) instead of always "Cash".
+
 ---
 
 ## LIRA-186: `embeddedCommission.guard.test.ts` keys exclusions by ordinal SQL-unit number — DONE 2026-10-02 (not yet committed) — Low
@@ -6205,7 +6214,7 @@ tenant 5 has (not checked against live data: flyctl was unavailable).
 OMT, iPick, Katsh, OMT App, Whish App and Loto Liban (plus Whish, switched off), and new shops start
 with them.
 
-## LIRA-258: posting integrity — every multi-ledger gap from the 2026-10-06 audit (G1–G39) — HIGH — IN PROGRESS
+## LIRA-258: posting integrity — every multi-ledger gap from the 2026-10-06 audit (G1–G39) — HIGH — DONE (closed 2026-10-10)
 
 | Field    | Value                                                          |
 | -------- | -------------------------------------------------------------- |
@@ -6257,6 +6266,11 @@ supplier page as money you owe and no longer takes cash out of a drawer; transfe
 partner on your second system no longer wait for a supplier settlement and their shop fee counts as
 profit straight away; the Dashboard's Pending Settlement banner also lists partners to settle with;
 the Services page explains Amount vs Fee; a repair job is never charged twice; refunding one item of a partner sale lowers what the partner owes; Loto payments must add up and gift cards work on Loto; selling days lowers the line credits; Exchange can keep the leftover cents; gift cards show up on the web app. All from now on only.
+
+Closed 2026-10-10: every gap G1–G46 is fixed and committed (Oct 7 commits `e56ce482`, `dba9f93a` and later) or closed
+by an owner decision (G19, G25, G27) or checked as correct (G18, G20, G30, G38); `docs/POSTING_MAP.md` §7 statuses
+updated (G17 fixed by migration v192). Optional follow-up, not a bug: Phase 5 posting rules for the 18 transaction
+types still marked `todo-phase5` in `packages/core/src/constants/postingRules.ts`, and the G31 stale comments.
 
 ---
 

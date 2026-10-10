@@ -1,3 +1,4 @@
+import { fallbackMethodLabel } from "@/features/audit/transactionDisplay";
 import { useMemo, useState } from "react";
 import { Calendar, RefreshCw, X, Ban, Pencil, Check } from "lucide-react";
 import { DataTable, DateRangeFilter } from "@liratek/ui";
@@ -43,11 +44,23 @@ interface HistoryModalProps {
   onClose: () => void;
   onRefresh: () => void;
   onVoid: (id: number) => void;
+  /** Payment-method code → the shop's label (from the page's payment methods). */
+  methodLabels?: Record<string, string>;
+}
+
+/** The label shown in the payment column for one expense's own method. */
+function paymentMethodText(
+  method: string | undefined,
+  labels: Record<string, string> | undefined,
+): string {
+  if (!method) return "Cash";
+  return labels?.[method] ?? fallbackMethodLabel(method);
 }
 
 export function HistoryModal({
   expenses,
   loading,
+  methodLabels,
   onClose,
   onRefresh,
   onVoid,
@@ -224,7 +237,9 @@ export function HistoryModal({
                           {expense.category.replace(/_/g, " ")}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm text-slate-400">Cash</td>
+                      <td className="px-6 py-4 text-sm text-slate-400">
+                        {paymentMethodText(expense.paid_by_method, methodLabels)}
+                      </td>
                       <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
                         ${expense.amount_usd.toFixed(2)}
                       </td>

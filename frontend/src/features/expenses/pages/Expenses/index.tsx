@@ -590,6 +590,9 @@ export default function Expenses() {
           onClose={() => setShowHistoryModal(false)}
           onRefresh={loadTodayExpenses}
           onVoid={handleVoid}
+          methodLabels={Object.fromEntries(
+            drawerAffectingMethods.map((m) => [m.code, m.label]),
+          )}
         />
       )}
     </div>
