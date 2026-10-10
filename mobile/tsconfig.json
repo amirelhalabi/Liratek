@@ -9,6 +9,9 @@
       ],
       "@liratek/core/*": [
         "../packages/core/src/*"
+      ],
+      "@liratek/ui/*": [
+        "../packages/ui/src/*"
       ]
     }
   },

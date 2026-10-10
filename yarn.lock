@@ -3344,6 +3344,7 @@ __metadata:
     react-native-screens: "npm:~4.23.0"
     react-native-svg: "npm:15.15.3"
     typescript: "npm:~5.9.2"
+    zod: "npm:^4.3.6"
   languageName: unknown
   linkType: soft
 

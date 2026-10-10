@@ -11,6 +11,11 @@ const config = getDefaultConfig(__dirname);
 // Import only leaf modules the phone needs (validators, pure utils).
 const coreSrc = path.resolve(__dirname, "../packages/core/src");
 const CORE_PREFIX = "@liratek/core/";
+// `@liratek/ui/<module>` maps to a single PURE file of packages/ui/src (e.g.
+// utils/customerAccount). The package itself is DOM-only — never import its
+// entry or a component from the phone.
+const uiSrc = path.resolve(__dirname, "../packages/ui/src");
+const UI_PREFIX = "@liratek/ui/";
 
 // The monorepo root is watched (workspace auto-detection), but other work in
 // this repo rebuilds core and re-copies node_modules/@liratek/core while the
@@ -36,6 +41,9 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName.startsWith(CORE_PREFIX)) {
     const target = path.join(coreSrc, moduleName.slice(CORE_PREFIX.length));
     return resolve(context, target, platform);
+  }
+  if (moduleName.startsWith(UI_PREFIX)) {
+    return resolve(context, path.join(uiSrc, moduleName.slice(UI_PREFIX.length)), platform);
   }
   // Core is written as ESM TypeScript with `./x.js` specifiers; map them to
   // the `.ts` source when the importer lives in core.

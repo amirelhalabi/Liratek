@@ -14,12 +14,11 @@ description: "Task list for LIRA-289 — mobile app for after-hours digital sale
 
 ## Progress (2026-10-10)
 
-- **Done (16 of 62):** T001, T002, T003, T006, T007–T012 (double-save protection, migration v208), T013, T014, T016, T020, T023, T027.
+- **Done (22 of 62):** T001–T004, T006, T007–T012 (double-save protection, migration v208), T013, T014, T016, T020, T023, T027, T029, T030, T032–T034.
 - **Partial:**
   - T026: sign-in form without Google.
   - T024: `POST /login` only.
 - **Not done in Setup/Foundational:**
-  - T004 (zod in `mobile/`; not needed yet, because the phone imports core schema *types* only);
   - T005 (mobile lint/`expo export` CI job);
   - T015 (client tests).
 - **Changes from the plan** (research R11/R12):
@@ -53,7 +52,7 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 - [x] T001 Confirm the current Expo SDK and its React / React Native versions against `frontend/package.json` (`react ^19.2.0`) and record the chosen SDK in `specs/289-mobile-after-hours-sales/research.md` R8 (Verify item)
 - [x] T002 Scaffold the Expo app (TypeScript strict, Expo Router) in `mobile/` with `mobile/package.json` named `@liratek/mobile`, and add `"mobile"` to the root `package.json` `workspaces`
 - [x] T003 Configure Metro in `mobile/metro.config.js` for the Yarn 4 `node-modules` monorepo, with a resolver alias that maps only the needed core validator modules (`packages/core/src/validators/financial.ts`, `debt.ts`, `common.ts`, `closing.ts`, `mobileAuth.ts`). Never map `packages/core/src/index.ts` (it pulls `better-sqlite3`). Do not import the whole `browser.ts` barrel (research R8).
-- [ ] T004 [P] Add `zod` at the same major as `packages/core/package.json` (`^4.3.6`) to `mobile/package.json`, and make `mobile/tsconfig.json` strict with path aliases matching T003
+- [x] T004 [P] Add `zod` at the same major as `packages/core/package.json` (`^4.3.6`) to `mobile/package.json`, and make `mobile/tsconfig.json` strict with path aliases matching T003
 - [ ] T005 [P] Add `mobile` lint, `tsc --noEmit` and `npx expo export --platform all` (bundle check that catches DOM and Hermes gaps) scripts to `mobile/package.json`, and wire them into `.github/workflows/ci.yml` as a separate job
 - [x] T006 [P] Create `mobile/app.json` (app name "LiraTek", bundle id / package `shop.liratek.app`, scheme `liratek`) and `mobile/eas.json` with `development`, `preview` and `production` profiles
 
@@ -174,11 +173,11 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 
 ### Tests (write first, see them fail)
 
-- [ ] T029 [P] [US2] Write `packages/core/src/utils/__tests__/servicePayloads.test.ts` for the shared builders (T032):
+- [x] T029 [P] [US2] Write `packages/core/src/utils/__tests__/servicePayloads.test.ts` for the shared builders (T032):
   - fixtures from the current inline bodies in `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx:369-430` and `KatchForm.tsx:1725-1770`;
   - every built object parses through `createFinancialServiceSchema`;
   - field names come from the schema (rule 24).
-- [ ] T030 [P] [US2] Write `packages/core/src/repositories/__tests__/FinancialServiceRepository.phoneSales.test.ts`:
+- [x] T030 [P] [US2] Write `packages/core/src/repositories/__tests__/FinancialServiceRepository.phoneSales.test.ts`:
   - for `WHISH_APP`, `OMT_APP`, `Katsh`, `iPick` × `CUSTOMER_ACCOUNT`, `WHISH`, `OMT`, `BINANCE`, snapshot the drawer balances and client debt, create, and assert deltas (rule 15);
   - headline case: WHISH_APP SEND $50 paid with `WHISH` nets `Whish_App` to +fee;
   - void each one through the existing void path and assert a net 0 per ledger per currency (rule 20);
@@ -187,14 +186,14 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 
 ### Implementation
 
-- [ ] T032 [US2] Extract pure builders into `packages/core/src/utils/servicePayloads.ts`:
+- [x] T032 [US2] Extract pure builders into `packages/core/src/utils/servicePayloads.ts`:
   - `buildWalletTransferPayload` (WHISH_APP/OMT_APP: fee into `whishFee`/`omtFee`, payments, `cashoutMethod`);
   - `buildVoucherSalePayload` (Katsh/iPick: `itemKey`, `itemCategory`, `cost`, `checkoutTotal`, `tender_exchange_rate`, `telecomCreditReturns`, `mobileServiceItemId`).
 
   Type the input and output as `z.input<typeof createFinancialServiceSchema>`. No Node or DOM imports (rule 29). Export from `packages/core/src/browser.ts` and `index.ts`.
-- [ ] T033 [US2] Switch `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx` and `KatchForm.tsx` to the T032 builders (one payload shape, rule 22). The existing form tests must stay green.
-- [ ] T034 [US2] Add `mobile/src/api/endpoints.ts` with typed calls: `recordServiceSale(payload, idemKey)` → `POST /api/services/transactions`, `getVoucherCatalog()` → `GET /api/mobile-service-items`, `searchClients(q)` → `GET /api/clients?search=`. Use only the core input types, never hand-written types (rule 21).
-- [ ] T035 [US2] Build `mobile/app/(app)/sale/[provider].tsx` for `WHISH_APP`, `OMT_APP`, `Katsh`, `iPick`:
+- [x] T033 [US2] Switch `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx` and `KatchForm.tsx` to the T032 builders (one payload shape, rule 22). The existing form tests must stay green.
+- [x] T034 [US2] Add `mobile/src/api/endpoints.ts` with typed calls: `recordServiceSale(payload, idemKey)` → `POST /api/services/transactions`, `getVoucherCatalog()` → `GET /api/mobile-service-items`, `searchClients(q)` → `GET /api/clients?search=`. Use only the core input types, never hand-written types (rule 21).
+- [ ] T035 [US2] (partial 2026-10-10: WHISH_APP / OMT_APP SEND built in `mobile/src/app/(app)/sale/[provider].tsx` — client search or new client, on account / Whish wallet / OMT wallet, one Idempotency-Key per Save tap, no-connection message; Katsh/iPick vouchers and Binance pending) Build `mobile/app/(app)/sale/[provider].tsx` for `WHISH_APP`, `OMT_APP`, `Katsh`, `iPick`:
   - SEND only for transfers;
   - client picker (required when the payment is `CUSTOMER_ACCOUNT`, FR-004);
   - payment choice limited to `CUSTOMER_ACCOUNT | WHISH | OMT | BINANCE` (FR-003, no cash);

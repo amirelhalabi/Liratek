@@ -91,8 +91,12 @@ export default function Home() {
     setRefreshing(false);
   }
 
-  function comingSoon() {
-    Alert.alert("Coming next", "Recording this sale from the phone is the next step being built.");
+  function openSale(key: string) {
+    if (key === "WHISH_APP" || key === "OMT_APP") {
+      router.push({ pathname: "/sale/[provider]", params: { provider: key } });
+      return;
+    }
+    Alert.alert("Coming next", "Recording vouchers from the phone is the next step being built.");
   }
 
   return (
@@ -137,7 +141,7 @@ export default function Home() {
           {[0, 2].map((row) => (
             <View key={row} style={styles.row}>
               {SALES.slice(row, row + 2).map((s) => (
-                <ModuleTile key={s.key} label={s.label} Icon={s.Icon} color={s.color} onPress={comingSoon} />
+                <ModuleTile key={s.key} label={s.label} Icon={s.Icon} color={s.color} onPress={() => openSale(s.key)} />
               ))}
             </View>
           ))}
