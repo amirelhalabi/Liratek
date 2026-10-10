@@ -715,6 +715,97 @@ describe("G42 — session checkout kept change is checked server-side", () => {
     expect(sessionIsActive(sessionId)).toBe(false);
   });
 
+  // ── LIRA-270 regression (2026-10-10) — a gross payout leg is not netting ─
+  //
+  // An LBP charge with a USD payout sent as its OWN full OUT leg (no `kind`,
+  // the legacy shape) was refused as "nothing left to collect": the guard
+  // read the kind-less OUT leg as change, so it treated the $40 payout as
+  // absorbed into the charge and then cross-currency netted −$40 against
+  // the 500,000 LBP charge. The LBP charge is still owed — the payout left
+  // as a real leg, it never reduced what the customer pays.
+
+  /** A 500,000 LBP charge-side financial item (LBP twin of chargeItem). */
+  function lbpChargeItem(amount: number): CartItem {
+    const item = chargeItem();
+    item.id = "cart-charge-lbp";
+    item.amount = amount;
+    item.currency = "LBP";
+    item.formData = { ...item.formData, amount, currency: "LBP" };
+    return item;
+  }
+  const GROSS_OUT = (
+    method: string,
+    currency_code: string,
+    amount: number,
+  ): Leg => ({ method, currency_code, amount, direction: "OUT" });
+
+  it("LIRA-270 regression: accepts an LBP on-account charge with a $40 on-account payout sent as a gross OUT leg", async () => {
+    const sessionId = newSession();
+    // The session's customer ("Walk-in") resolves to this client by name —
+    // the account legs need one.
+    db.prepare(`INSERT INTO clients (full_name) VALUES ('Walk-in')`).run();
+    const result = await checkout(
+      sessionId,
+      [lbpChargeItem(500000), payoutItemOf(40, "CUSTOMER_ACCOUNT")],
+      {
+        payments: [
+          IN("CUSTOMER_ACCOUNT", "LBP", 500000),
+          GROSS_OUT("CUSTOMER_ACCOUNT", "USD", 40),
+        ],
+      },
+    );
+
+    expect(result.error ?? null).toBeNull();
+    expect(result.success).toBe(true);
+    expect(sessionIsActive(sessionId)).toBe(false);
+    // The LBP charge really landed on the account as basket debt.
+    const debt = db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_lbp), 0) AS lbp FROM debt_ledger WHERE session_id = ?`,
+      )
+      .get(sessionId) as { lbp: number };
+    expect(debt.lbp).toBeCloseTo(500000, 0);
+  });
+
+  it("LIRA-270 regression: accepts an LBP on-account charge with a $40 CASH payout sent as a gross OUT leg", async () => {
+    const sessionId = newSession();
+    // The session's customer ("Walk-in") resolves to this client by name —
+    // the account legs need one.
+    db.prepare(`INSERT INTO clients (full_name) VALUES ('Walk-in')`).run();
+    const result = await checkout(
+      sessionId,
+      [lbpChargeItem(500000), payoutItemOf(40, "CASH")],
+      {
+        payments: [
+          IN("CUSTOMER_ACCOUNT", "LBP", 500000),
+          GROSS_OUT("CASH", "USD", 40),
+        ],
+      },
+    );
+
+    expect(result.error ?? null).toBeNull();
+    expect(result.success).toBe(true);
+  });
+
+  it("LIRA-270 kept: still refuses a stale cash leg when a USD cash payout, netted cross-currency, covers an LBP charge", async () => {
+    // The modal nets the $40 cash payout against the 500,000 LBP charge
+    // ($5.56 at 90,000): nothing left to collect, only the $34.44 excess is
+    // paid out, the payment input is hidden. A stale IN leg is refused.
+    const sessionId = newSession();
+    const result = await checkout(
+      sessionId,
+      [lbpChargeItem(500000), payoutItemOf(40, "CASH")],
+      {
+        payments: [IN("CASH", "LBP", 500000), PAYOUT(34.44, "GENERAL")],
+      },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/nothing (left )?to collect/i);
+    expect(writtenRows()).toBe(0);
+    expect(sessionIsActive(sessionId)).toBe(true);
+  });
+
   // ── LIRA-271 — one fee-on-top rule for the modal and the server ─────────
   //
   // An honest kept claim is built from the charge the modal shows. These are

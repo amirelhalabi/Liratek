@@ -739,7 +739,8 @@ booked once, at load time. Do not "fix" that.
 
 > **Basket rules added 2026-10-07 (LIRA-270/271/274):** a customer payment on a
 > basket with nothing left to collect is refused (`basketNetCharge` /
-> `basketHasNothingToCollect` in `SessionPaymentService`). Fee-on-top RECEIVE:
+> `basketHasNothingToCollect`, one shared rule in `utils/sessionNothingToCollect.ts` used by the modal and the server;
+> the server's guard reads legs via `basketCollectNet`, where an OUT leg without `kind` counts as a payout, not change). Fee-on-top RECEIVE:
 > only a WHISH system RECEIVE adds its fee to the charge, by the one rule in
 > `utils/sessionFeeOnTop.ts` used by both the modal and the server. A For-Partner
 > item contributes 0 to the customer charge (`utils/sessionForPartnerItem.ts`).

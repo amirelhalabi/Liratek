@@ -59,6 +59,11 @@ import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import { closingLogger } from "../utils/logger.js";
 import { resolveKeptChange } from "../repositories/keptChange.js";
 import type { KeptChange } from "../repositories/moneyPosting.js";
+import { basketHasNothingToCollect } from "../utils/sessionNothingToCollect.js";
+
+// LIRA-270 — the ONE nothing-to-collect rule now lives in a pure shared
+// module (the checkout modal reads it too); re-exported for existing callers.
+export { basketHasNothingToCollect };
 
 // =============================================================================
 // Types
@@ -245,7 +250,8 @@ export function resolveBasketKeptChange(input: {
 
 /**
  * The ONE net-charge computation for a session basket (rule 14) — used by
- * the kept-change check (G42) and the nothing-to-collect check (LIRA-270):
+ * the kept-change check (G42) and, via `basketCollectNet`, the
+ * nothing-to-collect check (LIRA-270):
  *
  *   net = gross charge − gross payout + Σ(kind:"PAYOUT" OUT legs)
  *
@@ -286,37 +292,37 @@ export function basketNetCharge(
 }
 
 /**
- * LIRA-270 — the payment widget's own dust threshold ($0.01 / 0.5 LBP,
- * `@liratek/ui` money registry): below it in BOTH currencies the checkout
- * modal hides its payment input. Deliberately NOT the $0.05 reconcile
- * epsilon, so a few-cent remainder the modal still asks for is never
- * refused.
+ * LIRA-270 — the net charge the nothing-to-collect guard reads: the charge
+ * minus ONLY the payout that was absorbed into it (netted against the
+ * charge, so no leg — or only the excess — was sent for it).
+ *
+ * Differs from `basketNetCharge` in one place: an OUT leg with NO `kind`
+ * (the legacy shape — the checkout modal always tags its OUT legs CHANGE or
+ * PAYOUT) is treated as a payout that left as its own leg, not as change.
+ * Reading it as change made a gross $40 payout look absorbed, so a basket
+ * whose 500,000 LBP charge was still owed was refused (2026-10-10). For a
+ * refusal gate the ambiguous leg must lean towards accepting. An explicit
+ * `kind: "CHANGE"` leg stays change, so a stale tender + stale change from
+ * the modal on a payout-covered basket is still refused.
+ *
+ * Kept change (`resolveBasketKeptChange`) deliberately keeps reading
+ * `basketNetCharge` unchanged — it only runs when change is claimed.
  */
-const NOTHING_TO_COLLECT_USD = 0.01;
-const NOTHING_TO_COLLECT_LBP = 0.5;
-/** Float noise only — far below 0.5 LBP at any real rate. */
-const CROSS_CURRENCY_EPSILON_USD = 1e-6;
-
-/**
- * LIRA-270 — is there nothing left for the customer to pay? True when the
- * net charge is below dust in both currencies, or — at a real rate (> 1) —
- * when a cross-currency netted payout cancels it exactly (USD negative, LBP
- * positive, summing to ≤ 0). A remainder worth less than a cent but more
- * than 0.5 LBP (e.g. 180 LBP) is still owed: the modal asks for it, so this
- * stays false. A rate of 1 is the checkout's missing-rate fallback, so only
- * the per-currency test applies then.
- */
-export function basketHasNothingToCollect(
-  net: { usd: number; lbp: number },
-  exchangeRate: number,
-): boolean {
-  if (net.usd < NOTHING_TO_COLLECT_USD && net.lbp < NOTHING_TO_COLLECT_LBP) {
-    return true;
-  }
-  if (exchangeRate > 1) {
-    return net.usd + net.lbp / exchangeRate <= CROSS_CURRENCY_EPSILON_USD;
-  }
-  return false;
+export function basketCollectNet(
+  legs: BasketPaymentLeg[],
+  ctx: Pick<
+    SessionCashSplitContext,
+    "chargeTotalUsd" | "chargeTotalLbp" | "payoutTotalUsd" | "payoutTotalLbp"
+  >,
+): ReturnType<typeof basketNetCharge> {
+  return basketNetCharge(
+    legs.map((l) =>
+      l.direction === "OUT" && !l.kind
+        ? { ...l, kind: "PAYOUT" as const }
+        : l,
+    ),
+    ctx,
+  );
 }
 
 /** True when the client claimed any kept change. */
@@ -534,7 +540,7 @@ export class SessionPaymentService {
     // Skipped when the item lookup failed: "unknown" must never read as
     // "nothing due".
     if (!cashSplitCtx.lookupFailed) {
-      const net = basketNetCharge(legs, cashSplitCtx);
+      const net = basketCollectNet(legs, cashSplitCtx);
       const strayIn = net.inLegs.filter((l) => Math.abs(l.amount) > 0);
       if (strayIn.length > 0 && basketHasNothingToCollect(net, rate)) {
         throw new Error(

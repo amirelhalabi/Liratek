@@ -236,6 +236,9 @@ export * from "./utils/sessionFeeOnTop.js";
 // A For-Partner basket item costs the walk-in customer nothing — the ONE
 // rule shared by the checkout modal and SessionCheckoutService (pure leaf).
 export * from "./utils/sessionForPartnerItem.js";
+// LIRA-270 — the ONE "nothing left to collect" rule, shared by the checkout
+// modal and SessionPaymentService (pure leaf, rule 29).
+export * from "./utils/sessionNothingToCollect.js";
 
 // Tender exchange-rate sanity band (LIRA-240, owner decision 2026-09-28) —
 // pure constant + pure arithmetic, no Node.js deps. `@liratek/ui`'s

@@ -17,6 +17,7 @@ import {
   useApi,
   type PaymentLine,
 } from "@liratek/ui";
+import { basketHasNothingToCollect } from "@liratek/core";
 import { useSession } from "../context/SessionContext";
 import {
   binanceCashSide,
@@ -498,8 +499,14 @@ export function SessionCheckoutModal({
   // condition the payment input's render gate, the legs below and the kept
   // claim all read. When it is false the input unmounts, and any lines it
   // reported earlier are stale: they must never be sent (a stale
-  // "IN CASH $105" was once posted as a real payment).
-  const hasChargeToCollect = netChargeUsd > 0 || netChargeLbp > 0;
+  // "IN CASH $105" was once posted as a real payment). The rule is the ONE
+  // shared with the server's refusal (`basketHasNothingToCollect`,
+  // @liratek/core): on these already-netted figures (both ≥ 0) it is the
+  // per-currency dust test — anything owed in EITHER currency is collected.
+  const hasChargeToCollect = !basketHasNothingToCollect(
+    { usd: netChargeUsd, lbp: netChargeLbp },
+    exchangeRate,
+  );
   const collectLines = hasChargeToCollect ? paymentLines : NO_LINES;
   const collectReturnLines = hasChargeToCollect ? returnLines : NO_LINES;
   useEffect(() => {
