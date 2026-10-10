@@ -33,6 +33,23 @@
   WhatsApp copy: `yarn release-notes:whatsapp unreleased` (or a version).
 -->
 
+## ✨ Highlights
+
+### Warranty for every item, not just phones
+Give each category a default warranty, change it at the till, and print your warranty terms on the receipt. The new Warranty page finds any sold item by customer, phone number, receipt number or serial, and handles a repair, replacement or refund under warranty. What warranties cost you shows as one line in Profits.
+
+### My account, for everyone
+Every user, staff included, now has a My account page from the top bar: see your profile, choose how the app looks on this device, and manage how you sign in. On the web app you can also see and sign out your other devices.
+
+### Change your own password and email
+Change your password from My account with your current one; your other devices are signed out. On the web app you can also change your email; it only changes once you open the confirmation link we send.
+
+### Your Google photo at the top (web app)
+If you sign in with Google, your Google photo now shows as your account picture, from your next Google sign-in.
+
+### Receipts show your header
+The receipt header you typed in Settings now prints at the top of sale and repair receipts.
+
 ## 💸 OMT / Whish & suppliers
 
 - Services page: an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique
