@@ -1766,9 +1766,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // inside the payable, once again at settlement. Both halves landed in
       // this one change; see
       // `FinancialServiceRepository.omtCommissionModelGate.test.ts` for the
-      // guard (that file's expectations describe the PRE-Phase-2 shape and
-      // are stale after this change — a Phase 2 follow-up must re-derive
-      // them to the new invariant, rule 17).
+      // guard (already re-derived to the post-Phase-2 invariant — do not
+      // rewrite it; LIRA-164).
       //
       // Every OTHER service_type/provider (BINANCE, BOB, app wallets, OTHER)
       // is still born commission_model = 0 (legacy EMBEDDED) — their

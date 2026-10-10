@@ -2344,7 +2344,7 @@ clicking product A's delete then product B's can render A's IMEIs in B's destruc
 dialog. Guard with the house stale-response pattern (request id / abort / disable second
 click while the first fetch is in flight). Component test with two interleaved fetches.
 
-## LIRA-151: Wire the orphaned test suites into gates — MEDIUM (infrastructure) — PARTIAL (2026-09-04)
+## LIRA-151: Wire the orphaned test suites into gates — MEDIUM (infrastructure) — DONE (a: `56a26de1`, b: 2026-09-04)
 
 (a) `electron-app/handlers/__tests__/` (20+ suites incl. productUnitHandlers) runs under
 NO jest runner — `electron-app`'s jest config roots only `schemas/`; every handler test
@@ -2972,9 +2972,9 @@ render sites off it instead of the `commission === 0 && count > 0` heuristic.
 
 ---
 
-## LIRA-164: delete a stale comment — do NOT "re-derive the test" — LOW (doc chore)
+## LIRA-164: delete a stale comment — do NOT "re-derive the test" — LOW (doc chore) — DONE (2026-10-10)
 
-**Priority:** Low · **Epic:** Docs · **Status:** TODO
+**Priority:** Low · **Epic:** Docs · **Status:** DONE 2026-10-10 — the stale lines now say the guard is already re-derived and must not be rewritten. The optional "re-break to prove it" step is NOT done: rule 17 (owner decision 2026-09-26) forbids re-breaking finished code to prove a test.
 
 `FinancialServiceRepository.ts:1485-1487` claims `omtCommissionModelGate.test.ts`'s expectations
 "describe the PRE-Phase-2 shape and are stale after this change — a Phase 2 follow-up must re-derive
@@ -4326,7 +4326,7 @@ staff-visible on a brand-new install is a product decision, not something to fix
 
 ---
 
-## LIRA-178: `PUT /api/settings/:key` has `authenticateJWT` but no `requireRole` — any staff user can write any setting — MEDIUM
+## LIRA-178: `PUT /api/settings/:key` has `authenticateJWT` but no `requireRole` — any staff user can write any setting — MEDIUM — DONE (`b1dae8db`)
 
 **Priority:** Medium · **Epic:** Auth / Settings · **Status:** **DONE** (2026-09-07) — committed `b1dae8db` · **Found:**
 2026-09-07, while building LIRA-177 (pre-existing; **not** introduced by that ticket)
@@ -6288,7 +6288,7 @@ types still marked `todo-phase5` in `packages/core/src/constants/postingRules.ts
 
 ---
 
-## LIRA-259 … LIRA-264: owner bug list 2026-10-06 (evening) — IN PROGRESS
+## LIRA-259 … LIRA-264: owner bug list 2026-10-06 (evening) — DONE (shipped 2026-10-07: `e56ce482`, `dba9f93a` and follow-ups)
 
 Interviewed 2026-10-06. Each item ships with a failing-first guard unless noted in its report.
 
