@@ -14,7 +14,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Shared cache paths for yarn install
+# Shared cache paths for yarn install. mobile/node_modules (LIRA-289): the Expo
+# app pins its own React/TypeScript, so they live there, not at the root; without
+# it the typecheck job has no mobile tsc. Adding a path means bumping the key
+# prefix below (yarn-v2-), or an old cache without it is restored as a hit.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   CI_CACHE_PATHS: |
@@ -24,6 +27,7 @@ env:
     frontend/node_modules
     backend/node_modules
     electron-app/node_modules
+    mobile/node_modules
 
 jobs:
   install:
@@ -38,9 +42,9 @@ jobs:
         id: yarn-cache
         with:
           path: ${{ env.CI_CACHE_PATHS }}
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: yarn-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
           restore-keys: |
-            yarn-${{ runner.os }}-
+            yarn-v2-${{ runner.os }}-
 
       - name: Install dependencies
         if: steps.yarn-cache.outputs.cache-hit != 'true'
@@ -58,7 +62,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.CI_CACHE_PATHS }}
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: yarn-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Run ESLint
         run: yarn lint
@@ -90,7 +94,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.CI_CACHE_PATHS }}
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: yarn-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: TypeScript check
         run: yarn typecheck
@@ -215,7 +219,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.CI_CACHE_PATHS }}
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: yarn-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Backend typecheck
         run: yarn workspace @liratek/backend typecheck
@@ -261,7 +265,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.CI_CACHE_PATHS }}
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: yarn-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       # Same reasoning as backend-tests above: the root `postinstall` builds
       # better-sqlite3 for the ELECTRON ABI, but core's jest suite runs under
@@ -338,7 +342,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.CI_CACHE_PATHS }}
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: yarn-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       # LIRA-123 lesson (scripts/run-e2e.mjs), same as the "Core tests with
       # suite-count floor" step below: a step that runs nothing and exits 0
@@ -399,7 +403,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.CI_CACHE_PATHS }}
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: yarn-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Frontend typecheck
         run: yarn workspace @liratek/frontend typecheck
@@ -434,7 +438,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.CI_CACHE_PATHS }}
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: yarn-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Build
         run: yarn build
