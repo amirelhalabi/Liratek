@@ -6537,6 +6537,16 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
+## LIRA-296: warranty for any item, not just phones — TODO (owner request 2026-10-10)
+
+Plan: `docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md`.
+
+- **Already there (LIRA-143):** `products.warranty_months` on ANY product, stamped as `sale_items.warranty_until` on every completed sale line, printed on the receipt.
+- **Missing:** looking a warranty up and acting on it without an IMEI. Gaps G1–G8 in the plan: find by customer / phone / receipt (G1), serial numbers for non-phone items (G2), warranty state on every sale line (G3), claim flow — repair / replace / refund (G4), supplier RMA (G5), per-category default + per-line edit + terms on receipt (G6), warranty on repairs (G7), warranty report (G8).
+- **Blocked on owner decisions D1–D4** (claim cost in Profits, replacement warranty, which categories require serials, scope order). Suggested first slice: G1 + G3 + G6.
+
+**What users will notice (when built):** warranty works for any item — chargers, earbuds, laptops and repairs, not only phones — and staff can find and handle a warranty claim without the IMEI.
+
 ## LIRA-295: web app has no UI scale — the browser's zoom is the scale (desktop keeps it) — DONE, not yet released (owner decision 2026-10-09)
 
 - **Bug:** on the web, UI Scale set CSS `zoom` on `<html>`. Chrome multiplies every viewport-height size (`h-screen`, `max-h-[90vh]`) by it, so at 125% the bottom of each page and modal fell below the window and the `h-screen overflow-hidden` shell (LeftPanelLayout / HomeViewLayout) would not scroll to it.
