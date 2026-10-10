@@ -27,6 +27,7 @@ import {
 } from "@/features/partners/components/ForPartnerToggle";
 import { ensureRechargeClient } from "../utils/ensureClient";
 import { calculateOmtWhishAppFees } from "../utils/omtWhishAppFees";
+import { buildWalletTransferPayload } from "@liratek/core";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { WalletExchangePanel } from "./WalletExchangePanel";
 
@@ -366,97 +367,70 @@ function OmtWhishAppTransferFormInner({
     try {
       const paymentMethod = isSplitPayment ? "MULTI" : paidByMethod;
 
-      const result = await api.addOMTTransaction({
-        provider: activeProvider,
-        serviceType,
-        amount: walletAmount,
-        currency,
-        // Fee after the discount — the same helper that sized the sheet's
-        // payout target (LIRA-269), and the figure the server pays out by.
-        commission,
-        ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
-        ...(activeProvider === "WHISH_APP" ? { whishFee: providerFee } : {}),
-        clientId: resolvedClientId || undefined,
-        clientName:
-          serviceType === "SEND" ? finalSenderName : finalReceiverName,
-        referenceNumber: "",
-        phoneNumber:
-          serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
-        note: `${serviceType} transfer via ${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"}`,
-        paidByMethod: paymentMethod,
-        payments: useStructuredPayments
-          ? toCamelLegs(paymentLines, changeLegs)
-          : undefined,
-        // Bug 6 (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2): how the shop pays
-        // the customer out — synced from the single payout line's method
-        // (below). RECEIVE only: a SEND has no payout, and the repository's
-        // `cashoutMethod` field only means anything on a RECEIVE cashout.
-        // Previously never sent at all — a non-cash single-line payout
-        // silently hit the General drawer via the repository's no-legs
-        // fallback (`data.cashoutMethod || "CASH"`).
-        ...(serviceType === "RECEIVE"
-          ? {
-              cashoutMethod: cashoutMethod as
-                | "CASH"
-                | "CUSTOMER_ACCOUNT"
-                | "OMT"
-                | "WHISH"
-                | "BINANCE",
-            }
-          : {}),
-        includingFees,
-        // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D: mode C's operator-
-        // chosen fee-collection legs. Sent ONLY when showFeeCounterFlow is
-        // (was) true — false (mode A/B, no fee, a partner transfer, or a
-        // session) means this key is entirely absent, preserving byte-
-        // identical payloads for modes A/B and the repository's legacy
-        // single-leg fallback for every other caller.
-        ...(showFeeCounterFlow
-          ? {
-              feePayments: toCamelLegs(
-                feePaymentLines.filter((l) => l.amount > 0),
-              ),
-            }
-          : {}),
-        // Payment-Legs Integrity plan (Wave 9 + false-reject fix): SEND-only
-        // — this is the customer-owed total, not a payout. The repository's
-        // wallet-transfer SEND branch reconciles the legs against THIS, and
-        // checks it equals `amount + commission`. LIRA-269 follow-up: it is
-        // the total AFTER the sheet's discount (`customerPays`, from the
-        // same helper as `commission`) — the undiscounted `totalAmount` here
-        // refused every discounted SEND.
-        ...(serviceType === "SEND" && useStructuredPayments
-          ? {
-              checkoutTotal:
-                currency === "USD"
-                  ? { usd: customerPays, lbp: 0 }
-                  : { usd: 0, lbp: customerPays },
-            }
-          : {}),
-        // `tender_exchange_rate` is the rate this form's own
-        // PaymentSheet/MultiPaymentInput ACTUALLY converted tender at —
-        // captured live via onExchangeRateChange (falls back to
-        // `exchangeRate` if the sheet never fired), so the repository
-        // reconciles at the SAME rate the till used (lira-095's
-        // cross-currency spread bug). Sent whenever legs are sent — BOTH
-        // directions: the RECEIVE payout branch reconciles legs too now
-        // (split-payout wrong-currency fix, owner-reported 2026-07-30), and
-        // a cross-currency payout converted at the sheet's buy rate would
-        // false-reject at the stamped sell rate without this.
-        ...(useStructuredPayments
-          ? { tender_exchange_rate: effectiveRate ?? exchangeRate }
-          : {}),
-        // T3 keep-change: kept amounts join the profit stamp.
-        ...(keptChange &&
-        keptChange.payout === (serviceType === "RECEIVE") &&
-        (keptChange.usd > 0 || keptChange.lbp > 0)
-          ? {
-              kept_change_usd: keptChange.usd,
-              kept_change_lbp: keptChange.lbp,
-            }
-          : {}),
-        transaction_time: transactionTime,
-      });
+      // LIRA-289 (rule 22): the body is built by the ONE shared builder the
+      // phone app uses too. Each condition below is what this form used to
+      // inline; the builder keeps the keys and values the server saw before.
+      const result = await api.addOMTTransaction(
+        buildWalletTransferPayload({
+          provider: activeProvider,
+          serviceType,
+          currency,
+          fees: {
+            autoFee,
+            providerFee,
+            isAppWalletReceive,
+            walletAmount,
+            totalAmount,
+            shopProfit,
+            // Fee after the discount — the figure the server pays out by.
+            commission,
+            feeToCollect,
+            customerPays,
+          },
+          includingFees,
+          client: {
+            id: resolvedClientId,
+            name: serviceType === "SEND" ? finalSenderName : finalReceiverName,
+            phone:
+              serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
+          },
+          paidByMethod: paymentMethod,
+          ...(useStructuredPayments
+            ? {
+                payments: toCamelLegs(paymentLines, changeLegs),
+                // The rate the PaymentSheet ACTUALLY converted tender at
+                // (lira-095), so the repository reconciles at the till's rate.
+                ...((effectiveRate ?? exchangeRate) !== undefined
+                  ? { tenderExchangeRate: effectiveRate ?? exchangeRate }
+                  : {}),
+              }
+            : {}),
+          // RECEIVE only: how the shop pays the customer out (Bug 6).
+          ...(serviceType === "RECEIVE"
+            ? {
+                cashoutMethod: cashoutMethod as
+                  | "CASH"
+                  | "CUSTOMER_ACCOUNT"
+                  | "OMT"
+                  | "WHISH"
+                  | "BINANCE",
+              }
+            : {}),
+          // Mode C fee legs, only when the counter-flow was shown (Phase D).
+          ...(showFeeCounterFlow
+            ? {
+                feePayments: toCamelLegs(
+                  feePaymentLines.filter((l) => l.amount > 0),
+                ),
+              }
+            : {}),
+          // T3 keep-change: only when it belongs to this direction.
+          ...(keptChange && keptChange.payout === (serviceType === "RECEIVE")
+            ? { keptChange: { usd: keptChange.usd, lbp: keptChange.lbp } }
+            : {}),
+          ...(transactionTime !== undefined ? { transactionTime } : {}),
+        }),
+      );
 
       if (result.success) {
         // Link to active customer session

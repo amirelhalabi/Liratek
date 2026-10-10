@@ -377,6 +377,7 @@ export * from "./constants/transactionTypes.js";
 // telecomCredit.js note).
 export * from "./utils/rechargeDiscount.js";
 export * from "./utils/walletReceivePayout.js";
+export * from "./utils/walletTransfer.js";
 
 // LIRA-267 — the admin invite list's row shape and the invite-check answer.
 // Type-only (erased at compile time), so the Node-only service module lands

@@ -56,6 +56,7 @@ export * from "./utils/requestDay.js";
 export * from "./utils/telecomCredit.js";
 export * from "./utils/rechargeDiscount.js";
 export * from "./utils/walletReceivePayout.js";
+export * from "./utils/walletTransfer.js";
 // Generic calendar-date arithmetic (rule 14 — the one definition, moved out
 // of carrierLineValidity.js so date-neutral callers don't import a
 // carrier-line module to add a day to a date). Re-exported from BOTH entry
