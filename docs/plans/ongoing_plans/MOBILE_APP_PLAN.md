@@ -1,6 +1,6 @@
 # Mobile app (LIRA-289) — pointer
 
-**Status:** 🔶 ONGOING — build started 2026-10-10, uncommitted. Ticket: LIRA-289 in `current_sprint.md`.
+**Status:** 🔶 ONGOING — first phone version built 2026-10-10 (39 of 62 tasks). Committed; pushed up to `062ce29a`. Ticket: LIRA-289 in `current_sprint.md`.
 
 The plan for this feature is the Spec Kit folder, not this file. This page exists so the plan board
 (`PLAN_OVERVIEW.md`) can list it with the other open work.
@@ -12,7 +12,7 @@ The plan for this feature is the Spec Kit folder, not this file. This page exist
 | Findings and decisions R1–R12 | `specs/289-mobile-after-hours-sales/research.md` |
 | API contract | `specs/289-mobile-after-hours-sales/contracts/mobile-api.md` |
 | How to run and check it | `specs/289-mobile-after-hours-sales/quickstart.md` |
-| Task list (62; 8 done) | `specs/289-mobile-after-hours-sales/tasks.md` |
+| Task list (62; 39 done) | `specs/289-mobile-after-hours-sales/tasks.md` |
 | Code | `mobile/` (Expo SDK 55), `backend/src/api/mobileAuth.ts`, `packages/core/src/validators/mobileAuth.ts` |
 
 **In one paragraph.**
@@ -24,11 +24,8 @@ The plan for this feature is the Spec Kit folder, not this file. This page exist
 - **Day rule:** sales count on the shop's local calendar day.
 - **Scope:** web-app shops only. Desktop shops' data is not reachable from a phone.
 
-**Remaining, in order:**
-1. Local-date reports and since-last-count. Benefits desktop and web on its own.
-2. Sign-in hardening: test, `MobileAuthService`, Google.
-3. Double-save protection.
-4. Shared sale-payload builders.
-5. Sale screens.
-6. Tracking and repayment.
-7. Store readiness.
+**Remaining:**
+1. Release the phone APK to cornertech: push the local commits, then rebuild the APK.
+2. Phone UI tests (Maestro), and web/desktop e2e for the count panel.
+3. Store readiness (`docs/OPERATIONS.md`, "Phone app").
+4. Deferred by the owner: Google sign-in, Binance as a phone payment, and Katsh/iPick vouchers.

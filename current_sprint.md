@@ -6575,6 +6575,17 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
+## LIRA-300: phone app — bottom tabs, one page per section, cached data — DONE on the simulator, Android check open (owner request 2026-10-10)
+
+- **What:** the phone home screen today loads balances, the latest transactions and "since the last count" together, and every other section (sales, debts, settings) is a pushed screen. Owner asked for a menu that splits the app into pages so each opens faster. Agreed direction: a bottom tab bar (Home / Sell / Debts / Activity / Settings) instead of a burger menu; each tab fetches only its own data; data is cached (TanStack Query) so switching tabs shows the last data at once and refreshes it in the background.
+- **Scope:** phone app only (`mobile/`); no server, core or web change expected. Follow-up of LIRA-289.
+- **Spec:** `specs/300-mobile-bottom-tabs/`.
+- **Built 2026-10-10:** Expo Router `Tabs` (Home, Sell, Debts, Activity, Settings); Sell and Debts hold their own Stack (`/sell/[provider]`, `/debts/[id]`) with the list always underneath; TanStack Query cache keyed by shop (fresh 30 s, refetch on tab focus and on return from background), cleared with in-flight reads cancelled on sign-out, 401 and sign-in; one `invalidateAfter` after each successful transfer/repayment (submit code unchanged). Phone jest suite (8 tests) in `yarn test` and CI. Root `@jest/globals` pinned to 30.2.0: `jest-expo` brought jest 29 and its `@jest/globals` won the root hoist, breaking backend/electron typecheck (TS2883).
+- **Verified on the iPhone 17 simulator (Maestro):** tabs, form kept across tabs, re-tap returns to the list, keyboard hides the bar, light/dark; a $1 repayment updated the customer page, Debts, Home balance and Activity without a pull.
+- **Open:** Android timing check, request-count log (SC-002), two-tenant sign-out check (SC-005), fresh APK. No release note: the phone app has not shipped to customers yet; its first note should include the tabs.
+
+**What users will notice:** the phone app has a tab bar at the bottom; each section opens on its own page and shows its last data at once.
+
 ## LIRA-298: a backdated POS sale is booked at "now" — HIGH — TODO (found 2026-10-10 during LIRA-296)
 
 - **What:** the checkout sends `transaction_time` when the cashier backdates a sale (`CheckoutModal.tsx:542`), but `saleProcessSchema` (`packages/core/src/validators/sale.ts:49`) has no `transaction_time` key, so Zod strips it and the sale, its transaction row, drawer movements and profit are all dated "now". `createSaleSchema` (:146) has the key; the POS path does not use it. Verified for the web route (`backend/src/api/sales.ts:169` validates with `saleProcessSchema`); **desktop path not yet checked** (`salesHandlers.ts`).
@@ -6894,6 +6905,25 @@ sales from their phone, even after closing, and see the sales made since the las
 >
 > What users will notice (Dashboard, web and desktop): drawer balances and Cash on Hand always show dollars and lira,
 > even at zero; other currencies appear only when the drawer holds some.
+>
+> **End of 2026-10-10: the first phone version is built (39 of 62 tasks, committed).**
+> - The phone records Whish App / OMT App transfers, on the customer's account or into the Whish / OMT wallet.
+> - It shows customer debts and records repayments into a wallet.
+> - Home shows live balances, the latest transactions and "since the last count" per wallet.
+> - Every money submission carries an Idempotency-Key (migration v208), so a double tap books once.
+> - Shared with web and desktop:
+>   - one wallet-transfer payload builder;
+>   - after-midnight sales land on the right day (Transactions filter, cash report, daily summary);
+>   - the count window lists "N sales since the last count".
+> - Money tests on the real schema prove the phone's sales and repayments move the same drawers and debt as at the
+>   counter, and that voids net to zero.
+> - Owner decisions: no Google sign-in for now; Binance is not a phone payment choice (USDT legs are refused
+>   server-side); Katsh/iPick vouchers are skipped for the first phone version; builds are local only (no EAS, no
+>   Klareo/Hetivo accounts).
+> - Left: release the APK to cornertech (push, rebuild), phone UI tests, store readiness.
+>
+> What users will notice (web and desktop): sales made after midnight show on the right day on the Transactions
+> page, the cash report and the daily summary; the count window lists the sales since the last count.
 
 ---
 

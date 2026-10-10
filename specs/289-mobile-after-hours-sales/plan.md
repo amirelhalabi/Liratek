@@ -116,6 +116,9 @@ frontend/src/
 └── features/closing/…                           # "since the last count" list on the count screen
 ```
 
+> Moved by LIRA-300 (bottom tabs, 2026-10-10): `(app)/sale/[provider].tsx` is now `(app)/sell/[provider].tsx` and
+> `(app)/client/[id].tsx` is now `(app)/debts/[id].tsx`; see `specs/300-mobile-bottom-tabs/`.
+
 **Structure Decision**: The new app lives in a top-level `mobile/` workspace, like `frontend/` and `backend/`. It shares only schemas and types with core, through the Node-free browser entry. All server changes stay in the existing layers.
 
 ## Delivery slices (order)
@@ -127,37 +130,47 @@ frontend/src/
 5. **Slice 3: Expo app** (sign-in, sale, balances, since-last-count, client debt, repayment).
 6. **Slice 4: store readiness**: OAuth clients, privacy and delete-account link, EAS builds, review.
 
-## Progress (2026-10-10)
+## Progress (end of 2026-10-10)
 
-- **Done:**
-  - Setup: the Expo SDK 55 workspace `mobile/` runs on the iOS simulator.
-  - Phone HTTP client, secure token store, and auth context with a 401 → sign-in gate.
-  - The web-matched theme (`mobile/src/theme/tokens.ts`, copied from `frontend/src/index.css` variables).
-  - Screens: sign-in, "Create your shop", home (sale tiles and balance placeholders), settings.
-  - Core `validators/mobileAuth.ts`.
-  - Backend `POST /api/mobile/auth/login` (curl-verified locally).
-- **Deviations from this plan, all recorded in research R11/R12:**
-  - SDK 55 instead of 56+.
-  - A Babel config to allow core's `declare` fields.
-  - A Metro blockList.
-  - "Create your shop" reuses `POST /api/auth/signup/request` (no `/signup-link` route).
-  - Backend declares `ws`.
-- **Constitution debt to clear:**
-  - The shop/role checks currently live in the route; move them into `MobileAuthService` (T023, rule 13).
-  - The route has no automated test yet (T016, rule 17: not provable failing-first now).
-- **Next:**
-  - T016/T023, then Google (T019 first).
-  - US3 (local-date reports, since-last-count) can start in parallel.
-  - Android build once the SDK finishes downloading.
+39 of 62 tasks done; all work is committed on `main` (pushed up to `062ce29a`, later commits local).
+
+- **Built and verified:**
+  - **Phone app (Expo SDK 55)**, iOS simulator and a signed release APK:
+    - sign-in by shop address (and "Create your shop" via the web);
+    - home with live drawer balances, latest transactions and "since the last count" per wallet;
+    - **record a Whish App / OMT App transfer**, on the customer's account or into the Whish / OMT wallet;
+    - customer debts and **record a repayment** into a wallet;
+    - Dark / Light / System appearance;
+    - the LiraTek icon, logo and splash.
+  - **Server:**
+    - `POST /api/mobile/auth/login`, with its rules in `MobileAuthService` and tested;
+    - Idempotency-Key on the sale and repayment routes (v208, one transaction);
+    - `GET /api/closing/since-last-count` and its IPC twin.
+  - **Shared with web:**
+    - `buildWalletTransferPayload` and the fee maths in core, now used by the web form too;
+    - `visibleDrawerCurrencies`;
+    - local-date bucketing on the Transactions filter, cash report and daily summary;
+    - the "N sales since the last count" panel on the desktop/web count window.
+  - **Money tests on the real schema:**
+    - phone sales × every phone payment choice, voids net to zero;
+    - wallet repayments, voids net to zero;
+    - an on-account sale appears in its wallet's since-last-count list.
+- **Deferred by owner decision (2026-10-10):** Google sign-in; Binance as a phone payment choice; Katsh/iPick vouchers on the phone.
+- **Not done:**
+  - web/desktop e2e for the count panel (T050): desktop e2e does not run on this Mac;
+  - phone UI tests (T060, Maestro not installed);
+  - store submission (T059): only the checklist is written, in `docs/OPERATIONS.md`;
+  - lapsed-shop state at sign-in.
+- **Deviations from this plan:** see research R11/R12. The build-only Docker focus is in `backend/Dockerfile`.
 
 ## Open items (from research)
 
 - **R6 verify:** which `aud` the chosen native Google library puts in the ID token on Android and iOS, and whether it can carry a nonce. If not, use the code + PKCE fallback and drop `mobile_google_nonces`.
 - **Expo SDK version:** decided, SDK 55 (research R11). Move to SDK 57 after an Xcode update.
-- **Expo account:** the CLI is logged into `techhetivo`. Switch to the owner's personal Expo account before any `eas build` (research R12).
+- **Expo account:** none is used. Builds are local only, with no EAS (owner decision 2026-10-10, research R12).
 - **Timestamp shapes:** `created_at` mixes ISO `T…Z` and SQLite `YYYY-MM-DD HH:MM:SS` (both UTC). Slice 0 normalises, and its tests cover both shapes (R2).
 - **Apple 4.8 and account deletion:** confirm at the first iOS review (Likely only).
-- **Production `APP_BASE_DOMAIN` / `TENANT_DB_MODE`:** these are not in `fly.toml`. Check them before Slice 1 deploys, because the mobile login resolves by slug regardless of host.
+- ~~Production `APP_BASE_DOMAIN` / `TENANT_DB_MODE`~~: resolved. The mobile login resolves by slug and is live on production since Deploy API #63 (verified: an unknown shop gets 401).
 
 ## Complexity Tracking
 

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 import { logout as apiLogout, type MobileSession } from "@/api/auth";
 import { setUnauthorizedHandler } from "@/api/client";
+import { resetCache } from "@/data/queryClient";
 
 import { clearToken, getShop, getToken, setShop, setToken, type StoredShop } from "./tokenStore";
 
@@ -38,13 +39,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Any 401 (expired token, session revoked from web Settings) returns to sign-in.
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      void clearToken().then(() => setStatus("signedOut"));
+      // Drop the shop's cached pages before sign-in shows (LIRA-300 FR-013).
+      void Promise.all([clearToken(), resetCache()]).then(() => setStatus("signedOut"));
     });
     return () => setUnauthorizedHandler(null);
   }, []);
 
   const completeSignIn = useCallback(async (session: MobileSession) => {
     const remembered = { slug: session.shop.slug, name: session.shop.name };
+    // Guard against a cache left over if the app was killed mid sign-out.
+    await resetCache();
     await setToken(session.token);
     await setShop(remembered);
     setShopState(remembered);
@@ -54,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     await apiLogout();
     await clearToken();
+    await resetCache();
     setStatus("signedOut");
   }, []);
 

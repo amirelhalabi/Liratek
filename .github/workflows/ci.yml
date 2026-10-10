@@ -99,6 +99,27 @@ jobs:
       - name: TypeScript check
         run: yarn typecheck
 
+      # LIRA-300: the phone app's pure cache modules (query keys, what each
+      # sale or repayment refreshes). Runs here because this job already has
+      # mobile/node_modules. Same floor idea as the core job: a run that
+      # reports fewer tests than exist is a failure, not a pass (rule 28).
+      - name: Phone app unit tests with test-count floor
+        run: |
+          MIN_TESTS=8
+          set +e
+          yarn workspace @liratek/mobile test > mobile-test-output.log 2>&1
+          test_exit=$?
+          set -e
+          cat mobile-test-output.log
+          tests_total=$(grep -E "^Tests:" mobile-test-output.log | grep -oE "[0-9]+ total" | grep -oE "[0-9]+" || true)
+          echo "[mobile-tests] exit=$test_exit tests_total=${tests_total:-<none>}"
+          if [ "$test_exit" -ne 0 ]; then exit "$test_exit"; fi
+          if [ -z "$tests_total" ] || [ "$tests_total" -lt "$MIN_TESTS" ]; then
+            echo "[mobile-tests] FLOOR CHECK FAILED — reported ${tests_total:-0} test(s), floor $MIN_TESTS."
+            exit 1
+          fi
+          echo "[mobile-tests] floor check passed — $tests_total test(s), floor $MIN_TESTS."
+
       - name: Tenant-scoping check (every tenant-table SQL carries tenant_id)
         run: yarn check:tenant-scoping
 

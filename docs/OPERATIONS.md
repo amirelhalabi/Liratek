@@ -240,6 +240,35 @@ var without having run the split doesn't take every shop down silently:
   (`provisioning`) and stray files with no matching tenant row (orphans) are
   logged as warnings only, never a failure.
 
+## Phone app (LIRA-289)
+
+The Expo app in `mobile/` is built **only on this Mac**. The owner decided: no EAS or online Expo services, and no
+Klareo or Hetivo accounts. It talks to `https://api.liratek.shop` (`/api/mobile/auth/login`, then the normal
+routes with the phone's bearer token).
+
+- **Development:** `yarn workspace @liratek/mobile ios`, or `android`. `mobile/.env.development.local`
+  (git-ignored) points the development app at a local backend. Release builds never read it.
+- **Tests:** `yarn workspace @liratek/mobile test` (jest-expo, pure modules only; `yarn test` and CI run it). Screens
+  are checked by hand on the simulator; Maestro (`/opt/homebrew/bin/maestro`) can drive it by tab label, e.g.
+  `tapOn: "Sell, tab.*"`.
+- **Release APK:**
+  1. `cd mobile && NODE_ENV=production APP_VARIANT=preview npx expo prebuild --platform android --clean --no-install`
+  2. `cd android && ./gradlew assembleRelease` (JDK 17: `JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home`;
+     SDK: `ANDROID_HOME=~/Library/Android/sdk`)
+
+  The output is `mobile/android/app/build/outputs/apk/release/app-release.apk`.
+- **Signing:** `mobile/plugins/withReleaseSigning.js` signs release builds with the upload key at
+  `~/Documents/LiraTek/keys/liratek-release.keystore`. Its passwords are the `LIRATEK_UPLOAD_*` lines in
+  `~/.gradle/gradle.properties`. **Back up the keystore and those four lines together.** Updates must be signed
+  with the same key, or Android refuses to install them over the old app. Fingerprint (SHA-256) starts
+  `3C:82:5A:0F`.
+- **Before a store submission (not done yet):**
+  - Android and iOS OAuth clients, only if Google sign-in is added.
+  - A privacy-policy URL (`landing/privacy.html`).
+  - A delete-account path. The app links to the web Settings.
+  - Apple 4.8: username/password sign-in alongside any third-party sign-in. Confirm at the first review.
+  - App versioning: `version` in `mobile/package.json`; bump the Android `versionCode` per release.
+
 ## Rollback
 
 The cutover was one DNS record, so is the rollback: point `api.liratek.shop`

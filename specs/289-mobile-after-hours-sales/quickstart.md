@@ -22,6 +22,11 @@ This guide is for running checks, not for implementing. Contracts are in `contra
 4. **Seeing the signed-in screens without the local backend:** use the development-only shop-address mode (`EXPO_PUBLIC_API_MODE=shop-host` in `mobile/.env.development.local`) and sign in to a deployed shop. The old "Preview screens" link was removed 2026-10-10 (owner).
 5. **Android:** needs JDK 17 (`/opt/homebrew/opt/openjdk@17`) and the SDK in `~/Library/Android/sdk` (platform-tools, emulator, `platforms;android-36`, `build-tools;36.0.0`, `system-images;android-36;google_apis;arm64-v8a`), then an emulator device and `yarn workspace @liratek/mobile android`. Install in progress 2026-10-10.
 
+6. **Try the money flows on the local backend** (`mobiletest` / `admin` / `Mobile#2026`):
+   - **Whish App transfer:** choose a client or a new one, then "On account", then Save. Home → Latest transactions shows it, and Customer debts lists the client.
+   - **Customer debts:** choose the client, then Record a repayment into the Whish wallet. The balance drops by the amount.
+   - **Development shop-address mode** (`EXPO_PUBLIC_API_MODE=shop-host`) reads a PRODUCTION shop, and anything saved there is real. Keep it off unless you mean it.
+
 Checked on 2026-10-10:
 
 - The sign-in screen renders on the iPhone 17 simulator (iOS 26.1) in the web palette.

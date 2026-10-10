@@ -359,6 +359,11 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
       `INSERT INTO supplier_returns (tenant_id, defective_item_id, warranty_claim_id, supplier_id, user_id)
        VALUES (?, ?, ?, ?, ?)`,
     ).run(tenantId, defectiveId, claimId, supplierId, userId);
+    // LIRA-289 v208 — a stored reply to a phone submission.
+    db.prepare(
+      `INSERT INTO idempotency_keys (tenant_id, user_id, route, idem_key, response_json, created_at, updated_at)
+       VALUES (?, ?, 'POST /api/services/transactions', 'fixture-key-0001', '{}', '2026-01-01', '2026-01-01')`,
+    ).run(tenantId, userId);
   });
   run();
 }

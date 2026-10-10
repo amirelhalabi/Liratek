@@ -35,9 +35,19 @@ config.resolver.blockList = [
   new RegExp(`^${escape(path.join(root, "dist-electron"))}(/.*)?$`),
 ];
 
+const mobileModules = path.join(__dirname, "node_modules");
+const PINNED = /^(react|react-native)(\/.*)?$/;
+
 const originalResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const resolve = originalResolveRequest ?? context.resolveRequest;
+  // One React for the whole bundle (LIRA-300). The repo root holds the web
+  // app's react 19.2.3; the phone runs 19.2.0. A package hoisted to the root
+  // (none today) would otherwise load the root copy, and two Reacts crash with
+  // "Invalid hook call" — which no typecheck catches.
+  if (PINNED.test(moduleName)) {
+    return resolve(context, path.join(mobileModules, moduleName), platform);
+  }
   if (moduleName.startsWith(CORE_PREFIX)) {
     const target = path.join(coreSrc, moduleName.slice(CORE_PREFIX.length));
     return resolve(context, target, platform);

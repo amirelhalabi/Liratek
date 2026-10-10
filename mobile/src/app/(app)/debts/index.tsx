@@ -1,34 +1,33 @@
 import { formatMoneyAmount } from "@liratek/core/utils/formatMoney";
-import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { router } from "expo-router";
+import { useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { getDebtors, type Debtor } from "@/api/debts";
+import { getDebtors } from "@/api/debts";
+import { RefreshNotice } from "@/components/RefreshNotice";
 import { TextField } from "@/components/TextField";
+import { queryKeys } from "@/data/queryKeys";
+import { usePullRefresh } from "@/data/usePullRefresh";
+import { useRefreshOnFocus } from "@/data/useRefreshOnFocus";
+import { useShopSlug } from "@/data/useShop";
+import { unwrap } from "@/data/unwrap";
 import { useTheme } from "@/theme/ThemeProvider";
 import { radius, spacing } from "@/theme/tokens";
 
 /** Clients who owe the shop (spec Story 4 #3). Tap one to see the balance and record a repayment. */
 export default function DebtsScreen() {
   const t = useTheme();
-  const [debtors, setDebtors] = useState<Debtor[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const slug = useShopSlug();
   const [query, setQuery] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    const r = await getDebtors();
-    if (r.success) {
-      setDebtors(r.data);
-      setError(null);
-    } else setError(r.error);
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load]),
-  );
+  const debtorsQuery = useQuery({
+    queryKey: queryKeys.debtors(slug),
+    queryFn: async () => unwrap(await getDebtors()),
+    enabled: !!slug,
+  });
+  useRefreshOnFocus([debtorsQuery]);
+  const pull = usePullRefresh([debtorsQuery.refetch]);
+  const debtors = debtorsQuery.data ?? null;
 
   const q = query.trim().toLowerCase();
   const shown = (debtors ?? []).filter(
@@ -39,26 +38,16 @@ export default function DebtsScreen() {
     <ScrollView
       contentContainerStyle={styles.body}
       keyboardShouldPersistTaps="handled"
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={async () => {
-            setRefreshing(true);
-            await load();
-            setRefreshing(false);
-          }}
-          tintColor={t.accent}
-        />
-      }
+      refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} tintColor={t.accent} />}
     >
       <TextField label="Search" value={query} onChangeText={setQuery} placeholder="Name or phone" autoCorrect={false} />
-      {error ? <Text style={{ color: t.danger }}>Could not load ({error}). Pull down to retry.</Text> : null}
-      {debtors === null && !error ? <ActivityIndicator color={t.accent} /> : null}
+      <RefreshNotice error={debtorsQuery.error} hasData={debtors !== null} />
+      {debtors === null && debtorsQuery.isPending ? <ActivityIndicator color={t.accent} /> : null}
       {debtors !== null && shown.length === 0 ? <Text style={{ color: t.textMuted }}>No customer owes anything.</Text> : null}
       {shown.map((d) => (
         <Pressable
           key={d.id}
-          onPress={() => router.push({ pathname: "/client/[id]", params: { id: String(d.id), name: d.full_name, phone: d.phone_number } })}
+          onPress={() => router.push({ pathname: "/debts/[id]", params: { id: String(d.id), name: d.full_name, phone: d.phone_number } })}
           style={[styles.row, { backgroundColor: t.card, borderColor: t.border }]}
         >
           <View style={styles.flex}>

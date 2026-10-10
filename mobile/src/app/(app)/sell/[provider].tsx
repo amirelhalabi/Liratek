@@ -12,6 +12,8 @@ import { ErrorBanner } from "@/components/ErrorBanner";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { Segmented } from "@/components/Segmented";
 import { TextField } from "@/components/TextField";
+import { invalidateAfter } from "@/data/invalidation";
+import { useShopSlug } from "@/data/useShop";
 import { useTheme } from "@/theme/ThemeProvider";
 import { radius, spacing } from "@/theme/tokens";
 
@@ -51,6 +53,7 @@ export default function SaleScreen() {
   const t = useTheme();
   const params = useLocalSearchParams<{ provider: string }>();
   const provider: Provider = params.provider === "OMT_APP" ? "OMT_APP" : "WHISH_APP";
+  const slug = useShopSlug();
 
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>("USD");
@@ -142,6 +145,8 @@ export default function SaleScreen() {
       return;
     }
     idemKey.current = null;
+    // Home, Activity and (on account) Debts show the sale next time (LIRA-300 FR-012).
+    void invalidateAfter(slug, { kind: "transfer", paidBy: method, clientId });
     Alert.alert("Saved", `${TITLES[provider]} of ${formatMoneyAmount(fees.walletAmount, currency)} recorded.`, [
       { text: "OK", onPress: () => router.back() },
     ]);

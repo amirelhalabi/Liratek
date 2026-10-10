@@ -1,15 +1,23 @@
 import { formatMoneyAmount } from "@liratek/core/utils/formatMoney";
-import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useQuery } from "@tanstack/react-query";
+import { Stack, useLocalSearchParams } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { Alert, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { NO_CONNECTION } from "@/api/client";
-import { getClientBalance, recordRepayment, type ClientBalance } from "@/api/debts";
+import { getClientBalance, recordRepayment } from "@/api/debts";
 import { newIdempotencyKey } from "@/api/sales";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { Segmented } from "@/components/Segmented";
+import { RefreshNotice } from "@/components/RefreshNotice";
 import { TextField } from "@/components/TextField";
+import { invalidateAfter } from "@/data/invalidation";
+import { queryKeys } from "@/data/queryKeys";
+import { usePullRefresh } from "@/data/usePullRefresh";
+import { useRefreshOnFocus } from "@/data/useRefreshOnFocus";
+import { useShopSlug } from "@/data/useShop";
+import { unwrap } from "@/data/unwrap";
 import { useTheme } from "@/theme/ThemeProvider";
 import { radius, spacing } from "@/theme/tokens";
 
@@ -35,7 +43,15 @@ export default function ClientScreen() {
   const params = useLocalSearchParams<{ id: string; name?: string; phone?: string }>();
   const clientId = Number(params.id);
 
-  const [balance, setBalance] = useState<ClientBalance | null>(null);
+  const slug = useShopSlug();
+  const balanceQuery = useQuery({
+    queryKey: queryKeys.clientBalance(slug, clientId),
+    queryFn: async () => unwrap(await getClientBalance(clientId)),
+    enabled: !!slug && Number.isFinite(clientId),
+  });
+  useRefreshOnFocus([balanceQuery]);
+  const pull = usePullRefresh([balanceQuery.refetch]);
+  const balance = balanceQuery.data ?? null;
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>("USD");
   const [wallet, setWallet] = useState<Wallet>("WHISH");
@@ -43,17 +59,6 @@ export default function ClientScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const idemKey = useRef<string | null>(null);
-
-  const load = useCallback(async () => {
-    const r = await getClientBalance(clientId);
-    if (r.success) setBalance(r.data);
-  }, [clientId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-    }, [load]),
-  );
 
   useEffect(() => {
     idemKey.current = null;
@@ -91,7 +96,8 @@ export default function ClientScreen() {
     idemKey.current = null;
     setAmount("");
     setNote("");
-    await load();
+    // Balances, debts and this customer refresh on every page (LIRA-300 FR-012).
+    void invalidateAfter(slug, { kind: "repayment", clientId });
     Alert.alert("Saved", `Repayment of ${formatMoneyAmount(parsed, currency)} recorded.`);
   }
 
@@ -100,13 +106,18 @@ export default function ClientScreen() {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <Stack.Screen options={{ title: params.name || "Client" }} />
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={pull.refreshing} onRefresh={pull.onRefresh} tintColor={t.accent} />}
+      >
         {error ? <ErrorBanner message={error} /> : null}
+        <RefreshNotice error={balanceQuery.error} hasData={balance !== null} />
         <View style={card}>
           <Text style={{ color: t.textMuted, fontSize: 12 }}>{params.phone ?? ""}</Text>
           <Text style={[styles.section, { color: t.text }]}>Owes</Text>
           {balance === null ? (
-            <Text style={{ color: t.textMuted }}>Loading…</Text>
+            balanceQuery.isPending ? <Text style={{ color: t.textMuted }}>Loading…</Text> : null
           ) : (
             <View style={styles.owes}>
               <Text style={[styles.big, { color: t.text }]}>{formatMoneyAmount(balance.balance_usd, "USD")}</Text>
