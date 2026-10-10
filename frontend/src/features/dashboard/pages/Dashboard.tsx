@@ -62,7 +62,7 @@ import {
   type PartnerSettlementAmount,
 } from "../utils/partnerSettlement";
 import { formatCurrency } from "@/utils/currency";
-import { isDrawerVisible } from "@liratek/core";
+import { isDrawerVisible, visibleDrawerCurrencies } from "@liratek/core";
 // LIRA-214 (OWNER_NOTES_REMAINING_BUILD.md #24, migration v183) — the shared
 // Hold Money pickup sheet (also used by HoldMoneySection's Active Holds
 // list), so this card's "Collect" opens the SAME payment-form + partial-
@@ -1007,12 +1007,8 @@ export default function Dashboard() {
     isDrawerVisible(name, isModuleEnabled),
   );
   const drawerCards = drawerEntries.map(([name, currencies]) => {
-    // Show all currencies with a non-zero balance, or all if all are zero
-    const nonZero = Object.fromEntries(
-      Object.entries(currencies).filter(([, amount]) => amount !== 0),
-    );
-    const displayCurrencies =
-      Object.keys(nonZero).length > 0 ? nonZero : currencies;
+    // USD/LBP always; other currencies only when non-zero (shared rule).
+    const displayCurrencies = visibleDrawerCurrencies(currencies);
     // LIRA-086 — the last checkpoint's accuracy (counted vs. expected),
     // not to be confused with `checkedAt`'s TIME-based freshness above.
     const varianceUsd = checkpointVarianceUsd(
@@ -1286,13 +1282,7 @@ export default function Dashboard() {
                 { key: primaryDrawerName, label: primaryDrawerLabel },
               ].map(({ key, label }, i) => {
                 const raw = drawerBalances[key];
-                const nonZero = raw
-                  ? Object.fromEntries(
-                      Object.entries(raw).filter(([, v]) => v !== 0),
-                    )
-                  : null;
-                const display =
-                  nonZero && Object.keys(nonZero).length > 0 ? nonZero : raw;
+                const display = raw ? visibleDrawerCurrencies(raw) : null;
                 return (
                   <div
                     key={key}

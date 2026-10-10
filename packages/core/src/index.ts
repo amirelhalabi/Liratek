@@ -41,6 +41,7 @@ export * from "./utils/barcode.js";
 export * from "./utils/payments.js";
 export * from "./utils/saleMargin.js";
 export * from "./utils/formatMoney.js";
+export * from "./utils/visibleDrawerCurrencies.js";
 export * from "./utils/currency.js";
 export * from "./utils/currencyConverter.js";
 export * from "./utils/tenantSlug.js";

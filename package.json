@@ -11,7 +11,8 @@
     "backend",
     "frontend",
     "packages/*",
-    "electron-app"
+    "electron-app",
+    "mobile"
   ],
   "scripts": {
     "dev": "concurrently -k \"cd frontend && npm run dev\" \"wait-on tcp:5173 && npm run electron:start\"",

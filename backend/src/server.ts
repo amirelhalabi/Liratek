@@ -123,6 +123,7 @@ app.use(requireWritableSubscription);
 
 // Import routes
 import authRoutes from "./api/auth.js";
+import mobileAuthRoutes from "./api/mobileAuth.js";
 import clientsRoutes from "./api/clients.js";
 import salesRoutes from "./api/sales.js";
 import inventoryRoutes from "./api/inventory.js";
@@ -198,6 +199,8 @@ app.use("/api/auth/google", googleAuthRoutes);
 // LIRA-287: www "email me a code" sign-in (public). Before authRoutes.
 app.use("/api/auth/signin-code", signinCodeRoutes);
 app.use("/api/auth", authRoutes);
+// LIRA-289: phone app sign-in (shop address in the body, admins only).
+app.use("/api/mobile/auth", mobileAuthRoutes);
 app.use("/api/clients", clientsRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/inventory", inventoryRoutes);

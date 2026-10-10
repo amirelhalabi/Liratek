@@ -6778,7 +6778,7 @@ Recharge page, and Settings changes show on the Recharge page without a reload.
 
 ---
 
-## LIRA-289: Mobile app — owner records and tracks digital sales from the phone, including after closing — TODO (owner decisions 2026-10-08)
+## LIRA-289: Mobile app — owner records and tracks digital sales from the phone, including after closing — IN PROGRESS (owner decisions 2026-10-08; build started 2026-10-10)
 
 Origin: a web-app customer gets requests after the shop is closed (Whish App transfers, iPEC/Katch vouchers) and does
 them from his phone. He wants to record and track them in LiraTek from the phone, outside the shop. The mobile app is
@@ -6807,7 +6807,7 @@ also meant to be the main selling point of the system: "run your shop's digital 
 > existing email sign-up link, rest on the web. Depends on
 > LIRA-288 for Google sign-in across shops / per-tenant DB mode. Spec: `specs/289-mobile-after-hours-sales/`.
 
-Build direction: Expo app (new screens; reuses the existing API, core rules and accounts); push notifications later. Web tenants first —
+Build direction: Expo SDK 55 app in `mobile/` (new screens; reuses the existing API, core rules and accounts); push notifications later. Web tenants first —
 desktop tenants keep their data on the shop PC (no cloud sync), so they cannot use it until a sync exists.
 
 Open questions for the spec:
@@ -6826,4 +6826,40 @@ Acceptance criteria (draft):
 - Works in the web app; desktop unaffected.
 
 What users will notice: (when built) shop owners on the web app can record Whish App / OMT App transfers and voucher
-sales from their phone, even after closing, and see them in the next day's opening.
+sales from their phone, even after closing, and see the sales made since the last drawer count when they count.
+
+> **Progress 2026-10-10 (uncommitted).** Spec Kit artifacts are complete in `specs/289-mobile-after-hours-sales/`
+> (spec, plan, research R1–R12, data model, contract, quickstart, 62 tasks; 8 done).
+>
+> - **Framework:** Expo, copied from `hetivo-mono/apps/hetivo-mobile-driver`. Pinned to **SDK 55**, because SDK 56/57
+>   need a newer Xcode than this Mac's 26.1.1. Capacitor was considered and not chosen (research R11).
+> - **iOS:** the app runs on the iPhone 17 simulator in the web palette, with these screens:
+>   - sign-in (shop address + username + password)
+>   - "Create your shop" (reuses the web's email sign-up)
+>   - home (sale tiles; wallet-balance and since-last-count placeholders)
+>   - settings (sign out, delete-account link)
+> - **Backend:** `POST /api/mobile/auth/login` is built. It finds the shop by address, checks the username inside that
+>   shop only, admins only, and sessions are marked `mobile`. Curl-verified against a local backend; not deployed.
+> - **Android:** JDK 17 and the Android SDK are being installed.
+> - **Fixed along the way:**
+>   - the backend now declares `ws` (React Native's `ws@7` had displaced the v8 it relied on);
+>   - Metro ignores the other apps' build output.
+> - **Open:**
+>   - route test (T016; not provable failing-first);
+>   - move the route's checks into `MobileAuthService` (T023);
+>   - Google sign-in (T019 first);
+>   - US3 local-date reports;
+>   - sale screens.
+> - **Owner decision 2026-10-10: no EAS or online Expo, and no Klareo or Hetivo accounts.** Builds are local only, and
+>   APKs are signed with a local upload key (`~/Documents/LiraTek/keys/`, passwords in `~/.gradle/gradle.properties`;
+>   back both up together).
+> - **Also built 2026-10-10:**
+>   - Dark / Light / System appearance in the app's Settings.
+>   - App icon and splash from the owner-chosen LiraTek swirl logo, in Pastel Violet + Signal Blue.
+>   - Development-only "shop address" mode that reads live data through `https://<shop>.liratek.shop`.
+>   - Home screen shows live drawer balances and the latest transactions.
+>   - Shared currency rule (`visibleDrawerCurrencies`): USD/LBP always shown, other currencies only when not zero.
+>     Applied on the web Dashboard too. Release note added under Dashboard.
+>
+> What users will notice (Dashboard, web and desktop): drawer balances and Cash on Hand always show dollars and lira,
+> even at zero; other currencies appear only when the drawer holds some.

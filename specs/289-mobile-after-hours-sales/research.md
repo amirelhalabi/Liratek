@@ -162,7 +162,7 @@ The Slice 0 tests create one row of each shape.
 - It imports **types and schemas only** from `packages/core/src/browser.ts`, through a Metro resolver alias (the Vite pattern). Payload types are `z.input<typeof createFinancialServiceSchema>` and `z.input<typeof addRepaymentSchema>` (rule 21).
 - The phone uses core's zod 4 through that import and does not add a second zod major.
 - `packages/ui` is not used.
-- Builds and store submission use EAS.
+- ~~Builds and store submission use EAS.~~ **Superseded 2026-10-10 (owner):** local builds only, with no EAS or online Expo. Android APKs are signed with a local upload key through `mobile/plugins/withReleaseSigning.js`.
 - Import only the needed validator modules, not the whole `browser.ts` barrel. The rule 29 guard catches Node built-ins only; it does **not** catch `window`, `document`, `localStorage` or Hermes gaps, which crash Metro at runtime.
 - Add an `expo export` bundle check to the gates.
 
@@ -182,6 +182,55 @@ The Slice 0 tests create one row of each shape.
 One builder per operation means SC-002 compares phone and web by construction, not against a third hand copy.
 
 **Alternatives considered**: The phone writes its own bodies. Rejected: rule 22 defect (two builders that nothing compares).
+
+## R11. Expo vs Capacitor, and which SDK (decided 2026-10-10)
+
+**Decision**: Use Expo, following `~/Documents/Hetivo/hetivo-mono/apps/hetivo-mobile-driver`, on **SDK 55** with its versions: `expo ~55.0.31`, `react 19.2.0`, `react-native 0.83.10`, Expo Router.
+
+**Rationale**:
+- The owner's own projects (hetivo-mono, Klareo `klareomobile`, `mobile-shop`) all ship Expo apps, so there's a proven path and reference.
+- SDK 57 and SDK 56 both fail to compile on this Mac. Their `expo-modules-jsi` uses `weak let`, which Swift 6.2.1 (Xcode 26.1.1) rejects: "'weak' must be a mutable variable".
+- Hetivo builds iOS in EAS's cloud, which has a newer Xcode, so it never hit this.
+- SDK 55 builds and runs on the iPhone 17 simulator (verified 2026-10-10).
+
+**Consequence**:
+- React 19.2.0 for the app sits beside the web's 19.2.3 at the root. All React Native packages resolve from `mobile/node_modules`.
+- `expo-doctor` reports that duplicate (17/18 checks). Revisit once Xcode is updated and the app can move to SDK 57 (React 19.2.3).
+
+**Alternatives considered**:
+- **Capacitor** (wrap web code): it reuses the React components and API layer. Rejected because:
+  - there is no reference project on this Mac;
+  - Apple rejects apps that are "just a website" (guideline 4.2), which is a higher risk;
+  - Google sign-in still needs a native plugin;
+  - the shared payload builders (R10) already give one source of truth either way.
+
+  Sources: [Capgo Google sign-in](https://capgo.app/blog/how-to-sign-in-with-google-using-capacitor/), [MobiLoud on 4.2](https://www.mobiloud.com/blog/app-store-review-guidelines-webview-wrapper).
+- **SDK 57 / 56**: blocked by the local Xcode, as above.
+
+**Local toolchain**:
+- iOS: `yarn workspace @liratek/mobile ios` runs `expo run:ios` (CNG; `mobile/ios` is generated and git-ignored).
+- Android: needs JDK 17 (Homebrew `openjdk@17`) and the Android SDK from `android-commandlinetools`.
+
+## R12. Build findings while making the app run (2026-10-10)
+
+These came up getting the app to build and run on the iPhone 17 simulator and against a local backend. Each is fixed in the working tree (uncommitted).
+
+| Finding | Fix | Where |
+| --- | --- | --- |
+| Expo SDK 57/56 Swift code (`weak let` in `expo-modules-jsi`) fails on Swift 6.2.1 (Xcode 26.1.1) | Use SDK 55, hetivo's versions (R11) | `mobile/package.json` |
+| Two CocoaPods runs at once corrupted `ios/Pods` (`ReactNativeDependencies.xcframework … No such file`) | Delete `ios/Pods`, `ios/build` and DerivedData, then run once | process note |
+| Babel rejects core's `declare readonly` class fields (`packages/core/src/utils/errors.ts`). Hetivo's shared code has none, so it never hit this | `mobile/babel.config.js`: `babel-preset-expo` plus `@babel/plugin-transform-typescript` with `allowDeclareFields: true` | `mobile/babel.config.js` |
+| Core source is imported as `@liratek/core/<module>`; core uses `./x.js` ESM specifiers | Metro `resolveRequest` maps the prefix to `packages/core/src/<module>.ts` and strips `.js` inside core; tsconfig `paths` mirror it | `mobile/metro.config.js`, `mobile/tsconfig.json` |
+| Another session rebuilt core and re-copied `node_modules/@liratek/core` while Metro ran. This corrupted Metro's file map ("already exists in the file map as a file") and every core import failed | Metro `blockList`: the built core copy, `packages/core/dist`, `frontend`, `backend`, `electron-app`, `dist-electron` (merged with Expo's defaults) | `mobile/metro.config.js` |
+| The backend imported `ws` without declaring it and got v8 by root hoisting. React Native's `ws@^7` displaced it, and the backend crashed: "does not provide an export named 'WebSocket'" | `backend/package.json` declares `"ws": "^8.18.0"` | `backend/package.json` |
+| `expo-doctor` reports a duplicate React (app 19.2.0 under `mobile/node_modules`, web 19.2.3 at the root) | Accepted. Every React Native package resolves from `mobile/node_modules`. Revisit on SDK 57 | — |
+| Auth error bodies are `{ code, message }`, not strings | The phone client reads `error.code` | `mobile/src/api/client.ts` |
+
+**Account check (owner request 2026-10-10):**
+- Git commits in this repo use the personal identity (`amirelhalabi`, repo-local config).
+- The remote is `github.com/amirelhalabi/Liratek`, and the keychain GitHub account is `amirelhalabi`.
+- Expo CLI is logged in as `techhetivo` (Hetivo). It is unused so far, because local `expo run:*` builds need no account. **No EAS at all** (owner, 2026-10-10). Leave the `techhetivo` login unused; builds are local only.
+- No Klareo account is used anywhere.
 
 ## R9. Store and policy items (not code)
 

@@ -19,6 +19,7 @@ export * from "./utils/currencyConverter.js";
 // exported HERE, not only from index.ts — see the telecomCredit.js note
 // below for the exact failure mode this avoids.
 export * from "./utils/formatMoney.js";
+export * from "./utils/visibleDrawerCurrencies.js";
 
 // Telecom Only-Days credit model (LIRA-090) — pure integer math, no Node.js deps.
 // The frontend (KatchForm, MobileServicesManager) imports maxReturnableCredits,

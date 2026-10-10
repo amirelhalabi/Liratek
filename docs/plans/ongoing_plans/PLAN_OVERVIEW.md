@@ -102,6 +102,7 @@ writes transactions, payments, drawers, ledgers or profit.
 | `PRODUCTION_DATABASE_AND_HOSTING_PLAN.md` | **Only Phase D left** (the switch to per-tenant files). Phases A–C shipped 2026-09-27/28 (`4dcd16c0`…`7c150b2f`, deployed, prod still `TENANT_DB_MODE=shared`); the split was dry-run on a production snapshot and passed. Runbook § 12.4; owner schedules the window | Small | yes |
 | `NEXT_STEPS_AFTER_FLY_MIGRATION.md` | `DATABASE_KEY` log line still lies (no canary in `sqlcipher.ts:39`); signup URL-code prefill. Its per-tenant-split item now points at the hosting plan (resolved 2026-09-28, see §4) | Medium | yes |
 | `LANDING_PAGE_PLAN.md` 🆕 | Landing page LIVE on `liratek.shop` since 2026-10-07 (Phases 1–2, verified). Video chosen (/brag, 3b) and shipped. Left: SPF/DMARC + Search Console (4) | Small | no |
+| `MOBILE_APP_PLAN.md` 🆕 | **LIRA-289, build started 2026-10-10 (uncommitted).** A pointer to the Spec Kit folder `specs/289-mobile-after-hours-sales/`. Expo SDK 55 app in `mobile/` runs on the iOS simulator (sign-in, create-shop, home, settings). Backend `POST /api/mobile/auth/login` is built and curl-verified locally. Left: 54 of 62 tasks — local-date reports and since-last-count (US3), sign-in test, `MobileAuthService` and Google, idempotency, sale screens, tracking, repayment, store readiness. Android SDK install in progress | Large | yes (US2/US5 post through existing money routes) |
 | `WEB_PARITY_ROADMAP.md` 📖 | **Living tracker — never archive.** Phase 3 count is badly stale: it says "7 of 87 specs, ~43 remain"; today there are **117 desktop specs against the same 7-spec allowlist, so ~110 remain**. Two §9 items are already fixed but still listed | Large | yes |
 
 ### `todo_plans/` — genuinely not started (5)
@@ -134,13 +135,14 @@ writes transactions, payments, drawers, ledgers or profit.
 - ~~The 4 remaining desktop e2e failures~~ done 2026-09-20 — all four were stale SPECS, not product bugs; fixed and verified green (archived to `done_plans/`).
 - **WP9** (`MULTI_TENANT`) — the super-admin/impersonation e2e.
 
-### 2c. The four large tracks — pick ONE and finish it
+### 2c. The large tracks — pick ONE and finish it
 
 | Track | Plans | Why you'd pick it |
 | --- | --- | --- |
 | ~~**Money correctness**~~ | ~~`profit-audit-2026-09`~~ | **Done 2026-10-10** — LIRA-185 closed (§3); posting integrity (LIRA-258) closed too |
 | **Web maturity** | `TRANSPORT_PARITY_AUDIT` → `WEB_PARITY_ROADMAP` | The guard script *prevents* the defect class the 110 specs merely *detect* |
 | **Commercial** | `SUBSCRIPTION_MANAGEMENT` → `DESKTOP_LICENSING` → `OPEN_PUBLIC_SIGNUP` | The only chain with real sequencing; the email capability it needed is provided by LIRA-267 |
+| **Mobile app** | `MOBILE_APP_PLAN` (LIRA-289) | The selling point the owner chose; a real customer asked for it. Its first slice (local-date reports) fixes desktop and web too |
 | **Infrastructure** | `PRODUCTION_DATABASE_AND_HOSTING` → `OFFLINE_DESKTOP_FALLBACK` | Phase D (the switch) is the last step of the split; it unblocks the offline-desktop plan |
 
 ### 2d. Blocked on you — five entries, no code possible until answered

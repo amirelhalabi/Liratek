@@ -55,3 +55,5 @@ export * from "./databaseReset.js";
 export * from "./dashboard.js";
 // LIRA-296: warranty search, claims, defective items and the terms setting.
 export * from "./warranty.js";
+// LIRA-289: phone app sign-in.
+export * from "./mobileAuth.js";

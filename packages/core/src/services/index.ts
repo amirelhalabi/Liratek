@@ -16,6 +16,14 @@ export type {
   ChangeOwnPasswordResult,
 } from "./AuthService.js";
 
+// Mobile Auth Service (LIRA-289: phone app sign-in by shop address)
+export { MobileAuthService } from "./MobileAuthService.js";
+export type {
+  MobileLoginRequest,
+  MobileLoginOutcome,
+  MobileAuthServiceDeps,
+} from "./MobileAuthService.js";
+
 // Inventory Service
 export {
   InventoryService,

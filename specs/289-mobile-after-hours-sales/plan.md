@@ -18,9 +18,9 @@ Research changed the day model. LiraTek has no "day closed" state; counts are pe
 
 ## Technical Context
 
-**Language/Version**: TypeScript strict across the board. Node (backend, current repo version). React Native through Expo SDK 56+ (React 19.2, matching the frontend; **verify** the SDK at scaffold time).
+**Language/Version**: TypeScript strict across the board. Node (backend, current repo version). React Native through **Expo SDK 55** (React 19.2.0, React Native 0.83.10), matching hetivo-mono. SDK 56/57 need a newer Xcode than this Mac has (research R11).
 
-**Primary Dependencies**: Express + `@liratek/core` (existing); Expo, Expo Router, `expo-secure-store` (token), a Google sign-in library chosen per R6, and EAS Build/Submit.
+**Primary Dependencies**: Express + `@liratek/core` (existing); Expo, Expo Router, `expo-secure-store` (token), a Google sign-in library chosen per R6. **Builds are local only** (`expo run:*` / Gradle): no EAS or online Expo services, and no Klareo or Hetivo accounts (owner, 2026-10-10).
 
 **Storage**: SQLite through core (shared or per-tenant mode). New tables `idempotency_keys` (tenant, v202) and `mobile_google_nonces` (platform; only if the ID-token path is chosen).
 
@@ -127,10 +127,34 @@ frontend/src/
 5. **Slice 3: Expo app** (sign-in, sale, balances, since-last-count, client debt, repayment).
 6. **Slice 4: store readiness**: OAuth clients, privacy and delete-account link, EAS builds, review.
 
+## Progress (2026-10-10)
+
+- **Done:**
+  - Setup: the Expo SDK 55 workspace `mobile/` runs on the iOS simulator.
+  - Phone HTTP client, secure token store, and auth context with a 401 → sign-in gate.
+  - The web-matched theme (`mobile/src/theme/tokens.ts`, copied from `frontend/src/index.css` variables).
+  - Screens: sign-in, "Create your shop", home (sale tiles and balance placeholders), settings.
+  - Core `validators/mobileAuth.ts`.
+  - Backend `POST /api/mobile/auth/login` (curl-verified locally).
+- **Deviations from this plan, all recorded in research R11/R12:**
+  - SDK 55 instead of 56+.
+  - A Babel config to allow core's `declare` fields.
+  - A Metro blockList.
+  - "Create your shop" reuses `POST /api/auth/signup/request` (no `/signup-link` route).
+  - Backend declares `ws`.
+- **Constitution debt to clear:**
+  - The shop/role checks currently live in the route; move them into `MobileAuthService` (T023, rule 13).
+  - The route has no automated test yet (T016, rule 17: not provable failing-first now).
+- **Next:**
+  - T016/T023, then Google (T019 first).
+  - US3 (local-date reports, since-last-count) can start in parallel.
+  - Android build once the SDK finishes downloading.
+
 ## Open items (from research)
 
 - **R6 verify:** which `aud` the chosen native Google library puts in the ID token on Android and iOS, and whether it can carry a nonce. If not, use the code + PKCE fallback and drop `mobile_google_nonces`.
-- **Expo SDK version:** confirm when scaffolding.
+- **Expo SDK version:** decided, SDK 55 (research R11). Move to SDK 57 after an Xcode update.
+- **Expo account:** the CLI is logged into `techhetivo`. Switch to the owner's personal Expo account before any `eas build` (research R12).
 - **Timestamp shapes:** `created_at` mixes ISO `T…Z` and SQLite `YYYY-MM-DD HH:MM:SS` (both UTC). Slice 0 normalises, and its tests cover both shapes (R2).
 - **Apple 4.8 and account deletion:** confirm at the first iOS review (Likely only).
 - **Production `APP_BASE_DOMAIN` / `TENANT_DB_MODE`:** these are not in `fly.toml`. Check them before Slice 1 deploys, because the mobile login resolves by slug regardless of host.

@@ -2,7 +2,7 @@
 
 Base URL: `https://api.liratek.shop`. The phone calls it directly, not through a shop subdomain.
 
-Every response is the IPC-style envelope `{ success, data?, error? }` with HTTP 200, except where an existing route already differs (noted below).
+Every response is the envelope `{ success, data?, error? }`. Errors come in one of two shapes: a plain string (IPC-style routes, HTTP 200), or `{ code, message }` (`createErrorResponse`, used by the auth routes with 401/403). The phone client (`mobile/src/api/client.ts`) reads `error.code`, then `error.message`, then the string, and reads the JSON body whatever the HTTP status.
 
 Every authenticated request carries these headers:
 
@@ -25,10 +25,12 @@ No `authenticateJWT` on these routes. They use the existing failed-login rate li
 ```
 
 - `shop`: a slug, matched case-insensitively. The server finds the tenant by slug and then authenticates the username **inside that tenant only**.
-- Success: `{ success: true, data: { token, user: { id, username, role: "admin" }, shop: { slug, name } } }`. A session is created with `device_type: "mobile"`.
-- All of these return the same `{ success:false, error:"INVALID_CREDENTIALS" }`: unknown shop, wrong username or password, deactivated user, and a shop that is not active.
-- Lapsed (read-only) shops sign in and return `shop.status` so the app shows the same state as the web (spec Story 1 #8).
-- Staff user with a correct password: `{ success:false, error:"ADMIN_ONLY" }`, and no session is created. This reveals the account exists only to someone who already holds valid credentials.
+- **Built 2026-10-10** (`backend/src/api/mobileAuth.ts`, mounted at `/api/mobile/auth` in `backend/src/server.ts`). Curl-verified on a local backend (see quickstart, "Run it locally").
+- Success (HTTP 200): `{ success: true, data: { user: { id, username, role, pictureUrl }, token, sessionToken, shop: { slug, name } } }`. Same body as the web login (`sendWebLoginResponse`), plus `shop`. A session is created with `device_type: "mobile"` and `device_info` = `deviceName`.
+- HTTP 401 `{ success:false, error:{ code:"INVALID_CREDENTIALS", message:"Invalid credentials" } }` for all of these, with an identical body: an unknown shop, a wrong username or password, a username that belongs to another shop, and a shop whose `status` is not `active`. An unknown shop still runs the doomed lookup (realm `NO_SUCH_REALM`), so it costs the same as a wrong password.
+- HTTP 403 `{ success:false, error:{ code:"ADMIN_ONLY", … } }` for a staff user with the right password. The session that login created is revoked before replying. This reveals the account exists only to someone who already holds valid credentials.
+- Rate-limited by the web's `authLimiter` (failed attempts only).
+- **Not built yet:** `shop.status` for lapsed (read-only) shops (spec Story 1 #8).
 
 ### `POST /api/mobile/auth/google/nonce`
 
@@ -57,11 +59,10 @@ No `authenticateJWT` on these routes. They use the existing failed-login rate li
   - `MULTIPLE_SHOPS`: admin in more than one shop. No list is returned (spec FR-025).
   - `INVALID_GOOGLE_TOKEN`: verification failed.
 
-### `POST /api/mobile/auth/signup-link`
+### "Create your shop": reuses `POST /api/auth/signup/request` (no new route)
 
-- Body: `{ "email": "…" }`.
-- Calls the existing LIRA-278 "Create your shop by email" service unchanged, so the link opens on the web.
-- Always returns `{ success:true }`, so the response never reveals whether the email is known.
+- Decided 2026-10-10. The web's self-serve route already works without a shop host, so the phone calls it directly with `{ email }` (typed by `mobileSignupLinkSchema`, a subset of `requestSignupLinkSchema`). The emailed link opens on the web, unchanged.
+- **Caveat:** if production ever configures Turnstile (LIRA-267, currently off), this route needs a Turnstile token the phone cannot produce. At that point, add a phone route or a token exemption.
 
 ### Sign out
 

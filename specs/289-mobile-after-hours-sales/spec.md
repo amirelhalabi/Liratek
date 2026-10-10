@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-08
 
-**Status**: Draft
+**Status**: In progress (planned and tasked 2026-10-08; build started 2026-10-10 — see plan.md "Progress")
 
 **Input**: User description: "Mobile app for the shop owner. A web-app customer gets requests after the shop is closed (Whish App transfers, iPEC/Katch vouchers) and does them from his phone; he wants to record and track them in LiraTek from the phone, outside the shop. Only flows with no physical hand-over (no cash given out, no item handed over). Payment per transaction: customer account, or paid into the Whish app, OMT app or Binance wallet. Transactions recorded after closing belong to the next business day (revised 2026-10-08 to: the local calendar day they happened on — see Clarifications, third round). The phone sends its own local day. Owner only for now. Owner decisions 2026-10-08."
 

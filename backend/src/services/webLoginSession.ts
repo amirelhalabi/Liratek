@@ -35,6 +35,8 @@ export interface WebLoginOptions {
   summary?: string;
   /** Extra audit metadata (e.g. `{ via: "google" }`). */
   metadata?: Record<string, unknown>;
+  /** Extra fields merged into the success data (the phone app gets `shop`). */
+  extra?: Record<string, unknown>;
 }
 
 /**
@@ -108,6 +110,7 @@ export function sendWebLoginResponse(
       },
       token: jwtToken,
       sessionToken: options.sessionToken,
+      ...(options.extra ?? {}),
     }),
   );
   return jwtToken;

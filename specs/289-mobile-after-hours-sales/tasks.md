@@ -12,6 +12,24 @@ description: "Task list for LIRA-289 — mobile app for after-hours digital sale
 
 **Organization**: Tasks are grouped by user story. "Owner" = a user with role `admin` (spec, third round).
 
+## Progress (2026-10-10)
+
+- **Done (8 of 62):** T001, T002, T003, T006, T013, T014, T020, T027.
+- **Partial:**
+  - T026: sign-in form without Google.
+  - T024: `POST /login` only.
+- **Not done in Setup/Foundational:**
+  - T004 (zod in `mobile/`; not needed yet, because the phone imports core schema *types* only);
+  - T005 (mobile lint/`expo export` CI job);
+  - T007–T012 (idempotency);
+  - T015 (client tests).
+- **Changes from the plan** (research R11/R12):
+  - SDK 55;
+  - the app lives in `mobile/src/app/` (Expo Router `src/` layout), not `mobile/app/`;
+  - "Create your shop" reuses `POST /api/auth/signup/request`, so T024's `/signup-link` is dropped;
+  - `mobile/babel.config.js` and a Metro blockList were added;
+  - `backend/package.json` now declares `ws`.
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Can run in parallel (different files, no dependency on unfinished tasks)
@@ -33,12 +51,12 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 
 **Purpose**: The Expo workspace exists, builds and type-checks inside the monorepo.
 
-- [ ] T001 Confirm the current Expo SDK and its React / React Native versions against `frontend/package.json` (`react ^19.2.0`) and record the chosen SDK in `specs/289-mobile-after-hours-sales/research.md` R8 (Verify item)
-- [ ] T002 Scaffold the Expo app (TypeScript strict, Expo Router) in `mobile/` with `mobile/package.json` named `@liratek/mobile`, and add `"mobile"` to the root `package.json` `workspaces`
-- [ ] T003 Configure Metro in `mobile/metro.config.js` for the Yarn 4 `node-modules` monorepo, with a resolver alias that maps only the needed core validator modules (`packages/core/src/validators/financial.ts`, `debt.ts`, `common.ts`, `closing.ts`, `mobileAuth.ts`). Never map `packages/core/src/index.ts` (it pulls `better-sqlite3`). Do not import the whole `browser.ts` barrel (research R8).
+- [x] T001 Confirm the current Expo SDK and its React / React Native versions against `frontend/package.json` (`react ^19.2.0`) and record the chosen SDK in `specs/289-mobile-after-hours-sales/research.md` R8 (Verify item)
+- [x] T002 Scaffold the Expo app (TypeScript strict, Expo Router) in `mobile/` with `mobile/package.json` named `@liratek/mobile`, and add `"mobile"` to the root `package.json` `workspaces`
+- [x] T003 Configure Metro in `mobile/metro.config.js` for the Yarn 4 `node-modules` monorepo, with a resolver alias that maps only the needed core validator modules (`packages/core/src/validators/financial.ts`, `debt.ts`, `common.ts`, `closing.ts`, `mobileAuth.ts`). Never map `packages/core/src/index.ts` (it pulls `better-sqlite3`). Do not import the whole `browser.ts` barrel (research R8).
 - [ ] T004 [P] Add `zod` at the same major as `packages/core/package.json` (`^4.3.6`) to `mobile/package.json`, and make `mobile/tsconfig.json` strict with path aliases matching T003
 - [ ] T005 [P] Add `mobile` lint, `tsc --noEmit` and `npx expo export --platform all` (bundle check that catches DOM and Hermes gaps) scripts to `mobile/package.json`, and wire them into `.github/workflows/ci.yml` as a separate job
-- [ ] T006 [P] Create `mobile/app.json` (app name "LiraTek", bundle id / package `shop.liratek.app`, scheme `liratek`) and `mobile/eas.json` with `development`, `preview` and `production` profiles
+- [x] T006 [P] Create `mobile/app.json` (app name "LiraTek", bundle id / package `shop.liratek.app`, scheme `liratek`) and `mobile/eas.json` with `development`, `preview` and `production` profiles
 
 **Checkpoint**: `yarn workspace @liratek/mobile typecheck` and `expo export` succeed on an empty app.
 
@@ -70,7 +88,7 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 - [ ] T010 Implement `packages/core/src/repositories/IdempotencyRepository.ts` (extends `BaseRepository`, tenant-scoped, `?` placeholders): `claim`, `storeResponse`, `findResponse`, `deleteOlderThan(hours)`
 - [ ] T011 Implement `backend/src/middleware/idempotency.ts`. When `Idempotency-Key` is present, the claim, the route's service call and the stored success response run in ONE SQLite transaction: no `pending` state, and a crash rolls everything back (data-model.md). It replays stored responses and does not store `{success:false}`. Mount it on `POST /api/services/transactions` (`backend/src/api/services.ts`) and `POST /api/debts/repayments` (`backend/src/api/debts.ts`).
 - [ ] T012 Add `deleteOlderThan(24)` for idempotency keys to the hourly sweep in `backend/src/services/authCleanupSweep.ts`
-- [ ] T013 [P] Implement `mobile/src/api/client.ts`. It sends:
+- [x] T013 [P] Implement `mobile/src/api/client.ts`. It sends:
   - `Authorization: Bearer`;
   - `X-Client-Day` (the phone's local `YYYY-MM-DD`);
   - `X-Client-Tz-Offset` (copy the exact expression from `frontend/src/api/httpClient.ts:251`, same sign);
@@ -80,7 +98,7 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
   - stores `X-Renewed-Token` when present;
   - normalises any non-2xx JSON body to `{success:false,error}` (`POST /api/debts/repayments` returns 400);
   - maps network failure to a `NO_CONNECTION` error with no retry queue (FR-018).
-- [ ] T014 [P] Implement `mobile/src/auth/tokenStore.ts` on `expo-secure-store` (token, shop slug, shop name), plus `mobile/src/auth/AuthContext.tsx`. The `api` instance is read through a ref inside effects (rule 25).
+- [x] T014 [P] Implement `mobile/src/auth/tokenStore.ts` on `expo-secure-store` (token, shop slug, shop name), plus `mobile/src/auth/AuthContext.tsx`. The `api` instance is read through a ref inside effects (rule 25).
 - [ ] T015 [P] Write `mobile/src/api/__tests__/client.test.ts`: the headers are present, a renewed token is stored, a 400 JSON body is normalised, and a network error gives `NO_CONNECTION`
 
 **Checkpoint**: The duplicate guard is live on the two write routes. The phone client is ready.
@@ -115,7 +133,7 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 ### Implementation
 
 - [ ] T019 [US1] **Verify (research R6) before T022–T024.** Pick the native Google sign-in library. On a real Android and iOS build, record which client ID appears in the ID token's `aud`, and whether a server-issued nonce can be embedded. Write the result into `research.md` R6. If the nonce cannot be passed, switch T022–T024 to the code + PKCE fallback (`expo-auth-session`, with the server exchanging the code) and skip T021.
-- [ ] T020 [P] [US1] Create `packages/core/src/validators/mobileAuth.ts`:
+- [x] T020 [P] [US1] Create `packages/core/src/validators/mobileAuth.ts`:
   - `mobileLoginSchema`: `shop` slug, `username`, `password`, optional `deviceName` ≤ 100 chars;
   - `mobileGoogleSchema`: `idToken`, `nonce`, optional `deviceName`;
   - `mobileSignupLinkSchema`: `email`.
@@ -129,7 +147,7 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 - [ ] T023 [US1] Implement `packages/core/src/services/MobileAuthService.ts` (no SQL; repositories only, rule 13):
   - `loginWithShop`: tenant by slug via the tenant repository. Then, inside `runWithTenant(tenant.id)`, authenticate the username in that tenant only, require `role === 'admin'`, and create the session with `deviceType 'mobile'` and `deviceInfo = deviceName`. Use a dummy hash compare when the shop or user is unknown.
   - `loginWithGoogle`: verify, consume the nonce, read `signin_directory` matches for the `sub`, look up each match's role inside `runWithTenant(match.tenant_id)`, and keep admins in active or lapsed shops. Exactly one → session. Otherwise return the refusal codes in `contracts/mobile-api.md`.
-- [ ] T024 [US1] Implement `backend/src/api/mobileAuth.ts`:
+- [ ] T024 [US1] (partial 2026-10-10: `POST /login` built and mounted, curl-verified locally for admin / wrong password / unknown shop / other shop / staff; the shop/role logic lives in the route for now and moves into `MobileAuthService` with T023; Google routes pending; "Create your shop" reuses the web's `POST /api/auth/signup/request`) Implement `backend/src/api/mobileAuth.ts`:
   - `POST /login`, `POST /google/nonce`, `POST /google`, `POST /signup-link`;
   - `validateRequest` with the T020 schemas, the existing failed-login rate limiter, and the HTTP 200 envelope;
   - the same token response shape as `POST /api/auth/login` (`backend/src/services/webLoginSession.ts`);
@@ -137,12 +155,12 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 
   Mount it at `/api/mobile/auth` in `backend/src/server.ts`, without `authenticateJWT`.
 - [ ] T025 [US1] Reject the device date on mobile writes. In `backend/src/middleware/auth.ts`, when the session's `device_type === 'mobile'` and the method is a write, refuse with `{success:false,error:"DEVICE_CLOCK"}` if `X-Client-Day` is more than 1 day from the server's UTC day. Web and desktop are unchanged (spec FR-011). Add the test to `backend/src/middleware/__tests__/` first.
-- [ ] T026 [P] [US1] Build `mobile/app/(auth)/sign-in.tsx`:
+- [ ] T026 [P] [US1] (partial 2026-10-10: shop/username/password form, "Create your shop" and refusal messages built in `mobile/src/app/(auth)/`; Google button waits for T019) Build `mobile/app/(auth)/sign-in.tsx`:
   - "Continue with Google";
   - shop address + username + password, with the shop pre-filled from `tokenStore`;
   - "Create your shop" (email → `/signup-link`, then "check your email");
   - a message for each refusal code (`GOOGLE_NOT_CONNECTED` explains connecting Google in web Settings).
-- [ ] T027 [US1] Add a sign-in gate in `mobile/app/_layout.tsx`: a stored valid token opens `(app)`, and a 401 anywhere clears the token and returns to sign-in. Add `mobile/app/(app)/settings.tsx` with Sign out (`POST /api/auth/logout`, phone token only) and a "Delete account" link to the web.
+- [x] T027 [US1] Add a sign-in gate in `mobile/app/_layout.tsx`: a stored valid token opens `(app)`, and a 401 anywhere clears the token and returns to sign-in. Add `mobile/app/(app)/settings.tsx` with Sign out (`POST /api/auth/logout`, phone token only) and a "Delete account" link to the web.
 - [ ] T028 [US1] Check production `APP_BASE_DOMAIN` / `TENANT_DB_MODE` with `yarn api secrets list` (never `flyctl` directly). Record the values in `research.md` R5. Add `GOOGLE_MOBILE_CLIENT_IDS` to the Fly secrets checklist in `docs/OPERATIONS.md`.
 
 **Checkpoint**: The T016–T018 suites are green. A dev build signs in on Android and iOS.
