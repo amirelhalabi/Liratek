@@ -21,6 +21,21 @@ const EMPTY_DELIVERIES: CarrierLineOwedDeliveryEntity[] = [];
 
 interface CarrierLinesPanelProps {
   carrier: "alfa" | "mtc";
+  /** The carrier drawer's USD balance (LIRA-252 E). When it no longer equals
+   *  the sum of the active lines' credits (RechargeRepository §0.1), the panel
+   *  warns so the shop fixes it with a checkpoint. Undefined = unknown, no
+   *  warning. */
+  drawerUsd?: number | undefined;
+}
+
+/** Drift below half a cent is float noise, not a mismatch. */
+const DRAWER_MISMATCH_TOLERANCE_USD = 0.005;
+
+function formatUsd(value: number): string {
+  return `$${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 const CARRIER_LABEL: Record<"alfa" | "mtc", string> = {
@@ -55,7 +70,10 @@ function addDaysToToday(days: number): string {
  *   one payment leg on the carrier's credit drawer + the linked movement
  *   that decrements the line, all in one db transaction. Reversible through
  *   the generic void path in the Transactions viewer. */
-export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
+export function CarrierLinesPanel({
+  carrier,
+  drawerUsd,
+}: CarrierLinesPanelProps) {
   const api = useApi();
   // m6 fix (rule 25): `useApi()` is only stable in production because
   // `ApiProvider` happens to hand out a module-level singleton — a test's
@@ -509,8 +527,28 @@ export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
     }
   };
 
+  const linesCreditsSum = lines.reduce(
+    (sum, l) => sum + (Number(l.credits) || 0),
+    0,
+  );
+  const showDrawerMismatch =
+    !loading &&
+    drawerUsd !== undefined &&
+    Number.isFinite(drawerUsd) &&
+    Math.abs(drawerUsd - linesCreditsSum) > DRAWER_MISMATCH_TOLERANCE_USD;
+
   return (
     <div className="mb-3" data-testid="carrier-lines-panel">
+      {showDrawerMismatch && (
+        <div
+          className="mb-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-300"
+          data-testid="carrier-drawer-mismatch"
+        >
+          The {CARRIER_LABEL[carrier]} drawer shows {formatUsd(drawerUsd)}, but
+          its SIM lines total {formatUsd(linesCreditsSum)}. Do a checkpoint
+          that counts each line to bring them back in line.
+        </div>
+      )}
       {usageFeedback && (
         <div
           className="mb-1.5 text-xs text-emerald-400"

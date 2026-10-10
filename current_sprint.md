@@ -5852,7 +5852,7 @@ comment in `constants/tenderRateBand.ts` was corrected.
 
 ---
 
-## LIRA-252: MTC/Alfa drawer can drift from the carrier lines it's supposed to equal — HIGH
+## LIRA-252: MTC/Alfa drawer can drift from the carrier lines it's supposed to equal — HIGH — DONE (closed 2026-10-10)
 
 | Field | Value |
 | --- | --- |
@@ -5977,7 +5977,7 @@ since an unscoped sum now also picks up the untransacted manual-adjustment rows)
 
 ### Open (NOT built)
 
-- **E** — Recharge-page mismatch warning not built.
+- ~~**E** — Recharge-page mismatch warning not built.~~ **Built 2026-10-10** (see below).
 - Production data repair — explicitly out of scope (owner decision D).
 
 ### E2E impact
@@ -6011,6 +6011,20 @@ Setup now count MTC/Alfa credits per SIM line (one field per active line, drawer
 carrier with no active line gets an inline prompt to add one instead of a blank dollar field; adding,
 editing, archiving or re-activating a shop SIM line in Settings now moves that carrier's drawer to match,
 automatically.
+
+### What was built (item E — 2026-10-10)
+
+The MTC/Alfa panel on the Recharge page (`CarrierLinesPanel`, new optional `drawerUsd` prop fed from the page's
+existing `getRechargeDrawerBalances()` through `TelecomForm.carrierDrawerUsd`) shows an amber warning when the carrier
+drawer's USD balance differs from the sum of its active lines' credits by more than half a cent, naming both amounts
+and pointing to a checkpoint. No warning while the drawer balance is unknown. Display only; both transports (the
+drawer balances adapter is already dual-mode). Guard test `CarrierLinesPanel.drawerMismatch.test.tsx`: the warning
+case failed first (`Unable to find … carrier-drawer-mismatch`), the two no-warning guards passed before and after.
+Recharge suites 290/290, frontend tsc app/test clean, eslint 0 errors. Ticket closed: A–C built 2026-10-02, D owner
+decision (no repair), E built.
+
+What users will notice: if an MTC or Alfa drawer no longer matches its SIM lines, the Recharge page now shows a
+warning with both amounts, so the shop can fix it with a checkpoint.
 
 ---
 

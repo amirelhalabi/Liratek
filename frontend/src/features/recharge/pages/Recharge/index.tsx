@@ -1918,6 +1918,7 @@ export default function MobileRecharge() {
         {activeConfig?.formMode === "telecom" && (
           <TelecomForm
             isMTC={isMTC}
+            carrierDrawerUsd={activeDrawerBalance?.usdBalance}
             rechargeType={rechargeType}
             setRechargeType={(type) => {
               setRechargeType(type);

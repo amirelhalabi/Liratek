@@ -92,6 +92,9 @@ const BUYBACK_PAYMENT_METHOD_CODES = new Set([
 
 interface TelecomFormProps {
   isMTC: boolean;
+  /** The active carrier drawer's USD balance, for the SIM-lines mismatch
+   *  warning (LIRA-252 E). */
+  carrierDrawerUsd?: number | undefined;
   rechargeType: RechargeType;
   setRechargeType: (type: RechargeType) => void;
   isSubmitting: boolean;
@@ -197,6 +200,7 @@ interface TelecomFormProps {
 
 export function TelecomForm({
   isMTC,
+  carrierDrawerUsd,
   rechargeType,
   setRechargeType,
   isSubmitting,
@@ -551,7 +555,10 @@ export function TelecomForm({
       {/* W6.a: compact panel of the shop's own SIM lines for this carrier —
           credits + days-remaining, inline quick-update. Informational only
           (no drawer legs, no checkout/closing involvement). */}
-      <CarrierLinesPanel carrier={isMTC ? "mtc" : "alfa"} />
+      <CarrierLinesPanel
+        carrier={isMTC ? "mtc" : "alfa"}
+        drawerUsd={carrierDrawerUsd}
+      />
 
       {/* Service Type Tabs */}
       <ServiceTypeTabs
