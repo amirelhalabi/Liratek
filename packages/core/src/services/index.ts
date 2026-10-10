@@ -193,15 +193,9 @@ export {
 } from "./MaintenanceService.js";
 export type { SaveJobParams } from "./MaintenanceService.js";
 
-// Report Service - Requires Electron APIs, not available in backend mode
-// export { ReportService } from "./ReportService";
-// export type {
-//   GeneratePdfResult,
-//   BackupResult,
-//   ListBackupsResult,
-//   RestoreDbResult,
-//   VerifyBackupResult,
-// } from "./ReportService";
+// Report Service: desktop only — lives in electron-app/services/ReportService.ts
+// (it needs Electron's BrowserWindow/app). Core's dead copy was removed so core
+// never depends on Electron.
 
 // Settings Service
 export {

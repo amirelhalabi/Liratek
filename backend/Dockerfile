@@ -62,18 +62,17 @@ COPY mobile/package.json        mobile/package.json
 # far more often and would invalidate the (slow) install layer on every edit.
 COPY scripts/rebuild-native-deps.cjs scripts/rebuild-native-deps.cjs
 
-# Install only what the API needs: the backend (and core, its workspace
-# dependency) plus the ROOT workspace, whose devDependencies the build relies on
-# (@types/jest / @jest/globals: core's and backend's tsconfig name the jest
-# types). A full `yarn install` also pulled in the Expo/React Native tree of the
-# `mobile` workspace (LIRA-289), plus frontend and electron-app, which roughly
-# doubled deploy time and bloated the image the runtime stage copies
-# node_modules from. `focus` still resolves
-# the whole graph (hence every manifest above) and reads yarn.lock; immutable
-# mode makes a lockfile that is out of date fail the build instead of being
-# rewritten.
+# Build install: the backend and core workspaces with their dev tools
+# (TypeScript, @types/*) — NOT the root workspace. The root's packages belong
+# to the web and desktop apps (electron, electron-builder, vite, tailwind,
+# react, jsdom, testing-library, eslint, …): focusing it used to add ~1,100
+# packages / ~830 MB to every deploy and ship them in the runtime image.
+# The builds use tsconfig.build.json, which leaves tests and jest types out,
+# so no test tooling is needed here either. `focus` still resolves the whole
+# graph (hence every manifest above) and reads yarn.lock; immutable mode makes
+# a lockfile that is out of date fail the build instead of being rewritten.
 ENV YARN_ENABLE_IMMUTABLE_INSTALLS=true
-RUN corepack enable && yarn workspaces focus liratek @liratek/backend
+RUN corepack enable && yarn workspaces focus @liratek/backend @liratek/core
 
 # Sources: core (the actual business logic) + backend (routes only).
 COPY packages/core/ packages/core/
@@ -104,6 +103,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
      | tar -C /usr/local/bin -xz litestream \
   && /usr/local/bin/litestream version
 
+# ──────────────────────────────────────────────────────── prod deps ───────
+# What the server needs at runtime and nothing else: the backend's and core's
+# `dependencies` (express, better-sqlite3, zod, pino, …), no dev tools. A
+# separate stage so the runtime image copies a node_modules without
+# TypeScript, @types or anything the build stage needed. Reuses the build
+# stage's toolchain in case better-sqlite3 has to compile from source.
+FROM build AS prod-deps
+# The two mkdirs keep the COPYs below valid when yarn hoists everything and
+# nests nothing under a workspace.
+RUN rm -rf node_modules backend/node_modules packages/core/node_modules \
+ && yarn workspaces focus --production @liratek/backend \
+ && mkdir -p backend/node_modules packages/core/node_modules
+
 # ───────────────────────────────────────────────────────────── runtime ───────
 FROM node:20-bookworm-slim AS runtime
 
@@ -113,11 +125,13 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000
 
-# node_modules carries the better-sqlite3 .node compiled above against THIS
-# base image's Node ABI, plus the @liratek/core workspace link.
-COPY --from=build /app/node_modules         ./node_modules
+# node_modules: production dependencies only (prod-deps stage), carrying the
+# better-sqlite3 .node built against THIS base image's Node ABI, plus the
+# @liratek/core workspace link.
+COPY --from=prod-deps /app/node_modules     ./node_modules
 COPY --from=build /app/package.json         ./package.json
-COPY --from=build /app/packages/core        ./packages/core
+COPY --from=prod-deps /app/packages/core    ./packages/core
+COPY --from=prod-deps /app/backend/node_modules ./backend/node_modules
 COPY --from=build /app/backend/package.json ./backend/package.json
 COPY --from=build /app/backend/dist         ./backend/dist
 

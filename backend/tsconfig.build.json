@@ -1,0 +1,18 @@
+{
+  // Build-only config for the API server: leaves out the jest mocks and setup
+  // file, so the build needs neither jest types nor @jest/globals and the
+  // Docker image installs no test tooling. `yarn typecheck` keeps using
+  // tsconfig.typecheck.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/**/__tests__",
+    "src/**/*.test.ts",
+    "src/__mocks__",
+    "src/jest.setup.ts"
+  ]
+}

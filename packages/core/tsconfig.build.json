@@ -1,0 +1,11 @@
+{
+  // Build-only config: the compiled output the app and the API server run.
+  // Tests, test helpers and the jest types stay out of it, so building core
+  // needs no test tooling (the API Docker image installs none). Type-checking
+  // and lint keep using tsconfig.json, which still covers the tests.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "exclude": ["src/**/__tests__/**", "src/**/*.test.ts", "src/repositories/testHelpers/**"]
+}
