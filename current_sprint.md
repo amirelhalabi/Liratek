@@ -6565,6 +6565,21 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
+## LIRA-298: a backdated POS sale is booked at "now" — HIGH — TODO (found 2026-10-10 during LIRA-296)
+
+- **What:** the checkout sends `transaction_time` when the cashier backdates a sale (`CheckoutModal.tsx:542`), but `saleProcessSchema` (`packages/core/src/validators/sale.ts:49`) has no `transaction_time` key, so Zod strips it and the sale, its transaction row, drawer movements and profit are all dated "now". `createSaleSchema` (:146) has the key; the POS path does not use it. Verified for the web route (`backend/src/api/sales.ts:169` validates with `saleProcessSchema`); **desktop path not yet checked** (`salesHandlers.ts`).
+- **Also reported (unverified):** `deferPayment` may be stripped the same way on the sale-process path.
+- **Fix:** rule 23 three-way key diff (schema / `preload.ts` binding / handler-forwarded fields) for `sales:process` and `POST /api/sales/process`; add the missing keys to `saleProcessSchema`; failing-first tests on both transports that a backdated sale lands on its chosen day in Sales, Transactions, drawers and Profits.
+
+**What users will notice:** a sale entered for an earlier day is recorded on that day, not today.
+
+## LIRA-299: sales by date range uses the server's UTC day — MEDIUM — TODO (found 2026-10-10 during LIRA-296)
+
+- **What:** `SalesRepository.findByDateRange` filters `WHERE DATE(s.created_at) BETWEEN ? AND ?` on the UTC timestamp, while the caller passes shop (Beirut) days. On the web (server in UTC) a sale made between 00:00 and 03:00 Beirut time falls on the previous day (rule 27). LIRA-296 SF-2 exposed this route on the web (`GET /api/sales/by-date-range`), so it is now reachable there; no screen uses it yet.
+- **Fix:** use the existing client-day / timezone-offset fragments (`reportingTimeFragments.ts`, LIRA-237) for the date bounds; failing-first test with a sale at 01:00 Beirut.
+
+**What users will notice:** nothing today (no screen uses it yet); prevents wrong-day sales lists on the web when one does.
+
 ## LIRA-296: warranty for any item, not just phones — P1 + P2 + P3 DONE, not yet released (owner request 2026-10-10; decisions D1–D4 2026-10-10)
 
 Spec: `specs/296-warranty-any-item/`. Plan: `docs/plans/done_plans/WARRANTY_ANY_ITEM_PLAN.md`. Migration v205 (P1).
