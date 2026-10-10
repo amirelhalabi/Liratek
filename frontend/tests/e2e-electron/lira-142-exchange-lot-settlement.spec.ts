@@ -8,7 +8,7 @@
  * for-partner-services precedent found one). Mirrors the owner's own
  * live-test flow:
  *
- *   1. BUY 217 EUR (From=EUR, To=USD) — opens a cost-basis lot; the exotic
+ *   1. BUY ≈217 EUR (From=EUR, To=USD) — opens a cost-basis lot; the exotic
  *      leg must stamp ZERO profit (Q8 — spread profit is replaced entirely
  *      for lot-tracked currencies).
  *   2. Partial SELL-BACK (From=USD, To=EUR) — settles part of the lot FIFO;
@@ -25,7 +25,7 @@
  *   5. Reversal guard (Q12) — voiding the partially-settled BUY from the
  *      Transactions table is BLOCKED with the "sell first" message and
  *      changes nothing; voiding the SELL succeeds and the BUY's lot is
- *      fully restored (History status back to Open/217; drawers net back to
+ *      fully restored (History status back to Open/full qty; drawers net back to
  *      exactly where they stood right after the BUY — rule 20).
  *
  * Assertion discipline (CLAUDE.md rule 15 / README "Assertion discipline"):
@@ -34,9 +34,22 @@
  * plus the distinctive EUR/USD amounts) — never `getRecent()[0]`, never an
  * absolute drawer total, never a hardcoded rate or profit figure. EUR is a
  * default-seeded currency (electron-app/create_db.sql: is_active, with a
- * default exchange_rates row) and no other spec in this suite ever touches
- * it (grepped), so this is the first EUR activity in the shared per-worker
- * DB — see the README's "Known couplings & hazards" entry for this file.
+ * default exchange_rates row).
+ *
+ * EUR is NOT this spec's alone, and the DB accumulates across runs: in the
+ * web run lira-web-026 (and, after this file, lira-147) cash EUR into
+ * General through a drawer top-up, which OPENS AN EUR LOT, and this file's
+ * own previous run leaves its 217-ish EUR BUY lot open. FIFO consumes the
+ * OLDEST open lot first, so with any of those present the SELL-BACK settled
+ * someone else's lot and this BUY stayed "Open" (confirmed against the web
+ * e2e DB: the SELL's settlement row pointed at lira-web-026's DRAWER_TOPUP
+ * lot). The spec therefore first WRITES OFF every open EUR lot via the
+ * admin `exchangeLots.adjust` path (`drainEurPosition`, the same move
+ * lira-146 already makes — no money moved, no transaction row, so no
+ * drawer snapshot is disturbed) and asserts the position is empty before
+ * the BUY. The BUY/SELL amounts are also unique per test run, so the
+ * History modal never matches an earlier run's EUR rows — see the README's
+ * "Known couplings & hazards" entry for this file.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -44,15 +57,37 @@ import type { Page, Locator } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
 
-const RUN_ID = Date.now();
-const BUY_CLIENT = `L142-EXLOT-BUY-${RUN_ID}`;
-const SELL_CLIENT = `L142-EXLOT-SELL-${RUN_ID}`;
-const BUY_AMOUNT_EUR = 217;
-// Chosen to realize ≈100 EUR at the e2e seed's default EUR rate
-// (create_db.sql: buy 1.16 / sell 1.20) — a PARTIAL settlement of the 217
-// EUR lot either way. The exact resulting quantity is never assumed below;
-// every assertion derives from the app's own persisted/rendered numbers.
-const SELL_AMOUNT_USD = 120;
+/**
+ * Per-test identity. Computed INSIDE the test (not at module load): with
+ * `--repeat-each` the file is loaded once per worker, so a module-level
+ * `Date.now()` would give every repeat the same client names and amounts.
+ *
+ * The amounts carry a run-unique 2-decimal fraction because HistoryModal
+ * renders no client-name cell — its rows can only be told apart by the
+ * Amount-In text, and earlier runs' EUR rows (this file's own previous BUY
+ * and voided SELL) stay in its 50-row list. The fraction keeps
+ * `toLocaleString()` free of thousands separators (amounts stay < 1000)
+ * and at 2 decimals, so the rendered text equals `String(amount)`.
+ *
+ * BUY ≈ 217 EUR; SELL ≈ 120 USD realizes ≈ 100 EUR at the seed's default
+ * EUR sell rate (create_db.sql: buy 1.16 / sell 1.20) — a PARTIAL
+ * settlement of the BUY lot either way. The exact quantity is never assumed
+ * below; every assertion derives from the app's own persisted numbers.
+ */
+function runIdentity() {
+  const runId = Date.now();
+  // 1..99 minus multiples of 10: always exactly two decimals with no
+  // trailing zero, so one run's text ("217.15") can never be a substring
+  // prefix of another's ("217.1" would match "217.15").
+  let frac = (runId % 99) + 1;
+  if (frac % 10 === 0) frac += 1;
+  return {
+    BUY_CLIENT: `L142-EXLOT-BUY-${runId}`,
+    SELL_CLIENT: `L142-EXLOT-SELL-${runId}`,
+    BUY_AMOUNT_EUR: Number(`217.${String(frac).padStart(2, "0")}`),
+    SELL_AMOUNT_USD: Number(`120.${String(100 - frac).padStart(2, "0")}`),
+  };
+}
 
 // ─── Types (extend the ambient window.api.exchange.getHistory() shape with
 // the fields this spec needs that aren't in that narrower ambient type —
@@ -102,6 +137,33 @@ async function eurOpenQty(page: Page): Promise<number> {
     const row = (res.data ?? []).find((p) => p.currency_code === "EUR");
     return row?.open_qty ?? 0;
   });
+}
+
+/**
+ * Write off every open EUR lot before this spec opens its own (see the file
+ * header): otherwise FIFO settles the SELL-BACK from an older lot and this
+ * BUY never becomes Partial. Same admin Q15 path lira-146 uses —
+ * `ExchangeLotRepository.adjust` moves no money and writes no transaction
+ * row, so the drawer snapshots below are unaffected. No-op when clean.
+ */
+async function drainEurPosition(page: Page): Promise<void> {
+  const openQty = await eurOpenQty(page);
+  if (openQty <= 0.01) return; // already clean (or below LOT_QTY_EPSILON)
+
+  const result = await page.evaluate(async (qty) => {
+    return window.api.exchangeLots.adjust({
+      currencyCode: "EUR",
+      qty: -qty,
+      note:
+        "lira-142 e2e: isolate this spec's lot from any pre-existing EUR " +
+        "position (drawer top-ups, earlier runs)",
+    });
+  }, openQty);
+  if (!result.success) {
+    throw new Error(
+      `Failed to drain pre-existing EUR position: ${result.error ?? "unknown error"}`,
+    );
+  }
 }
 
 async function unifiedExchangeTxn(page: Page, exchangeId: number) {
@@ -315,7 +377,10 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
   test("BUY EUR opens a zero-profit lot; a partial SELL-BACK realizes FIFO profit and shows the exotic payout qty; a partially-settled BUY is unvoidable until its sell is voided (Q8/Q10/Q12/Q16)", async ({
     appPage,
   }) => {
-    // ─── Phase 1: BUY 217 EUR (From=EUR, To=USD) ─────────────────────────
+    const { BUY_CLIENT, SELL_CLIENT, BUY_AMOUNT_EUR, SELL_AMOUNT_USD } =
+      runIdentity();
+
+    // ─── Phase 1: BUY ≈217 EUR (From=EUR, To=USD) ────────────────────────
     await navigateTo(appPage, "/exchange");
 
     // Provision this spec's own prerequisite (see ensureEurActive's doc
@@ -323,6 +388,11 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
     // any other wait/interaction below, and everything after it re-checks
     // the page from scratch regardless of whether a reload happened.
     await ensureEurActive(appPage);
+
+    // Precondition: this spec's BUY must be the ONLY open EUR lot, so the
+    // SELL-BACK below can only settle from it (see the file header).
+    await drainEurPosition(appPage);
+    expect(await eurOpenQty(appPage)).toBeCloseTo(0, 2);
 
     await expect(
       fromBox(appPage).getByRole("button", { name: "USD", exact: true }),
@@ -418,7 +488,7 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
       .poll(async () => exoticPayoutQty(appPage), { timeout: 5_000 })
       .toBeGreaterThan(0);
     const previewEurQty = await exoticPayoutQty(appPage);
-    // Sanity: must be a PARTIAL settlement of the 217 EUR lot (the whole
+    // Sanity: must be a PARTIAL settlement of the BUY's EUR lot (the whole
     // point of the scenario — Q12 needs "some left over"). The exact figure
     // is asserted from the server's own persisted amount_out below, never
     // guessed here.
@@ -504,9 +574,9 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
     // Identity within the modal (scoped via historyModal() — see its doc
     // comment for why an unscoped `page`-level query collides with
     // PositionsPanel's own always-mounted table): HistoryModal renders no
-    // client-name cell, so match by the "EUR" pair (unique to this spec's
-    // two rows in the whole shared DB — no other spec ever creates a EUR
-    // exchange) plus each row's own distinctive Amount-In figure.
+    // client-name cell, so match by the "EUR" pair plus each row's own
+    // run-unique Amount-In figure (see runIdentity — earlier runs' EUR rows
+    // are still in this list, with different fractions).
     const buyHistoryRow = historyModal(appPage)
       .locator("tbody tr")
       .filter({ hasText: "EUR" })
@@ -553,7 +623,7 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
     await expect(sellBreakdownRow).toContainText("Settled from lots");
     await expect(sellBreakdownRow).toContainText("Unit Cost");
     await expect(sellBreakdownRow).toContainText("Unit Proceeds");
-    // Basis = LOT (not MARKET) — the 217 EUR lot fully covers this sale.
+    // Basis = LOT (not MARKET) — the BUY's lot fully covers this sale.
     await expect(sellBreakdownRow).toContainText("LOT");
 
     // ─── Phase 4: Positions panel — EUR row shows open qty ≈ remaining and
@@ -638,7 +708,7 @@ test.describe("Exchange lot settlement — FIFO cost-basis profit, driven throug
       false,
     );
 
-    // The BUY's lot is fully restored: History status back to Open/217.
+    // The BUY's lot is fully restored: History status back to Open/full qty.
     await navigateTo(appPage, "/");
     await navigateTo(appPage, "/exchange");
     await appPage.getByRole("button", { name: "History", exact: true }).click();
