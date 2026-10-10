@@ -40,6 +40,19 @@ export function localDay(date: Date = new Date()): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/**
+ * The local calendar day (`YYYY-MM-DD`, this device's time zone) of a UTC
+ * timestamp as the database stores it: SQLite's `YYYY-MM-DD HH:MM:SS` or an
+ * ISO string ending in `Z` (LIRA-289). Taking the first 10 characters gives
+ * the UTC day instead, which puts a 00:30 Beirut sale on the previous day.
+ * An unparsable value falls back to its first 10 characters.
+ */
+export function localDayOfUtcTimestamp(ts: string): string {
+  const iso = ts.includes("T") ? ts : `${ts.replace(" ", "T")}Z`;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? ts.slice(0, 10) : localDay(new Date(ms));
+}
+
 /** Local calendar month as `YYYY-MM`. */
 export function localMonth(date: Date = new Date()): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;

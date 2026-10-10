@@ -16,6 +16,7 @@
  * - **Exchange rate**: Immutable snapshot captured at creation time.
  */
 
+import { localDayExpr } from "./reportingTimeFragments.js";
 import {
   MODULE_DEBT_TRANSACTION_TYPES,
   NON_REVERSIBLE_TRANSACTION_TYPES,
@@ -1417,13 +1418,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
          ROUND(SUM(CASE WHEN l.amount > 0 THEN l.amount ELSE 0 END), 2) AS total_in,
          ROUND(SUM(CASE WHEN l.amount < 0 THEN -l.amount ELSE 0 END), 2) AS total_out
        FROM (
-         SELECT substr(t.created_at, 1, 10) AS date,
+         SELECT ${localDayExpr("t.created_at")} AS date,
                 p.currency_code, p.amount, p.method, p.drawer_name, p.note
            FROM payments p
            JOIN transactions t ON t.id = p.transaction_id AND t.tenant_id = ?
           WHERE t.status = 'ACTIVE' AND p.tenant_id = ?
          UNION ALL
-         SELECT substr(p.created_at, 1, 10) AS date,
+         SELECT ${localDayExpr("p.created_at")} AS date,
                 p.currency_code, p.amount, p.method, p.drawer_name, p.note
            FROM payments p
           WHERE p.transaction_id IS NULL AND p.session_id IS NOT NULL AND p.tenant_id = ?
@@ -9328,7 +9329,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               SUM(amount_usd) AS total_usd,
               SUM(amount_lbp) AS total_lbp
        FROM transactions
-       WHERE DATE(created_at) = ? AND status = 'ACTIVE' AND tenant_id = ?
+       WHERE ${localDayExpr("created_at")} = ? AND status = 'ACTIVE' AND tenant_id = ?
        GROUP BY type`,
       date,
       tenantId,
@@ -9343,7 +9344,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               COALESCE(SUM(amount_usd), 0) AS void_usd,
               COALESCE(SUM(amount_lbp), 0) AS void_lbp
        FROM transactions
-       WHERE DATE(created_at) = ? AND status = 'VOIDED' AND tenant_id = ?`,
+       WHERE ${localDayExpr("created_at")} = ? AND status = 'VOIDED' AND tenant_id = ?`,
       date,
       tenantId,
     );

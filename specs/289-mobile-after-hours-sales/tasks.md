@@ -220,10 +220,10 @@ This phase does not depend on US1/US2 and can ship first (plan "Slice 0").
 
 ### Tests (write first, see them fail)
 
-- [ ] T038 [P] [US3] Write `packages/core/src/repositories/__tests__/TransactionRepository.localDay.test.ts`:
+- [x] T038 [P] [US3] Write `packages/core/src/repositories/__tests__/TransactionRepository.localDay.test.ts`:
   - two rows at 00:30 Beirut, one stored as ISO `…T21:30:00.000Z` (`transaction_time`) and one as `YYYY-MM-DD 21:30:00` (`CURRENT_TIMESTAMP` shape);
   - the list `from`/`to` filter, `getDailySummary` and `getCashFlowByDate` all place both on the Beirut date for a fixed client offset.
-- [ ] T039 [P] [US3] Write `frontend/src/features/audit/hooks/__tests__/useTransactionRows.localDay.test.ts`: the date filter places both timestamp shapes on the local date, and parses the space form as UTC (append `Z`)
+- [x] T039 [P] [US3] Write `frontend/src/features/audit/hooks/__tests__/useTransactionRows.localDay.test.ts`: the date filter places both timestamp shapes on the local date, and parses the space form as UTC (append `Z`)
 - [ ] T040 [P] [US3] Write `packages/core/src/repositories/__tests__/ClosingRepository.sinceLastCount.test.ts`:
   - count `Whish_App`, then post sales → exactly those are returned;
   - CHECKPOINT transactions and `CHECKPOINT_ADJUSTMENT_METHOD` legs are excluded;
@@ -236,13 +236,13 @@ This phase does not depend on US1/US2 and can ship first (plan "Slice 0").
 
 ### Implementation
 
-- [ ] T042 [US3] Make the day filters and buckets in `packages/core/src/repositories/TransactionRepository.ts` use `reportingTimeFragments` (`localDayExpr`, `dateRange`): the list filters (around `:1481-1488`), `getDailySummary` (around `:9331, 9346`) and `getCashFlowByDate` (around `:1411-1440`). Normalise through `datetime()`/`julianday()`, never raw string order (rule 14, research R2).
+- [x] T042 [US3] Make the day filters and buckets in `packages/core/src/repositories/TransactionRepository.ts` use `reportingTimeFragments` (`localDayExpr`, `dateRange`): the list filters (around `:1481-1488`), `getDailySummary` (around `:9331, 9346`) and `getCashFlowByDate` (around `:1411-1440`). Normalise through `datetime()`/`julianday()`, never raw string order (rule 14, research R2).
 - [ ] T043 [US3] Add `getTransactionsSinceLastCount(drawerNames)` to `packages/core/src/repositories/ClosingRepository.ts` per data-model.md. Add a `ClosingService.getTransactionsSinceLastCount` pass-through in `packages/core/src/services/ClosingService.ts` (no SQL).
 - [ ] T044 [P] [US3] Add `sinceLastCountSchema` (`drawers`: non-empty array of drawer names) to `packages/core/src/validators/closing.ts`
 - [ ] T045 [US3] Add `GET /api/closing/since-last-count` (admin, `authenticateJWT` then `requireRole(["admin"])`, envelope) in `backend/src/api/closing.ts`, with a test in `backend/src/api/__tests__/`
 - [ ] T046 [US3] Add the IPC `closing:get-since-last-count` (`requireRole`, `validatePayload`) in `electron-app/handlers/dbHandlers.ts`, the preload binding in `electron-app/preload.ts`, and the type in `frontend/src/types/electron.d.ts`
 - [ ] T047 [US3] Add the dual-mode `getTransactionsSinceLastCount` in `frontend/src/api/backendApi.ts` (`ipcOrHttp`), expose it on `ElectronApiAdapter.ts`, and type it in `packages/ui/src/api/types.ts` from the schema input type (rule 21)
-- [ ] T048 [US3] Fix the local-date filter in `frontend/src/features/audit/hooks/useTransactionRows.ts`: compare local dates, and parse the `YYYY-MM-DD HH:MM:SS` shape as UTC
+- [x] T048 [US3] Fix the local-date filter in `frontend/src/features/audit/hooks/useTransactionRows.ts`: compare local dates, and parse the `YYYY-MM-DD HH:MM:SS` shape as UTC
 - [ ] T049 [US3] Show "N sales since the last count" with the list on the drawer count screen (the component using `frontend/src/features/closing/hooks/useDrawerCheckpoint.ts`) through `useApi()`
 - [ ] T050 [P] [US3] Add desktop e2e `frontend/tests/e2e-electron/lira-289-since-last-count.spec.ts` and web e2e `frontend/tests/e2e-web/lira-web-289-since-last-count.spec.ts`. Match rows by identity and assert deltas (rule 15).
 

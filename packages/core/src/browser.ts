@@ -381,6 +381,8 @@ export * from "./constants/transactionTypes.js";
 export * from "./utils/rechargeDiscount.js";
 export * from "./utils/walletReceivePayout.js";
 export * from "./utils/walletTransfer.js";
+// LIRA-289: local day of a stored UTC timestamp (Transactions date filter).
+export { localDayOfUtcTimestamp } from "./utils/localDate.js";
 
 // LIRA-267 — the admin invite list's row shape and the invite-check answer.
 // Type-only (erased at compile time), so the Node-only service module lands

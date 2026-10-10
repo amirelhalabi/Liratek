@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { localDayOfUtcTimestamp } from "@liratek/core";
 import {
   getRecentTransactions,
   type TransactionFiltersParam,
@@ -502,7 +503,9 @@ export function useTransactionRows({
   const filteredRows = useMemo(() => {
     if (!from && !to) return rows;
     return rows.filter((row) => {
-      const dateVal = (row.created_at ?? "").slice(0, 10);
+      // The SHOP's local day, not the UTC prefix of created_at (LIRA-289):
+      // a 00:30 Beirut sale is stored as 21:30 UTC the day before.
+      const dateVal = localDayOfUtcTimestamp(row.created_at ?? "");
       if (from && dateVal < from) return false;
       if (to && dateVal > to) return false;
       return true;

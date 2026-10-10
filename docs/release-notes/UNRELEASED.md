@@ -97,6 +97,7 @@
 - For items paid as part of a customer basket, the "@ rate" now shows the rate the customer actually paid at, not the rate when the item was added to the basket. Kept-change rows no longer show a rate on their own.
 - From now on, change kept at session checkout is saved at the checkout's rate.
 - From now on, voiding a held-money pickup, or voiding or refunding a supplier or partner payment that included a discount, saves the original entry's exchange rate on the reversal instead of today's rate.
+- Sales made after midnight now show on the right day on the Transactions page date filter, in the cash report and in the daily summary (they used to appear on the previous day).
 
 ## 🔧 Maintenance
 
@@ -225,6 +226,8 @@
 - Web app, Settings → Users: admins now see which users have Google connected, with the Google email, and can disconnect it (for example for a staff member who left). That person can then no longer sign in to your shop with Google; their password still works, and "Forgot password" can set one.
 - Web app: signing in again on the same browser now ends your previous session there, so Settings → Signed-in Devices only lists real devices.
 - Web app: a customer's gift cards now show up as a payment option (they were missing in the browser).
+- Web app: exchanges and other transactions added to a customer session now keep their profit. Before, the web app saved it as 0. From now on only.
+- Web app: inactive suppliers and service providers show up again when you choose to see them. On the Suppliers page and in Settings → Service Providers you can find one you turned off and turn it back on.
 - liratek.shop now opens an information page about LiraTek, in English and Arabic. Shops keep signing in at their own address, as before, and the page has a box to jump to your shop's sign-in page.
 - Web app: sign-up no longer uses an invite code. New shops join through an email invitation from LiraTek: open the link in the email to finish creating your shop.
 - Web app (platform admin): you can now email a sign-up invitation from the Tenants page, see whether each invitation was used, and cancel one that went to the wrong address. "Add shop" also takes an optional contact email.
