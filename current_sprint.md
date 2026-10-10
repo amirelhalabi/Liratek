@@ -6575,6 +6575,48 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
+## LIRA-302: phone app — Katsh / iPick catalog sales (vouchers, cards) — PLANNED (owner decisions 2026-10-10)
+
+The second half of the after-hours use case (LIRA-289): a customer asks for a Katsh or iPick voucher/card at night;
+the owner records it from the phone, booked exactly as at the counter.
+
+**Owner decisions 2026-10-10:**
+- Catalog items only. Bill payments stay on web/desktop for now.
+- A cart of several items, booked as ONE sale, the same as the web cart (one `SEND`, amounts summed, a note listing the
+  items).
+- MTC/Alfa cards sold through Katsh/iPick are included as plain items. "Only Days" (returning credits to a shop SIM
+  line) stays web/desktop-only.
+- Payment as for the other phone sales: on the customer's account, or into the Whish / OMT wallet. No cash.
+
+**How the web books it today (mapped 2026-10-10):** `KatshForm.tsx` builds the payload inline (no core builder) and
+posts it to `POST /api/services/transactions` (`createFinancialServiceSchema`): `provider` Katsh|iPick,
+`serviceType: "SEND"`, `currency: "LBP"`, `amount` = Σ sell price × qty − discount, `cost` = Σ catalog cost × qty
+(gross), `commission` = max(0, amount − cost), `note` = "category: label (sub) xN, …", `paidByMethod`, `payments[]`,
+`clientId`/`clientName`. Server: the Katsh/iPick drawer drops by cost, payment legs credit their wallet or book the
+customer's debt; no supplier row (prepaid drawdown); profit = price − cost. Catalog: `GET /api/mobile-service-items`
+(`mobile_service_items`: `cost_lbp`, `sell_lbp`, category/subcategory/label).
+
+**Plan:**
+1. **Core builder (rule 22, one payload shape):** `utils/catalogSale.ts` — `buildCatalogSalePayload({ provider, lines:
+   [{ item, quantity }], paidByMethod, payments, client })` returning `CreateFinancialServicePayload`, plus
+   `formatCatalogItemName` and the note format moved from the web. Pure, browser-safe. Unit tests.
+2. **Web uses the builder** for the walk-in cart path; Only-Days, split/multi-unit, discount, kept change and
+   For-Partner extras stay layered on top in `KatshForm`. The eight `KatshForm.*` suites must pass unchanged.
+3. **Money test on the real schema** (like `FinancialServiceRepository.phoneSales.test.ts`): a phone cart through
+   the builder, for Katsh and iPick × account / Whish / OMT — the provider drawer drops by cost, the wallet rises or
+   the debt grows by the price, the client is stamped, profit = price − cost, and a void nets every drawer and the
+   debt back to zero.
+4. **Phone:** Sell tiles Katsh / iPick open `/sell/catalog/[provider]`: catalog (cached per shop, search,
+   category headers) → add items with quantity → cart summary (total, items) → client and payment (same as the
+   transfer form) → Save with an Idempotency-Key → `invalidateAfter` (balances, since-last-count, Activity, debts).
+5. **Check on the simulator and the Android phone;** the row reads "Katsh · client" with the item list on both web
+   and phone (LIRA-301 wording).
+
+**Open question:** paying in USD. Catalog prices are in LBP; a USD payment into a wallet needs the day's rate on the
+phone (the web sends `tender_exchange_rate` + `checkoutTotal`). Suggested first version: LBP payment only.
+
+**What users will notice:** the phone app can record Katsh and iPick voucher and card sales.
+
 ## LIRA-301: one transaction wording for web, desktop and phone — DONE, not yet released (owner request 2026-10-10)
 
 - **What:** the phone listed rows as the raw type ("FINANCIAL SERVICE · Amir") while the web showed "Whish App Send". The web's title rules, provider names (`PROVIDER_LABELS`), recharge subtype labels, per-type labels and the summary re-wording moved, unchanged, into core `utils/transactionText.ts` (`transactionTitle`, `transactionSummary`, `TRANSACTION_TYPE_LABELS`, browser-safe). The web re-exports them under the old names (846 audit/shared tests pass unchanged); the web registry keeps only colours and badge direction. The phone's Activity tab and the web count window's "since the last count" list use the same functions; that list now carries `metadata_json`.
