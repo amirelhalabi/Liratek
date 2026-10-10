@@ -490,6 +490,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
         let finalClientId = sale.client_id;
         const status = sale.status || "completed";
+        // LIRA-298: the cashier's custom sale time stamps `sales.created_at`
+        // only when the sale is COMPLETED — the same moment the transactions
+        // row (dated by it too) is written. A draft save ignores it: the
+        // checkout's custom time is not restored when a draft is resumed, so
+        // stamping it on the draft would split the sale (Sales/Profits on the
+        // custom day) from its transactions row (completion time).
+        const saleTimeOverride =
+          status === "completed" ? (sale.transaction_time ?? null) : null;
 
         // Auto-create client if name provided but no ID. FIND first (phone,
         // then exact name) — a blind INSERT hit UNIQUE constraints for repeat
@@ -661,7 +669,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             UPDATE ${tableName} SET
               client_id = ?, total_amount_usd = ?, discount_usd = ?, final_amount_usd = ?,
               paid_usd = ?, paid_lbp = ?, change_given_usd = ?, change_given_lbp = ?,
-              exchange_rate_snapshot = ?, drawer_name = ?, status = ?, note = ?
+              exchange_rate_snapshot = ?, drawer_name = ?, status = ?, note = ?,
+              created_at = COALESCE(?, created_at)
             WHERE id = ? AND tenant_id = ?
           `);
           updateStmt.run(
@@ -683,6 +692,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.drawer_name || "General",
             status,
             sale.note || null,
+            // LIRA-298: completing a resumed draft with a backdated time
+            // moves the sale to that time — Profits and the Sales lists
+            // bucket by `sales.created_at`, so leaving the draft's own date
+            // split the sale from its (backdated) transactions row. No
+            // backdate (or a draft re-save): the date is kept, as before.
+            saleTimeOverride,
             saleId,
             tenantId,
           );
@@ -715,8 +730,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.drawer_name || "General",
             status,
             sale.note || null,
-            sale.transaction_time ?? null,
-            sale.transaction_time ?? null,
+            saleTimeOverride,
+            saleTimeOverride,
             tenantId,
           );
           saleId = saleResult.lastInsertRowid as number;
@@ -4138,7 +4153,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
-   * Get sales by date range (completed + refunded, with item count)
+   * Get sales by date range (completed + refunded, with item count).
+   * `startDate`/`endDate` are the shop's local days; `localDayExpr` shifts
+   * the stored UTC `created_at` into that day on both transports (LIRA-299,
+   * rule 27).
    */
   findByDateRange(
     startDate: string,
@@ -4152,7 +4170,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                (SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si WHERE si.sale_id = s.id AND si.tenant_id = ?) as item_count
         FROM ${this.tableName} s
         LEFT JOIN clients c ON s.client_id = c.id AND c.tenant_id = ?
-        WHERE DATE(s.created_at) BETWEEN ? AND ?
+        WHERE ${localDayExpr("s.created_at")} BETWEEN ? AND ?
           AND s.status IN ('completed', 'refunded')
           AND s.tenant_id = ?
         ORDER BY s.created_at DESC

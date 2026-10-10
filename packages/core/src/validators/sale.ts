@@ -99,6 +99,13 @@ export const saleProcessSchema = z
     // LIRA-296 (rule 27): the shop's own day, from the client — the day the
     // warranty clock starts. Omitted: the request's day (clientDay()).
     client_day: clientDayInputSchema,
+    // LIRA-298 (rule 23): the cashier's backdated sale time (ISO datetime,
+    // CheckoutModal's TransactionTimeOverride). Without this key Zod
+    // stripped it on BOTH transports and every backdated sale was booked at
+    // "now". `deferPayment` is deliberately NOT accepted here: it is the
+    // server-only session-basket flag (SessionCheckoutService.processCartItem
+    // sets it) that skips the drawer post / change / debt.
+    transaction_time: transactionTimeSchema,
   })
   .refine(
     (data) =>
