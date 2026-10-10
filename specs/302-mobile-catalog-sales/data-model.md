@@ -24,6 +24,9 @@ core, same text as the web).
 - `lines: { item, quantity }[]`, quantity an integer ≥ 1; one line per item (adding again raises its quantity).
 - Totals: `price = Σ sell_lbp × qty`, `cost = Σ cost_lbp × qty` (LBP).
 - Survives a tab switch (LIRA-300); cleared after a successful save; kept on failure.
+- Re-checked on Save (spec edge case): the catalog is re-fetched; every line must still exist with the same
+  `cost_lbp` and `sell_lbp`, else Save is blocked and the line is flagged. The booked sale carries no item ids, so
+  the server cannot catch a stale line — this check is the only guard.
 
 ## Payment
 
@@ -61,6 +64,6 @@ Web extras layered on top in `KatshForm` only: discount (lowers `amount`), `tele
 | ------------------------- | ------------------------------- | ------------------------------------ |
 | Provider drawer (Katsh/iPick, LBP) | −cost                  | −cost                                |
 | Whish_App / OMT_App drawer | +price LBP (wallet payment)    | +USD amount (wallet payment)         |
-| Customer debt             | +price LBP (on account)         | +USD amount (on account)             |
+| Customer debt             | +price LBP (on account)         | as the web books a USD account leg on an LBP cart — expected +USD amount; **T012 asserts the observed result against the same payload, unverified until then** |
 | Profit                    | price − cost                    | price − cost                         |
 | Void / refund             | every line above back to 0      | every line above back to 0           |

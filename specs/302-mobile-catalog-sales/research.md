@@ -60,7 +60,8 @@ Only-Days fields are read (FR-011).
   adopts the web's rule (SC-002 compares the two).
 - Booked as the web books it: one leg `{ method, currencyCode: "USD", amount }`, `checkoutTotal: { usd: 0, lbp:
   total }`, `tender_exchange_rate: buyRate`.
-- On account in USD books the customer's debt in USD (same as the web for a USD account leg).
+- On account in USD: Likely, based on the leg currency, the customer's debt is booked in USD — unverified; T012
+  asserts what the repository actually books against the web's payload shape.
 
 ## R4. Payment choices and client
 

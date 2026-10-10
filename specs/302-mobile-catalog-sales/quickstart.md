@@ -23,6 +23,7 @@ The money suite covers Katsh and iPick × account / Whish / OMT × LBP / USD: pr
 
 Record the same two-item Katsh cart once on the web and once on the phone, both on the same customer's account.
 Compare the two transactions on the web Transactions page: amount, cost, profit, payment, description must match.
+For a USD sale, make the web sale at the default rate (do not edit the rate on the web payment sheet).
 
 ## Manual scenarios (simulator, then Android)
 
@@ -35,3 +36,5 @@ Compare the two transactions on the web Transactions page: amount, cost, profit,
 5. Stop the backend's rate (or remove the rate) → USD option disabled with a reason; LBP still saves.
 6. Double tap Save; then Save with no connection, reconnect, Save again → one sale only.
 7. Void the phone sale on the web → every balance and the debt back to before.
+8. Stale item: put an item in the phone cart, then switch it off (or change its price) on the web, then Save on the
+   phone → the save is blocked, the line is flagged, nothing is booked.

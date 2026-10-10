@@ -123,8 +123,10 @@ pulling to refresh.
 
 - The catalog is empty for that provider: the page says so and offers no cart.
 - An item has no selling price or no cost set: it is not offered on the phone (it cannot be booked correctly).
-- An item is switched off on the web while it sits in the phone's cart: saving refuses it with a clear message; the
-  cart stays so the owner can remove it.
+- An item is switched off, removed, or re-priced on the web while it sits in the phone's cart: when the owner taps
+  Save, the phone first re-checks the cart against the latest catalog; a line whose item is gone or whose price or
+  cost changed blocks the save with a clear message naming it (the cart stays so the owner can remove or refresh
+  it). Nothing is booked at a stale price.
 - The provider balance is lower than the total cost: same behaviour as the counter (the shop's existing rule for that
   provider applies; the phone shows the server's message).
 - No connection when saving: nothing is booked, the cart stays, and tapping Save again later does not double-book.
