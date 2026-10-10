@@ -23,6 +23,7 @@ import {
   CreateStockExpenseSchema,
   ExpenseUpdateMetadataSchema,
   DailyStatsSnapshotQuerySchema,
+  SinceLastCountQuerySchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -448,6 +449,27 @@ export function registerDatabaseHandlers(): void {
         data: closingService.getLastCheckpointActuals(),
       };
     } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  // LIRA-289 FR-010 — per drawer, its last count and the sales since (admin).
+  // Same core service + schema as GET /api/closing/since-last-count.
+  ipcMain.handle("closing:get-since-last-count", async (e, data?: unknown) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+      const validation = validatePayload(SinceLastCountQuerySchema, data ?? {});
+      if (!validation.ok) return { success: false, error: validation.error };
+      return {
+        success: true,
+        data: getClosingService().getTransactionsSinceLastCount(validation.data.drawers),
+      };
+    } catch (err) {
+      closingLogger.error({ err }, "closing:get-since-last-count failed");
       return {
         success: false,
         error: err instanceof Error ? err.message : String(err),

@@ -24,6 +24,12 @@ export type {
   MobileAuthServiceDeps,
 } from "./MobileAuthService.js";
 
+// LIRA-289: closing "since the last count" result types.
+export type {
+  SinceLastCountDrawer,
+  SinceLastCountTransaction,
+} from "./ClosingService.js";
+
 // Idempotency Service (LIRA-289: book a money submission once per key)
 export {
   IdempotencyService,

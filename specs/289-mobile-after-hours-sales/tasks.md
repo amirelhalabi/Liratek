@@ -224,7 +224,7 @@ This phase does not depend on US1/US2 and can ship first (plan "Slice 0").
   - two rows at 00:30 Beirut, one stored as ISO `…T21:30:00.000Z` (`transaction_time`) and one as `YYYY-MM-DD 21:30:00` (`CURRENT_TIMESTAMP` shape);
   - the list `from`/`to` filter, `getDailySummary` and `getCashFlowByDate` all place both on the Beirut date for a fixed client offset.
 - [x] T039 [P] [US3] Write `frontend/src/features/audit/hooks/__tests__/useTransactionRows.localDay.test.ts`: the date filter places both timestamp shapes on the local date, and parses the space form as UTC (append `Z`)
-- [ ] T040 [P] [US3] Write `packages/core/src/repositories/__tests__/ClosingRepository.sinceLastCount.test.ts`:
+- [x] T040 [P] [US3] Write `packages/core/src/repositories/__tests__/ClosingRepository.sinceLastCount.test.ts`:
   - count `Whish_App`, then post sales → exactly those are returned;
   - CHECKPOINT transactions and `CHECKPOINT_ADJUSTMENT_METHOD` legs are excluded;
   - `is_auto` rows are excluded by default (rule 26);
@@ -232,18 +232,18 @@ This phase does not depend on US1/US2 and can ship first (plan "Slice 0").
   - a never-counted drawer has no lower bound and a cap of 200;
   - the saved `daily_closings` / `daily_closing_amounts` rows are unchanged (SC-003);
   - the next expected amount = count + sales (SC-004).
-- [ ] T041 [US3] **Verify** in T040 whether a WHISH_APP SEND paid with `CUSTOMER_ACCOUNT` writes a `payments` row on `Whish_App`. If it does not, extend the T043 predicate so the sale still appears.
+- [x] T041 [US3] **Verify** in T040 whether a WHISH_APP SEND paid with `CUSTOMER_ACCOUNT` writes a `payments` row on `Whish_App`. If it does not, extend the T043 predicate so the sale still appears.
 
 ### Implementation
 
 - [x] T042 [US3] Make the day filters and buckets in `packages/core/src/repositories/TransactionRepository.ts` use `reportingTimeFragments` (`localDayExpr`, `dateRange`): the list filters (around `:1481-1488`), `getDailySummary` (around `:9331, 9346`) and `getCashFlowByDate` (around `:1411-1440`). Normalise through `datetime()`/`julianday()`, never raw string order (rule 14, research R2).
-- [ ] T043 [US3] Add `getTransactionsSinceLastCount(drawerNames)` to `packages/core/src/repositories/ClosingRepository.ts` per data-model.md. Add a `ClosingService.getTransactionsSinceLastCount` pass-through in `packages/core/src/services/ClosingService.ts` (no SQL).
-- [ ] T044 [P] [US3] Add `sinceLastCountSchema` (`drawers`: non-empty array of drawer names) to `packages/core/src/validators/closing.ts`
-- [ ] T045 [US3] Add `GET /api/closing/since-last-count` (admin, `authenticateJWT` then `requireRole(["admin"])`, envelope) in `backend/src/api/closing.ts`, with a test in `backend/src/api/__tests__/`
-- [ ] T046 [US3] Add the IPC `closing:get-since-last-count` (`requireRole`, `validatePayload`) in `electron-app/handlers/dbHandlers.ts`, the preload binding in `electron-app/preload.ts`, and the type in `frontend/src/types/electron.d.ts`
-- [ ] T047 [US3] Add the dual-mode `getTransactionsSinceLastCount` in `frontend/src/api/backendApi.ts` (`ipcOrHttp`), expose it on `ElectronApiAdapter.ts`, and type it in `packages/ui/src/api/types.ts` from the schema input type (rule 21)
+- [x] T043 [US3] Add `getTransactionsSinceLastCount(drawerNames)` to `packages/core/src/repositories/ClosingRepository.ts` per data-model.md. Add a `ClosingService.getTransactionsSinceLastCount` pass-through in `packages/core/src/services/ClosingService.ts` (no SQL).
+- [x] T044 [P] [US3] Add `sinceLastCountSchema` (`drawers`: non-empty array of drawer names) to `packages/core/src/validators/closing.ts`
+- [x] T045 [US3] Add `GET /api/closing/since-last-count` (admin, `authenticateJWT` then `requireRole(["admin"])`, envelope) in `backend/src/api/closing.ts`, with a test in `backend/src/api/__tests__/`
+- [x] T046 [US3] Add the IPC `closing:get-since-last-count` (`requireRole`, `validatePayload`) in `electron-app/handlers/dbHandlers.ts`, the preload binding in `electron-app/preload.ts`, and the type in `frontend/src/types/electron.d.ts`
+- [x] T047 [US3] Add the dual-mode `getTransactionsSinceLastCount` in `frontend/src/api/backendApi.ts` (`ipcOrHttp`), expose it on `ElectronApiAdapter.ts`, and type it in `packages/ui/src/api/types.ts` from the schema input type (rule 21)
 - [x] T048 [US3] Fix the local-date filter in `frontend/src/features/audit/hooks/useTransactionRows.ts`: compare local dates, and parse the `YYYY-MM-DD HH:MM:SS` shape as UTC
-- [ ] T049 [US3] Show "N sales since the last count" with the list on the drawer count screen (the component using `frontend/src/features/closing/hooks/useDrawerCheckpoint.ts`) through `useApi()`
+- [x] T049 [US3] Show "N sales since the last count" with the list on the drawer count screen (the component using `frontend/src/features/closing/hooks/useDrawerCheckpoint.ts`) through `useApi()`
 - [ ] T050 [P] [US3] Add desktop e2e `frontend/tests/e2e-electron/lira-289-since-last-count.spec.ts` and web e2e `frontend/tests/e2e-web/lira-web-289-since-last-count.spec.ts`. Match rows by identity and assert deltas (rule 15).
 
 **Checkpoint**: A 00:30 sale shows on one date on every page. The count screen lists sales since the last count on desktop and web.
@@ -256,8 +256,8 @@ This phase does not depend on US1/US2 and can ship first (plan "Slice 0").
 
 **Independent Test**: After a few phone sales, the home screen's balances and list match `GET /api/dashboard/drawer-balances` and `GET /api/closing/since-last-count` (spec Story 4).
 
-- [ ] T051 [P] [US4] Add `getDrawerBalances()` → `GET /api/dashboard/drawer-balances`, `getSinceLastCount(drawers)` → `GET /api/closing/since-last-count`, `getTransactionsByDate(from,to)` → `GET /api/transactions/recent`, and `getClientDebtTotal(id)` → `GET /api/debts/clients/:clientId/total` to `mobile/src/api/endpoints.ts`
-- [ ] T052 [US4] Build the home screen `mobile/app/(app)/index.tsx`:
+- [x] T051 [P] [US4] Add `getDrawerBalances()` → `GET /api/dashboard/drawer-balances`, `getSinceLastCount(drawers)` → `GET /api/closing/since-last-count`, `getTransactionsByDate(from,to)` → `GET /api/transactions/recent`, and `getClientDebtTotal(id)` → `GET /api/debts/clients/:clientId/total` to `mobile/src/api/endpoints.ts`
+- [ ] T052 [US4] (partial 2026-10-10: balances, latest transactions and a since-last-count summary per wallet drawer done; per-transaction list and date switcher pending) Build the home screen `mobile/app/(app)/index.tsx`:
   - balances for `Whish_App`, `OMT_App`, `Binance`, `Katsh`, `iPick`;
   - "Since last count" (union over those drawers), with time, type, client, amount and payment;
   - a date switcher for "by date";

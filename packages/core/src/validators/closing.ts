@@ -132,6 +132,28 @@ export const dailyStatsSnapshotQuerySchema = z.object({
   day: localDaySchema.optional(),
 });
 
+/**
+ * LIRA-289 FR-010 — `GET /api/closing/since-last-count?drawers=A,B` and
+ * `closing:get-since-last-count` `{drawers: ["A","B"]}`. One schema for both
+ * transports: a comma list (query string) or an array (IPC), normalized to a
+ * deduplicated array of 1–20 drawer names.
+ */
+export const sinceLastCountQuerySchema = z.object({
+  drawers: z
+    .union([z.string(), z.array(z.string())])
+    .transform((v) =>
+      Array.from(
+        new Set(
+          (Array.isArray(v) ? v : v.split(","))
+            .map((d) => d.trim())
+            .filter((d) => d.length > 0),
+        ),
+      ),
+    )
+    .pipe(z.array(z.string().max(64)).min(1, "Choose at least one drawer.").max(20)),
+});
+export type SinceLastCountQuery = z.input<typeof sinceLastCountQuerySchema>;
+
 export type DrawerAmountInput = z.infer<typeof drawerAmountSchema>;
 export type SetOpeningBalancesInput = z.infer<typeof setOpeningBalancesSchema>;
 export type CreateDailyClosingInput = z.infer<typeof createDailyClosingSchema>;

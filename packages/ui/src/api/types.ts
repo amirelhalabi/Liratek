@@ -1609,6 +1609,10 @@ export type ApiAdapter = {
       amounts: Record<string, { physical: number; expected: number }>;
     }
   > | null>;
+  /** LIRA-289 — per drawer, its last count and the sales since (admin); null on failure. */
+  getTransactionsSinceLastCount: (
+    drawers: string[],
+  ) => Promise<Array<import("@liratek/core").SinceLastCountDrawer> | null>;
   /** Whether initial drawer amounts have ever been set (setup banner). */
   hasInitialBalancesSet: () => Promise<boolean>;
   /** Whether a starting (session-management) checkpoint has ever been recorded. */

@@ -285,6 +285,8 @@ import {
   // (rule 14/19b).
   dailyStatsSnapshotQuerySchema,
   type DailyStatsSnapshotQuery,
+  // LIRA-289 — closing:get-since-last-count, shared with the REST route.
+  sinceLastCountQuerySchema,
   // D1 (OWNER_NOTES_2026-09-21.md §2b) — the OMT-RECEIVE-never-takes-a-fee
   // rejection message, shared (rule 14) with FinancialServiceRepository's own
   // guard via packages/core/src/validators/financial.ts. Reused below so this
@@ -332,6 +334,10 @@ export const NetProfitWindowQuerySchema =
 // payload. Cast bridges the zod major mismatch, same as the schemas above.
 export const DailyStatsSnapshotQuerySchema =
   dailyStatsSnapshotQuerySchema as unknown as z.ZodSchema<DailyStatsSnapshotQuery>;
+
+// LIRA-289 — `closing:get-since-last-count` `{drawers}` (normalized to an array).
+export const SinceLastCountQuerySchema =
+  sinceLastCountQuerySchema as unknown as z.ZodSchema<{ drawers: string[] }>;
 
 // =============================================================================
 // Inventory

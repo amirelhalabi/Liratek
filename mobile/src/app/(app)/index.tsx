@@ -1,12 +1,19 @@
 import { formatMoneyAmount } from "@liratek/core/utils/formatMoney";
 import { MAIN_DRAWER_CURRENCIES, visibleDrawerCurrencies } from "@liratek/core/utils/visibleDrawerCurrencies";
 import { router, useFocusEffect } from "expo-router";
-import { History, Send, Settings, Wallet, Zap } from "lucide-react-native";
+import { ClipboardCheck, History, Send, Settings, Wallet, Zap } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getDrawerBalances, getRecentTransactions, type DrawerBalances, type RecentTransaction } from "@/api/reads";
+import {
+  getDrawerBalances,
+  getRecentTransactions,
+  getSinceLastCount,
+  type DrawerBalances,
+  type RecentTransaction,
+  type SinceLastCountDrawerView,
+} from "@/api/reads";
 import { useAuth } from "@/auth/AuthContext";
 import { ModuleTile } from "@/components/ModuleTile";
 import { useTheme } from "@/theme/ThemeProvider";
@@ -71,13 +78,20 @@ export default function Home() {
   const { shop } = useAuth();
   const [balances, setBalances] = useState<DrawerBalances | null>(null);
   const [recent, setRecent] = useState<RecentTransaction[] | null>(null);
+  const [sinceCount, setSinceCount] = useState<SinceLastCountDrawerView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const [b, r] = await Promise.all([getDrawerBalances(), getRecentTransactions(15)]);
+    const [b, r, c] = await Promise.all([
+      getDrawerBalances(),
+      getRecentTransactions(15),
+      getSinceLastCount(WALLET_DRAWERS),
+    ]);
     if (b.success) setBalances(b.data);
     if (r.success) setRecent(r.data);
+    // Optional extra: if it cannot load, the section simply stays hidden.
+    setSinceCount(c.success ? c.data : null);
     setError(!b.success ? b.error : !r.success ? r.error : null);
   }, []);
 
@@ -150,6 +164,28 @@ export default function Home() {
             </View>
           ))}
         </View>
+
+        {sinceCount ? (
+          <View style={[styles.balances, { backgroundColor: t.card, borderColor: t.border }]}>
+            <View style={styles.balancesHead}>
+              <ClipboardCheck size={18} color={t.accent} />
+              <Text style={[styles.sectionTitle, { color: t.text }]}>Since the last count</Text>
+            </View>
+            {sinceCount.map((d) => (
+              <View key={d.drawer} style={[styles.line, { borderTopColor: t.border }]}>
+                <View style={styles.flex}>
+                  <Text style={[styles.lineLabel, { color: t.text }]}>{drawerLabel(d.drawer)}</Text>
+                  <Text style={{ color: t.textMuted, fontSize: 12 }}>
+                    {d.lastCountAt ? `Counted ${txnTime(d.lastCountAt)}` : "Never counted"}
+                  </Text>
+                </View>
+                <Text style={[styles.lineValue, { color: t.text }]}>
+                  {d.transactions.length === 1 ? "1 sale" : `${d.transactions.length} sales`}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <View style={[styles.balances, { backgroundColor: t.card, borderColor: t.border }]}>
           <View style={styles.balancesHead}>

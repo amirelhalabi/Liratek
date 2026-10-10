@@ -1068,6 +1068,9 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("closing:get-last-checkpoint-actuals"),
     getLastCheckpointPerDrawer: () =>
       ipcRenderer.invoke("closing:get-last-checkpoint-per-drawer"),
+    // LIRA-289 — sales on each drawer since its last count.
+    getSinceLastCount: (data: { drawers: string[] }) =>
+      ipcRenderer.invoke("closing:get-since-last-count", data),
     /** `day` is the CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
      *  frontend's `localDay()`), sent because the server can't be trusted to
      *  know the shop's timezone (web deploys run on a UTC machine while the

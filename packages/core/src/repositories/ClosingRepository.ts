@@ -34,6 +34,33 @@ const RECONCILE_EPSILON = 0.0001;
  */
 const CHECKPOINT_MOVEMENT_REASON = "CHECKPOINT";
 
+
+/**
+ * LIRA-289 (rule 26): a transaction the SYSTEM wrote as a side-effect of
+ * another (metadata_json.is_auto = true). Malformed or absent metadata reads
+ * as NOT auto — on a money list, showing an unexpected row is the safe side.
+ * Bind: none. Alias the transactions table as `t`.
+ */
+export const NOT_AUTO_TRANSACTION_SQL =
+  // CASE, not NOT(a AND b): json_valid(NULL) is NULL, and NOT(NULL AND …)
+  // is NULL, which would hide every row WITHOUT metadata. json_extract only
+  // runs on valid JSON, so malformed metadata cannot raise an error.
+  "(CASE WHEN json_valid(t.metadata_json) THEN COALESCE(json_extract(t.metadata_json, '$.is_auto'), 0) ELSE 0 END) = 0";
+
+/** One payment leg row of a transaction recorded after a drawer's last count. */
+export interface SinceLastCountRow {
+  id: number;
+  type: string;
+  summary: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  amount_usd: number;
+  amount_lbp: number;
+  created_at: string;
+  currency_code: string;
+  drawer_amount: number;
+}
+
 export interface DailyClosingEntity {
   id: number;
   closing_date: string;
@@ -1181,6 +1208,66 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * `drawer_name != 'AGGREGATED'` filter here; that was considered and
    * deliberately rejected, not overlooked.
    */
+  /**
+   * LIRA-289 FR-010: the ACTIVE transactions with a leg on `drawerName`
+   * recorded after `afterIso` (that drawer's last count; null = never
+   * counted, no lower bound). The count itself (CHECKPOINT rows and
+   * CHECKPOINT_ADJUSTMENT legs) and is_auto siblings are excluded.
+   * Timestamps compare through julianday(): the table stores both ISO `…Z`
+   * and `YYYY-MM-DD HH:MM:SS`. One row per (transaction, currency), newest
+   * first, at most `limit` transactions' worth of rows.
+   */
+  getTransactionsOnDrawerSince(
+    drawerName: string,
+    afterIso: string | null,
+    limit = 200,
+  ): SinceLastCountRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT t.id, t.type, t.summary, t.client_id, c.full_name AS client_name,
+                t.amount_usd, t.amount_lbp, t.created_at,
+                p.currency_code, ROUND(SUM(p.amount), 2) AS drawer_amount
+           FROM payments p
+           JOIN transactions t ON t.id = p.transaction_id AND t.tenant_id = ?
+           LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
+          WHERE p.tenant_id = ?
+            AND p.drawer_name = ?
+            AND p.method <> ?
+            AND t.status = 'ACTIVE'
+            AND t.type <> ?
+            AND ${NOT_AUTO_TRANSACTION_SQL}
+            AND (? IS NULL OR julianday(p.created_at) > julianday(?))
+            AND t.id IN (
+              SELECT t2.id FROM payments p2
+                JOIN transactions t2 ON t2.id = p2.transaction_id AND t2.tenant_id = ?
+               WHERE p2.tenant_id = ? AND p2.drawer_name = ?
+                 AND (? IS NULL OR julianday(p2.created_at) > julianday(?))
+               GROUP BY t2.id
+               ORDER BY julianday(t2.created_at) DESC, t2.id DESC
+               LIMIT ?
+            )
+          GROUP BY t.id, p.currency_code
+          ORDER BY julianday(t.created_at) DESC, t.id DESC, p.currency_code`,
+      )
+      .all(
+        tenantId,
+        tenantId,
+        tenantId,
+        drawerName,
+        CHECKPOINT_ADJUSTMENT_METHOD,
+        TRANSACTION_TYPES.CHECKPOINT,
+        afterIso,
+        afterIso,
+        tenantId,
+        tenantId,
+        drawerName,
+        afterIso,
+        afterIso,
+        limit,
+      ) as SinceLastCountRow[];
+  }
+
   getLastCheckpointPerDrawer(): Record<string, DrawerCheckpointStatus> {
     const tenantId = getCurrentTenantId();
     const rows = this.db

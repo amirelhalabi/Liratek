@@ -2557,6 +2557,12 @@ export interface ElectronAPI {
       data?: Record<string, Record<string, number>>;
       error?: string;
     }>;
+    /** LIRA-289 — per drawer, its last count and the sales recorded since. */
+    getSinceLastCount: (data: { drawers: string[] }) => Promise<{
+      success: boolean;
+      data?: Array<import("@liratek/core").SinceLastCountDrawer>;
+      error?: string;
+    }>;
     getLastCheckpointPerDrawer: () => Promise<{
       success: boolean;
       data?: Record<

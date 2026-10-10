@@ -495,6 +495,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getCarrierLineAdjustments(filters);
   getInitialCheckpointDate = () => api.getInitialCheckpointDate();
   getLastCheckpointPerDrawer = () => api.getLastCheckpointPerDrawer();
+  getTransactionsSinceLastCount = (drawers: string[]) =>
+    api.getTransactionsSinceLastCount(drawers);
   hasInitialBalancesSet = () => api.hasInitialBalancesSet();
   hasStartingCheckpoint = () => api.hasStartingCheckpoint();
 

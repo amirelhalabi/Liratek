@@ -8,6 +8,7 @@
 import { Smartphone } from "lucide-react";
 import { DecimalInput } from "@liratek/ui";
 import { DrawerCard } from "./DrawerCard";
+import { SinceLastCountList } from "./SinceLastCountList";
 import type { DrawerCheckpointState } from "../hooks/useDrawerCheckpoint";
 
 interface CheckpointDrawerBodyProps {
@@ -212,6 +213,9 @@ export function CheckpointDrawerBody({
               />
             </div>
           )}
+
+          {/* LIRA-289: what moved this drawer since its last count. */}
+          <SinceLastCountList drawer={drawerName} />
 
           {/* Notes */}
           <div className="space-y-2">

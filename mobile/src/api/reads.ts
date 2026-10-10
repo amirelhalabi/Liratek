@@ -27,3 +27,27 @@ export async function getRecentTransactions(limit = 15): Promise<ApiResult<Recen
   if (!r.success) return r;
   return { success: true, data: r.data.transactions ?? [] };
 }
+
+export interface SinceLastCountTxn {
+  id: number;
+  type: string;
+  summary: string | null;
+  client_name: string | null;
+  created_at: string;
+  drawer_amounts: Record<string, number>;
+}
+
+export interface SinceLastCountDrawerView {
+  drawer: string;
+  lastCountAt: string | null;
+  transactions: SinceLastCountTxn[];
+}
+
+/** GET /api/closing/since-last-count (admin) — sales per drawer since its last count. */
+export async function getSinceLastCount(drawers: string[]): Promise<ApiResult<SinceLastCountDrawerView[]>> {
+  const r = await request<SinceLastCountDrawerView[]>(
+    "GET",
+    `/api/closing/since-last-count?drawers=${encodeURIComponent(drawers.join(","))}`,
+  );
+  return r;
+}

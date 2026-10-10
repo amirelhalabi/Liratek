@@ -9,6 +9,7 @@ import {
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+import type { SinceLastCountDrawer } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
 import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
@@ -2774,6 +2775,22 @@ export async function hasOpeningBalanceToday(day?: string) {
     `/api/closing/has-opening-balance-today${qs}`,
   );
   return res.hasOpening;
+}
+
+// LIRA-289 FR-010 — per drawer, its last count and the sales recorded on it
+// since. Same envelope on both transports; unwrapped to the raw array, null on
+// failure (a non-critical read, like getLastCheckpointPerDrawer below).
+export async function getTransactionsSinceLastCount(
+  drawers: string[],
+): Promise<SinceLastCountDrawer[] | null> {
+  const res = await ipcOrHttp<{ success: boolean; data?: SinceLastCountDrawer[] }>(
+    () => (window as any).api.closing.getSinceLastCount({ drawers }),
+    () =>
+      requestJson(
+        `/api/closing/since-last-count?drawers=${encodeURIComponent(drawers.join(","))}`,
+      ),
+  ).catch(() => null);
+  return res?.success && res.data ? res.data : null;
 }
 
 // CQ-9 follow-up (dashboard staleness badges) — mirrors IPC's

@@ -15,6 +15,7 @@ import {
   createCheckpointSchema,
   hasOpeningBalanceTodayQuerySchema,
   dailyStatsSnapshotQuerySchema,
+  sinceLastCountQuerySchema,
   canIncludeProfit,
   type CheckpointFilters,
   // LIRA-252 wave 2 — now barrel-exported from `@liratek/core`'s
@@ -86,6 +87,29 @@ router.get("/last-checkpoint-per-drawer", requireAuth, async (_req, res) => {
     });
   }
 });
+
+// GET /api/closing/since-last-count?drawers=Whish_App,OMT_App (admin) —
+// LIRA-289 FR-010: per drawer, its last count time and the sales recorded on
+// it since. Mirrors IPC's closing:get-since-last-count envelope
+// ({success, data}); HTTP 200 on failure too (rule 19c).
+router.get(
+  "/since-last-count",
+  requireAuth,
+  requireRole(["admin"]),
+  validateQuery(sinceLastCountQuerySchema),
+  async (req, res) => {
+    try {
+      const { drawers } = req.query as unknown as { drawers: string[] };
+      res.json({
+        success: true,
+        data: closingService.getTransactionsSinceLastCount(drawers),
+      });
+    } catch (error) {
+      logger.error({ error }, "Get since-last-count error");
+      res.json({ success: false, error: "Failed to load sales since the last count" });
+    }
+  },
+);
 
 // GET /api/closing/has-initial-balances-set — whether initial drawer amounts
 // have ever been set (dashboard setup banner). Mirrors the IPC handler's

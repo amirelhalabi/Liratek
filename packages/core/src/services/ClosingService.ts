@@ -86,6 +86,27 @@ const ZERO_ACTIVITY_STATS: DailyActivityStats = {
   totalExpensesLBP: 0,
 };
 
+/** A transaction recorded on a drawer after its last count (LIRA-289). */
+export interface SinceLastCountTransaction {
+  id: number;
+  type: string;
+  summary: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  amount_usd: number;
+  amount_lbp: number;
+  created_at: string;
+  /** What this transaction moved on THIS drawer, per currency (signed). */
+  drawer_amounts: Record<string, number>;
+}
+
+export interface SinceLastCountDrawer {
+  drawer: string;
+  /** The drawer's latest count time, or null if it was never counted. */
+  lastCountAt: string | null;
+  transactions: SinceLastCountTransaction[];
+}
+
 export class ClosingService {
   private repo: ClosingRepository;
   /** LIRA-219 (SOLID/DIP, mirrors `ProfitService`'s own `repo`/`rateRepo`
@@ -486,6 +507,39 @@ export class ClosingService {
    * Get the most recent checkpoint for each drawer.
    * Returns Record<drawerName, DrawerCheckpointStatus>
    */
+  /**
+   * LIRA-289 FR-010: for each drawer, its last count time and the sales
+   * recorded on it since (the SQL lives in the repository, rule 13; this
+   * only groups the per-currency rows into one entry per transaction).
+   */
+  getTransactionsSinceLastCount(drawerNames: string[]): SinceLastCountDrawer[] {
+    const last = this.repo.getLastCheckpointPerDrawer();
+    return drawerNames.map((drawer) => {
+      const lastCountAt = last[drawer]?.checked_at ?? null;
+      const rows = this.repo.getTransactionsOnDrawerSince(drawer, lastCountAt);
+      const byId = new Map<number, SinceLastCountTransaction>();
+      for (const r of rows) {
+        let entry = byId.get(r.id);
+        if (!entry) {
+          entry = {
+            id: r.id,
+            type: r.type,
+            summary: r.summary,
+            client_id: r.client_id,
+            client_name: r.client_name,
+            amount_usd: r.amount_usd,
+            amount_lbp: r.amount_lbp,
+            created_at: r.created_at,
+            drawer_amounts: {},
+          };
+          byId.set(r.id, entry);
+        }
+        entry.drawer_amounts[r.currency_code] = r.drawer_amount;
+      }
+      return { drawer, lastCountAt, transactions: Array.from(byId.values()) };
+    });
+  }
+
   getLastCheckpointPerDrawer(): Record<string, DrawerCheckpointStatus> {
     try {
       return this.repo.getLastCheckpointPerDrawer();

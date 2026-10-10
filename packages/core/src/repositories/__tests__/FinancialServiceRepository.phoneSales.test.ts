@@ -32,6 +32,8 @@ import { createFinancialServiceSchema } from "../../validators/financial";
 import { buildWalletTransferPayload, calculateOmtWhishAppFees } from "../../utils/walletTransfer";
 import { getFinancialService, resetFinancialService } from "../../services/FinancialService";
 import { getTransactionService, resetTransactionService } from "../../services/TransactionService";
+import { getClosingService, resetClosingService } from "../../services/ClosingService";
+import { resetClosingRepository } from "../ClosingRepository";
 
 let db: Database.Database;
 
@@ -135,5 +137,27 @@ describe.each(["WHISH_APP", "OMT_APP"] as const)("%s SEND from the phone", (prov
     getTransactionService().voidTransaction(txn.id, 1);
     expect(deltas(before, drawerBalances())).toEqual({});
     expect(clientDebtUsd(clientId)).toBeCloseTo(debtBefore, 6);
+  });
+});
+
+// T041: a sale on the customer's account moves no cash, but it does take the
+// money out of the app wallet — so it must appear in that wallet's "since the
+// last count" list (FR-010).
+describe("phone sale appears in the wallet's since-last-count list", () => {
+  it.each(["WHISH_APP", "OMT_APP"] as const)("%s on the customer's account", (provider) => {
+    resetClosingRepository();
+    resetClosingService();
+    const clientId = nextClient++;
+    addClient(db, { id: clientId, name: "Hassan", phone: `71${clientId}000` });
+    const { result } = record(provider, "CUSTOMER_ACCOUNT", clientId);
+    expect(result.success).toBe(true);
+    const txnId = (
+      db.prepare(`SELECT id FROM transactions WHERE source_table = 'financial_services' AND source_id = ?`).get(result.id) as { id: number }
+    ).id;
+    const [wallet] = getClosingService().getTransactionsSinceLastCount([DRAWER_OF[provider]]);
+    const row = wallet.transactions.find((t) => t.id === txnId);
+    expect(row).toBeDefined();
+    expect(row!.client_name).toBe("Hassan");
+    expect(row!.drawer_amounts.USD).toBeLessThan(0);
   });
 });

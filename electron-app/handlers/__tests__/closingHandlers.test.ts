@@ -101,6 +101,7 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
     recalculateDrawerBalances: jest.Mock;
     getSystemExpectedBalancesDynamic: jest.Mock;
     getDailyStatsSnapshot: jest.Mock;
+    getTransactionsSinceLastCount: jest.Mock;
   };
   let handlers: Map<string, (...args: unknown[]) => unknown>;
 
@@ -125,6 +126,7 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
       recalculateDrawerBalances: jest.fn(),
       getSystemExpectedBalancesDynamic: jest.fn(),
       getDailyStatsSnapshot: jest.fn(),
+      getTransactionsSinceLastCount: jest.fn(),
     };
     (getClosingService as jest.Mock).mockReturnValue(mockClosingService);
 
@@ -157,8 +159,35 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
         "closing:has-initial-balances-set",
         "closing:has-starting-checkpoint",
         "closing:get-initial-checkpoint-date",
+        "closing:get-since-last-count",
       ]),
     );
+  });
+
+  // LIRA-289 FR-010 — same core service + schema as the REST route.
+  describe("closing:get-since-last-count", () => {
+    const call = (data: unknown) =>
+      handlers.get("closing:get-since-last-count")!({ sender: { id: 1 } }, data);
+
+    it("is admin-only: refuses and never reaches the service", async () => {
+      (requireRole as jest.Mock).mockReturnValue({ ok: false, error: "Forbidden" });
+      const res = await call({ drawers: ["Whish_App"] });
+      expect(res).toEqual({ success: false, error: "Forbidden" });
+      expect(mockClosingService.getTransactionsSinceLastCount).not.toHaveBeenCalled();
+    });
+
+    it("refuses an empty drawer list", async () => {
+      const res = (await call({ drawers: [] })) as { success: boolean };
+      expect(res.success).toBe(false);
+      expect(mockClosingService.getTransactionsSinceLastCount).not.toHaveBeenCalled();
+    });
+
+    it("passes the de-duplicated drawer list to the service and wraps the result", async () => {
+      mockClosingService.getTransactionsSinceLastCount.mockReturnValue([{ drawer: "Whish_App", lastCountAt: null, transactions: [] }]);
+      const res = await call({ drawers: ["Whish_App", " OMT_App ", "Whish_App"] });
+      expect(mockClosingService.getTransactionsSinceLastCount).toHaveBeenCalledWith(["Whish_App", "OMT_App"]);
+      expect(res).toEqual({ success: true, data: [{ drawer: "Whish_App", lastCountAt: null, transactions: [] }] });
+    });
   });
 
   describe("closing:create-checkpoint", () => {
