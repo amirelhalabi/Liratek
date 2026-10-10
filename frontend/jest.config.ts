@@ -1,5 +1,11 @@
 import type { Config } from "jest";
 
+// Run every frontend test in the shop's timezone. Setting TZ inside a test
+// file does not reach the worker's real clock, so local-day tests passed on a
+// Beirut machine and failed on CI (UTC). Set here, the config process exports
+// it and every worker inherits it — the same on Windows, macOS and CI.
+process.env.TZ = "Asia/Beirut";
+
 const config: Config = {
   preset: "ts-jest",
   testEnvironment: "jsdom",
