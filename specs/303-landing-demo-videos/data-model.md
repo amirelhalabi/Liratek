@@ -34,6 +34,10 @@ The same test shop serves the web, desktop and phone videos. Everything is made 
 **For the desktop scene**
 - Nothing extra: it reuses the POS screen.
 
+**For the phone scene**
+- The phone app signed in to the same test shop, so Home shows its drawer and wallet balances in light mode.
+- The sign-in page in dark mode (signed out).
+
 **Never on screen**
 - Real customer names, real phone numbers, a real shop address, a real email, or a real staff name in the top bar.
   The signed-in user should be a made-up name too (for example "Owner").
@@ -51,8 +55,10 @@ action. Times are a plan; the build may move them by a few tenths of a second.
 | 4 | 10.0–14.0 | OMT / Whish | "OMT and Whish, fees worked out" / "OMT وWhish، العمولة محسوبة" | `/services` transfer form | Amount typed, fee appears, total highlighted | USD + LBP |
 | 5 | 14.0–18.0 | Recharge | "MTC and Alfa recharges" / "تشريج MTC وAlfa" | `/recharge` | Item picked, price in LBP and $ shown | USD + LBP |
 | 6 | 18.0–22.0 | Loto | "Loto, in lira" / "اللوتو، بالليرة" | `/loto` | Ticket sold, LBP total | LBP only |
-| 7 | 22.0–26.0 | Desktop | "Also on your computer" / "أيضاً على الكمبيوتر" | POS screen inside a Windows window frame | Screen shrinks into the window | — |
-| 8 | 26.0–29.0 | Outro | "liratek.shop" · "Talk to us on WhatsApp" / "تواصل معنا على واتساب" | none | Logo, address and call to action settle; the last 0.5 s fades into the settled hook frame (frame 0) so the loop is seamless | — |
+| 7a | 22.0–24.5 | Desktop: Windows | "Also on your computer" / "أيضاً على الكمبيوتر" | POS screen inside the LiraTek app window on a Windows 11 desktop (wallpaper, centred taskbar with a LiraTek icon) | The screen shrinks from full size into the app window | — |
+| 7b | 24.5–27.0 | Desktop: Mac | (same title) | The same POS screen in a browser window on a macOS desktop (menu bar, Dock); the address bar reads `test.liratek.shop` | Cut from Windows to Mac; the browser window settles | — |
+| 8 | 27.0–31.0 | Phones | "And on your phone" / "وعلى هاتفك" | Two phones side by side: an iPhone 17 (simulator screenshot) on the **sign-in page in dark mode**, and a drawn Galaxy-Ultra-style Android phone with the **Home tab in light mode** | Phones slide up one after the other | — |
+| 9 | 31.0–34.0 | Outro | "liratek.shop" · "Talk to us on WhatsApp" / "تواصل معنا على واتساب" | none | Logo, address and call to action settle; the last 0.5 s fades into the settled hook frame (frame 0) so the loop is seamless | — |
 
 All Arabic titles above are drafts and need native review.
 

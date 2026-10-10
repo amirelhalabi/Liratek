@@ -6575,14 +6575,18 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
-## LIRA-303: landing page demo videos — web app first, desktop from the same screens, phone later — PLANNING (owner request 2026-10-10)
+## LIRA-303: landing page demo videos — web app first, desktop from the same screens, phone later — DONE, not yet pushed (owner request 2026-10-10)
 
 - **What:** replace the landing hero video (`landing/assets/demo.mp4` + poster), which still shows the old green look, with a new demo of the **web app** in the new brand. The **desktop app** is showcased from the same screens (one React UI), framed as a desktop window. A **phone app** demo video follows later, once the phone changes and a seeded test shop are ready.
 - **How:** plan with Spec Kit (`specs/303-landing-demo-videos/`), then build with `/brag` (the earlier video's working files are in the git-ignored `brag-output/`).
 - **Constraints:** made-up data only (a seeded demo/test shop, never a real customer); no Electron on this Mac, so desktop shots come from the web app; show only what is built.
 - **Owner decisions 2026-10-10:** 4 product scenes — POS, OMT/Whish services, mobile recharge, Loto; USD and LBP shown briefly on POS, OMT/Whish and recharge, LBP only on Loto. Desktop = one ~4 s scene in the same hero video (screens inside a desktop window frame). Data = the owner's seeded test shop (same as the phone screenshots); capture waits for the owner. About 29 s.
 
-**What users will notice:** the landing page shows a new demo video of LiraTek in the new colours.
+- **Built 2026-10-10:** two 34 s videos, one per language (owner decision): `landing/assets/demo.mp4` (English, 2.88 MB) and `demo-ar.mp4` (Arabic, 2.84 MB), posters `poster.webp` 16 KB / `poster-ar.webp` 15 KB (frame 0 = the settled hook frame; the loop is seamless, SSIM 0.9999). Scenes: hook, logo, POS ($40 ≈ 3,560,000 LBP), OMT send ($152 → 13,528,000 LBP), MTC recharge (900,000 LBP / $10.11), Loto (LBP), the POS in the Windows 11 app window, the web app in Safari on macOS (Dock with the LiraTek web app), iPhone 17 sign-in (dark) + Android-style phone Home (light), outro. −16.8 LUFS, peak −1.0. Poster LCP (Slow 4G, 375 px, median of 3): `/` 944 → 952 ms, `/ar` 948 → 956 ms. Frame check: 68 frames per video, no green brand, one language each, made-up data only.
+- **Filming booked real entries in the live test shop:** 1 POS sale ($40), 1 OMT send ($152), 1 MTC recharge (line went to $-9.48), 1 Loto ticket (200,000 LBP, on Rami Haddad's account — the client pick switched the payment to Customer Account). Owner kept them as filmed.
+- **Open:** native review of the Arabic titles; the fuller phone-app video (T032 notes not written yet); change the test shop's admin password (shared in chat). Work files (git-ignored): `brag-output-2026-10-10-184851/`.
+
+**What users will notice:** the landing page shows a new demo video of LiraTek in the new colours, in English on the English page and in Arabic on the Arabic page.
 
 ## LIRA-302: phone app — Katsh / iPick catalog sales (vouchers, cards) — DONE on the simulator, not yet released (owner decisions 2026-10-10)
 

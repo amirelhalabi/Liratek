@@ -52,11 +52,11 @@ The visitor sees that LiraTek also runs as a desktop app in the shop, with the s
 
 ---
 
-### User Story 3 - A phone app demo follows later (Priority: P3)
+### User Story 3 - A visitor sees the phone app too (Priority: P3)
 
-Later, the phone section of the landing page gets its own short demo of the phone app, from real phone screens.
+The hero video ends its tour with the phone app on two phones (FR-008a). A fuller phone-app demo for the phone section of the landing page still follows later, from real phone screens.
 
-**Why this priority**: it depends on the phone changes in progress and on the seeded demo shop. It is planned here so the web and desktop videos leave room for it. It is not built in this feature.
+**Why this priority**: it depends on the phone changes in progress. The phone scene in this video is short; the separate phone video is not built in this feature.
 
 **Independent Test**: not part of this delivery. The plan names it as a follow-up and fixes the shared style (colours, fonts, music, title format) so the phone video matches.
 
@@ -91,13 +91,14 @@ Later, the phone section of the landing page gets its own short demo of the phon
   3. **Mobile recharge**: an MTC or Alfa recharge on the Recharge page.
   4. **Loto**: a ticket sale on the Loto page.
 - **FR-005a**: In the POS, OMT / Whish and Mobile recharge scenes, both currencies (USD and LBP) MUST show briefly on screen, for example a total in dollars with its lira amount. The Loto scene MUST show LBP only, as the Loto page does.
-- **FR-006**: Every title MUST carry an Arabic line under the English one, so one video serves both the English and the Arabic page.
+- **FR-006**: There MUST be two videos, one per language (owner decision 2026-10-10): the English page shows an English-only video, the Arabic page an Arabic-only video. No frame mixes the two languages in titles (product screens and drawn OS chrome stay as they are).
 - **FR-007**: The video MUST end on the call to action used on the page: "Talk to us on WhatsApp", with liratek.shop.
 
 **Desktop**
 
-- **FR-008**: The desktop app MUST be shown with the same screens inside a desktop window frame, with a title naming it as the desktop app. It MUST be one scene of about 4 seconds inside the same hero video (owner decision 2026-10-10): the screen shrinks into a desktop window frame, with a title like "Also on your computer" and its Arabic line. There is no second video.
-- **FR-009**: Inside the desktop window frame, only features in the current desktop release may appear.
+- **FR-008**: The computer scene MUST show the same screens on two desktops, one after the other, under the title "Also on your computer" and its Arabic line (owner decision 2026-10-10): first the LiraTek **desktop app** window on a Windows 11 desktop with its taskbar (about 2.5 s), then the **web app in a browser** window on a macOS desktop with its menu bar and Dock (about 2.5 s). There is no Mac desktop app (the desktop app is built for Windows only), so the Mac part MUST show a browser, never a native app window.
+- **FR-008a**: A phone scene of about 4 seconds MUST follow, titled "And on your phone" and its Arabic line: two phones side by side, an iPhone 17 on the phone app's sign-in page in dark mode, and an Android phone in the style of a Galaxy Ultra (drawn, not an emulator) on the Home tab in light mode. Both screens MUST be real phone-app screens from the test shop. Drawn devices carry no maker logos.
+- **FR-009**: Inside the Windows app window, only features in the current desktop release may appear.
 
 **Landing page behaviour**
 
@@ -136,7 +137,7 @@ Later, the phone section of the landing page gets its own short demo of the phon
 
 - The video is made with `/brag`, reusing the earlier composition, render script and music from `brag-output/` (git-ignored, on this Mac only).
 - The format stays as before: landscape 1920×1080, 30 frames per second, music with no voice-over.
-- Length is about 29 seconds: hook 3 s, logo 3 s, 4 product scenes of about 4 s each, the desktop scene about 4 s, outro 3 s. The size budget (SC-003) still applies.
+- Length is about 34 seconds: hook 3 s, logo 3 s, 4 product scenes of about 4 s each, the computer scene 5 s (Windows, then Mac), the phone scene 4 s, outro 3 s. The size budget (SC-003) still applies.
 - One video serves both pages; there is no separate Arabic video.
 - The web app runs locally against the demo shop for the screenshots. The desktop app is not launched on this Mac.
 - The music keeps the earlier style (soft and calm, in the same key family) unless the owner asks for a change.

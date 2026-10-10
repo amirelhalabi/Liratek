@@ -79,7 +79,7 @@
 
     <!-- The hero poster is the largest paint: fetch it first. Bump ?v= here
          AND on the <video> together. -->
-    <link rel="preload" as="image" href="/assets/poster.webp?v=3" fetchpriority="high" />
+    <link rel="preload" as="image" href="/assets/poster-ar.webp?v=4" fetchpriority="high" />
     <!-- Fonts load without blocking the first paint (display=swap). This page
          needs only IBM Plex Sans Arabic (it has Latin letters too); the English
          page loads Inter. -->
@@ -251,14 +251,14 @@
             <video
               id="demo-video"
               class="demo"
-              poster="/assets/poster.webp?v=3"
+              poster="/assets/poster-ar.webp?v=4"
               autoplay
               muted
               loop
               playsinline
               preload="metadata"
             >
-              <source src="/assets/demo.mp4?v=2" type="video/mp4" />
+              <source src="/assets/demo-ar.mp4?v=3" type="video/mp4" />
             </video>
             <button
               type="button"
