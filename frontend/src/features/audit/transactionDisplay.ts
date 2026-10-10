@@ -868,7 +868,7 @@ export function billsCommissionModeLine(
 /**
  * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): a row stamped with
  * `split_group` is one unit of a multi-unit split-payment checkout
- * (KatchForm bills / FinancialForm catalog units). Voiding a single member
+ * (KatshForm bills / FinancialForm catalog units). Voiding a single member
  * alone is refused by the repository guard — the operator must void the
  * whole checkout via `voidCheckoutGroup`. Returns null for ordinary rows and
  * for legacy pre-fix split rows that predate this marker (undetectable by

@@ -35,7 +35,7 @@ import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteI
 import {
   CompactStats,
   FinancialForm,
-  KatchForm,
+  KatshForm,
   TelecomForm,
   CryptoForm,
   ProviderTabs,
@@ -277,7 +277,7 @@ export default function MobileRecharge() {
   }, [activeProvider]);
   // m1 fix: refetch whenever ANY telecom submit changes carrier lines,
   // regardless of which page/tab triggered it (e.g. a self-charge from
-  // KatchForm) — matches `carrier`, or refreshes unconditionally when the
+  // KatshForm) — matches `carrier`, or refreshes unconditionally when the
   // event carries none.
   useEffect(() => {
     return appEvents.on("carrier-lines:changed", (carrier) => {
@@ -398,7 +398,7 @@ export default function MobileRecharge() {
   const [alfaCreditCostRate, setAlfaCreditCostRate] = useState(85000);
   const [marginAlertThreshold, setMarginAlertThreshold] = useState(100000);
   // Payments use the BUY rate (owner decision 2026-07-06) for MultiPaymentInput
-  // / cart conversions — also forwarded to KatchForm (Katsh/iPick).
+  // / cart conversions — also forwarded to KatshForm (Katsh/iPick).
   const { buyRate: exchangeRate } = useSellRate();
 
   // Whish App mode: 'bills' (card grid) or 'transfer' (send/receive money)
@@ -2098,7 +2098,7 @@ export default function MobileRecharge() {
               )}
             </>
           ) : activeProvider === "Katsh" || activeProvider === "iPick" ? (
-            <KatchForm
+            <KatshForm
               activeConfig={activeConfig}
               activeProvider={activeProvider as ProviderKey}
               getCategoriesForProvider={getCategoriesForProvider}

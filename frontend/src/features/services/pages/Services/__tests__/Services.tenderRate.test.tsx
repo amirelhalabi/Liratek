@@ -14,7 +14,7 @@
  * Pre-fix, this page passed a rate DOWN to MultiPaymentInput for display and
  * sent NOTHING back up — a grep of index.tsx for `tender_exchange_rate`
  * returned zero hits, while SIX recharge components already forwarded it
- * (FinancialForm, TelecomForm, KatchForm, PaymentSheet, CardGridPayView,
+ * (FinancialForm, TelecomForm, KatshForm, PaymentSheet, CardGridPayView,
  * OmtWhishAppTransferForm). So the operator's rate was silently discarded on
  * exactly the OMT/Whish system flows.
  *

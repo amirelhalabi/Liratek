@@ -1,7 +1,7 @@
 /**
  * CardGridPayView — active-session gating (note 19)
  *
- * Sibling forms (TelecomForm's own recharge/days flow, KatchForm) switch
+ * Sibling forms (TelecomForm's own recharge/days flow, KatshForm) switch
  * their trigger button to "Add to Cart" and submit straight to the session
  * basket when a customer session is active, skipping the PaymentSheet
  * entirely. CardGridPayView (the shared Alfa Gift / MTC Voucher flow) used

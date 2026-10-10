@@ -444,9 +444,9 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
   // branch's `checkoutTotal` reconciliation (Wave 8) already existed before
   // this fix — the bug is which RATE it converts at. MultiPaymentInput
   // converts the customer's tender at whatever rate the form passed it
-  // (KatchForm passes the BUY rate — owner decision 2026-07-06), while this
+  // (KatshForm passes the BUY rate — owner decision 2026-07-06), while this
   // branch fell back to `exchangeRate` (the stamped, SELL-side rate for
-  // money-in) whenever the caller didn't send one — which KatchForm never
+  // money-in) whenever the caller didn't send one — which KatshForm never
   // did. A real buy/sell spread pushes the mismatch past the $0.05 epsilon
   // even though the till's own math nets to exactly zero. `tender_exchange_rate`
   // lets the caller say "reconcile at the rate I actually used".
@@ -777,7 +777,7 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Cost/price checkout flow (KatchForm bills / FinancialForm catalog carts)
+  // Cost/price checkout flow (KatshForm bills / FinancialForm catalog carts)
   // — carrier `checkoutTotal` reconciliation (Wave 8, owner decision
   // 2026-07-18, docs/plans/done_plans/PAYMENT_LEGS_INTEGRITY_PLAN.md).
   //

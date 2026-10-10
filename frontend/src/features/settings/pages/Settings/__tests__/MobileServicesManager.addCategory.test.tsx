@@ -12,7 +12,7 @@
  * and an editable Subcategory field, so the category is saved with its first
  * item. A typed name that matches an existing category ignoring case reuses
  * the existing spelling ("ALFA" → "alfa"), because `alfa`/`mtc` drive carrier
- * logic and one check (`KatchForm.isTelecomVoucher`) compares exactly.
+ * logic and one check (`KatshForm.isTelecomVoucher`) compares exactly.
  * After a successful create, the shared sale-screen catalog is refreshed so
  * the new item shows on the Recharge page without a reload.
  */

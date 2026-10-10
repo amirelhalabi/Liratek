@@ -100,7 +100,7 @@
  * write path, the reversal path, and the pre-submit UI warning all compute the
  * SAME projection from the same code instead of three drifting copies.
  *
- * ⚠ This module is re-exported from `browser.ts` (KatchForm and
+ * ⚠ This module is re-exported from `browser.ts` (KatshForm and
  * CarrierLinesPanel both import from it), so it must stay free of Node
  * built-ins — that means `localDay()`, never `clientDay()`, for the `today`
  * default: `clientDay()` lives in the server-only `utils/requestDay.ts` and

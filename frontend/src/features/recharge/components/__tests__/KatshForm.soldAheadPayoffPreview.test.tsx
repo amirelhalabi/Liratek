@@ -2,7 +2,7 @@
 /**
  * NOT RUN — proven at the end-of-batch gate.
  *
- * KatchForm self-charge confirm dialog — #28 (LIRA-218) M7 fix
+ * KatshForm self-charge confirm dialog — #28 (LIRA-218) M7 fix
  * (2026-09-24 adversarial review).
  *
  * Pre-fix, `selfChargeValidityProjection` called `projectValidityExpiry`
@@ -11,14 +11,14 @@
  * expiry with `owedApplied` 0, disagreeing with the server, which pays
  * `days_owed` off FIRST (rule 14 — one shared rule; both callers must read
  * the SAME inputs, not just call the same function). Harness copied from
- * `KatchForm.validityCredits.test.tsx` with a self-charge-eligible item
+ * `KatshForm.validityCredits.test.tsx` with a self-charge-eligible item
  * (credits + validityDays + catalogCost, `isSelfChargeEligible`'s exact
  * gate) and a primary line carrying a `days_owed` balance.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { KatchForm } from "../KatchForm";
+import { KatshForm } from "../KatshForm";
 import type {
   ServiceItem,
   ProviderKey,
@@ -128,13 +128,13 @@ const mockProps = {
   setShowHistory: jest.fn(),
 };
 
-function renderKatchForm() {
+function renderKatshForm() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <KatchForm {...mockProps} />
+      <KatshForm {...mockProps} />
     </QueryClientProvider>,
   );
 }
@@ -144,7 +144,7 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-describe("KatchForm self-charge dialog — sold-ahead payoff preview (#28/M7)", () => {
+describe("KatshForm self-charge dialog — sold-ahead payoff preview (#28/M7)", () => {
   beforeEach(() => {
     mockGetPrimaryCarrierLine.mockReset();
   });
@@ -168,7 +168,7 @@ describe("KatchForm self-charge dialog — sold-ahead payoff preview (#28/M7)", 
           : null,
     }));
 
-    renderKatchForm();
+    renderKatshForm();
 
     const chargeButton = await screen.findByText("Charge to shop line");
     fireEvent.click(chargeButton);
@@ -201,7 +201,7 @@ describe("KatchForm self-charge dialog — sold-ahead payoff preview (#28/M7)", 
           : null,
     }));
 
-    renderKatchForm();
+    renderKatshForm();
 
     const chargeButton = await screen.findByText("Charge to shop line");
     fireEvent.click(chargeButton);

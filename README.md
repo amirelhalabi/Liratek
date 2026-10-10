@@ -589,8 +589,8 @@ LiraTek uses **SQLite** for low-latency, localized data storage.
 - **`sales` / `sale_items`**: Transaction records and snapshots
 - **`clients` / `debt_ledger`**: Customer profiling and dual-currency debt tracking with smart rounding
 - **`payments`**: Cash movement tracking linked to sales, debts, expenses, and services
-- **`drawer_balances`**: Running totals for all payment method drawers (General, OMT, Whish, Binance, IPEC, Katch, Wish App, MTC, Alfa)
-- **`financial_services`**: OMT, Whish, IPEC, Katch, and Wish App transaction logs
+- **`drawer_balances`**: Running totals for all payment method drawers (General, OMT, Whish, Binance, IPEC, Katsh, Wish App, MTC, Alfa)
+- **`financial_services`**: OMT, Whish, IPEC, Katsh, and Wish App transaction logs
 - **`daily_closings`**: Multi-drawer end-of-day audits and variance tracking
 - **`activity_logs`**: Comprehensive JSON-based audit trail
 - **`recharges`**: MTC/Alfa recharge tracking with virtual stock

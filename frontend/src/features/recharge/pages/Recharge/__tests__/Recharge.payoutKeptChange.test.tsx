@@ -78,7 +78,7 @@ const STALE_OUT: PaymentLine = {
 jest.mock("../../../components", () => ({
   CompactStats: () => null,
   FinancialForm: () => null,
-  KatchForm: () => null,
+  KatshForm: () => null,
   OmtWhishAppTransferForm: () => null,
   OmtAppCashoutModal: () => null,
   ProviderTabs: ({

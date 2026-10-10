@@ -263,7 +263,7 @@ every existing `ipcOrHttp` fn already behaves this way.
 ### 6.2 Deliberate behaviour changes on desktop (all fixes, none regressions)
 
 **(a) Financial-service metadata edit: `customer_name` → `client_name`.**
-Five sites (`CryptoForm`, `FinancialForm`, `KatchForm`,
+Five sites (`CryptoForm`, `FinancialForm`, `KatshForm`,
 `OmtWhishAppTransferForm`, `Services/index.tsx`) plus `preload.ts:~310` and
 `electron.d.ts:1075`. _Certain:_ the IPC handler
 `financial:update-metadata` (`omtHandlers.ts:97-135`) reads `data.client_name`

@@ -4,7 +4,7 @@
  * THE BUG: `paid_by_method: "MULTI"` is only ever a truthful value when the
  * caller actually split the payment into 2+ legs (Recharge/index.tsx's
  * `derivePaidByMethod`, wired in this same phase — mirrors the crypto /
- * FinancialForm / KatchForm pattern). It is never a real payment method.
+ * FinancialForm / KatshForm pattern). It is never a real payment method.
  * Before this guard, if `payments[]` arrived empty/absent anyway (a REST
  * caller whose legs got stripped, or any caller that lies about having
  * split), `processRecharge`'s legacy single-method fallback treated "MULTI"

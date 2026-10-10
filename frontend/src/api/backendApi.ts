@@ -2722,7 +2722,7 @@ export async function getPaymentsByTransaction(
 }
 
 /** Edit non-financial metadata on a financial_services row (OMT/Whish/
- *  iPick/Katsh/Binance history modals' inline edit — CryptoForm, KatchForm,
+ *  iPick/Katsh/Binance history modals' inline edit — CryptoForm, KatshForm,
  *  FinancialForm, OmtWhishAppTransferForm, Services/index all share this one
  *  channel). Was a raw, unguarded `window.api.financial.updateMetadata()`
  *  call with no REST twin (rule 19a). */

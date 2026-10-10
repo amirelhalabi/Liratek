@@ -3,7 +3,7 @@
  * ForPartnerToggle / ForPartnerNotice (CQ-6) — unit coverage for the shared
  * "For Partner" checkbox + PartnerSelector wiring that replaces the 7
  * hand-rolled copies (CheckoutModal, TelecomForm, FinancialForm,
- * OmtWhishAppTransferForm, CryptoForm, KatchForm, Loto).
+ * OmtWhishAppTransferForm, CryptoForm, KatshForm, Loto).
  *
  * PartnerSelector is mocked (as every form test that renders these blocks
  * already does — see FinancialForm.legsCarrier.test.tsx et al.) so this test

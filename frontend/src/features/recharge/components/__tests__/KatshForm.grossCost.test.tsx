@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 /**
- * KatchForm — LIRA-090 B1/B2: gross-cost, mobileServiceItemId, computed default,
+ * KatshForm — LIRA-090 B1/B2: gross-cost, mobileServiceItemId, computed default,
  * operator override, walk-in aggregated `telecomCreditReturns` array.
  *
  * Rule 17: every test here MUST have been seen to FAIL on the pre-fix code.
@@ -9,12 +9,12 @@
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { KatchForm } from "../KatchForm";
+import { KatshForm } from "../KatshForm";
 import type { ServiceItem } from "../../hooks/useMobileServiceItems";
 import type { ProviderConfig } from "../../types";
 
 // @liratek/core pulls in Node-only DB modules via its main index — mock the
-// subset KatchForm actually uses. The implementations here are faithful copies
+// subset KatshForm actually uses. The implementations here are faithful copies
 // of the real logic (from packages/core/src/utils/telecomCredit.ts) so the
 // gross-cost and split-gate tests prove real behaviour, not mocked stubs.
 // This is a jest infrastructure necessity — the authoritative definition still
@@ -39,11 +39,11 @@ jest.mock("@liratek/ui", () => ({
     getAllSettings: jest.fn().mockResolvedValue([]),
     // createMobileServiceItem is also on useApi() — not called in these tests
     createMobileServiceItem: jest.fn().mockResolvedValue({ success: true }),
-    // Only-Days pricing model (2026-08-05): KatchForm fetches the catalog's
+    // Only-Days pricing model (2026-08-05): KatshForm fetches the catalog's
     // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — these
     // gross-cost tests are about the COST side, untouched by the pricing
     // model; the pricing panel stays hidden and the legacy price formula
-    // governs (proved separately in KatchForm.onlyDaysPricing.test.tsx).
+    // governs (proved separately in KatshForm.onlyDaysPricing.test.tsx).
     getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
     // loadPrimaryLines (self-charge, D5) fires unconditionally on mount —
     // unmocked, it logs "api.getPrimaryCarrierLine is not a function" noise
@@ -126,10 +126,10 @@ jest.mock("../PaymentSheet", () => ({
  *   cost_lbp       = 7,600,000
  *   days_cost_lbp  = 1,162,000
  *   credits        = 77
- *   sell_days_lbp  = (irrelevant for cost tests; KatchForm uses catalogSellPrice)
+ *   sell_days_lbp  = (irrelevant for cost tests; KatshForm uses catalogSellPrice)
  *
  * The catalog sell price for the "Only Days" sale is not sell_days_lbp from the
- * DB — the current KatchForm calculates it as:
+ * DB — the current KatshForm calculates it as:
  *   catalogSellPrice - returnedCredits * alfaCreditSellRate
  * We use catalogSellPrice = 9_600_000 and alfaCreditSellRate = 100_000 (per LBP)
  * so the customer price = 9,600,000 - 73 * 100,000 = 2,300,000 LBP.
@@ -179,7 +179,7 @@ const CONFIG_IPICK: ProviderConfig = {
 };
 
 function renderWithItem(item: ServiceItem) {
-  // KatchForm now invalidates the Suppliers-page unsettled-bill query
+  // KatshForm now invalidates the Suppliers-page unsettled-bill query
   // (`useQueryClient()`) on a successful bill submission — needs a real
   // QueryClientProvider in the tree, same as every Suppliers-page test.
   const queryClient = new QueryClient({
@@ -187,7 +187,7 @@ function renderWithItem(item: ServiceItem) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <KatchForm
+      <KatshForm
         activeConfig={CONFIG_IPICK}
         activeProvider="iPick"
         getCategoriesForProvider={() => ["mtc"]}
@@ -235,7 +235,7 @@ async function submitWithCash() {
 /**
  * Rule 17 failure evidence (pre-fix, current code):
  *
- *   FAIL  KatchForm.grossCost.test.tsx
+ *   FAIL  KatshForm.grossCost.test.tsx
  *   ● gross-cost B1/B2 › (1) split-complete: cost is GROSS cost_lbp — never pre-netted
  *     expect(received).toBe(expected)
  *     Expected: 7600000
@@ -253,7 +253,7 @@ async function submitWithCash() {
  *     expect(received).toBeDefined()
  *     Received: undefined
  */
-describe("KatchForm gross-cost B1/B2 (LIRA-090)", () => {
+describe("KatshForm gross-cost B1/B2 (LIRA-090)", () => {
   beforeEach(() => {
     mockAddOMTTransaction.mockClear();
   });

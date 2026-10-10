@@ -184,18 +184,18 @@ export async function goToPOSCheckout(
 /**
  * Navigate to the Recharge page and click the specified provider tab.
  *
- * @param tab - Which tab to activate: 'telecom' | 'financial' | 'katch' | 'crypto'
+ * @param tab - Which tab to activate: 'telecom' | 'financial' | 'katsh' | 'crypto'
  */
 export async function goToRechargeForm(
   page: Page,
-  tab: "telecom" | "financial" | "katch" | "crypto",
+  tab: "telecom" | "financial" | "katsh" | "crypto",
 ): Promise<void> {
   await navigateTo(page, "/recharge");
 
   const tabLabels: Record<typeof tab, string | RegExp> = {
     telecom: /Telecom|MTC|Alfa/i,
     financial: /Financial|OMT|Whish/i,
-    katch: /Katch|Katsh/i,
+    katsh: /Katsh/i,
     crypto: /Crypto|Binance/i,
   };
 

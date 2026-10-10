@@ -1675,7 +1675,7 @@ export default function MobileServicesManager() {
                                         // 3-level fallback (per-item -> tenant
                                         // setting -> named default) lives in ONE
                                         // place (rule 14): this chain used to be
-                                        // hand-written here AND in KatchForm's
+                                        // hand-written here AND in KatshForm's
                                         // sale pricing, which is how the two
                                         // screens end up disagreeing about what a
                                         // credit costs. Extracted 2026-08-05.

@@ -1,13 +1,13 @@
 /**
- * KatchForm Search Functionality Tests
+ * KatshForm Search Functionality Tests
  *
- * Tests for the search feature in KatchForm component that filters items
+ * Tests for the search feature in KatshForm component that filters items
  * across categories in real-time.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { KatchForm } from "../KatchForm";
+import { KatshForm } from "../KatshForm";
 import type {
   ServiceItem,
   ProviderKey,
@@ -27,10 +27,10 @@ const MOCK_RATES = [
 ];
 const mockGetRates = jest.fn().mockResolvedValue(MOCK_RATES);
 
-// KatchForm now imports maxReturnableCredits / isTelecomSplitComplete from
+// KatshForm now imports maxReturnableCredits / isTelecomSplitComplete from
 // @liratek/core. That package pulls in Node-only DB modules which jest/jsdom
-// cannot load — mock only the subset KatchForm uses (same faithful copies as in
-// KatchForm.grossCost.test.tsx; the authoritative definition lives in core).
+// cannot load — mock only the subset KatshForm uses (same faithful copies as in
+// KatshForm.grossCost.test.tsx; the authoritative definition lives in core).
 // Load the REAL core module. frontend/jest.config.ts maps @liratek/core to
 // packages/core/src/browser.ts, so the Node-only DB chain the old hand-written
 // mock existed to dodge is not in the graph. Re-implementing core helpers in
@@ -45,7 +45,7 @@ jest.mock("@liratek/ui", () => ({
     // useAutoPrintReceipt (LIRA-069 W1.d) pulls shop info via useShopInfo(),
     // which calls this on mount.
     getAllSettings: jest.fn().mockResolvedValue([]),
-    // Only-Days pricing model (2026-08-05): KatchForm fetches the catalog's
+    // Only-Days pricing model (2026-08-05): KatshForm fetches the catalog's
     // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — none of
     // these fixtures carry a computed days price.
     getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
@@ -58,7 +58,7 @@ jest.mock("@liratek/ui", () => ({
   }),
 }));
 
-// Mock useSession (KatchForm uses it for customer sessions)
+// Mock useSession (KatshForm uses it for customer sessions)
 jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => ({
     activeSession: null,
@@ -232,9 +232,9 @@ const mockProps = {
 
 // ─── Helper Functions ───────────────────────────────────────────────────────
 
-const renderKatchForm = (overrides = {}) => {
+const renderKatshForm = (overrides = {}) => {
   const props = { ...mockProps, ...overrides };
-  // KatchForm now invalidates the Suppliers-page unsettled-bill query
+  // KatshForm now invalidates the Suppliers-page unsettled-bill query
   // (`useQueryClient()`) on a successful bill submission — needs a real
   // QueryClientProvider in the tree, same as every Suppliers-page test.
   const queryClient = new QueryClient({
@@ -242,7 +242,7 @@ const renderKatchForm = (overrides = {}) => {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <KatchForm {...props} />
+      <KatshForm {...props} />
     </QueryClientProvider>,
   );
 };
@@ -253,14 +253,14 @@ const getSearchInput = () => {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe("KatchForm Search", () => {
+describe("KatshForm Search", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   describe("Search Input Rendering", () => {
     it("renders search input with correct placeholder", () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
       expect(searchInput).toBeInTheDocument();
@@ -269,7 +269,7 @@ describe("KatchForm Search", () => {
     });
 
     it("renders search icon", () => {
-      renderKatchForm();
+      renderKatshForm();
 
       // Search icon should be present (SVG)
       const searchIcon = document.querySelector("svg");
@@ -277,7 +277,7 @@ describe("KatchForm Search", () => {
     });
 
     it("does not show clear button when search is empty", () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const clearButton = screen.queryByRole("button", { name: /clear/i });
       expect(clearButton).not.toBeInTheDocument();
@@ -286,7 +286,7 @@ describe("KatchForm Search", () => {
 
   describe("Search Filtering", () => {
     it("filters items by label", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -303,7 +303,7 @@ describe("KatchForm Search", () => {
     });
 
     it("filters items by category name", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -319,7 +319,7 @@ describe("KatchForm Search", () => {
     });
 
     it("search is case insensitive", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -343,7 +343,7 @@ describe("KatchForm Search", () => {
     });
 
     it("shows items from multiple categories for common search term", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -362,7 +362,7 @@ describe("KatchForm Search", () => {
 
   describe("Category Visibility", () => {
     it("hides categories with no matching items", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -379,7 +379,7 @@ describe("KatchForm Search", () => {
     });
 
     it("restores all categories when search is cleared", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -409,7 +409,7 @@ describe("KatchForm Search", () => {
     });
 
     it("restores all categories when cleared", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -447,7 +447,7 @@ describe("KatchForm Search", () => {
 
   describe("Clear Button", () => {
     it("shows clear button when search has value", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -464,7 +464,7 @@ describe("KatchForm Search", () => {
     });
 
     it("clears search when clicked", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -491,7 +491,7 @@ describe("KatchForm Search", () => {
 
   describe("Search Performance", () => {
     it("handles rapid typing without errors", () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -506,7 +506,7 @@ describe("KatchForm Search", () => {
     });
 
     it("handles special characters", async () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -522,7 +522,7 @@ describe("KatchForm Search", () => {
     });
 
     it("handles long search queries", () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
 
@@ -537,7 +537,7 @@ describe("KatchForm Search", () => {
 
   describe("Provider-Specific Search", () => {
     it("shows correct provider name in placeholder", () => {
-      renderKatchForm();
+      renderKatshForm();
 
       const searchInput = getSearchInput();
       expect(searchInput.placeholder).toContain("iPick");

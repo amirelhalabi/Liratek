@@ -1,5 +1,5 @@
 /**
- * Katsh KatchForm + Suppliers-settle-modal helpers (LIRA-137/LIRA-141).
+ * Katsh KatshForm + Suppliers-settle-modal helpers (LIRA-137/LIRA-141).
  *
  * Extracted out of `lira-137-katsh-bill-settlement-commission-topup.spec.ts`
  * (originally defined there, unchanged otherwise) so a SECOND spec
@@ -14,7 +14,7 @@
 import { expect } from "@playwright/test";
 import type { Page, Locator } from "@playwright/test";
 
-// ── KatchForm UI helpers (mirrors lira-089/lira-095's real-form conventions) ─
+// ── KatshForm UI helpers (mirrors lira-089/lira-095's real-form conventions) ─
 
 const PROVIDER_MARKER = "Search Katsh items";
 

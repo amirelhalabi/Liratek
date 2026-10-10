@@ -1026,7 +1026,7 @@ confirms with a regression test. **Not changed this pass — needs the owner's d
 ### ⚑ Joint investigation with LIRA-115, resolved (2026-08-09)
 
 **`same_transaction`: NOT the same transaction.** Traced every shipped UI path that can reach the
-Services cost/price flow (KatchForm, FinancialForm, CryptoForm, OmtWhishAppTransferForm,
+Services cost/price flow (KatshForm, FinancialForm, CryptoForm, OmtWhishAppTransferForm,
 `Services/index.tsx`): every one of them hardcodes `partnerMode: "FOR"` for a partner selection, and
 a FOR-partner cost/price sale **forbids ALL payment legs outright** (`FinancialServiceRepository.ts`
 ~1864-1868, _"the full selling price goes on the partner's tab"_) — so a partner-carrying cost/price
@@ -4029,7 +4029,7 @@ that is the one with counter experience behind it.
 | 6   | A save that strands an override is **rejected**, never auto-cleared                                                                                                                                                            |
 
 **Decision 4 is the sharp edge.** The customer pays 50,000 for credit that burned in SMS fees and never
-landed on their line. Owner-confirmed and deliberate; guarded by a KatchForm test so it cannot drift
+landed on their line. Owner-confirmed and deliberate; guarded by a KatshForm test so it cannot drift
 silently. It is the item most likely to cause a counter dispute — if it is ever revisited, that test is
 where the current behaviour is pinned.
 
@@ -4076,7 +4076,7 @@ core 2,672). Core rebuilt and synced into `node_modules/@liratek/core/dist`.
    on desktop and web. Required by this file's top note.
 2. **Settings shows the allocation margin, not the booked one** (LIRA-179 §). 620,800 vs 257,000 on the
    77.28 card, differing by the SMS haircut at R. Candidate fix: show both.
-3. **`KatchForm` clamps a return above the base to zero kept credit.** If the shop ever recovers more
+3. **`KatshForm` clamps a return above the base to zero kept credit.** If the shop ever recovers more
    than the configured maximum, the excess is valued nowhere. Narrow, and only reachable once someone
    returns above their own override.
 
@@ -6801,16 +6801,16 @@ added items to EXISTING categories, so there was no way anywhere to create a new
 > add a new category from the sale screen too.
 
 Built: confirming a new category opens the new-item form with the category filled in and an editable Subcategory
-field (saved with its first item). Recharge page (`KatchForm` for iPick/Katsh, `FinancialForm` for WHISH_APP): admin
+field (saved with its first item). Recharge page (`KatshForm` for iPick/Katsh, `FinancialForm` for WHISH_APP): admin
 "New category" button under the cards, using one shared inline form (`NewServiceItemInlineForm`) and one payload
 builder (`buildNewServiceItemPayload`, `utils/catalogNames.ts`). Typed category/subcategory names reuse an existing
 spelling on a case-insensitive match (`resolveCatalogName`), because `parseCarrierKey` lowercases while
-`KatchForm.isTelecomVoucher` compares exactly. Settings now refreshes the shared `MobileServiceItemsContext` after
+`KatshForm.isTelecomVoucher` compares exactly. Settings now refreshes the shared `MobileServiceItemsContext` after
 every create/edit/delete/toggle (it loaded only at login, so Settings changes did not reach the Recharge page until a
-reload). Guards: `MobileServicesManager.addCategory`, `FinancialForm.newCategory`, `KatchForm.newCategory`. Failing-first,
+reload). Guards: `MobileServicesManager.addCategory`, `FinancialForm.newCategory`, `KatshForm.newCategory`. Failing-first,
 honestly: on the unfixed code the Settings tests failed at the missing Subcategory field and the FinancialForm tests at
 the missing button — that proves the dead end, but the spelling-reuse and catalog-refresh assertions were never reached
-on old code. The KatchForm tests failed first only because they did not wait for "Loading items...", so they are NOT
+on old code. The KatshForm tests failed first only because they did not wait for "Loading items...", so they are NOT
 proven failing-first, and the non-admin guard was never seen failing. Not run: web/desktop e2e and a real-app click-through. Not done: the hand-written `createMobileServiceItem` payload
 types in `backendApi.ts` / `ApiAdapter` (rule 21 debt, pre-existing).
 
@@ -6822,13 +6822,13 @@ Recharge page, and Settings changes show on the Recharge page without a reload.
 
 ## LIRA-289: Mobile app — owner records and tracks digital sales from the phone, including after closing — IN PROGRESS (owner decisions 2026-10-08; build started 2026-10-10)
 
-Origin: a web-app customer gets requests after the shop is closed (Whish App transfers, iPEC/Katch vouchers) and does
+Origin: a web-app customer gets requests after the shop is closed (Whish App transfers, iPEC/Katsh vouchers) and does
 them from his phone. He wants to record and track them in LiraTek from the phone, outside the shop. The mobile app is
 also meant to be the main selling point of the system: "run your shop's digital sales from anywhere". Big feature
 (web + backend + core, new day-boundary rule) — goes through Spec Kit as `specs/289-…`.
 
 > Owner answers 2026-10-08:
-> - **Scope = flows with no physical hand-over.** In: WHISH_APP / OMT_APP transfers, iPEC/Katch vouchers, MTC/Alfa
+> - **Scope = flows with no physical hand-over.** In: WHISH_APP / OMT_APP transfers, iPEC/Katsh vouchers, MTC/Alfa
 >   recharge if doable from a phone, maybe Binance. Out: OMT/Whish counter services, exchange, POS, maintenance —
 >   anything that gives out cash or an item.
 > - **Payment:** the owner picks per transaction — customer account (debt), or paid into the Whish app, OMT app or

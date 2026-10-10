@@ -4,7 +4,7 @@
  *
  * The bug (pre-existing property of the lira-095 legs-carrying convention,
  * exposure widened by the auto-debt-remainder change set): a multi-unit
- * split checkout (KatchForm bills / FinancialForm catalog units) submits ONE
+ * split checkout (KatshForm bills / FinancialForm catalog units) submits ONE
  * unified transaction PER UNIT, but the customer's full tender + any
  * CUSTOMER_ACCOUNT debt books against exactly ONE unit — the CARRIER; every
  * SIBLING unit submits `deferPayment: true` (cost + commission only, no
@@ -41,9 +41,9 @@
  * `allowSplitGroupMember: true` escape hatch `voidCheckoutGroup` itself
  * uses — pinned permanently as the mechanism explanation.
  *
- * Both KatchForm-bills and FinancialForm-catalog shapes are covered:
- *   - Checkout A mirrors KatchForm bills: provider "Katsh", serviceType
- *     "BILL", explicit `price` (KatchForm always sends it), a
+ * Both KatshForm-bills and FinancialForm-catalog shapes are covered:
+ *   - Checkout A mirrors KatshForm bills: provider "Katsh", serviceType
+ *     "BILL", explicit `price` (KatshForm always sends it), a
  *     CROSS-CURRENCY tender (USD-denominated bills, LBP cash payment).
  *   - Checkout B mirrors FinancialForm catalog items: provider "WHISH_APP",
  *     serviceType "SEND", NO explicit `price` (defaults to `amount`, exactly
@@ -390,11 +390,11 @@ describe("Split-checkout void guard + voidCheckoutGroup (CARRIER_LEGS_VOID_ASYMM
   });
 
   /**
-   * Checkout A — KatchForm-bills shape: 2 Katsh BILLs, CROSS-CURRENCY tender
+   * Checkout A — KatshForm-bills shape: 2 Katsh BILLs, CROSS-CURRENCY tender
    * (USD-denominated bills, customer pays the full checkout total in LBP
    * cash — the exact "tendered in a different currency than the service"
    * case §4 of the Feature Guide calls out). Zero commission (bills carry
-   * no margin, matching KatchForm's real payload) — this checkout proves
+   * no margin, matching KatshForm's real payload) — this checkout proves
    * the drawer/cross-currency netting; Checkout B below proves profit +
    * CUSTOMER_ACCOUNT debt netting.
    */
@@ -409,7 +409,7 @@ describe("Split-checkout void guard + voidCheckoutGroup (CARRIER_LEGS_VOID_ASYMM
       serviceType: "BILL",
       amount: 20,
       cost: 20,
-      price: 20, // KatchForm bills always send an explicit price
+      price: 20, // KatshForm bills always send an explicit price
       currency: "USD",
       commission: 0,
       payments: [{ method: "CASH", currencyCode: "LBP", amount: 3150000 }],
@@ -699,7 +699,7 @@ describe("Split-checkout void guard + voidCheckoutGroup (CARRIER_LEGS_VOID_ASYMM
   // 3. voidCheckoutGroup — nets every ledger to EXACTLY 0, per currency
   // ═══════════════════════════════════════════════════════════════════════
   describe("voidCheckoutGroup nets to 0 (rule 20 acceptance)", () => {
-    it("Checkout A (KatchForm-bills, cross-currency tender): drawers return to their exact pre-checkout baseline", () => {
+    it("Checkout A (KatshForm-bills, cross-currency tender): drawers return to their exact pre-checkout baseline", () => {
       const genUsdBefore = balance(db, "General", "USD");
       const genLbpBefore = balance(db, "General", "LBP");
       const katshUsdBefore = balance(db, "Katsh", "USD");

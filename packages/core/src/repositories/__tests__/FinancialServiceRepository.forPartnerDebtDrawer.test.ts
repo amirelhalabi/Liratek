@@ -582,7 +582,7 @@ describe("BUG 2 repro — FOR/THROUGH-partner financial service paid by DEBT (CU
   // ═══════════════════════════════════════════════════════════════════════
   // LIRA-114 — owner's exact repro: partner "7welet souria", cost $1008,
   // price $1010, payment method Customer Account, in the Services module's
-  // cost/price flow (KatchForm-style catalog item — iPick/Katsh/app-wallet).
+  // cost/price flow (KatshForm-style catalog item — iPick/Katsh/app-wallet).
   // These are the SAME figures LIRA-115 reproduces (session-basket refund).
   //
   // Root-cause conclusion (see current_sprint.md LIRA-114 for the full

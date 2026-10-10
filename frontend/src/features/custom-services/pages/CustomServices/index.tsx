@@ -249,7 +249,7 @@ export default function CustomServices() {
   // MultiPaymentInput converts LBP↔USD at buyRate.
   const { buyRate: exchangeRate } = useSellRate();
 
-  // Payment-Legs Integrity plan pattern (mirrors FinancialForm/KatchForm/
+  // Payment-Legs Integrity plan pattern (mirrors FinancialForm/KatshForm/
   // OmtWhishAppTransferForm/CheckoutModal): the rate MultiPaymentInput
   // ACTUALLY converted tender at — the operator's own edit of "1 USD = X
   // LBP" inside the payment sheet, or the buyRate default it was seeded
@@ -529,7 +529,7 @@ export default function CustomServices() {
 
       // If session is active, add to cart instead of submitting — never for
       // a FOR-partner service (no walk-in customer, mirrors every other
-      // FOR_% form: TelecomForm/KatchForm/etc. all bypass the session
+      // FOR_% form: TelecomForm/KatshForm/etc. all bypass the session
       // entirely). LIRA-154: VIA is the one gate where this is INVERTED
       // relative to FOR — VIA has a real walk-in customer paying now, so
       // it goes THROUGH the session cart exactly like a plain service

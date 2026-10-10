@@ -574,7 +574,7 @@ contextBridge.exposeInMainWorld("api", {
       transaction_time?: string;
       deferPayment?: boolean;
       /** Payment-Legs Integrity plan (Wave 8): full checkout total for a
-       *  multi-unit cart's legs-carrying CARRIER transaction (KatchForm /
+       *  multi-unit cart's legs-carrying CARRIER transaction (KatshForm /
        *  FinancialForm). See CreateFinancialServiceData in @liratek/core. */
       checkoutTotal?: { usd: number; lbp: number };
       /** Payment-Legs Integrity plan (Wave 9): the rate MultiPaymentInput
@@ -584,7 +584,7 @@ contextBridge.exposeInMainWorld("api", {
       tender_exchange_rate?: number;
       /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): identifies which
        *  multi-unit split checkout this unit belongs to — sent with EVERY
-       *  unit (carrier and siblings alike) by KatchForm/FinancialForm.
+       *  unit (carrier and siblings alike) by KatshForm/FinancialForm.
        *  Omitted on single-unit checkouts. See CreateFinancialServiceData
        *  in @liratek/core. */
       split_group?: string;

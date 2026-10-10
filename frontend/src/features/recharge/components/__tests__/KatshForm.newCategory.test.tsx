@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 /**
- * KatchForm (iPick / Katsh sale screen) — admins can create a NEW category
+ * KatshForm (iPick / Katsh sale screen) — admins can create a NEW category
  * from the sale screen (owner decision 2026-10-07). Same contract as
  * FinancialForm.newCategory.test.tsx: saved with its first item, any name,
  * existing spelling reused on a case-insensitive match.
@@ -8,7 +8,7 @@
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { KatchForm } from "../KatchForm";
+import { KatshForm } from "../KatshForm";
 import type {
   ServiceItem,
   ProviderKey,
@@ -84,7 +84,7 @@ function renderForm() {
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <KatchForm
+      <KatshForm
         activeConfig={CONFIG}
         activeProvider={"iPick" as ProviderKey}
         getCategoriesForProvider={() => ["Gaming"]}
@@ -126,7 +126,7 @@ async function fillNewCategoryForm(category: string, subcategory: string) {
   fireEvent.click(screen.getByText("Add"));
 }
 
-describe("KatchForm — new category from the sale screen", () => {
+describe("KatshForm — new category from the sale screen", () => {
   beforeEach(() => {
     mockCreateMobileServiceItem
       .mockReset()

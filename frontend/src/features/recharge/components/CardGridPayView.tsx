@@ -83,7 +83,7 @@ interface CardGridPayViewProps {
    * A customer session is active — the basket owns the single payment at
    * checkout, so this swaps the trigger button to "Add to Cart" and confirms
    * directly instead of opening the PaymentSheet. Mirrors the sibling
-   * TelecomForm/KatchForm gating pattern. Defaults to false (unchanged
+   * TelecomForm/KatshForm gating pattern. Defaults to false (unchanged
    * standalone Pay-and-open-sheet behavior).
    */
   hasActiveSession?: boolean;

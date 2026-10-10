@@ -7,7 +7,7 @@
  * The audit that produced this ticket characterized `financial_services` as
  * fixed by ONE repository projection change plus lighting up an
  * already-dead badge. That is true for the iPick/Katsh/Whish App surfaces
- * (KatchForm/FinancialForm/OmtWhishAppTransferForm all pass `finTransactions`
+ * (KatshForm/FinancialForm/OmtWhishAppTransferForm all pass `finTransactions`
  * — the RAW `api.getOMTHistory()` response, spread with `...h` — straight
  * into `HistoryModal`, so the repository fix alone restores their badge).
  *

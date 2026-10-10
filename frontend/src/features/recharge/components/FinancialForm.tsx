@@ -453,7 +453,7 @@ export function FinancialForm({
     // Payment legs book against exactly ONE carrier transaction — the first
     // unit; every other unit submits deferPayment (cost + commission only).
     // Attaching the same legs to all N unit calls multiplies the drawer
-    // inflow and any CUSTOMER_ACCOUNT debt N× (KatchForm's bills loop guards
+    // inflow and any CUSTOMER_ACCOUNT debt N× (KatshForm's bills loop guards
     // this same trap). Single-payment submits (no legs array) keep the
     // per-unit price booking untouched.
     let legsCarried = false;

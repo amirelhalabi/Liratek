@@ -370,7 +370,7 @@ of a 140,000 LBP change, keep 40,000).
 
 **Summary:** `CardGridPayView` (used by Alfa Gift) hardcodes the button label "Pay" and never
 reads `activeSession`. It does correctly add to the session basket when a session is open —
-only the label is wrong. Every other recharge form (Telecom, Whish/OMT, Katch) already
+only the label is wrong. Every other recharge form (Telecom, Whish/OMT, Katsh) already
 switches its label under a session.
 
 **Acceptance Criteria:**

@@ -635,7 +635,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
    *     would have to say which phone), then `createExpense` FIFO-consumes
    *     the batches and books amount_usd = the FIFO cost. No payments row.
    *   - KATSH / IPICK / WHISH_APP: cost = `mobile_service_items.cost_lbp ×
-   *     qty` (the cost KatchForm/FinancialForm send for a catalog sale), in
+   *     qty` (the cost KatshForm/FinancialForm send for a catalog sale), in
    *     LBP; ONE leg debiting the provider's prepaid drawer, noted
    *     `Cost: <provider>` like the catalog sale's own cost leg. The item
    *     must belong to that provider, be active, and have a cost.

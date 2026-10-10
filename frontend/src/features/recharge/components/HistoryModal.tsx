@@ -72,7 +72,7 @@ interface HistoryModalProps {
    * OMT/Whish System, OMT App / Whish App transfers, or Binance, even though
    * they share this same table). `sourceTable` is the module table the row's
    * `id` is a PK of ("recharges" for telecom, "financial_services" for
-   * financial/Katch/transfer forms); `transactionType` is the unified
+   * financial/Katsh/transfer forms); `transactionType` is the unified
    * transaction `type` column value ("RECHARGE" or "FINANCIAL_SERVICE").
    */
   sourceTable?: string;

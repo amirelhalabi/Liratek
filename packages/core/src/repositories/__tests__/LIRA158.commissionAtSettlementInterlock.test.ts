@@ -583,7 +583,7 @@ describe("LIRA-158 Phase 1 — the interlock (EDIT 1 + EDIT 2)", () => {
       "case 4: model-1 BILL priced WITH A MARGIN (cost=10, price=12) — " +
         "stamp == 2, NOT zeroed — pins the !useCostPriceFlow half of the gate",
       () => {
-        // Every REAL bill submission site sends cost === price (KatchForm.tsx
+        // Every REAL bill submission site sends cost === price (KatshForm.tsx
         // :1272-1273/:1404-1405/:1778-1779), so this fixture is the ONLY
         // place in the whole test suite that exercises cost !== price for a
         // BILL row — see LIRA-158_COMMISSION_REPORTING_PLAN.md §1.1b.

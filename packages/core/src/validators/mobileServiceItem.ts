@@ -72,7 +72,7 @@ export type MobileServiceItemUpdateInput = z.infer<
  *
  * Covers every field the Settings catalog manager
  * (`MobileServicesManager.tsx`) and the inline "add item" forms
- * (`KatchForm.tsx`, `FinancialForm.tsx`) send today (`provider`, `category`,
+ * (`KatshForm.tsx`, `FinancialForm.tsx`) send today (`provider`, `category`,
  * `subcategory`, `label`, `cost_lbp`, `sell_lbp`, `sort_order`,
  * `validity_days`, `credits`), plus the three LIRA-090 split columns so both
  * transports (rule 19b) accept a fully-configured Only-Days item in one

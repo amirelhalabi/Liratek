@@ -44,7 +44,7 @@ The `modules` table (`create_db.sql` line 488):
 | `expenses`        | Expenses      | Banknote     | `/expenses`        | 9          |
 | `maintenance`     | Maintenance   | Wrench       | `/maintenance`     | 10         |
 | `binance`         | Binance       | Bitcoin      | `/recharge`        | 11         |
-| `ipec_katch`      | IPEC/Katch    | Zap          | `/recharge`        | 12         |
+| `ipec_katch`      | IPEC/Katsh    | Zap          | `/recharge`        | 12         |
 | `custom_services` | Services      | Briefcase    | `/custom-services` | 13         |
 | `profits`         | Profits       | TrendingUp   | `/profits`         | 14 (admin) |
 
@@ -69,7 +69,7 @@ currency_modules
 
 ### 2. `suppliers` (optional FK)
 
-Links system suppliers (OMT, Whish, IPEC, Katch) to their parent module.
+Links system suppliers (OMT, Whish, IPEC, Katsh) to their parent module.
 
 ```
 suppliers.module_key → modules(key) ON DELETE SET NULL
@@ -88,7 +88,7 @@ Each module that handles money typically has its own drawer(s). There is **no fo
 | omt_whish       | `OMT_System`, `Whish_System`            |
 | recharge        | `MTC`, `Alfa`                           |
 | binance         | `Binance`                               |
-| ipec_katch      | `IPEC`, `Katch`, `Whish_App`, `OMT_App` |
+| ipec_katch      | `IPEC`, `Katsh`, `Whish_App`, `OMT_App` |
 | custom_services | `General` (uses existing drawer)        |
 | profits         | _(no drawer — analytics only)_          |
 

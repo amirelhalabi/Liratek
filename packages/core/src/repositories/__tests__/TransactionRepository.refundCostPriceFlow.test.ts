@@ -546,9 +546,9 @@ describe("BUG 3 repro — refund of a cost/price-flow financial service (price=1
 // cashier hands back only 10,000 LBP and keeps the rest.
 //
 // The repository was already right — this pins it from both sides with the
-// EXACT payload KatchForm builds (rule 17 disclosure: characterization, not
+// EXACT payload KatshForm builds (rule 17 disclosure: characterization, not
 // proven failing-first; the failing-first guards are the frontend tests
-// MultiPaymentInput.underReturnKept / KatchForm.underReturnKept):
+// MultiPaymentInput.underReturnKept / KatshForm.underReturnKept):
 //   - without kept change (what the form sent before the fix) the legs do
 //     not reconcile and NOTHING is written;
 //   - with the un-returned $0.25 as kept change (what it sends now) the sale
@@ -581,7 +581,7 @@ describe("LIRA-259 — Katsh card, $6 paid, only 10,000 of 30,000 LBP change ret
     resetPaymentMethodRepository();
   });
 
-  /** The single payload KatchForm.handleSubmit sends for one card. */
+  /** The single payload KatshForm.handleSubmit sends for one card. */
   function katshCheckout(kept?: { usd: number; lbp: number }) {
     return fsRepo.createTransaction({
       provider: "Katsh",

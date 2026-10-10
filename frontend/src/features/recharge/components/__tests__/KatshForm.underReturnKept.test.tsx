@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 /**
- * KatchForm — handing back less change than due (LIRA-259, owner 2026-10-06).
+ * KatshForm — handing back less change than due (LIRA-259, owner 2026-10-06).
  *
  * Owner's exact scenario through the REAL PaymentSheet + MultiPaymentInput:
  * a 450,000 LBP Katsh card, the till's rate 80,000 (so $5.625 owed). The
@@ -18,7 +18,7 @@
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { KatchForm } from "../KatchForm";
+import { KatshForm } from "../KatshForm";
 import type { ServiceItem } from "../../hooks/useMobileServiceItems";
 import type { ProviderConfig } from "../../types";
 
@@ -27,7 +27,7 @@ const mockAddOMTTransaction = jest
   .fn()
   .mockResolvedValue({ success: true, id: 1 });
 
-// KatchForm imports pure helpers from @liratek/core. Load the REAL module:
+// KatshForm imports pure helpers from @liratek/core. Load the REAL module:
 // frontend/jest.config.ts maps @liratek/core to packages/core/src/browser.ts,
 // so the Node-only DB chain the old hand-written mock existed to dodge is no
 // longer in the graph. That mock re-implemented isTelecomSplitComplete and
@@ -43,7 +43,7 @@ jest.mock("@liratek/ui", () => ({
     // useAutoPrintReceipt (LIRA-069 W1.d) pulls shop info via useShopInfo(),
     // which calls this on mount.
     getAllSettings: jest.fn().mockResolvedValue([]),
-    // Only-Days pricing model (2026-08-05): KatchForm fetches the catalog's
+    // Only-Days pricing model (2026-08-05): KatshForm fetches the catalog's
     // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — none of
     // these fixtures carry a computed days price.
     getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
@@ -124,7 +124,7 @@ const CONFIG: ProviderConfig = {
 };
 
 function renderForm() {
-  // KatchForm now invalidates the Suppliers-page unsettled-bill query
+  // KatshForm now invalidates the Suppliers-page unsettled-bill query
   // (`useQueryClient()`) on a successful bill submission — needs a real
   // QueryClientProvider in the tree, same as every Suppliers-page test.
   const queryClient = new QueryClient({
@@ -132,7 +132,7 @@ function renderForm() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <KatchForm
+      <KatshForm
         activeConfig={CONFIG}
         activeProvider="Katsh"
         getCategoriesForProvider={() => ["games"]}
@@ -184,7 +184,7 @@ function lastPayload(): Record<string, unknown> {
   >;
 }
 
-describe("KatchForm — handing back less change than due (LIRA-259)", () => {
+describe("KatshForm — handing back less change than due (LIRA-259)", () => {
   beforeEach(() => {
     mockAddOMTTransaction.mockClear();
   });

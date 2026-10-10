@@ -519,7 +519,7 @@ export interface CreateFinancialServiceData {
   deferPayment?: boolean;
   /**
    * Payment-Legs Integrity plan (Wave 8, owner decision 2026-07-18): the
-   * bills/catalog cart flow (KatchForm / FinancialForm) submits ONE
+   * bills/catalog cart flow (KatshForm / FinancialForm) submits ONE
    * legs-carrying CARRIER transaction per checkout — every sibling unit in
    * the same cart submits `deferPayment: true` and carries no legs (see
    * docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). The carrier's own
@@ -544,7 +544,7 @@ export interface CreateFinancialServiceData {
   userId?: number;
   /**
    * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): identifies which multi-unit
-   * split checkout this unit belongs to. The frontend (KatchForm bills /
+   * split checkout this unit belongs to. The frontend (KatshForm bills /
    * FinancialForm catalog units) generates ONE uuid per checkout and sends
    * it with EVERY unit — carrier and siblings alike — so the void path can
    * find and guard the whole group (TransactionRepository._getSplitGroup /
@@ -1722,7 +1722,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       }
 
       // Valued in the transaction's OWN currency. Every live caller sends LBP
-      // (KatchForm hard-codes it), but a USD catalog sale would credit USD to
+      // (KatshForm hard-codes it), but a USD catalog sale would credit USD to
       // the drawer, so converting it to LBP there would be wrong.
       const telecomCreditReturnCredit =
         telecomCreditReturnUsd > 0
@@ -2318,7 +2318,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         // earned at transaction time, not a supplier-commission estimate
         // deferred to settlement, and every BILL row is commissionModel = 1
         // (:1489-1493) AND takes that branch (all three submission sites send
-        // cost = price, KatchForm.tsx:1272-1273/:1404-1405/:1778-1779) — so
+        // cost = price, KatshForm.tsx:1272-1273/:1404-1405/:1778-1779) — so
         // the overlap between "AT_SETTLEMENT" and "cost/price margin" is the
         // NORMAL case, not an edge case. A bill's margin only evaluates to 0
         // today because cost happens to equal price; without this half, the
@@ -2373,7 +2373,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // sender/receiver transfer — surface the selected item(s)
           // (category + label, via `data.note`) or call out a bill payment
           // explicitly, instead of the generic provider+amount line below.
-          const isKatchLike =
+          const isKatshLike =
             data.provider === "iPick" || data.provider === "Katsh";
           // Wallet-provider catalog items (Whish App / OMT App grid sales)
           // are cost/price rows, not transfers — they get the same item-style
@@ -2415,9 +2415,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             return `${data.provider} ${data.serviceType}: ${namePrefix}${data.amount} ${currency}`;
           };
           let head =
-            isKatchLike && data.serviceType === "BILL"
+            isKatshLike && data.serviceType === "BILL"
               ? `${providerLabel} Bill: ${data.amount} ${currency}`
-              : (isKatchLike || isItemSale) && note
+              : (isKatshLike || isItemSale) && note
                 ? `${providerLabel}: ${note} — ${data.amount} ${currency}`
                 : genericTransferLine();
 
@@ -2463,7 +2463,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           paid_currency: paidCurrency,
           item_key: data.itemKey,
           // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): multi-unit split
-          // checkouts (KatchForm bills / FinancialForm catalog units) stamp
+          // checkouts (KatshForm bills / FinancialForm catalog units) stamp
           // these so the generic void/refund guard can detect and block a
           // single-unit void, and voidCheckoutGroup can find every sibling.
           // Absent on single-unit checkouts (no metadata noise).
@@ -3224,7 +3224,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         }
 
         // S2 hard-reject reconciliation (Payment-Legs Integrity plan, Wave 8,
-        // owner decision 2026-07-18): a multi-unit cart checkout (KatchForm
+        // owner decision 2026-07-18): a multi-unit cart checkout (KatshForm
         // bills / FinancialForm catalog items) books ALL of its legs against
         // exactly ONE carrier transaction — this unit's own `price` is only
         // that unit's share of the cart, not what the legs need to cover.

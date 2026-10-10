@@ -67,7 +67,7 @@
  * is the ONLY production writer of a CHARGE-shaped (`validity_days_delta >
  * 0`) carrier-line movement (grep `validityDaysDelta:` across
  * `packages/core/src` — every other production call site is 0 or negative),
- * and its ONLY caller (`KatchForm.tsx`'s `handleConfirmSelfCharge`) never
+ * and its ONLY caller (`KatshForm.tsx`'s `handleConfirmSelfCharge`) never
  * calls `linkTransaction`/`useSession().linkTransaction` the way its
  * sibling "aggregated cart" submit a few hundred lines above it does — a
  * self-charge is never written into `customer_session_transactions`. So a

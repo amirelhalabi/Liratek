@@ -1,19 +1,19 @@
 /** @jest-environment jsdom */
 /**
- * KatchForm — checkoutTotal on the legs-carrying transaction
+ * KatshForm — checkoutTotal on the legs-carrying transaction
  * (PAYMENT_LEGS_INTEGRITY_PLAN wave 8).
  *
- * KatchForm aggregates every cart-item unit into ONE addOMTTransaction call
+ * KatshForm aggregates every cart-item unit into ONE addOMTTransaction call
  * (unlike FinancialForm's per-unit loop), and that aggregated call's own
  * `amount` is the DISCOUNTED cart total already — so on its own it looks like
  * `checkoutTotal` would be redundant here. It is not: once a bill is ALSO in
  * the checkout, the same legs-carrying call's `amount` covers only the cart
  * items, while the payment legs it carries cover items + bills together (see
- * the "Process pending bills" comment in KatchForm.tsx). `checkoutTotal` is
+ * the "Process pending bills" comment in KatshForm.tsx). `checkoutTotal` is
  * what tells the repository the real whole-checkout total to reconcile the
  * legs against, independent of which line happens to carry them.
  *
- * No existing test file exercised KatchForm's own submit flow before this
+ * No existing test file exercised KatshForm's own submit flow before this
  * (Recharge.cryptoLegsGate.test.tsx mocks the whole `components` barrel to
  * test Recharge/index.tsx's Binance branch in isolation) — this is a new
  * file, not an extension.
@@ -21,7 +21,7 @@
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { KatchForm } from "../KatchForm";
+import { KatshForm } from "../KatshForm";
 import type { ServiceItem } from "../../hooks/useMobileServiceItems";
 import type { ProviderConfig } from "../../types";
 
@@ -30,7 +30,7 @@ const mockAddOMTTransaction = jest
   .fn()
   .mockResolvedValue({ success: true, id: 1 });
 
-// KatchForm imports pure helpers from @liratek/core. Load the REAL module:
+// KatshForm imports pure helpers from @liratek/core. Load the REAL module:
 // frontend/jest.config.ts maps @liratek/core to packages/core/src/browser.ts,
 // so the Node-only DB chain the old hand-written mock existed to dodge is no
 // longer in the graph. That mock re-implemented isTelecomSplitComplete and
@@ -46,7 +46,7 @@ jest.mock("@liratek/ui", () => ({
     // useAutoPrintReceipt (LIRA-069 W1.d) pulls shop info via useShopInfo(),
     // which calls this on mount.
     getAllSettings: jest.fn().mockResolvedValue([]),
-    // Only-Days pricing model (2026-08-05): KatchForm fetches the catalog's
+    // Only-Days pricing model (2026-08-05): KatshForm fetches the catalog's
     // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — none of
     // these fixtures carry a computed days price.
     getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
@@ -174,7 +174,7 @@ const CONFIG: ProviderConfig = {
 };
 
 function renderForm() {
-  // KatchForm now invalidates the Suppliers-page unsettled-bill query
+  // KatshForm now invalidates the Suppliers-page unsettled-bill query
   // (`useQueryClient()`) on a successful bill submission — needs a real
   // QueryClientProvider in the tree, same as every Suppliers-page test.
   const queryClient = new QueryClient({
@@ -182,7 +182,7 @@ function renderForm() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <KatchForm
+      <KatshForm
         activeConfig={CONFIG}
         activeProvider="Katsh"
         getCategoriesForProvider={() => ["games"]}
@@ -213,7 +213,7 @@ async function cartTwoUnitsAndOpenSheet() {
   await screen.findByTestId("stub-payment-sheet");
 }
 
-describe("KatchForm — checkoutTotal on the legs-carrying transaction", () => {
+describe("KatshForm — checkoutTotal on the legs-carrying transaction", () => {
   beforeEach(() => {
     mockAddOMTTransaction.mockClear();
   });

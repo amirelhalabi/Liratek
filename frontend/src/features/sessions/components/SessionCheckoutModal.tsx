@@ -80,7 +80,7 @@ const MODULE_LABELS: Record<string, string> = {
  * discount cannot exceed this. Returns 0 for items with no profit concept
  * (POS / loto / maintenance / custom_service), which hides the discount input.
  *
- *  - Batch items (FinancialForm / KatchForm): sum of each sub-item's commission.
+ *  - Batch items (FinancialForm / KatshForm): sum of each sub-item's commission.
  *  - Non-batch items (app transfer / recharge / crypto): top-level commission.
  */
 function getItemProfitCap(item: CartItem): number {

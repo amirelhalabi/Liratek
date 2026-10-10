@@ -49,7 +49,7 @@
  * DELTA snapshotted immediately before/after the action under test, never an
  * absolute balance.
  *
- * The KatchForm/Suppliers-settle-modal helpers are imported from
+ * The KatshForm/Suppliers-settle-modal helpers are imported from
  * `helpers/katshSettlement.ts` (originally defined inline in
  * lira-137-katsh-bill-settlement-commission-topup.spec.ts, unchanged
  * otherwise) instead of being re-derived here. Playwright rejects a spec
@@ -85,7 +85,7 @@
  *
  * 2. Checkpoint 2's `fillPlainAmount` hit a strict-mode violation --
  *    `getByRole('button', {name:'LBP', exact:true})` resolved to 2 elements.
- *    TopUpModal is an absolutely-positioned overlay; the KatchForm/
+ *    TopUpModal is an absolutely-positioned overlay; the KatshForm/
  *    OmtWhishAppTransferForm page underneath stays mounted (just visually
  *    covered) and has ITS OWN currency-style buttons, so a page-wide
  *    `getByRole` locator hits both. Fixed by scoping every TopUpModal/
@@ -345,7 +345,7 @@ async function providerTab(page: Page, label: string, marker: Locator) {
 // ── TopUpModal helpers (packages/ui/src/components/ui/TopUpModal.tsx --
 // no data-testid on the component, so every locator below is scoped to the
 // modal's OWN overlay root instead of the whole page: TopUpModal renders
-// absolutely-positioned ON TOP OF the still-mounted KatchForm/
+// absolutely-positioned ON TOP OF the still-mounted KatshForm/
 // OmtWhishAppTransferForm page, which has its own currency-style buttons
 // ("LBP"/"USD"/"Send" etc.) -- a page-wide `getByRole` locator hits both and
 // throws a strict-mode violation (fix-round 2 finding #2 above). ──────────

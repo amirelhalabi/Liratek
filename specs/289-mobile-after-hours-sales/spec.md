@@ -6,7 +6,7 @@
 
 **Status**: In progress (planned and tasked 2026-10-08; build started 2026-10-10 — see plan.md "Progress")
 
-**Input**: User description: "Mobile app for the shop owner. A web-app customer gets requests after the shop is closed (Whish App transfers, iPEC/Katch vouchers) and does them from his phone; he wants to record and track them in LiraTek from the phone, outside the shop. Only flows with no physical hand-over (no cash given out, no item handed over). Payment per transaction: customer account, or paid into the Whish app, OMT app or Binance wallet. Transactions recorded after closing belong to the next business day (revised 2026-10-08 to: the local calendar day they happened on — see Clarifications, third round). The phone sends its own local day. Owner only for now. Owner decisions 2026-10-08."
+**Input**: User description: "Mobile app for the shop owner. A web-app customer gets requests after the shop is closed (Whish App transfers, iPEC/Katsh vouchers) and does them from his phone; he wants to record and track them in LiraTek from the phone, outside the shop. Only flows with no physical hand-over (no cash given out, no item handed over). Payment per transaction: customer account, or paid into the Whish app, OMT app or Binance wallet. Transactions recorded after closing belong to the next business day (revised 2026-10-08 to: the local calendar day they happened on — see Clarifications, third round). The phone sends its own local day. Owner only for now. Owner decisions 2026-10-08."
 
 **Ticket**: LIRA-289 (`current_sprint.md`).
 
@@ -14,7 +14,7 @@
 
 ### Session 2026-10-08 (owner decisions)
 
-- Q: What can be done from the phone? → A: Only sales with **no physical hand-over** — the shop gives out no cash and no item. In: Whish App transfers, OMT App transfers, iPEC and Katch vouchers. Out: OMT and Whish counter services, currency exchange, POS sales, maintenance, and anything else that hands over cash or goods.
+- Q: What can be done from the phone? → A: Only sales with **no physical hand-over** — the shop gives out no cash and no item. In: Whish App transfers, OMT App transfers, iPEC and Katsh vouchers. Out: OMT and Whish counter services, currency exchange, POS sales, maintenance, and anything else that hands over cash or goods.
 - Q: How does the customer pay when the shop is closed? → A: The owner picks per transaction: **on the customer's account** (the customer owes it), or **paid into the owner's Whish app, OMT app or Binance wallet**. No cash.
 - Q: Does a sale made after closing belong to the closed day? → A: ~~No — it belongs to the next business day.~~ **Superseded in the third round below.** The phone can also be used during opening hours, where it behaves exactly like the web app.
 - Q: Which date does a sale carry? → A: The **shop's local date and time, as the phone sees it**. A sale at 00:30 Beirut time is dated that Beirut day, never the server's date.
@@ -36,7 +36,7 @@
 ### Session 2026-10-10 (owner decisions, during the build)
 
 - Q: Binance as a way the customer pays for a Whish/OMT App transfer? → A: **Left out for now.** The server refuses a USDT leg for these transfers (web too), and a USD-coded leg would create a USD balance on the USDT Binance drawer. The phone offers on account, Whish wallet and OMT wallet only. FR-003's "Binance" is deferred.
-- Q: Katch / iPick vouchers on the phone? → A: **Skipped for now.** The first phone version records Whish App and OMT App transfers only. FR-001's vouchers are deferred.
+- Q: Katsh / iPick vouchers on the phone? → A: **Skipped for now.** The first phone version records Whish App and OMT App transfers only. FR-001's vouchers are deferred.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -65,16 +65,16 @@ The owner of CornerTech installs LiraTek from the App Store or Google Play. He t
 
 It is 22:00. The shop closed at 20:00 and the drawers were counted. A regular customer, Hassan, sends a WhatsApp: "Send $50 by Whish to my brother, I'll pay you tomorrow." The owner opens LiraTek on the phone, picks "Whish App transfer", chooses Hassan as the client, enters $50, picks "On customer account", and saves. Hassan now owes $50 plus the fee. The owner's Whish app balance in LiraTek goes down by $50.
 
-The same evening another customer asks for a $10 Katch voucher and pays it into the owner's Whish wallet. The owner records it with "Paid into Whish app".
+The same evening another customer asks for a $10 Katsh voucher and pays it into the owner's Whish wallet. The owner records it with "Paid into Whish app".
 
 **Why this priority**: This is the request that started the feature. Without it, the owner does these sales on the phone and has to remember to enter them the next day, or forgets them.
 
-**Independent Test**: Count the drawers. From a phone-sized screen, as the owner, record one Whish App transfer on a customer's account and one Katch voucher paid into the Whish app. Check the customer's debt, the Whish app balance and the voucher credit balance. They must match what the same sales would give if recorded at the counter.
+**Independent Test**: Count the drawers. From a phone-sized screen, as the owner, record one Whish App transfer on a customer's account and one Katsh voucher paid into the Whish app. Check the customer's debt, the Whish app balance and the voucher credit balance. They must match what the same sales would give if recorded at the counter.
 
 **Acceptance Scenarios**:
 
 1. **Given** the drawers were counted for the night, **When** the owner records a Whish App transfer of $50 on Hassan's account, **Then** Hassan's debt goes up by the amount the counter flow would charge, the Whish app balance goes down by $50, and the sale shows Hassan as its client.
-2. **Given** the drawers were counted for the night, **When** the owner records a $10 Katch voucher paid into the Whish app, **Then** the Katch credit and the Whish app balance change exactly as they would for the same voucher sold at the counter and paid into the Whish app.
+2. **Given** the drawers were counted for the night, **When** the owner records a $10 Katsh voucher paid into the Whish app, **Then** the Katsh credit and the Whish app balance change exactly as they would for the same voucher sold at the counter and paid into the Whish app.
 3. **Given** a sale is recorded, **When** the owner picks "On customer account", **Then** a client must be chosen before saving.
 4. **Given** any of the in-scope sales, **When** the owner picks a payment, **Then** only "On customer account", "Whish app", "OMT app" and "Binance" are offered — never cash.
 
@@ -100,7 +100,7 @@ The owner records two sales at 22:00 and one at 00:30. In the reports, the 22:00
 
 ### User Story 4 - Owner tracks after-hours sales and balances from the phone (Priority: P2)
 
-Before saying yes to a customer at night, the owner checks on the phone: "Do I have enough Whish app balance? How much Katch credit is left?" Later the owner looks at "Tonight's sales" to see what was done, for whom and how it was paid.
+Before saying yes to a customer at night, the owner checks on the phone: "Do I have enough Whish app balance? How much Katsh credit is left?" Later the owner looks at "Tonight's sales" to see what was done, for whom and how it was paid.
 
 **Why this priority**: The customer asked to *track* these sales, not only enter them. Seeing balances also prevents accepting a sale the owner cannot fulfil. It is useful only once Story 2 exists.
 
@@ -151,7 +151,7 @@ The next evening Hassan pays his $50 into the owner's Whish wallet. The owner re
 
 **Recording sales from the phone**
 
-- **FR-001**: The owner MUST be able to record, from a phone-sized screen, each in-scope sale: Whish App transfer, OMT App transfer, iPEC voucher and Katch voucher.
+- **FR-001**: The owner MUST be able to record, from a phone-sized screen, each in-scope sale: Whish App transfer, OMT App transfer, iPEC voucher and Katsh voucher.
 - **FR-002**: Each in-scope sale recorded from the phone MUST move exactly the same balances, charge the same fees and record the same profit as the same sale recorded on the web app at the counter.
 - **FR-003**: The payment choice MUST be one of: on customer account, Whish app, OMT app, Binance. Cash MUST NOT be offered.
 - **FR-004**: A client MUST be chosen when the payment is "on customer account". It MAY be chosen for the other payments. When a client is chosen, the sale MUST be linked to that client everywhere it appears.
@@ -200,7 +200,7 @@ The next evening Hassan pays his $50 into the owner's Whish wallet. The owner re
 
 - **Day**: the shop's local calendar date. Every transaction counts on the local date it was recorded.
 - **Drawer count (checkpoint)**: a count of one drawer; it resets that drawer's balance to the counted amount and is frozen once saved. "Since the last count" means since the most recent count of the drawers involved.
-- **Mobile sale**: one in-scope sale (Whish App, OMT App, iPEC, Katch) with a client (optional unless on account), an amount, a payment choice and a local date and time.
+- **Mobile sale**: one in-scope sale (Whish App, OMT App, iPEC, Katsh) with a client (optional unless on account), an amount, a payment choice and a local date and time.
 - **Payment choice**: on customer account, Whish app wallet, OMT app wallet or Binance wallet.
 - **Wallet and voucher balances**: the amounts LiraTek tracks for the Whish app, OMT app, Binance and each voucher provider's credit.
 

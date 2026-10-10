@@ -22,7 +22,7 @@ export * from "./utils/formatMoney.js";
 export * from "./utils/visibleDrawerCurrencies.js";
 
 // Telecom Only-Days credit model (LIRA-090) — pure integer math, no Node.js deps.
-// The frontend (KatchForm, MobileServicesManager) imports maxReturnableCredits,
+// The frontend (KatshForm, MobileServicesManager) imports maxReturnableCredits,
 // isTelecomSplitComplete, deriveItemEconomics, deliveredCostLbp from here. index.ts
 // (the Node entry) exports it too, so jest and typecheck pass — but Vite resolves
 // @liratek/core to THIS file, so the export must live here or the renderer fails to
@@ -39,7 +39,7 @@ export * from "./utils/telecomCredit.js";
 export * from "./utils/calendarDate.js";
 
 // Carrier-line validity rule (LIRA-157) — pure calendar-date arithmetic over
-// `YYYY-MM-DD` strings plus `localDay()`, no Node.js deps. KatchForm imports
+// `YYYY-MM-DD` strings plus `localDay()`, no Node.js deps. KatshForm imports
 // `projectValidityExpiry`/`MAX_LINE_VALIDITY_DAYS` to warn before a self-charge
 // that the rule would clip or refuse, and CarrierLinesPanel imports
 // `classifyLineValidity` for the "burned" badge — the SAME rule the repository

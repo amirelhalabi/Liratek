@@ -2,7 +2,7 @@
  * Category-based color coding for service item cards.
  *
  * Returns a Tailwind border-left color class based on the top-level category.
- * Used in KatchForm and FinancialForm card grids.
+ * Used in KatshForm and FinancialForm card grids.
  */
 
 const CATEGORY_COLORS: Record<string, string> = {

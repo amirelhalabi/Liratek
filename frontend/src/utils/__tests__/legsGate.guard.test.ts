@@ -194,7 +194,7 @@ function formatViolation(v: Violation): string {
     `split; see docs/plans/done_plans/PAYMENT_LEGS_INTEGRITY_PLAN.md (S1).\n` +
     `  Fix: replace the isSplitPayment/split-length condition with ` +
     `"paymentLines.length > 0" (plus any return/change legs), matching ` +
-    `KatchForm's shape.\n` +
+    `KatshForm's shape.\n` +
     `  False positive? Add an entry to ALLOWLIST in this test file naming ` +
     `the reason.`
   );

@@ -823,7 +823,7 @@ export const FinancialServiceSchema = z
     // createFinancialServiceSchema field (rule-14 debt, same trap as
     // checkoutTotal/deferPayment above): identifies which multi-unit split
     // checkout this unit belongs to, sent with EVERY unit (carrier and
-    // siblings alike) by KatchForm/FinancialForm. Fields must exist in BOTH or
+    // siblings alike) by KatshForm/FinancialForm. Fields must exist in BOTH or
     // the desktop path silently strips them.
     split_group: z.string().uuid().optional(),
     split_role: z.enum(["carrier", "sibling"]).optional(),

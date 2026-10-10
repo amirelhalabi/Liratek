@@ -142,7 +142,7 @@ jest.mock("../../../components", () => ({
     );
   },
   FinancialForm: () => null,
-  KatchForm: () => null,
+  KatshForm: () => null,
   OmtWhishAppTransferForm: () => null,
   OmtAppCashoutModal: () => null,
   CryptoForm: () => null,

@@ -118,7 +118,7 @@ CUSTOMER_ACCOUNT) − sum(OUT change legs) − kept_change = required total`.
   this is the one legitimate no-op, not a precedent for gating on anything
   else.
 - **Carrier `checkoutTotal` (multi-unit cart checkouts).** A cart checkout
-  (KatchForm bills, FinancialForm catalog items) submits one transaction per
+  (KatshForm bills, FinancialForm catalog items) submits one transaction per
   unit but books ALL legs against exactly ONE of them — the **carrier**; see
   "One payment covering N transactions" below. The carrier's own `price` is
   only that one unit's share of the cart, so reconciling legs against `price`

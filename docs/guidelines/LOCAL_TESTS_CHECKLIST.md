@@ -212,13 +212,13 @@
 - [ ] Upload voucher image (via POST `/api/voucher-images`)
 - [ ] Delete voucher image (via DELETE `/api/voucher-images/:id`)
 
-### Financial Services (IPEC/Katch/WishApp):
+### Financial Services (IPEC/Katsh/WishApp):
 
-- [ ] IPEC/Katch/WishApp: select item from mobileServices.json → cost auto-fills if saved
-- [ ] IPEC/Katch/WishApp: enter cost + price → profit displays correctly
-- [ ] IPEC/Katch/WishApp: submit with CASH → provider drawer decreases by cost, General drawer increases by price
-- [ ] IPEC/Katch/WishApp: submit with DEBT → provider drawer decreases by cost, debt_ledger shows price, client appears on Debts page
-- [ ] IPEC/Katch/WishApp: "Custom" item → free-form amount works, no item_key saved
+- [ ] IPEC/Katsh/WishApp: select item from mobileServices.json → cost auto-fills if saved
+- [ ] IPEC/Katsh/WishApp: enter cost + price → profit displays correctly
+- [ ] IPEC/Katsh/WishApp: submit with CASH → provider drawer decreases by cost, General drawer increases by price
+- [ ] IPEC/Katsh/WishApp: submit with DEBT → provider drawer decreases by cost, debt_ledger shows price, client appears on Debts page
+- [ ] IPEC/Katsh/WishApp: "Custom" item → free-form amount works, no item_key saved
 - [ ] Voucher image: upload image for an item → displays on next sale of that item
 - [ ] Cost auto-save: first sale of new item with cost → item_costs record created
 - [ ] Cost auto-save: second sale of same item → cost auto-fills from saved value

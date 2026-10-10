@@ -174,7 +174,7 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 ### Tests (write first, see them fail)
 
 - [x] T029 [P] [US2] Write `packages/core/src/utils/__tests__/servicePayloads.test.ts` for the shared builders (T032):
-  - fixtures from the current inline bodies in `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx:369-430` and `KatchForm.tsx:1725-1770`;
+  - fixtures from the current inline bodies in `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx:369-430` and `KatshForm.tsx:1725-1770`;
   - every built object parses through `createFinancialServiceSchema`;
   - field names come from the schema (rule 24).
 - [x] T030 [P] [US2] Write `packages/core/src/repositories/__tests__/FinancialServiceRepository.phoneSales.test.ts`:
@@ -191,7 +191,7 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
   - `buildVoucherSalePayload` (Katsh/iPick: `itemKey`, `itemCategory`, `cost`, `checkoutTotal`, `tender_exchange_rate`, `telecomCreditReturns`, `mobileServiceItemId`).
 
   Type the input and output as `z.input<typeof createFinancialServiceSchema>`. No Node or DOM imports (rule 29). Export from `packages/core/src/browser.ts` and `index.ts`.
-- [x] T033 [US2] Switch `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx` and `KatchForm.tsx` to the T032 builders (one payload shape, rule 22). The existing form tests must stay green.
+- [x] T033 [US2] Switch `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx` and `KatshForm.tsx` to the T032 builders (one payload shape, rule 22). The existing form tests must stay green.
 - [x] T034 [US2] Add `mobile/src/api/endpoints.ts` with typed calls: `recordServiceSale(payload, idemKey)` → `POST /api/services/transactions`, `getVoucherCatalog()` → `GET /api/mobile-service-items`, `searchClients(q)` → `GET /api/clients?search=`. Use only the core input types, never hand-written types (rule 21).
 - [ ] T035 [US2] (partial 2026-10-10: WHISH_APP / OMT_APP SEND built in `mobile/src/app/(app)/sale/[provider].tsx` — client search or new client, on account / Whish wallet / OMT wallet, one Idempotency-Key per Save tap, no-connection message; Katsh/iPick vouchers and Binance deferred by owner decision 2026-10-10) Build `mobile/app/(app)/sale/[provider].tsx` for `WHISH_APP`, `OMT_APP`, `Katsh`, `iPick`:
   - SEND only for transfers;

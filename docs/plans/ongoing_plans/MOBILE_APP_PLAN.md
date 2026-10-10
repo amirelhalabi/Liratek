@@ -17,7 +17,7 @@ The plan for this feature is the Spec Kit folder, not this file. This page exist
 
 **In one paragraph.**
 - **Who and what:** a native Android + iOS app (Expo) for shop **admins**. It records the digital sales that need
-  no hand-over (Whish App / OMT App transfers, Katch / iPick vouchers), even after the shop closes. Payment is on
+  no hand-over (Whish App / OMT App transfers, Katsh / iPick vouchers), even after the shop closes. Payment is on
   the customer's account or into the Whish, OMT or Binance wallet.
 - **Tracking:** the app shows balances, client debt and the sales made since the last drawer count.
 - **Sign-in:** Google, or shop address + username + password.

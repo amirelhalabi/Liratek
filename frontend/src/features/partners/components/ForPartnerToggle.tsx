@@ -5,7 +5,7 @@ import { PartnerSelector } from "@/features/partners/components/PartnerSelector"
  * ForPartnerToggle (CQ-6) — the "For Partner" checkbox + PartnerSelector
  * block, shared by the 7 hand-rolled copies it replaces: CheckoutModal
  * (POS), TelecomForm, FinancialForm, OmtWhishAppTransferForm, CryptoForm,
- * KatchForm (recharge), and Loto. Every copy wired the SAME two lines of
+ * KatshForm (recharge), and Loto. Every copy wired the SAME two lines of
  * logic (flip `forPartner`, clear the selected partner on uncheck) around
  * the SAME `<PartnerSelector required .../>` — that wiring is what this
  * component owns.
@@ -42,7 +42,7 @@ export interface ForPartnerToggleProps {
   onPartnerChange: (partnerId: number | null) => void;
   /** data-testid for the checkbox `<input>` — each call site keeps its own
    *  existing id (e.g. "checkout-for-partner-toggle",
-   *  "katch-for-partner-toggle") so existing e2e/unit-test selectors keep
+   *  "katsh-for-partner-toggle") so existing e2e/unit-test selectors keep
    *  matching verbatim. */
   testId: string;
   /** Label text next to the checkbox. Default "For Partner". */
@@ -66,7 +66,7 @@ export interface ForPartnerToggleProps {
   /** className for the text next to the checkbox. */
   textClassName?: string;
   /** className passed to PartnerSelector. Default "mt-2" (stacks below the
-   *  checkbox); pass "" for an inline flex-row layout (e.g. Katch/Financial,
+   *  checkbox); pass "" for an inline flex-row layout (e.g. Katsh/Financial,
    *  which render the selector as a sibling flex item, not stacked). */
   selectorClassName?: string;
 }
@@ -127,7 +127,7 @@ export interface ForPartnerNoticeProps {
   children: ReactNode;
   /** className override for the notice box. Default matches the majority
    *  pattern (orange, rounded-xl, px-4 py-4); override for a different
-   *  accent color (CheckoutModal: violet) or sizing (Katch: compact). */
+   *  accent color (CheckoutModal: violet) or sizing (Katsh: compact). */
   className?: string;
 }
 

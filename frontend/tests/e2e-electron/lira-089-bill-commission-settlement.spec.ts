@@ -39,7 +39,7 @@
  * settlement, in one of two modes (D8): LUMP for the whole batch, or
  * RATE × unit count. This spec proves the whole lifecycle for ONE bill:
  *
- *   1. Create a Katsh BILL via the REAL KatchForm UI (not raw IPC) — the
+ *   1. Create a Katsh BILL via the REAL KatshForm UI (not raw IPC) — the
  *      layer-seam lesson (memory: 42/84 specs hand-build IPC payloads and
  *      never touch the UI) — and confirm NO commission credit posts.
  *   2. The bill appears in the unsettled queue with a bill_count of +1
@@ -201,7 +201,7 @@ async function paysUsRowCount(page: Page, supplierId: number): Promise<number> {
   }, supplierId);
 }
 
-// ── KatchForm UI helpers (mirrors lira-095's real-form conventions) ────────
+// ── KatshForm UI helpers (mirrors lira-095's real-form conventions) ────────
 
 const PROVIDER_MARKER = "Search Katsh items";
 
@@ -323,7 +323,7 @@ test.describe("LIRA-089 — bill commission-at-settlement", () => {
       );
     });
 
-    // ── 1. Create the bill through the REAL KatchForm UI ───────────────────
+    // ── 1. Create the bill through the REAL KatshForm UI ───────────────────
     await addBill(appPage, BILL_AMOUNT_LBP);
     await payCashWithClient(appPage, CLIENT, PHONE);
     await expect(appPage.getByText(/^Pending: /)).toHaveCount(0, {

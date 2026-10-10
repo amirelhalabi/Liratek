@@ -4,7 +4,7 @@
  * recharge/components/HistoryModal.tsx — refunded-row display (LIRA-131).
  *
  * This ONE component is shared by both `recharges` (TelecomForm) and the
- * cost-flow slice of `financial_services` (KatchForm/FinancialForm/
+ * cost-flow slice of `financial_services` (KatshForm/FinancialForm/
  * OmtWhishAppTransferForm/CryptoForm) — both are in
  * `TransactionRepository._markSourceRefunded`'s supported-tables whitelist
  * (migration v68). The "Refunded" badge JSX already existed here

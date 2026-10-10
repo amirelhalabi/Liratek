@@ -6,7 +6,7 @@
  * Pre-fix it attached the same whole-cart `payments[]` to EVERY unit call;
  * the backend multi-payment branch books each leg's full amount per call, so
  * an N-unit cart with a split payment overbooked the drawer inflow and any
- * CUSTOMER_ACCOUNT debt N×. KatchForm's bills loop already guards this exact
+ * CUSTOMER_ACCOUNT debt N×. KatshForm's bills loop already guards this exact
  * trap ("attaching the same legs to a second transaction would multiply the
  * drawer inflow") — this test pins the same carrier convention here:
  *

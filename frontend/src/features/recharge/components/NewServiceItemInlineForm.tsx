@@ -15,7 +15,7 @@ const INPUT_CLASS =
 
 /**
  * Admin-only inline "add item" form on the sale screen (FinancialForm for
- * WHISH_APP, KatchForm for iPick/Katsh). Shared so both screens build the
+ * WHISH_APP, KatshForm for iPick/Katsh). Shared so both screens build the
  * same item from the same fields.
  *
  * `isNewCategory` adds an editable Category field: a category has no table of

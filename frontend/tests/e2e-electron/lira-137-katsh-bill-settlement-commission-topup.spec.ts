@@ -44,7 +44,7 @@
  * creation, so the bill's own cost leg fell inside the measurement window)
  * is fixed here: every snapshot below brackets ONLY the Confirm click.
  *
- * The KatchForm/Suppliers-settle-modal helpers this spec drives (providerTab
+ * The KatshForm/Suppliers-settle-modal helpers this spec drives (providerTab
  * Katsh, addBill, captureModalState, etc.) live in
  * `helpers/katshSettlement.ts` (LIRA-141) so a second spec,
  * `lira-141-settlement-modes-and-topup-arrows.spec.ts`, can reuse them
@@ -161,7 +161,7 @@ test.describe("LIRA-137 -- Katsh bill settlement commission books as a drawer to
     const CLIENT = `L137 Katsh ${ts}`;
     const PHONE = `76${String(ts).slice(-6)}`;
 
-    // ── 1. Create 2 real Katsh bills through the REAL KatchForm UI, one
+    // ── 1. Create 2 real Katsh bills through the REAL KatshForm UI, one
     // payment (mirrors lira-095's multi-bill checkout). ─────────────────────
     await closeAllActiveSessions(appPage);
     await navigateTo(appPage, "/recharge");

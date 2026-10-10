@@ -21,7 +21,7 @@
  * `handleTelecomSubmit` — the real closure under test in Recharge/index.tsx —
  * directly, without needing the full real MultiPaymentInput/PaymentSheet tree
  * (that plumbing is covered by MultiPaymentInput.test.tsx and
- * TelecomForm/KatchForm/FinancialForm/OmtWhishAppTransferForm's own PaymentSheet
+ * TelecomForm/KatshForm/FinancialForm/OmtWhishAppTransferForm's own PaymentSheet
  * wiring — see PaymentSheet.tsx's onExchangeRateChange pass-through).
  */
 
@@ -74,7 +74,7 @@ jest.mock("@liratek/ui", () => ({
 jest.mock("../../../components", () => ({
   CompactStats: () => null,
   FinancialForm: () => null,
-  KatchForm: () => null,
+  KatshForm: () => null,
   OmtWhishAppTransferForm: () => null,
   OmtAppCashoutModal: () => null,
   CryptoForm: () => null,

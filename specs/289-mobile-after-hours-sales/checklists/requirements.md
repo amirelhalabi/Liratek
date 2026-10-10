@@ -31,7 +31,7 @@
 
 ## Notes
 
-- Iteration 1: one acceptance scenario (Story 1, #2) stated how a Katch sale moves balances without that being verified against the existing flow; reworded to "exactly as at the counter", which FR-002 already requires.
+- Iteration 1: one acceptance scenario (Story 1, #2) stated how a Katsh sale moves balances without that being verified against the existing flow; reworded to "exactly as at the counter", which FR-002 already requires.
 - No clarification markers were used. Two scope choices were made as defaults and recorded under Assumptions, for the owner to confirm in `/speckit-clarify`: MTC/Alfa recharge is out of this version; Binance is a payment choice only, not a sale type.
 - The Assumptions section names one load-bearing unknown for `/speckit-plan`: whether closing is per drawer or per shop, and whether the expected balance is calculated since the last closing or by calendar date (drives FR-008 to FR-010).
 - "Installable on the home screen" (FR-019) and the web-only exception are product scope, not implementation choices.

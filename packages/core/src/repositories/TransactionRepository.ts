@@ -6121,7 +6121,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
     // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): a row stamped with
     // `split_group` is one unit of a multi-unit split-payment checkout
-    // (KatchForm bills / FinancialForm catalog units) — the customer's full
+    // (KatshForm bills / FinancialForm catalog units) — the customer's full
     // tender + any CUSTOMER_ACCOUNT debt books against exactly ONE unit (the
     // carrier); every sibling defers its own price/cost only. Voiding ANY
     // single member alone (carrier OR sibling) leaves the checkout's money

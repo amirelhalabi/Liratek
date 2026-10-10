@@ -3,14 +3,14 @@
  *
  * WHY THIS SPEC EXISTS — the B1 regression this ticket fixes:
  *
- *   Before LIRA-090, `KatchForm` pre-netted the cost to `days_cost_lbp` before
+ *   Before LIRA-090, `KatshForm` pre-netted the cost to `days_cost_lbp` before
  *   sending it over IPC, AND the repository (`processTelecomCreditReturn`) also
  *   deducted the credit cost from the iPick/Katsh drawer. This double-deduction
  *   meant an Only-Days sale that should have charged the customer the full gross
  *   cost (7,600,000 LBP) instead only charged ~1,055,000 LBP — the shop was
  *   unknowingly absorbing the credit cost on every Only-Days sale.
  *
- *   The fix: `KatchForm.calcCost` now always sends the GROSS cost (the full
+ *   The fix: `KatshForm.calcCost` now always sends the GROSS cost (the full
  *   `cost_lbp`). The repository is the single place that nets it to
  *   `days_cost_lbp` via `processTelecomCreditReturn`, and it does so via a
  *   payment-leg credit return (not a cost deduction) so the net LBP effect on
@@ -29,7 +29,7 @@
  *
  *   B1 REGRESSION PROOF (failing-first procedure, rule 17):
  *     In `packages/core/src/repositories/FinancialServiceRepository.ts`,
- *     temporarily revert `calcCost` in `KatchForm.tsx` to pre-net the cost
+ *     temporarily revert `calcCost` in `KatshForm.tsx` to pre-net the cost
  *     (subtract returned credits × cost_rate). The iPick/Katsh delta test
  *     then sees a delta of ~1,055,000 instead of 1,162,000 and FAILS. Restore
  *     the GROSS-cost path and the test is green.
@@ -38,13 +38,13 @@
  *   - No absolute balances asserted; every money assertion is a DELTA snapshotted
  *     immediately before the action.
  *   - Identity via `Date.now()`-suffixed label, never row position.
- *   - The sale goes through the REAL KatchForm UI (the frontend-↔-repository
+ *   - The sale goes through the REAL KatshForm UI (the frontend-↔-repository
  *     seam this B1 regression lived on — see LIRA-131 for the rationale).
  *
  * MISSING TESTIDS (items that have no data-testid as of the time of writing
  * and where this spec must fall back to role/text/label selectors):
  *
- *   1. The item card in KatchForm's card grid has NO data-testid.
+ *   1. The item card in KatshForm's card grid has NO data-testid.
  *      Fallback: click the card by its text label (item.label) within the grid.
  *
  *   2. The "Only Days" checkbox inside the expanded item drawer uses a
@@ -315,7 +315,7 @@ async function ensurePrimaryMtcLine(
  * "3.79" is deliberate: it exists only on iPick's mtc Prepaid shelf. The alfa
  * shelf carries 1.22 / 3.03 / 4.5 / 7.58 / 10 / 15.15 / 22.73 / 77.28 and no
  * 3.79, so the search box -- which matches label OR category OR subcategory
- * (KatchForm.tsx:632-641) -- resolves to exactly one card. Any other face
+ * (KatshForm.tsx:632-641) -- resolves to exactly one card. Any other face
  * value would collide with its alfa twin and make the locator ambiguous.
  */
 const ITEM_LABEL = "3.79";
@@ -347,7 +347,7 @@ test.describe("LIRA-132 — Telecom Only-Days credit model (MTC via iPick, B1 re
    * Subject: iPick > mtc > Prepaid > "3.79". Chosen because "3.79" exists
    * ONLY on iPick's mtc shelf -- alfa carries 1.22/3.03/4.5/7.58/10/15.15/
    * 22.73/77.28 and no 3.79 -- so the search box (which matches label OR
-   * category OR subcategory, KatchForm.tsx:632-641) resolves to exactly one
+   * category OR subcategory, KatshForm.tsx:632-641) resolves to exactly one
    * card. Every other face value would collide with its alfa twin.
    *
    * Rule 15 throughout: the item's real cost/credits are READ at runtime
@@ -455,7 +455,7 @@ test.describe("LIRA-132 — Telecom Only-Days credit model (MTC via iPick, B1 re
       await expect(onlyDaysLabel).toBeVisible({ timeout: 8_000 });
       await onlyDaysLabel.click();
 
-      // The split is complete, so KatchForm takes the computed branch and
+      // The split is complete, so KatshForm takes the computed branch and
       // fills maxReturnableCredits(credits). For 3.79 that is 3.00 -- pinned
       // by the core unit test, re-asserted here because it is what the
       // repository will book as the CREDIT_RETURN leg.
@@ -491,7 +491,7 @@ test.describe("LIRA-132 — Telecom Only-Days credit model (MTC via iPick, B1 re
       //
       // The iPick provider drawer is debited by the FULL GROSS cost_lbp.
       //
-      // Pre-fix, KatchForm.calcCost sent a cost that ALREADY had the returned
+      // Pre-fix, KatshForm.calcCost sent a cost that ALREADY had the returned
       // credit netted out (cost - returnedCredits * 85,000) while the
       // repository netted it a SECOND time -- so for this card the drawer
       // would move by 379,000 - 3 * 85,000 = 124,000 instead of 379,000.
@@ -623,7 +623,7 @@ test.describe("LIRA-132 — Telecom Only-Days credit model (MTC via iPick, B1 re
    * even if the second term were dropped from the code entirely. Returning
    * HALF the recoverable credit is what makes both terms load-bearing.
    *
-   * FAILING-FIRST PROOF (rule 17): in `KatchForm.tsx`'s
+   * FAILING-FIRST PROOF (rule 17): in `KatshForm.tsx`'s
    * `resolveOnlyDaysPricing`, change the total to `effectiveSellDays` (drop
    * `+ keptCredits * creditPriceLbp`). The Pay-button and booked-amount
    * assertions below then see the bare days price and FAIL; restore the term

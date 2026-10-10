@@ -2,7 +2,7 @@
  * E2E: LIRA-124 — carrier-legs void asymmetry, design B+
  * (docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md)
  *
- * A multi-unit split checkout (KatchForm bills / FinancialForm catalog
+ * A multi-unit split checkout (KatshForm bills / FinancialForm catalog
  * units) submits ONE unified transaction per unit, but the customer's full
  * tender books against exactly ONE unit — the CARRIER; every SIBLING unit
  * defers its own cost/commission only (`deferPayment: true`). Before this
@@ -124,7 +124,7 @@ test.describe("LIRA-124 — split-checkout void guard + whole-group void (design
         const w = window as unknown as Api;
         const drawersBefore = await w.api.recharge.getDrawerBalances();
 
-        // Mirrors KatchForm's real payload for a 2-bill checkout: unit 1
+        // Mirrors KatshForm's real payload for a 2-bill checkout: unit 1
         // (carrier) carries the full customer tender + checkoutTotal; unit 2
         // (sibling) defers (cost/commission only). Both stamp the same
         // split_group/split_units; role differs.

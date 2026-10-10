@@ -1192,7 +1192,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // frontend inspection. `paid_by_method: "MULTI"` is ONLY ever a
         // truthful value when the caller actually split the payment into
         // 2+ legs (Recharge/index.tsx's `derivePaidByMethod`, mirroring the
-        // crypto/FinancialForm/KatchForm pattern) — it is never a real
+        // crypto/FinancialForm/KatshForm pattern) — it is never a real
         // payment method. If `inPayments` is empty despite `paidBy ===
         // "MULTI"` (a REST caller whose `payments[]` got stripped/omitted,
         // or any other caller that lies about having split), the legacy

@@ -29,15 +29,15 @@ payment method"_ — `MultiPaymentInput` checks `line.method === "DEBT"`.
 
 ### 2. Two bugs were already fixed in this session
 
-**Fix A (UI warning):** `KatchForm` passed `PaymentSheet` without `hasClient`, so
+**Fix A (UI warning):** `KatshForm` passed `PaymentSheet` without `hasClient`, so
 `MultiPaymentInput` always showed the "Client is required" warning even after a client was
 selected. Fixed by passing `hasClient={!!clientName}`.
 
-**Fix B (submission error):** `KatchForm` stored the client name but not the client ID.
+**Fix B (submission error):** `KatshForm` stored the client name but not the client ID.
 When the user selected a client from the autocomplete dropdown, `clientId` was never
 captured. The backend validator (`createFinancialServiceSchema`) and the repository both
 throw if `paidByMethod === "DEBT"` and `clientId` is absent. Fixed by adding a `clientId`
-state in `KatchForm` and wiring `onClientSelect={(c) => setClientId(c.id)}` on the
+state in `KatshForm` and wiring `onClientSelect={(c) => setClientId(c.id)}` on the
 `ClientAutocompleteInput`.
 
 After Fix B, the user confirmed: **"ok now it worked"** — the transactions are now visible
@@ -181,7 +181,7 @@ spending against the balance, not a deposit.
 
 | File                                                           | Relevance                                          |
 | -------------------------------------------------------------- | -------------------------------------------------- |
-| `frontend/src/features/recharge/components/KatchForm.tsx`      | Fixed A + B                                        |
+| `frontend/src/features/recharge/components/KatshForm.tsx`      | Fixed A + B                                        |
 | `packages/core/src/repositories/FinancialServiceRepository.ts` | DEBT ledger insert (Fix 2)                         |
 | `frontend/src/features/debts/pages/Debts/index.tsx`            | Stale data (Fix 1), filteredDebtors                |
 | `packages/core/src/db/migrations/index.ts`                     | v76 renamed DEBT → "Customer Account"              |

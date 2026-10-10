@@ -8,7 +8,7 @@ import type { ServiceItem } from "../hooks/useMobileServiceItems";
  * repository's own guard clauses so no entry point ever offers an item the
  * backend would reject.
  *
- * Defined ONCE (CLAUDE.md rule 14) — imported by `KatchForm.tsx` (the
+ * Defined ONCE (CLAUDE.md rule 14) — imported by `KatshForm.tsx` (the
  * iPick/Katsh item card's "Charge to shop line" action, carrier-lines-
  * validity plan Phase 5 / D5).
  */

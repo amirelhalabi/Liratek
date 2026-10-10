@@ -92,7 +92,7 @@ This is a **design decision**, not a missing feature.
 | `MTC`          | System   | MTC credit balance (phone-based)  |
 | `Alfa`         | System   | Alfa credit balance (phone-based) |
 | `IPEC`         | System   | IPEC service credits              |
-| `Katch`        | System   | Katch service credits             |
+| `Katsh`        | System   | Katsh service credits             |
 
 ### Drawer Assignment by Module
 
@@ -101,7 +101,7 @@ This is a **design decision**, not a missing feature.
 | Sales/POS          | ✅ General              | All cash sales                                     |
 | Financial Services | ✅ OMT_App, Whish_App   | Money transfers                                    |
 | Recharge           | ✅ MTC, Alfa            | Credit purchases                                   |
-| Custom Services    | ✅ General, IPEC, Katch | Service jobs                                       |
+| Custom Services    | ✅ General, IPEC, Katsh | Service jobs                                       |
 | Maintenance        | ✅ General              | Repair jobs                                        |
 | Debts              | ✅ General              | Debt tracking (doesn't affect drawer until repaid) |
 | Expenses           | ✅ General              | Cash outflows                                      |

@@ -305,7 +305,7 @@ export function findUnpricedNewCustomServiceLine(
   return null;
 }
 
-/** Process _batch items (FinancialForm/KatchForm) — multiple sub-items. */
+/** Process _batch items (FinancialForm/KatshForm) — multiple sub-items. */
 function processBatchCartItem(
   item: CheckoutCartItem,
   exchangeRate: number | undefined,

@@ -225,7 +225,7 @@ export const createFinancialServiceSchema = z
     transaction_time: transactionTimeSchema,
     /**
      * Payment-Legs Integrity plan (Wave 8, owner decision 2026-07-18): the
-     * bills/catalog cart flow (KatchForm / FinancialForm) submits ONE
+     * bills/catalog cart flow (KatshForm / FinancialForm) submits ONE
      * legs-carrying CARRIER transaction per checkout — every other unit in
      * the same cart submits `deferPayment: true` and carries no legs (see
      * docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). The carrier's
@@ -268,7 +268,7 @@ export const createFinancialServiceSchema = z
     /**
      * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): identifies which
      * multi-unit split checkout this unit belongs to — sent with EVERY unit
-     * (carrier and siblings alike) by KatchForm/FinancialForm. Omitted on
+     * (carrier and siblings alike) by KatshForm/FinancialForm. Omitted on
      * single-unit checkouts. Keep in sync with the LOCAL duplicate in
      * electron-app/schemas/index.ts's FinancialServiceSchema (rule-14 debt,
      * same trap as checkoutTotal/deferPayment above).

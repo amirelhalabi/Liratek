@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 /**
- * KatchForm — Only-Days owner pricing model (TELECOM_CREDIT_RATE_PLAN.md §Q4,
+ * KatshForm — Only-Days owner pricing model (TELECOM_CREDIT_RATE_PLAN.md §Q4,
  * owner-confirmed 2026-08-05):
  *
  *   total = sell_days_lbp + kept_credits * credit_price
@@ -18,7 +18,7 @@
  * Rule 17 failure evidence (pre-fix, `calcPrice` without the 5th
  * `onlyDaysTotal` parameter — i.e. always the legacy formula):
  *
- *   FAIL  KatchForm.onlyDaysPricing.test.tsx
+ *   FAIL  KatshForm.onlyDaysPricing.test.tsx
  *   ● Only-Days owner pricing model › (1) default: total = sell_days_lbp + 0 * credit_price (kept = 0)
  *     expect(received).toBe(expected)
  *     Expected: 250000
@@ -43,12 +43,12 @@
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { KatchForm } from "../KatchForm";
+import { KatshForm } from "../KatshForm";
 import type { ServiceItem } from "../../hooks/useMobileServiceItems";
 import type { ProviderConfig } from "../../types";
 
 // @liratek/core pulls in Node-only DB modules via its main index — mock the
-// subset KatchForm actually uses. Faithful copies of the real logic (from
+// subset KatshForm actually uses. Faithful copies of the real logic (from
 // packages/core/src/utils/telecomCredit.ts) so the pricing-model math under
 // test is real behaviour, not a mocked stub — the authoritative definitions
 // still live ONLY in core (rule 14).
@@ -56,7 +56,7 @@ import type { ProviderConfig } from "../../types";
 // maxReturnableCredits and isTelecomSplitComplete in test code — a rule-14
 // duplication that lets the test agree with itself while disagreeing with
 // production, and which silently omitted resolveCreditSellPriceLbp once
-// KatchForm started importing it. requireActual on the pure-function file
+// KatshForm started importing it. requireActual on the pure-function file
 // keeps the assertions honest; the file has no Node-only imports, so it loads
 // cleanly under jsdom.
 jest.mock("@liratek/core", () =>
@@ -70,7 +70,7 @@ const mockAddOMTTransaction = jest
 
 /**
  * Catalog rows returned by `api.getActiveMobileServiceItems()` — this is the
- * separate fetch KatchForm makes to source `sell_days_lbp`/`sell_credit_lbp`,
+ * separate fetch KatshForm makes to source `sell_days_lbp`/`sell_credit_lbp`,
  * since the shared `ServiceItem`/context type never maps them through.
  * Mutable per-test via `mockCatalogRows.length = 0; mockCatalogRows.push(...)`.
  */
@@ -241,7 +241,7 @@ const CONFIG_IPICK: ProviderConfig = {
 };
 
 function renderWithItem(item: ServiceItem) {
-  // KatchForm now invalidates the Suppliers-page unsettled-bill query
+  // KatshForm now invalidates the Suppliers-page unsettled-bill query
   // (`useQueryClient()`) on a successful bill submission — needs a real
   // QueryClientProvider in the tree, same as every Suppliers-page test.
   const queryClient = new QueryClient({
@@ -249,7 +249,7 @@ function renderWithItem(item: ServiceItem) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <KatchForm
+      <KatshForm
         activeConfig={CONFIG_IPICK}
         activeProvider="iPick"
         getCategoriesForProvider={() => ["mtc"]}
@@ -733,7 +733,7 @@ describe("v160 — max_returned_credits_usd override", () => {
 // LIRA-260 — editing the Only-Days price away from the catalog's saved
 // sell_days_lbp shows the shared amber warning (both prices); restoring the
 // catalog price hides it; the sale still submits at the edited price.
-// Rule 17: NOT proven failing-first — the KatchForm wiring was written before
+// Rule 17: NOT proven failing-first — the KatshForm wiring was written before
 // this case (the failing-first proofs for LIRA-260 are the component test and
 // TelecomForm.priceChangeWarning.test.tsx).
 describe("Only-Days price-change warning (LIRA-260)", () => {

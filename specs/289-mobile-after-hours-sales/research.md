@@ -172,7 +172,7 @@ The Slice 0 tests create one row of each shape.
 
 ## R10. Payload builders shared with the web (rule 22)
 
-**Finding**: The web forms build the request bodies inline: `OmtWhishAppTransferForm.tsx:369-430` and `KatchForm.tsx:1725-1770`. That covers fee field per provider, `checkoutTotal`, `tender_exchange_rate`, `itemKey`/`itemCategory` and `telecomCreditReturns`.
+**Finding**: The web forms build the request bodies inline: `OmtWhishAppTransferForm.tsx:369-430` and `KatshForm.tsx:1725-1770`. That covers fee field per provider, `checkoutTotal`, `tender_exchange_rate`, `itemKey`/`itemCategory` and `telecomCreditReturns`.
 
 **Decision**: Before the phone screens:
 - Extract pure builders into core's browser-safe side: `buildWalletTransferPayload` and `buildVoucherSalePayload`, typed `z.input<typeof createFinancialServiceSchema>`.

@@ -1,13 +1,13 @@
 /** @jest-environment jsdom */
 /**
- * KatchForm — ItemCard shows structured validity/credits (LIRA W6.b) when
+ * KatshForm — ItemCard shows structured validity/credits (LIRA W6.b) when
  * present on the catalog row, never at checkout/receipts (display-only,
  * card-grid level).
  */
 
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { KatchForm } from "../KatchForm";
+import { KatshForm } from "../KatshForm";
 import type {
   ServiceItem,
   ProviderKey,
@@ -18,7 +18,7 @@ import type {
   ProviderAnalytics,
 } from "../../types";
 
-// KatchForm now imports from @liratek/core — mock the Node-only DB modules.
+// KatshForm now imports from @liratek/core — mock the Node-only DB modules.
 // Load the REAL core module. frontend/jest.config.ts maps @liratek/core to
 // packages/core/src/browser.ts, so the Node-only DB chain the old hand-written
 // mock existed to dodge is not in the graph. Re-implementing core helpers in
@@ -31,7 +31,7 @@ jest.mock("@liratek/ui", () => ({
   useApi: () => ({
     getRates: jest.fn().mockResolvedValue([]),
     getAllSettings: jest.fn().mockResolvedValue([]),
-    // Only-Days pricing model (2026-08-05): KatchForm fetches the catalog's
+    // Only-Days pricing model (2026-08-05): KatshForm fetches the catalog's
     // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — none of
     // these fixtures carry a computed days price, so the pricing panel stays
     // hidden and the legacy formula governs (FALLBACK behaviour under test).
@@ -148,34 +148,34 @@ const mockProps = {
   setShowHistory: jest.fn(),
 };
 
-// KatchForm now invalidates the Suppliers-page unsettled-bill query
+// KatshForm now invalidates the Suppliers-page unsettled-bill query
 // (`useQueryClient()`) on a successful bill submission — needs a real
 // QueryClientProvider in the tree, same as every Suppliers-page test.
-function renderKatchForm() {
+function renderKatshForm() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <KatchForm {...mockProps} />
+      <KatshForm {...mockProps} />
     </QueryClientProvider>,
   );
 }
 
-describe("KatchForm ItemCard — validity/credits (LIRA W6.b)", () => {
+describe("KatshForm ItemCard — validity/credits (LIRA W6.b)", () => {
   it("shows '10d validity' for a card with validityDays set", async () => {
-    renderKatchForm();
+    renderKatshForm();
     expect(await screen.findByText("10d validity")).toBeInTheDocument();
   });
 
   it("shows the credit amount for a card with credits set", async () => {
-    renderKatchForm();
+    renderKatshForm();
     expect(await screen.findByText("Credit only")).toBeInTheDocument();
     expect(await screen.findByText("$1")).toBeInTheDocument();
   });
 
   it("shows neither line for a card with no validity/credits", async () => {
-    renderKatchForm();
+    renderKatshForm();
     // "start" card renders (label present) but carries no validity/credit chip
     expect(await screen.findByText("start")).toBeInTheDocument();
   });

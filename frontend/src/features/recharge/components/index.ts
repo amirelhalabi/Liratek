@@ -1,6 +1,6 @@
 export { CompactStats } from "./CompactStats";
 export { FinancialForm } from "./FinancialForm";
-export { KatchForm } from "./KatchForm";
+export { KatshForm } from "./KatshForm";
 export { TelecomForm } from "./TelecomForm";
 export { CryptoForm } from "./CryptoForm";
 export { ProviderTabs } from "./ProviderTabs";

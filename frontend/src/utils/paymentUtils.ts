@@ -105,7 +105,7 @@ export function toHoldMoneyLegs(
  * `paid_by_method`/`paidByMethod` DIRECTLY from the pay sheet's current
  * payment legs — the first leg's method, or `"MULTI"` once there are 2+ legs.
  * Matches the pattern already used by the crypto submit (Recharge/index.tsx
- * `handleCryptoSubmit`), FinancialForm and KatchForm.
+ * `handleCryptoSubmit`), FinancialForm and KatshForm.
  *
  * Do NOT rely on a `lines.length === 1`-gated setter alone (e.g. a
  * `MultiPaymentInput onPaymentChange` callback that only calls `setPaidBy`

@@ -6,7 +6,7 @@
  *
  * The audit that produced this ticket found `financial_services` needed a
  * repository projection fix plus lighting up an already-dead badge. That is
- * the whole story for iPick/Katsh/Whish App (KatchForm/FinancialForm/
+ * the whole story for iPick/Katsh/Whish App (KatshForm/FinancialForm/
  * OmtWhishAppTransferForm pass the RAW `api.getOMTHistory()` response,
  * spread with `...h`, straight to `HistoryModal`).
  *
@@ -58,7 +58,7 @@ jest.mock("@liratek/ui", () => ({
 jest.mock("../../../components", () => ({
   CompactStats: () => null,
   FinancialForm: () => null,
-  KatchForm: () => null,
+  KatshForm: () => null,
   TelecomForm: () => null,
   OmtWhishAppTransferForm: () => null,
   OmtAppCashoutModal: () => null,

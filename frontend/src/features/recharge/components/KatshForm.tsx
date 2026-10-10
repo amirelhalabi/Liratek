@@ -97,7 +97,7 @@ const TELECOM_CREDIT_SELL_PRICE_SETTING_KEY = "telecom_credit_sell_price_lbp";
  *  ServiceItem context (`sell_days_lbp`/`sell_credit_lbp` live on
  *  `mobile_service_items` but the shared `ServiceItem` type doesn't map them
  *  through — out of scope to widen for this ticket). Keyed by the item's DB
- *  id in `KatchFormInner`'s `catalogPricing` map. */
+ *  id in `KatshFormInner`'s `catalogPricing` map. */
 interface CatalogPricingRow {
   sell_days_lbp: number | null;
   sell_credit_lbp: number | null;
@@ -557,7 +557,7 @@ const ItemCard = memo(function ItemCard({
   );
 });
 
-// ─── KatchFormInner ──────────────────────────────────────────────────────────
+// ─── KatshFormInner ──────────────────────────────────────────────────────────
 
 interface CartLineItem {
   item: ServiceItem;
@@ -590,7 +590,7 @@ interface CartLineItem {
   creditPriceLbpOverride?: number | undefined;
 }
 
-interface KatchFormProps {
+interface KatshFormProps {
   activeConfig: ProviderConfig | undefined;
   activeProvider: ProviderKey | null;
   getCategoriesForProvider: (provider: ProviderKey) => string[];
@@ -614,7 +614,7 @@ interface KatchFormProps {
   onCartCountChange?: (counts: Record<string, number>) => void;
 }
 
-function KatchFormInner({
+function KatshFormInner({
   activeConfig,
   activeProvider,
   getCategoriesForProvider,
@@ -629,7 +629,7 @@ function KatchFormInner({
   onRefreshItems,
   isAdmin,
   onCartCountChange,
-}: KatchFormProps) {
+}: KatshFormProps) {
   const api = useApi();
   const queryClient = useQueryClient();
   const {
@@ -782,7 +782,7 @@ function KatchFormInner({
           );
         })
         .catch((err: unknown) => {
-          logger.error("Failed to load Katch history:", err);
+          logger.error("Failed to load Katsh history:", err);
         });
     }
   }, [showHistory, activeProvider, api]);
@@ -1421,11 +1421,11 @@ function KatchFormInner({
         if (result?.success) {
           allSucceeded = true;
         } else {
-          logger.error("Katch partner submit failed:", result?.error);
+          logger.error("Katsh partner submit failed:", result?.error);
           alert(result?.error || "Failed to process partner transaction");
         }
       } catch (err) {
-        logger.error("Katch partner submit error:", err);
+        logger.error("Katsh partner submit error:", err);
         alert("Failed to process partner transaction");
       }
     }
@@ -1785,15 +1785,15 @@ function KatchFormInner({
                 profitLbp: aggregatedCommission,
               });
             } catch (err) {
-              logger.error("Failed to link Katch tx to session:", err);
+              logger.error("Failed to link Katsh tx to session:", err);
             }
           }
         } else {
-          logger.error("Katch submit failed:", result?.error);
+          logger.error("Katsh submit failed:", result?.error);
           alert(result?.error || "Failed to process payment");
         }
       } catch (err) {
-        logger.error("Katch submit error:", err);
+        logger.error("Katsh submit error:", err);
         alert("Failed to process payment");
       }
     }
@@ -2041,7 +2041,7 @@ function KatchFormInner({
           selected partner's tab, settled later on the Partners page. */}
       <div className="flex items-center gap-3 flex-wrap">
         <ForPartnerToggle
-          testId="katch-for-partner-toggle"
+          testId="katsh-for-partner-toggle"
           checked={forPartner}
           onChange={setForPartner}
           selectedPartnerId={selectedPartnerId}
@@ -2051,7 +2051,7 @@ function KatchFormInner({
         />
         {forPartner && (
           <ForPartnerNotice
-            testId="katch-partner-no-payment-notice"
+            testId="katsh-partner-no-payment-notice"
             className="w-full text-xs text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-2"
           >
             No payment is collected for a partner transaction. The full selling
@@ -2621,4 +2621,4 @@ function KatchFormInner({
   );
 }
 
-export const KatchForm = memo(KatchFormInner);
+export const KatshForm = memo(KatshFormInner);

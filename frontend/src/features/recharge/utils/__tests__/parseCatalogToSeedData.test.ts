@@ -17,7 +17,7 @@
 
 // parseCatalogToSeedData imports `deriveDaysCostLbp` from "@liratek/core",
 // which (unmocked) pulls in the full core index — including Node-only DB
-// modules that don't resolve under jsdom (same issue KatchForm's tests hit).
+// modules that don't resolve under jsdom (same issue KatshForm's tests hit).
 // Re-export the WHOLE pure-function file rather than an allowlist of symbols,
 // sourced from the real module (never re-implement a formula in test code —
 // rule 14). telecomCredit.ts has no Node-only imports, so spreading it is safe

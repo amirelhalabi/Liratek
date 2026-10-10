@@ -8,7 +8,7 @@ import type { ApiAdapter } from "@liratek/ui";
  * case and surrounding spaces must reuse the EXISTING spelling. Otherwise
  * "ALFA" and "alfa" become two groups, and the carrier checks disagree about
  * the "ALFA" one: `parseCarrierKey` (core) lowercases, while
- * `KatchForm.isTelecomVoucher` compares exactly.
+ * `KatshForm.isTelecomVoucher` compares exactly.
  */
 export function resolveCatalogName(
   typed: string,
