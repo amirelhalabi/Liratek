@@ -316,6 +316,18 @@ function webApiShimBody(): void {
       rest("GET", "/api/database/reset/preview"),
     "database.reset": async ([data]) =>
       rest("POST", "/api/database/reset", data),
+    // ── LIRA-297 batch B1 — BEGIN (edit only inside your own block) ──
+    // ── LIRA-297 batch B1 — END ──
+    // ── LIRA-297 batch B2 — BEGIN (edit only inside your own block) ──
+    // ── LIRA-297 batch B2 — END ──
+    // ── LIRA-297 batch B3 — BEGIN (edit only inside your own block) ──
+    // ── LIRA-297 batch B3 — END ──
+    // ── LIRA-297 batch B4 — BEGIN (edit only inside your own block) ──
+    // ── LIRA-297 batch B4 — END ──
+    // ── LIRA-297 batch B5 — BEGIN (edit only inside your own block) ──
+    // ── LIRA-297 batch B5 — END ──
+    // ── LIRA-297 batch B6 — BEGIN (edit only inside your own block) ──
+    // ── LIRA-297 batch B6 — END ──
   };
 
   const RESERVED = new Set(["then", "catch", "finally"]);
