@@ -18,7 +18,7 @@ export default function AppLayout() {
   return (
     <PageBackground>
       <NativeTabs tintColor={t.accent} minimizeBehavior="onScrollDown">
-        <NativeTabs.Trigger name="index" contentStyle={content}>
+        <NativeTabs.Trigger name="(home)" contentStyle={content}>
           <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
           <NativeTabs.Trigger.Icon sf={{ default: "house", selected: "house.fill" }} md="home" />
         </NativeTabs.Trigger>

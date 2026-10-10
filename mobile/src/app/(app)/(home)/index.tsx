@@ -2,10 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { ChevronRight, ClipboardCheck, History, Wallet } from "lucide-react-native";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getDrawerBalances, getSinceLastCount, type DrawerBalances } from "@/api/reads";
-import { useAuth } from "@/auth/AuthContext";
 import { RefreshNotice } from "@/components/RefreshNotice";
 import { queryKeys } from "@/data/queryKeys";
 import { usePullRefresh } from "@/data/usePullRefresh";
@@ -32,7 +30,6 @@ function sortedDrawers(balances: DrawerBalances): string[] {
  */
 export default function Home() {
   const t = useTheme();
-  const { shop } = useAuth();
   const slug = useShopSlug();
 
   const balances = useQuery({
@@ -50,12 +47,7 @@ export default function Home() {
   const pull = usePullRefresh([balances.refetch, sinceCount.refetch]);
 
   return (
-    <SafeAreaView style={styles.flex} edges={["top"]}>
-      <View style={[styles.topBar, { backgroundColor: t.card, borderBottomColor: t.border }]}>
-        <Text style={[styles.shopName, { color: t.accent }]} numberOfLines={1}>
-          {shop?.name ?? "LiraTek"}
-        </Text>
-      </View>
+    <View style={styles.flex}>
 
       <ScrollView
         contentContainerStyle={styles.body}
@@ -114,14 +106,12 @@ export default function Home() {
           <ChevronRight size={18} color={t.textMuted} />
         </Pressable>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  topBar: { height: 52, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, borderBottomWidth: 1 },
-  shopName: { fontSize: 20, fontWeight: "700", flex: 1 },
   body: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE, gap: spacing.lg },
   sectionTitle: { fontSize: 16, fontWeight: "600" },
   card: { borderRadius: radius.xl, borderWidth: 1, padding: spacing.lg, gap: spacing.sm },
