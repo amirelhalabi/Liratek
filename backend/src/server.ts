@@ -160,6 +160,7 @@ import drawerCashoutRoutes from "./api/drawerCashout.js";
 import walletExchangeRoutes from "./api/walletExchange.js";
 import exchangeLotsRoutes from "./api/exchangeLots.js";
 import productUnitsRoutes from "./api/productUnits.js";
+import warrantyRoutes from "./api/warranty.js";
 import partnersRoutes from "./api/partners.js";
 import vouchersRoutes from "./api/vouchers.js";
 import voiceRoutes, { initVoiceWebSocketServer } from "./api/voice.js";
@@ -233,6 +234,8 @@ app.use("/api/drawer-cashout", drawerCashoutRoutes);
 app.use("/api/wallet-exchange", walletExchangeRoutes);
 app.use("/api/exchange-lots", exchangeLotsRoutes);
 app.use("/api/product-units", productUnitsRoutes);
+// LIRA-296 — warranty for any item.
+app.use("/api/warranty", warrantyRoutes);
 app.use("/api/partners", partnersRoutes);
 app.use("/api/vouchers", vouchersRoutes);
 app.use("/api/voice", voiceRoutes);

@@ -1,3 +1,4 @@
+import type { z } from "zod";
 import {
   SettingsRepository,
   SettingEntity,
@@ -5,6 +6,19 @@ import {
 } from "../repositories/SettingsRepository.js";
 import { settingsLogger } from "../utils/logger.js";
 import { SENSITIVE_SETTING_KEYS } from "../constants/sensitiveSettings.js";
+import {
+  WARRANTY_TERMS_SETTING_KEY,
+  warrantyTermsTextSchema,
+} from "../validators/warranty.js";
+
+/**
+ * Per-key value rules for the generic settings pipe. Keys not listed accept
+ * any string, as before. LIRA-296: the warranty terms text prints on every
+ * warranty receipt, so its length is capped (schema shared with the form).
+ */
+const SETTING_VALUE_SCHEMAS: Record<string, z.ZodType<string>> = {
+  [WARRANTY_TERMS_SETTING_KEY]: warrantyTermsTextSchema,
+};
 
 export interface SettingResult {
   success: boolean;
@@ -160,6 +174,17 @@ export class SettingsService {
         success: false,
         error: `Setting '${key}' cannot be written through the generic settings pipe`,
       };
+    }
+    const rule = SETTING_VALUE_SCHEMAS[key];
+    if (rule) {
+      const parsed = rule.safeParse(value);
+      if (!parsed.success) {
+        return {
+          success: false,
+          error:
+            parsed.error.issues[0]?.message ?? `Invalid value for '${key}'`,
+        };
+      }
     }
     try {
       this.repo.upsertSetting(key, value);

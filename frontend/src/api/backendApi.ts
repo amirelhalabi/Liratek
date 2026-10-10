@@ -110,6 +110,12 @@ import type {
 } from "@liratek/ui";
 
 import type { AccountPicture, GoogleLinkView } from "@liratek/core";
+import type {
+  SalesDateRangeInput,
+  UpdateCategoryPayload,
+  WarrantySearchInput,
+  WarrantySearchRow,
+} from "@liratek/core";
 
 export type { ProductListFilters };
 
@@ -2128,6 +2134,43 @@ export async function getTodaysSales(date?: string) {
         `/api/dashboard/todays-sales${qs}`,
       );
       return res.sales;
+    },
+  );
+}
+
+/**
+ * LIRA-296 SF-2 — completed/refunded sales between two shop days
+ * (inclusive). Desktop: IPC `sales:get-by-date-range`; web: `GET
+ * /api/sales/by-date-range`. Read: returns the raw row array; a refusal
+ * throws. Payload type derived from core's `salesDateRangeSchema` (rule 21).
+ */
+/** One row of {@link getSalesByDateRange} — the IPC channel's declared row. */
+export type SalesDateRangeRow = Awaited<
+  ReturnType<Window["api"]["sales"]["getByDateRange"]>
+>[number];
+
+export async function getSalesByDateRange(
+  range: SalesDateRangeInput,
+): Promise<SalesDateRangeRow[]> {
+  return ipcOrHttp(
+    async () => {
+      const rows = await getElectronApi().sales.getByDateRange(
+        range.from,
+        range.to,
+      );
+      return Array.isArray(rows) ? rows : [];
+    },
+    async () => {
+      const qs = new URLSearchParams({ from: range.from, to: range.to });
+      const res = await requestJson<{
+        success: boolean;
+        data?: SalesDateRangeRow[];
+        error?: string;
+      }>(`/api/sales/by-date-range?${qs.toString()}`);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load sales for the range");
+      }
+      return res.data ?? [];
     },
   );
 }
@@ -6105,6 +6148,8 @@ export interface CategoryDto {
   sort_order: number;
   is_active: number;
   tracks_imei_units: number;
+  /** LIRA-296 v205: the category's default warranty in months; null = none. */
+  warranty_months: number | null;
 }
 
 export async function getCategoriesFull(): Promise<CategoryDto[]> {
@@ -6163,7 +6208,9 @@ export async function createCategory(
 
 export async function updateCategory(
   id: number,
-  data: { name?: string; tracks_imei_units?: boolean },
+  // Rule 21: derived from core's updateCategorySchema (carries the
+  // LIRA-296 default warranty_months too).
+  data: UpdateCategoryPayload,
 ): Promise<{ success: boolean; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().inventory.updateCategory(id, data),
@@ -8382,5 +8429,44 @@ export async function verifySigninCode(input: VerifySigninCodeInput) {
   return requestJson<SigninCodeEnvelope<{ shops: SigninShop[] }>>(
     "/api/auth/signin-code/verify",
     { method: "POST", body: input, auth: false },
+  );
+}
+
+// =============================================================================
+// Warranty (LIRA-296 — warranty for any item)
+// =============================================================================
+
+/** Find warranty lines by customer, phone, receipt number (`RCP-12`),
+ *  product or serial/IMEI. `client_day` is the shop's own day (rule 27). The
+ *  payload type is derived from the core schema (rule 21). Throws on a
+ *  refusal. */
+export async function searchWarranties(
+  input: WarrantySearchInput,
+): Promise<WarrantySearchRow[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().warranty.search(input);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to search warranties");
+      }
+      return res.data ?? [];
+    },
+    async () => {
+      const qs = new URLSearchParams();
+      for (const [key, value] of Object.entries(input)) {
+        if (value !== undefined && value !== null && value !== "") {
+          qs.set(key, String(value));
+        }
+      }
+      const res = await requestJson<{
+        success: boolean;
+        data?: WarrantySearchRow[];
+        error?: string;
+      }>(`/api/warranty/search?${qs.toString()}`);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to search warranties");
+      }
+      return res.data ?? [];
+    },
   );
 }

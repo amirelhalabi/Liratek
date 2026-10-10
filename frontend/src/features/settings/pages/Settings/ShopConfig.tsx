@@ -6,6 +6,10 @@ import clsx from "clsx";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { invalidateShopInfo } from "@/hooks/useShopName";
 import { Link } from "react-router-dom";
+import {
+  WARRANTY_TERMS_MAX_LENGTH,
+  WARRANTY_TERMS_SETTING_KEY,
+} from "@liratek/core";
 
 export default function ShopConfig() {
   const api = useApi();
@@ -14,6 +18,8 @@ export default function ShopConfig() {
   const [shopPhone, setShopPhone] = useState("");
   const [shopLocation, setShopLocation] = useState("");
   const [receiptHeaderText, setReceiptHeaderText] = useState("");
+  // LIRA-296 — the shop's warranty terms, printed on warranty receipts.
+  const [warrantyTermsText, setWarrantyTermsText] = useState("");
   // Receipt logo as a data URL (base64), "" = none. Printed above the receipt.
   const [receiptLogo, setReceiptLogo] = useState("");
   const [sessionMgmt, setSessionMgmt] = useState(true);
@@ -44,6 +50,9 @@ export default function ShopConfig() {
       setShopPhone((map.get("shop_phone") as string) || "");
       setShopLocation((map.get("shop_location") as string) || "");
       setReceiptHeaderText((map.get("receipt_header_text") as string) || "");
+      setWarrantyTermsText(
+        (map.get(WARRANTY_TERMS_SETTING_KEY) as string) || "",
+      );
       setReceiptLogo((map.get("receipt_logo") as string) || "");
       setSessionMgmt(map.get("feature_session_management") !== "disabled");
       setCustomerSessions(map.get("feature_customer_sessions") !== "disabled");
@@ -128,6 +137,7 @@ export default function ShopConfig() {
         api.updateSetting("shop_phone", shopPhone),
         api.updateSetting("shop_location", shopLocation),
         api.updateSetting("receipt_header_text", receiptHeaderText),
+        api.updateSetting(WARRANTY_TERMS_SETTING_KEY, warrantyTermsText),
         api.updateSetting("receipt_logo", receiptLogo),
         api.updateSetting(
           "feature_session_management",
@@ -245,6 +255,30 @@ export default function ShopConfig() {
           onChange={(e) => setReceiptHeaderText(e.target.value)}
           className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
         />
+      </div>
+
+      {/* LIRA-296 — warranty terms, printed under the items on any receipt
+          that has a warranty line. */}
+      <div>
+        <label
+          htmlFor="shop-warranty-terms"
+          className="block text-sm text-slate-400 mb-2"
+        >
+          Warranty terms
+        </label>
+        <textarea
+          id="shop-warranty-terms"
+          value={warrantyTermsText}
+          maxLength={WARRANTY_TERMS_MAX_LENGTH}
+          rows={3}
+          placeholder="e.g. Covers manufacturing faults only. No water or physical damage."
+          onChange={(e) => setWarrantyTermsText(e.target.value)}
+          className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Printed on receipts that include an item with a warranty (
+          {warrantyTermsText.length}/{WARRANTY_TERMS_MAX_LENGTH}).
+        </p>
       </div>
 
       {/* Receipt logo (RCP-0): printed above the receipt text on every module. */}

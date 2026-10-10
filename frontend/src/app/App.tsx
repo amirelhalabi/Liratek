@@ -33,6 +33,10 @@ const ProductList = lazyWithReload(
 const PhoneUnits = lazyWithReload(
   () => import("@/features/inventory/pages/PhoneUnits"),
 );
+// LIRA-296 — warranty lookup for any item.
+const WarrantyLookup = lazyWithReload(
+  () => import("@/features/warranty/pages/WarrantyLookup"),
+);
 const ClientList = lazyWithReload(
   () => import("@/features/clients/pages/Clients/ClientList"),
 );
@@ -266,6 +270,16 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <PhoneUnits />
+            </ProtectedRoute>
+          }
+        />
+        {/* LIRA-296 — find any warranty item (admin and staff; the search
+            itself is role-gated on both transports). */}
+        <Route
+          path="/warranty"
+          element={
+            <ProtectedRoute>
+              <WarrantyLookup />
             </ProtectedRoute>
           }
         />

@@ -30,13 +30,21 @@ import {
 } from "../repositories/ProductRepository.js";
 import { inventoryLogger } from "../utils/logger.js";
 import { clientDay } from "../utils/requestDay.js";
+import {
+  isSaleLineFullyRefunded,
+  resolveWarranty,
+  type WarrantySource,
+  type WarrantyState,
+} from "../utils/warrantyState.js";
 
 // =============================================================================
 // Warranty status — pure, unit-testable, no DB
 // =============================================================================
 
-export type WarrantySource = "OVERRIDE" | "REFUND" | "SALE" | null;
-export type WarrantyState = "COVERED" | "EXPIRED" | "VOID" | "NONE";
+// LIRA-296: the state vocabulary and precedence now live in ONE pure helper
+// (`utils/warrantyState.ts`, rule 14); re-exported here so existing imports
+// of these names from this module keep working.
+export type { WarrantySource, WarrantyState };
 
 export interface WarrantyStatusInput {
   overrideUntil: string | null;
@@ -54,38 +62,18 @@ export interface WarrantyStatus {
 }
 
 /**
- * Owner decision #11's exact precedence:
- *   (a) an operator-set `overrideUntil` always wins, covered/expired by date;
- *   (b) otherwise a refunded sale voids the warranty outright — a refunded
- *       phone has no warranty left to check, regardless of what the sale
- *       line stamped;
- *   (c) otherwise the sale's own `stampedUntil`, covered/expired by date;
- *   (d) otherwise there was never a warranty to speak of.
- * ISO-date string comparison (`>=`) is safe for `YYYY-MM-DD` values — the
- * boundary `until === today` is `COVERED` (the last day of coverage still
- * counts).
+ * Owner decision #11's exact precedence (OVERRIDE > REFUND > SALE > NONE),
+ * delegated to the shared {@link resolveWarranty} (LIRA-296) — this keeps the
+ * `{ source, until, state }` shape `getUnitStory` and the unit list stamp.
+ * The boundary `until === today` is `COVERED` (the last day still counts).
  */
 export function computeWarrantyStatus(
   input: WarrantyStatusInput,
 ): WarrantyStatus {
-  if (input.overrideUntil) {
-    return {
-      source: "OVERRIDE",
-      until: input.overrideUntil,
-      state: input.overrideUntil >= input.today ? "COVERED" : "EXPIRED",
-    };
-  }
-  if (input.saleRefunded) {
-    return { source: "REFUND", until: null, state: "VOID" };
-  }
-  if (input.stampedUntil) {
-    return {
-      source: "SALE",
-      until: input.stampedUntil,
-      state: input.stampedUntil >= input.today ? "COVERED" : "EXPIRED",
-    };
-  }
-  return { source: null, until: null, state: "NONE" };
+  return resolveWarranty(input.stampedUntil, input.today, {
+    overrideUntil: input.overrideUntil,
+    fullyRefunded: input.saleRefunded,
+  });
 }
 
 /** `sale_items.is_refunded` truthy OR `refunded_quantity >= quantity`
@@ -93,9 +81,7 @@ export function computeWarrantyStatus(
  *  every joined sale field null) is never "refunded". */
 function isSaleRefunded(row: UnitStory): boolean {
   if (row.sale_item_id === null) return false;
-  const quantity = row.quantity ?? 0;
-  const refundedQuantity = row.refunded_quantity ?? 0;
-  return !!row.is_refunded || (quantity > 0 && refundedQuantity >= quantity);
+  return isSaleLineFullyRefunded(row);
 }
 
 export interface UnitStoryWithWarranty extends UnitStory {

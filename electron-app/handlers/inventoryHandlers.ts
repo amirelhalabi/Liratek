@@ -559,6 +559,8 @@ export function registerInventoryHandlers(): void {
         const updated = catRepo.update(id, {
           name: v.data.name,
           tracksImeiUnits: v.data.tracks_imei_units,
+          // LIRA-296: the category's default warranty (null clears it).
+          warrantyMonths: v.data.warranty_months,
         });
         audit(e.sender.id, {
           action: "update",
@@ -567,7 +569,9 @@ export function registerInventoryHandlers(): void {
           summary:
             v.data.name !== undefined
               ? `Updated category #${id} to "${v.data.name}"`
-              : `Updated category #${id} (tracks_imei_units=${v.data.tracks_imei_units})`,
+              : v.data.warranty_months !== undefined
+                ? `Updated category #${id} (warranty_months=${v.data.warranty_months})`
+                : `Updated category #${id} (tracks_imei_units=${v.data.tracks_imei_units})`,
           new_values: v.data,
         });
         return { success: true, updated };

@@ -155,8 +155,18 @@
 - Exchange: the page now opens on USD → LBP.
 - From now on, keeping change on an exchange payout is refused if the amount kept is more than what was actually left unpaid.
 
+## 🛡️ Warranty
+
+- New Warranty page (in the side menu): find any item sold with a warranty — chargers, earbuds, speakers, phones — by the customer's name or phone number, the receipt number (RCP-…), the product, or a serial / IMEI. Each item shows the sale day, until when it is covered, whether it is Covered, Expired or Void, and how many units are still covered. Click a line to open the sale.
+- Sale details now show the warranty on every item that has one, not only phones: "Covered until …", "Expired on …" or "Void". When only some units of a line were refunded, it adds "1 of 3 refunded" and the rest stay covered.
+- Settings → Categories: you can set a default warranty in months for each category (for example Accessories 1 month). From now on, a product without its own warranty uses its category's default when it is sold.
+- POS: you can change an item's warranty at the till before completing the sale — tap "edit" next to "Warranty" on the cart line. The new length is used for that sale, and the app records who changed it.
+- Settings → Shop Config: new "Warranty terms" box (up to 1,000 characters). Your terms print under the items on any receipt that has an item with a warranty.
+
 ## 🛒 POS
 
+- Receipts now carry one receipt number per sale: RCP- followed by the sale number. It is the same on every reprint and you can search warranties with it. A receipt printed at checkout before a new sale is saved shows no number (a resumed draft already shows its number).
+- The "Receipt Header Text" saved in Settings → Shop Config now prints under the shop name on sale receipts and on repair, recharge and other service receipts.
 - POS: a sale that was already completed can no longer be completed a second time (for example when the web app loses its connection right after you press Complete and you press it again) — before, it could take the stock, the customer's debt and a partner's charge twice.
 - POS: refunding one item from a sale made for a partner now lowers what the partner owes by that item's price, and "Undo refund" puts it back. From now on only — earlier item refunds are not changed.
 - POS: when the customer kept their change as store credit, refunding an item now also takes back that item's share of the credit, so the customer is not paid the change twice. From now on only.
@@ -193,6 +203,7 @@
 
 ## 🌐 Web app
 
+- Web app: the recent sales list on the POS page now shows the day you pick — before, it always showed today's sales.
 - Web app: pages and pop-ups no longer get cut off at the bottom when the screen is enlarged. To make things bigger or smaller, use your browser's zoom (Ctrl + / Ctrl −, or ⌘ + / ⌘ − on a Mac); the size option in My account is now only in the desktop app.
 - The LiraTek website now has its own Arabic page at liratek.shop/ar, and the language button switches between the English and Arabic pages.
 - Web app: your browser now recognises the sign-in form. It offers to save your username and password after you sign in, and fills them in next time.

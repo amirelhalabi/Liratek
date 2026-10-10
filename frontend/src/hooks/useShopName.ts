@@ -23,6 +23,12 @@ export interface ShopInfo {
   /** Receipt logo as a data URL (base64), or "" when none is set. Printed as
    *  an <img> above the receipt text (RCP-0). */
   logo: string;
+  /** LIRA-296 (SF-3): the saved "Receipt Header Text", "" when none —
+   *  printed under the shop name on sale and service receipts. */
+  headerText: string;
+  /** LIRA-296: the shop's warranty terms, "" when none — printed on
+   *  receipts that include a warranty line. */
+  warrantyTerms: string;
 }
 
 let cachedInfo: ShopInfo | null = null;
@@ -38,6 +44,8 @@ const defaultInfo: ShopInfo = {
   phone: "",
   location: "",
   logo: "",
+  headerText: "",
+  warrantyTerms: "",
 };
 
 /** Load shop info once and share across all consumers */
@@ -81,7 +89,18 @@ export function useShopInfo(): ShopInfo {
             typeof map.get("receipt_logo") === "string"
               ? (map.get("receipt_logo") as string).trim()
               : "";
-          notify({ name, phone, location, logo });
+          const text = (key: string): string =>
+            typeof map.get(key) === "string"
+              ? (map.get(key) as string).trim()
+              : "";
+          notify({
+            name,
+            phone,
+            location,
+            logo,
+            headerText: text("receipt_header_text"),
+            warrantyTerms: text("warranty_terms_text"),
+          });
         })
         .catch(() => {
           // Deliberately NOT notify(): that writes to cachedInfo and would

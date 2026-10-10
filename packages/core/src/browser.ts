@@ -64,6 +64,11 @@ export * from "./utils/passwordPolicy.js";
 export * from "./utils/signinMethods.js";
 // LIRA-294: the Google profile photo URL rule (pure).
 export * from "./utils/googlePicture.js";
+// LIRA-296: the one receipt number per sale and the one warranty-state
+// helper (both pure). Must be exported HERE, not only from index.ts — Vite
+// and the frontend jest config resolve @liratek/core to this file.
+export * from "./utils/receiptNumber.js";
+export * from "./utils/warrantyState.js";
 export {
   EMAIL_ALREADY_HAS_SHOP,
   EMAIL_ALREADY_HAS_SHOP_MESSAGE,

@@ -4,6 +4,7 @@
  */
 
 import { addMonthsIso } from "./dateMath";
+import { wrapReceiptText } from "@/shared/utils/receiptWrap";
 
 export interface ReceiptItem {
   name: string;
@@ -35,6 +36,13 @@ function warrantyLineFor(item: ReceiptItem, timestamp: string): string | null {
   return until ? `Warranty until: ${until}` : null;
 }
 
+/** LIRA-296: the terms print only when at least one line carries a warranty. */
+function hasWarrantyLine(data: ReceiptData): boolean {
+  return data.items.some(
+    (item) => !!item.warranty_until || (item.warranty_months ?? 0) > 0,
+  );
+}
+
 export interface ReceiptData {
   shop_name: string;
   shop_phone?: string;
@@ -61,6 +69,12 @@ export interface ReceiptData {
   note?: string;
   /** Currency symbol for the primary currency (default: "$") */
   currency_symbol?: string;
+  /** LIRA-296 (SF-3): the shop's saved "Receipt Header Text", printed under
+   *  the shop name when not empty. */
+  header_text?: string;
+  /** LIRA-296: the shop's warranty terms, printed below the items only when
+   *  a line carries a warranty. */
+  warranty_terms?: string;
 }
 
 /**
@@ -88,6 +102,11 @@ export function formatReceipt58mm(data: ReceiptData): string {
   const name = padCenter(data.shop_name);
   if (name) receipt += name + "\n";
 
+  // LIRA-296 (SF-3): the saved receipt header, under the shop name.
+  for (const headerLine of wrapReceiptText(data.header_text ?? "", width)) {
+    receipt += padCenter(headerLine) + "\n";
+  }
+
   const location = padCenter(data.shop_location || "");
   if (location) receipt += location + "\n";
 
@@ -98,7 +117,8 @@ export function formatReceipt58mm(data: ReceiptData): string {
 
   // Receipt Info — date+time on one line
   const dt = new Date(data.timestamp);
-  receipt += `#${data.receipt_number}\n`;
+  // LIRA-296: no number before the sale is saved (never a made-up one).
+  if (data.receipt_number) receipt += `#${data.receipt_number}\n`;
   receipt += `${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}\n`;
 
   // Client Info (if available)
@@ -142,6 +162,14 @@ export function formatReceipt58mm(data: ReceiptData): string {
       receipt += `  ${warrantyLine}\n`;
     }
   });
+
+  // LIRA-296: the shop's warranty terms, below the items, only when a line
+  // carries a warranty.
+  if (hasWarrantyLine(data)) {
+    for (const termsLine of wrapReceiptText(data.warranty_terms ?? "", width)) {
+      receipt += termsLine + "\n";
+    }
+  }
 
   receipt += "-".repeat(width) + "\n";
 
@@ -232,6 +260,11 @@ export function formatReceipt80mm(data: ReceiptData): string {
   const name = padCenter(data.shop_name);
   if (name) receipt += name + "\n";
 
+  // LIRA-296 (SF-3): the saved receipt header, under the shop name.
+  for (const headerLine of wrapReceiptText(data.header_text ?? "", width)) {
+    receipt += padCenter(headerLine) + "\n";
+  }
+
   const location = padCenter(data.shop_location || "");
   if (location) receipt += location + "\n";
 
@@ -243,7 +276,9 @@ export function formatReceipt80mm(data: ReceiptData): string {
   receipt += "\n";
 
   // Receipt Info
-  receipt += `Receipt #: ${data.receipt_number}`.padEnd(width) + "\n";
+  if (data.receipt_number) {
+    receipt += `Receipt #: ${data.receipt_number}`.padEnd(width) + "\n";
+  }
   receipt +=
     `Date: ${new Date(data.timestamp).toLocaleDateString()}  Time: ${new Date(data.timestamp).toLocaleTimeString()}`.padEnd(
       width,
@@ -280,6 +315,14 @@ export function formatReceipt80mm(data: ReceiptData): string {
       receipt += `  ${warrantyLine}\n`;
     }
   });
+
+  // LIRA-296: the shop's warranty terms, below the items, only when a line
+  // carries a warranty.
+  if (hasWarrantyLine(data)) {
+    for (const termsLine of wrapReceiptText(data.warranty_terms ?? "", width)) {
+      receipt += termsLine + "\n";
+    }
+  }
 
   receipt += "─".repeat(width) + "\n";
 

@@ -909,3 +909,15 @@ export {
   getDatabaseResetRepository,
   resetDatabaseResetRepository,
 } from "./DatabaseResetRepository.js";
+
+// Warranty Repository (LIRA-296 — warranty lookup for any item)
+export {
+  WarrantyRepository,
+  getWarrantyRepository,
+  resetWarrantyRepository,
+} from "./WarrantyRepository.js";
+export type {
+  WarrantyLineRow,
+  WarrantyUnitRow,
+  WarrantyLineFilters,
+} from "./WarrantyRepository.js";

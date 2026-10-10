@@ -29,6 +29,8 @@ import {
   generateCartLineId,
 } from "@/features/sales/utils/cartLineKey";
 import { fetchInStockUnitsCached } from "@/features/sales/hooks/useProductUnits";
+import { toSaleItems } from "@/features/sales/utils/saleItems";
+import { localDay } from "@/shared/utils/localDay";
 
 export default function POS() {
   const api = useApi();
@@ -253,6 +255,22 @@ export default function POS() {
     [],
   );
 
+  // LIRA-296 — the cashier's warranty length for one line (null = back to
+  // the default). Key removal, not `undefined`, for the same
+  // exactOptionalPropertyTypes reason as handleSelectUnit above.
+  const handleSetWarranty = useCallback(
+    (lineKey: string, months: number | null) => {
+      setCartItems((prev) =>
+        prev.map((item) => {
+          if (getCartLineKey(item) !== lineKey) return item;
+          const { warranty_months_edit: _current, ...rest } = item;
+          return months == null ? rest : { ...rest, warranty_months_edit: months };
+        }),
+      );
+    },
+    [],
+  );
+
   const handleClearCart = useCallback(() => {
     setCartItems([]);
     setCurrentDraftId(undefined);
@@ -446,18 +464,8 @@ export default function POS() {
         const saleRequest: SaleRequest = {
           status: "draft",
           id: currentDraftId,
-          items: cartItems.map((item) => ({
-            product_id: item.id,
-            quantity: item.quantity,
-            price: item.retail_price,
-            imei: item.imei || "",
-            // `exactOptionalPropertyTypes` rejects `product_unit_id:
-            // undefined` on an optional field — omit the key entirely
-            // instead of assigning `undefined` to it.
-            ...(item.product_unit_id != null
-              ? { product_unit_id: item.product_unit_id }
-              : {}),
-          })),
+          // LIRA-296 (rule 22): the ONE item-line builder.
+          items: toSaleItems(cartItems),
           total_amount: totalAmount,
           discount,
           final_amount: totalAmount - discount,
@@ -526,15 +534,8 @@ export default function POS() {
         ...paymentData,
         ...(currentDraftId != null ? { id: currentDraftId } : {}), // Update existing draft if set
         status: "draft",
-        items: cartItems.map((item) => ({
-          product_id: item.id,
-          quantity: item.quantity,
-          price: item.retail_price,
-          imei: item.imei || "",
-          ...(item.product_unit_id != null
-            ? { product_unit_id: item.product_unit_id }
-            : {}),
-        })),
+        // LIRA-296 (rule 22): the ONE item-line builder.
+        items: toSaleItems(cartItems),
       };
 
       const result = await api.processSale(saleRequest);
@@ -677,15 +678,10 @@ export default function POS() {
         ...paymentData,
         ...(currentDraftId != null ? { id: currentDraftId } : {}), // Complete existing draft
         status: "completed",
-        items: cartItems.map((item) => ({
-          product_id: item.id,
-          quantity: item.quantity,
-          price: item.retail_price,
-          imei: item.imei || "",
-          ...(item.product_unit_id != null
-            ? { product_unit_id: item.product_unit_id }
-            : {}),
-        })),
+        // LIRA-296 (rule 27): the shop's own day starts the warranty clock.
+        client_day: localDay(),
+        // LIRA-296 (rule 22): the ONE item-line builder.
+        items: toSaleItems(cartItems),
       };
 
       const result = await api.processSale(saleRequest);
@@ -776,6 +772,7 @@ export default function POS() {
             onUpdateQuantity={handleUpdateQuantity}
             onRemoveItem={handleRemoveItem}
             onSelectUnit={handleSelectUnit}
+            onSetWarranty={handleSetWarranty}
             onClearCart={() => setShowClearConfirm(true)}
             onCheckout={() => setIsCheckoutOpen(true)}
             onOpenDrafts={() => setIsDraftsOpen(true)}
@@ -817,6 +814,9 @@ export default function POS() {
           onComplete={handleCompleteSale}
           onSaveDraft={handleSaveDraft}
           isDraft={currentDraftId !== undefined}
+          // LIRA-296: a resumed draft keeps its id when completed, so its
+          // receipt prints the same RCP-<id> a reprint prints.
+          saleId={currentDraftId ?? null}
           {...(pendingCheckoutData ? { draftData: pendingCheckoutData } : {})}
           onRestoreDraftComplete={() => {
             setPendingCheckoutData(null);

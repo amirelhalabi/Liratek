@@ -8,6 +8,8 @@ import {
   shouldAlwaysAddNewLine,
 } from "@/features/sales/utils/cartGate";
 import { getCartLineKey } from "@/features/sales/utils/cartLineKey";
+import { useCategoryWarrantyDefaults } from "@/features/sales/hooks/useCategoryWarrantyDefaults";
+import { resolveWarrantyMonths, warrantyMonthsSchema } from "@liratek/core";
 
 function WarrantyBadge({ months }: { months: number | null | undefined }) {
   if (!months || months <= 0) return null;
@@ -15,6 +17,113 @@ function WarrantyBadge({ months }: { months: number | null | undefined }) {
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-950/60 border border-red-500/60 text-xs font-semibold text-red-400 shrink-0">
       🛡 {months} month{months === 1 ? "" : "s"}
     </span>
+  );
+}
+
+const monthsLabel = (m: number) => `${m} month${m === 1 ? "" : "s"}`;
+
+/**
+ * LIRA-296 — "Warranty: N months (edit)" for one cart line. The default is
+ * the product's own length, else its category's (core's
+ * `resolveWarrantyMonths`, rule 14); the cashier may change it for this
+ * line only (0–60 months, core's `warrantyMonthsSchema`).
+ */
+function WarrantyControl({
+  item,
+  onSet,
+}: {
+  item: CartItem;
+  onSet: (months: number | null) => void;
+}) {
+  const categoryDefaults = useCategoryWarrantyDefaults();
+  const defaultMonths = resolveWarrantyMonths(
+    undefined,
+    item.warranty_months,
+    categoryDefaults.get((item.category ?? "").trim().toLowerCase()),
+  );
+  const edited = item.warranty_months_edit != null;
+  const months = resolveWarrantyMonths(
+    item.warranty_months_edit,
+    defaultMonths,
+    null,
+  );
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [invalid, setInvalid] = useState(false);
+
+  const label = months
+    ? `Warranty: ${monthsLabel(months)}${edited ? " (edited)" : ""}`
+    : edited
+      ? "No warranty (edited)"
+      : "No warranty";
+
+  if (editing) {
+    return (
+      <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+        <input
+          type="number"
+          min={0}
+          max={60}
+          step={1}
+          autoFocus
+          value={value}
+          aria-label={`Warranty months for ${item.name}`}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setInvalid(false);
+          }}
+          className="w-14 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white text-[11px] focus:outline-none focus:border-violet-500"
+        />
+        <span className="text-slate-400">months</span>
+        <button
+          type="button"
+          aria-label="Save warranty"
+          onClick={() => {
+            const n = Number(value);
+            if (value.trim() === "" || !warrantyMonthsSchema.safeParse(n).success) {
+              setInvalid(true);
+              return;
+            }
+            onSet(n);
+            setEditing(false);
+          }}
+          className="px-1.5 py-0.5 rounded bg-violet-600 hover:bg-violet-500 text-white"
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            onSet(null);
+            setEditing(false);
+          }}
+          className="px-1.5 py-0.5 rounded text-slate-400 hover:text-white"
+        >
+          Use default
+        </button>
+        {invalid && <span className="text-red-400">0 to 60 months</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+      <span className={edited ? "text-amber-300" : "text-slate-400"}>
+        {label}
+      </span>
+      <button
+        type="button"
+        aria-label="Edit warranty"
+        onClick={() => {
+          setValue(months == null ? "" : String(months));
+          setInvalid(false);
+          setEditing(true);
+        }}
+        className="text-violet-300 hover:text-violet-100 underline"
+      >
+        edit
+      </button>
+    </div>
   );
 }
 
@@ -29,6 +138,9 @@ interface CartLineRowProps {
     lineKey: string,
     unit: { id: number; imei: string } | null,
   ) => void;
+  /** LIRA-296: set (or with `null` clear) this line's warranty length edit.
+   *  Omitted → the row shows the plain warranty badge, no edit control. */
+  onSetWarranty?: (lineKey: string, months: number | null) => void;
 }
 
 /**
@@ -44,6 +156,7 @@ export function CartLineRow({
   onUpdateQuantity,
   onRemoveItem,
   onSelectUnit,
+  onSetWarranty,
 }: CartLineRowProps) {
   const lineKey = getCartLineKey(item);
   const { data: units = [] } = useInStockUnitsQuery(
@@ -83,8 +196,14 @@ export function CartLineRow({
           <h4 className="font-medium text-slate-200 text-sm line-clamp-1">
             {item.name}
           </h4>
-          <WarrantyBadge months={item.warranty_months} />
+          {!onSetWarranty && <WarrantyBadge months={item.warranty_months} />}
         </div>
+        {onSetWarranty && (
+          <WarrantyControl
+            item={item}
+            onSet={(months) => onSetWarranty(lineKey, months)}
+          />
+        )}
 
         {mode === "unit-picker" && (
           <div className="mt-2">

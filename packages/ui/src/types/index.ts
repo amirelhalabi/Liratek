@@ -58,6 +58,11 @@ export type CartItem = Partial<ProductEntity> & {
   // frontend/src/features/sales/utils/cartGate.ts).
   tracks_imei_units?: number;
   warranty_months?: number | null;
+  /** LIRA-296: the warranty length the cashier set for THIS line at the
+   *  till (0–60 months). `undefined`/`null` = not edited — the server
+   *  resolves the default (product, else category). Sent as the sale item's
+   *  `warranty_months` only when set. */
+  warranty_months_edit?: number | null;
   /** The specific IN_STOCK `product_units` row this line sells. Only
    *  meaningful when `tracks_imei_units` is truthy AND the product has
    *  registered units — see resolveCartLineMode. Set by the operator

@@ -55,6 +55,11 @@ import type { SaveMaintenanceJobPayload } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
 import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
+import type {
+  SalesDateRangeInput,
+  UpdateCategoryPayload,
+  WarrantySearchInput,
+} from "@liratek/core";
 
 export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
@@ -142,16 +147,17 @@ export class ElectronApiAdapter implements ApiAdapter {
   getOpenStockBatches = (productId: number) =>
     api.getOpenStockBatches(productId);
   resolveScanCode = (code: string) => api.resolveScanCode(code);
+  /** LIRA-296 — warranty lookup for any item. */
+  searchWarranties = (input: WarrantySearchInput) =>
+    api.searchWarranties(input);
 
   // ---------------------------------------------------------------------------
   // Categories (LIRA-143 Phase 5 — Settings manager)
   // ---------------------------------------------------------------------------
   getCategoriesFull = () => api.getCategoriesFull();
   createCategory = (name: string) => api.createCategory(name);
-  updateCategory = (
-    id: number,
-    data: { name?: string; tracks_imei_units?: boolean },
-  ) => api.updateCategory(id, data);
+  updateCategory = (id: number, data: UpdateCategoryPayload) =>
+    api.updateCategory(id, data);
   deleteCategory = (id: number) => api.deleteCategory(id);
 
   // ---------------------------------------------------------------------------
@@ -160,6 +166,9 @@ export class ElectronApiAdapter implements ApiAdapter {
   getDrafts = () => api.getDrafts();
   deleteDraft = (saleId: number) => api.deleteDraft(saleId);
   processSale = (payload: any) => api.processSale(payload);
+  /** LIRA-296 SF-2 — sales between two shop days (IPC or REST). */
+  getSalesByDateRange = (range: SalesDateRangeInput) =>
+    api.getSalesByDateRange(range);
   getSale = (saleId: number) => api.getSale(saleId);
   getSaleItems = (saleId: number) => api.getSaleItems(saleId);
   /** Refund a WHOLE sale (admin only). LIRA-231: refundLegs optional.

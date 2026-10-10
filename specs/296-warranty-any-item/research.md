@@ -63,6 +63,21 @@ The status is computed once, in a pure core helper `warrantyState(untilIso, toda
 
 **Alternatives considered:** storing only the date. Rejected: then nothing records that staff changed the length.
 
+### Rule 23 three-way key diff — the sale item (T019, done 2026-10-10, before the schema change)
+
+| Key | (a) `saleProcessSchema` item | (b) `preload.ts` `sales.process` type | (c) forwarded by `salesHandlers.ts` → `SalesRepository.processSale` |
+|---|---|---|---|
+| `product_id`, `quantity`, `price` | yes | — (`saleData: unknown`) | yes (whole `v.data`) |
+| `imei` | yes | — | yes |
+| `product_unit_id` | yes | — | yes |
+| `warranty_months` (new) | **added** | **added** (`SaleRequest`) | yes (read by the repository) |
+
+Top level, same diff: `client_day` (new) is added to the schema, `SaleRequest` and the preload type; the handler and the REST route forward the whole parsed body, so nothing else is needed there.
+
+**Findings (reported, not fixed here):**
+- The preload binding typed the payload as `unknown`, so (b) declared no keys at all. It now uses core's `SaleRequest` (rule 12/21).
+- `SaleRequest.transaction_time` and `deferPayment` are declared on the type (and `electron.d.ts`) and read by the repository, but **`saleProcessSchema` has no key for either**, so Zod strips them on both transports: a POS backdated sale (`TransactionTimeOverride` in the checkout) silently books at "now". Pre-existing (rule 23 corollary). The warranty start day therefore follows `client_day`, which is what actually reaches the repository.
+
 ## R4. Warranty terms on the receipt
 
 **Decision:**
@@ -107,6 +122,28 @@ For unit-tracked lines, the refunded units are the ones `_applySaleItemReversal`
 **Alternatives considered:**
 - Booking warranty cost as an `EXPENSE`. Rejected: expenses move a drawer, and here no cash moves.
 - A $0 "warranty sale". Rejected: it would show as a loss in Sales and need an exclusion predicate on every sales query.
+
+### §13 walk-through (T001, rule 18 — read 2026-10-10 before any money code)
+
+`docs/FEATURE_GUIDE.md` §13, item by item, against P2 (claims, defective holding, repair warranty) and P3 (supplier returns):
+
+| # | Item | P2 | P3 |
+|---|---|---|---|
+| 1 | Schema/plumbing | **Yes** — v206 in both files; repo → service → handler + Zod + `requireRole`; preload + `electron.d.ts`; core build. | **Yes** — v207, same. |
+| 2 | Transactions row | **Yes** — new `WARRANTY_COST` constant; `source_table='warranty_claims'`/`source_id`; `client_id` from the claim's sale; `profit_usd` (−cost); no supplier sibling. | **Yes** — +credit / +cost rows on supplier outcomes. |
+| 3 | IN/OUT badge | **Yes** — `WARRANTY_COST` in `getCashFlowDirection` (no drawer, so neutral). | — |
+| 4 | Payment legs | **Only REFUND** — reuses `refundSaleItem`'s legs untouched; claim code never iterates legs itself. REPLACE/REPAIR have none. | — |
+| 5 | Drawers | **Only REFUND** (existing refund legs). `WARRANTY_COST` never moves a drawer. | — (supplier credit is a ledger ADJUSTMENT, no drawer) |
+| 6 | Client propagation | **Yes** — the claim's customer flows to the repair job and to every transaction row (rule 11). | — |
+| 7 | CUSTOMER_ACCOUNT | Only through REFUND's existing refund-item path (unchanged). | — |
+| 8 | Supplier ledger | — | **Yes** — CREDITED writes `SupplierRepository.addLedgerEntry` ADJUSTMENT; sign = reduces what the shop owes. |
+| 9 | Void path | **Yes** — `WARRANTY_COST` is in `NON_REVERSIBLE_TRANSACTION_TYPES`; `voidClaim` is the reversal owner; nets-to-zero test written first (T032). | **Yes** — `voidClaim` refuses `DEFECTIVE_ALREADY_SENT`; supplier outcomes covered by the extended T032 test. |
+| 10 | Profits | **Yes** — `WARRANTY` by-module row; `WARRANTY_JOB` predicate keeps warranty repairs out of MAINTENANCE. | **Yes** — recoveries reduce the WARRANTY row. |
+| 11 | Sessions | **No basket branch** — claims are not sold through a customer session; documented here. | — |
+| 12 | Audit viewer | **Yes** — label for `WARRANTY_COST`, `is_auto` (rule 26) hides it by default; type filter reveals it. | — |
+| 13 | E2E guard | **Yes** — web e2e replace → void → deltas back to zero. | **Yes** — supplier spec. |
+| 14 | One obligation, one owner | Defective stock value is owned by `defective_items` only (never also `stock_quantity`); the warranty cost is owned by `WARRANTY_COST` only (never also an EXPENSE). | Supplier credit owned by the supplier ledger; the +credit `WARRANTY_COST` row is its profit side, not a second obligation. |
+| 15 | Legs vs amount | REFUND inherits refund-item's existing reconciliation; claim code adds no legs. | — |
 
 ## R7. Repair warranty (user story 5, P2)
 

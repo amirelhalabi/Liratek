@@ -29,6 +29,7 @@ import {
   Truck,
   Gift,
   Pin,
+  ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -87,6 +88,9 @@ export default function Sidebar({
 }: SidebarProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  // LIRA-296: the Warranty lookup is for admins and staff (the search is
+  // role-gated to exactly these on both transports).
+  const canLookUpWarranty = isAdmin || user?.role === "staff";
   const { enabledModules } = useModules();
   const shopName = useShopName();
   const { flags } = useFeatureFlags();
@@ -255,6 +259,29 @@ export default function Sidebar({
 
         {/* Regular items */}
         {restItems.map(renderNavItem)}
+
+        {canLookUpWarranty && (
+          <NavLink
+            to="/warranty"
+            className={({ isActive }) =>
+              clsx(
+                "flex items-center gap-3 py-2.5 rounded-xl transition-all font-medium whitespace-nowrap w-full",
+                isActive
+                  ? "bg-violet-600 text-white"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-white",
+                isCollapsed ? "justify-center px-1" : "px-3",
+              )
+            }
+            title={isCollapsed ? "Warranty" : undefined}
+          >
+            <ShieldCheck size={20} className="min-w-[20px]" />
+            {!isCollapsed && (
+              <span className="opacity-100 transition-opacity duration-200">
+                Warranty
+              </span>
+            )}
+          </NavLink>
+        )}
 
         {isAdmin && flags.sessionManagement && (
           <NavLink

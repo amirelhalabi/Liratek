@@ -66,6 +66,9 @@ export * from "./utils/customServiceWorkStatus.js";
 export * from "./utils/phoneNumber.js";
 export * from "./utils/lotMarketRate.js";
 export * from "./utils/sqlLike.js";
+// LIRA-296: receipt number + warranty state (pure; also in browser.ts).
+export * from "./utils/receiptNumber.js";
+export * from "./utils/warrantyState.js";
 // OMT / WHISH fee tables + commission rates — also exported from browser.ts.
 export * from "./utils/omtFees.js";
 export * from "./utils/whishFees.js";

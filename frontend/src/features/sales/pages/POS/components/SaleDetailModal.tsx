@@ -19,7 +19,7 @@ import { useShopInfo } from "@/hooks/useShopName";
 import { printReceipt } from "@/shared/utils/printReceipt";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
-import { getWarrantyState } from "@/features/sales/utils/warrantyStatus";
+import { localDay } from "@/shared/utils/localDay";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import {
   RefundMethodModal,
@@ -29,6 +29,8 @@ import { RefundQuantityModal } from "@/features/audit/components/RefundQuantityM
 import { useSessionItemRefund } from "@/features/audit/hooks/useSessionItemRefund";
 import {
   REFUND_KEPT_CHANGE_TYPES,
+  receiptNumberFor,
+  resolveWarranty,
   type RefundKeptChangeInput,
 } from "@liratek/core";
 import type { TransactionPaymentLeg } from "@/features/audit/cashFlow";
@@ -73,6 +75,9 @@ interface SaleItem {
    *  already selected via `si.*` in SalesRepository.getSaleItems). Null for a
    *  non-IMEI-tracked line or a product with no warranty_months. */
   warranty_until?: string | null;
+  /** LIRA-296 — the line's SOLD unit's override (LIRA-143), when there is
+   *  one; it wins over `warranty_until` (same precedence as the search). */
+  warranty_override_until?: string | null;
 }
 
 interface SaleDetail {
@@ -552,7 +557,10 @@ export default function SaleDetailModal({
       shop_name: shopInfo.name,
       shop_phone: shopInfo.phone,
       shop_location: shopInfo.location,
-      receipt_number: `RCP-${sale.id}`,
+      // LIRA-296: the saved header (SF-3) and the warranty terms.
+      header_text: shopInfo.headerText ?? "",
+      warranty_terms: shopInfo.warrantyTerms ?? "",
+      receipt_number: receiptNumberFor(sale.id),
       client_name: sale.client_name || "Walk-in Customer",
       client_phone: sale.client_phone || "",
       items: items.map((item) => ({
@@ -628,9 +636,9 @@ export default function SaleDetailModal({
   // reaching `AccountReductionInfo.clientLabel` (exactOptionalPropertyTypes).
   const sessionAccountClientLabel: string | undefined =
     sessionRefund.preview?.accountClientName || sale?.client_name || undefined;
-  // LIRA-143 phase 6a — computed once per render for the per-line warranty
-  // hint below (getWarrantyState compares only the YYYY-MM-DD prefix).
-  const todayIso = new Date().toISOString();
+  // LIRA-296 — the per-line warranty state uses the shop's own day (the
+  // browser's local day, rule 27), never the UTC day toISOString() gives.
+  const today = localDay();
 
   return (
     <div
@@ -789,34 +797,47 @@ export default function SaleDetailModal({
                               </span>
                             )}
                           </div>
-                          {/* LIRA-143 phase 6a — minimal warranty hint;
-                              the full precedence UI (overrides, refund
-                              interaction) lives in the IMEI story card. */}
-                          {item.warranty_until &&
+                          {/* LIRA-296 — every warranty line shows its
+                              state (override > refund > stamped date), and a
+                              partly refunded line says how many units were
+                              refunded. A line without a warranty shows
+                              nothing. */}
+                          {(item.warranty_until ||
+                            item.warranty_override_until) &&
                             (() => {
-                              const state = getWarrantyState(
+                              const w = resolveWarranty(
                                 item.warranty_until,
-                                todayIso,
-                                isFullyRefunded,
+                                today,
+                                {
+                                  overrideUntil: item.warranty_override_until,
+                                  fullyRefunded: isFullyRefunded,
+                                },
                               );
-                              if (state === "NONE") return null;
-                              const label =
-                                state === "VOID"
-                                  ? "Warranty void (refunded)"
-                                  : state === "COVERED"
-                                    ? `Warranty until ${item.warranty_until} (covered)`
-                                    : `Warranty until ${item.warranty_until} (expired)`;
+                              if (w.state === "NONE") return null;
+                              const base =
+                                w.state === "VOID"
+                                  ? "Void"
+                                  : w.state === "COVERED"
+                                    ? `Covered until ${w.until}`
+                                    : `Expired on ${w.until}`;
+                              const partly =
+                                w.state !== "VOID" &&
+                                alreadyRefunded > 0 &&
+                                alreadyRefunded < item.quantity
+                                  ? ` · ${alreadyRefunded} of ${item.quantity} refunded`
+                                  : "";
                               const colorClass =
-                                state === "VOID"
-                                  ? "text-slate-600"
-                                  : state === "COVERED"
+                                w.state === "VOID"
+                                  ? "text-slate-500"
+                                  : w.state === "COVERED"
                                     ? "text-emerald-500"
                                     : "text-amber-500";
                               return (
                                 <div
+                                  data-testid="sale-line-warranty"
                                   className={`text-[11px] mt-0.5 ${colorClass}`}
                                 >
-                                  {label}
+                                  {base + partly}
                                 </div>
                               );
                             })()}

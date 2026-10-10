@@ -156,3 +156,89 @@ describe("Receipt Formatter", () => {
     });
   });
 });
+
+// LIRA-296 (T023 / T026, SF-3) — the shop's warranty terms print below the
+// items only when a line carries a warranty; the saved receipt header prints
+// under the shop name when it is set. Both widths.
+describe("Receipt Formatter — warranty terms and header (LIRA-296)", () => {
+  const base: ReceiptData = {
+    shop_name: "Test Shop",
+    receipt_number: "RCP-12",
+    items: [{ name: "Cable", quantity: 1, price: 5, subtotal: 5 }],
+    subtotal: 5,
+    discount: 0,
+    total: 5,
+    payment_usd: 5,
+    payment_lbp: 0,
+    change_usd: 0,
+    change_lbp: 0,
+    exchange_rate: 89500,
+    timestamp: "2026-10-10T10:00:00Z",
+  };
+  const TERMS = "Covers manufacturing faults only.";
+  const withWarranty: ReceiptData = {
+    ...base,
+    warranty_terms: TERMS,
+    items: [
+      {
+        name: "Earbuds",
+        quantity: 1,
+        price: 20,
+        subtotal: 20,
+        warranty_until: "2026-11-10",
+      },
+    ],
+  };
+
+  for (const [label, fmt, width] of [
+    ["58mm", formatReceipt58mm, 42],
+    ["80mm", formatReceipt80mm, 56],
+  ] as const) {
+    describe(label, () => {
+      it("prints the terms when a line has a warranty", () => {
+        const r = fmt(withWarranty);
+        expect(r).toContain(TERMS);
+        // Below the items: after the item name.
+        expect(r.indexOf(TERMS)).toBeGreaterThan(r.indexOf("Earbuds"));
+      });
+
+      it("also when the warranty comes from warranty_months (live checkout)", () => {
+        const r = fmt({
+          ...base,
+          warranty_terms: TERMS,
+          items: [
+            { name: "Case", quantity: 1, price: 5, subtotal: 5, warranty_months: 1 },
+          ],
+        });
+        expect(r).toContain(TERMS);
+      });
+
+      it("prints no terms when no line has a warranty", () => {
+        expect(fmt({ ...base, warranty_terms: TERMS })).not.toContain(TERMS);
+      });
+
+      it("wraps long terms to the paper width", () => {
+        const long = "Warranty covers manufacturing faults only and excludes water damage, drops and opened devices.";
+        const r = fmt({ ...withWarranty, warranty_terms: long });
+        for (const lineText of r.split("\n")) {
+          expect(lineText.length).toBeLessThanOrEqual(width);
+        }
+        expect(r.replace(/\s+/g, " ")).toContain(long);
+      });
+
+      it("prints the receipt header under the shop name when set", () => {
+        const r = fmt({ ...base, header_text: "Open daily 9-9" });
+        expect(r).toContain("Open daily 9-9");
+        expect(r.indexOf("Open daily 9-9")).toBeGreaterThan(
+          r.indexOf("Test Shop"),
+        );
+        expect(r.indexOf("Open daily 9-9")).toBeLessThan(r.indexOf("Cable"));
+      });
+
+      it("prints nothing extra when the header is empty", () => {
+        expect(fmt({ ...base, header_text: "" })).toBe(fmt(base));
+        expect(fmt({ ...base, header_text: "   " })).toBe(fmt(base));
+      });
+    });
+  }
+});

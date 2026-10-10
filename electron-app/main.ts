@@ -577,6 +577,7 @@ async function registerHandlers() {
     const holdMoneyHandlers = await import("./handlers/holdMoneyHandlers.js");
     const carrierLineHandlers =
       await import("./handlers/carrierLineHandlers.js");
+    const warrantyHandlers = await import("./handlers/warrantyHandlers.js");
     const databaseResetHandlers =
       await import("./handlers/databaseResetHandlers.js");
 
@@ -623,6 +624,7 @@ async function registerHandlers() {
     voucherHandlers.registerVoucherHandlers();
     holdMoneyHandlers.registerHoldMoneyHandlers();
     carrierLineHandlers.registerCarrierLineHandlers();
+    warrantyHandlers.registerWarrantyHandlers();
     licenseHandlers.registerLicenseHandlers();
     databaseResetHandlers.registerDatabaseResetHandlers();
 

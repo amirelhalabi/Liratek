@@ -13,6 +13,8 @@ interface CartProps {
     lineKey: string,
     unit: { id: number; imei: string } | null,
   ) => void;
+  /** LIRA-296 — set/clear a line's warranty length edit at the till. */
+  onSetWarranty?: (lineKey: string, months: number | null) => void;
   onClearCart: () => void;
   onCheckout: () => void;
   onOpenDrafts: () => void;
@@ -28,6 +30,7 @@ export default function Cart({
   onUpdateQuantity,
   onRemoveItem,
   onSelectUnit,
+  onSetWarranty,
   onClearCart,
   onCheckout,
   onOpenDrafts,
@@ -94,6 +97,7 @@ export default function Cart({
               onUpdateQuantity={onUpdateQuantity}
               onRemoveItem={onRemoveItem}
               onSelectUnit={onSelectUnit}
+              {...(onSetWarranty ? { onSetWarranty } : {})}
             />
           ))
         )}

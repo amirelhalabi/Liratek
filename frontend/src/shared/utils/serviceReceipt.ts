@@ -19,6 +19,7 @@
 
 import { printReceipt } from "./printReceipt";
 import { rechargeDetailLabel } from "./rechargeLabels";
+import { wrapReceiptText } from "./receiptWrap";
 
 const WIDTH = 42;
 
@@ -43,8 +44,17 @@ export interface ServiceReceiptLeg {
   direction?: "IN" | "OUT";
 }
 
+/** The shop fields a service receipt prints. `headerText` (LIRA-296, SF-3)
+ *  is the saved "Receipt Header Text", printed under the shop name. */
+export interface ServiceReceiptShop {
+  name: string;
+  phone?: string;
+  location?: string;
+  headerText?: string;
+}
+
 export interface ServiceReceiptInput {
-  shop: { name: string; phone?: string; location?: string };
+  shop: ServiceReceiptShop;
   txn: ServiceReceiptTxn;
   legs: ServiceReceiptLeg[];
   operator?: string;
@@ -164,6 +174,9 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
 
   let r = border + "\n";
   if (shop.name) r += center(shop.name) + "\n";
+  for (const headerLine of wrapReceiptText(shop.headerText ?? "", WIDTH)) {
+    r += center(headerLine) + "\n";
+  }
   if (shop.location) r += center(shop.location) + "\n";
   if (shop.phone) r += center(shop.phone) + "\n";
   r += border + "\n";
@@ -253,7 +266,7 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
 export async function buildServiceReceiptTextByTransaction(
   api: ServiceReceiptApi,
   transactionId: number,
-  shop: { name: string; phone?: string; location?: string },
+  shop: ServiceReceiptShop,
 ): Promise<{ ok: boolean; text?: string; error?: string }> {
   try {
     const txn = await api.getTransactionById(transactionId);
@@ -324,7 +337,7 @@ export async function getConfiguredReceiptPrinter(
 export async function printServiceReceiptByTransaction(
   api: ServiceReceiptApi,
   transactionId: number,
-  shop: { name: string; phone?: string; location?: string; logo?: string },
+  shop: ServiceReceiptShop & { logo?: string },
 ): Promise<{ ok: boolean; error?: string }> {
   const built = await buildServiceReceiptTextByTransaction(
     api,

@@ -93,6 +93,10 @@ export interface SaleWithClient extends SaleEntity {
 export interface SaleItemWithProduct extends SaleItemEntity {
   name: string;
   barcode: string;
+  /** LIRA-296: the line's SOLD unit's warranty override (LIRA-143), or
+   *  null — so the sale details apply the same precedence as the warranty
+   *  search (override > refund > stamped date). */
+  warranty_override_until?: string | null;
 }
 
 export interface DraftSaleWithItems extends SaleWithClient {
@@ -120,6 +124,8 @@ import {
   type ProductUnitEntity,
 } from "./ProductUnitRepository.js";
 import { addMonthsIso } from "../utils/dates.js";
+import { clientDay } from "../utils/requestDay.js";
+import { resolveWarrantyMonths } from "../utils/warrantyState.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 
 // Backward compatible payment method type (DB values)
@@ -153,6 +159,10 @@ export interface SaleRequest {
      *  `processSale`'s strictness check) rather than silently guessing
      *  which physical unit left the shop. */
     product_unit_id?: number;
+    /** LIRA-296: the warranty length edited at the till for this line
+     *  (0–60 months). Omitted/null = the resolved default
+     *  (`products.warranty_months ?? category.warranty_months`). */
+    warranty_months?: number | null;
   }[];
   total_amount: number;
   discount: number;
@@ -197,6 +207,9 @@ export interface SaleRequest {
   partnerId?: number;
   /** Only "FOR" is valid for POS — the partner analog of CUSTOMER_ACCOUNT. */
   partnerMode?: "FOR";
+  /** LIRA-296 (rule 27): the shop's own day (`YYYY-MM-DD`) from the client;
+   *  the warranty clock starts on it. Omitted: `clientDay()`. */
+  client_day?: string | undefined;
 }
 
 export interface DashboardStats {
@@ -351,6 +364,33 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    * repository is a long-lived singleton and the schema shape never changes
    * once the process is up, so there is no reason to re-query on every sale.
    */
+  /** LIRA-296 v205: does this connection have the category default
+   *  (`product_categories.warranty_months` + `products.category_id`) and the
+   *  line audit columns (`sale_items.warranty_months`/`warranty_set_by`)?
+   *  Guards every hand-built test schema that predates v205 — the real
+   *  schema (create_db.sql + migrations) always has them. Probed once. */
+  private _warrantyV205Cache: { category: boolean; lineAudit: boolean } | null =
+    null;
+  private _warrantyV205(): { category: boolean; lineAudit: boolean } {
+    if (this._warrantyV205Cache === null) {
+      const has = (table: string, col: string): boolean =>
+        (
+          this.db.prepare(`PRAGMA table_info(${table})`).all() as {
+            name: string;
+          }[]
+        ).some((c) => c.name === col);
+      this._warrantyV205Cache = {
+        category:
+          has("product_categories", "warranty_months") &&
+          has("products", "category_id"),
+        lineAudit:
+          has("sale_items", "warranty_months") &&
+          has("sale_items", "warranty_set_by"),
+      };
+    }
+    return this._warrantyV205Cache;
+  }
+
   private _productUnitsTableExistsCache: boolean | null = null;
   private _productUnitsTableExists(): boolean {
     if (this._productUnitsTableExistsCache === null) {
@@ -677,16 +717,44 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           warrantyMonths: number | null;
           costPriceUsd: number;
         }[] = [];
-        for (const item of sale.items) {
-          const productRow = db
-            .prepare(
-              "SELECT name, cost_price_usd, warranty_months FROM products WHERE id = ? AND tenant_id = ?",
+        // LIRA-296: the category's default warranty rides along in the SAME
+        // per-item lookup — by `category_id`, else (legacy rows) by the
+        // category NAME the product carries. Tenant-scoped on both tables.
+        const warrantyCaps = this._warrantyV205();
+        const productMetaStmt = warrantyCaps.category
+          ? db.prepare(
+              `SELECT p.name, p.cost_price_usd, p.warranty_months,
+                      COALESCE(
+                        (SELECT pc.warranty_months FROM product_categories pc
+                          WHERE pc.tenant_id = ? AND pc.id = p.category_id),
+                        (SELECT pc.warranty_months FROM product_categories pc
+                          WHERE pc.tenant_id = ? AND p.category_id IS NULL
+                            AND pc.name = p.category COLLATE NOCASE
+                          LIMIT 1)
+                      ) AS category_warranty_months
+                 FROM products p WHERE p.id = ? AND p.tenant_id = ?`,
             )
-            .get(item.product_id, tenantId) as
+          : null;
+        for (const item of sale.items) {
+          const productRow = (
+            productMetaStmt
+              ? productMetaStmt.get(
+                  tenantId,
+                  tenantId,
+                  item.product_id,
+                  tenantId,
+                )
+              : db
+                  .prepare(
+                    "SELECT name, cost_price_usd, warranty_months FROM products WHERE id = ? AND tenant_id = ?",
+                  )
+                  .get(item.product_id, tenantId)
+          ) as
             | {
                 name?: string;
                 cost_price_usd: number;
                 warranty_months: number | null;
+                category_warranty_months?: number | null;
               }
             | undefined;
           const costPrice = productRow?.cost_price_usd ?? 0;
@@ -699,7 +767,13 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           saleItemDetails.push({ name, quantity: item.quantity });
           productMetaByIndex.push({
             name,
-            warrantyMonths: productRow?.warranty_months ?? null,
+            // LIRA-296: the DEFAULT for this line (product, else category) —
+            // the till edit is layered on top below (resolveWarrantyMonths).
+            warrantyMonths: resolveWarrantyMonths(
+              undefined,
+              productRow?.warranty_months,
+              productRow?.category_warranty_months,
+            ),
             costPriceUsd: costPrice,
           });
         }
@@ -722,6 +796,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei, warranty_until, tenant_id
           ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?), ?, ?, ?)
         `);
+        // LIRA-296: the line audit (length used + who changed it at the till).
+        const itemWarrantyAuditStmt = warrantyCaps.lineAudit
+          ? db.prepare(
+              `UPDATE sale_items SET warranty_months = ?, warranty_set_by = ? WHERE id = ? AND tenant_id = ?`,
+            )
+          : null;
 
         const stockStmt = db.prepare(
           allowOutOfStock
@@ -772,11 +852,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           : null;
 
         // The sale-wide business date the warranty clock starts from (owner
-        // decision #4): backdated `transaction_time` when set, else "now" —
-        // the same convention the sale/transaction rows themselves use.
-        const saleDateIso = (
-          sale.transaction_time ?? new Date().toISOString()
-        ).slice(0, 10);
+        // decision #4): backdated `transaction_time` when set; else the
+        // SHOP's own day — `client_day` from the client, falling back to the
+        // request's day (`clientDay()`: X-Client-Day on web, the machine's
+        // own day on desktop). Never the server's UTC date (LIRA-296, rule
+        // 27): a web sale at 00:30 Beirut is 21:30 UTC the day before.
+        const saleDateIso = sale.transaction_time
+          ? sale.transaction_time.slice(0, 10)
+          : (sale.client_day ?? clientDay());
 
         sale.items.forEach((item, index) => {
           let imeiToWrite = item.imei || null;
@@ -849,11 +932,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           // warranty_months stamps sale date + months, unit-tracked or not.
           // Only on a completed sale — a draft's date isn't the sale date,
           // and the completed re-submit stamps fresh.
-          const warrantyMonths = productMetaByIndex[index].warrantyMonths;
+          // LIRA-296: line edit at the till ?? product ?? category ?? none.
+          // `0` (an explicit edit) means no warranty on this line.
+          const defaultMonths = productMetaByIndex[index].warrantyMonths;
+          const warrantyMonths = resolveWarrantyMonths(
+            item.warranty_months,
+            defaultMonths,
+            null,
+          );
           const warrantyUntil =
             status === "completed" && warrantyMonths
               ? addMonthsIso(saleDateIso, warrantyMonths)
               : null;
+          const warrantyEditedAtTill =
+            item.warranty_months != null &&
+            item.warranty_months !== defaultMonths;
 
           const itemResult = itemStmt.run(
             saleId,
@@ -866,6 +959,18 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             warrantyUntil,
             tenantId,
           );
+
+          // LIRA-296: stamp the length used and, only when staff changed it
+          // at the till, who did — completed lines only (a draft's line is
+          // re-inserted fresh when it completes).
+          if (itemWarrantyAuditStmt && status === "completed") {
+            itemWarrantyAuditStmt.run(
+              warrantyMonths ?? null,
+              warrantyEditedAtTill ? userId : null,
+              Number(itemResult.lastInsertRowid),
+              tenantId,
+            );
+          }
 
           if (matchedUnit) {
             getProductUnitRepository().markSold(
@@ -1593,13 +1698,24 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   getSaleItems(saleId: number): SaleItemWithProduct[] {
     try {
       const tenantId = getCurrentTenantId();
+      // LIRA-296: the SOLD unit's override rides along (null when the
+      // line has no unit, or its unit was refunded back into stock).
+      // Guarded: hand-built test schemas may predate product_units.
+      const withUnits = this._productUnitsTableExists();
+      const overrideCol = withUnits
+        ? `(SELECT pu.warranty_override_until FROM product_units pu
+             WHERE pu.sale_item_id = si.id AND pu.tenant_id = ?
+               AND pu.status = 'SOLD'
+             ORDER BY pu.id LIMIT 1) AS warranty_override_until`
+        : `NULL AS warranty_override_until`;
       return this.query<SaleItemWithProduct>(
         `
-        SELECT si.*, p.name, p.barcode
+        SELECT si.*, p.name, p.barcode, ${overrideCol}
         FROM sale_items si
         JOIN products p ON si.product_id = p.id AND p.tenant_id = ?
         WHERE si.sale_id = ? AND si.tenant_id = ?
       `,
+        ...(withUnits ? [tenantId] : []),
         tenantId,
         saleId,
         tenantId,

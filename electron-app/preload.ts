@@ -28,6 +28,12 @@ import type {
   CreateCustomServicePayload,
   // LIRA-293 — change your own password (core schema input, rule 21).
   ChangeOwnPasswordInput,
+  // LIRA-296 — warranty search payload (core schema input, rule 21).
+  WarrantySearchInput,
+  // LIRA-296 — category update payload incl. warranty_months (rule 21).
+  UpdateCategoryPayload,
+  // LIRA-296 — the sale payload (per-line warranty_months, client_day).
+  SaleRequest,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -160,7 +166,9 @@ contextBridge.exposeInMainWorld("api", {
      *  normalized to the object shape before crossing the IPC boundary. */
     updateCategory: (
       id: number,
-      data: string | { name?: string; tracks_imei_units?: boolean },
+      // LIRA-296: derived from updateCategorySchema (rule 21) — carries
+      // warranty_months too.
+      data: string | UpdateCategoryPayload,
     ) =>
       ipcRenderer.invoke(
         "inventory:update-category",
@@ -194,7 +202,9 @@ contextBridge.exposeInMainWorld("api", {
 
   // Sales
   sales: {
-    process: (saleData: unknown) =>
+    // LIRA-296 (rule 12/23): typed from core's SaleRequest — it carries the
+    // per-line `warranty_months` and the sale's `client_day`.
+    process: (saleData: SaleRequest) =>
       ipcRenderer.invoke("sales:process", saleData),
     get: (saleId: number) => ipcRenderer.invoke("sales:get", saleId),
     getItems: (saleId: number) => ipcRenderer.invoke("sales:get-items", saleId),
@@ -1160,6 +1170,13 @@ contextBridge.exposeInMainWorld("api", {
       unitCostUsd?: number;
       note?: string;
     }) => ipcRenderer.invoke("exchange-lots:adjust", data),
+  },
+
+  // Warranty (LIRA-296 — warranty for any item). Payload types come from
+  // the core schemas (rule 21).
+  warranty: {
+    search: (data: WarrantySearchInput) =>
+      ipcRenderer.invoke("warranty:search", data),
   },
 
   // Product Units (LIRA-143 Phase 5 — phone IMEI units & warranty) —

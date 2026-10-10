@@ -729,7 +729,8 @@ router.post(
   },
 );
 
-// PUT /api/inventory/categories/:id — name and/or tracks_imei_units flag
+// PUT /api/inventory/categories/:id — name, tracks_imei_units flag and/or
+// the default warranty_months (LIRA-296)
 router.put(
   "/categories/:id",
   requireRole(["admin", "staff"]),
@@ -744,6 +745,8 @@ router.put(
       const updated = getCategoryRepository().update(id, {
         name: req.body.name,
         tracksImeiUnits: req.body.tracks_imei_units,
+        // LIRA-296: the category's default warranty (null clears it).
+        warrantyMonths: req.body.warranty_months,
       });
       auditRest(req, {
         action: "update",
@@ -752,7 +755,9 @@ router.put(
         summary:
           req.body.name !== undefined
             ? `Updated category #${id} to "${req.body.name}"`
-            : `Updated category #${id} (tracks_imei_units=${req.body.tracks_imei_units})`,
+            : req.body.warranty_months !== undefined
+              ? `Updated category #${id} (warranty_months=${req.body.warranty_months})`
+              : `Updated category #${id} (tracks_imei_units=${req.body.tracks_imei_units})`,
         new_values: req.body,
       });
       res.json({ success: true, updated });

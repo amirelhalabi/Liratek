@@ -23,10 +23,8 @@ import type { Client, CartItem, SaleRequest } from "@liratek/ui";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import {
-  RECEIPT_NUMBER_PREFIX,
-  DEFAULT_DRAWER_NAME as DRAWER_B,
-} from "@/constants/checkout";
+import { DEFAULT_DRAWER_NAME as DRAWER_B } from "@/constants/checkout";
+import { receiptNumberFor } from "@liratek/core";
 import {
   isPaymentComplete,
   convertLBPToUSD,
@@ -105,6 +103,9 @@ interface CheckoutModalProps {
   draftData?: CheckoutDraftData; // optional: only provided when restoring a draft
   onRestoreDraftComplete?: () => void;
   isDraft?: boolean;
+  /** LIRA-296: the sale's id when it already exists (a resumed draft) — the
+   *  receipt then prints `RCP-<id>`, the same number a reprint prints. */
+  saleId?: number | null | undefined;
 }
 
 export type CheckoutDraftData = {
@@ -125,8 +126,6 @@ export type CheckoutDraftData = {
   selectedPartnerId?: number | null;
 };
 
-const generateReceiptNumber = () => `${RECEIPT_NUMBER_PREFIX}${Date.now()}`;
-
 export default function CheckoutModal({
   items,
   allowKeepChange = false,
@@ -144,6 +143,7 @@ export default function CheckoutModal({
   draftData,
   onRestoreDraftComplete,
   isDraft,
+  saleId,
 }: CheckoutModalProps) {
   useModalFocusFix(true);
   // Currency the total is expressed in ("USD" by default). When "LBP" the
@@ -609,15 +609,12 @@ export default function CheckoutModal({
     }
   };
 
-  const [receiptNumber, setReceiptNumber] = useState<string>("");
-
-  // Generate receipt number only once when modal is opened
-  useEffect(() => {
-    if (!receiptNumber) {
-      setReceiptNumber(generateReceiptNumber());
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // LIRA-296: the ONE receipt number a sale carries is `RCP-<sale id>`
+  // (core's receiptNumberFor). A resumed draft already has its id (it keeps
+  // it when completed), so checkout prints the same number a reprint does.
+  // A new sale has no id until it is saved, so no number is printed rather
+  // than a made-up one that would never match the reprint.
+  const receiptNumber = saleId != null ? receiptNumberFor(saleId) : "";
 
   const getReceiptData = (): ReceiptData => {
     return {
@@ -626,7 +623,10 @@ export default function CheckoutModal({
       shop_name: shopInfo.name,
       shop_phone: shopInfo.phone || "",
       shop_location: shopInfo.location || "",
-      receipt_number: receiptNumber || generateReceiptNumber(),
+      // LIRA-296: the saved header (SF-3) and the warranty terms.
+      header_text: shopInfo.headerText ?? "",
+      warranty_terms: shopInfo.warrantyTerms ?? "",
+      receipt_number: receiptNumber,
       client_name:
         selectedClient?.full_name || clientSearch || "Walk-in Customer",
       client_phone: selectedClient?.phone_number || secondaryInput,

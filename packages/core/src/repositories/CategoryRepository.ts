@@ -11,18 +11,23 @@ export interface ProductCategory {
   /** LIRA-143 v157 (decision #9): products in a category with this flag ON
    *  require per-unit IMEI tracking (product_units). SQLite boolean. */
   tracks_imei_units: number;
+  /** LIRA-296 v205: the category's default warranty in months (0–60);
+   *  NULL = none. A product without its own length uses it at sale time. */
+  warranty_months: number | null;
   created_at: string;
 }
 
 const COLUMNS =
-  "id, name, sort_order, is_active, tracks_imei_units, created_at";
+  "id, name, sort_order, is_active, tracks_imei_units, warranty_months, created_at";
 
 /** Fields `update()` may change — at least one must be provided. `name`
  *  omitted/`undefined` leaves the existing name untouched; same for
  *  `tracksImeiUnits`. */
 export interface CategoryUpdateOptions {
-  name?: string;
-  tracksImeiUnits?: boolean;
+  name?: string | undefined;
+  tracksImeiUnits?: boolean | undefined;
+  /** LIRA-296: `null` clears the default; `undefined` leaves it alone. */
+  warrantyMonths?: number | null | undefined;
 }
 
 export class CategoryRepository {
@@ -86,9 +91,13 @@ export class CategoryRepository {
       setClauses.push("tracks_imei_units = ?");
       params.push(opts.tracksImeiUnits ? 1 : 0);
     }
+    if (opts.warrantyMonths !== undefined) {
+      setClauses.push("warranty_months = ?");
+      params.push(opts.warrantyMonths);
+    }
     if (setClauses.length === 0) {
       throw new DatabaseError(
-        "update: at least one of name/tracksImeiUnits must be provided",
+        "update: at least one of name/tracksImeiUnits/warrantyMonths must be provided",
       );
     }
 

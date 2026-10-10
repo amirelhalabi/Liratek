@@ -319,3 +319,5 @@ export default logger;
 export { logger };
 export const voiceBotLogger = logger.child({ module: "voicebot" });
 export const lotoLogger = logger.child({ module: "loto" });
+/** LIRA-296: warranty lookup, claims, defective items, supplier returns. */
+export const warrantyLogger = logger.child({ module: "warranty" });

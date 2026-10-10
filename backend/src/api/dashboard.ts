@@ -1,5 +1,6 @@
 import express from "express";
 import { authenticateJWT } from "../middleware/auth.js";
+import { validateQuery } from "../middleware/validation.js";
 import {
   getSalesService,
   getDebtService,
@@ -8,6 +9,8 @@ import {
   getFinancialRepository,
   dashboardChartQuerySchema,
   netProfitWindowQuerySchema,
+  // LIRA-296 SF-1 — the picked day for the recent-sales list.
+  todaysSalesQuerySchema,
 } from "@liratek/core";
 
 const router = express.Router();
@@ -84,12 +87,19 @@ router.get("/net-profit-last-30-days", (req, res) => {
   }
 });
 
-// GET /api/dashboard/todays-sales
-router.get("/todays-sales", (_req, res) => {
-  const service = getSalesService();
-  const sales = service.getTodaysSales();
-  res.json({ success: true, sales });
-});
+// GET /api/dashboard/todays-sales?date=YYYY-MM-DD — LIRA-296 SF-1: the
+// picked day is honoured (backendApi.getTodaysSales sends it; IPC already
+// passed it on). Omitted: today.
+router.get(
+  "/todays-sales",
+  validateQuery(todaysSalesQuerySchema),
+  (req, res) => {
+    const service = getSalesService();
+    const { date } = req.query as { date?: string };
+    const sales = service.getTodaysSales(date);
+    res.json({ success: true, sales });
+  },
+);
 
 // GET /api/dashboard/drawer-balances
 // Rule 19c: REST must stay IPC-identical — the IPC channel

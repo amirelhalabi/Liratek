@@ -1,6 +1,10 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { validateRequest, validateParams } from "../middleware/validation.js";
+import {
+  validateRequest,
+  validateParams,
+  validateQuery,
+} from "../middleware/validation.js";
 import {
   getSalesService,
   getTransactionService,
@@ -18,6 +22,9 @@ import {
   saleUndoItemRefundSchema,
   saleRefundPreviewSchema,
   getCurrentTenantId,
+  // LIRA-296 SF-1/SF-2 — the picked day and the date-range read.
+  todaysSalesQuerySchema,
+  salesDateRangeSchema,
 } from "@liratek/core";
 import { emitEvent } from "../websocket/io.js";
 import { auditRest } from "../middleware/audit.js";
@@ -79,12 +86,27 @@ router.delete("/drafts/:id", requireRole(["admin", "staff"]), (req, res) => {
   res.json(result);
 });
 
-// GET /api/sales/today
-router.get("/today", (_req, res) => {
+// GET /api/sales/today?date=YYYY-MM-DD — LIRA-296 SF-1: the picked day is
+// honoured, as IPC `sales:get-todays-sales` always did. Omitted: today.
+router.get("/today", validateQuery(todaysSalesQuerySchema), (req, res) => {
   const service = getSalesService();
-  const sales = service.getTodaysSales();
+  const { date } = req.query as { date?: string };
+  const sales = service.getTodaysSales(date);
   res.json({ success: true, sales });
 });
+
+// GET /api/sales/by-date-range?from&to — LIRA-296 SF-2: the web twin of IPC
+// `sales:get-by-date-range` (same service, same rows; no extra role gate,
+// like the IPC channel). Must stay ABOVE `/:id`.
+router.get(
+  "/by-date-range",
+  validateQuery(salesDateRangeSchema),
+  (req, res) => {
+    const { from, to } = req.query as { from: string; to: string };
+    const data = getSalesService().findByDateRange(from, to);
+    res.json({ success: true, data });
+  },
+);
 
 // GET /api/sales/top-products
 router.get("/top-products", (_req, res) => {

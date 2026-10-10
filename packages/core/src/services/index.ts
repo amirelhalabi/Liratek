@@ -722,3 +722,10 @@ export type {
   GoogleAuthServiceOptions,
 } from "./GoogleAuthService.js";
 export * from "../validators/googleAuth.js";
+
+// Warranty Service (LIRA-296 — warranty for any item; Node-only)
+export {
+  WarrantyService,
+  getWarrantyService,
+  resetWarrantyService,
+} from "./WarrantyService.js";

@@ -94,6 +94,11 @@ import type {
   PartnerSettleInput,
   // Supplier settle payload, derived from supplierSettleSchema (rule 21).
   SupplierSettleInput,
+  // LIRA-296 — warranty search payload + row, derived from the core schema.
+  WarrantySearchInput,
+  WarrantySearchRow,
+  UpdateCategoryPayload,
+  SalesDateRangeInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -1091,6 +1096,11 @@ export type ApiAdapter = {
     error?: string;
   }>;
 
+  /** LIRA-296 — warranty lookup for any item (by customer, phone, receipt
+   *  number, product or serial). Read: returns the raw row array; a refusal
+   *  throws. */
+  searchWarranties: (input: WarrantySearchInput) => Promise<WarrantySearchRow[]>;
+
   /** LIRA-143 Phase 5 — Settings manager (decision #9's tracks_imei_units
    *  toggle). Reads return the raw array. */
   getCategoriesFull: () => Promise<
@@ -1100,14 +1110,17 @@ export type ApiAdapter = {
       sort_order: number;
       is_active: number;
       tracks_imei_units: number;
+      /** LIRA-296: default warranty in months; null = none. */
+      warranty_months: number | null;
     }>
   >;
   createCategory: (
     name: string,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
+  /** Payload derived from core's updateCategorySchema (rule 21). */
   updateCategory: (
     id: number,
-    data: { name?: string; tracks_imei_units?: boolean },
+    data: UpdateCategoryPayload,
   ) => Promise<{ success: boolean; error?: string }>;
   deleteCategory: (
     id: number,
@@ -1121,6 +1134,11 @@ export type ApiAdapter = {
     saleId: number,
   ) => Promise<{ success: boolean; error?: string }>;
   processSale: (payload: any) => Promise<ProcessSaleResult>;
+  /** LIRA-296 SF-2 — completed/refunded sales between two shop days
+   *  (inclusive). Read: the raw row array; a refusal throws. */
+  getSalesByDateRange: (
+    range: SalesDateRangeInput,
+  ) => Promise<Array<Record<string, unknown> & { id: number }>>;
   getSale: (saleId: number) => Promise<any>;
   getSaleItems: (saleId: number) => Promise<any[]>;
   /** Refund a WHOLE sale (admin only). LIRA-231: `refundLegs` is optional —

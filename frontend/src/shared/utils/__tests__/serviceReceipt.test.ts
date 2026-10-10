@@ -507,3 +507,18 @@ describe("buildServiceReceiptText", () => {
     expect(r).toContain("Thank you!");
   });
 });
+
+// LIRA-296 (T026, SF-3) — the saved receipt header prints under the shop
+// name on service (repair, recharge, …) receipts too, only when set.
+describe("buildServiceReceiptText — receipt header (LIRA-296)", () => {
+  it("prints the header under the shop name", () => {
+    const r = build({ shop: { ...SHOP, headerText: "Open daily 9-9" } });
+    expect(r).toContain("Open daily 9-9");
+    expect(r.indexOf("Open daily 9-9")).toBeGreaterThan(r.indexOf("Corner Tech"));
+    expect(r.indexOf("Open daily 9-9")).toBeLessThan(r.indexOf("#501"));
+  });
+
+  it("prints nothing extra when the header is empty", () => {
+    expect(build({ shop: { ...SHOP, headerText: "" } })).toBe(build({}));
+  });
+});

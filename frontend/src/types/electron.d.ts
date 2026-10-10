@@ -23,6 +23,11 @@ import type {
   // LIRA-293 — change your own password (core schema input + answer).
   ChangeOwnPasswordInput,
   ChangeOwnPasswordResult,
+  // LIRA-296 — warranty search (core schema input + row) and the category
+  // update payload (incl. warranty_months).
+  WarrantySearchInput,
+  WarrantySearchRow,
+  UpdateCategoryPayload,
 } from "@liratek/core";
 
 /**
@@ -953,6 +958,8 @@ export interface ElectronAPI {
         /** LIRA-143 v157 (decision #9): products in this category require
          *  per-unit IMEI tracking when set. */
         tracks_imei_units: number;
+        /** LIRA-296 v205: default warranty in months; null = none. */
+        warranty_months: number | null;
       }>
     >;
     createCategory: (
@@ -962,7 +969,7 @@ export interface ElectronAPI {
      *  object setting name and/or the tracks_imei_units Settings toggle. */
     updateCategory: (
       id: number,
-      data: string | { name?: string; tracks_imei_units?: boolean },
+      data: string | UpdateCategoryPayload,
     ) => Promise<{ success: boolean; updated?: boolean; error?: string }>;
     deleteCategory: (
       id: number,
@@ -2818,6 +2825,15 @@ export interface ElectronAPI {
           marketQty: number;
         };
       };
+      error?: string;
+    }>;
+  };
+
+  // Warranty (LIRA-296 — warranty for any item).
+  warranty: {
+    search: (data: WarrantySearchInput) => Promise<{
+      success: boolean;
+      data?: WarrantySearchRow[];
       error?: string;
     }>;
   };

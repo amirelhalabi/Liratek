@@ -4,7 +4,10 @@ import {
   positiveIntegerSchema,
   transactionTimeSchema,
   refundExchangeRateSchema,
+  clientDayInputSchema,
+  localDayFormatSchema,
 } from "./common.js";
+import { warrantyMonthsSchema } from "./productUnit.js";
 import {
   refundKeptChangeSchema,
   refundLegsSchema,
@@ -62,6 +65,10 @@ export const saleProcessSchema = z
           // is what actually requires this when the product HAS registered
           // stock, not this schema.
           product_unit_id: z.number().int().positive().optional(),
+          // LIRA-296: the warranty length edited at the till for THIS line
+          // (0–60 months). Omitted = the resolved default (product, else
+          // category); the repository stamps who changed it when it differs.
+          warranty_months: warrantyMonthsSchema.nullable().optional(),
         }),
       )
       .min(1, "Sale must have at least one item"),
@@ -89,6 +96,9 @@ export const saleProcessSchema = z
     // is valid for POS.
     partnerId: z.number().int().positive().optional(),
     partnerMode: z.enum(["FOR"]).optional(),
+    // LIRA-296 (rule 27): the shop's own day, from the client — the day the
+    // warranty clock starts. Omitted: the request's day (clientDay()).
+    client_day: clientDayInputSchema,
   })
   .refine(
     (data) =>
@@ -156,6 +166,32 @@ export const saleIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 export type SaleIdParamInput = z.infer<typeof saleIdParamSchema>;
+
+/**
+ * LIRA-296 SF-1 — `GET /api/sales/today` and `GET /api/dashboard/todays-sales`
+ * take the day the POS "recent sales" list is showing (the IPC twin
+ * `sales:get-todays-sales` always honoured it; REST ignored it). Omitted:
+ * today.
+ */
+export const todaysSalesQuerySchema = z.object({
+  date: localDayFormatSchema.optional(),
+});
+export type TodaysSalesQueryInput = z.input<typeof todaysSalesQuerySchema>;
+
+/**
+ * LIRA-296 SF-2 — sales between two shop days, inclusive (IPC
+ * `sales:get-by-date-range`, REST `GET /api/sales/by-date-range`).
+ */
+export const salesDateRangeSchema = z
+  .object({
+    from: localDayFormatSchema,
+    to: localDayFormatSchema,
+  })
+  .refine((v) => v.from <= v.to, {
+    message: "The start day must be on or before the end day",
+    path: ["to"],
+  });
+export type SalesDateRangeInput = z.input<typeof salesDateRangeSchema>;
 
 /**
  * Edit non-financial metadata (walk-in name/phone, note) on a `sales` row.

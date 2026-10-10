@@ -14108,6 +14108,55 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 205,
+    name: "warranty_category_default_and_line_audit",
+    description:
+      "LIRA-296 P1 (warranty for any item): product_categories gains " +
+      "warranty_months INTEGER NULL — the category's default warranty in " +
+      "months, 0–60; NULL means none. A product without its own length uses " +
+      "it. sale_items gains warranty_months INTEGER NULL (the length actually " +
+      "used on the line, resolved or edited at the till) and warranty_set_by " +
+      "INTEGER NULL REFERENCES users(id) (who changed it at the till, only " +
+      "when they did). Index idx_sale_items_warranty_until on " +
+      "sale_items(tenant_id, warranty_until) serves the warranty search. " +
+      "Every existing row reads NULL: sold lines keep their stamped end date.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (
+        tableExists(db, "product_categories") &&
+        !columnExists(db, "product_categories", "warranty_months")
+      ) {
+        db.exec(
+          `ALTER TABLE product_categories ADD COLUMN warranty_months INTEGER;`,
+        );
+      }
+      if (!tableExists(db, "sale_items")) return;
+      if (!columnExists(db, "sale_items", "warranty_months")) {
+        db.exec(`ALTER TABLE sale_items ADD COLUMN warranty_months INTEGER;`);
+      }
+      if (!columnExists(db, "sale_items", "warranty_set_by")) {
+        db.exec(
+          `ALTER TABLE sale_items ADD COLUMN warranty_set_by INTEGER REFERENCES users(id);`,
+        );
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sale_items_warranty_until ON sale_items(tenant_id, warranty_until);`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_sale_items_warranty_until;`);
+      if (columnExists(db, "sale_items", "warranty_set_by")) {
+        db.exec(`ALTER TABLE sale_items DROP COLUMN warranty_set_by;`);
+      }
+      if (columnExists(db, "sale_items", "warranty_months")) {
+        db.exec(`ALTER TABLE sale_items DROP COLUMN warranty_months;`);
+      }
+      if (columnExists(db, "product_categories", "warranty_months")) {
+        db.exec(`ALTER TABLE product_categories DROP COLUMN warranty_months;`);
+      }
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

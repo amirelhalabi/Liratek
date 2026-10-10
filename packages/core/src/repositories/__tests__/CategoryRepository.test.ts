@@ -35,6 +35,7 @@ function createTestDb(): Database.Database {
       is_active         INTEGER NOT NULL DEFAULT 1,
       tracks_imei_units INTEGER NOT NULL DEFAULT 0,
       created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      warranty_months   INTEGER, -- v205 (LIRA-296)
       UNIQUE (tenant_id, name)
     );
 

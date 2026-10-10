@@ -6537,7 +6537,17 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
-## LIRA-296: warranty for any item, not just phones — TODO (owner request 2026-10-10)
+## LIRA-296: warranty for any item, not just phones — P1 DONE, not yet released (owner request 2026-10-10; decisions D1–D4 2026-10-10)
+
+Spec: `specs/296-warranty-any-item/`. Plan: `docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md`. Migration v205 (P1).
+
+- **P1 DONE (local commit, not pushed):** one receipt number `RCP-<sale id>` (core `receiptNumberFor`/`parseReceiptNumber`); one warranty-state helper (core `warrantyState`, replaces `computeWarrantyStatus` + the frontend copy); v205 (`product_categories.warranty_months`, `sale_items.warranty_months`/`warranty_set_by`, `idx_sale_items_warranty_until`); warranty search (`WarrantyRepository`/`WarrantyService`, IPC `warranty:search`, REST `GET /api/warranty/search`, adapter `searchWarranties`, `/warranty` page + sidebar); state on every sale line incl. partial refunds; category default + till edit (`resolveWarrantyMonths`, `client_day` starts the clock, rule 27); warranty terms setting + receipts; side fixes SF-1 (web recent-sales day), SF-2 (`GET /api/sales/by-date-range` + `getSalesByDateRange`), SF-3 (receipt header prints).
+- **P2 / P3:** claims, defective holding, Warranty cost in Profits, repair warranty; serials for any category, supplier returns, report — see tasks.md.
+
+**What users will notice:** a Warranty page finds any item sold with a warranty by customer, phone, receipt number, product or serial; sale details show Covered / Expired / Void on every warranty item (with "1 of 3 refunded"); categories have a default warranty and the cashier can change it per item at the till; your warranty terms and receipt header print on receipts; one receipt number per sale; on the web, the POS recent-sales list shows the day you pick.
+
+### Before P1 (original ticket)
+
 
 Plan: `docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md`.
 

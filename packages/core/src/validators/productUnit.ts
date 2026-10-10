@@ -120,15 +120,36 @@ export const createCategorySchema = z.object({
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 
-/** At least one of `name`/`tracks_imei_units` must be provided — an
- *  all-omitted update is a no-op the caller should not have sent. */
+/** LIRA-296: a category's default warranty, in whole months (0–60);
+ *  `null` means "no default warranty". Shared with the per-line edit at the
+ *  till (validators/sale.ts) — one range, defined once (rule 14). */
+export const warrantyMonthsSchema = z
+  .number()
+  .int("Warranty must be whole months")
+  .min(0, "Warranty cannot be negative")
+  .max(60, "Warranty can be at most 60 months");
+
+/** At least one of `name`/`tracks_imei_units`/`warranty_months` must be
+ *  provided — an all-omitted update is a no-op the caller should not have
+ *  sent. */
 export const updateCategorySchema = z
   .object({
     name: z.string().trim().min(1, "Category name is required").optional(),
     tracks_imei_units: z.boolean().optional(),
+    // LIRA-296: the category's default warranty (null clears it).
+    warranty_months: warrantyMonthsSchema.nullable().optional(),
   })
-  .refine((v) => v.name !== undefined || v.tracks_imei_units !== undefined, {
-    message: "At least one of name or tracks_imei_units must be provided",
-  });
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.tracks_imei_units !== undefined ||
+      v.warranty_months !== undefined,
+    {
+      message:
+        "At least one of name, tracks_imei_units or warranty_months must be provided",
+    },
+  );
 
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+/** What a caller sends (rule 21: adapter payloads derive from the schema). */
+export type UpdateCategoryPayload = z.input<typeof updateCategorySchema>;

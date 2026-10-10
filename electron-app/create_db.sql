@@ -556,6 +556,9 @@ CREATE TABLE IF NOT EXISTS product_categories (
     -- seeded "Phones" row below; editable per-category in Settings.
     tracks_imei_units INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- v205 (LIRA-296): the category's default warranty in months (0–60);
+    -- NULL = none. A product without its own warranty_months uses it.
+    warranty_months INTEGER,
     UNIQUE (tenant_id, name)
 );
 
@@ -656,11 +659,18 @@ CREATE TABLE IF NOT EXISTS sale_items (
     -- date + products.warranty_months. Per-line because the sale is the
     -- event that starts the warranty clock, not the product.
     warranty_until TEXT,
+    -- v205 (LIRA-296): the warranty length actually used on this line
+    -- (line edit ?? product ?? category; NULL = none), and who changed it at
+    -- the till — set only when it differs from the resolved default.
+    warranty_months INTEGER,
+    warranty_set_by INTEGER REFERENCES users(id),
     FOREIGN KEY (sale_id) REFERENCES sales(id),
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_id ON sale_items(tenant_id);
+-- v205 (LIRA-296): the warranty search.
+CREATE INDEX IF NOT EXISTS idx_sale_items_warranty_until ON sale_items(tenant_id, warranty_until);
 
 -- Debt Ledger (Clients)
 CREATE TABLE IF NOT EXISTS debt_ledger (
@@ -2725,4 +2735,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v203 (LIRA-293) adds email_verification_tokens.purpose, declared above.
     (203, 'email_verification_token_purpose'),
     -- v204 (LIRA-294) adds user_identities.picture_url, declared above.
-    (204, 'user_identities_picture_url');
+    (204, 'user_identities_picture_url'),
+    -- v205 (LIRA-296) adds product_categories.warranty_months,
+    -- sale_items.warranty_months/warranty_set_by and
+    -- idx_sale_items_warranty_until, declared above.
+    (205, 'warranty_category_default_and_line_audit');

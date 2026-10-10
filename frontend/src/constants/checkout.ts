@@ -7,10 +7,8 @@
  */
 export const PAYMENT_TOLERANCE = 0.05;
 
-/**
- * Prefix for receipt numbers
- */
-export const RECEIPT_NUMBER_PREFIX = "RCP-";
+// LIRA-296: the receipt number (and its "RCP-" prefix) is defined ONCE in
+// core — `receiptNumberFor` / `parseReceiptNumber` from "@liratek/core".
 
 /**
  * LBP rounding increment (smallest LBP bill denomination)

@@ -170,6 +170,9 @@ import {
   resolveScanCodeSchema,
   createCategorySchema,
   updateCategorySchema,
+  // LIRA-296 — warranty for any item (packages/core/src/validators/warranty.ts).
+  warrantySearchSchema,
+  type WarrantySearchQuery,
   type RegisterProductUnitsInput,
   type ProductUnitsForProductInput,
   type ListProductUnitsInput,
@@ -1553,6 +1556,13 @@ export const CreateCategorySchema =
   createCategorySchema as unknown as z.ZodSchema<CreateCategoryInput>;
 export const UpdateCategorySchema =
   updateCategorySchema as unknown as z.ZodSchema<UpdateCategoryInput>;
+
+// =============================================================================
+// Warranty (LIRA-296) — shared with backend/src/api/warranty.ts (rule 14)
+// =============================================================================
+
+export const WarrantySearchSchema =
+  warrantySearchSchema as unknown as z.ZodSchema<WarrantySearchQuery>;
 
 // =============================================================================
 // Profits password gate (frozen contract)

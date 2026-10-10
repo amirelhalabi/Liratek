@@ -130,7 +130,11 @@ describe("CheckoutModal — LBP converts at the BUY rate", () => {
     await waitForRatesApplied();
 
     expect(screen.getByTestId("mpi-rate")).toHaveTextContent("88000");
-    expect(screen.getByText(/≈ 880,000 LBP/)).toBeInTheDocument();
+    // The "≈ LBP" line follows the rate one effect later than the payment
+    // input does (customExchangeRate is re-seeded in an effect), so wait for
+    // it rather than asserting in the same tick (LIRA-296 removed an unrelated
+    // mount-time state update that used to hide this race).
+    expect(await screen.findByText(/≈ 880,000 LBP/)).toBeInTheDocument();
     expect(screen.queryByText(/900,000/)).not.toBeInTheDocument();
 
     const payload = await completeAndCapture(onComplete);

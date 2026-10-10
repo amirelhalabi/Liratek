@@ -1,16 +1,14 @@
 /**
- * LIRA-143 phase 6a — warranty state for a sold, IMEI-tracked sale line.
+ * LIRA-143 phase 6a — warranty state for a sale line.
  *
- * Mirrors the "COVERED" | "EXPIRED" | "VOID" | "NONE" vocabulary
- * `ProductUnitStoryDto.warranty.state` already uses
- * (frontend/src/api/backendApi.ts) so SaleDetailModal's inline hint reads
- * the same way as the fuller IMEI story card (a parallel LIRA-143
- * workstream, out of this ticket's scope). Deliberately minimal — the
- * story card owns full warranty-precedence UI (overrides, refund
- * interaction); this only answers "is THIS stamped date still good".
+ * LIRA-296: a thin wrapper over core's ONE `warrantyState` helper (rule 14),
+ * kept so existing imports keep working. The precedence (override > refund >
+ * stamped date > none) and the inclusive, date-prefix comparison live in
+ * `@liratek/core` (`utils/warrantyState.ts`) — never re-implemented here.
  */
+import { warrantyState, type WarrantyState } from "@liratek/core";
 
-export type WarrantyState = "COVERED" | "EXPIRED" | "VOID" | "NONE";
+export type { WarrantyState };
 
 /**
  * `warrantyUntilIso`/`todayIso` are compared by their first 10 characters
@@ -20,10 +18,10 @@ export function getWarrantyState(
   warrantyUntilIso: string | null | undefined,
   todayIso: string,
   isVoided: boolean,
+  overrideUntil?: string | null,
 ): WarrantyState {
-  if (!warrantyUntilIso) return "NONE";
-  if (isVoided) return "VOID";
-  return warrantyUntilIso.slice(0, 10) >= todayIso.slice(0, 10)
-    ? "COVERED"
-    : "EXPIRED";
+  return warrantyState(warrantyUntilIso, todayIso, {
+    fullyRefunded: isVoided,
+    overrideUntil,
+  });
 }

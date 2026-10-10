@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, Check, X, Tag, Truck } from "lucide-react";
 import { DataTable, useApi } from "@liratek/ui";
+import { warrantyMonthsSchema } from "@liratek/core";
 
 interface Category {
   id: number;
@@ -9,6 +10,58 @@ interface Category {
   is_active: number;
   // LIRA-143 Phase 5/6b — decision #9's per-category IMEI-tracking flag.
   tracks_imei_units: number;
+  // LIRA-296 — the category's default warranty in months; null = none.
+  warranty_months?: number | null;
+}
+
+const WARRANTY_RANGE_MESSAGE = "Warranty must be 0 to 60 whole months.";
+
+/**
+ * LIRA-296 — one category's "Default warranty (months)" box. Empty means
+ * "No warranty". Saves on blur or Enter, only when the value changed; the
+ * range check is core's own `warrantyMonthsSchema` (rule 14).
+ */
+function CategoryWarrantyInput({
+  category,
+  onSave,
+  onInvalid,
+}: {
+  category: Category;
+  onSave: (months: number | null) => void;
+  onInvalid: (message: string) => void;
+}) {
+  // The parent keys this box by the saved value, so a reload re-seeds it.
+  const current = category.warranty_months ?? null;
+  const [value, setValue] = useState(current === null ? "" : String(current));
+
+  const commit = () => {
+    const trimmed = value.trim();
+    const next = trimmed === "" ? null : Number(trimmed);
+    if (next !== null && !warrantyMonthsSchema.safeParse(next).success) {
+      onInvalid(WARRANTY_RANGE_MESSAGE);
+      return;
+    }
+    if (next !== current) onSave(next);
+  };
+
+  return (
+    <input
+      type="number"
+      min={0}
+      max={60}
+      step={1}
+      inputMode="numeric"
+      value={value}
+      placeholder="No warranty"
+      aria-label={`Default warranty (months) for ${category.name}`}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
+      className="w-28 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-sm text-center focus:outline-none focus:border-violet-500"
+    />
+  );
 }
 
 interface ProductSupplier {
@@ -134,6 +187,14 @@ export default function CategoriesManager() {
     const res = await api.updateCategory(cat.id, {
       tracks_imei_units: nextValue,
     });
+    if (res?.success) load();
+    else setError(res?.error ?? "Failed to update");
+  };
+
+  // LIRA-296 — the category's default warranty (null = no warranty).
+  const handleWarrantyMonths = async (cat: Category, months: number | null) => {
+    setError("");
+    const res = await api.updateCategory(cat.id, { warranty_months: months });
     if (res?.success) load();
     else setError(res?.error ?? "Failed to update");
   };
@@ -322,6 +383,11 @@ export default function CategoriesManager() {
                 width: "150px",
               },
               {
+                header: "Default warranty (months)",
+                className: "p-3 border-b border-slate-700 text-center",
+                width: "170px",
+              },
+              {
                 header: "Actions",
                 className: "p-3 border-b border-slate-700 text-right",
                 width: "100px",
@@ -410,6 +476,19 @@ export default function CategoriesManager() {
                         }`}
                       />
                     </button>
+                  </td>
+
+                  {/* LIRA-296 — default warranty for the category */}
+                  <td
+                    className="p-3 text-center"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <CategoryWarrantyInput
+                      key={`${cat.id}:${cat.warranty_months ?? ""}`}
+                      category={cat}
+                      onSave={(months) => handleWarrantyMonths(cat, months)}
+                      onInvalid={setError}
+                    />
                   </td>
 
                   {/* Actions */}
