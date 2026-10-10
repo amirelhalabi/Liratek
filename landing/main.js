@@ -125,6 +125,35 @@
       });
     });
 
+  // ---- Features menu ----------------------------------------------------------
+  // A button that opens the list of features. Closes on Escape, on a click
+  // outside it, and when one of its links is followed.
+
+  var menuWrap = document.getElementById("features-menu-wrap");
+  var menuBtn = document.getElementById("features-btn");
+  var menu = document.getElementById("features-menu");
+
+  function setMenu(open) {
+    menu.hidden = !open;
+    menuBtn.setAttribute("aria-expanded", String(open));
+  }
+
+  menuBtn.addEventListener("click", function () {
+    setMenu(menu.hidden);
+  });
+  menu.addEventListener("click", function (event) {
+    if (event.target.closest("a")) setMenu(false);
+  });
+  document.addEventListener("click", function (event) {
+    if (!menu.hidden && !menuWrap.contains(event.target)) setMenu(false);
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !menu.hidden) {
+      setMenu(false);
+      menuBtn.focus();
+    }
+  });
+
   // ---- startup --------------------------------------------------------------
 
   document.getElementById("year").textContent = String(

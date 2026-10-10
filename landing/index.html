@@ -6,7 +6,7 @@
     <title>LiraTek — POS &amp; Phone Shop Software for Lebanon</title>
     <meta
       name="description"
-      content="POS and phone shop software for Lebanon: sales and stock in USD and LBP, OMT and Whish transfers, MTC and Alfa recharge tracking, and customer debts."
+      content="POS and phone shop software for Lebanon: sales, stock and warranties in USD and LBP, OMT and Whish transfers, MTC and Alfa recharges, customer debts and drawer counts."
     />
     <link rel="canonical" href="https://liratek.shop/" />
     <!-- The Arabic page is its own URL (/ar, ar.html); tell search engines
@@ -49,7 +49,7 @@
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Web, Windows",
             "inLanguage": "en",
-            "description": "Point of sale and phone shop software for Lebanon: sales and stock, prices and drawers in USD and LBP, OMT and Whish transfers, MTC and Alfa recharges, customer debts, repairs and daily closing.",
+            "description": "Point of sale and phone shop software for Lebanon: sales and stock, prices and drawers in USD and LBP, OMT and Whish transfers, MTC and Alfa recharges, customer debts, repairs, warranties, drawer counts and daily closing.",
             "publisher": { "@id": "https://liratek.shop/#organization" }
           }
         ]
@@ -70,7 +70,7 @@
     <meta property="og:title" content="LiraTek — POS for phone shops in Lebanon" />
     <meta
       property="og:description"
-      content="Sales, stock, USD + LBP, OMT/Whish, MTC/Alfa, debts and daily closing — in one system."
+      content="Sales, stock, warranties, USD + LBP, OMT/Whish, MTC/Alfa, debts and drawer counts — in one system."
     />
     <meta property="og:image" content="https://liratek.shop/assets/og.png?v=2" />
     <meta property="og:image:width" content="1200" />
@@ -80,7 +80,7 @@
     <meta name="twitter:title" content="LiraTek — POS for phone shops in Lebanon" />
     <meta
       name="twitter:description"
-      content="Sales, stock, USD + LBP, OMT/Whish, MTC/Alfa, debts and daily closing — in one system."
+      content="Sales, stock, warranties, USD + LBP, OMT/Whish, MTC/Alfa, debts and drawer counts — in one system."
     />
     <meta name="twitter:image" content="https://liratek.shop/assets/og.png?v=2" />
     <meta name="twitter:image:alt" content="LiraTek — your whole shop, in dollars and lira, in one place" />
@@ -124,6 +124,89 @@
           <img class="brand-mark" src="/assets/liratek-mark.png" alt="" width="33" height="32" />
         </a>
         <nav class="topnav">
+          <div class="menu" id="features-menu-wrap">
+            <button type="button" class="menu-btn" id="features-btn" aria-expanded="false" aria-controls="features-menu">
+              <span data-i18n="menu.btn">Modules</span>
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16"><use href="/assets/icons.svg#i-chevron" /></svg>
+            </button>
+            <div class="mega" id="features-menu" hidden>
+              <p class="mega-title" data-i18n="menu.title">Everything in LiraTek</p>
+              <ul class="mega-grid">
+                <li>
+                  <a href="#f-pos">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-cart" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.pos.t">Sales and stock</strong><small data-i18n="menu.pos.d">Checkout, barcodes and IMEI</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-cur">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.cur.t">Dollars and lira</strong><small data-i18n="menu.cur.d">Prices, change and exchange</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-omt">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.omt.t">OMT and Whish</strong><small data-i18n="menu.omt.d">Transfers with fees worked out</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-rec">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.rec.t">MTC and Alfa</strong><small data-i18n="menu.rec.d">Credit and days recharges</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-debt">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.debt.t">Customer debts</strong><small data-i18n="menu.debt.d">Sell on credit, take repayments</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-rep">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-wrench" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.rep.t">Repairs</strong><small data-i18n="menu.rep.d">From intake to pickup</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-close">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-chart" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.close.t">Closing and profits</strong><small data-i18n="menu.close.d">Close the day, see the profit</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-where">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-monitor" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.where.t">Desktop and web</strong><small data-i18n="menu.where.d">In the shop or any browser</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-war">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.war.t">Warranty</strong><small data-i18n="menu.war.d">Any item, by customer or serial</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-count">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.count.t">Drawer counts</strong><small data-i18n="menu.count.d">Count any time, spot a difference</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-change">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-coins" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.change.t">Small change</strong><small data-i18n="menu.change.d">Keep the leftover as profit</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-phone">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-phone" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.phone.t">Phone app</strong> <span class="soon" data-i18n="menu.new">New</span><small data-i18n="menu.phone.d">For the owner, after closing</small></span>
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
           <a class="nav-signin" href="https://www.liratek.shop/#/login" data-i18n="nav.login">Sign in</a>
           <a class="btn btn-primary nav-cta" href="https://www.liratek.shop/#/signup">
             <span class="nav-cta-long" data-i18n="nav.signup">Create your shop</span><span class="nav-cta-short" data-i18n="nav.signupShort">Create shop</span>
@@ -135,9 +218,19 @@
 
     <main>
       <section class="hero">
+        <!-- Decoration only: a faint grid and the shop's features drifting
+             around the edges. Hidden from screen readers; still under "reduce motion". -->
+        <div class="hero-bg" aria-hidden="true">
+          <span class="badge badge-1"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span><span class="badge-label">OMT &amp; Whish</span></span>
+          <span class="badge badge-2"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span><span class="badge-label">MTC &amp; Alfa</span></span>
+          <span class="badge badge-3"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span><span class="badge-label">USD + LBP</span></span>
+          <span class="badge badge-4"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span><span class="badge-label">Warranty</span></span>
+          <span class="badge badge-5"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span><span class="badge-label">Debts</span></span>
+          <span class="badge badge-6"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span><span class="badge-label">Drawer counts</span></span>
+        </div>
         <div class="wrap hero-grid">
           <div class="hero-copy">
-            <p class="eyebrow" data-i18n="hero.eyebrow">Built for Lebanese phone shops</p>
+            <p class="eyebrow pill"><span class="pill-dot" aria-hidden="true"></span><span data-i18n="hero.eyebrow">Built for Lebanese phone shops</span></p>
             <h1 data-i18n="hero.title">Your whole shop, in dollars and lira, in one place.</h1>
             <p class="lead" data-i18n="hero.lead">
               Sell, track stock, send OMT and Whish transfers, recharge MTC and
@@ -204,38 +297,93 @@
         <div class="wrap">
           <h2 data-i18n="features.title">Everything a phone shop does in a day</h2>
           <div class="feature-grid">
-            <article class="card">
+            <article class="card" id="f-pos">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-cart" /></svg></span>
               <h3 data-i18n="f.pos.t">Sales and stock</h3>
               <p data-i18n="f.pos.d">Fast checkout, barcodes, stock levels, and phones tracked by IMEI.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-cur">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span>
               <h3 data-i18n="f.cur.t">Dollars and lira together</h3>
               <p data-i18n="f.cur.d">Prices, payments, change and drawers in USD and LBP. Split a payment across both, and run currency exchange.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-omt">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span>
               <h3 data-i18n="f.omt.t">OMT and Whish</h3>
               <p data-i18n="f.omt.d">Send and receive transfers with fees worked out, and check your balance against OMT's statement.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-rec">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span>
               <h3 data-i18n="f.rec.t">MTC and Alfa</h3>
               <p data-i18n="f.rec.d">Credit and days recharges, with what you owe each supplier kept up to date.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-debt">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span>
               <h3 data-i18n="f.debt.t">Customer debts</h3>
               <p data-i18n="f.debt.d">Sell on credit, take repayments in either currency, and see who owes what.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-rep">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-wrench" /></svg></span>
               <h3 data-i18n="f.rep.t">Repairs</h3>
               <p data-i18n="f.rep.d">Repair jobs from intake to pickup, with the parts used and what the customer paid.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-close">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-chart" /></svg></span>
               <h3 data-i18n="f.close.t">Daily closing and profits</h3>
               <p data-i18n="f.close.d">Close each drawer at the end of the day and see the profit from every part of the shop.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-where">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-monitor" /></svg></span>
               <h3 data-i18n="f.where.t">On your computer or in the browser</h3>
               <p data-i18n="f.where.d">Use the desktop app in the shop, or sign in from any browser at your shop's own address.</p>
             </article>
+            <article class="card" id="f-war">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span>
+              <h3 data-i18n="f.war.t">Warranty on any item</h3>
+              <p data-i18n="f.war.d">Set a warranty per category or at the till, print your terms on the receipt, and find any sold item by customer, phone, receipt number or serial.</p>
+            </article>
+            <article class="card" id="f-count">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span>
+              <h3 data-i18n="f.count.t">Count a drawer any time</h3>
+              <p data-i18n="f.count.d">Count each drawer during the day, see the sales since its last count, and spot a difference straight away.</p>
+            </article>
+            <article class="card" id="f-change">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-coins" /></svg></span>
+              <h3 data-i18n="f.change.t">Keep the small change</h3>
+              <p data-i18n="f.change.d">Hand back a round amount and the leftover counts as shop profit — at checkout and on refunds.</p>
+            </article>
+            <article class="card card-link" id="f-phone">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-phone" /></svg></span>
+              <h3 data-i18n="f.phone.t">On the owner's phone</h3>
+              <p data-i18n="f.phone.d">Record Whish App and OMT App transfers and follow debts from your phone, after closing too.</p>
+              <a href="#phone" data-i18n="f.phone.more">See the phone app</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="phone" id="phone">
+        <div class="wrap phone-grid">
+          <div class="phone-copy">
+            <p class="eyebrow" data-i18n="phone.eyebrow">LiraTek on your phone</p>
+            <h2 data-i18n="phone.title">Your shop with you, after closing too.</h2>
+            <p class="lead" data-i18n="phone.lead">A phone app for the shop owner. When a customer messages you after hours, record the transfer from home — it goes into your shop's books just like one made at the counter.</p>
+            <ul class="phone-list">
+              <li data-i18n="phone.l1">Record Whish App and OMT App transfers, on the customer's account or paid into your Whish or OMT wallet.</li>
+              <li data-i18n="phone.l2">See your drawer and wallet balances live, and the sales since the last count on each wallet.</li>
+              <li data-i18n="phone.l3">See who owes you, and record a repayment into a wallet.</li>
+              <li data-i18n="phone.l4">Tap Save twice by mistake and the sale is still booked once.</li>
+              <li data-i18n="phone.l5">Dark, light, or the same as your phone.</li>
+            </ul>
+            <p class="phone-note" data-i18n="phone.note">For shops on the LiraTek web app. Owner account only.</p>
+          </div>
+          <div class="phone-card">
+            <!-- Not a screenshot on purpose: no phone screens until real ones are taken. -->
+            <img src="/assets/liratek-swirl.png" alt="" width="120" height="116" loading="lazy" />
+            <p class="phone-soon" data-i18n="phone.soon">LiraTek mobile</p>
+            <ul class="phone-tabs" dir="ltr" aria-label="Phone app sections">
+              <li>Home</li><li>Sell</li><li>Debts</li><li>Activity</li><li>Settings</li>
+            </ul>
           </div>
         </div>
       </section>

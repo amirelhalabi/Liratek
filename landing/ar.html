@@ -6,7 +6,7 @@
     <title>LiraTek — برنامج محل خليوي ونقطة بيع في لبنان</title>
     <meta
       name="description"
-      content="برنامج محل خليوي في لبنان: مبيع ومخزون بالدولار والليرة، تحويلات OMT وWhish، تشريج MTC وAlfa، دفتر ديون الزبائن وإقفال الصندوق اليومي."
+      content="برنامج محل خليوي في لبنان: مبيع ومخزون وكفالات بالدولار والليرة، تحويلات OMT وWhish، تشريج MTC وAlfa، دفتر ديون الزبائن وعدّ الصناديق."
     />
     <link rel="canonical" href="https://liratek.shop/ar" />
     <!-- English is / (index.html). This is its Arabic translation, a page of
@@ -41,7 +41,7 @@
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Web, Windows",
             "inLanguage": "ar",
-            "description": "برنامج نقطة بيع لمحلات الخليوي في لبنان: المبيعات والمخزون، الأسعار والصناديق بالدولار والليرة، تحويلات OMT وWhish، تشريج MTC وAlfa، دفتر ديون الزبائن، التصليحات وإقفال اليوم.",
+            "description": "برنامج نقطة بيع لمحلات الخليوي في لبنان: المبيعات والمخزون، الأسعار والصناديق بالدولار والليرة، تحويلات OMT وWhish، تشريج MTC وAlfa، دفتر ديون الزبائن، التصليحات، الكفالات، عدّ الصناديق وإقفال اليوم.",
             "publisher": { "@id": "https://liratek.shop/#organization" }
           }
         ]
@@ -62,7 +62,7 @@
     <meta property="og:title" content="LiraTek — برنامج محل خليوي ونقطة بيع في لبنان" />
     <meta
       property="og:description"
-      content="المبيعات والمخزون، الدولار والليرة، OMT وWhish، MTC وAlfa، دفتر الديون وإقفال اليوم — في نظام واحد."
+      content="المبيعات والمخزون والكفالات، الدولار والليرة، OMT وWhish، MTC وAlfa، دفتر الديون وعدّ الصناديق — في نظام واحد."
     />
     <meta property="og:image" content="https://liratek.shop/assets/og.png?v=2" />
     <meta property="og:image:width" content="1200" />
@@ -72,7 +72,7 @@
     <meta name="twitter:title" content="LiraTek — برنامج محل خليوي ونقطة بيع في لبنان" />
     <meta
       name="twitter:description"
-      content="المبيعات والمخزون، الدولار والليرة، OMT وWhish، MTC وAlfa، دفتر الديون وإقفال اليوم — في نظام واحد."
+      content="المبيعات والمخزون والكفالات، الدولار والليرة، OMT وWhish، MTC وAlfa، دفتر الديون وعدّ الصناديق — في نظام واحد."
     />
     <meta name="twitter:image" content="https://liratek.shop/assets/og.png?v=2" />
     <meta name="twitter:image:alt" content="LiraTek — محلك كله، بالدولار والليرة، في مكان واحد" />
@@ -117,6 +117,89 @@
           <img class="brand-mark" src="/assets/liratek-mark.png" alt="" width="33" height="32" />
         </a>
         <nav class="topnav">
+          <div class="menu" id="features-menu-wrap">
+            <button type="button" class="menu-btn" id="features-btn" aria-expanded="false" aria-controls="features-menu">
+              <span data-i18n="menu.btn">الأقسام</span>
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16"><use href="/assets/icons.svg#i-chevron" /></svg>
+            </button>
+            <div class="mega" id="features-menu" hidden>
+              <p class="mega-title" data-i18n="menu.title">كل ما في LiraTek</p>
+              <ul class="mega-grid">
+                <li>
+                  <a href="#f-pos">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-cart" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.pos.t">المبيعات والمخزون</strong><small data-i18n="menu.pos.d">بيع، باركود وأرقام IMEI</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-cur">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.cur.t">الدولار والليرة</strong><small data-i18n="menu.cur.d">الأسعار والفكّة والصرافة</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-omt">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.omt.t">OMT وWhish</strong><small data-i18n="menu.omt.d">تحويلات مع حساب العمولة</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-rec">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.rec.t">MTC وAlfa</strong><small data-i18n="menu.rec.d">تشريج رصيد وأيام</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-debt">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.debt.t">ديون الزبائن</strong><small data-i18n="menu.debt.d">بيع بالدين واستلام الدفعات</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-rep">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-wrench" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.rep.t">التصليحات</strong><small data-i18n="menu.rep.d">من الاستلام حتى التسليم</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-close">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-chart" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.close.t">الإقفال والأرباح</strong><small data-i18n="menu.close.d">أقفل اليوم واعرف الربح</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-where">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-monitor" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.where.t">الكمبيوتر والويب</strong><small data-i18n="menu.where.d">في المحل أو من أي متصفح</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-war">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.war.t">الكفالة</strong><small data-i18n="menu.war.d">لأي قطعة، باسم الزبون أو الرقم التسلسلي</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-count">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.count.t">عدّ الصناديق</strong><small data-i18n="menu.count.d">عُدّ متى شئت واكتشف أي فرق</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-change">
+                    <span class="mega-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-coins" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.change.t">الفكّة الصغيرة</strong><small data-i18n="menu.change.d">احتفظ بالباقي ربحاً</small></span>
+                  </a>
+                </li>
+                <li>
+                  <a href="#f-phone">
+                    <span class="mega-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-phone" /></svg></span>
+                    <span class="mega-text"><strong data-i18n="menu.phone.t">تطبيق الهاتف</strong> <span class="soon" data-i18n="menu.new">جديد</span><small data-i18n="menu.phone.d">لصاحب المحل، بعد الإقفال</small></span>
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
           <a class="nav-signin" href="https://www.liratek.shop/#/login" data-i18n="nav.login">تسجيل الدخول</a>
           <a class="btn btn-primary nav-cta" href="https://www.liratek.shop/#/signup">
             <span class="nav-cta-long" data-i18n="nav.signup">أنشئ متجرك</span><span class="nav-cta-short" data-i18n="nav.signupShort">أنشئ متجرك</span>
@@ -128,9 +211,19 @@
 
     <main>
       <section class="hero">
+        <!-- Decoration only: a faint grid and the shop's features drifting
+             around the edges. Hidden from screen readers; still under "reduce motion". -->
+        <div class="hero-bg" aria-hidden="true">
+          <span class="badge badge-1"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span><span class="badge-label">OMT وWhish</span></span>
+          <span class="badge badge-2"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span><span class="badge-label">MTC وAlfa</span></span>
+          <span class="badge badge-3"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span><span class="badge-label">دولار + ليرة</span></span>
+          <span class="badge badge-4"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span><span class="badge-label">الكفالة</span></span>
+          <span class="badge badge-5"><span class="badge-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span><span class="badge-label">الديون</span></span>
+          <span class="badge badge-6"><span class="badge-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span><span class="badge-label">عدّ الصناديق</span></span>
+        </div>
         <div class="wrap hero-grid">
           <div class="hero-copy">
-            <p class="eyebrow" data-i18n="hero.eyebrow">برنامج محل خليوي مصمّم للبنان</p>
+            <p class="eyebrow pill"><span class="pill-dot" aria-hidden="true"></span><span data-i18n="hero.eyebrow">برنامج محل خليوي مصمّم للبنان</span></p>
             <h1 data-i18n="hero.title">محلك كله، بالدولار والليرة، في مكان واحد.</h1>
             <p class="lead" data-i18n="hero.lead">بِع، تابع المخزون، أرسل واستلم تحويلات OMT وWhish، اشحن MTC وAlfa، تابع ديون الزبائن وأقفل اليوم — كل مبلغ بالدولار والليرة، وكل صندوق مضبوط.</p>
             <div class="cta-row">
@@ -193,38 +286,94 @@
         <div class="wrap">
           <h2 data-i18n="features.title">كل ما يحتاجه محل الخليوي في يومه</h2>
           <div class="feature-grid">
-            <article class="card">
+            <article class="card" id="f-pos">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-cart" /></svg></span>
               <h3 data-i18n="f.pos.t">المبيعات والمخزون</h3>
               <p data-i18n="f.pos.d">بيع سريع، باركود، كميات المخزون، وتتبّع الهواتف برقم IMEI.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-cur">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-currency" /></svg></span>
               <h3 data-i18n="f.cur.t">الدولار والليرة معاً</h3>
               <p data-i18n="f.cur.d">الأسعار والدفعات والفكّة والصناديق بالدولار والليرة. قسّم الدفعة بين العملتين، وصرّف العملات.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-omt">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-transfer" /></svg></span>
               <h3 data-i18n="f.omt.t">OMT وWhish</h3>
               <p data-i18n="f.omt.d">أرسل واستلم التحويلات مع حساب العمولة تلقائياً، وطابق رصيدك مع كشف OMT.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-rec">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-signal" /></svg></span>
               <h3 data-i18n="f.rec.t">MTC وAlfa</h3>
               <p data-i18n="f.rec.d">تشريج رصيد وأيام، مع تحديث ما عليك لكل مورّد.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-debt">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-book" /></svg></span>
               <h3 data-i18n="f.debt.t">دفتر ديون الزبائن</h3>
               <p data-i18n="f.debt.d">بِع بالدين، استلم الدفعات بأي عملة، واعرف ما على كل زبون.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-rep">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-wrench" /></svg></span>
               <h3 data-i18n="f.rep.t">التصليحات</h3>
               <p data-i18n="f.rep.d">أشغال التصليح من الاستلام حتى التسليم، مع القطع المستعملة وما دفعه الزبون.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-close">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-chart" /></svg></span>
               <h3 data-i18n="f.close.t">إقفال اليوم والأرباح</h3>
               <p data-i18n="f.close.d">أقفل كل صندوق في نهاية اليوم واطّلع على الربح من كل قسم في المحل.</p>
             </article>
-            <article class="card">
+            <article class="card" id="f-where">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-monitor" /></svg></span>
               <h3 data-i18n="f.where.t">على الكمبيوتر أو من المتصفح</h3>
               <p data-i18n="f.where.d">استعمل تطبيق الكمبيوتر في المحل، أو ادخل من أي متصفح على عنوان محلك الخاص.</p>
             </article>
+            <article class="card" id="f-war">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-shield" /></svg></span>
+              <h3 data-i18n="f.war.t">كفالة على أي قطعة</h3>
+              <p data-i18n="f.war.d">حدّد الكفالة لكل فئة أو عند البيع، اطبع شروطك على الفاتورة، وابحث عن أي قطعة مبيعة باسم الزبون أو رقم هاتفه أو رقم الفاتورة أو الرقم التسلسلي.</p>
+            </article>
+            <article class="card" id="f-count">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-drawer" /></svg></span>
+              <h3 data-i18n="f.count.t">عُدّ الصندوق متى شئت</h3>
+              <p data-i18n="f.count.d">عُدّ كل صندوق خلال النهار، اطّلع على المبيعات منذ آخر عدّ، واكتشف أي فرق فوراً.</p>
+            </article>
+            <article class="card" id="f-change">
+              <span class="card-ic"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-coins" /></svg></span>
+              <h3 data-i18n="f.change.t">احتفظ بالفكّة الصغيرة</h3>
+              <p data-i18n="f.change.d">أرجِع مبلغاً مدوّراً ويُحسب الباقي ربحاً للمحل — عند الدفع وعند الاسترجاع.</p>
+            </article>
+            <article class="card card-link" id="f-phone">
+              <span class="card-ic tone-b"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><use href="/assets/icons.svg#i-phone" /></svg></span>
+              <h3 data-i18n="f.phone.t">على هاتف صاحب المحل</h3>
+              <p data-i18n="f.phone.d">سجّل تحويلات Whish App وOMT App وتابع الديون من هاتفك، حتى بعد الإقفال.</p>
+              <a href="#phone" data-i18n="f.phone.more">تعرّف على تطبيق الهاتف</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="phone" id="phone">
+        <div class="wrap phone-grid">
+          <div class="phone-copy">
+            <p class="eyebrow" data-i18n="phone.eyebrow">LiraTek على هاتفك</p>
+            <h2 data-i18n="phone.title">محلك معك، حتى بعد الإقفال.</h2>
+            <p class="lead" data-i18n="phone.lead">تطبيق هاتف لصاحب المحل. إذا راسلك زبون بعد الدوام، سجّل التحويل من البيت، فيدخل في حسابات محلك تماماً كأنه سُجّل في المحل.</p>
+            <ul class="phone-list">
+              <li data-i18n="phone.l1">سجّل تحويلات Whish App وOMT App، على حساب الزبون أو مدفوعة في محفظة Whish أو OMT.</li>
+              <li data-i18n="phone.l2">اطّلع على أرصدة الصناديق والمحافظ مباشرة، وعلى المبيعات منذ آخر عدّ لكل محفظة.</li>
+              <li data-i18n="phone.l3">اعرف ما على كل زبون، وسجّل دفعة منه في محفظة.</li>
+              <li data-i18n="phone.l4">إذا ضغطت «حفظ» مرتين بالخطأ، تُسجَّل العملية مرة واحدة فقط.</li>
+              <li data-i18n="phone.l5">مظهر داكن أو فاتح، أو مثل هاتفك.</li>
+            </ul>
+            <p class="phone-note" data-i18n="phone.note">للمحلات التي تستعمل LiraTek على الويب. لحساب صاحب المحل فقط.</p>
+          </div>
+          <div class="phone-card">
+            <!-- Not a screenshot on purpose: no phone screens until real ones are taken.
+                 Tab names stay in English: the phone app is English only. -->
+            <img src="/assets/liratek-swirl.png" alt="" width="120" height="116" loading="lazy" />
+            <p class="phone-soon" data-i18n="phone.soon" dir="ltr">LiraTek mobile</p>
+            <ul class="phone-tabs" dir="ltr" lang="en" aria-label="أقسام تطبيق الهاتف">
+              <li>Home</li><li>Sell</li><li>Debts</li><li>Activity</li><li>Settings</li>
+            </ul>
           </div>
         </div>
       </section>
