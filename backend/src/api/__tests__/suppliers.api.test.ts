@@ -61,7 +61,11 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getSupplierService, getFinancialService } from "@liratek/core";
+import {
+  getSupplierService,
+  getFinancialService,
+  type SupplierCreatePayload,
+} from "@liratek/core";
 import suppliersRouter from "../suppliers.js";
 
 function buildApp(): Express {
@@ -542,6 +546,81 @@ describe("Suppliers REST routes", () => {
 
       expect(res.body.balances.map((b: any) => b.id)).toEqual([1]);
       expect(spy).toHaveBeenCalledWith(false);
+    });
+  });
+
+  // ── POST / (create) ─────────────────────────────────────────────────────
+  // LIRA-297: the route used to check `name` by hand (HTTP 400 when missing,
+  // every other field forwarded unchecked) while desktop validated against
+  // `SupplierCreateSchema`. Both now run the shared core
+  // `supplierCreateSchema`, so web rejects exactly what desktop rejects, in
+  // the IPC envelope (HTTP 200 + { success:false, error }, rule 19c).
+  describe("POST /api/suppliers (create)", () => {
+    it("rejects a missing name in the IPC envelope (HTTP 200), never reaching the service", async () => {
+      const spy = jest.spyOn(supplierService, "createSupplier");
+
+      const res = await request(app)
+        .post("/api/suppliers")
+        .set("x-test-role", "admin")
+        .send({ phone: "70123456" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a non-string contact_name the way desktop does (service never called)", async () => {
+      const spy = jest.spyOn(supplierService, "createSupplier");
+
+      const res = await request(app)
+        .post("/api/suppliers")
+        .set("x-test-role", "admin")
+        .send({ name: "Acme", contact_name: 42 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("forwards every schema key to SupplierService.createSupplier and strips unknown ones", async () => {
+      const spy = jest
+        .spyOn(supplierService, "createSupplier")
+        .mockReturnValue({ success: true, id: 9 });
+      const payload = {
+        name: "Acme",
+        contact_name: "Sam",
+        phone: "70123456",
+        note: "n",
+        module_key: "recharge",
+        provider: "MTC",
+      } satisfies SupplierCreatePayload;
+
+      const res = await request(app)
+        .post("/api/suppliers")
+        .set("x-test-role", "admin")
+        .send({ ...payload, is_system: 1 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, id: 9 });
+      expect(spy).toHaveBeenCalledWith(payload);
+    });
+
+    it("a service failure answers HTTP 200 + { success:false } like IPC", async () => {
+      jest
+        .spyOn(supplierService, "createSupplier")
+        .mockReturnValue({ success: false, error: "UNIQUE constraint failed" });
+
+      const res = await request(app)
+        .post("/api/suppliers")
+        .set("x-test-role", "admin")
+        .send({ name: "Acme" } satisfies SupplierCreatePayload);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: false,
+        error: "UNIQUE constraint failed",
+      });
     });
   });
 });

@@ -12,6 +12,7 @@ import { audit } from "./auditHelper.js";
 import {
   validatePayload,
   DrawerTopUpCreateSchema,
+  DrawerTopUpFromDrawerSchema,
   DrawerTransferSchema,
 } from "../schemas/index.js";
 
@@ -107,18 +108,21 @@ export function registerDrawerTopUpHandlers(): void {
   // Create a drawer top-up from a source drawer (transfer)
   ipcMain.handle(
     "drawer-topup:create-from-drawer",
-    async (
-      e,
-      data: {
-        amount_usd: number;
-        amount_lbp: number;
-        source_drawer: string;
-        notes?: string;
-      },
-    ) => {
+    async (e, payload: unknown) => {
       try {
         const auth = requireRole(e.sender.id, ["admin", "staff"]);
         if (!auth.ok) return { success: false, error: auth.error };
+
+        // LIRA-297: this channel validated nothing before; it now runs the
+        // same core schema as POST /api/drawer-topup/from-drawer (rule 14).
+        const validation = validatePayload(
+          DrawerTopUpFromDrawerSchema,
+          payload,
+        );
+        if (!validation.ok) {
+          return { success: false, error: validation.error };
+        }
+        const data = validation.data;
 
         const svc = getServiceInstance();
         const result = svc.topUpFromDrawer(data, auth.userId);

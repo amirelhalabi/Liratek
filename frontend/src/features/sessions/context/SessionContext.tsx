@@ -516,10 +516,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        await api.linkTransactionToSession({
+        const result = await api.linkTransactionToSession({
           ...data,
           sessionId: activeSession.id,
         });
+        // The link is now schema-validated on both transports (LIRA-297
+        // item 3): a refused payload must leave a trace, not vanish.
+        if (!result?.success) {
+          logger.error("Session link refused:", result?.error);
+        }
         // Refresh transactions list
         await refreshSessionTransactions();
       } catch (err) {

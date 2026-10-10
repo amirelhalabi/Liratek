@@ -71,3 +71,78 @@ export type SessionCheckoutPayload = z.input<typeof sessionCheckoutSchema>;
 export type SessionCheckoutPaymentInput = z.infer<
   typeof sessionCheckoutPaymentSchema
 >;
+
+// ---------------------------------------------------------------------------
+// LIRA-297 item 3 (rule 21/23) — the non-checkout session write paths. Each
+// schema covers the UNION of keys a transport forwards today (key sets diffed
+// against preload.ts, sessionHandlers.ts and backend/src/api/sessions.ts), so
+// putting it in front of a channel drops nothing. Actor fields are NOT part
+// of the caller contract: both transports stamp the authenticated user.
+// ---------------------------------------------------------------------------
+
+/**
+ * Start a customer session (`session:start` / `POST /api/sessions/start`).
+ * `customer_name` is not `.min(1)` — neither transport enforced that before
+ * (the modal trims and refuses a blank name itself).
+ */
+export const startSessionSchema = z.object({
+  customer_name: z.string(),
+  customer_phone: z.string().optional(),
+  customer_notes: z.string().optional(),
+});
+export type StartSessionInput = z.input<typeof startSessionSchema>;
+
+/**
+ * The IPC handler's wider envelope: the desktop adapter also sends
+ * `started_by` (the handler's fallback when the user row has no username).
+ * `user_id` is deliberately absent — the handler overwrites it with the
+ * authenticated user, so nothing a client sends there is ever used.
+ */
+export const startSessionIpcSchema = startSessionSchema.extend({
+  started_by: z.string().optional(),
+});
+export type StartSessionIpcInput = z.input<typeof startSessionIpcSchema>;
+
+/** Edit a session's customer info (`session:update` / `PUT /api/sessions/:id`). */
+export const updateSessionSchema = z.object({
+  customer_name: z.string().optional(),
+  customer_phone: z.string().optional(),
+  customer_notes: z.string().optional(),
+});
+export type UpdateSessionInput = z.input<typeof updateSessionSchema>;
+
+/**
+ * Persist one basket line (`session:cart:add` / `POST /api/sessions/:id/cart`).
+ * `user_id` is absent on purpose: both transports overwrite it with the
+ * authenticated user. `amount` is a plain number (no sign rule existed).
+ */
+export const sessionCartAddSchema = z.object({
+  item_id: z.string().min(1),
+  module: z.string().min(1),
+  label: z.string(),
+  amount: z.number(),
+  currency: z.string().min(1),
+  form_data: z.string(),
+  ipc_channel: z.string().min(1),
+});
+export type SessionCartAddInput = z.input<typeof sessionCartAddSchema>;
+
+/**
+ * Link an already-booked transaction to a session
+ * (`session:linkTransaction` / `POST /api/sessions/link-transaction`).
+ * No `.default(0)` anywhere (rule 22): an absent profit is resolved by the
+ * handlers' own `?? 0`, and the amounts are required — every caller sends
+ * them. `sessionId` absent = link to the active session.
+ */
+export const linkSessionTransactionSchema = z.object({
+  sessionId: z.number().int().positive().optional(),
+  transactionType: z.string().min(1),
+  transactionId: z.number().int().positive(),
+  amountUsd: z.number(),
+  amountLbp: z.number(),
+  profitUsd: z.number().optional(),
+  profitLbp: z.number().optional(),
+});
+export type LinkSessionTransactionInput = z.input<
+  typeof linkSessionTransactionSchema
+>;

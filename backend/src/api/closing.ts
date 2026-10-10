@@ -16,6 +16,8 @@ import {
   hasOpeningBalanceTodayQuerySchema,
   dailyStatsSnapshotQuerySchema,
   sinceLastCountQuerySchema,
+  updateDailyClosingSchema,
+  type UpdateDailyClosingInput,
   canIncludeProfit,
   type CheckpointFilters,
   // LIRA-252 wave 2 — now barrel-exported from `@liratek/core`'s
@@ -106,7 +108,10 @@ router.get(
       });
     } catch (error) {
       logger.error({ error }, "Get since-last-count error");
-      res.json({ success: false, error: "Failed to load sales since the last count" });
+      res.json({
+        success: false,
+        error: "Failed to load sales since the last count",
+      });
     }
   },
 );
@@ -160,9 +165,7 @@ router.get(
       const { day } = req.query as unknown as { day?: string };
       const includeProfit = canIncludeProfit(
         req.user?.role,
-        req.user
-          ? hasProfitsUnlock(req.user.tenantId, req.user.userId)
-          : false,
+        req.user ? hasProfitsUnlock(req.user.tenantId, req.user.userId) : false,
       );
       const stats = closingService.getDailyStatsSnapshot(
         { day },
@@ -255,61 +258,49 @@ router.post(
   },
 );
 
-// PUT /api/closing/daily-closing/:id
-router.put("/daily-closing/:id", requireAuth, async (req: AuthRequest, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      res.status(400).json({ success: false, error: "Invalid closing ID" });
-    }
+// PUT /api/closing/daily-closing/:id — validated against the SAME core schema
+// as closing:update-daily-closing (LIRA-297 item 3, rule 14). Every failure is
+// the IPC-identical envelope: HTTP 200 + { success: false, error }.
+router.put(
+  "/daily-closing/:id",
+  requireAuth,
+  validateRequest(updateDailyClosingSchema),
+  async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.json({ success: false, error: "Invalid closing ID" });
+        return;
+      }
 
-    const {
-      physical_usd,
-      physical_lbp,
-      physical_eur,
-      system_expected_usd,
-      system_expected_lbp,
-      variance_usd,
-      notes,
-      report_path,
-      user_id,
-    } = req.body;
+      const body = req.body as UpdateDailyClosingInput;
+      const userId = req.user?.userId ?? 1;
 
-    const userId = req.user?.userId ?? 1;
-
-    const result = closingService.updateDailyClosing({
-      id,
-      physical_usd,
-      physical_lbp,
-      physical_eur,
-      system_expected_usd,
-      system_expected_lbp,
-      variance_usd,
-      notes,
-      report_path,
-      user_id: userId,
-    });
-
-    if (result.success) {
-      logger.info({ id, user_id }, "Daily closing updated");
-      // Mirrors dbHandlers.ts's closing:update-daily-closing audit.
-      auditRest(req, {
-        action: "update",
-        entity_type: "daily_closings",
-        entity_id: String(id),
-        summary: `Updated daily closing #${id}`,
+      const result = closingService.updateDailyClosing({
+        ...body,
+        id,
+        user_id: userId,
       });
+
+      if (result.success) {
+        logger.info({ id, user_id: userId }, "Daily closing updated");
+        // Mirrors dbHandlers.ts's closing:update-daily-closing audit.
+        auditRest(req, {
+          action: "update",
+          entity_type: "daily_closings",
+          entity_id: String(id),
+          summary: `Updated daily closing #${id}`,
+        });
+      }
       res.json(result);
-    } else {
-      res.status(400).json(result);
+    } catch (error) {
+      logger.error({ error }, "Update daily closing error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to update daily closing" });
     }
-  } catch (error) {
-    logger.error({ error }, "Update daily closing error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to update daily closing" });
-  }
-});
+  },
+);
 
 // POST /api/closing/checkpoint — create a unified checkpoint (money write:
 // reconciles each drawer/currency to its physical count). Admin-only, mirroring
@@ -422,7 +413,10 @@ router.get("/carrier-line-adjustments", requireAuth, async (req, res) => {
     logger.error({ error }, "Get carrier line adjustments error");
     res
       .status(500)
-      .json({ success: false, error: "Failed to get carrier line adjustments" });
+      .json({
+        success: false,
+        error: "Failed to get carrier line adjustments",
+      });
   }
 });
 

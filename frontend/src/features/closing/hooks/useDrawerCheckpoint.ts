@@ -27,7 +27,6 @@ import {
   type VarianceStatus,
 } from "../utils/variance";
 import { appEvents, useApi } from "@liratek/ui";
-import { useAuth } from "@/features/auth/context/AuthContext";
 import { generateClosingReport } from "../utils/closingReportGenerator";
 import { useShopBase } from "@/hooks/useShopBase";
 import { localDay } from "@/shared/utils/localDay";
@@ -60,7 +59,6 @@ export function useDrawerCheckpoint({
   const [amountsReady, setAmountsReady] = useState(false);
 
   const api = useApi();
-  const { user } = useAuth();
   const drawer = drawerName as DrawerType;
   const drawerConfig = DRAWER_CONFIGS[drawer];
 
@@ -451,9 +449,10 @@ export function useDrawerCheckpoint({
           );
 
           if (pdfRes?.success && pdfRes.path) {
+            // The editor is stamped server-side from the signed-in user on
+            // both transports (LIRA-297 item 3) — no user_id to send.
             await api.updateDailyClosing(Number(result.id), {
               report_path: pdfRes.path,
-              ...(user?.id != null ? { user_id: user.id } : {}),
             });
           }
         } catch (reportError) {

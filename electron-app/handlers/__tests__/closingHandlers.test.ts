@@ -167,26 +167,45 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
   // LIRA-289 FR-010 — same core service + schema as the REST route.
   describe("closing:get-since-last-count", () => {
     const call = (data: unknown) =>
-      handlers.get("closing:get-since-last-count")!({ sender: { id: 1 } }, data);
+      handlers.get("closing:get-since-last-count")!(
+        { sender: { id: 1 } },
+        data,
+      );
 
     it("is admin-only: refuses and never reaches the service", async () => {
-      (requireRole as jest.Mock).mockReturnValue({ ok: false, error: "Forbidden" });
+      (requireRole as jest.Mock).mockReturnValue({
+        ok: false,
+        error: "Forbidden",
+      });
       const res = await call({ drawers: ["Whish_App"] });
       expect(res).toEqual({ success: false, error: "Forbidden" });
-      expect(mockClosingService.getTransactionsSinceLastCount).not.toHaveBeenCalled();
+      expect(
+        mockClosingService.getTransactionsSinceLastCount,
+      ).not.toHaveBeenCalled();
     });
 
     it("refuses an empty drawer list", async () => {
       const res = (await call({ drawers: [] })) as { success: boolean };
       expect(res.success).toBe(false);
-      expect(mockClosingService.getTransactionsSinceLastCount).not.toHaveBeenCalled();
+      expect(
+        mockClosingService.getTransactionsSinceLastCount,
+      ).not.toHaveBeenCalled();
     });
 
     it("passes the de-duplicated drawer list to the service and wraps the result", async () => {
-      mockClosingService.getTransactionsSinceLastCount.mockReturnValue([{ drawer: "Whish_App", lastCountAt: null, transactions: [] }]);
-      const res = await call({ drawers: ["Whish_App", " OMT_App ", "Whish_App"] });
-      expect(mockClosingService.getTransactionsSinceLastCount).toHaveBeenCalledWith(["Whish_App", "OMT_App"]);
-      expect(res).toEqual({ success: true, data: [{ drawer: "Whish_App", lastCountAt: null, transactions: [] }] });
+      mockClosingService.getTransactionsSinceLastCount.mockReturnValue([
+        { drawer: "Whish_App", lastCountAt: null, transactions: [] },
+      ]);
+      const res = await call({
+        drawers: ["Whish_App", " OMT_App ", "Whish_App"],
+      });
+      expect(
+        mockClosingService.getTransactionsSinceLastCount,
+      ).toHaveBeenCalledWith(["Whish_App", "OMT_App"]);
+      expect(res).toEqual({
+        success: true,
+        data: [{ drawer: "Whish_App", lastCountAt: null, transactions: [] }],
+      });
     });
   });
 
@@ -312,7 +331,11 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
 
       const result = await handler({ sender: { id: 7 } }, data);
 
-      expect(mockClosingService.updateDailyClosing).toHaveBeenCalledWith(data);
+      // LIRA-297 item 3 — the editor is the authenticated user (as on REST).
+      expect(mockClosingService.updateDailyClosing).toHaveBeenCalledWith({
+        ...data,
+        user_id: 7,
+      });
       expect(result).toEqual({ success: true });
       expect(audit).toHaveBeenCalledWith(
         7,
@@ -334,6 +357,37 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
       const result = await handler({ sender: { id: 3 } }, { id: 42 });
 
       expect(result).toEqual({ success: false, error: "Forbidden" });
+      expect(mockClosingService.updateDailyClosing).not.toHaveBeenCalled();
+    });
+
+    // LIRA-297 item 3 — validated against the shared core schema
+    // (updateDailyClosingIpcSchema). Not proven failing-first for the
+    // user_id case: the handler change was written before this test.
+    it("ignores a client-sent user_id: the editor is the signed-in user", async () => {
+      mockClosingService.updateDailyClosing.mockReturnValue({ success: true });
+      const handler = handlers.get("closing:update-daily-closing")!;
+
+      await handler(
+        { sender: { id: 1 } },
+        { id: 42, report_path: "/r.pdf", user_id: 999 },
+      );
+
+      expect(mockClosingService.updateDailyClosing).toHaveBeenCalledWith({
+        id: 42,
+        report_path: "/r.pdf",
+        user_id: 1,
+      });
+    });
+
+    it("refuses a wrongly typed field without calling the service", async () => {
+      const handler = handlers.get("closing:update-daily-closing")!;
+
+      const result = (await handler(
+        { sender: { id: 1 } },
+        { id: 42, physical_usd: "ten" },
+      )) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
       expect(mockClosingService.updateDailyClosing).not.toHaveBeenCalled();
     });
   });

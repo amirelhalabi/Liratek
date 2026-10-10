@@ -7,6 +7,24 @@
 
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-297 item 3 — product create/update and item-cost write payloads,
+// derived from the core schemas (rule 21).
+import type {
+  CreateProductPayload,
+  UpdateProductPayload,
+  SetItemCostPayload,
+} from "@liratek/core";
+// LIRA-297 item 3 — session / daily-closing / voucher-image / setup write
+// payloads, derived from the core schemas (rule 21).
+import type {
+  StartSessionInput,
+  UpdateSessionInput,
+  SessionCartAddInput,
+  LinkSessionTransactionInput,
+  UpdateDailyClosingInput,
+  SetVoucherImageInput,
+  CompleteSetupInput,
+} from "@liratek/core";
 import type {
   ClientEntity,
   // LIRA-185 #1 — recharge payload derived from the core schema (rule 21).
@@ -179,6 +197,17 @@ import type {
   StockAdjustPayload,
   BatchUpdateProductsPayload,
   ImportClientDebtsPayload,
+} from "@liratek/core";
+// LIRA-297 (rule 21) — currency / payment-method / supplier-create / drawer
+// top-up payloads, derived from the core schemas both transports validate
+// against.
+import type {
+  UpdateCurrencyPayload,
+  CreatePaymentMethodPayload,
+  UpdatePaymentMethodPayload,
+  SupplierCreatePayload,
+  DrawerTopUpCreatePayload,
+  DrawerTopUpFromDrawerPayload,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -1087,8 +1116,12 @@ export type ApiAdapter = {
   deleteProductSupplier: (
     id: number,
   ) => Promise<{ success: boolean; error?: string }>;
-  createProduct: (payload: any) => Promise<ProductWriteResult>;
-  updateProduct: (id: number, payload: any) => Promise<ProductWriteResult>;
+  createProduct: (payload: CreateProductPayload) => Promise<ProductWriteResult>;
+  /** `id` travels as the first argument, so the payload omits it. */
+  updateProduct: (
+    id: number,
+    payload: Omit<UpdateProductPayload, "id">,
+  ) => Promise<ProductWriteResult>;
   deleteProduct: (id: number) => Promise<ProductWriteResult>;
   /** LIRA-149 — dual-transport twin of the inventory grid's multi-select
    *  delete (IPC `inventory:batch-delete` / REST
@@ -1547,7 +1580,10 @@ export type ApiAdapter = {
     symbol?: string,
     decimalPlaces?: number,
   ) => Promise<ApiResult & { id?: number }>;
-  updateCurrency: (id: number, data: any) => Promise<ApiResult>;
+  updateCurrency: (
+    id: number,
+    data: UpdateCurrencyPayload,
+  ) => Promise<ApiResult>;
   deleteCurrency: (id: number) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
@@ -1564,19 +1600,11 @@ export type ApiAdapter = {
     input?: DailyStatsSnapshotQuery,
   ) => Promise<DailyStatsSnapshot>;
   recalculateDrawerBalances: () => Promise<ApiResult>;
+  /** Payload = the core schema's input (rule 21). The editor is the
+   *  signed-in user on both transports — there is no user_id to send. */
   updateDailyClosing: (
     id: number,
-    data: {
-      physical_usd?: number;
-      physical_lbp?: number;
-      physical_eur?: number;
-      system_expected_usd?: number;
-      system_expected_lbp?: number;
-      variance_usd?: number;
-      notes?: string;
-      report_path?: string;
-      user_id?: number;
-    },
+    data: UpdateDailyClosingInput,
   ) => Promise<ApiResult>;
   createCheckpoint: (
     data: CreateCheckpointPayload,
@@ -1625,36 +1653,9 @@ export type ApiAdapter = {
    *  never calls `window.api.setup.*` directly (rule 19), and so a future
    *  web onboarding flow has one function to wire a REST route onto instead
    *  of a raw IPC call embedded in a page. */
-  completeSetup: (payload: {
-    shop_name: string;
-    admin_username: string;
-    admin_password: string;
-    base_system?: "OMT" | "WHISH";
-    enabled_modules: string[];
-    enabled_payment_methods: string[];
-    session_management_enabled: boolean;
-    customer_sessions_enabled: boolean;
-    active_currencies?: string[];
-    extra_users?: { username: string; password: string; role: string }[];
-    whatsapp_phone?: string;
-    whatsapp_api_key?: string;
-    drawer_amounts?: Array<{
-      drawer_name: string;
-      currency_code: string;
-      amount: number;
-    }>;
-    drawer_currency_config?: Array<{
-      drawer_name: string;
-      currency_codes: string[];
-    }>;
-    carrier_lines?: Array<{
-      carrier: "mtc" | "alfa";
-      phone_number: string;
-      label?: string | null;
-      credits?: number;
-      validity_expires_at?: string | null;
-    }>;
-  }) => Promise<{ success: boolean; adminUserId?: number; error?: string }>;
+  completeSetup: (
+    payload: CompleteSetupInput,
+  ) => Promise<{ success: boolean; adminUserId?: number; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Suppliers
@@ -1681,14 +1682,9 @@ export type ApiAdapter = {
   getSupplierAccountExpectedStatement: (
     accountSupplierId: number,
   ) => Promise<AccountExpectedStatement>;
-  createSupplier: (data: {
-    name: string;
-    contact_name?: string;
-    phone?: string;
-    note?: string;
-    module_key?: string;
-    provider?: string;
-  }) => Promise<ApiResult & { id?: number }>;
+  createSupplier: (
+    data: SupplierCreatePayload,
+  ) => Promise<ApiResult & { id?: number }>;
   /**
    * LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set (`account_supplier_id`
    * a positive id) or clear (`null`) a supplier's account parent. Payload
@@ -1842,21 +1838,12 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getPaymentMethods: () => Promise<PaymentMethodEntity[]>;
   getActivePaymentMethods: () => Promise<PaymentMethodEntity[]>;
-  createPaymentMethod: (data: {
-    code: string;
-    label: string;
-    drawer_name: string;
-    affects_drawer?: number;
-  }) => Promise<ApiResult & { id?: number }>;
+  createPaymentMethod: (
+    data: CreatePaymentMethodPayload,
+  ) => Promise<ApiResult & { id?: number }>;
   updatePaymentMethod: (
     id: number,
-    data: {
-      label?: string;
-      drawer_name?: string;
-      affects_drawer?: number;
-      is_active?: number;
-      sort_order?: number;
-    },
+    data: UpdatePaymentMethodPayload,
   ) => Promise<ApiResult>;
   deletePaymentMethod: (id: number) => Promise<ApiResult>;
   reorderPaymentMethods: (ids: number[]) => Promise<ApiResult>;
@@ -2021,30 +2008,22 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   // Customer Sessions
   // ---------------------------------------------------------------------------
-  startSession: (data: {
-    customer_name: string;
-    customer_phone?: string;
-    customer_notes?: string;
-  }) => Promise<ApiResult & { sessionId?: number }>;
+  startSession: (
+    data: StartSessionInput,
+  ) => Promise<ApiResult & { sessionId?: number }>;
   getActiveSession: () => Promise<any>;
   getSessionDetails: (sessionId: number) => Promise<any>;
   updateSession: (
     sessionId: number,
-    data: {
-      customer_name?: string;
-      customer_phone?: string;
-      customer_notes?: string;
-    },
+    data: UpdateSessionInput,
   ) => Promise<ApiResult>;
   closeSession: (sessionId: number) => Promise<ApiResult>;
   listSessions: (limit?: number, offset?: number) => Promise<any>;
-  linkTransactionToSession: (data: {
-    sessionId: number;
-    transactionType: string;
-    transactionId: number;
-    amountUsd: number;
-    amountLbp: number;
-  }) => Promise<ApiResult & { linked: boolean }>;
+  /** Payload = the core schema's input (rule 21) — carries profitUsd /
+   *  profitLbp, which this hand-written type used to omit. */
+  linkTransactionToSession: (
+    data: LinkSessionTransactionInput,
+  ) => Promise<ApiResult & { linked: boolean }>;
 
   /** Nested namespace mirroring window.api.session (read + cart + checkout),
    *  so the session page/context call identical names on IPC and REST. */
@@ -2070,16 +2049,7 @@ export type ApiAdapter = {
     }>;
     cartAdd: (
       sessionId: number,
-      item: {
-        item_id: string;
-        module: string;
-        label: string;
-        amount: number;
-        currency: string;
-        form_data: string;
-        ipc_channel: string;
-        user_id?: number;
-      },
+      item: SessionCartAddInput,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     cartRemove: (sessionId: number, itemId: string) => Promise<ApiResult>;
     cartClear: (sessionId: number) => Promise<ApiResult>;
@@ -2228,30 +2198,14 @@ export type ApiAdapter = {
 
   /** Drawer top-ups — cash into a drawer / transfer between drawers. */
   drawerTopUp: {
-    create: (data: {
-      amount_usd: number;
-      amount_lbp: number;
-      notes?: string;
-      /** External (Cash In) mode only — top-ups in currencies other than
-       *  USD/LBP already enabled for the General drawer. Not accepted by
-       *  createFromDrawer (transfer mode). */
-      extra_currencies?: {
-        currency_code: string;
-        amount: number;
-        /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — operator
-         *  cost-basis override, sent only via the modal's "edit" link. */
-        acquisition_usd_per_unit?: number;
-        /** NEW (2026-08-23 refinement) — live-feed USD-per-unit rate for a
-         *  currency with no configured exchange_rates row. */
-        market_usd_per_unit_hint?: number;
-      }[];
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    createFromDrawer: (data: {
-      amount_usd: number;
-      amount_lbp: number;
-      source_drawer: string;
-      notes?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** External (Cash In) mode only accepts `extra_currencies` — top-ups
+     *  in currencies other than USD/LBP. Never sent by createFromDrawer. */
+    create: (
+      data: DrawerTopUpCreatePayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    createFromDrawer: (
+      data: DrawerTopUpFromDrawerPayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     getSourceDrawers: () => Promise<{
       success: boolean;
       data?: any[];
@@ -2382,24 +2336,13 @@ export type ApiAdapter = {
   // Item Costs
   // ---------------------------------------------------------------------------
   getItemCosts: () => Promise<any[]>;
-  setItemCost: (data: {
-    provider: string;
-    category: string;
-    itemKey: string;
-    cost: number;
-    currency: string;
-  }) => Promise<ApiResult>;
+  setItemCost: (data: SetItemCostPayload) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
   // Voucher Images
   // ---------------------------------------------------------------------------
   getVoucherImages: () => Promise<any[]>;
-  setVoucherImage: (data: {
-    provider: string;
-    category: string;
-    itemKey: string;
-    imageData: string;
-  }) => Promise<ApiResult>;
+  setVoucherImage: (data: SetVoucherImageInput) => Promise<ApiResult>;
   deleteVoucherImage: (id: number) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------

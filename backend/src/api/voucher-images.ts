@@ -1,6 +1,15 @@
 import express from "express";
-import { authenticateJWT, type AuthRequest } from "../middleware/auth.js";
-import { getVoucherImageService } from "@liratek/core";
+import {
+  authenticateJWT,
+  requireRole,
+  type AuthRequest,
+} from "../middleware/auth.js";
+import { validateRequest } from "../middleware/validation.js";
+import {
+  getVoucherImageService,
+  setVoucherImageSchema,
+  type SetVoucherImageInput,
+} from "@liratek/core";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
 
@@ -8,6 +17,10 @@ const router = express.Router();
 
 // All voucher-images routes require auth
 router.use(authenticateJWT);
+
+// LIRA-297 item 3 — writes are admin-only, matching voucherImageHandlers.ts
+// (`requireRole(..., ["admin"])`). They used to accept any signed-in user.
+const adminGate = requireRole(["admin"]);
 
 // GET /api/voucher-images - Get all voucher images
 router.get("/", (_req, res): void => {
@@ -24,38 +37,39 @@ router.get("/", (_req, res): void => {
 });
 
 // POST /api/voucher-images - Save/update a voucher image
-router.post("/", (req, res): void => {
-  try {
-    const { provider, category, itemKey, imageData } = req.body;
+// Validated against the SAME core schema as voucher-images:set (rule 14); a
+// refusal is the IPC-identical envelope (HTTP 200 + { success: false }).
+router.post(
+  "/",
+  adminGate,
+  validateRequest(setVoucherImageSchema),
+  (req, res): void => {
+    try {
+      const { provider, category, itemKey, imageData } =
+        req.body as SetVoucherImageInput;
 
-    if (!provider || !category || !itemKey || !imageData) {
+      const voucherImageService = getVoucherImageService();
+      voucherImageService.setImage(provider, category, itemKey, imageData);
+      // Mirrors voucherImageHandlers.ts's voucher-images:set audit
+      // (update/voucher_image).
+      auditRest(req as AuthRequest, {
+        action: "update",
+        entity_type: "voucher_image",
+        summary: `Set voucher image for ${provider}/${category}/${itemKey}`,
+        metadata: { provider, category, itemKey },
+      });
+      res.json({ success: true });
+    } catch (error) {
+      logger.error({ error }, "Set voucher image error");
       res
-        .status(400)
-        .json({ success: false, error: "Missing required fields" });
-      return;
+        .status(500)
+        .json({ success: false, error: "Failed to save voucher image" });
     }
-
-    const voucherImageService = getVoucherImageService();
-    voucherImageService.setImage(provider, category, itemKey, imageData);
-    // Mirrors voucherImageHandlers.ts's voucher-images:set audit
-    // (update/voucher_image).
-    auditRest(req as AuthRequest, {
-      action: "update",
-      entity_type: "voucher_image",
-      summary: `Set voucher image for ${provider}/${category}/${itemKey}`,
-      metadata: { provider, category, itemKey },
-    });
-    res.json({ success: true });
-  } catch (error) {
-    logger.error({ error }, "Set voucher image error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to save voucher image" });
-  }
-});
+  },
+);
 
 // DELETE /api/voucher-images/:id - Delete a voucher image by ID
-router.delete("/:id", (req, res): void => {
+router.delete("/:id", adminGate, (req, res): void => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {

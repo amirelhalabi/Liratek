@@ -18,8 +18,16 @@ import {
   getCustomerSessionRepository,
   getSessionCheckoutService,
   sessionCheckoutSchema,
+  startSessionSchema,
+  updateSessionSchema,
+  sessionCartAddSchema,
+  linkSessionTransactionSchema,
   type SessionCheckoutInput,
   type CheckoutRequest,
+  type StartSessionInput,
+  type UpdateSessionInput,
+  type SessionCartAddInput,
+  type LinkSessionTransactionInput,
 } from "@liratek/core";
 import {
   authenticateJWT,
@@ -27,6 +35,7 @@ import {
   type AuthRequest,
 } from "../middleware/auth.js";
 import { auditRest } from "../middleware/audit.js";
+import { validateRequest } from "../middleware/validation.js";
 
 const router = Router();
 const sessionService = new CustomerSessionService();
@@ -144,31 +153,40 @@ router.get("/", async (req: Request, res: Response) => {
 // ── Writes ─────────────────────────────────────────────────────────────────
 
 // POST /api/sessions/start
-router.post("/start", writeGate, async (req: Request, res: Response) => {
-  try {
-    const { customer_name, customer_phone, customer_notes } = req.body;
-    const authUser = (req as AuthRequest).user;
-    const result = await sessionService.startSession({
-      customer_name,
-      customer_phone,
-      customer_notes,
-      started_by: authUser?.username || "unknown",
-      user_id: authUser?.userId,
-    });
-    if (result.success) {
-      // Mirrors sessionHandlers.ts's session:start audit
-      // (create/customer_session).
-      auditRest(req as AuthRequest, {
-        action: "create",
-        entity_type: "customer_session",
-        summary: `Started customer session${customer_name ? ` for "${customer_name}"` : ""}`,
+// LIRA-297 item 3: the start/update/cart/link writes validate against the SAME
+// core schemas as their IPC twins (rule 14); each schema holds every key the
+// route forwards (rule 23). Refusals are HTTP 200 + { success: false }.
+router.post(
+  "/start",
+  writeGate,
+  validateRequest(startSessionSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { customer_name, customer_phone, customer_notes } =
+        req.body as StartSessionInput;
+      const authUser = (req as AuthRequest).user;
+      const result = await sessionService.startSession({
+        customer_name,
+        customer_phone,
+        customer_notes,
+        started_by: authUser?.username || "unknown",
+        user_id: authUser?.userId,
       });
+      if (result.success) {
+        // Mirrors sessionHandlers.ts's session:start audit
+        // (create/customer_session).
+        auditRest(req as AuthRequest, {
+          action: "create",
+          entity_type: "customer_session",
+          summary: `Started customer session${customer_name ? ` for "${customer_name}"` : ""}`,
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
     }
-    res.json(result);
-  } catch (err) {
-    res.json({ success: false, error: errMessage(err) });
-  }
-});
+  },
+);
 
 // POST /api/sessions/checkout — basket checkout (shared core orchestration).
 // Validates the basket envelope against the SAME core schema the IPC handler
@@ -213,6 +231,7 @@ router.post("/checkout", writeGate, async (req: Request, res: Response) => {
 router.post(
   "/link-transaction",
   writeGate,
+  validateRequest(linkSessionTransactionSchema),
   async (req: Request, res: Response) => {
     try {
       const {
@@ -223,7 +242,7 @@ router.post(
         amountLbp,
         profitUsd,
         profitLbp,
-      } = req.body;
+      } = req.body as LinkSessionTransactionInput;
       if (!transactionType || !transactionId) {
         res.json({
           success: false,
@@ -274,23 +293,28 @@ router.get("/:id/cart", (req: Request, res: Response) => {
 });
 
 // POST /api/sessions/:id/cart
-router.post("/:id/cart", writeGate, (req: Request, res: Response) => {
-  try {
-    const id = parseId(req.params.id);
-    if (id == null) {
-      res.json({ success: false, error: "Invalid session ID" });
-      return;
+router.post(
+  "/:id/cart",
+  writeGate,
+  validateRequest(sessionCartAddSchema),
+  (req: Request, res: Response) => {
+    try {
+      const id = parseId(req.params.id);
+      if (id == null) {
+        res.json({ success: false, error: "Invalid session ID" });
+        return;
+      }
+      const userId = (req as AuthRequest).user?.userId;
+      const newId = getCustomerSessionRepository().addCartItem(id, {
+        ...(req.body as SessionCartAddInput),
+        user_id: userId,
+      });
+      res.json({ success: true, id: newId });
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
     }
-    const userId = (req as AuthRequest).user?.userId;
-    const newId = getCustomerSessionRepository().addCartItem(id, {
-      ...req.body,
-      user_id: userId,
-    });
-    res.json({ success: true, id: newId });
-  } catch (err) {
-    res.json({ success: false, error: errMessage(err) });
-  }
-});
+  },
+);
 
 // DELETE /api/sessions/:id/cart — clear the whole cart
 router.delete("/:id/cart", writeGate, (req: Request, res: Response) => {
@@ -339,25 +363,31 @@ router.get("/:id", async (req: Request, res: Response) => {
 });
 
 // PUT /api/sessions/:id — update customer info
-router.put("/:id", writeGate, async (req: Request, res: Response) => {
-  try {
-    const id = parseId(req.params.id);
-    if (id == null) {
-      res.json({ success: false, error: "Invalid session ID" });
-      return;
+router.put(
+  "/:id",
+  writeGate,
+  validateRequest(updateSessionSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseId(req.params.id);
+      if (id == null) {
+        res.json({ success: false, error: "Invalid session ID" });
+        return;
+      }
+      const { customer_name, customer_phone, customer_notes } =
+        req.body as UpdateSessionInput;
+      res.json(
+        await sessionService.updateSession(
+          id,
+          { customer_name, customer_phone, customer_notes },
+          (req as AuthRequest).user?.userId,
+        ),
+      );
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
     }
-    const { customer_name, customer_phone, customer_notes } = req.body;
-    res.json(
-      await sessionService.updateSession(
-        id,
-        { customer_name, customer_phone, customer_notes },
-        (req as AuthRequest).user?.userId,
-      ),
-    );
-  } catch (err) {
-    res.json({ success: false, error: errMessage(err) });
-  }
-});
+  },
+);
 
 // POST /api/sessions/:id/close
 router.post("/:id/close", writeGate, async (req: Request, res: Response) => {

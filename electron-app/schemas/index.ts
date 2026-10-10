@@ -48,6 +48,14 @@ import {
   type BatchDeleteProductIds,
   batchUpdateProductsSchema,
   type BatchUpdateProductsInput,
+  productFormCreateSchema,
+  productFormUpdateSchema,
+  productFormInputSchema,
+  type ProductFormCreateInput,
+  type ProductFormUpdateInput,
+  type ProductFormInput,
+  setItemCostSchema,
+  type SetItemCostInput,
   voidCheckoutGroupSchema,
   sessionBasketReversalSchema,
   refundLegsSchema,
@@ -293,6 +301,41 @@ import {
   // LOCAL duplicate schema's blanket D1 refine speaks with the same voice.
   OMT_RECEIVE_NO_FEE_MESSAGE,
 } from "@liratek/core";
+// LIRA-297 item 3 — session / daily-closing / voucher-image write contracts
+// (re-exported below the Customer Sessions checkout block).
+import {
+  startSessionIpcSchema,
+  updateSessionSchema,
+  sessionCartAddSchema,
+  linkSessionTransactionSchema,
+  updateDailyClosingIpcSchema,
+  setVoucherImageSchema,
+  type StartSessionIpcInput,
+  type UpdateSessionInput,
+  type SessionCartAddInput,
+  type LinkSessionTransactionInput,
+  type UpdateDailyClosingIpcInput,
+  type SetVoucherImageInput,
+} from "@liratek/core";
+// LIRA-297 item 3 — supplier create, drawer top-up, currency and
+// payment-method write contracts (lifted to / written in core so the REST
+// twins validate against the same schema; re-exported in their sections).
+import {
+  supplierCreateSchema,
+  drawerTopUpCreateSchema,
+  drawerTopUpFromDrawerSchema,
+  createCurrencySchema,
+  updateCurrencySchema,
+  createPaymentMethodSchema,
+  updatePaymentMethodSchema,
+  type SupplierCreateInput,
+  type DrawerTopUpCreateInput,
+  type DrawerTopUpFromDrawerInput,
+  type CreateCurrencyInput,
+  type UpdateCurrencyInput,
+  type CreatePaymentMethodInput,
+  type UpdatePaymentMethodInput,
+} from "@liratek/core";
 
 // =============================================================================
 // Sales
@@ -343,65 +386,27 @@ export const SinceLastCountQuerySchema =
 // Inventory
 // =============================================================================
 
-const PRICE_GT_COST_MSG = {
-  message: "Selling price must be greater than cost price",
-  path: ["retail_price"],
-} as const;
-
-function priceGtCostCheck(d: {
-  retail_price: number;
-  cost_price: number;
-}): boolean {
-  return !(
-    d.retail_price > 0 &&
-    d.cost_price > 0 &&
-    d.retail_price <= d.cost_price
-  );
-}
-
-const ProductBaseShape = z.object({
-  barcode: z.string(),
-  name: z.string().min(1, "Product name is required"),
-  category: z.string().min(1),
-  cost_price: z.number().nonnegative(),
-  retail_price: z.number().nonnegative(),
-  whish_price: z.number().nonnegative().optional(),
-  stock_quantity: z.number().int().nonnegative().optional(),
-  min_stock_level: z.number().int().nonnegative().optional(),
-  image_url: z.string().optional().nullable(),
-  supplier: z.string().optional().nullable(),
-  // LIRA-143 v157 (decision #4): duration on the MODEL, set on the product
-  // form; NULL/omitted = no warranty. tracks_imei_units is NOT a product
-  // write field — it lives on the category (see UpdateCategorySchema).
-  warranty_months: z.number().int().nonnegative().optional().nullable(),
-  // Supplier stock intake (D-plan): per-entry "old stock" checkbox — creates
-  // a cost batch but skips the supplier_ledger debit. Mirrors
-  // packages/core/src/validators/product.ts's createProductSchema field
-  // (rule 14) so desktop create-product can carry it alongside receiveStock.
-  is_old_stock: z.boolean().default(false).optional(),
-});
+// The product create/update contract lives in
+// packages/core/src/validators/product.ts (`productFormCreateSchema` /
+// `productFormUpdateSchema`, LIRA-297) so the frontend adapters derive their
+// payload types from the SAME definition this channel validates against
+// (rules 14/21). Lifted verbatim, with one fix: create accepts a null/absent
+// `barcode` (the CSV import sends null for a code-less row; the service
+// auto-generates one). Cast bridges the zod major mismatch (core types
+// against zod 4, this workspace types against zod 3); the runtime API used
+// is identical.
 
 /** Create: id must NOT be sent — the database auto-generates it. */
-export const ProductCreateSchema = ProductBaseShape.refine(
-  (d) => priceGtCostCheck(d),
-  { message: PRICE_GT_COST_MSG.message, path: ["retail_price"] },
-);
+export const ProductCreateSchema =
+  productFormCreateSchema as unknown as z.ZodSchema<ProductFormCreateInput>;
 
 /** Update: id is required to identify the row to modify. */
-export const ProductUpdateSchema = ProductBaseShape.extend({
-  id: z.number().int().positive("Product ID is required for updates"),
-}).refine((d) => priceGtCostCheck(d), {
-  message: PRICE_GT_COST_MSG.message,
-  path: ["retail_price"],
-});
+export const ProductUpdateSchema =
+  productFormUpdateSchema as unknown as z.ZodSchema<ProductFormUpdateInput>;
 
 /** @deprecated Use ProductCreateSchema or ProductUpdateSchema instead. */
-export const ProductInputSchema = ProductBaseShape.extend({
-  id: z.number().int().positive().optional(),
-}).refine((d) => priceGtCostCheck(d), {
-  message: PRICE_GT_COST_MSG.message,
-  path: ["retail_price"],
-});
+export const ProductInputSchema =
+  productFormInputSchema as unknown as z.ZodSchema<ProductFormInput>;
 
 // The batch-update contract lives in packages/core/src/validators/product.ts
 // so the IPC handler and the REST route
@@ -439,6 +444,11 @@ export const StockAdjustSchema =
 // used is identical.
 export const ReceiveStockSchema =
   receiveStockSchema as unknown as z.ZodSchema<ReceiveStockInput>;
+
+// LIRA-297: `item-costs:set` — shared with `POST /api/item-costs` (rule 14).
+// Cast bridges the zod major mismatch, same as the schemas above.
+export const SetItemCostSchema =
+  setItemCostSchema as unknown as z.ZodSchema<SetItemCostInput>;
 
 // The product-list filter contract lives in packages/core/src/validators/product.ts
 // so the Electron IPC handler and the REST route validate against ONE schema
@@ -1253,82 +1263,42 @@ export const HoldMoneyVoidPickupSchema =
 // Drawer Top-Up
 // =============================================================================
 
-// External (Cash In) mode only accepts extra_currencies — the from-drawer
-// transfer create has no schema here (out of scope, see
-// DrawerTopUpRepository.CreateDrawerTopUpFromDrawerData: that transfer only
-// moves USD/LBP. Its source debit used to silently no-op on a missing
-// source-drawer currency row; since LIRA-258 G9/G33 it is journaled as a
-// DRAWER_TRANSFER payments row and applied unconditionally, but widening it
-// to other currencies is still a separate decision).
-export interface DrawerTopUpCreateInput {
-  amount_usd: number;
-  amount_lbp: number;
-  extra_currencies?: {
-    currency_code: string;
-    amount: number;
-    /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — the operator's
-     *  manual cost-basis override (via the top-up modal's "edit" link). No
-     *  longer required for a lot-tracked (non-USD/LBP) entry; see
-     *  DrawerTopUpRepository's CreateDrawerTopUpData doc for the full
-     *  resolution order (override > configured market rate > feed hint >
-     *  error). */
-    acquisition_usd_per_unit?: number;
-    /** NEW (2026-08-23 refinement) — the live-feed USD-per-unit rate,
-     *  auto-attached by the frontend ONLY for a currency with no configured
-     *  `exchange_rates` row. Ignored server-side when a configured rate row
-     *  exists. See DrawerTopUpRepository's CreateDrawerTopUpData doc. */
-    market_usd_per_unit_hint?: number;
-  }[];
-  notes?: string;
-  transaction_time?: string;
-}
+// LIRA-297 — both drawer top-up contracts now live in
+// packages/core/src/validators/drawerTopUp.ts so `POST /api/drawer-topup` and
+// `POST /api/drawer-topup/from-drawer` validate against the SAME schemas as
+// the two IPC channels (rule 14). `DrawerTopUpCreateSchema` was lifted
+// verbatim (keys, `.default(0)`s, refines and messages unchanged). The cast
+// pins T to the schema's OUTPUT type (`z.infer`: amount_usd/lbp are plain
+// numbers after `.default(0)`), which is what `svc.addTopUp(validation.data,
+// …)` needs — the zod-major bridge used throughout this file.
+//
+// `DrawerTopUpFromDrawerSchema` is new (the from-drawer channel validated
+// nothing before): keys are the union both transports forwarded
+// (amount_usd, amount_lbp, source_drawer, notes, transaction_time), so
+// nothing that reached the service before is stripped now (rule 23).
+export type { DrawerTopUpCreateInput, DrawerTopUpFromDrawerInput };
+export const DrawerTopUpCreateSchema =
+  drawerTopUpCreateSchema as unknown as z.ZodSchema<DrawerTopUpCreateInput>;
+export const DrawerTopUpFromDrawerSchema =
+  drawerTopUpFromDrawerSchema as unknown as z.ZodSchema<DrawerTopUpFromDrawerInput>;
 
-// Explicit `z.ZodSchema<DrawerTopUpCreateInput>` cast: `validatePayload`'s
-// generic infers T from BOTH the schema's Output (amount_usd/lbp non-optional
-// thanks to `.default(0)`) and Input (optional, since `.default()` makes a
-// field omittable) positions of the ZodEffects chain the two `.refine()`s
-// produce — TS widens T to include `| undefined` on amount_usd/lbp when left
-// to infer on its own, which then fails CreateDrawerTopUpData's
-// `amount_usd: number` at the handler's `svc.addTopUp(validation.data, …)`
-// call. Pinning T explicitly (same mechanism as this file's core-schema
-// `as unknown as z.ZodSchema<...>` casts elsewhere) sidesteps that inference
-// ambiguity.
-export const DrawerTopUpCreateSchema = z
-  .object({
-    amount_usd: z.number().nonnegative().default(0),
-    amount_lbp: z.number().nonnegative().default(0),
-    extra_currencies: z
-      .array(
-        z.object({
-          currency_code: z.string().trim().min(1).max(10),
-          amount: z.number().positive(),
-          acquisition_usd_per_unit: z.number().positive().optional(),
-          market_usd_per_unit_hint: z.number().positive().optional(),
-        }),
-      )
-      .optional(),
-    notes: z.string().optional(),
-    transaction_time: z.string().optional(),
-  })
-  .refine(
-    (d) =>
-      d.amount_usd > 0 ||
-      d.amount_lbp > 0 ||
-      (d.extra_currencies?.some((e) => e.amount > 0) ?? false),
-    {
-      message:
-        "At least one amount (USD, LBP, or another currency) must be greater than zero.",
-    },
-  )
-  .refine(
-    (d) => {
-      const codes = (d.extra_currencies ?? []).map((e) =>
-        e.currency_code.toUpperCase(),
-      );
-      return new Set(codes).size === codes.length;
-    },
-    { message: "Duplicate currency in extra_currencies." },
-  ) as unknown as z.ZodSchema<DrawerTopUpCreateInput>;
+// =============================================================================
+// Currencies + Payment Methods (Settings CRUD)
+// =============================================================================
+
+// LIRA-297 — written once in packages/core/src/validators/{currency,
+// paymentMethod}.ts and shared with the REST twins (rule 14). Keys are
+// exactly what the repositories read, so nothing either channel forwarded
+// before is stripped (rule 23). The currency UPDATE schema covers the fields
+// only: `currencies:update` destructures `id` off its payload first.
+export const CurrencyCreateSchema =
+  createCurrencySchema as unknown as z.ZodSchema<CreateCurrencyInput>;
+export const CurrencyUpdateSchema =
+  updateCurrencySchema as unknown as z.ZodSchema<UpdateCurrencyInput>;
+export const PaymentMethodCreateSchema =
+  createPaymentMethodSchema as unknown as z.ZodSchema<CreatePaymentMethodInput>;
+export const PaymentMethodUpdateSchema =
+  updatePaymentMethodSchema as unknown as z.ZodSchema<UpdatePaymentMethodInput>;
 
 // =============================================================================
 // Drawer Cash-Out
@@ -1432,14 +1402,12 @@ export const ClientCreateSchema = z.object({
 // Suppliers
 // =============================================================================
 
-export const SupplierCreateSchema = z.object({
-  name: z.string().min(1, "Supplier name is required"),
-  contact_name: z.string().optional(),
-  phone: z.string().optional(),
-  note: z.string().optional(),
-  module_key: z.string().optional(),
-  provider: z.string().optional(),
-});
+// LIRA-297 — lifted verbatim to core's `supplierCreateSchema` so
+// `POST /api/suppliers` (which used to check `name` by hand) validates
+// against the same schema as `suppliers:create`. Same cast-bridge pattern as
+// the supplier schemas below.
+export const SupplierCreateSchema =
+  supplierCreateSchema as unknown as z.ZodSchema<SupplierCreateInput>;
 
 // CQ-8 (rule 14): lifted to packages/core/src/validators/supplier.ts so the
 // IPC handlers (supplierHandlers.ts) and any REST route validate against ONE
@@ -1492,6 +1460,24 @@ export const VoucherCreateSchema =
 // against zod 3); the runtime API is identical.
 export const SessionCheckoutSchema =
   sessionCheckoutSchema as unknown as z.ZodSchema<SessionCheckoutInput>;
+
+// LIRA-297 item 3 — the non-checkout session writes, the daily-closing edit
+// and voucher-image save, each shared with its REST twin via
+// packages/core/src/validators/{session,closing,voucherImage}.ts (rule 14).
+// Every schema covers the full key set its handler forwards (rule 23). Casts
+// bridge the zod major mismatch, same as SessionCheckoutSchema above.
+export const StartSessionIpcSchema =
+  startSessionIpcSchema as unknown as z.ZodSchema<StartSessionIpcInput>;
+export const UpdateSessionSchema =
+  updateSessionSchema as unknown as z.ZodSchema<UpdateSessionInput>;
+export const SessionCartAddSchema =
+  sessionCartAddSchema as unknown as z.ZodSchema<SessionCartAddInput>;
+export const LinkSessionTransactionSchema =
+  linkSessionTransactionSchema as unknown as z.ZodSchema<LinkSessionTransactionInput>;
+export const UpdateDailyClosingIpcSchema =
+  updateDailyClosingIpcSchema as unknown as z.ZodSchema<UpdateDailyClosingIpcInput>;
+export const SetVoucherImageSchema =
+  setVoucherImageSchema as unknown as z.ZodSchema<SetVoucherImageInput>;
 
 // =============================================================================
 // Partners

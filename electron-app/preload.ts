@@ -46,6 +46,19 @@ import type {
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
+// LIRA-297 item 3 — session / daily-closing / voucher-image / setup payloads,
+// derived from the core schemas (rule 21/23).
+import type {
+  StartSessionIpcInput,
+  UpdateSessionInput,
+  SessionCartAddInput,
+  LinkSessionTransactionInput,
+  UpdateDailyClosingIpcInput,
+  SetVoucherImageInput,
+  CompleteSetupInput,
+} from "@liratek/core" with {
+  "resolution-mode": "import",
+};
 
 console.log("[PRELOAD] Starting preload script...");
 
@@ -765,6 +778,10 @@ contextBridge.exposeInMainWorld("api", {
       contact_name?: string;
       phone?: string;
       note?: string;
+      // LIRA-297 (rule 12): the adapter has always sent these and the handler
+      // forwards them (SupplierCreateSchema) — the type just never said so.
+      module_key?: string;
+      provider?: string;
     }) => ipcRenderer.invoke("suppliers:create", data),
     // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set (a positive id) or
     // clear (null) a supplier's account parent. Admin-only (requireRole in
@@ -1084,7 +1101,7 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("closing:has-starting-checkpoint"),
     getInitialCheckpointDate: () =>
       ipcRenderer.invoke("closing:get-initial-checkpoint-date"),
-    updateDailyClosing: (data: any) =>
+    updateDailyClosing: (data: UpdateDailyClosingIpcInput) =>
       ipcRenderer.invoke("closing:update-daily-closing", data),
   },
 
@@ -1662,25 +1679,14 @@ contextBridge.exposeInMainWorld("api", {
 
   // Customer Sessions
   session: {
-    start: (data: {
-      customer_name: string;
-      customer_phone?: string;
-      customer_notes?: string;
-      started_by: string;
-      user_id?: number;
-    }) => ipcRenderer.invoke("session:start", data),
+    start: (data: StartSessionIpcInput) =>
+      ipcRenderer.invoke("session:start", data),
     getActive: () => ipcRenderer.invoke("session:getActive"),
     getActiveSessions: () => ipcRenderer.invoke("session:getActiveSessions"),
     get: (sessionId: number) =>
       ipcRenderer.invoke("session:getDetails", sessionId),
-    update: (
-      sessionId: number,
-      data: {
-        customer_name?: string;
-        customer_phone?: string;
-        customer_notes?: string;
-      },
-    ) => ipcRenderer.invoke("session:update", sessionId, data),
+    update: (sessionId: number, data: UpdateSessionInput) =>
+      ipcRenderer.invoke("session:update", sessionId, data),
     close: (sessionId: number, closedBy: string) =>
       ipcRenderer.invoke("session:close", sessionId, closedBy),
     delete: (sessionId: number) =>
@@ -1691,12 +1697,8 @@ contextBridge.exposeInMainWorld("api", {
     getTodayAllSessions: () => ipcRenderer.invoke("session:todayAll"),
     getByDateRange: (from: string, to: string) =>
       ipcRenderer.invoke("session:byDateRange", from, to),
-    linkTransaction: (data: {
-      transactionType: string;
-      transactionId: number;
-      amountUsd: number;
-      amountLbp: number;
-    }) => ipcRenderer.invoke("session:linkTransaction", data),
+    linkTransaction: (data: LinkSessionTransactionInput) =>
+      ipcRenderer.invoke("session:linkTransaction", data),
     /** Rule 21: the core schema's input type (sessionCheckoutSchema) —
      *  carries kept_change_usd / kept_change_lbp, which the hand-written
      *  type here used to omit. */
@@ -1704,19 +1706,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("session:checkout", data),
 
     // Cart persistence
-    cartAdd: (
-      sessionId: number,
-      item: {
-        item_id: string;
-        module: string;
-        label: string;
-        amount: number;
-        currency: string;
-        form_data: string;
-        ipc_channel: string;
-        user_id?: number;
-      },
-    ) => ipcRenderer.invoke("session:cart:add", sessionId, item),
+    cartAdd: (sessionId: number, item: SessionCartAddInput) =>
+      ipcRenderer.invoke("session:cart:add", sessionId, item),
     cartGet: (sessionId: number) =>
       ipcRenderer.invoke("session:cart:get", sessionId),
     cartRemove: (sessionId: number, itemId: string) =>
@@ -1746,12 +1737,8 @@ contextBridge.exposeInMainWorld("api", {
   // Voucher Images
   voucherImages: {
     getAll: () => ipcRenderer.invoke("voucher-images:get-all"),
-    set: (data: {
-      provider: string;
-      category: string;
-      itemKey: string;
-      imageData: string;
-    }) => ipcRenderer.invoke("voucher-images:set", data),
+    set: (data: SetVoucherImageInput) =>
+      ipcRenderer.invoke("voucher-images:set", data),
     delete: (id: number) => ipcRenderer.invoke("voucher-images:delete", id),
   },
 
@@ -2059,7 +2046,7 @@ contextBridge.exposeInMainWorld("api", {
   // Setup Wizard
   setup: {
     isRequired: () => ipcRenderer.invoke("setup:isRequired"),
-    complete: (payload: unknown) =>
+    complete: (payload: CompleteSetupInput) =>
       ipcRenderer.invoke("setup:complete", payload),
     reset: () => ipcRenderer.invoke("setup:reset"),
     detectNetworkDb: () => ipcRenderer.invoke("setup:detectNetworkDb"),

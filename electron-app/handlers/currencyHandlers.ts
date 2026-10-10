@@ -8,7 +8,11 @@ import { ipcMain, IpcMainInvokeEvent } from "electron";
 import { getCurrencyService, settingsLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-import type { CreateCurrencyData, UpdateCurrencyData } from "@liratek/core";
+import {
+  validatePayload,
+  CurrencyCreateSchema,
+  CurrencyUpdateSchema,
+} from "../schemas/index.js";
 
 export function registerCurrencyHandlers(): void {
   const currencyService = getCurrencyService();
@@ -22,9 +26,14 @@ export function registerCurrencyHandlers(): void {
   // Create a currency (admin only)
   ipcMain.handle(
     "currencies:create",
-    (event: IpcMainInvokeEvent, data: CreateCurrencyData) => {
+    (event: IpcMainInvokeEvent, payload: unknown) => {
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
+
+      // LIRA-297: same core schema as POST /api/currencies (rule 14).
+      const v = validatePayload(CurrencyCreateSchema, payload);
+      if (!v.ok) return { success: false, error: v.error };
+      const data = v.data;
 
       settingsLogger.info(
         { code: data.code, name: data.name },
@@ -44,13 +53,21 @@ export function registerCurrencyHandlers(): void {
   // Update a currency (admin only)
   ipcMain.handle(
     "currencies:update",
-    (event: IpcMainInvokeEvent, data: { id: number } & UpdateCurrencyData) => {
+    (
+      event: IpcMainInvokeEvent,
+      data: { id: number } & Record<string, unknown>,
+    ) => {
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
       settingsLogger.info({ id: data.id }, "Updating currency");
-      const { id, ...updateData } = data;
-      const result = currencyService.updateCurrency(id, updateData);
+      // LIRA-297: validate the FIELDS only (the schema has no `id` — keeping
+      // it in the parsed object would strip it), with the same core schema
+      // as PUT /api/currencies/:id.
+      const { id, ...updateFields } = data;
+      const v = validatePayload(CurrencyUpdateSchema, updateFields);
+      if (!v.ok) return { success: false, error: v.error };
+      const result = currencyService.updateCurrency(id, v.data);
       audit(event.sender.id, {
         action: "update",
         entity_type: "currency",

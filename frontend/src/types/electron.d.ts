@@ -46,6 +46,16 @@ import type {
   DefectiveItemView,
   WarrantyEnvelope,
 } from "@liratek/core";
+// LIRA-297 item 3 — session / daily-closing / voucher-image / setup payloads
+// (core schema inputs, rule 21). Must match preload.ts's bindings.
+import type {
+  StartSessionIpcInput,
+  UpdateSessionInput,
+  SessionCartAddInput,
+  LinkSessionTransactionInput,
+  UpdateDailyClosingIpcInput,
+  CompleteSetupInput,
+} from "@liratek/core";
 
 /**
  * LIRA-143 Phase 5 — one `product_units` row (per-IMEI phone unit
@@ -846,24 +856,11 @@ export interface ElectronAPI {
       } | null;
       error?: string;
     }>;
-    createProduct: (product: {
-      barcode?: string | null;
-      name: string;
-      category: string;
-      category_id?: number | null;
-      cost_price: number;
-      retail_price: number;
-      whish_price?: number;
-      stock_quantity?: number;
-      min_stock_level?: number;
-      image_url?: string | null;
-      item_type?: string;
-      supplier?: string | null;
-      is_active?: number;
-      /** Supplier stock intake (D-plan): skips the supplier_ledger debit on
-       *  the opening batch this create writes when a supplier is set. */
-      is_old_stock?: boolean;
-    }) => Promise<{
+    /** Rule 21: derived from core's productFormCreateSchema — the schema
+     *  `inventory:create-product` validates against. */
+    createProduct: (
+      product: import("@liratek/core").CreateProductPayload,
+    ) => Promise<{
       success: boolean;
       id?: number;
       error?: string;
@@ -884,8 +881,10 @@ export interface ElectronAPI {
       supplier?: string | null;
       unit?: string | null;
     }) => Promise<{ success: boolean; updated: number; error?: string }>;
+    /** Rule 21: derived from core's productFormUpdateSchema — the schema
+     *  `inventory:update-product` validates against. */
     updateProduct: (
-      product: Partial<import("@liratek/core").Product> & { id: number },
+      product: import("@liratek/core").UpdateProductPayload,
     ) => Promise<{
       success: boolean;
       error?: string;
@@ -1948,6 +1947,10 @@ export interface ElectronAPI {
       contact_name?: string;
       phone?: string;
       note?: string;
+      // LIRA-297 (rule 12): the adapter has always sent these and the handler
+      // forwards them (SupplierCreateSchema) — the type just never said so.
+      module_key?: string;
+      provider?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     /** LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set (a positive id) or
      *  clear (null) a supplier's account parent. Mirrors
@@ -2592,18 +2595,9 @@ export interface ElectronAPI {
     hasInitialBalancesSet: () => Promise<boolean>;
     hasStartingCheckpoint: () => Promise<boolean>;
     getInitialCheckpointDate: () => Promise<string | null>;
-    updateDailyClosing: (data: {
-      id: number;
-      physical_usd?: number;
-      physical_lbp?: number;
-      physical_eur?: number;
-      system_expected_usd?: number;
-      system_expected_lbp?: number;
-      variance_usd?: number;
-      notes?: string;
-      report_path?: string;
-      user_id?: number;
-    }) => Promise<{ success: boolean; error?: string }>;
+    updateDailyClosing: (
+      data: UpdateDailyClosingIpcInput,
+    ) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Drawer Top-Up
@@ -2962,13 +2956,9 @@ export interface ElectronAPI {
 
   // Session
   session: {
-    start: (data: {
-      customer_name?: string;
-      customer_phone?: string;
-      customer_notes?: string;
-      started_by: string;
-      user_id?: number;
-    }) => Promise<{ success: boolean; sessionId?: number; error?: string }>;
+    start: (
+      data: StartSessionIpcInput,
+    ) => Promise<{ success: boolean; sessionId?: number; error?: string }>;
     getActiveSessions: () => Promise<{
       success: boolean;
       sessions?: Array<{
@@ -2994,20 +2984,12 @@ export interface ElectronAPI {
     ) => Promise<{ success: boolean; error?: string }>;
     update: (
       sessionId: number,
-      data: {
-        customer_name?: string;
-        customer_phone?: string;
-        customer_notes?: string;
-      },
+      data: UpdateSessionInput,
     ) => Promise<{ success: boolean; error?: string }>;
     list: () => Promise<{ success: boolean; sessions?: any[]; error?: string }>;
-    linkTransaction: (data: {
-      sessionId?: number;
-      transactionType: string;
-      transactionId: number;
-      amountUsd: number;
-      amountLbp: number;
-    }) => Promise<{ success: boolean; linked: boolean; error?: string }>;
+    linkTransaction: (
+      data: LinkSessionTransactionInput,
+    ) => Promise<{ success: boolean; linked: boolean; error?: string }>;
     /** Rule 21: the core schema's input type (sessionCheckoutSchema),
      *  including kept_change_usd / kept_change_lbp. */
     checkout: (data: SessionCheckoutPayload) => Promise<{
@@ -3102,16 +3084,7 @@ export interface ElectronAPI {
     // Cart persistence
     cartAdd: (
       sessionId: number,
-      item: {
-        item_id: string;
-        module: string;
-        label: string;
-        amount: number;
-        currency: string;
-        form_data: string;
-        ipc_channel: string;
-        user_id?: number;
-      },
+      item: SessionCartAddInput,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     cartGet: (sessionId: number) => Promise<{
       success: boolean;
@@ -3478,38 +3451,12 @@ export interface ElectronAPI {
       isRequired: boolean;
       error?: string;
     }>;
-    complete: (payload: {
-      shop_name: string;
-      admin_username: string;
-      admin_password: string;
-      base_system?: "OMT" | "WHISH";
-      enabled_modules: string[];
-      enabled_payment_methods: string[];
-      session_management_enabled: boolean;
-      customer_sessions_enabled: boolean;
-      active_currencies?: string[];
-      extra_users?: { username: string; password: string; role: string }[];
-      whatsapp_phone?: string;
-      whatsapp_api_key?: string;
-      // LIRA-252 item A — rule 12: these three travel on the wire today
-      // (setupHandlers.ts's `SetupPayload`) and were missing here.
-      drawer_amounts?: Array<{
-        drawer_name: string;
-        currency_code: string;
-        amount: number;
-      }>;
-      drawer_currency_config?: Array<{
-        drawer_name: string;
-        currency_codes: string[];
-      }>;
-      carrier_lines?: Array<{
-        carrier: "mtc" | "alfa";
-        phone_number: string;
-        label?: string | null;
-        credits?: number;
-        validity_expires_at?: string | null;
-      }>;
-    }) => Promise<{ success: boolean; adminUserId?: number; error?: string }>;
+    // Core schema input (validators/setup.ts). drawer_amounts and
+    // drawer_currency_config travel with the wizard state but the handler
+    // ignores them — StepComplete.tsx applies them after logging in.
+    complete: (
+      payload: CompleteSetupInput,
+    ) => Promise<{ success: boolean; adminUserId?: number; error?: string }>;
     reset: () => Promise<{ success: boolean; error?: string }>;
     testDatabasePath: (
       path: string,

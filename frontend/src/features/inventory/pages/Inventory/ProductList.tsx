@@ -18,6 +18,7 @@ import {
 import { PageHeader, useApi, appEvents } from "@liratek/ui";
 import ProductForm from "./ProductForm";
 import type { Product } from "@liratek/ui";
+import type { CreateProductPayload } from "@liratek/core";
 import {
   DataTable,
   ConfirmModal,
@@ -890,7 +891,11 @@ export default function ProductList() {
             }
           }
 
-          const result = await api.createProduct({
+          // Typed from core's productFormCreateSchema (rule 21). The CSV's
+          // `unit` column is NOT sent: no create path on either transport
+          // has ever read it (the schema stripped it), so it was silently
+          // dropped — reported under LIRA-297, not invented here (rule 23).
+          const payload: CreateProductPayload = {
             barcode,
             name: rec.name,
             category: rec.category ?? "General",
@@ -898,9 +903,9 @@ export default function ProductList() {
             retail_price: rec.price ?? 0,
             stock_quantity: rec.stockQuantity ?? 0,
             min_stock_level: 5,
-            unit: rec.unit ?? null,
             supplier: rec.supplier ?? null,
-          } as any);
+          };
+          const result = await api.createProduct(payload);
           const importResult: ImportResult = {
             name: rec.name,
             success: result.success,

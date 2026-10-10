@@ -35,6 +35,8 @@
 
 ## 💸 OMT / Whish & suppliers
 
+- Services page: an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique
+  now goes through with a fee of 0 or no fee typed. It used to say "OMT fee is required".
 - OMT account on the Suppliers page: a new check shows what OMT's balance SMS should say (your
   balance minus the commission OMT already deducted). Type the SMS figures to see any difference.
 - Web app: shops created on the web now get OMT, iPick, Katsh, OMT App, Whish App and Loto Liban on
@@ -289,10 +291,13 @@
 - Reset Data now also sets each product's minimum stock to 0, so no low-stock warnings appear right after a reset. Set a minimum on a product again to get its warnings back.
 - Passwords may now use any symbol, such as - _ . or :, not only @ $ ! % * ? &. Passwords your browser suggests are accepted. This applies to the desktop app and the web app.
 - Navigation style, items per row, POS product display, auto-fill payment and UI scale moved from Settings → Shop Config to My account → Display (this device), so staff can now set their own screen. They are saved on each device, and your current choices are kept.
+- Web app, Settings → Currencies: adding a currency whose code already exists now shows "Currency code already exists". Before, nothing happened. Turning a currency on or off now also shows its error if it fails.
 
 ## 📦 Inventory
 - A product with a minimum stock of 0 no longer shows low-stock warnings (top-bar alert, Dashboard count, red stock figure on the Inventory list).
 - Returned phones: the refund window no longer asks for a warranty date — set the warranty at the till when you sell the phone again. Phone Units shows "Not sold" in the Warranty column for phones on the shelf, and searching a shelf phone's IMEI on the Warranty page now says it is in stock and not sold yet.
+- Web app: the warranty months you enter when adding a new product are now saved. Before, the web app dropped them and the product was saved with no warranty.
+- Desktop app: importing products from a file now works for rows with no barcode — a barcode is created for them, as the web app already did. Before, those rows were refused.
 
 ## 🖥️ Desktop app
 

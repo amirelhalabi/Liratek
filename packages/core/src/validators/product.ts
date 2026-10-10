@@ -52,6 +52,102 @@ export const updateProductSchema = z.object({
   warranty_months: positiveIntegerSchema.optional().nullable(),
 });
 
+// =============================================================================
+// Product form payload (LIRA-297 rule 21 — the shape the frontend SENDS)
+// =============================================================================
+
+/**
+ * The product create/update payload as the frontend builds it (ProductForm,
+ * the CSV import) and as the desktop `inventory:create-product` /
+ * `inventory:update-product` channels validate it. It speaks the IPC field
+ * names (`cost_price`, `retail_price`, `stock_quantity`, `min_stock_level`);
+ * the REST create route speaks `createProductSchema`'s names above, and the
+ * web adapter (`backendApi.ts`'s `toRestCreateProductBody`) translates.
+ *
+ * Lifted verbatim from `electron-app/schemas/index.ts` (which now re-exports
+ * these) so the adapters can derive their payload types from ONE definition
+ * instead of `any` (rule 21).
+ */
+const PRICE_GT_COST_MSG = "Selling price must be greater than cost price";
+
+function priceGtCostCheck(d: {
+  retail_price: number;
+  cost_price: number;
+}): boolean {
+  return !(
+    d.retail_price > 0 &&
+    d.cost_price > 0 &&
+    d.retail_price <= d.cost_price
+  );
+}
+
+const productFormBaseShape = z.object({
+  barcode: z.string(),
+  name: z.string().min(1, "Product name is required"),
+  category: z.string().min(1),
+  cost_price: z.number().nonnegative(),
+  retail_price: z.number().nonnegative(),
+  whish_price: z.number().nonnegative().optional(),
+  stock_quantity: z.number().int().nonnegative().optional(),
+  min_stock_level: z.number().int().nonnegative().optional(),
+  image_url: z.string().optional().nullable(),
+  supplier: z.string().optional().nullable(),
+  // LIRA-143 v157 (decision #4): duration on the MODEL, set on the product
+  // form; NULL/omitted = no warranty. tracks_imei_units is NOT a product
+  // write field — it lives on the category.
+  warranty_months: z.number().int().nonnegative().optional().nullable(),
+  // Supplier stock intake: per-entry "old stock" checkbox — creates a cost
+  // batch but skips the supplier_ledger debit. CREATE-only in practice.
+  is_old_stock: z.boolean().default(false).optional(),
+});
+
+/** Create: id must NOT be sent — the database auto-generates it.
+ *
+ *  `barcode` may be null/absent on create: the CSV import sends `null` for a
+ *  row with no code, and `InventoryService.createProduct` auto-generates one
+ *  (the IPC handler already passes `barcode || null`). The verbatim desktop
+ *  schema required a string, so every code-less import row was refused on
+ *  desktop while the web adapter (which omits a blank barcode) accepted it
+ *  (productForm.schema.test.ts). Update still requires a string. */
+export const productFormCreateSchema = productFormBaseShape
+  .extend({ barcode: z.string().nullish() })
+  .refine((d) => priceGtCostCheck(d), {
+    message: PRICE_GT_COST_MSG,
+    path: ["retail_price"],
+  });
+
+/** Update: id is required to identify the row to modify. */
+export const productFormUpdateSchema = productFormBaseShape
+  .extend({
+    id: z.number().int().positive("Product ID is required for updates"),
+  })
+  .refine((d) => priceGtCostCheck(d), {
+    message: PRICE_GT_COST_MSG,
+    path: ["retail_price"],
+  });
+
+/** @deprecated Use productFormCreateSchema / productFormUpdateSchema. */
+export const productFormInputSchema = productFormBaseShape
+  .extend({
+    id: z.number().int().positive().optional(),
+  })
+  .refine((d) => priceGtCostCheck(d), {
+    message: PRICE_GT_COST_MSG,
+    path: ["retail_price"],
+  });
+
+export type ProductFormCreateInput = z.infer<typeof productFormCreateSchema>;
+export type ProductFormUpdateInput = z.infer<typeof productFormUpdateSchema>;
+export type ProductFormInput = z.infer<typeof productFormInputSchema>;
+
+/** What a caller SENDS to `createProduct` (rule 21, `z.input`). */
+export type CreateProductPayload = z.input<typeof productFormCreateSchema>;
+/** What a caller SENDS to `updateProduct` (rule 21, `z.input`). */
+export type UpdateProductPayload = z.input<typeof productFormUpdateSchema>;
+/** The `POST /api/inventory/products` body (REST field names) — what the web
+ *  adapter translates a {@link CreateProductPayload} into. */
+export type CreateProductRestBody = z.input<typeof createProductSchema>;
+
 export const updateStockSchema = z.object({
   id: z.number().int().positive(),
   quantity: z.number().int(),

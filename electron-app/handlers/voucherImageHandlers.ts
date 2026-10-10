@@ -8,6 +8,7 @@ import { ipcMain } from "electron";
 import { getVoucherImageService } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import { validatePayload, SetVoucherImageSchema } from "../schemas/index.js";
 
 export function registerVoucherImageHandlers(): void {
   const voucherImageService = getVoucherImageService();
@@ -18,38 +19,31 @@ export function registerVoucherImageHandlers(): void {
   });
 
   // Save/update a voucher image
-  ipcMain.handle(
-    "voucher-images:set",
-    (
-      event,
-      data: {
-        provider: string;
-        category: string;
-        itemKey: string;
-        imageData: string;
+  ipcMain.handle("voucher-images:set", (event, raw: unknown) => {
+    const auth = requireRole(event.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+    // LIRA-297 item 3 — same core schema as POST /api/voucher-images.
+    const validation = validatePayload(SetVoucherImageSchema, raw);
+    if (!validation.ok) return { success: false, error: validation.error };
+    const data = validation.data;
+    voucherImageService.setImage(
+      data.provider,
+      data.category,
+      data.itemKey,
+      data.imageData,
+    );
+    audit(event.sender.id, {
+      action: "update",
+      entity_type: "voucher_image",
+      summary: `Set voucher image for ${data.provider}/${data.category}/${data.itemKey}`,
+      metadata: {
+        provider: data.provider,
+        category: data.category,
+        itemKey: data.itemKey,
       },
-    ) => {
-      const auth = requireRole(event.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-      voucherImageService.setImage(
-        data.provider,
-        data.category,
-        data.itemKey,
-        data.imageData,
-      );
-      audit(event.sender.id, {
-        action: "update",
-        entity_type: "voucher_image",
-        summary: `Set voucher image for ${data.provider}/${data.category}/${data.itemKey}`,
-        metadata: {
-          provider: data.provider,
-          category: data.category,
-          itemKey: data.itemKey,
-        },
-      });
-      return { success: true };
-    },
-  );
+    });
+    return { success: true };
+  });
 
   // Delete a voucher image
   ipcMain.handle("voucher-images:delete", (event, id: number) => {

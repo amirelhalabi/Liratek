@@ -24,6 +24,7 @@ import {
   ExpenseUpdateMetadataSchema,
   DailyStatsSnapshotQuerySchema,
   SinceLastCountQuerySchema,
+  UpdateDailyClosingIpcSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -466,7 +467,9 @@ export function registerDatabaseHandlers(): void {
       if (!validation.ok) return { success: false, error: validation.error };
       return {
         success: true,
-        data: getClosingService().getTransactionsSinceLastCount(validation.data.drawers),
+        data: getClosingService().getTransactionsSinceLastCount(
+          validation.data.drawers,
+        ),
       };
     } catch (err) {
       closingLogger.error({ err }, "closing:get-since-last-count failed");
@@ -501,14 +504,20 @@ export function registerDatabaseHandlers(): void {
   // frontend's `localDay()`) — falls back to the server's own `localDay()`
   // when omitted (ClosingRepository.hasOpeningBalanceToday's doc explains
   // why the server's day alone is wrong on web).
-  ipcMain.handle("closing:has-opening-balance-today", async (_event, day?: string) => {
-    try {
-      return getClosingService().hasOpeningBalanceToday(day);
-    } catch (err) {
-      closingLogger.error({ err }, "closing:has-opening-balance-today failed");
-      return false;
-    }
-  });
+  ipcMain.handle(
+    "closing:has-opening-balance-today",
+    async (_event, day?: string) => {
+      try {
+        return getClosingService().hasOpeningBalanceToday(day);
+      } catch (err) {
+        closingLogger.error(
+          { err },
+          "closing:has-opening-balance-today failed",
+        );
+        return false;
+      }
+    },
+  );
 
   // Check if initial drawer amounts have ever been set (no auth required)
   ipcMain.handle("closing:has-initial-balances-set", async () => {
@@ -544,46 +553,40 @@ export function registerDatabaseHandlers(): void {
   });
 
   // Update an existing daily closing record
-  ipcMain.handle(
-    "closing:update-daily-closing",
-    async (
-      e,
-      data: {
-        id: number;
-        physical_usd?: number;
-        physical_lbp?: number;
-        physical_eur?: number;
-        system_expected_usd?: number;
-        system_expected_lbp?: number;
-        variance_usd?: number;
-        notes?: string;
-        report_path?: string;
-        user_id?: number;
-      },
-    ) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin", "staff"]);
-        if (!auth.ok) return { success: false, error: auth.error };
+  ipcMain.handle("closing:update-daily-closing", async (e, raw: unknown) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
 
-        const result = getClosingService().updateDailyClosing(data);
-        if (result.success) {
-          audit(e.sender.id, {
-            action: "update",
-            entity_type: "daily_closings",
-            entity_id: String(data.id),
-            summary: `Updated daily closing #${data.id}`,
-          });
-        }
-        return result;
-      } catch (err) {
-        closingLogger.error({ err }, "closing:update-daily-closing failed");
-        return {
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        };
+      // LIRA-297 item 3 — the shared core contract (same fields as
+      // PUT /api/closing/daily-closing/:id). The editor (`updated_by`) is
+      // the authenticated user, as on REST — a client-sent user_id used to
+      // be written verbatim.
+      const validation = validatePayload(UpdateDailyClosingIpcSchema, raw);
+      if (!validation.ok) return { success: false, error: validation.error };
+      const data = validation.data;
+
+      const result = getClosingService().updateDailyClosing({
+        ...data,
+        user_id: auth.userId,
+      });
+      if (result.success) {
+        audit(e.sender.id, {
+          action: "update",
+          entity_type: "daily_closings",
+          entity_id: String(data.id),
+          summary: `Updated daily closing #${data.id}`,
+        });
       }
-    },
-  );
+      return result;
+    } catch (err) {
+      closingLogger.error({ err }, "closing:update-daily-closing failed");
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
 
   // Diagnostics: run PRAGMA foreign_key_check
   ipcMain.handle("diagnostics:foreign-key-check", async (e) => {

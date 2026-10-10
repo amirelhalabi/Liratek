@@ -1,6 +1,11 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { getPaymentMethodService } from "@liratek/core";
+import {
+  getPaymentMethodService,
+  createPaymentMethodSchema,
+  updatePaymentMethodSchema,
+} from "@liratek/core";
+import { validateRequest } from "../middleware/validation.js";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
 
@@ -39,29 +44,35 @@ router.get("/active", (_req, res): void => {
 });
 
 // POST /api/payment-methods - Create a payment method
-router.post("/", requireRole(["admin"]), (req, res): void => {
-  try {
-    const service = getPaymentMethodService();
-    const result = service.create(req.body);
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
+// LIRA-297: same core schema as payment-methods:create (rule 14).
+router.post(
+  "/",
+  requireRole(["admin"]),
+  validateRequest(createPaymentMethodSchema),
+  (req, res): void => {
+    try {
+      const service = getPaymentMethodService();
+      const result = service.create(req.body);
+      if (!result.success) {
+        res.status(400).json(result);
+        return;
+      }
+      // Mirrors paymentMethodHandlers.ts's payment-methods:create audit
+      // (create/payment_method).
+      auditRest(req, {
+        action: "create",
+        entity_type: "payment_method",
+        summary: `Created payment method "${req.body.code}"`,
+      });
+      res.status(201).json(result);
+    } catch (error) {
+      logger.error({ error }, "Create payment method error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to create payment method" });
     }
-    // Mirrors paymentMethodHandlers.ts's payment-methods:create audit
-    // (create/payment_method).
-    auditRest(req, {
-      action: "create",
-      entity_type: "payment_method",
-      summary: `Created payment method "${req.body.code}"`,
-    });
-    res.status(201).json(result);
-  } catch (error) {
-    logger.error({ error }, "Create payment method error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to create payment method" });
-  }
-});
+  },
+);
 
 // PUT /api/payment-methods/reorder - Reorder payment methods
 // (registered before /:id so Express doesn't match "reorder" as an :id param)
@@ -90,35 +101,41 @@ router.put("/reorder", requireRole(["admin"]), (req, res): void => {
 });
 
 // PUT /api/payment-methods/:id - Update a payment method
-router.put("/:id", requireRole(["admin"]), (req, res): void => {
-  try {
-    const service = getPaymentMethodService();
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      res.status(400).json({ success: false, error: "Invalid id" });
-      return;
+// LIRA-297: same core schema as payment-methods:update (id from the URL).
+router.put(
+  "/:id",
+  requireRole(["admin"]),
+  validateRequest(updatePaymentMethodSchema),
+  (req, res): void => {
+    try {
+      const service = getPaymentMethodService();
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        res.status(400).json({ success: false, error: "Invalid id" });
+        return;
+      }
+      const result = service.update(id, req.body);
+      if (!result.success) {
+        res.status(400).json(result);
+        return;
+      }
+      // Mirrors paymentMethodHandlers.ts's payment-methods:update audit
+      // (update/payment_method).
+      auditRest(req, {
+        action: "update",
+        entity_type: "payment_method",
+        entity_id: String(id),
+        summary: `Updated payment method #${id}`,
+      });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Update payment method error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to update payment method" });
     }
-    const result = service.update(id, req.body);
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
-    }
-    // Mirrors paymentMethodHandlers.ts's payment-methods:update audit
-    // (update/payment_method).
-    auditRest(req, {
-      action: "update",
-      entity_type: "payment_method",
-      entity_id: String(id),
-      summary: `Updated payment method #${id}`,
-    });
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Update payment method error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to update payment method" });
-  }
-});
+  },
+);
 
 // DELETE /api/payment-methods/:id - Delete a payment method
 router.delete("/:id", requireRole(["admin"]), (req, res): void => {

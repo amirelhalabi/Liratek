@@ -7,48 +7,50 @@ import {
   type CheckoutRequest,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
-import { validatePayload, SessionCheckoutSchema } from "../schemas/index.js";
+import {
+  validatePayload,
+  SessionCheckoutSchema,
+  StartSessionIpcSchema,
+  UpdateSessionSchema,
+  SessionCartAddSchema,
+  LinkSessionTransactionSchema,
+} from "../schemas/index.js";
 import { audit } from "./auditHelper.js";
 
 const sessionService = new CustomerSessionService();
 
 export function registerSessionHandlers() {
   // Start a new customer session
-  ipcMain.handle(
-    "session:start",
-    async (
-      event,
-      data: {
-        customer_name?: string;
-        customer_phone?: string;
-        customer_notes?: string;
-        started_by: string;
-      },
-    ) => {
-      const auth = requireRole(event.sender.id, ["admin", "staff"]);
-      if (!auth.ok) return { success: false, error: auth.error };
+  ipcMain.handle("session:start", async (event, raw: unknown) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
 
-      // Look up username server-side instead of trusting frontend
-      const user = getUserRepository().findByIdSafe(auth.userId);
-      const started_by = user?.username || data.started_by || "unknown";
+    // LIRA-297 item 3 — the shared core contract (rule 14/23): every key
+    // this handler forwards is in the schema, so nothing is stripped.
+    const validation = validatePayload(StartSessionIpcSchema, raw);
+    if (!validation.ok) return { success: false, error: validation.error };
+    const data = validation.data;
 
-      // Client auto-registration (name+phone) happens inside
-      // CustomerSessionService.startSession so the web backend route gets the
-      // same behavior — do not re-add it here.
-      const result = await sessionService.startSession({
-        ...data,
-        started_by,
-        user_id: auth.userId,
-      });
+    // Look up username server-side instead of trusting frontend
+    const user = getUserRepository().findByIdSafe(auth.userId);
+    const started_by = user?.username || data.started_by || "unknown";
 
-      audit(event.sender.id, {
-        action: "create",
-        entity_type: "customer_session",
-        summary: `Started customer session${data.customer_name ? ` for "${data.customer_name}"` : ""}`,
-      });
-      return result;
-    },
-  );
+    // Client auto-registration (name+phone) happens inside
+    // CustomerSessionService.startSession so the web backend route gets the
+    // same behavior — do not re-add it here.
+    const result = await sessionService.startSession({
+      ...data,
+      started_by,
+      user_id: auth.userId,
+    });
+
+    audit(event.sender.id, {
+      action: "create",
+      entity_type: "customer_session",
+      summary: `Started customer session${data.customer_name ? ` for "${data.customer_name}"` : ""}`,
+    });
+    return result;
+  });
 
   // Get active session
   ipcMain.handle("session:getActive", async () => {
@@ -77,18 +79,16 @@ export function registerSessionHandlers() {
   // Update session
   ipcMain.handle(
     "session:update",
-    async (
-      event,
-      sessionId: number,
-      data: {
-        customer_name?: string;
-        customer_phone?: string;
-        customer_notes?: string;
-      },
-    ) => {
+    async (event, sessionId: number, raw: unknown) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
-      return sessionService.updateSession(sessionId, data, auth.userId);
+      const validation = validatePayload(UpdateSessionSchema, raw);
+      if (!validation.ok) return { success: false, error: validation.error };
+      return sessionService.updateSession(
+        sessionId,
+        validation.data,
+        auth.userId,
+      );
     },
   );
 
@@ -158,34 +158,17 @@ export function registerSessionHandlers() {
   });
 
   // Link transaction to active session (helper for other modules)
-  ipcMain.handle(
-    "session:linkTransaction",
-    async (
-      event,
-      data: {
-        sessionId?: number;
-        transactionType: string;
-        transactionId: number;
-        amountUsd: number;
-        amountLbp: number;
-        profitUsd?: number;
-        profitLbp?: number;
-      },
-    ) => {
-      const auth = requireRole(event.sender.id, ["admin", "staff"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-      if (data.sessionId) {
-        return sessionService.linkTransactionToSession(
-          data.sessionId,
-          data.transactionType,
-          data.transactionId,
-          data.amountUsd,
-          data.amountLbp,
-          data.profitUsd ?? 0,
-          data.profitLbp ?? 0,
-        );
-      }
-      return sessionService.linkTransactionToActiveSession(
+  ipcMain.handle("session:linkTransaction", async (event, raw: unknown) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+    // LIRA-297 item 3 — same core schema as POST /api/sessions/link-transaction.
+    // profitUsd/profitLbp are in it, so they reach the service (rule 23).
+    const validation = validatePayload(LinkSessionTransactionSchema, raw);
+    if (!validation.ok) return { success: false, error: validation.error };
+    const data = validation.data;
+    if (data.sessionId) {
+      return sessionService.linkTransactionToSession(
+        data.sessionId,
         data.transactionType,
         data.transactionId,
         data.amountUsd,
@@ -193,8 +176,16 @@ export function registerSessionHandlers() {
         data.profitUsd ?? 0,
         data.profitLbp ?? 0,
       );
-    },
-  );
+    }
+    return sessionService.linkTransactionToActiveSession(
+      data.transactionType,
+      data.transactionId,
+      data.amountUsd,
+      data.amountLbp,
+      data.profitUsd ?? 0,
+      data.profitLbp ?? 0,
+    );
+  });
 
   // Get sessions by customer (for client details view)
   ipcMain.handle(
@@ -255,25 +246,15 @@ export function registerSessionHandlers() {
 
   ipcMain.handle(
     "session:cart:add",
-    async (
-      event,
-      sessionId: number,
-      item: {
-        item_id: string;
-        module: string;
-        label: string;
-        amount: number;
-        currency: string;
-        form_data: string;
-        ipc_channel: string;
-      },
-    ) => {
+    async (event, sessionId: number, raw: unknown) => {
       try {
         const auth = requireRole(event.sender.id, ["admin", "staff"]);
         if (!auth.ok) return { success: false, error: auth.error };
+        const validation = validatePayload(SessionCartAddSchema, raw);
+        if (!validation.ok) return { success: false, error: validation.error };
         const repo = getCustomerSessionRepository();
         const id = repo.addCartItem(sessionId, {
-          ...item,
+          ...validation.data,
           user_id: auth.userId,
         });
         return { success: true, id };

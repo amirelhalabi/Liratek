@@ -226,8 +226,13 @@ describe("backendApi dual-mode routing", () => {
 
     await apiMod.getProducts("");
     await apiMod.getLowStockProducts();
-    await apiMod.createProduct({});
-    await apiMod.updateProduct(1, {});
+    await apiMod.createProduct(
+      {} as Parameters<typeof apiMod.createProduct>[0],
+    );
+    await apiMod.updateProduct(
+      1,
+      {} as Parameters<typeof apiMod.updateProduct>[1],
+    );
     await apiMod.deleteProduct(1);
 
     await apiMod.getDrafts();

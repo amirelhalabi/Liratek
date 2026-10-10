@@ -10,9 +10,9 @@
  * empty, so the validator must tell those two payloads apart instead of
  * collapsing them.
  *
- * Owner decision: a fee of 0 is a VALID entered value and must be accepted;
- * a fee that is missing entirely must still be rejected for SEND (unchanged
- * — see `financial.receiveFeeOptional.test.ts`'s SEND cases).
+ * Owner decision: a fee of 0 is a VALID entered value and must be accepted.
+ * Superseded 2026-10-10: a MISSING fee is now accepted on SEND too — see
+ * `financial.omtFeeOptional.test.ts`.
  *
  * RULE 17 — PROVEN FAILING-FIRST 2026-10-02: ran this file against the
  * unfixed validator (refine still reads `!data.omtFee`) — every "omtFee: 0 —
@@ -49,30 +49,7 @@ describe("createFinancialServiceSchema — SEND omtFee: 0 is a valid entered fee
       });
       expect(result.success).toBe(true);
     });
-
-    it(`SEND, ${omtServiceType}, omtFee key entirely absent — STILL REJECTED`, () => {
-      const result = createFinancialServiceSchema.safeParse({
-        ...base,
-        omtServiceType,
-        // omtFee omitted — a real fee the shop needs an exact figure for.
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.error.issues[0]?.message).toBe(
-          "OMT fee is required for this service type",
-        );
-      }
-    });
   }
-
-  it("SEND, CASH_TO_BUSINESS, omtFee: null — STILL REJECTED (same as absent)", () => {
-    const result = createFinancialServiceSchema.safeParse({
-      ...base,
-      omtServiceType: "CASH_TO_BUSINESS",
-      omtFee: null,
-    });
-    expect(result.success).toBe(false);
-  });
 
   it("RECEIVE, CASH_TO_BUSINESS, omtFee: 0 — still ACCEPTED (unaffected by this fix)", () => {
     const result = createFinancialServiceSchema.safeParse({

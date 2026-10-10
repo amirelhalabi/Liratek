@@ -18,34 +18,14 @@ import {
   getAuditService,
   getCurrentTenantId,
   getCarrierLineRepository,
+  type CompleteSetupInput,
 } from "@liratek/core";
 
-export interface SetupPayload {
-  shop_name: string;
-  admin_username: string;
-  admin_password: string;
-  base_system?: "OMT" | "WHISH";
-  enabled_modules: string[];
-  enabled_payment_methods: string[];
-  session_management_enabled: boolean;
-  customer_sessions_enabled: boolean;
-  // Optional
-  active_currencies?: string[];
-  extra_users?: { username: string; password: string; role: string }[];
-  whatsapp_phone?: string;
-  whatsapp_api_key?: string;
-  // Step 6 - Carrier Lines (optional, LIRA carrier-lines-validity Phase 2).
-  // `credits` is the same number the operator typed once for that carrier —
-  // it also becomes that carrier's starting drawer amount (§0.1), applied
-  // separately via the post-login initial checkpoint (StepComplete.tsx).
-  carrier_lines?: {
-    carrier: "mtc" | "alfa";
-    phone_number: string;
-    label?: string | null;
-    credits?: number;
-    validity_expires_at?: string | null;
-  }[];
-}
+// LIRA-297 item 3 (rule 21) — the payload type is the core schema's input
+// (packages/core/src/validators/setup.ts), the same type the preload binding
+// and the frontend adapters use. Type contract only: the checks below stay
+// hand-written so the wizard keeps its own error messages.
+export type SetupPayload = CompleteSetupInput;
 
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");

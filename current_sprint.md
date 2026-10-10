@@ -6937,3 +6937,19 @@ Scope:
 >
 > What users will notice: on the web app, inactive suppliers and service providers can be shown again, and transactions
 > added to a customer session keep their profit.
+>
+> **Progress 2026-10-10 — remaining typed adapters + last specs, uncommitted.** Every write path that had no core
+> schema now has one, shared by IPC and REST and typing all three adapter files: product create/update, item costs,
+> supplier create, drawer top-up (and top-up from another drawer), currencies, payment methods, session
+> start/update/cart add/link-transaction, daily-closing edit, voucher images, setup (type-only, desktop-only). Each was
+> key-diffed first (rule 23); validation was wired only where nothing would be dropped (session checkout untouched).
+> Bugs found and fixed: web dropped `warranty_months` on product create; desktop refused CSV-import rows with no
+> barcode; web currency add/update answered HTTP 400 so a duplicate code showed nothing; web voucher-image save/delete
+> had no admin check; web daily-closing edit called the service with `id = NaN` after a 400; desktop daily-closing
+> edit trusted a client `user_id`; REST accepted negative drawer top-ups; item-cost save always answered success.
+> Also: the "Checkout Complete" screen vanished after every session checkout on both apps (fixed, 8c2d4e9c); 117 of
+> 118 desktop specs now run in web mode (lira-085 stays desktop-only — the setup wizard is Electron-only).
+>
+> What users will notice: on the web app, product warranty months are saved and a duplicate currency code shows an
+> error; on the desktop app, importing products with no barcode works; on both, the session "Checkout Complete"
+> screen stays open.

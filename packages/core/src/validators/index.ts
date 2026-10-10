@@ -6,6 +6,8 @@
 export * from "./client.js";
 export * from "./product.js";
 export * from "./inventory.js";
+// LIRA-297: remembered item costs (item-costs:set / POST /api/item-costs).
+export * from "./itemCost.js";
 export * from "./sale.js";
 export * from "./auth.js";
 // User management (create/password/active/role) — deliberately a separate
@@ -33,6 +35,10 @@ export * from "./session.js";
 export * from "./holdMoney.js";
 export * from "./partner.js";
 export * from "./voucher.js";
+// LIRA-297 item 3: mobile-service item pictures (voucher-images:set).
+export * from "./voucherImage.js";
+// LIRA-297 item 3: first-run Setup wizard payload (type contract only).
+export * from "./setup.js";
 export * from "./counterparty.js";
 export * from "./supplier.js";
 export * from "./transaction.js";
@@ -57,3 +63,7 @@ export * from "./dashboard.js";
 export * from "./warranty.js";
 // LIRA-289: phone app sign-in.
 export * from "./mobileAuth.js";
+// LIRA-297: currency / payment-method CRUD and drawer top-up contracts.
+export * from "./currency.js";
+export * from "./paymentMethod.js";
+export * from "./drawerTopUp.js";

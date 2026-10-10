@@ -10,6 +10,23 @@ import { counterpartyDiscountInputSchema } from "./counterparty.js";
  * existing debt.ts/partner.ts convention (camelCase `<domain><Action>Schema`).
  */
 
+// LIRA-297 — lifted verbatim from electron-app/schemas/index.ts's
+// `SupplierCreateSchema` so `suppliers:create` (IPC) and `POST /api/suppliers`
+// (REST, which used to check `name` by hand and forward the rest unchecked)
+// validate against ONE schema. Keys are exactly CreateSupplierData's.
+export const supplierCreateSchema = z.object({
+  name: z.string().min(1, "Supplier name is required"),
+  contact_name: z.string().optional(),
+  phone: z.string().optional(),
+  note: z.string().optional(),
+  module_key: z.string().optional(),
+  provider: z.string().optional(),
+});
+
+export type SupplierCreateInput = z.infer<typeof supplierCreateSchema>;
+// What a caller SENDS — the adapters type the create payload with this.
+export type SupplierCreatePayload = z.input<typeof supplierCreateSchema>;
+
 export const supplierLedgerEntrySchema = z.object({
   supplier_id: z.number().int().positive(),
   entry_type: z.enum(["TOP_UP", "PAYMENT", "ADJUSTMENT"]),

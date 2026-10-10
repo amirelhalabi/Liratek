@@ -17,6 +17,8 @@ import {
   supplierPurchaseCreateSchema,
   supplierAccountLinkSchema,
   supplierRecordDebtSchema,
+  supplierCreateSchema,
+  type SupplierCreateInput,
 } from "@liratek/core";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
@@ -333,46 +335,43 @@ router.get("/:id/purchases", requireAuth, async (req, res) => {
 // staff access) ──────────────────────────────────────────────────────────────
 
 // POST /api/suppliers
-router.post("/", requireAuth, requireRole(["admin"]), async (req, res) => {
-  try {
-    const { name, contact_name, phone, note, module_key, provider } = req.body;
+// LIRA-297: validates against the shared core `supplierCreateSchema` — the
+// schema `suppliers:create` (IPC) uses — instead of a hand-written `name`
+// check that forwarded every other field unchecked. Failures (validation or
+// service) answer HTTP 200 + the IPC envelope (rule 19c), not 400.
+router.post(
+  "/",
+  requireAuth,
+  requireRole(["admin"]),
+  validateRequest(supplierCreateSchema),
+  async (req, res) => {
+    try {
+      const data = req.body as SupplierCreateInput;
+      const result = supplierService.createSupplier(data);
 
-    if (!name) {
-      res
-        .status(400)
-        .json({ success: false, error: "Supplier name is required" });
-      return;
-    }
-
-    const result = supplierService.createSupplier({
-      name,
-      contact_name,
-      phone,
-      note,
-      module_key,
-      provider,
-    });
-
-    if (result.success) {
-      logger.info({ name, id: result.id }, "Supplier created");
-      // Mirrors supplierHandlers.ts's suppliers:create audit (create/supplier).
-      auditRest(req, {
-        action: "create",
-        entity_type: "supplier",
-        summary: `Created supplier "${name}"`,
-        metadata: { name, module_key, provider },
-      });
+      if (result.success) {
+        logger.info({ name: data.name, id: result.id }, "Supplier created");
+        // Mirrors supplierHandlers.ts's suppliers:create audit (create/supplier).
+        auditRest(req, {
+          action: "create",
+          entity_type: "supplier",
+          summary: `Created supplier "${data.name}"`,
+          metadata: {
+            name: data.name,
+            module_key: data.module_key,
+            provider: data.provider,
+          },
+        });
+      }
       res.json(result);
-    } else {
-      res.status(400).json(result);
+    } catch (error) {
+      logger.error({ error }, "Create supplier error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to create supplier" });
     }
-  } catch (error) {
-    logger.error({ error }, "Create supplier error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to create supplier" });
-  }
-});
+  },
+);
 
 // POST /api/suppliers/:id/ledger
 // CQ-9 validation retrofit: was hand-rolled field checks — now validates

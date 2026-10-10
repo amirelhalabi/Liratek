@@ -1,6 +1,11 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { getCurrencyService } from "@liratek/core";
+import {
+  getCurrencyService,
+  createCurrencySchema,
+  updateCurrencySchema,
+} from "@liratek/core";
+import { validateRequest } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
 
@@ -24,66 +29,82 @@ router.get("/", (_req, res): void => {
 });
 
 // POST /api/currencies - Create a currency (admin only)
-router.post("/", requireRole(["admin"]), async (req, res): Promise<void> => {
-  try {
-    const currencyService = getCurrencyService();
-    const result = currencyService.createCurrency(req.body);
+// LIRA-297: validated against the same core schema as currencies:create, and
+// a service failure (e.g. duplicate code) answers HTTP 200 + the IPC envelope
+// (rule 19c). It used to be a 400, which `requestJson` throws on — and the
+// Settings → Currencies "Add" button has no catch, so the web showed nothing.
+router.post(
+  "/",
+  requireRole(["admin"]),
+  validateRequest(createCurrencySchema),
+  async (req, res): Promise<void> => {
+    try {
+      const currencyService = getCurrencyService();
+      const result = currencyService.createCurrency(req.body);
 
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
+      if (!result.success) {
+        res.json(result);
+        return;
+      }
+
+      // Mirrors currencyHandlers.ts's currencies:create audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "currency",
+        entity_id: req.body.code,
+        summary: `Created currency "${req.body.code}" (${req.body.name})`,
+      });
+
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Create currency error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to create currency" });
     }
-
-    // Mirrors currencyHandlers.ts's currencies:create audit.
-    auditRest(req, {
-      action: "create",
-      entity_type: "currency",
-      entity_id: req.body.code,
-      summary: `Created currency "${req.body.code}" (${req.body.name})`,
-    });
-
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Create currency error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to create currency" });
-  }
-});
+  },
+);
 
 // PUT /api/currencies/:id - Update a currency (admin only)
-router.put("/:id", requireRole(["admin"]), async (req, res): Promise<void> => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      res.status(400).json({ success: false, error: "Invalid currency ID" });
-      return;
+// LIRA-297: same schema as currencies:update (id from the URL, never the
+// body); a service failure answers HTTP 200 + the IPC envelope (rule 19c).
+router.put(
+  "/:id",
+  requireRole(["admin"]),
+  validateRequest(updateCurrencySchema),
+  async (req, res): Promise<void> => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        res.status(400).json({ success: false, error: "Invalid currency ID" });
+        return;
+      }
+
+      const currencyService = getCurrencyService();
+      const result = currencyService.updateCurrency(id, req.body);
+
+      if (!result.success) {
+        res.json(result);
+        return;
+      }
+
+      // Mirrors currencyHandlers.ts's currencies:update audit.
+      auditRest(req, {
+        action: "update",
+        entity_type: "currency",
+        entity_id: String(id),
+        summary: `Updated currency #${id}`,
+      });
+
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Update currency error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to update currency" });
     }
-
-    const currencyService = getCurrencyService();
-    const result = currencyService.updateCurrency(id, req.body);
-
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
-    }
-
-    // Mirrors currencyHandlers.ts's currencies:update audit.
-    auditRest(req, {
-      action: "update",
-      entity_type: "currency",
-      entity_id: String(id),
-      summary: `Updated currency #${id}`,
-    });
-
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Update currency error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to update currency" });
-  }
-});
+  },
+);
 
 // DELETE /api/currencies/:id - Delete a currency (admin only)
 router.delete(

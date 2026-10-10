@@ -13,6 +13,17 @@ import type { SinceLastCountDrawer } from "@liratek/core";
 import type { UnitWarrantyDisplay } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
+// LIRA-297 item 3 — session / daily-closing / voucher-image / setup write
+// payloads, derived from the core schemas (rule 21).
+import type {
+  StartSessionInput,
+  UpdateSessionInput,
+  SessionCartAddInput,
+  LinkSessionTransactionInput,
+  UpdateDailyClosingInput,
+  SetVoucherImageInput,
+  CompleteSetupInput,
+} from "@liratek/core";
 import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
 // LIRA-267 — sign-up / invite payloads and views, derived from the core
 // schemas (rule 21). The `*BodyInput`/`*Input` aliases are `z.input<…>`
@@ -96,6 +107,10 @@ import type {
   ImportClientDebtsPayload,
   BatchUpdateProductsPayload as CoreBatchUpdateProductsPayload,
   StockAdjustPayload as CoreStockAdjustPayload,
+  CreateProductPayload,
+  UpdateProductPayload,
+  CreateProductRestBody,
+  SetItemCostPayload,
   UpdateTenantPayload,
   RecordCarrierLineUsagePayload,
 } from "@liratek/core";
@@ -199,6 +214,18 @@ import type {
   WarrantyClaimView,
   DefectiveItemView,
   WarrantyEnvelope,
+} from "@liratek/core";
+// LIRA-297 (rule 21) — currency / payment-method / supplier-create / drawer
+// top-up payloads, derived from the core schemas both transports validate
+// against (never hand-copied).
+import type {
+  CreateCurrencyPayload,
+  UpdateCurrencyPayload,
+  CreatePaymentMethodPayload,
+  UpdatePaymentMethodPayload,
+  SupplierCreatePayload,
+  DrawerTopUpCreatePayload,
+  DrawerTopUpFromDrawerPayload,
 } from "@liratek/core";
 
 export type { ProductListFilters };
@@ -1055,48 +1082,80 @@ export async function getProductById(
   );
 }
 
-export async function createProduct(payload: any): Promise<ProductWriteResult> {
-  if (isElectron()) {
-    return (window as any).api.inventory.createProduct(payload);
-  }
-  try {
-    // REST createProductSchema uses different field names than the IPC form
-    // payload (cost_price_usd vs cost_price, stock vs stock_quantity, ...)
-    const body = {
-      name: payload.name,
-      category: payload.category,
-      ...(payload.barcode ? { barcode: payload.barcode } : {}),
-      cost_price_usd: payload.cost_price_usd ?? payload.cost_price ?? 0,
-      retail_price_usd: payload.retail_price_usd ?? payload.retail_price ?? 0,
-      stock: payload.stock ?? payload.stock_quantity ?? 0,
-      min_stock_threshold:
-        payload.min_stock_threshold ?? payload.min_stock_level ?? 0,
-      supplier: payload.supplier ?? null,
-      // Supplier stock-intake: same field name on both transports (no
-      // translation needed) — per-entry, resets every time, only meaningful
-      // when `supplier` is set (skips the supplier_ledger STOCK_INTAKE row).
-      ...(payload.is_old_stock !== undefined
-        ? { is_old_stock: payload.is_old_stock }
-        : {}),
-    };
-    // Route wraps in createSuccessResponse ({success, data:{id}})
-    const res = await requestJson<
-      ProductWriteResult & { data?: { id?: number } }
-    >(`/api/inventory/products`, { method: "POST", body });
-    const id = res.id ?? res.data?.id;
-    return id != null ? { ...res, id } : res;
-  } catch (err) {
-    const e = err as { message?: string };
-    return { success: false, error: e.message ?? "Failed to create product" };
-  }
+/**
+ * The ONE place the product form payload (`CreateProductPayload`, IPC field
+ * names) becomes the REST create body (`createProductSchema`'s names).
+ * Exported for its test. `backendApi.createProduct.dualmode.test.ts` walks
+ * the form schema's keys and fails if one stops reaching this body — the web
+ * create used to drop `warranty_months` here, so a warranty set while
+ * creating a product was silently lost in the web app.
+ *
+ * Not sent: `whish_price` (no handler on either transport reads it) and
+ * `image_url` (the REST route has no mapping for it; no caller sends it).
+ * A blank barcode is omitted so the server auto-generates one.
+ */
+export function toRestCreateProductBody(
+  payload: CreateProductPayload,
+): CreateProductRestBody {
+  return {
+    name: payload.name,
+    category: payload.category,
+    ...(payload.barcode ? { barcode: payload.barcode } : {}),
+    cost_price_usd: payload.cost_price,
+    retail_price_usd: payload.retail_price,
+    stock: payload.stock_quantity ?? 0,
+    min_stock_threshold: payload.min_stock_level ?? 0,
+    supplier: payload.supplier ?? null,
+    ...(payload.warranty_months !== undefined
+      ? { warranty_months: payload.warranty_months }
+      : {}),
+    // Supplier stock-intake: same name on both transports — per-entry,
+    // only meaningful when `supplier` is set.
+    ...(payload.is_old_stock !== undefined
+      ? { is_old_stock: payload.is_old_stock }
+      : {}),
+  };
 }
 
-export async function updateProduct(
-  id: number,
-  payload: any,
+export async function createProduct(
+  payload: CreateProductPayload,
 ): Promise<ProductWriteResult> {
   return ipcOrHttp(
-    async () => getElectronApi().inventory.updateProduct({ id, ...payload }),
+    async () => getElectronApi().inventory.createProduct(payload),
+    async () => {
+      try {
+        // Route wraps in createSuccessResponse ({success, data:{id}})
+        const res = await requestJson<
+          ProductWriteResult & { data?: { id?: number } }
+        >(`/api/inventory/products`, {
+          method: "POST",
+          body: toRestCreateProductBody(payload),
+        });
+        const id = res.id ?? res.data?.id;
+        return id != null ? { ...res, id } : res;
+      } catch (err) {
+        // The create route still answers a refusal with 400/409, which
+        // `requestJson` throws — recover the server's message.
+        const e = err as { message?: string };
+        return {
+          success: false,
+          error: e.message ?? "Failed to create product",
+        };
+      }
+    },
+  );
+}
+
+/** `payload` is the product form (rule 21: `UpdateProductPayload` minus the
+ *  `id`, which travels as the first argument). The REST PUT passes its body
+ *  straight to `InventoryService.updateProduct`, which speaks these same IPC
+ *  names, so no translation is needed. */
+export async function updateProduct(
+  id: number,
+  payload: Omit<UpdateProductPayload, "id">,
+): Promise<ProductWriteResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.updateProduct({ ...payload, id }),
     async () =>
       requestJson<ProductWriteResult>(`/api/inventory/products/${id}`, {
         method: "PUT",
@@ -2968,7 +3027,7 @@ export async function getCarrierLineAdjustments(
 // relaunch) has no web counterpart, so the HTTP branch is a clear refusal
 // rather than a route — still routed through the adapter, never a raw
 // `window.api.setup.complete` call in `StepComplete.tsx` (rule 19).
-export async function completeSetup(payload: any) {
+export async function completeSetup(payload: CompleteSetupInput) {
   return ipcOrHttp(
     async () => getElectronApi().setup.complete(payload),
     async () => ({
@@ -3005,29 +3064,22 @@ export async function getInitialCheckpointDate(): Promise<string | null> {
   );
 }
 
+// LIRA-297 item 3 — payload is the core schema's input; the editor is the
+// signed-in user on both transports (never a client-sent user_id).
 export async function updateDailyClosing(
   id: number,
-  data: {
-    physical_usd?: number;
-    physical_lbp?: number;
-    physical_eur?: number;
-    system_expected_usd?: number;
-    system_expected_lbp?: number;
-    variance_usd?: number;
-    notes?: string;
-    report_path?: string;
-    user_id?: number;
-  },
+  data: UpdateDailyClosingInput,
 ) {
-  if (isElectron()) {
-    return (window as any).api.closing.updateDailyClosing({ id, ...data });
-  }
-  return requestJson<{ success: boolean; error?: string }>(
-    `/api/closing/daily-closing/${id}`,
-    {
-      method: "PUT",
-      body: data,
-    },
+  return ipcOrHttp(
+    async () => getElectronApi().closing.updateDailyClosing({ id, ...data }),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/closing/daily-closing/${id}`,
+        {
+          method: "PUT",
+          body: data,
+        },
+      ),
   );
 }
 
@@ -3153,14 +3205,7 @@ export async function getSupplierAccountExpectedStatement(
   );
 }
 
-export async function createSupplier(data: {
-  name: string;
-  contact_name?: string;
-  phone?: string;
-  note?: string;
-  module_key?: string;
-  provider?: string;
-}) {
+export async function createSupplier(data: SupplierCreatePayload) {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.create(data),
     async () =>
@@ -4481,21 +4526,26 @@ export async function createCurrency(
   symbol?: string,
   decimalPlaces?: number,
 ) {
+  // The REST body is the schema's own shape (rule 21); the preload binding
+  // builds the identical object from the same positional args.
+  const body: CreateCurrencyPayload = {
+    code,
+    name,
+    symbol,
+    decimal_places: decimalPlaces,
+  };
   return ipcOrHttp(
     async () =>
       getElectronApi().currencies.create(code, name, symbol, decimalPlaces),
     async () =>
       requestJson<{ success: boolean; error?: string; id?: number }>(
         `/api/currencies`,
-        {
-          method: "POST",
-          body: { code, name, symbol, decimal_places: decimalPlaces },
-        },
+        { method: "POST", body },
       ),
   );
 }
 
-export async function updateCurrency(id: number, data: any) {
+export async function updateCurrency(id: number, data: UpdateCurrencyPayload) {
   return ipcOrHttp(
     async () => getElectronApi().currencies.update({ id, ...data }),
     async () =>
@@ -4630,12 +4680,7 @@ export async function getActivePaymentMethods(): Promise<
   );
 }
 
-export async function createPaymentMethod(data: {
-  code: string;
-  label: string;
-  drawer_name: string;
-  affects_drawer?: number;
-}) {
+export async function createPaymentMethod(data: CreatePaymentMethodPayload) {
   return ipcOrHttp(
     async () => getElectronApi().paymentMethods.create(data),
     async () =>
@@ -4651,13 +4696,7 @@ export async function createPaymentMethod(data: {
 
 export async function updatePaymentMethod(
   id: number,
-  data: {
-    label?: string;
-    drawer_name?: string;
-    affects_drawer?: number;
-    is_active?: number;
-    sort_order?: number;
-  },
+  data: UpdatePaymentMethodPayload,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().paymentMethods.update(id, data),
@@ -4941,11 +4980,7 @@ export async function getConfiguredDrawerNames(): Promise<string[]> {
   );
 }
 
-export async function startSession(data: {
-  customer_name: string;
-  customer_phone?: string;
-  customer_notes?: string;
-}) {
+export async function startSession(data: StartSessionInput) {
   return ipcOrHttp(
     async () => {
       const api = getElectronApi();
@@ -5015,11 +5050,7 @@ export async function getSessionDetails(sessionId: number) {
 
 export async function updateSession(
   sessionId: number,
-  data: {
-    customer_name?: string;
-    customer_phone?: string;
-    customer_notes?: string;
-  },
+  data: UpdateSessionInput,
 ) {
   return ipcOrHttp(
     async () => {
@@ -5083,15 +5114,9 @@ export async function listSessions(limit = 50, offset = 0) {
   );
 }
 
-export async function linkTransactionToSession(data: {
-  sessionId: number;
-  transactionType: string;
-  transactionId: number;
-  amountUsd: number;
-  amountLbp: number;
-  profitUsd?: number;
-  profitLbp?: number;
-}) {
+export async function linkTransactionToSession(
+  data: LinkSessionTransactionInput,
+) {
   return ipcOrHttp(
     async () => {
       const api = getElectronApi();
@@ -5194,16 +5219,7 @@ export async function sessionCartGet(sessionId: number) {
 
 export async function sessionCartAdd(
   sessionId: number,
-  item: {
-    item_id: string;
-    module: string;
-    label: string;
-    amount: number;
-    currency: string;
-    form_data: string;
-    ipc_channel: string;
-    user_id?: number;
-  },
+  item: SessionCartAddInput,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().session.cartAdd(sessionId, item),
@@ -5454,22 +5470,7 @@ export async function drawerTopUpHistory(limit?: number) {
   );
 }
 
-export async function drawerTopUpCreate(data: {
-  amount_usd: number;
-  amount_lbp: number;
-  notes?: string;
-  /** External (Cash In) mode only — see ElectronApiAdapter's drawerTopUp doc. */
-  extra_currencies?: {
-    currency_code: string;
-    amount: number;
-    /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — operator
-     *  cost-basis override, sent only via the modal's "edit" link. */
-    acquisition_usd_per_unit?: number;
-    /** NEW (2026-08-23 refinement) — live-feed USD-per-unit rate for a
-     *  currency with no configured exchange_rates row. */
-    market_usd_per_unit_hint?: number;
-  }[];
-}) {
+export async function drawerTopUpCreate(data: DrawerTopUpCreatePayload) {
   return ipcOrHttp(
     async () => getElectronApi().drawerTopUp.create(data),
     async () =>
@@ -5480,12 +5481,9 @@ export async function drawerTopUpCreate(data: {
   );
 }
 
-export async function drawerTopUpCreateFromDrawer(data: {
-  amount_usd: number;
-  amount_lbp: number;
-  source_drawer: string;
-  notes?: string;
-}) {
+export async function drawerTopUpCreateFromDrawer(
+  data: DrawerTopUpFromDrawerPayload,
+) {
   return ipcOrHttp(
     async () => getElectronApi().drawerTopUp.createFromDrawer(data),
     async () =>
@@ -6227,13 +6225,11 @@ export async function getItemCosts(): Promise<any[]> {
   );
 }
 
-export async function setItemCost(data: {
-  provider: string;
-  category: string;
-  itemKey: string;
-  cost: number;
-  currency: string;
-}): Promise<{ success: boolean; error?: string }> {
+// Rule 21: payload derived from core's setItemCostSchema (both transports
+// validate against it).
+export async function setItemCost(
+  data: SetItemCostPayload,
+): Promise<{ success: boolean; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().itemCosts.set(data),
     async () =>
@@ -6260,12 +6256,9 @@ export async function getVoucherImages(): Promise<any[]> {
   );
 }
 
-export async function setVoucherImage(data: {
-  provider: string;
-  category: string;
-  itemKey: string;
-  imageData: string;
-}): Promise<{ success: boolean; error?: string }> {
+export async function setVoucherImage(
+  data: SetVoucherImageInput,
+): Promise<{ success: boolean; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().voucherImages.set(data),
     async () =>

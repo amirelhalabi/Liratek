@@ -63,24 +63,8 @@ describe("createFinancialServiceSchema — D1 cutover: omtFee is optional on REC
     expect(result.success).toBe(true);
   });
 
-  it("SEND, CASH_TO_BUSINESS, no omtFee — STILL REJECTED (rule unchanged for SEND)", () => {
-    const result = createFinancialServiceSchema.safeParse({
-      provider: "OMT",
-      serviceType: "SEND",
-      amount: 40,
-      currency: "USD",
-      omtServiceType: "CASH_TO_BUSINESS",
-      paidByMethod: "CASH",
-      // omtFee omitted — must still be rejected; real cash leg needs an
-      // exact figure.
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues[0]?.message).toBe(
-        "OMT fee is required for this service type",
-      );
-    }
-  });
+  // SEND with no omtFee is accepted since 2026-10-10 — see
+  // financial.omtFeeOptional.test.ts.
 
   it("SEND, CASH_TO_BUSINESS, omtFee supplied — ACCEPTED (unchanged)", () => {
     const result = createFinancialServiceSchema.safeParse({

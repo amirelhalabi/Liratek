@@ -109,13 +109,37 @@ import type {
   CreateClientPayload,
   RecordCarrierLineUsagePayload,
   StockAdjustPayload,
+  CreateProductPayload,
+  UpdateProductPayload,
+  SetItemCostPayload,
 } from "@liratek/core";
 import * as api from "./backendApi";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
+// LIRA-297 item 3 — session / daily-closing / voucher-image / setup write
+// payloads, derived from the core schemas (rule 21).
+import type {
+  StartSessionInput,
+  UpdateSessionInput,
+  SessionCartAddInput,
+  LinkSessionTransactionInput,
+  UpdateDailyClosingInput,
+  SetVoucherImageInput,
+  CompleteSetupInput,
+} from "@liratek/core";
 import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
+// LIRA-297 (rule 21) — currency / payment-method / supplier-create / drawer
+// top-up payloads, derived from the core schemas.
+import type {
+  UpdateCurrencyPayload,
+  CreatePaymentMethodPayload,
+  UpdatePaymentMethodPayload,
+  SupplierCreatePayload,
+  DrawerTopUpCreatePayload,
+  DrawerTopUpFromDrawerPayload,
+} from "@liratek/core";
 import type {
   SalesDateRangeInput,
   UpdateCategoryPayload,
@@ -172,8 +196,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   updateProductSupplier = (id: number, name: string) =>
     api.updateProductSupplier(id, name);
   deleteProductSupplier = (id: number) => api.deleteProductSupplier(id);
-  createProduct = (payload: any) => api.createProduct(payload);
-  updateProduct = (id: number, payload: any) => api.updateProduct(id, payload);
+  createProduct = (payload: CreateProductPayload) =>
+    api.createProduct(payload);
+  updateProduct = (id: number, payload: Omit<UpdateProductPayload, "id">) =>
+    api.updateProduct(id, payload);
   deleteProduct = (id: number) => api.deleteProduct(id);
   batchDeleteProducts = (ids: number[]) => api.batchDeleteProducts(ids);
   /** Inventory grid's multi-select edit (category / min-stock-threshold /
@@ -436,7 +462,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     symbol?: string,
     decimalPlaces?: number,
   ) => api.createCurrency(code, name, symbol, decimalPlaces);
-  updateCurrency = (id: number, data: any) => api.updateCurrency(id, data);
+  updateCurrency = (id: number, data: UpdateCurrencyPayload) =>
+    api.updateCurrency(id, data);
   deleteCurrency = (id: number) => api.deleteCurrency(id);
 
   // ---------------------------------------------------------------------------
@@ -448,40 +475,9 @@ export class ElectronApiAdapter implements ApiAdapter {
   getDailyStatsSnapshot = (input?: DailyStatsSnapshotQuery) =>
     api.getDailyStatsSnapshot(input);
   recalculateDrawerBalances = () => api.recalculateDrawerBalances();
-  updateDailyClosing = (
-    id: number,
-    data: Parameters<typeof api.updateDailyClosing>[1],
-  ) => api.updateDailyClosing(id, data);
-  completeSetup = (data: {
-    shop_name: string;
-    admin_username: string;
-    admin_password: string;
-    base_system?: "OMT" | "WHISH";
-    enabled_modules: string[];
-    enabled_payment_methods: string[];
-    session_management_enabled: boolean;
-    customer_sessions_enabled: boolean;
-    active_currencies?: string[];
-    extra_users?: { username: string; password: string; role: string }[];
-    whatsapp_phone?: string;
-    whatsapp_api_key?: string;
-    drawer_amounts?: Array<{
-      drawer_name: string;
-      currency_code: string;
-      amount: number;
-    }>;
-    drawer_currency_config?: Array<{
-      drawer_name: string;
-      currency_codes: string[];
-    }>;
-    carrier_lines?: Array<{
-      carrier: "mtc" | "alfa";
-      phone_number: string;
-      label?: string | null;
-      credits?: number;
-      validity_expires_at?: string | null;
-    }>;
-  }) => api.completeSetup(data);
+  updateDailyClosing = (id: number, data: UpdateDailyClosingInput) =>
+    api.updateDailyClosing(id, data);
+  completeSetup = (data: CompleteSetupInput) => api.completeSetup(data);
   createCheckpoint = (data: CreateCheckpointPayload) =>
     api.createCheckpoint(data);
   getCheckpointTimeline = (filters?: {
@@ -520,14 +516,7 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getSupplierAccountExpectedStatement(accountSupplierId);
   updateSupplierAccountLink = (data: SupplierAccountLinkInput) =>
     api.updateSupplierAccountLink(data);
-  createSupplier = (data: {
-    name: string;
-    contact_name?: string;
-    phone?: string;
-    note?: string;
-    module_key?: string;
-    provider?: string;
-  }) => api.createSupplier(data);
+  createSupplier = (data: SupplierCreatePayload) => api.createSupplier(data);
   addSupplierLedgerEntry = (
     supplierId: number,
     data: Omit<SupplierLedgerEntryPayload, "supplier_id">,
@@ -713,16 +702,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   getPaymentMethods = () => api.getPaymentMethods();
   getActivePaymentMethods = () => api.getActivePaymentMethods();
-  createPaymentMethod = (data: {
-    code: string;
-    label: string;
-    drawer_name: string;
-    affects_drawer?: number;
-  }) => api.createPaymentMethod(data);
-  updatePaymentMethod = (
-    id: number,
-    data: Parameters<typeof api.updatePaymentMethod>[1],
-  ) => api.updatePaymentMethod(id, data);
+  createPaymentMethod = (data: CreatePaymentMethodPayload) =>
+    api.createPaymentMethod(data);
+  updatePaymentMethod = (id: number, data: UpdatePaymentMethodPayload) =>
+    api.updatePaymentMethod(id, data);
   deletePaymentMethod = (id: number) => api.deletePaymentMethod(id);
   reorderPaymentMethods = (ids: number[]) => api.reorderPaymentMethods(ids);
 
@@ -813,29 +796,16 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   // Customer Sessions
   // ---------------------------------------------------------------------------
-  startSession = (data: {
-    customer_name: string;
-    customer_phone?: string;
-    customer_notes?: string;
-  }) => api.startSession(data);
+  startSession = (data: StartSessionInput) => api.startSession(data);
   getActiveSession = () => api.getActiveSession();
   getSessionDetails = (sessionId: number) => api.getSessionDetails(sessionId);
-  updateSession = (
-    sessionId: number,
-    data: Parameters<typeof api.updateSession>[1],
-  ) => api.updateSession(sessionId, data);
+  updateSession = (sessionId: number, data: UpdateSessionInput) =>
+    api.updateSession(sessionId, data);
   closeSession = (sessionId: number) => api.closeSession(sessionId);
   listSessions = (limit?: number, offset?: number) =>
     api.listSessions(limit, offset);
-  linkTransactionToSession = (data: {
-    sessionId: number;
-    transactionType: string;
-    transactionId: number;
-    amountUsd: number;
-    amountLbp: number;
-    profitUsd?: number;
-    profitLbp?: number;
-  }) => api.linkTransactionToSession(data);
+  linkTransactionToSession = (data: LinkSessionTransactionInput) =>
+    api.linkTransactionToSession(data);
 
   // Nested namespace mirroring window.api.session — so the session page /
   // context call the SAME method names on desktop (IPC) and web (REST).
@@ -850,19 +820,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     delete: (sessionId: number) => api.deleteSession(sessionId),
     getTransactions: (sessionId: number) => api.getSessionDetails(sessionId),
     cartGet: (sessionId: number) => api.sessionCartGet(sessionId),
-    cartAdd: (
-      sessionId: number,
-      item: {
-        item_id: string;
-        module: string;
-        label: string;
-        amount: number;
-        currency: string;
-        form_data: string;
-        ipc_channel: string;
-        user_id?: number;
-      },
-    ) => api.sessionCartAdd(sessionId, item),
+    cartAdd: (sessionId: number, item: SessionCartAddInput) =>
+      api.sessionCartAdd(sessionId, item),
     cartRemove: (sessionId: number, itemId: string) =>
       api.sessionCartRemove(sessionId, itemId),
     cartClear: (sessionId: number) => api.sessionCartClear(sessionId),
@@ -955,30 +914,11 @@ export class ElectronApiAdapter implements ApiAdapter {
 
   // Nested namespace mirroring window.api.drawerTopUp (dual-mode).
   drawerTopUp = {
-    create: (data: {
-      amount_usd: number;
-      amount_lbp: number;
-      notes?: string;
-      /** External (Cash In) mode only — top-ups in currencies other than
-       *  USD/LBP already enabled for the General drawer. Never sent by
-       *  createFromDrawer (transfer mode). */
-      extra_currencies?: {
-        currency_code: string;
-        amount: number;
-        /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — operator
-         *  cost-basis override, sent only via the modal's "edit" link. */
-        acquisition_usd_per_unit?: number;
-        /** NEW (2026-08-23 refinement) — live-feed USD-per-unit rate for a
-         *  currency with no configured exchange_rates row. */
-        market_usd_per_unit_hint?: number;
-      }[];
-    }) => api.drawerTopUpCreate(data),
-    createFromDrawer: (data: {
-      amount_usd: number;
-      amount_lbp: number;
-      source_drawer: string;
-      notes?: string;
-    }) => api.drawerTopUpCreateFromDrawer(data),
+    /** External (Cash In) mode only accepts `extra_currencies` — top-ups
+     *  in currencies other than USD/LBP. Never sent by createFromDrawer. */
+    create: (data: DrawerTopUpCreatePayload) => api.drawerTopUpCreate(data),
+    createFromDrawer: (data: DrawerTopUpFromDrawerPayload) =>
+      api.drawerTopUpCreateFromDrawer(data),
     getSourceDrawers: () => api.drawerTopUpSourceDrawers(),
     getHistory: (limit?: number) => api.drawerTopUpHistory(limit),
   };
@@ -1043,24 +983,13 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Item Costs
   // ---------------------------------------------------------------------------
   getItemCosts = () => api.getItemCosts();
-  setItemCost = (data: {
-    provider: string;
-    category: string;
-    itemKey: string;
-    cost: number;
-    currency: string;
-  }) => api.setItemCost(data);
+  setItemCost = (data: SetItemCostPayload) => api.setItemCost(data);
 
   // ---------------------------------------------------------------------------
   // Voucher Images
   // ---------------------------------------------------------------------------
   getVoucherImages = () => api.getVoucherImages();
-  setVoucherImage = (data: {
-    provider: string;
-    category: string;
-    itemKey: string;
-    imageData: string;
-  }) => api.setVoucherImage(data);
+  setVoucherImage = (data: SetVoucherImageInput) => api.setVoucherImage(data);
   deleteVoucherImage = (id: number) => api.deleteVoucherImage(id);
 
   // ---------------------------------------------------------------------------

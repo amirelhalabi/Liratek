@@ -150,7 +150,9 @@ export const sinceLastCountQuerySchema = z.object({
         ),
       ),
     )
-    .pipe(z.array(z.string().max(64)).min(1, "Choose at least one drawer.").max(20)),
+    .pipe(
+      z.array(z.string().max(64)).min(1, "Choose at least one drawer.").max(20),
+    ),
 });
 export type SinceLastCountQuery = z.input<typeof sinceLastCountQuerySchema>;
 
@@ -174,3 +176,32 @@ export type DailyStatsSnapshotQuery = z.input<
 // packages/ui ApiAdapter) type their payloads with these, never with a
 // hand-copied object literal.
 export type CreateCheckpointPayload = z.input<typeof createCheckpointSchema>;
+
+/**
+ * LIRA-297 item 3 (rule 21/23) — edit a saved daily-closing row
+ * (`closing:update-daily-closing` / `PUT /api/closing/daily-closing/:id`).
+ * The union of the fields both transports forwarded to
+ * `ClosingService.updateDailyClosing`. `id` is not here: REST takes it from
+ * the path, IPC validates `{ id, ...body }` via
+ * `updateDailyClosingIpcSchema`. `user_id` is not here either: the actor
+ * (`updated_by`) is the authenticated user on both transports, never a
+ * client-sent id.
+ */
+export const updateDailyClosingSchema = z.object({
+  physical_usd: z.number().optional(),
+  physical_lbp: z.number().optional(),
+  physical_eur: z.number().optional(),
+  system_expected_usd: z.number().optional(),
+  system_expected_lbp: z.number().optional(),
+  variance_usd: z.number().optional(),
+  notes: z.string().optional(),
+  report_path: z.string().optional(),
+});
+export type UpdateDailyClosingInput = z.input<typeof updateDailyClosingSchema>;
+
+export const updateDailyClosingIpcSchema = updateDailyClosingSchema.extend({
+  id: z.number().int().positive(),
+});
+export type UpdateDailyClosingIpcInput = z.input<
+  typeof updateDailyClosingIpcSchema
+>;
