@@ -9,15 +9,19 @@ import {
 } from "lucide-react";
 import logger from "@/utils/logger";
 import { useSession } from "../context/SessionContext";
-import { SessionCheckoutModal } from "./SessionCheckoutModal";
 import { binanceCashSide, splitBasketCashSides } from "../utils/binanceCart";
 
 /**
  * SessionPopupPanel — renders cart items + committed transactions for the active session.
  * Designed to be shown as a dropdown/popup inside the TopBar on hover.
  * No drag logic, no fixed positioning — the parent controls visibility.
+ *
+ * The checkout modal is NOT rendered here: this panel unmounts the moment the
+ * session closes (and on hover-out), and checkout always closes the session —
+ * so the modal's "Checkout Complete" / Print view would vanish with it. The
+ * parent owns the modal and passes `onCheckout` to open it.
  */
-export function SessionPopupPanel() {
+export function SessionPopupPanel({ onCheckout }: { onCheckout: () => void }) {
   const {
     activeSession,
     sessionTransactions,
@@ -32,7 +36,6 @@ export function SessionPopupPanel() {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   if (!activeSession) return null;
 
@@ -366,7 +369,7 @@ export function SessionPopupPanel() {
               })()}
             {cartItems.length > 0 ? (
               <button
-                onClick={() => setIsCheckoutOpen(true)}
+                onClick={onCheckout}
                 className="w-full py-2 rounded-lg font-semibold text-sm text-white bg-emerald-600 hover:bg-emerald-500 transition-colors flex items-center justify-center gap-2"
               >
                 <ShoppingCart className="w-4 h-4" />
@@ -397,12 +400,6 @@ export function SessionPopupPanel() {
           </div>
         )}
       </div>
-
-      {/* Checkout modal rendered outside the popup so it stays open */}
-      <SessionCheckoutModal
-        isOpen={isCheckoutOpen}
-        onClose={() => setIsCheckoutOpen(false)}
-      />
     </>
   );
 }

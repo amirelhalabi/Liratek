@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { StartSessionModal } from "./StartSessionModal";
 import { SessionPopupPanel } from "./SessionFloatingWindow";
+import { SessionCheckoutModal } from "./SessionCheckoutModal";
 import { useSession } from "../context/SessionContext";
 import { useApi, appEvents } from "@liratek/ui";
 import { arePhoneNumbersEqual } from "@/utils/phoneNumber";
@@ -46,6 +47,10 @@ export function CustomerSessionButton({
   const api = useApi();
   const [showDropdown, setShowDropdown] = useState(false);
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
+  // Owned here, not in SessionPopupPanel: checkout closes the session, which
+  // unmounts the panel (and the hover popup) before the modal can show its
+  // "Checkout Complete" / Print view. This button stays mounted.
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [existingClients, setExistingClients] = useState<any[]>([]);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [editingSessionId, setEditingSessionId] = useState<number | null>(null);
@@ -350,7 +355,7 @@ export function CustomerSessionButton({
             ref={popupRef}
             className="absolute top-full left-0 mt-2 z-50 animate-in fade-in zoom-in-95 duration-200"
           >
-            <SessionPopupPanel />
+            <SessionPopupPanel onCheckout={() => setIsCheckoutOpen(true)} />
           </div>
         )}
 
@@ -609,6 +614,13 @@ export function CustomerSessionButton({
       <StartSessionModal
         isOpen={showNewSessionModal}
         onClose={() => setShowNewSessionModal(false)}
+      />
+
+      {/* Session checkout — outside the hover popup so its success view
+          survives the session closing (see isCheckoutOpen above). */}
+      <SessionCheckoutModal
+        isOpen={isCheckoutOpen}
+        onClose={() => setIsCheckoutOpen(false)}
       />
     </>
   );

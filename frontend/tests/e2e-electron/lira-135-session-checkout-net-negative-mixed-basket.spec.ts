@@ -258,8 +258,9 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
     expect(after.general - before.general).toBeCloseTo(-50, 2);
     expect(after.omtSystem - before.omtSystem).toBeCloseTo(0, 2);
     // No explicit "Close" click here: checkout already closed the session
-    // server-side (`is_active = 0`), and the success view's parent
-    // (`SessionPopupPanel`) unmounts the instant `activeSession` goes null
-    // client-side — unrelated to this bug, not asserted either way.
+    // server-side (`is_active = 0`). The success view stays up even though
+    // `activeSession` is now null client-side — the modal is owned by
+    // `CustomerSessionButton`, not the popup panel that unmounts with the
+    // session (guarded by CustomerSessionButton.checkoutSuccessSurvives.test.tsx).
   });
 });

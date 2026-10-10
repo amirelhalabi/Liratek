@@ -208,6 +208,14 @@ const SHARED_DESKTOP_SPECS: string[] = SPECS_OVERRIDE
       "lira-session-cashout-credit.spec.ts",
       "lira-session-debt-payout-signs.spec.ts",
       // LIRA-297 batch LIRA270 — END
+      // Shim inventory.createProduct now forwards supplier / warranty_months.
+      "lira-143-imei-warranty.spec.ts",
+      "lira-144-inventory-filters.spec.ts",
+      // Checkout modal now outlives the session it closes (CustomerSessionButton).
+      "lira-135-session-checkout-net-negative-mixed-basket.spec.ts",
+      // Not shared, by design:
+      //  - lira-085-setup-checkpoint: the setup wizard (which writes the
+      //    starting checkpoint) runs only in the desktop app (AuthContext).
     ];
 
 // Optional per-file sub-test filter for partially-passing spec files.

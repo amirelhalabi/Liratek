@@ -183,6 +183,7 @@
 - POS: a sale that was already completed can no longer be completed a second time (for example when the web app loses its connection right after you press Complete and you press it again) — before, it could take the stock, the customer's debt and a partner's charge twice.
 - POS: refunding one item from a sale made for a partner now lowers what the partner owes by that item's price, and "Undo refund" puts it back. From now on only — earlier item refunds are not changed.
 - POS: when the customer kept their change as store credit, refunding an item now also takes back that item's share of the credit, so the customer is not paid the change twice. From now on only.
+- Customer sessions: after a checkout, the "Checkout Complete" screen with the Print receipt button now stays open instead of disappearing straight away.
 - Customer sessions: if the change or a payout sent to the customer's account cannot be saved, the checkout now stops with an error instead of finishing without the customer's credit.
 - Refunding a sale paid with a gift card now gives the gift card back.
 - Payment form: new buttons under the change fields put the whole change in dollars or in LBP with one tap.
