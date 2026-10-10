@@ -5,6 +5,8 @@
 // react-refresh/only-export-components lint rule (which forbids a component
 // file from also exporting non-component values).
 
+import { isAutoRow } from "@liratek/core";
+
 export const ACTION_OPTIONS = [
   "CREATE",
   "UPDATE",
@@ -87,12 +89,9 @@ export function parseMetaSafe(
 }
 
 /** True only when the row's metadata explicitly flags it auto-generated.
- *  Manual rows (no key at all) and unparsable/missing metadata read as
- *  `false` — the safe default is "visible", not "hidden". Type-agnostic —
- *  shared by SUPPLIER_PAYMENT (D2) and EXPENSE (see isExpenseVisible below). */
-export function isAutoRow(metaJson: string | null | undefined): boolean {
-  return parseMetaSafe(metaJson).is_auto === true;
-}
+ *  Defined once in core (shared with the phone's Activity tab); re-exported
+ *  so the existing call sites and tests keep their import. */
+export { isAutoRow };
 
 /** @deprecated alias of `isAutoRow` kept for the SUPPLIER_PAYMENT call sites
  *  below — behavior is byte-identical to before this was extracted. */

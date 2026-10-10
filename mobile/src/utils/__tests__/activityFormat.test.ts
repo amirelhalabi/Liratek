@@ -1,4 +1,4 @@
-import { dayHeader, txnDayKey, txnMainAmount } from "../format";
+import { compactLbp, dayHeader, txnDayKey } from "../format";
 import { typeColor } from "../typeColors";
 
 describe("Activity day grouping", () => {
@@ -23,11 +23,13 @@ describe("Activity day grouping", () => {
 });
 
 describe("Activity row amount", () => {
-  it("shows USD when set, else LBP, else a dash", () => {
-    expect(txnMainAmount({ amount_usd: 50, amount_lbp: 4500000 })).toMatch(/50/);
-    expect(txnMainAmount({ amount_usd: 50, amount_lbp: 4500000 })).not.toMatch(/4,500,000|4500000/);
-    expect(txnMainAmount({ amount_usd: 0, amount_lbp: 90000 })).toMatch(/90,000|90000/);
-    expect(txnMainAmount({ amount_usd: 0, amount_lbp: 0 })).toBe("—");
+  it("shortens LBP to k under a million and M above", () => {
+    expect(compactLbp(200000)).toBe("200k LBP");
+    expect(compactLbp(205184)).toBe("205.2k LBP");
+    expect(compactLbp(1450000)).toBe("1.45M LBP");
+    expect(compactLbp(26500000)).toBe("26.5M LBP");
+    expect(compactLbp(-50000)).toBe("-50k LBP");
+    expect(compactLbp(500)).toBe("500 LBP");
   });
 });
 

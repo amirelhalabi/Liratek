@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { localDayOfUtcTimestamp } from "@liratek/core";
+import {
+  DEFAULT_HIDDEN_TRANSACTION_TYPES,
+  localDayOfUtcTimestamp,
+} from "@liratek/core";
 import {
   getRecentTransactions,
   type TransactionFiltersParam,
@@ -225,7 +228,8 @@ const ALL_TYPES_OPTION: FilterOption = { label: "" };
 // per-row below since the SQL-level `excludeTypes` can only exclude by
 // type, not by metadata. EXPENSE follows the same per-row pattern (see
 // isExpenseVisible) for the auto-generated SMS_Transfer_Fee/etc rows.
-export const HIDDEN_TRANSACTION_TYPES = new Set(["CLIENT_CREATED"]);
+// Defined once in core, shared with the phone's Activity tab.
+export const HIDDEN_TRANSACTION_TYPES = new Set(DEFAULT_HIDDEN_TRANSACTION_TYPES);
 
 /** Multiplier applied to the requested row count on the first fetch, and
  *  again on every widening pass. */

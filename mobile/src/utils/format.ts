@@ -22,12 +22,6 @@ export function drawerAmounts(byCurrency: Record<string, number>): string {
   );
 }
 
-export function txnAmount(t: { amount_usd: number; amount_lbp: number }): string {
-  const parts: string[] = [];
-  if (t.amount_usd) parts.push(formatMoneyAmount(t.amount_usd, "USD"));
-  if (t.amount_lbp) parts.push(formatMoneyAmount(t.amount_lbp, "LBP"));
-  return parts.join(" · ") || "—";
-}
 
 /** Stored as UTC in either `YYYY-MM-DD HH:MM:SS` or ISO `…Z` form (LIRA-289 research R2). */
 export function parseTxnDate(iso: string): Date {
@@ -86,9 +80,16 @@ export function dayHeader(dayKey: string, now: Date = new Date()): string {
   });
 }
 
-/** One amount for the list row: USD when set, otherwise LBP. Both go in the details sheet. */
-export function txnMainAmount(t: { amount_usd: number; amount_lbp: number }): string {
-  if (t.amount_usd) return formatMoneyAmount(t.amount_usd, "USD");
-  if (t.amount_lbp) return formatMoneyAmount(t.amount_lbp, "LBP");
-  return "—";
+/**
+ * Short LBP for the list row, where every amount ends in ",000": 200,000 →
+ * "200k", 4,590,000 → "4.59M". Rounded for display only; the details sheet
+ * shows the exact figure.
+ */
+export function compactLbp(amount: number): string {
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? "-" : "";
+  const trim = (n: number, digits: number) => String(Number(n.toFixed(digits)));
+  if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000, 2)}M LBP`;
+  if (abs >= 1_000) return `${sign}${trim(abs / 1_000, 1)}k LBP`;
+  return `${sign}${abs.toLocaleString()} LBP`;
 }
