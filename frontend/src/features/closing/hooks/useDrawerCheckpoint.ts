@@ -380,8 +380,9 @@ export function useDrawerCheckpoint({
     const closingDay = localDay();
 
     try {
+      // No user_id: the server books the checkpoint under the signed-in
+      // user on both transports (LIRA-297).
       const checkpointData: Parameters<typeof api.createCheckpoint>[0] = {
-        user_id: user?.id ?? 0,
         drawer_name: drawerName,
         amounts,
         closing_date: closingDay,

@@ -51,18 +51,18 @@ import type {
   // Money's create/collect payloads, imported directly (rule 21) instead of
   // a hand-typed object literal that could silently drift from the schema.
   HoldMoneyCreateInput,
-  HoldMoneyCollectInput,
+  HoldMoneyCollectPayload,
   // LIRA-231 — POS "Refund Sale"/"Refund item" refund-leg-override payloads,
   // imported directly (rule 21) instead of a hand-typed object literal.
-  SaleRefundInput,
-  SaleRefundItemInput,
+  SaleRefundPayload,
+  SaleRefundItemPayload,
   // LIRA-147 — admin "Undo refund" payload, imported directly (rule 21).
   SaleUndoItemRefundInput,
   // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
   // single-item refund payload (rule 21) + result/preview shapes, imported
   // directly instead of a hand-typed object literal.
-  SessionItemRefundInput,
-  SessionItemRefundPreviewInput,
+  SessionItemRefundPayload,
+  SessionItemRefundPreviewPayload,
   RefundSessionBasketItemResult,
   SessionItemRefundPreview,
   // LIRA-185 — Loto report shape incl. kept change (rule 21).
@@ -114,6 +114,71 @@ import type {
   WarrantyClaimView,
   DefectiveItemView,
   WarrantyEnvelope,
+} from "@liratek/core";
+
+// LIRA-297 — write payloads derived from the core schemas (rule 21):
+// `z.input<…>` aliases computed inside core, never hand-copied literals.
+import type {
+  SaleProcessPayload,
+  SaleUpdateMetadataPayload,
+  DebtAccountEntryPayload,
+  DebtUseCreditPayload,
+  DebtUpdateMetadataPayload,
+  DebtWriteOffPayload,
+  AddRepaymentPayload,
+  ExpenseUpdateMetadataPayload,
+  FinancialUpdateMetadataPayload,
+  PartnerCreatePayload,
+  PartnerRecordTransactionPayload,
+  PartnerUpdatePayload,
+  PartnerWriteOffPayload,
+  RechargeCashoutPayload,
+  SelfChargeTelecomItemPayload,
+  TopUpAppPayload,
+  TopUpFromPartnerPayload,
+  TopUpFromSupplierPayload,
+  UpdateExchangeMetadataPayload,
+  UpdateRechargeMetadataPayload,
+  VoucherCreatePayload,
+  CreateFinancialServicePayload,
+  AdjustLotPositionPayload,
+  CarrierLineCreatePayload,
+  CarrierLineUpdateBalancePayload,
+  CarrierLineUpdatePayload,
+  CreateCheckpointPayload,
+  CreateDrawerCashoutPayload,
+  CreateDrawerTransferPayload,
+  CreateServiceProviderPayload,
+  CreateWalletExchangePayload,
+  CustomServiceUpdateMetadataPayload,
+  DatabaseResetPayload,
+  LotoCashPrizePayload,
+  LotoCheckpointCreatePayload,
+  LotoCheckpointUpdatePayload,
+  LotoFeePayload,
+  LotoTicketUpdatePayload,
+  LotoUpdateMetadataPayload,
+  MobileServiceItemCreatePayload,
+  MobileServiceItemUpdatePayload,
+  PreviewLotSettlementPayload,
+  ReceiveStockPayload,
+  RegisterProductUnitsPayload,
+  ServicePresetCreatePayload,
+  ServicePresetUpdatePayload,
+  SetRatePayload,
+  SupplierCashflowPayload,
+  SupplierLedgerEntryPayload,
+  SupplierPurchaseCreatePayload,
+  SupplierRecordDebtPayload,
+  SupplierSettleAccountPayload,
+  UpdateCustomServiceFulfillmentPayload,
+  UpdateCustomServiceWorkStatusPayload,
+  UpdateServiceProviderPayload,
+  CreateClientPayload,
+  RecordCarrierLineUsagePayload,
+  StockAdjustPayload,
+  BatchUpdateProductsPayload,
+  ImportClientDebtsPayload,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -699,16 +764,8 @@ export type MarkCarrierLineOwedDeliverySentResult = {
 
 /** LIRA-145 — payload for `recordCarrierLineUsage`. Runtime twin of core's
  *  `recordCarrierLineUsageSchema` (validators/carrierLine.ts). */
-export type CarrierLineUsagePayload = {
-  carrierLineId: number;
-  /** The line's NEW credit balance, as read off the SIM. A "credits used"
-   *  input is resolved to a new balance before it gets here. */
-  newCredits: number;
-  /** Optimistic-concurrency guard: the balance the form was rendered
-   *  against. The server rejects when the stored balance has moved since. */
-  expectedCurrentCredits?: number;
-  note?: string;
-};
+/** LIRA-145 payload, derived from `recordCarrierLineUsageSchema` (rule 21). */
+export type CarrierLineUsagePayload = RecordCarrierLineUsagePayload;
 
 /** LIRA-145 — envelope returned by `recordCarrierLineUsage`. */
 export type CarrierLineUsageResult = {
@@ -765,7 +822,7 @@ export type MobileServiceItemEntity = {
 
 export type LotoCheckpointApi = {
   create: (
-    data: any,
+    data: LotoCheckpointCreatePayload,
   ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
   get: (
     id: number,
@@ -784,7 +841,7 @@ export type LotoCheckpointApi = {
   }>;
   update: (
     id: number,
-    data: any,
+    data: LotoCheckpointUpdatePayload,
   ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
   markSettled: (
     id: number,
@@ -820,7 +877,7 @@ export type LotoCheckpointApi = {
 
 export type LotoCashPrizeApi = {
   create: (
-    data: any,
+    data: LotoCashPrizePayload,
   ) => Promise<{ success: boolean; prize?: any; error?: string }>;
   getByDateRange: (
     from: string,
@@ -845,7 +902,7 @@ export type LotoCashPrizeApi = {
 
 export type LotoFeesApi = {
   create: (
-    data: any,
+    data: LotoFeePayload,
   ) => Promise<{ success: boolean; fee?: any; error?: string }>;
   get: (
     year: number,
@@ -883,14 +940,13 @@ export type LotoApi = {
   }>;
   update: (
     id: number,
-    data: any,
+    data: LotoTicketUpdatePayload,
   ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
   /** Edits a loto TICKET's note (loto_tickets) — NOT a checkpoint's;
    *  see lotoUpdateMetadata in backendApi.ts. No UI caller currently. */
-  updateMetadata: (data: {
-    id: number;
-    note?: string;
-  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  updateMetadata: (
+    data: LotoUpdateMetadataPayload,
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   report: (
     from: string,
     to: string,
@@ -968,31 +1024,16 @@ export type ApiAdapter = {
   // Clients
   // ---------------------------------------------------------------------------
   getClients: (search?: string) => Promise<ClientEntity[]>;
-  createClient: (payload: {
-    full_name: string;
-    phone_number?: string;
-    whatsapp_opt_in?: number | boolean;
-    [key: string]: unknown;
-  }) => Promise<{ success: boolean; id?: number; error?: string }>;
+  createClient: (
+    payload: CreateClientPayload,
+  ) => Promise<{ success: boolean; id?: number; error?: string }>;
   deleteClient: (id: number) => Promise<ApiResult>;
   /**
    * Bulk import of clients and their debt history from a parsed Excel sheet.
    * Admin only, on both transports. Returns the per-category counts the import
    * summary dialog reads.
    */
-  importClientDebts: (
-    clients: {
-      name: string;
-      phone: string;
-      entries: {
-        date: string | null;
-        amount_usd: number;
-        amount_lbp: number;
-        description: string;
-        type: "debt" | "payment";
-      }[];
-    }[],
-  ) => Promise<{
+  importClientDebts: (clients: ImportClientDebtsPayload["clients"]) => Promise<{
     success: boolean;
     error?: string;
     result?: {
@@ -1058,13 +1099,9 @@ export type ApiAdapter = {
    *  (`products.unit`, a nullable TEXT column) is wired end-to-end on both
    *  transports, the same as `supplier` — see `batchUpdateProductsSchema`
    *  (packages/core/src/validators/product.ts). */
-  batchUpdateProducts: (payload: {
-    ids: number[];
-    category?: string;
-    min_stock_level?: number;
-    supplier?: string | null;
-    unit?: string | null;
-  }) => Promise<{ success: boolean; updated: number; error?: string }>;
+  batchUpdateProducts: (
+    payload: BatchUpdateProductsPayload,
+  ) => Promise<{ success: boolean; updated: number; error?: string }>;
   getLowStockProducts: () => Promise<any[]>;
   /** Look up a product by its exact barcode (null when no match) — the
    *  ProductForm barcode generator's uniqueness check. */
@@ -1082,25 +1119,14 @@ export type ApiAdapter = {
    *  `is_old_stock` or there's no supplier, a supplier_ledger
    *  'STOCK_INTAKE' row — see InventoryService.receiveStock). `userId` is
    *  injected server-side by both transports, never sent by the client. */
-  receiveStock: (payload: {
-    product_id: number;
-    quantity: number;
-    unit_cost_usd: number;
-    supplier?: string | null;
-    is_old_stock: boolean;
-    reason?: string;
-    /** LIRA-087 (migration v189) — attach to an already-recorded open
-     *  supplier debt instead of booking a new one. */
-    attach_to_recorded_debt_id?: number | null;
-  }) => Promise<{ success: boolean; error?: string; batch_id?: number }>;
+  receiveStock: (
+    payload: ReceiveStockPayload,
+  ) => Promise<{ success: boolean; error?: string; batch_id?: number }>;
   /** LIRA-077: set-absolute (newQuantity) or delta stock correction, always
    *  with a reason for the stock_adjustments audit trail. */
-  adjustStock: (payload: {
-    id: number;
-    newQuantity?: number;
-    delta?: number;
-    reason: string;
-  }) => Promise<{ success: boolean; error?: string }>;
+  adjustStock: (
+    payload: StockAdjustPayload,
+  ) => Promise<{ success: boolean; error?: string }>;
   /** LIRA-077: adjustment history — one product, or the most recent across
    *  all products when productId is omitted. */
   getStockAdjustments: (productId?: number) => Promise<StockAdjustmentEntity[]>;
@@ -1187,7 +1213,7 @@ export type ApiAdapter = {
   deleteDraft: (
     saleId: number,
   ) => Promise<{ success: boolean; error?: string }>;
-  processSale: (payload: any) => Promise<ProcessSaleResult>;
+  processSale: (payload: SaleProcessPayload) => Promise<ProcessSaleResult>;
   /** LIRA-296 SF-2 — completed/refunded sales between two shop days
    *  (inclusive). Read: the raw row array; a refusal throws. */
   getSalesByDateRange: (
@@ -1206,11 +1232,11 @@ export type ApiAdapter = {
    *  instead of the old per-currency rule). */
   refundSale: (
     saleId: number,
-    refundLegs?: SaleRefundInput["refundLegs"],
-    unitExtras?: SaleRefundInput["unitExtras"],
+    refundLegs?: SaleRefundPayload["refundLegs"],
+    unitExtras?: SaleRefundPayload["unitExtras"],
     exchangeRate?: number,
     /** Owner decision 2026-10-07 — refund kept change. */
-    keptChange?: SaleRefundInput["keptChange"],
+    keptChange?: SaleRefundPayload["keptChange"],
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
   /** Refund a specific line item off a sale, by quantity (admin only).
    *  LIRA-231: same optional `refundLegs` override, validated against THIS
@@ -1221,11 +1247,11 @@ export type ApiAdapter = {
     saleId: number,
     saleItemId: number,
     refundQuantity: number,
-    refundLegs?: SaleRefundItemInput["refundLegs"],
-    unitExtras?: SaleRefundItemInput["unitExtras"],
+    refundLegs?: SaleRefundItemPayload["refundLegs"],
+    unitExtras?: SaleRefundItemPayload["unitExtras"],
     exchangeRate?: number,
     /** Owner decision 2026-10-07 — refund kept change. */
-    keptChange?: SaleRefundItemInput["keptChange"],
+    keptChange?: SaleRefundItemPayload["keptChange"],
   ) => Promise<{ success: boolean; refundId?: number; error?: string }>;
   /** LIRA-147 — admin-only "Undo refund" for a standalone per-item refund.
    *  `refundTransactionId` is the REFUND row's own transaction id —
@@ -1272,12 +1298,9 @@ export type ApiAdapter = {
     error?: string;
   }>;
   /** Edit non-financial metadata (walk-in name/phone, note) on a sale row. */
-  updateSaleMetadata: (data: {
-    id: number;
-    note?: string;
-    client_name?: string;
-    client_phone?: string;
-  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  updateSaleMetadata: (
+    data: SaleUpdateMetadataPayload,
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Debts
@@ -1297,19 +1320,13 @@ export type ApiAdapter = {
    * makes that class of drift impossible: if the schema changes, this type
    * changes with it.
    */
-  addRepayment: (payload: AddRepaymentInput) => Promise<ApiResult>;
+  addRepayment: (payload: AddRepaymentPayload) => Promise<ApiResult>;
   /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
    *  cash movement. Capped server-side at the client's outstanding balance
    *  per currency. */
-  debtWriteOff: (payload: {
-    clientId: number;
-    // NOTE camelCase — mirrors debtWriteOffSchema/addRepaymentSchema's
-    // amountUSD/amountLBP convention (unlike suppliers/partners write-off,
-    // which use amount_usd/amount_lbp).
-    amountUSD: number;
-    amountLBP: number;
-    reason?: string;
-  }) => Promise<ApiResult & { id?: number }>;
+  debtWriteOff: (
+    payload: DebtWriteOffPayload,
+  ) => Promise<ApiResult & { id?: number }>;
   getClientBalance: (clientId: number) => Promise<{
     success: boolean;
     data?: { balance_usd: number; balance_lbp: number };
@@ -1321,21 +1338,16 @@ export type ApiAdapter = {
     payload: DebtCashOutPayload,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
   addAccountEntry: (
-    payload: unknown,
+    payload: DebtAccountEntryPayload,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
   /** Consume a client's prepaid credit balance (IPC: debt.useCredit). */
-  consumeCredit: (payload: {
-    clientId: number;
-    amountUsd: number;
-    amountLbp: number;
-    note?: string;
-    transactionTime?: string;
-  }) => Promise<{ success: boolean; id?: number; error?: string }>;
+  consumeCredit: (
+    payload: DebtUseCreditPayload,
+  ) => Promise<{ success: boolean; id?: number; error?: string }>;
   /** Edit a debt_ledger row's note (IPC: debt.updateMetadata). */
-  updateDebtMetadata: (payload: {
-    id: number;
-    note?: string;
-  }) => Promise<{ success: boolean; data?: any; error?: string }>;
+  updateDebtMetadata: (
+    payload: DebtUpdateMetadataPayload,
+  ) => Promise<{ success: boolean; data?: any; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Exchange
@@ -1363,11 +1375,9 @@ export type ApiAdapter = {
   >;
   /** Edit non-financial metadata (client name / note) on an
    *  exchange_transactions row (IPC: exchange.updateMetadata). */
-  updateExchangeMetadata: (payload: {
-    id: number;
-    client_name?: string;
-    note?: string;
-  }) => Promise<{ success: boolean; data?: any; error?: string }>;
+  updateExchangeMetadata: (
+    payload: UpdateExchangeMetadataPayload,
+  ) => Promise<{ success: boolean; data?: any; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Expenses
@@ -1387,12 +1397,9 @@ export type ApiAdapter = {
   ) => Promise<ApiResult & { id?: number }>;
   /** Edit non-financial metadata (description/category/note) on an expense
    *  row (the History modal's inline edit). */
-  updateExpenseMetadata: (data: {
-    id: number;
-    description?: string;
-    category?: string;
-    note?: string;
-  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  updateExpenseMetadata: (
+    data: ExpenseUpdateMetadataPayload,
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Dashboard
@@ -1450,34 +1457,18 @@ export type ApiAdapter = {
   getRechargeDrawerBalances: () => Promise<RechargeDrawerBalance[]>;
   /** Generic drawer-to-drawer top-up into a provider drawer (desktop's only
    *  path to `OMT_App` — CARRIER_LINES_VALIDITY_PLAN.md §8.3). */
-  topUpApp: (payload: {
-    provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
-    amount: number;
-    currency: "USD" | "LBP";
-    sourceDrawer: string;
-  }) => Promise<ApiResult>;
+  topUpApp: (payload: TopUpAppPayload) => Promise<ApiResult>;
   /** Katsh/iPick/OMT App: the supplier extends credit — no source drawer
    *  moves (D2/D4 — OMT App's default funding path, LIRA-190). */
-  topUpFromSupplier: (payload: {
-    provider: "iPick" | "Katsh" | "OMT_APP";
-    amount: number;
-    currency: "USD" | "LBP";
-  }) => Promise<ApiResult>;
+  topUpFromSupplier: (payload: TopUpFromSupplierPayload) => Promise<ApiResult>;
   /** OMT open-credit account (LIRA-192) — the mirror of topUpFromSupplier:
    *  OMT_App wallet balance leaves, the OMT account is credited principal +
    *  commission (recognised as profit at settlement, wave 2). Admin only. */
-  cashoutToSupplier: (payload: {
-    provider: "OMT_APP";
-    amount: number;
-    currency: "USD" | "LBP";
-  }) => Promise<{ success: boolean; error?: string; commission?: number }>;
+  cashoutToSupplier: (
+    payload: RechargeCashoutPayload,
+  ) => Promise<{ success: boolean; error?: string; commission?: number }>;
   /** Whish App: a partner extends credit — no source drawer moves. */
-  topUpFromPartner: (payload: {
-    provider: "WHISH_APP";
-    partnerId: number;
-    amount: number;
-    currency: "USD" | "LBP";
-  }) => Promise<ApiResult>;
+  topUpFromPartner: (payload: TopUpFromPartnerPayload) => Promise<ApiResult>;
   /**
    * Whish App: a client transfers credits, the shop pays out via
    * `payments[]` legs. Payload type is `TopUpFromClientInput`, derived from
@@ -1491,12 +1482,9 @@ export type ApiAdapter = {
    *  recharge row — the History modal's inline edit (LIRA-109; IPC:
    *  recharge.updateMetadata). Was the last raw `window.api.recharge.*` call
    *  in the Recharge feature. */
-  updateRechargeMetadata: (payload: {
-    id: number;
-    phone_number?: string;
-    client_name?: string;
-    note?: string;
-  }) => Promise<{ success: boolean; data?: any; error?: string }>;
+  updateRechargeMetadata: (
+    payload: UpdateRechargeMetadataPayload,
+  ) => Promise<{ success: boolean; data?: any; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)
@@ -1511,7 +1499,7 @@ export type ApiAdapter = {
    *  was deleted when the owner reversed the no-overdraw rule 2026-08-01 —
    *  the primary cash drawer may go negative. */
   addOMTTransaction: (
-    payload: any,
+    payload: CreateFinancialServicePayload,
   ) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;
   /** A single financial_services record by id — the Debts page's
    *  service-backed debt-detail "eye" button. Raw read (null when missing). */
@@ -1521,30 +1509,18 @@ export type ApiAdapter = {
   getPaymentsByTransaction: (transactionId: number) => Promise<any[]>;
   /** Edit non-financial metadata on a financial_services row (OMT/Whish/
    *  iPick/Katsh/Binance history modals' inline edit — one shared channel). */
-  updateFinancialMetadata: (data: {
-    id: number;
-    client_name?: string;
-    phone_number?: string;
-    sender_name?: string;
-    sender_phone?: string;
-    receiver_name?: string;
-    receiver_phone?: string;
-    note?: string;
-  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  updateFinancialMetadata: (
+    data: FinancialUpdateMetadataPayload,
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   /** Generic, reversible cash transfer between any two of the shop's own
    *  drawers (Primary Cash Drawer plan §8.6) — General <-> the primary cash
    *  drawer (OMT_System/Whish_System) is the pair the UI exposes. Replaces
    *  the retired `drawerTopUp.fundSystem` (one-directional float-funding,
    *  now-superseded 2026-07-29 model). Can itself fail with
    *  `code: "INSUFFICIENT_DRAWER_FUNDS"` if `fromDrawer` lacks funds. */
-  transferBetweenDrawers: (data: {
-    fromDrawer: string;
-    toDrawer: string;
-    amount_usd: number;
-    amount_lbp: number;
-    notes?: string;
-    transaction_time?: string;
-  }) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;
+  transferBetweenDrawers: (
+    data: CreateDrawerTransferPayload,
+  ) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;
 
   // ---------------------------------------------------------------------------
   // Maintenance
@@ -1601,30 +1577,9 @@ export type ApiAdapter = {
       user_id?: number;
     },
   ) => Promise<ApiResult>;
-  createCheckpoint: (data: {
-    user_id: number;
-    drawer_name: string;
-    notes?: string;
-    report_path?: string;
-    amounts: Array<{
-      drawer_name: string;
-      currency_code: string;
-      expected_amount: number;
-      physical_amount: number;
-    }>;
-    /** The client's own local calendar day (`YYYY-MM-DD`), sent so a
-     *  web-hosted server (which doesn't know the shop's timezone) doesn't
-     *  have to guess "today". */
-    closing_date?: string;
-    /** Per-line SIM counts, MTC/Alfa only (carrier-lines-validity Phase 3).
-     *  Only counted values cross the wire; the expected side is read
-     *  server-side off carrier_lines. */
-    carrier_lines?: Array<{
-      carrier_line_id: number;
-      counted_credits: number;
-      counted_expires_at?: string | null;
-    }>;
-  }) => Promise<{ success: boolean; id?: number; error?: string }>;
+  createCheckpoint: (
+    data: CreateCheckpointPayload,
+  ) => Promise<{ success: boolean; id?: number; error?: string }>;
   getCheckpointTimeline: (filters?: {
     date_from?: string;
     date_to?: string;
@@ -1742,13 +1697,7 @@ export type ApiAdapter = {
   ) => Promise<ApiResult & { id?: number }>;
   addSupplierLedgerEntry: (
     supplierId: number,
-    data: {
-      entry_type: string;
-      amount_usd?: number;
-      amount_lbp?: number;
-      note?: string;
-      drawer_name?: string;
-    },
+    data: Omit<SupplierLedgerEntryPayload, "supplier_id">,
   ) => Promise<ApiResult & { id?: number }>;
   getUnsettledTransactions: (provider: string) => Promise<any[]>;
   /** Payload derived from the core `supplierSettleSchema` (rule 21) —
@@ -1758,16 +1707,9 @@ export type ApiAdapter = {
     data: SupplierSettleInput,
   ) => Promise<ApiResult & { id?: number }>;
   /** Pay a supplier down / record a supplier paying us, via payment legs. */
-  recordSupplierCashflow: (data: {
-    supplier_id: number;
-    direction: "PAY" | "RECEIVE";
-    payments: Array<{ method: string; currency_code: string; amount: number }>;
-    note?: string;
-    exchange_rate?: number;
-    /** CQ-10: bundled discount — PAY direction only (backend rejects it on
-     *  RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row. */
-    discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-  }) => Promise<ApiResult & { id?: number }>;
+  recordSupplierCashflow: (
+    data: SupplierCashflowPayload,
+  ) => Promise<ApiResult & { id?: number }>;
   /**
    * OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
    * payment across the account parent (OMT) + its children (OMT App, iPick),
@@ -1784,31 +1726,7 @@ export type ApiAdapter = {
    */
   settleSupplierAccount: (
     accountSupplierId: number,
-    data: {
-      direction: "PAY" | "COLLECT";
-      selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
-      amount_usd: number;
-      amount_lbp: number;
-      commission_usd: number;
-      commission_lbp: number;
-      entry_mode?: "LUMP" | "RATE";
-      commission_rate?: number;
-      commission_unit_count?: number;
-      note?: string;
-      exchange_rate?: number;
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-        direction?: "IN" | "OUT";
-      }>;
-      /** LIRA-203 (owner D18 follow-up) — pay MORE than `selections` net
-       *  to; the difference is booked as a standalone account credit,
-       *  applied manually at a later settlement (never auto-applied).
-       *  Only valid with `direction: "PAY"`. */
-      surplus_usd?: number;
-      surplus_lbp?: number;
-    },
+    data: Omit<SupplierSettleAccountPayload, "account_supplier_id">,
   ) => Promise<ApiResult & { id?: number }>;
   // supplierWriteOff REMOVED (supplier stock-intake, D8) — the standalone
   // write-off is gone; recordSupplierCashflow's bundled `discount` leg above
@@ -1838,20 +1756,11 @@ export type ApiAdapter = {
    * success (no `success` wrapper) and only `{ success: false, error }` on
    * failure — this passes the result through unchanged, it does not reshape.
    */
-  createSupplierPurchase: (data: {
-    supplier_id: number;
-    total_usd: number;
-    note?: string;
-  }) => Promise<any>;
+  createSupplierPurchase: (data: SupplierPurchaseCreatePayload) => Promise<any>;
   /** LIRA-087 (migration v189) — record a supplier debt without a product
    *  line yet; a later `receiveStock` call can attach products to it via
    *  `attach_to_recorded_debt_id`. */
-  recordSupplierDebt: (data: {
-    supplier_id: number;
-    amount_usd: number;
-    amount_lbp: number;
-    note?: string | null;
-  }) => Promise<{
+  recordSupplierDebt: (data: SupplierRecordDebtPayload) => Promise<{
     success: boolean;
     ledgerEntryId?: number;
     transactionId?: number;
@@ -1864,13 +1773,7 @@ export type ApiAdapter = {
   // Rates (new 4-column schema: to_code, market_rate, delta, is_stronger)
   // ---------------------------------------------------------------------------
   getRates: () => Promise<any[]>;
-  setRate: (data: {
-    to_code: string;
-    market_rate: number;
-    buy_rate: number;
-    sell_rate: number;
-    is_stronger: 1 | -1;
-  }) => Promise<ApiResult>;
+  setRate: (data: SetRatePayload) => Promise<ApiResult>;
   deleteRate: (to_code: string) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
@@ -1914,7 +1817,7 @@ export type ApiAdapter = {
   // so the caller branches on `result.success` itself (rule 19).
   // ---------------------------------------------------------------------------
   getDatabaseResetPreview: () => Promise<DatabaseResetPreview>;
-  resetDatabase: (input: { confirmation: string }) => Promise<{
+  resetDatabase: (input: DatabaseResetPayload) => Promise<{
     success: boolean;
     data?: DatabaseResetResult;
     error?: string;
@@ -1964,15 +1867,14 @@ export type ApiAdapter = {
   getServiceProviders: () => Promise<ServiceProviderEntity[]>;
   /** Always settles the new provider's cash to `General` server-side —
    *  there is no `drawer_name` field to set here (owner decision, §5b). */
-  createServiceProvider: (data: {
-    code: string;
-    label: string;
-  }) => Promise<ApiResult & { id?: number }>;
+  createServiceProvider: (
+    data: CreateServiceProviderPayload,
+  ) => Promise<ApiResult & { id?: number }>;
   /** `code` is not an updatable field — see `ServiceProviderService`'s doc
    *  comment for why. */
   updateServiceProvider: (
     id: number,
-    data: { label?: string; is_active?: number },
+    data: UpdateServiceProviderPayload,
   ) => Promise<ApiResult>;
   /** Rejects with a clear error for one of the 9 seeded system providers. */
   deleteServiceProvider: (id: number) => Promise<ApiResult>;
@@ -1985,30 +1887,17 @@ export type ApiAdapter = {
   ) => Promise<CarrierLineEntity[]>;
   getAllActiveCarrierLines: () => Promise<CarrierLineEntity[]>;
   getAdminCarrierLines: () => Promise<CarrierLineEntity[]>;
-  createCarrierLine: (data: {
-    carrier: "alfa" | "mtc";
-    phone_number: string;
-    label?: string | null;
-    credits?: number;
-    validity_expires_at?: string | null;
-    notes?: string | null;
-  }) => Promise<CarrierLineWriteResult>;
+  createCarrierLine: (
+    data: CarrierLineCreatePayload,
+  ) => Promise<CarrierLineWriteResult>;
   updateCarrierLine: (
     id: number,
-    data: {
-      carrier?: "alfa" | "mtc";
-      phone_number?: string;
-      label?: string | null;
-      credits?: number;
-      validity_expires_at?: string | null;
-      notes?: string | null;
-      is_active?: number;
-    },
+    data: Omit<CarrierLineUpdatePayload, "id">,
   ) => Promise<CarrierLineWriteResult>;
   /** Recharge-tab inline quick-update: credits and/or a new expiry date. */
   updateCarrierLineBalance: (
     id: number,
-    data: { credits?: number; validity_expires_at?: string | null },
+    data: Omit<CarrierLineUpdateBalancePayload, "id">,
   ) => Promise<CarrierLineWriteResult>;
   archiveCarrierLine: (id: number) => Promise<CarrierLineWriteResult>;
   toggleCarrierLineActive: (id: number) => Promise<CarrierLineWriteResult>;
@@ -2058,67 +1947,20 @@ export type ApiAdapter = {
   /** Bulk-insert the fresh-install catalog. No-ops server-side (returns
    *  `{success:true, count:0}`) when the table is already populated. Admin
    *  or staff only. */
-  seedMobileServiceItems: (
-    items: {
-      provider: string;
-      category: string;
-      subcategory: string;
-      label: string;
-      cost_lbp: number;
-      sell_lbp: number;
-      sort_order?: number;
-      is_active?: number;
-      validity_days?: number | null;
-      credits?: number | null;
-      days_cost_lbp?: number | null;
-      sell_days_lbp?: number | null;
-      sell_credit_lbp?: number | null;
-      max_returned_credits_usd?: number | null;
-    }[],
-  ) => Promise<{
+  seedMobileServiceItems: (items: MobileServiceItemCreatePayload[]) => Promise<{
     success: boolean;
     count?: number;
     error?: string;
   }>;
   /** LIRA-090: create a new catalog item (admin only). */
-  createMobileServiceItem: (data: {
-    provider: string;
-    category: string;
-    subcategory: string;
-    label: string;
-    cost_lbp: number;
-    sell_lbp: number;
-    sort_order?: number;
-    is_active?: number;
-    validity_days?: number | null;
-    credits?: number | null;
-    days_cost_lbp?: number | null;
-    sell_days_lbp?: number | null;
-    sell_credit_lbp?: number | null;
-    /** v160: per-card override of the returnable credit maximum; null = computed. */
-    max_returned_credits_usd?: number | null;
-  }) => Promise<{
+  createMobileServiceItem: (data: MobileServiceItemCreatePayload) => Promise<{
     success: boolean;
     data?: MobileServiceItemEntity;
     error?: string;
   }>;
   updateMobileServiceItem: (
     id: number,
-    data: {
-      label?: string;
-      cost_lbp?: number;
-      sell_lbp?: number;
-      sort_order?: number;
-      is_active?: number;
-      validity_days?: number | null;
-      credits?: number | null;
-      /** LIRA-090 (v140) Only-Days split columns — nullable, all optional. */
-      days_cost_lbp?: number | null;
-      sell_days_lbp?: number | null;
-      sell_credit_lbp?: number | null;
-      /** v160: per-card override of the returnable credit maximum; null = computed. */
-      max_returned_credits_usd?: number | null;
-    },
+    data: Omit<MobileServiceItemUpdatePayload, "id">,
   ) => Promise<{
     success: boolean;
     data?: MobileServiceItemEntity;
@@ -2137,16 +1979,9 @@ export type ApiAdapter = {
   }>;
   /** LIRA-090 §5.2: charge a telecom catalog item to the shop's own carrier
    *  line. No customer is debited; debits the iPick/Katsh LBP drawer.
-   *  Admin or staff only. */
-  selfChargeTelecomItem: (data: {
-    mobileServiceItemId: number;
-    carrierLineId?: number;
-    transaction_time?: string;
-    /** The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. `localDay()`)
-     *  — fed to the validity-extension projection so the shop's own day (not
-     *  the server's, untrustworthy on web) decides the outcome. */
-    client_day?: string;
-  }) => Promise<{
+   *  Admin or staff only. Send `client_day` (the shop's own `localDay()`) —
+   *  the server's day is not trustworthy on web (rule 27). */
+  selfChargeTelecomItem: (data: SelfChargeTelecomItemPayload) => Promise<{
     success: boolean;
     data?: {
       transactionId: number;
@@ -2265,7 +2100,7 @@ export type ApiAdapter = {
       holdMoneyId: number,
     ) => Promise<{ success: boolean; data?: any[]; error?: string }>;
     collect: (
-      data: HoldMoneyCollectInput,
+      data: HoldMoneyCollectPayload,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     voidPickup: (
       pickupId: number,
@@ -2278,28 +2113,12 @@ export type ApiAdapter = {
       category?: string;
       includeInactive?: boolean;
     }) => Promise<{ success: boolean; data?: any[]; error?: string }>;
-    create: (data: {
-      name: string;
-      category: string;
-      cost_usd?: number;
-      cost_lbp?: number;
-      price_usd?: number;
-      price_lbp?: number;
-      is_active?: number;
-      sort_order?: number;
-    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    create: (
+      data: ServicePresetCreatePayload,
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
     update: (
       id: number,
-      data: {
-        name?: string;
-        category?: string;
-        cost_usd?: number;
-        cost_lbp?: number;
-        price_usd?: number;
-        price_lbp?: number;
-        is_active?: number;
-        sort_order?: number;
-      },
+      data: ServicePresetUpdatePayload,
     ) => Promise<{ success: boolean; data?: any; error?: string }>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
   };
@@ -2350,34 +2169,18 @@ export type ApiAdapter = {
         direction?: "DEBIT" | "CREDIT";
       },
     ) => Promise<any>;
-    create: (data: {
-      name: string;
-      phone?: string;
-      notes?: string;
-      system_association?: string | null;
-    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    create: (
+      data: PartnerCreatePayload,
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
     update: (
       id: number,
-      data: {
-        name?: string;
-        phone?: string;
-        notes?: string;
-        is_active?: number;
-        system_association?: string | null;
-      },
+      data: PartnerUpdatePayload,
     ) => Promise<{ success: boolean; data?: any; error?: string }>;
     deactivate: (id: number) => Promise<{ success: boolean; error?: string }>;
     activate: (id: number) => Promise<{ success: boolean; error?: string }>;
-    recordTransaction: (data: {
-      partnerId: number;
-      transactionType?: string;
-      referenceTable?: string;
-      referenceId?: number;
-      amount: number;
-      currency: string;
-      direction: "DEBIT" | "CREDIT";
-      notes?: string;
-    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    recordTransaction: (
+      data: PartnerRecordTransactionPayload,
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
     /** Payload derived from the core `partnerSettleSchema` (rule 21):
      *  CQ-10 bundled `discount`, CQ-11 split `payments[]` (legs locked to
      *  `currency`), and the settle modal's `exchange_rate` (owner decision
@@ -2388,12 +2191,9 @@ export type ApiAdapter = {
     /** CQ-10: standalone partner write-off (admin-only) — we forgive what
      *  the partner owes us; capped server-side at the outstanding balance
      *  per currency. */
-    writeOff: (data: {
-      partnerId: number;
-      amount_usd: number;
-      amount_lbp: number;
-      reason?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    writeOff: (
+      data: PartnerWriteOffPayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
   /** Vouchers (gift cards) — config CRUD. Channels return the service
@@ -2409,13 +2209,9 @@ export type ApiAdapter = {
       },
       day?: string,
     ) => Promise<{ success: boolean; vouchers?: any[]; error?: string }>;
-    create: (data: {
-      clientId: number;
-      amount: number;
-      currency?: "USD" | "LBP";
-      expiryDate?: string | null;
-      note?: string | null;
-    }) => Promise<{ success: boolean; voucher?: any; error?: string }>;
+    create: (
+      data: VoucherCreatePayload,
+    ) => Promise<{ success: boolean; voucher?: any; error?: string }>;
     validate: (
       code: string,
       day?: string,
@@ -2463,12 +2259,9 @@ export type ApiAdapter = {
 
   /** Drawer cash-out — pull physical cash OUT of the General drawer (owner's draw). */
   drawerCashout: {
-    create: (data: {
-      amount_usd: number;
-      amount_lbp: number;
-      extra_currencies?: { currency_code: string; amount: number }[];
-      notes: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    create: (
+      data: CreateDrawerCashoutPayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: (
       limit?: number,
     ) => Promise<{ success: boolean; data?: any[]; error?: string }>;
@@ -2477,14 +2270,7 @@ export type ApiAdapter = {
   /** Wallet exchange — convert a provider wallet's OWN USD balance to LBP
    *  (or vice versa), OMT App / Whish App only, never General. */
   walletExchange: {
-    create: (data: {
-      drawerName: "OMT_App" | "Whish_App";
-      fromCurrency: "USD" | "LBP";
-      toCurrency: "USD" | "LBP";
-      amountIn: number;
-      rate: number;
-      note?: string;
-    }) => Promise<{
+    create: (data: CreateWalletExchangePayload) => Promise<{
       success: boolean;
       id?: number;
       amountOut?: number;
@@ -2501,16 +2287,7 @@ export type ApiAdapter = {
    *  4a). Reads return the raw data shape (throwing on failure); `adjust`
    *  is a write and returns the envelope untouched. */
   exchangeLots: {
-    preview: (data: {
-      currencyCode: string;
-      qty: number;
-      unitProceedsUsd: number;
-      /** EXCHANGE_LOT_SETTLEMENT.md — the exchange's fromCurrency. When the
-       *  pair is a cross (both sides non-USD) with no USD rate anchor, the
-       *  server skips lot tracking entirely and the response carries
-       *  `reason: "NO_RATE_ANCHOR"` instead of a fabricated preview. */
-      fromCurrency?: string;
-    }) => Promise<
+    preview: (data: PreviewLotSettlementPayload) => Promise<
       | { lotTracked: false; reason?: "NO_RATE_ANCHOR" }
       | {
           lotTracked: true;
@@ -2543,12 +2320,9 @@ export type ApiAdapter = {
       asSettler: any[];
       againstSource: any[];
     }>;
-    adjust: (data: {
-      currencyCode: string;
-      qty: number;
-      unitCostUsd?: number;
-      note?: string;
-    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    adjust: (
+      data: AdjustLotPositionPayload,
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
   };
 
   /** Product Units — LIRA-143 Phase 5 (phone IMEI units & warranty)
@@ -2556,7 +2330,7 @@ export type ApiAdapter = {
    *  failure); `register`/`delete` are writes and return the envelope
    *  untouched. */
   productUnits: {
-    register: (data: { product_id: number; imeis: string[] }) => Promise<{
+    register: (data: RegisterProductUnitsPayload) => Promise<{
       success: boolean;
       data?: {
         units: any[];
@@ -2649,26 +2423,20 @@ export type ApiAdapter = {
   /** LIRA-155 — advance an insurance-style custom service's fulfilment
    *  status (ORDERED -> ISSUED -> RECEIVED -> DELIVERED). Moves no money;
    *  an illegal/not-found transition answers { success: false, error }. */
-  advanceCustomServiceFulfillment: (data: {
-    id: number;
-    fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
-  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  advanceCustomServiceFulfillment: (
+    data: UpdateCustomServiceFulfillmentPayload,
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   /** LIRA-083 — set a custom service's WORK status (Received/In_Progress/
    *  Ready/Delivered). Separate axis from fulfillment above and from the
    *  accounting `status`; no transition-legality check. */
-  setCustomServiceWorkStatus: (data: {
-    id: number;
-    work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
-  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  setCustomServiceWorkStatus: (
+    data: UpdateCustomServiceWorkStatusPayload,
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   /** Edit non-financial metadata (description/client name/phone/note) on a
    *  custom_services row (the History modal's inline edit). */
-  updateCustomServiceMetadata: (data: {
-    id: number;
-    description?: string;
-    client_name?: string;
-    phone_number?: string;
-    note?: string;
-  }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  updateCustomServiceMetadata: (
+    data: CustomServiceUpdateMetadataPayload,
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Unified Transactions
@@ -2764,7 +2532,7 @@ export type ApiAdapter = {
    *  on a SALE member, every remaining) line of a customer-session basket
    *  item, reducing the basket's outstanding account charge first. */
   refundSessionBasketItem: (
-    payload: SessionItemRefundInput,
+    payload: SessionItemRefundPayload,
   ) => Promise<
     | ({ success: true } & RefundSessionBasketItemResult)
     | { success: false; error?: string }
@@ -2772,7 +2540,7 @@ export type ApiAdapter = {
   /** Read-only preview for the item-refund form's pre-fill (the account
    *  reduction + default proportional legs). */
   getSessionItemRefundPreview: (
-    payload: SessionItemRefundPreviewInput,
+    payload: SessionItemRefundPreviewPayload,
   ) => Promise<
     | ({ success: true } & SessionItemRefundPreview)
     | { success: false; error?: string }

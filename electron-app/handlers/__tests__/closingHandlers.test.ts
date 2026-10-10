@@ -211,6 +211,32 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
       );
     });
 
+    it("LIRA-297: books the checkpoint under the SESSION's user, not a client-sent user_id (REST parity)", async () => {
+      // The REST twin injects `user_id` from the JWT and its schema strips
+      // any client-sent one; the desktop handler used to trust whatever the
+      // renderer put in the payload (rule 19c: the actor comes from the
+      // session, never the client).
+      (requireRole as jest.Mock).mockReturnValue({
+        ok: true,
+        role: "admin",
+        userId: 7,
+      });
+      mockClosingService.createCheckpoint.mockReturnValue({
+        success: true,
+        id: 43,
+      });
+      const handler = handlers.get("closing:create-checkpoint")!;
+
+      await handler(
+        { sender: { id: 1 } },
+        { user_id: 0, drawer_name: "AGGREGATED", amounts: [] },
+      );
+
+      expect(mockClosingService.createCheckpoint).toHaveBeenCalledWith(
+        expect.objectContaining({ user_id: 7 }),
+      );
+    });
+
     it("does not audit when the service reports failure", async () => {
       mockClosingService.createCheckpoint.mockReturnValue({
         success: false,

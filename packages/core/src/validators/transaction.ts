@@ -332,3 +332,9 @@ export type TransactionTypeFilterInput = z.infer<
 export type TransactionTypeFiltersInput = z.infer<
   typeof transactionTypeFiltersSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS (`z.input`): the adapter payload types.
+export type SessionItemRefundPayload = z.input<typeof sessionItemRefundSchema>;
+export type SessionItemRefundPreviewPayload = z.input<
+  typeof sessionItemRefundPreviewSchema
+>;

@@ -103,3 +103,16 @@ export type RecordCarrierLineUsageInput = z.infer<
 export type MarkCarrierLineOwedDeliverySentInput = z.infer<
   typeof markCarrierLineOwedDeliverySentSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type CarrierLineCreatePayload = z.input<typeof carrierLineCreateSchema>;
+export type CarrierLineUpdatePayload = z.input<typeof carrierLineUpdateSchema>;
+export type CarrierLineUpdateBalancePayload = z.input<
+  typeof carrierLineUpdateBalanceSchema
+>;
+export type RecordCarrierLineUsagePayload = z.input<
+  typeof recordCarrierLineUsageSchema
+>;

@@ -251,3 +251,21 @@ export type SupplierAccountLinkInput = z.infer<
 export type SupplierPurchaseCreateInput = z.infer<
   typeof supplierPurchaseCreateSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type SupplierLedgerEntryPayload = z.input<
+  typeof supplierLedgerEntrySchema
+>;
+export type SupplierSettleAccountPayload = z.input<
+  typeof supplierSettleAccountSchema
+>;
+export type SupplierCashflowPayload = z.input<typeof supplierCashflowSchema>;
+export type SupplierPurchaseCreatePayload = z.input<
+  typeof supplierPurchaseCreateSchema
+>;
+export type SupplierRecordDebtPayload = z.input<
+  typeof supplierRecordDebtSchema
+>;

@@ -66,3 +66,14 @@ export type CreateServiceProviderInput = z.infer<
 export type UpdateServiceProviderInput = z.infer<
   typeof updateServiceProviderSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type CreateServiceProviderPayload = z.input<
+  typeof createServiceProviderSchema
+>;
+export type UpdateServiceProviderPayload = z.input<
+  typeof updateServiceProviderSchema
+>;

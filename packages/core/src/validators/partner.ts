@@ -171,3 +171,14 @@ export type PartnerRecordTransactionInput = z.infer<
 >;
 export type PartnerSettleInput = z.infer<typeof partnerSettleSchema>;
 export type PartnerWriteOffInput = z.infer<typeof partnerWriteOffSchema>;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type PartnerCreatePayload = z.input<typeof partnerCreateSchema>;
+export type PartnerUpdatePayload = z.input<typeof partnerUpdateSchema>;
+export type PartnerRecordTransactionPayload = z.input<
+  typeof partnerRecordTransactionSchema
+>;
+export type PartnerWriteOffPayload = z.input<typeof partnerWriteOffSchema>;

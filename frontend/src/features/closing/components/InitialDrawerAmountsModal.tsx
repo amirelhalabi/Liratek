@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { X, Wallet, Plus } from "lucide-react";
 import { DecimalInput, useApi } from "@liratek/ui";
 import { useModules } from "@/contexts/ModuleContext";
-import { useAuth } from "@/features/auth/context/AuthContext";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { DRAWER_ORDER, DRAWER_CONFIGS } from "../config/drawers";
@@ -34,7 +33,6 @@ export function InitialDrawerAmountsModal({
   useModalFocusFix(true);
   const api = useApi();
   const { isModuleEnabled } = useModules();
-  const { user } = useAuth();
   const { activeCurrencies, getDecimals } = useCurrencyContext();
 
   // drawer → currency → numeric input value
@@ -149,8 +147,9 @@ export function InitialDrawerAmountsModal({
       }
     }
 
+    // No user_id: the server books the checkpoint under the signed-in user
+    // on both transports (LIRA-297).
     const result = await api.createCheckpoint({
-      user_id: user?.id ?? 0,
       drawer_name: "AGGREGATED",
       notes: "Initial drawer amounts setup",
       amounts: amountRows,

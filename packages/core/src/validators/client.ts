@@ -87,3 +87,20 @@ export type CreateClientInput = z.infer<typeof createClientSchema>;
 export type UpdateClientInput = z.infer<typeof updateClientSchema>;
 export type GetClientInput = z.infer<typeof getClientSchema>;
 export type SearchClientsInput = z.infer<typeof searchClientsSchema>;
+
+// LIRA-297 (rule 21) — what a caller SENDS to `createClient`/`updateClient`.
+// Derived from the REST schemas, with ONE documented transport difference:
+// the desktop IPC handler (electron-app/schemas/index.ts's LOCAL
+// ClientCreateSchema) takes `whatsapp_opt_in` as 0/1 or a boolean, while
+// these schemas take a boolean — the adapter (backendApi.ts) converts it for
+// REST. The desktop schema also REQUIRES `whatsapp_opt_in` (no default), so
+// it is required here on create.
+export type CreateClientPayload = Omit<
+  z.input<typeof createClientSchema>,
+  "whatsapp_opt_in"
+> & { whatsapp_opt_in: boolean | 0 | 1 };
+export type UpdateClientPayload = Omit<
+  z.input<typeof updateClientSchema>,
+  "whatsapp_opt_in"
+> & { whatsapp_opt_in?: boolean | 0 | 1 };
+export type ImportClientDebtsPayload = z.input<typeof importClientDebtsSchema>;

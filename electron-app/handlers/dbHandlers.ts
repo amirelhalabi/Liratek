@@ -382,7 +382,10 @@ export function registerDatabaseHandlers(): void {
     async (
       e,
       data: {
-        user_id: number;
+        /** Ignored — the checkpoint is booked under the SESSION's user
+         *  (`auth.userId`), the same actor the REST twin takes from the JWT
+         *  (LIRA-297, rule 19c). Older renderers still send it. */
+        user_id?: number;
         drawer_name: string;
         notes?: string;
         report_path?: string;
@@ -414,7 +417,10 @@ export function registerDatabaseHandlers(): void {
         if (!auth.ok) return { success: false, error: auth.error };
 
         const closingService = getClosingService();
-        const result = closingService.createCheckpoint(data);
+        const result = closingService.createCheckpoint({
+          ...data,
+          user_id: auth.userId,
+        });
         if (result.success) {
           audit(e.sender.id, {
             action: "create_checkpoint",

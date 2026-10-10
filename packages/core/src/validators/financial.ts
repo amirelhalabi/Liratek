@@ -97,6 +97,17 @@ export const createFinancialServiceSchema = z
     clientName: z.string().max(255).optional(),
     referenceNumber: z.string().max(100).optional(),
     phoneNumber: z.string().max(30).optional(),
+    // Both parties of a transfer (the OMT/Whish Services page sends them next
+    // to clientName/phoneNumber; the repository stores them in
+    // financial_services.sender_* / receiver_*). LIRA-297: only the desktop
+    // LOCAL schema declared them, so the web stripped them and never recorded
+    // the other party (rule 23). Same limits as clientName/phoneNumber/clientId.
+    senderName: z.string().max(255).optional(),
+    senderPhone: z.string().max(30).optional(),
+    receiverName: z.string().max(255).optional(),
+    receiverPhone: z.string().max(30).optional(),
+    senderClientId: z.number().int().positive().optional(),
+    receiverClientId: z.number().int().positive().optional(),
     omtServiceType: z
       .enum([
         "INTRA",
@@ -244,6 +255,16 @@ export const createFinancialServiceSchema = z
      * behavior.
      */
     tender_exchange_rate: z.number().positive().optional(),
+    /**
+     * A multi-unit cart's SIBLING units (every unit but the legs-carrying
+     * carrier) and session-basket items submit `deferPayment: true`: book
+     * cost + commission only, never the customer's payment (the carrier's
+     * legs, or the basket, already cover it). LIRA-297: this key was only in
+     * the desktop LOCAL FinancialServiceSchema — the REST route's
+     * `validateRequest` stripped it, so on the web every sibling booked its
+     * own price into the drawer on top of the carrier's legs (rule 23).
+     */
+    deferPayment: z.boolean().optional(),
     /**
      * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): identifies which
      * multi-unit split checkout this unit belongs to — sent with EVERY unit
@@ -589,4 +610,18 @@ export const financialUpdateMetadataSchema = z.object({
 
 export type FinancialUpdateMetadataInput = z.infer<
   typeof financialUpdateMetadataSchema
+>;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type CreateFinancialServicePayload = z.input<
+  typeof createFinancialServiceSchema
+>;
+export type FinancialUpdateMetadataPayload = z.input<
+  typeof financialUpdateMetadataSchema
+>;
+export type SelfChargeTelecomItemPayload = z.input<
+  typeof selfChargeTelecomItemSchema
 >;

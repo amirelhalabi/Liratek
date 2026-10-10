@@ -32,6 +32,71 @@ import type {
 } from "@liratek/core";
 // Debts write payloads derived from the core schemas (rule 21).
 import type { AddRepaymentPayload, DebtCashOutPayload } from "@liratek/core";
+// LIRA-297 — write payloads derived from the core schemas (rule 21):
+// `z.input<…>` aliases computed inside core, never hand-copied literals.
+import type {
+  SaleProcessPayload,
+  SaleUpdateMetadataPayload,
+  DebtAccountEntryPayload,
+  DebtUseCreditPayload,
+  DebtUpdateMetadataPayload,
+  DebtWriteOffPayload,
+  ExpenseUpdateMetadataPayload,
+  FinancialUpdateMetadataPayload,
+  PartnerCreatePayload,
+  PartnerRecordTransactionPayload,
+  PartnerUpdatePayload,
+  PartnerWriteOffPayload,
+  RechargeCashoutPayload,
+  SelfChargeTelecomItemPayload,
+  TopUpAppPayload,
+  TopUpFromPartnerPayload,
+  TopUpFromSupplierPayload,
+  UpdateExchangeMetadataPayload,
+  UpdateRechargeMetadataPayload,
+  VoucherCreatePayload,
+  CreateFinancialServicePayload,
+  AdjustLotPositionPayload,
+  CarrierLineCreatePayload,
+  CarrierLineUpdateBalancePayload,
+  CarrierLineUpdatePayload,
+  CreateCheckpointPayload,
+  CreateDrawerCashoutPayload,
+  CreateDrawerTransferPayload,
+  CreateServiceProviderPayload,
+  CreateWalletExchangePayload,
+  CustomServiceUpdateMetadataPayload,
+  DatabaseResetPayload,
+  LotoCashPrizePayload,
+  LotoCheckpointCreatePayload,
+  LotoCheckpointUpdatePayload,
+  LotoFeePayload,
+  LotoTicketUpdatePayload,
+  LotoUpdateMetadataPayload,
+  MobileServiceItemCreatePayload,
+  MobileServiceItemUpdatePayload,
+  PreviewLotSettlementPayload,
+  ReceiveStockPayload,
+  RegisterProductUnitsPayload,
+  ServicePresetCreatePayload,
+  ServicePresetUpdatePayload,
+  SetRatePayload,
+  SupplierCashflowPayload,
+  SupplierLedgerEntryPayload,
+  SupplierPurchaseCreatePayload,
+  SupplierRecordDebtPayload,
+  SupplierSettleAccountPayload,
+  UpdateCustomServiceFulfillmentPayload,
+  UpdateCustomServiceWorkStatusPayload,
+  UpdateServiceProviderPayload,
+  CreateClientPayload,
+  UpdateClientPayload,
+  ImportClientDebtsPayload,
+  BatchUpdateProductsPayload as CoreBatchUpdateProductsPayload,
+  StockAdjustPayload as CoreStockAdjustPayload,
+  UpdateTenantPayload,
+  RecordCarrierLineUsagePayload,
+} from "@liratek/core";
 import { messageFrom } from "./apiError";
 import { localDay } from "@/shared/utils/localDay";
 import type {
@@ -52,11 +117,11 @@ import type {
   // LIRA-214 (migration v183) — Hold Money's create/collect payloads,
   // derived from the core schema (rule 21) instead of a hand-typed literal.
   HoldMoneyCreateInput,
-  HoldMoneyCollectInput,
+  HoldMoneyCollectPayload,
   // LIRA-231 — POS "Refund Sale"/"Refund item" refund-leg-override payloads,
   // derived from the core schema (rule 21).
-  SaleRefundInput,
-  SaleRefundItemInput,
+  SaleRefundPayload,
+  SaleRefundItemPayload,
   // LIRA-147 — admin "Undo refund" payload, derived from the core schema
   // (rule 21).
   SaleUndoItemRefundInput,
@@ -70,8 +135,8 @@ import type {
   // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
   // single-item refund payload (derived from the core schema, rule 21) +
   // result/preview shapes (derived from the repository, rule 21).
-  SessionItemRefundInput,
-  SessionItemRefundPreviewInput,
+  SessionItemRefundPayload,
+  SessionItemRefundPreviewPayload,
   RefundSessionBasketItemResult,
   SessionItemRefundPreview,
   // LIRA-185 — Loto report shape incl. kept change (rule 21).
@@ -599,7 +664,9 @@ export type ClientWriteResult = {
   error?: string;
 };
 
-export async function createClient(payload: any): Promise<ClientWriteResult> {
+export async function createClient(
+  payload: CreateClientPayload,
+): Promise<ClientWriteResult> {
   if (isElectron()) {
     return (window as any).api.clients.create(payload);
   }
@@ -624,17 +691,7 @@ export async function createClient(payload: any): Promise<ClientWriteResult> {
 }
 
 /** One client and their debt history, as parsed from the Excel sheet. */
-export type ImportedClientPayload = {
-  name: string;
-  phone: string;
-  entries: {
-    date: string | null;
-    amount_usd: number;
-    amount_lbp: number;
-    description: string;
-    type: "debt" | "payment";
-  }[];
-};
+export type ImportedClientPayload = ImportClientDebtsPayload["clients"][number];
 
 export type ImportDebtsResult = {
   success: boolean;
@@ -688,10 +745,9 @@ export async function importClientDebts(
   }
 }
 
-export async function updateClient(payload: {
-  id: number;
-  [key: string]: unknown;
-}): Promise<ClientWriteResult> {
+export async function updateClient(
+  payload: UpdateClientPayload,
+): Promise<ClientWriteResult> {
   if (isElectron()) {
     return (window as any).api.clients.update(payload);
   }
@@ -1089,13 +1145,7 @@ export async function batchDeleteProducts(
  * `supplier` — see `batchUpdateProductsSchema` in
  * packages/core/src/validators/product.ts.
  */
-export type BatchUpdateProductsPayload = {
-  ids: number[];
-  category?: string;
-  min_stock_level?: number;
-  supplier?: string | null;
-  unit?: string | null;
-};
+export type BatchUpdateProductsPayload = CoreBatchUpdateProductsPayload;
 
 export async function batchUpdateProducts(
   payload: BatchUpdateProductsPayload,
@@ -1110,12 +1160,7 @@ export async function batchUpdateProducts(
   );
 }
 
-export type StockAdjustPayload = {
-  id: number;
-  newQuantity?: number;
-  delta?: number;
-  reason: string;
-};
+export type StockAdjustPayload = CoreStockAdjustPayload;
 
 export type StockAdjustmentEntity = {
   id: number;
@@ -1282,7 +1327,9 @@ export type ProcessSaleResult = {
   warnings?: string[];
 };
 
-export async function processSale(payload: any): Promise<ProcessSaleResult> {
+export async function processSale(
+  payload: SaleProcessPayload,
+): Promise<ProcessSaleResult> {
   if (isElectron()) {
     return (window as any).api.sales.process(payload);
   }
@@ -1336,12 +1383,12 @@ export async function getSaleItems(saleId: number) {
  *  hand-added forward declaration. */
 export async function refundSale(
   saleId: number,
-  refundLegs?: SaleRefundInput["refundLegs"],
-  unitExtras?: SaleRefundInput["unitExtras"],
-  exchangeRate?: SaleRefundInput["exchangeRate"],
+  refundLegs?: SaleRefundPayload["refundLegs"],
+  unitExtras?: SaleRefundPayload["unitExtras"],
+  exchangeRate?: SaleRefundPayload["exchangeRate"],
   /** Owner decision 2026-10-07 — refund kept change (type derived from
    *  `saleRefundSchema`, rule 21); rides only when present. */
-  keptChange?: SaleRefundInput["keptChange"],
+  keptChange?: SaleRefundPayload["keptChange"],
 ): Promise<{ success: boolean; refundId?: number; error?: string }> {
   return ipcOrHttp(
     async () =>
@@ -1392,13 +1439,13 @@ export async function refundSaleItem(
   saleId: number,
   saleItemId: number,
   refundQuantity: number,
-  refundLegs?: SaleRefundItemInput["refundLegs"],
-  unitExtras?: SaleRefundItemInput["unitExtras"],
-  exchangeRate?: SaleRefundItemInput["exchangeRate"],
+  refundLegs?: SaleRefundItemPayload["refundLegs"],
+  unitExtras?: SaleRefundItemPayload["unitExtras"],
+  exchangeRate?: SaleRefundItemPayload["exchangeRate"],
   /** Owner decision 2026-10-07 — refund kept change (type derived from
    *  `saleRefundItemSchema`, rule 21); rides only when present, so every
    *  existing call is unchanged. */
-  keptChange?: SaleRefundItemInput["keptChange"],
+  keptChange?: SaleRefundItemPayload["keptChange"],
 ): Promise<{ success: boolean; refundId?: number; error?: string }> {
   return ipcOrHttp(
     async () =>
@@ -1542,12 +1589,9 @@ export async function getSaleRefundPreview(
 /** Edit non-financial metadata (walk-in name/phone, note) on a sale row (the
  *  SaleDetailModal's inline customer-rename edit). Was a raw, unguarded
  *  `window.api.sales.updateMetadata()` call with no REST twin (rule 19a). */
-export async function updateSaleMetadata(data: {
-  id: number;
-  note?: string;
-  client_name?: string;
-  client_phone?: string;
-}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+export async function updateSaleMetadata(
+  data: SaleUpdateMetadataPayload,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().sales.updateMetadata(data),
     async () =>
@@ -1603,14 +1647,9 @@ export async function addRepayment(payload: AddRepaymentPayload) {
 
 // Standalone debt write-off (CQ-10, admin-only) — pure forgiveness, no cash
 // movement. Envelope { success, id?, error? }.
-export async function debtWriteOff(payload: {
-  clientId: number;
-  // camelCase — matches core's debtWriteOffSchema (validated identically on
-  // both IPC and REST; no per-transport field translation here).
-  amountUSD: number;
-  amountLBP: number;
-  reason?: string;
-}) {
+// Payload derived from core's debtWriteOffSchema (rule 21) — validated
+// identically on both IPC and REST; no per-transport field translation.
+export async function debtWriteOff(payload: DebtWriteOffPayload) {
   return ipcOrHttp(
     async () => getElectronApi().debt.writeOff(payload),
     async () =>
@@ -1647,7 +1686,7 @@ export async function debtCashOut(payload: DebtCashOutPayload) {
 }
 
 // Manual till-moving account credit/debt entry.
-export async function debtAccountEntry(payload: any) {
+export async function debtAccountEntry(payload: DebtAccountEntryPayload) {
   return ipcOrHttp(
     async () => getElectronApi().debt.addAccountEntry(payload),
     async () =>
@@ -1662,13 +1701,7 @@ export async function debtAccountEntry(payload: any) {
 // DebtService.useCredit). CQ-9: no REST route existed for this before; zero
 // frontend call sites today (grepped — nothing calls
 // window.api.debt.useCredit), added for transport parity ahead of a caller.
-export async function debtUseCredit(payload: {
-  clientId: number;
-  amountUsd: number;
-  amountLbp: number;
-  note?: string;
-  transactionTime?: string;
-}) {
+export async function debtUseCredit(payload: DebtUseCreditPayload) {
   return ipcOrHttp(
     async () => getElectronApi().debt.useCredit(payload),
     async () =>
@@ -1686,10 +1719,7 @@ export async function debtUseCredit(payload: {
 // before; zero frontend call sites today (grepped — nothing calls
 // window.api.debt.updateMetadata), added for transport parity ahead of a
 // caller.
-export async function debtUpdateMetadata(payload: {
-  id: number;
-  note?: string;
-}) {
+export async function debtUpdateMetadata(payload: DebtUpdateMetadataPayload) {
   return ipcOrHttp(
     async () => getElectronApi().debt.updateMetadata(payload),
     async () =>
@@ -1781,7 +1811,7 @@ export async function partnersGetLedger(
   );
 }
 
-export async function partnersCreate(payload: any) {
+export async function partnersCreate(payload: PartnerCreatePayload) {
   return ipcOrHttp(
     async () => getElectronApi().partners.create(payload),
     async () =>
@@ -1792,7 +1822,10 @@ export async function partnersCreate(payload: any) {
   );
 }
 
-export async function partnersUpdate(id: number, payload: any) {
+export async function partnersUpdate(
+  id: number,
+  payload: PartnerUpdatePayload,
+) {
   return ipcOrHttp(
     async () => getElectronApi().partners.update(id, payload),
     async () =>
@@ -1825,7 +1858,9 @@ export async function partnersActivate(id: number) {
   );
 }
 
-export async function partnersRecordTransaction(payload: any) {
+export async function partnersRecordTransaction(
+  payload: PartnerRecordTransactionPayload,
+) {
   return ipcOrHttp(
     async () => getElectronApi().partners.recordTransaction(payload),
     async () =>
@@ -1850,12 +1885,7 @@ export async function partnersSettle(payload: PartnerSettleInput) {
 
 // Standalone partner write-off (CQ-10, admin-only) — we forgive what the
 // partner owes us. Envelope { success, id?, error? }.
-export async function partnerWriteOff(payload: {
-  partnerId: number;
-  amount_usd: number;
-  amount_lbp: number;
-  reason?: string;
-}) {
+export async function partnerWriteOff(payload: PartnerWriteOffPayload) {
   return ipcOrHttp(
     async () => getElectronApi().partners.writeOff(payload),
     async () =>
@@ -1898,7 +1928,7 @@ export async function vouchersGetAll(
   );
 }
 
-export async function vouchersCreate(payload: any) {
+export async function vouchersCreate(payload: VoucherCreatePayload) {
   return ipcOrHttp(
     async () => getElectronApi().vouchers.create(payload),
     async () =>
@@ -1999,11 +2029,9 @@ export async function addExchangeTransaction(payload: ExchangeSubmitPayload) {
 // last raw, unguarded `window.api.exchange.updateMetadata()` call in the
 // Exchange feature (rule 19a) — no REST twin existed, so editing a history
 // row's metadata silently failed in a real browser.
-export async function updateExchangeMetadata(payload: {
-  id: number;
-  client_name?: string;
-  note?: string;
-}) {
+export async function updateExchangeMetadata(
+  payload: UpdateExchangeMetadataPayload,
+) {
   return ipcOrHttp(
     async () => getElectronApi().exchange.updateMetadata(payload),
     async () =>
@@ -2072,12 +2100,9 @@ export async function addStockExpense(
 // (the History modal's inline edit). Was a raw, unguarded
 // `window.api.expenses.updateMetadata()` call with no REST twin (rule 19a) —
 // editing a history row's metadata silently failed in a real browser.
-export async function updateExpenseMetadata(data: {
-  id: number;
-  description?: string;
-  category?: string;
-  note?: string;
-}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+export async function updateExpenseMetadata(
+  data: ExpenseUpdateMetadataPayload,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().expenses.updateMetadata(data),
     async () =>
@@ -2438,12 +2463,7 @@ export async function getRechargeDrawerBalances(): Promise<
   return res.balances;
 }
 
-export async function topUpApp(payload: {
-  provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
-  amount: number;
-  currency: "USD" | "LBP";
-  sourceDrawer: string;
-}) {
+export async function topUpApp(payload: TopUpAppPayload) {
   if (isElectron()) {
     return (window as any).api.recharge.topUpApp(payload);
   }
@@ -2460,11 +2480,7 @@ export async function topUpApp(payload: {
 // (Katsh/iPick supplier credit, Whish App via partner, Whish App from a
 // client) close the same rule-19 gap `topUpApp` above already had a (dead)
 // REST branch for.
-export async function topUpFromSupplier(payload: {
-  provider: "iPick" | "Katsh" | "OMT_APP";
-  amount: number;
-  currency: "USD" | "LBP";
-}) {
+export async function topUpFromSupplier(payload: TopUpFromSupplierPayload) {
   if (isElectron()) {
     return (window as any).api.recharge.topUpFromSupplier(payload);
   }
@@ -2480,11 +2496,7 @@ export async function topUpFromSupplier(payload: {
 // OMT open-credit account (LIRA-192) — the mirror of topUpFromSupplier:
 // OMT_App wallet balance leaves, the OMT account is credited principal +
 // commission (recognised as profit at settlement, wave 2). Admin only.
-export async function cashoutToSupplier(payload: {
-  provider: "OMT_APP";
-  amount: number;
-  currency: "USD" | "LBP";
-}) {
+export async function cashoutToSupplier(payload: RechargeCashoutPayload) {
   if (isElectron()) {
     return (window as any).api.recharge.cashoutToSupplier(payload);
   }
@@ -2497,12 +2509,7 @@ export async function cashoutToSupplier(payload: {
   );
 }
 
-export async function topUpFromPartner(payload: {
-  provider: "WHISH_APP";
-  partnerId: number;
-  amount: number;
-  currency: "USD" | "LBP";
-}) {
+export async function topUpFromPartner(payload: TopUpFromPartnerPayload) {
   if (isElectron()) {
     return (window as any).api.recharge.topUpFromPartner(payload);
   }
@@ -2542,12 +2549,9 @@ export async function topUpFromClient(payload: TopUpFromClientInput) {
 // feature: no REST twin existed, so editing a history row's metadata
 // silently failed in a real browser (the call site threw before
 // `onRefreshHistory` ever ran).
-export async function updateRechargeMetadata(payload: {
-  id: number;
-  phone_number?: string;
-  client_name?: string;
-  note?: string;
-}) {
+export async function updateRechargeMetadata(
+  payload: UpdateRechargeMetadataPayload,
+) {
   if (isElectron()) {
     return (window as any).api.recharge.updateMetadata(payload);
   }
@@ -2594,7 +2598,9 @@ export async function getOMTAnalytics(
   return res.analytics;
 }
 
-export async function addOMTTransaction(payload: any) {
+export async function addOMTTransaction(
+  payload: CreateFinancialServicePayload,
+) {
   if (isElectron()) {
     return (window as any).api.omt.addTransaction(payload);
   }
@@ -2657,16 +2663,9 @@ export async function getPaymentsByTransaction(
  *  FinancialForm, OmtWhishAppTransferForm, Services/index all share this one
  *  channel). Was a raw, unguarded `window.api.financial.updateMetadata()`
  *  call with no REST twin (rule 19a). */
-export async function updateFinancialMetadata(data: {
-  id: number;
-  client_name?: string;
-  phone_number?: string;
-  sender_name?: string;
-  sender_phone?: string;
-  receiver_name?: string;
-  receiver_phone?: string;
-  note?: string;
-}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+export async function updateFinancialMetadata(
+  data: FinancialUpdateMetadataPayload,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().financial.updateMetadata(data),
     async () =>
@@ -2961,7 +2960,7 @@ export async function completeSetup(payload: any) {
 
 // Create a unified checkpoint (money write — drawer_balances + payments
 // journal reconciliation). Envelope { success, id?, error? }.
-export async function createCheckpoint(payload: any) {
+export async function createCheckpoint(payload: CreateCheckpointPayload) {
   return ipcOrHttp(
     async () => getElectronApi().closing.createCheckpoint(payload),
     async () =>
@@ -3177,13 +3176,7 @@ export async function updateSupplierAccountLink(
 
 export async function addSupplierLedgerEntry(
   supplierId: number,
-  data: {
-    entry_type: string;
-    amount_usd?: number;
-    amount_lbp?: number;
-    note?: string;
-    drawer_name?: string;
-  },
+  data: Omit<SupplierLedgerEntryPayload, "supplier_id">,
 ) {
   return ipcOrHttp(
     async () =>
@@ -3236,29 +3229,7 @@ export async function settleTransactions(data: SupplierSettleInput) {
 // IS merged into the payload sent to `suppliers.settleAccount`.
 export async function settleSupplierAccount(
   accountSupplierId: number,
-  data: {
-    direction: "PAY" | "COLLECT";
-    selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
-    amount_usd: number;
-    amount_lbp: number;
-    commission_usd: number;
-    commission_lbp: number;
-    entry_mode?: "LUMP" | "RATE";
-    commission_rate?: number;
-    commission_unit_count?: number;
-    note?: string;
-    exchange_rate?: number;
-    payments?: Array<{
-      method: string;
-      currency_code: string;
-      amount: number;
-      direction?: "IN" | "OUT";
-    }>;
-    /** LIRA-203 — pay MORE than `selections` net to; the difference is
-     *  booked as a standalone account credit (direction: "PAY" only). */
-    surplus_usd?: number;
-    surplus_lbp?: number;
-  },
+  data: Omit<SupplierSettleAccountPayload, "account_supplier_id">,
 ) {
   return ipcOrHttp(
     async () =>
@@ -3278,20 +3249,7 @@ export async function settleSupplierAccount(
 // (CQ-9 — this had NO dual-mode wrapper at all before, so it was `undefined`
 // in the browser; useSuppliers.ts called window.api.suppliers.recordCashflow
 // directly).
-export async function recordSupplierCashflow(data: {
-  supplier_id: number;
-  direction: "PAY" | "RECEIVE";
-  payments: Array<{
-    method: string;
-    currency_code: string;
-    amount: number;
-  }>;
-  note?: string;
-  exchange_rate?: number;
-  // CQ-10: bundled discount — PAY direction only (backend rejects it on
-  // RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row.
-  discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-}) {
+export async function recordSupplierCashflow(data: SupplierCashflowPayload) {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.recordCashflow(data),
     async () =>
@@ -3319,17 +3277,9 @@ export async function recordSupplierCashflow(data: {
 // REST route merges the URL :id into the body before validating (matches
 // the /products/:id/stock adjust-stock convention), so product_id travels
 // in the path, not the payload — the payload itself still sends the rest.
-export async function receiveStock(payload: {
-  product_id: number;
-  quantity: number;
-  unit_cost_usd: number;
-  supplier?: string | null;
-  is_old_stock: boolean;
-  reason?: string;
-  // LIRA-087 (migration v189) — attach to an already-recorded open supplier
-  // debt instead of booking a new one.
-  attach_to_recorded_debt_id?: number | null;
-}): Promise<{ success: boolean; error?: string; batch_id?: number }> {
+export async function receiveStock(
+  payload: ReceiveStockPayload,
+): Promise<{ success: boolean; error?: string; batch_id?: number }> {
   return ipcOrHttp(
     async () => getElectronApi().inventory.receiveStock(payload),
     async () =>
@@ -3447,11 +3397,9 @@ export async function getSupplierPurchases(supplierId: number) {
 // passes the result through unchanged on both transports rather than
 // reshaping it, matching what the (currently unused-by-the-page)
 // useCreatePurchaseMutation hook already expected from the Electron path.
-export async function createSupplierPurchase(data: {
-  supplier_id: number;
-  total_usd: number;
-  note?: string;
-}) {
+export async function createSupplierPurchase(
+  data: SupplierPurchaseCreatePayload,
+) {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.createPurchase(data),
     async () =>
@@ -3468,12 +3416,9 @@ export async function createSupplierPurchase(data: {
 // transactionId?, error? } — WRITE path, returns the envelope (not the raw
 // IPC shape — reads return raw, writes return the envelope, per the adapter
 // contract).
-export async function recordSupplierDebt(data: {
-  supplier_id: number;
-  amount_usd: number;
-  amount_lbp: number;
-  note?: string | null;
-}): Promise<{
+export async function recordSupplierDebt(
+  data: SupplierRecordDebtPayload,
+): Promise<{
   success: boolean;
   ledgerEntryId?: number;
   transactionId?: number;
@@ -3526,13 +3471,7 @@ export async function getRates() {
   return res.rates || [];
 }
 
-export async function setRate(data: {
-  to_code: string;
-  market_rate: number;
-  buy_rate: number;
-  sell_rate: number;
-  is_stronger: 1 | -1;
-}) {
+export async function setRate(data: SetRatePayload) {
   return ipcOrHttp(
     async () => getElectronApi().rates.set(data),
     async () =>
@@ -4003,7 +3942,7 @@ export async function refundSessionBasket(
  * the authenticated session/JWT, never the client (rule 19c).
  */
 export async function refundSessionBasketItem(
-  payload: SessionItemRefundInput,
+  payload: SessionItemRefundPayload,
 ): Promise<
   | ({ success: true } & RefundSessionBasketItemResult)
   | { success: false; error?: string }
@@ -4029,7 +3968,7 @@ export async function refundSessionBasketItem(
  * (LIRA-231) — one payload shape, `ipcOrHttp` as the only transport branch.
  */
 export async function getSessionItemRefundPreview(
-  payload: SessionItemRefundPreviewInput,
+  payload: SessionItemRefundPreviewPayload,
 ): Promise<
   | ({ success: true } & SessionItemRefundPreview)
   | { success: false; error?: string }
@@ -4495,7 +4434,7 @@ export async function getDatabaseResetPreview(): Promise<DatabaseResetPreview> {
  * `messageFrom` (not `instanceof Error`) is what actually recovers the real
  * reason instead of a generic "unexpected error".
  */
-export async function resetDatabase(input: { confirmation: string }): Promise<{
+export async function resetDatabase(input: DatabaseResetPayload): Promise<{
   success: boolean;
   data?: DatabaseResetResult;
   error?: string;
@@ -4793,10 +4732,9 @@ export async function getServiceProviders(): Promise<ServiceProviderEntity[]> {
   );
 }
 
-export async function createServiceProvider(data: {
-  code: string;
-  label: string;
-}) {
+export async function createServiceProvider(
+  data: CreateServiceProviderPayload,
+) {
   return ipcOrHttp(
     async () => getElectronApi().serviceProviders.create(data),
     async () =>
@@ -4812,7 +4750,7 @@ export async function createServiceProvider(data: {
 
 export async function updateServiceProvider(
   id: number,
-  data: { label?: string; is_active?: number },
+  data: UpdateServiceProviderPayload,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().serviceProviders.update(id, data),
@@ -5344,7 +5282,7 @@ export async function holdMoneyPickups(holdMoneyId: number) {
 /** LIRA-214 (migration v183) — collect part or all of a hold. Omitting
  *  usd_amount/lbp_amount defaults each to the hold's full remaining
  *  balance in that currency. */
-export async function holdMoneyCollect(data: HoldMoneyCollectInput) {
+export async function holdMoneyCollect(data: HoldMoneyCollectPayload) {
   return ipcOrHttp(
     async () => getElectronApi().holdMoney.collect(data),
     async () =>
@@ -5387,16 +5325,7 @@ export async function servicePresetsList(filter?: {
   );
 }
 
-export async function servicePresetsCreate(data: {
-  name: string;
-  category: string;
-  cost_usd?: number;
-  cost_lbp?: number;
-  price_usd?: number;
-  price_lbp?: number;
-  is_active?: number;
-  sort_order?: number;
-}) {
+export async function servicePresetsCreate(data: ServicePresetCreatePayload) {
   return ipcOrHttp(
     async () => getElectronApi().servicePresets.create(data),
     async () =>
@@ -5409,16 +5338,7 @@ export async function servicePresetsCreate(data: {
 
 export async function servicePresetsUpdate(
   id: number,
-  data: {
-    name?: string;
-    category?: string;
-    cost_usd?: number;
-    cost_lbp?: number;
-    price_usd?: number;
-    price_lbp?: number;
-    is_active?: number;
-    sort_order?: number;
-  },
+  data: ServicePresetUpdatePayload,
 ) {
   return ipcOrHttp(
     async () => getElectronApi().servicePresets.update(id, data),
@@ -5567,14 +5487,9 @@ export async function drawerTopUpCreateFromDrawer(data: {
  *  reversed the no-overdraw rule 2026-08-01 (a source drawer may go
  *  negative; negatives are surfaced in the transfer UI instead of
  *  pre-checked). */
-export async function transferBetweenDrawers(data: {
-  fromDrawer: string;
-  toDrawer: string;
-  amount_usd: number;
-  amount_lbp: number;
-  notes?: string;
-  transaction_time?: string;
-}) {
+export async function transferBetweenDrawers(
+  data: CreateDrawerTransferPayload,
+) {
   return ipcOrHttp(
     async () => getElectronApi().drawerTopUp.transfer(data),
     async () =>
@@ -5590,12 +5505,7 @@ export async function transferBetweenDrawers(data: {
 
 // ── Drawer cash-out (dual-mode) — pull physical cash OUT of the General drawer ──
 
-export async function drawerCashoutCreate(data: {
-  amount_usd: number;
-  amount_lbp: number;
-  extra_currencies?: { currency_code: string; amount: number }[];
-  notes: string;
-}) {
+export async function drawerCashoutCreate(data: CreateDrawerCashoutPayload) {
   return ipcOrHttp(
     async () => getElectronApi().drawerCashout.create(data),
     async () =>
@@ -5621,14 +5531,7 @@ export async function drawerCashoutHistory(limit?: number) {
 // ── Wallet exchange (dual-mode) — convert a provider wallet's OWN USD balance
 // to LBP or vice versa (OMT App / Whish App only, never General) ──
 
-export async function walletExchangeCreate(data: {
-  drawerName: "OMT_App" | "Whish_App";
-  fromCurrency: "USD" | "LBP";
-  toCurrency: "USD" | "LBP";
-  amountIn: number;
-  rate: number;
-  note?: string;
-}) {
+export async function walletExchangeCreate(data: CreateWalletExchangePayload) {
   return ipcOrHttp(
     async () => getElectronApi().walletExchange.create(data),
     async () =>
@@ -5700,15 +5603,9 @@ export type LotSettlementPreview =
       marketQty: number;
     };
 
-export async function previewLotSettlement(data: {
-  currencyCode: string;
-  qty: number;
-  unitProceedsUsd: number;
-  /** EXCHANGE_LOT_SETTLEMENT.md — the exchange's fromCurrency, needed so the
-   *  server can detect a cross pair (both sides non-USD) with no USD rate
-   *  anchor and skip a fabricated preview (reason: "NO_RATE_ANCHOR"). */
-  fromCurrency?: string;
-}): Promise<LotSettlementPreview> {
+export async function previewLotSettlement(
+  data: PreviewLotSettlementPayload,
+): Promise<LotSettlementPreview> {
   const res = await ipcOrHttp<PreviewLotSettlementResponse>(
     async () => getElectronApi().exchangeLots.preview(data),
     async () =>
@@ -5813,12 +5710,7 @@ export async function getLotBreakdown(
   );
 }
 
-export async function adjustLotPosition(data: {
-  currencyCode: string;
-  qty: number;
-  unitCostUsd?: number;
-  note?: string;
-}) {
+export async function adjustLotPosition(data: AdjustLotPositionPayload) {
   return ipcOrHttp(
     async () => getElectronApi().exchangeLots.adjust(data),
     async () =>
@@ -5918,10 +5810,9 @@ export interface RegisterProductUnitsResultDto {
   drift: { inStockUnits: number; stockQuantity: number; matches: boolean };
 }
 
-export async function registerProductUnits(data: {
-  product_id: number;
-  imeis: string[];
-}): Promise<{
+export async function registerProductUnits(
+  data: RegisterProductUnitsPayload,
+): Promise<{
   success: boolean;
   data?: RegisterProductUnitsResultDto;
   error?: string;
@@ -6465,10 +6356,9 @@ export async function deleteCustomService(
 // (ORDERED -> ISSUED -> RECEIVED -> DELIVERED). Moves no money; a rejected
 // transition (illegal step, not-found, non-tracked row) answers
 // { success: false, error } from the server, not a thrown exception.
-export async function advanceCustomServiceFulfillment(data: {
-  id: number;
-  fulfillment_status: "ORDERED" | "ISSUED" | "RECEIVED" | "DELIVERED";
-}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+export async function advanceCustomServiceFulfillment(
+  data: UpdateCustomServiceFulfillmentPayload,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.advanceFulfillment(data),
     async () =>
@@ -6485,10 +6375,9 @@ export async function advanceCustomServiceFulfillment(data: {
 // LIRA-083 — set a custom service's WORK status (Received/In_Progress/
 // Ready/Delivered). Separate axis from fulfillment above and from the
 // accounting `status`; no transition-legality check.
-export async function setCustomServiceWorkStatus(data: {
-  id: number;
-  work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
-}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+export async function setCustomServiceWorkStatus(
+  data: UpdateCustomServiceWorkStatusPayload,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.setWorkStatus(data),
     async () =>
@@ -6507,13 +6396,9 @@ export async function setCustomServiceWorkStatus(data: {
 // unguarded `window.api.customServices.updateMetadata()` call with no REST
 // twin (rule 19a) — editing a history row's metadata silently failed in a
 // real browser.
-export async function updateCustomServiceMetadata(data: {
-  id: number;
-  description?: string;
-  client_name?: string;
-  phone_number?: string;
-  note?: string;
-}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+export async function updateCustomServiceMetadata(
+  data: CustomServiceUpdateMetadataPayload,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.updateMetadata(data),
     async () =>
@@ -6586,7 +6471,7 @@ export async function lotoGetUncheckpointed(): Promise<{
 
 export async function lotoUpdate(
   id: number,
-  data: any,
+  data: LotoTicketUpdatePayload,
 ): Promise<{ success: boolean; ticket?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.update(id, data),
@@ -6613,10 +6498,9 @@ export async function lotoUpdate(
 // Was a raw, unguarded `window.api.loto.updateMetadata()` call with no REST
 // twin (rule 19a) — editing a history row's note silently failed in a real
 // browser.
-export async function lotoUpdateMetadata(data: {
-  id: number;
-  note?: string;
-}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+export async function lotoUpdateMetadata(
+  data: LotoUpdateMetadataPayload,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.updateMetadata(data),
     async () =>
@@ -6684,13 +6568,9 @@ export async function lotoSettlement(
   );
 }
 
-export async function lotoFeesCreate(data: {
-  fee_amount: number;
-  fee_month: string;
-  fee_year: number;
-  recorded_date?: string;
-  note?: string;
-}): Promise<{ success: boolean; fee?: any; error?: string }> {
+export async function lotoFeesCreate(
+  data: LotoFeePayload,
+): Promise<{ success: boolean; fee?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.fees.create(data),
     async () =>
@@ -6766,13 +6646,9 @@ export async function lotoSettingsUpdate(
 
 // Loto Cash Prize functions
 
-export async function lotoCashPrizeCreate(data: {
-  ticket_number?: string;
-  prize_amount: number;
-  customer_name?: string;
-  prize_date?: string;
-  note?: string;
-}): Promise<{ success: boolean; prize?: any; error?: string }> {
+export async function lotoCashPrizeCreate(
+  data: LotoCashPrizePayload,
+): Promise<{ success: boolean; prize?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.cashPrize.create(data),
     async () =>
@@ -6852,12 +6728,9 @@ export async function lotoCashPrizeGetTotalUnreimbursed(): Promise<{
 
 // Loto Checkpoint functions
 
-export async function lotoCheckpointCreate(data: {
-  checkpoint_date: string;
-  period_start: string;
-  period_end: string;
-  note?: string;
-}): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
+export async function lotoCheckpointCreate(
+  data: LotoCheckpointCreatePayload,
+): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.checkpoint.create(data),
     async () =>
@@ -6924,7 +6797,7 @@ export async function lotoCheckpointGetUnsettled(): Promise<{
 
 export async function lotoCheckpointUpdate(
   id: number,
-  data: any,
+  data: LotoCheckpointUpdatePayload,
 ): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.checkpoint.update(id, data),
@@ -7089,13 +6962,7 @@ export type AdminTenant = {
  * `contactEmail` (LIRA-267 FR-013b). */
 export type AdminCreateTenantPayload = CreateTenantBodyInput;
 
-export type AdminUpdateTenantPayload = {
-  name?: string;
-  status?: AdminTenantStatus;
-  contactName?: string;
-  contactPhone?: string;
-  notes?: string;
-};
+export type AdminUpdateTenantPayload = UpdateTenantPayload;
 
 export type AdminImpersonateResult = {
   tenantName: string;
@@ -7477,14 +7344,9 @@ export async function getAdminCarrierLines(): Promise<CarrierLineEntity[]> {
   );
 }
 
-export async function createCarrierLine(data: {
-  carrier: "alfa" | "mtc";
-  phone_number: string;
-  label?: string | null;
-  credits?: number;
-  validity_expires_at?: string | null;
-  notes?: string | null;
-}): Promise<CarrierLineWriteResult> {
+export async function createCarrierLine(
+  data: CarrierLineCreatePayload,
+): Promise<CarrierLineWriteResult> {
   return ipcOrHttp(
     async () => getElectronApi().carrierLines.create(data),
     async () =>
@@ -7497,15 +7359,7 @@ export async function createCarrierLine(data: {
 
 export async function updateCarrierLine(
   id: number,
-  data: {
-    carrier?: "alfa" | "mtc";
-    phone_number?: string;
-    label?: string | null;
-    credits?: number;
-    validity_expires_at?: string | null;
-    notes?: string | null;
-    is_active?: number;
-  },
+  data: Omit<CarrierLineUpdatePayload, "id">,
 ): Promise<CarrierLineWriteResult> {
   return ipcOrHttp(
     async () => getElectronApi().carrierLines.update(id, data),
@@ -7520,7 +7374,7 @@ export async function updateCarrierLine(
 /** Recharge-tab inline quick-update: credits and/or a new expiry date. */
 export async function updateCarrierLineBalance(
   id: number,
-  data: { credits?: number; validity_expires_at?: string | null },
+  data: Omit<CarrierLineUpdateBalancePayload, "id">,
 ): Promise<CarrierLineWriteResult> {
   return ipcOrHttp(
     async () => getElectronApi().carrierLines.updateBalance(id, data),
@@ -7559,16 +7413,7 @@ export async function toggleCarrierLineActive(
 
 /** LIRA-145 — payload for {@link recordCarrierLineUsage}. Runtime twin of
  *  core's `recordCarrierLineUsageSchema` (validators/carrierLine.ts). */
-export type CarrierLineUsagePayload = {
-  carrierLineId: number;
-  /** The line's NEW credit balance, as read off the SIM. A "credits used"
-   *  input is resolved to a new balance before it gets here. */
-  newCredits: number;
-  /** Optimistic-concurrency guard: the balance the form was rendered
-   *  against. The server rejects when the stored balance has moved since. */
-  expectedCurrentCredits?: number;
-  note?: string;
-};
+export type CarrierLineUsagePayload = RecordCarrierLineUsagePayload;
 
 /** LIRA-145 — envelope returned by {@link recordCarrierLineUsage}. */
 export type CarrierLineUsageResult = {
@@ -7717,24 +7562,9 @@ export async function getActiveMobileServiceItems(): Promise<
   );
 }
 
-export async function createMobileServiceItem(data: {
-  provider: string;
-  category: string;
-  subcategory: string;
-  label: string;
-  cost_lbp: number;
-  sell_lbp: number;
-  sort_order?: number;
-  is_active?: number;
-  validity_days?: number | null;
-  credits?: number | null;
-  /** LIRA-090 (v140) Only-Days split columns — nullable, all optional. */
-  days_cost_lbp?: number | null;
-  sell_days_lbp?: number | null;
-  sell_credit_lbp?: number | null;
-  /** v160: per-card override of the returnable credit maximum; null = computed. */
-  max_returned_credits_usd?: number | null;
-}): Promise<{
+export async function createMobileServiceItem(
+  data: MobileServiceItemCreatePayload,
+): Promise<{
   success: boolean;
   data?: MobileServiceItemEntity;
   error?: string;
@@ -7780,24 +7610,7 @@ export async function countMobileServiceItems(): Promise<{
  * `createMobileServiceItem`/`updateMobileServiceItem` above (a write).
  */
 export async function seedMobileServiceItems(
-  items: {
-    provider: string;
-    category: string;
-    subcategory: string;
-    label: string;
-    cost_lbp: number;
-    sell_lbp: number;
-    sort_order?: number;
-    is_active?: number;
-    validity_days?: number | null;
-    credits?: number | null;
-    /** LIRA-090 (v140) Only-Days split columns — nullable, all optional. */
-    days_cost_lbp?: number | null;
-    sell_days_lbp?: number | null;
-    sell_credit_lbp?: number | null;
-    /** v160: per-card override of the returnable credit maximum; null = computed. */
-    max_returned_credits_usd?: number | null;
-  }[],
+  items: MobileServiceItemCreatePayload[],
 ): Promise<{
   success: boolean;
   count?: number;
@@ -7815,21 +7628,7 @@ export async function seedMobileServiceItems(
 
 export async function updateMobileServiceItem(
   id: number,
-  data: {
-    label?: string;
-    cost_lbp?: number;
-    sell_lbp?: number;
-    sort_order?: number;
-    is_active?: number;
-    validity_days?: number | null;
-    credits?: number | null;
-    /** LIRA-090 (v140) Only-Days split columns — nullable, all optional. */
-    days_cost_lbp?: number | null;
-    sell_days_lbp?: number | null;
-    sell_credit_lbp?: number | null;
-    /** v160: per-card override of the returnable credit maximum; null = computed. */
-    max_returned_credits_usd?: number | null;
-  },
+  data: Omit<MobileServiceItemUpdatePayload, "id">,
 ): Promise<{
   success: boolean;
   data?: MobileServiceItemEntity;
@@ -7927,16 +7726,12 @@ export type SelfChargeTelecomItemResult = {
 };
 
 /** LIRA-090 §5.2: charge a telecom catalog item to the shop's own carrier line.
- *  No customer is debited; debits the iPick/Katsh LBP drawer. Admin or staff only. */
-export async function selfChargeTelecomItem(data: {
-  mobileServiceItemId: number;
-  carrierLineId?: number;
-  transaction_time?: string;
-  /** The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. `localDay()`) —
-   *  fed to the validity-extension projection so the shop's own day (not the
-   *  server's, untrustworthy on web) decides the outcome. */
-  client_day?: string;
-}): Promise<{
+ *  No customer is debited; debits the iPick/Katsh LBP drawer. Admin or staff only.
+ *  Send `client_day` (the shop's own `localDay()`): the server's day is not
+ *  trustworthy on web and decides the validity-extension outcome (rule 27). */
+export async function selfChargeTelecomItem(
+  data: SelfChargeTelecomItemPayload,
+): Promise<{
   success: boolean;
   data?: SelfChargeTelecomItemResult;
   error?: string;

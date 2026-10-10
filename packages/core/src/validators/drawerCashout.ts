@@ -66,3 +66,11 @@ export const createDrawerCashoutSchema = z
 export type CreateDrawerCashoutInput = z.infer<
   typeof createDrawerCashoutSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type CreateDrawerCashoutPayload = z.input<
+  typeof createDrawerCashoutSchema
+>;

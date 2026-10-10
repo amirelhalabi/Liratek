@@ -944,3 +944,130 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
     });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIRA-297 — the WEB transport. `POST /api/services/transactions` runs
+// `validateRequest(createFinancialServiceSchema)`, which REPLACES `req.body`
+// with the parsed object — and Zod strips every key the schema does not
+// declare. The desktop IPC schema (electron-app/schemas/index.ts's LOCAL
+// FinancialServiceSchema) declares `deferPayment`; the core schema did not.
+// So on the web a multi-unit catalog/bills cart's sibling units arrived
+// WITHOUT `deferPayment`, fell into the single-payment branch, and booked
+// their own price into the drawer on top of the carrier's legs, which
+// already cover the whole cart (rule 23). These cases feed the repository
+// exactly what the REST route hands the service: the schema-parsed body.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("LIRA-297 — web transport: schema-parsed payloads", () => {
+  let db: Database.Database;
+  let repo: FinancialServiceRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const {
+    createFinancialServiceSchema,
+  } = require("../../validators/financial");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    repo = new FinancialServiceRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
+
+  // What the REST route hands the service: the parsed body. `exchangeRate`
+  // is not a request field (the service resolves it), so it is added after.
+  const viaRest = (body: Record<string, unknown>) => ({
+    ...createFinancialServiceSchema.parse(body),
+    exchangeRate: 90000,
+  });
+
+  it("keeps the sibling's deferPayment, so the drawer is credited the cart total ONCE", () => {
+    const splitGroup = "3f1c2b9e-8a47-4d2e-9b61-0c5d7e8f9a10";
+    const unit = {
+      provider: "Katsh",
+      serviceType: "SEND",
+      amount: 900000,
+      cost: 800000,
+      price: 900000,
+      currency: "LBP",
+      commission: 100000,
+      paidByMethod: "CASH",
+      split_group: splitGroup,
+      split_units: 2,
+    };
+
+    repo.createTransaction(
+      viaRest({
+        ...unit,
+        split_role: "carrier",
+        payments: [{ method: "CASH", currencyCode: "LBP", amount: 1800000 }],
+        checkoutTotal: { usd: 0, lbp: 1800000 },
+      }),
+    );
+    repo.createTransaction(
+      viaRest({ ...unit, split_role: "sibling", deferPayment: true }),
+    );
+
+    // Customer paid 1,800,000 once — not 1,800,000 + the sibling's 900,000.
+    expect(balance(db, "General", "LBP")).toBe(100000000 + 1800000);
+    // Exactly one customer payment row (the carrier's leg) — the sibling
+    // books none.
+    const customerRows = (
+      db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM payments WHERE drawer_name = 'General' AND amount > 0",
+        )
+        .get() as { n: number }
+    ).n;
+    expect(customerRows).toBe(1);
+  });
+
+  it("keeps the OTHER party's name and phone on an OMT transfer (sender/receiver columns)", () => {
+    // The OMT/Whish Services page sends the primary party as clientName/
+    // phoneNumber AND both parties as senderName/senderPhone/receiverName/
+    // receiverPhone; the repository stores all four. Stripped on the web,
+    // the receiver of a SEND was never recorded.
+    repo.createTransaction(
+      viaRest({
+        provider: "WHISH_APP",
+        serviceType: "SEND",
+        amount: 10,
+        currency: "USD",
+        commission: 0,
+        paidByMethod: "CASH",
+        clientName: "Sami Sender",
+        phoneNumber: "70111222",
+        senderName: "Sami Sender",
+        senderPhone: "70111222",
+        receiverName: "Rami Receiver",
+        receiverPhone: "71333444",
+      }),
+    );
+    const row = db
+      .prepare(
+        "SELECT sender_name, sender_phone, receiver_name, receiver_phone FROM financial_services ORDER BY id DESC LIMIT 1",
+      )
+      .get();
+    expect(row).toEqual({
+      sender_name: "Sami Sender",
+      sender_phone: "70111222",
+      receiver_name: "Rami Receiver",
+      receiver_phone: "71333444",
+    });
+  });
+
+  it("the schema itself keeps deferPayment (the key the desktop schema already had)", () => {
+    const parsed = createFinancialServiceSchema.parse({
+      provider: "Katsh",
+      serviceType: "SEND",
+      amount: 900000,
+      deferPayment: true,
+    });
+    expect(parsed.deferPayment).toBe(true);
+  });
+});

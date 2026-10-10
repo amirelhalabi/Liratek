@@ -38,6 +38,7 @@ import { PartnerSelector } from "@/features/partners/components/PartnerSelector"
 import { useShopBase } from "@/hooks/useShopBase";
 import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
 import type { Partner } from "@/types/electron";
+import type { CreateFinancialServicePayload } from "@liratek/core";
 import { getLoadErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   OMT_COMMISSION_RATES,
@@ -736,7 +737,7 @@ export default function Services() {
   // and `linkTotal` are snapshotted at call time — never recomputed from
   // current form state — so a retry submits precisely what was rejected.
   const submitOMTPayload = useCallback(
-    async (payload: Record<string, unknown>, linkTotal: number) => {
+    async (payload: CreateFinancialServicePayload, linkTotal: number) => {
       const result = await api.addOMTTransaction(payload);
 
       if (result.success) {
@@ -1057,7 +1058,9 @@ export default function Services() {
           ? resolvedTenderRate
           : undefined;
 
-      const apiPayload = {
+      // Typed from the core schema (rule 21) so a key the REST route would
+      // strip is a compile error here, not a silent web-only data loss.
+      const apiPayload: CreateFinancialServicePayload = {
         provider,
         serviceType,
         amount: sentAmount,

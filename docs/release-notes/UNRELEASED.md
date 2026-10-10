@@ -261,6 +261,8 @@
 - New LiraTek logo on the sign-in page, and the new LiraTek icon in the browser tab.
 - Web app: the edit-history popup (the clock icon on edited rows in the Exchange, Expenses, Loto, Custom Services, Recharge and Maintenance history lists) now shows the history instead of an error.
 - Web app: the voice-command (microphone) button in the top bar is hidden for now — voice commands only work on the desktop app.
+- Web app: selling more than one iPick or Katsh item (or bill) in one checkout no longer adds the extra items' price to the cash drawer (or to the customer's account) a second time — the drawer now shows only what the customer actually paid. From now on; earlier multi-item checkouts on the web app may have left the drawer too high.
+- Web app: OMT and Whish transfers on the Services page now save both the sender's and the receiver's name and phone, like the desktop app. From now on.
 
 ## 🧾 Expenses
 

@@ -213,3 +213,11 @@ export type GetExchangeHistoryInput = z.infer<typeof getExchangeHistorySchema>;
 export type UpdateExchangeMetadataInput = z.infer<
   typeof updateExchangeMetadataSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type UpdateExchangeMetadataPayload = z.input<
+  typeof updateExchangeMetadataSchema
+>;

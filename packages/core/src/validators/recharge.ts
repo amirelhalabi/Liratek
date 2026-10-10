@@ -354,3 +354,15 @@ export type TopUpFromClientInput = z.infer<typeof topUpFromClientSchema>;
 export type UpdateRechargeMetadataInput = z.infer<
   typeof updateRechargeMetadataSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type TopUpAppPayload = z.input<typeof topUpAppSchema>;
+export type TopUpFromSupplierPayload = z.input<typeof topUpFromSupplierSchema>;
+export type RechargeCashoutPayload = z.input<typeof rechargeCashoutSchema>;
+export type TopUpFromPartnerPayload = z.input<typeof topUpFromPartnerSchema>;
+export type UpdateRechargeMetadataPayload = z.input<
+  typeof updateRechargeMetadataSchema
+>;

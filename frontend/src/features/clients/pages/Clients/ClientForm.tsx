@@ -64,13 +64,16 @@ export default function ClientForm({
 
     try {
       let result;
+      // 0/1, not a widened `number`: the payload type is derived from the
+      // core schema (rule 21), which takes a boolean or 0/1.
+      const whatsappOptIn: 0 | 1 = formData.whatsapp_opt_in ? 1 : 0;
       if (client) {
         const updatePayload = {
           id: client.id,
           full_name: formData.full_name,
           phone_number: formData.phone_number,
           ...(formData.notes ? { notes: formData.notes } : {}),
-          whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
+          whatsapp_opt_in: whatsappOptIn,
         };
         result = await updateClient(updatePayload);
       } else {
@@ -78,7 +81,7 @@ export default function ClientForm({
           full_name: formData.full_name,
           phone_number: formData.phone_number,
           notes: formData.notes || "",
-          whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
+          whatsapp_opt_in: whatsappOptIn,
         };
         result = await createClient(createPayload);
       }

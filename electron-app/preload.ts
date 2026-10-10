@@ -1031,7 +1031,10 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("closing:recalculate-drawer-balances"),
     // Unified checkpoint API
     createCheckpoint: (data: {
-      user_id: number;
+      /** Ignored: the main process books the checkpoint under the
+       *  session's user (LIRA-297, REST parity). Kept optional for older
+       *  callers. */
+      user_id?: number;
       drawer_name: string;
       notes?: string;
       report_path?: string;

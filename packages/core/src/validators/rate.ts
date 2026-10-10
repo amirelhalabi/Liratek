@@ -26,3 +26,9 @@ export const deleteRateSchema = z.object({
 
 export type SetRateData = z.infer<typeof setRateSchema>;
 export type DeleteRateData = z.infer<typeof deleteRateSchema>;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type SetRatePayload = z.input<typeof setRateSchema>;

@@ -205,3 +205,14 @@ export type DebtAccountEntryInput = z.infer<typeof debtAccountEntrySchema>;
 export type DebtUseCreditInput = z.infer<typeof debtUseCreditSchema>;
 export type DebtUpdateMetadataInput = z.infer<typeof debtUpdateMetadataSchema>;
 export type DebtWriteOffInput = z.infer<typeof debtWriteOffSchema>;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type DebtAccountEntryPayload = z.input<typeof debtAccountEntrySchema>;
+export type DebtUseCreditPayload = z.input<typeof debtUseCreditSchema>;
+export type DebtUpdateMetadataPayload = z.input<
+  typeof debtUpdateMetadataSchema
+>;
+export type DebtWriteOffPayload = z.input<typeof debtWriteOffSchema>;

@@ -1,7 +1,10 @@
 import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
-import type { SupplierSettleInput } from "@liratek/core";
+import type {
+  SupplierLedgerEntryPayload,
+  SupplierSettleInput,
+} from "@liratek/core";
 
 // ── OMT open-credit account types (LIRA-187/188) ───────────────────────────
 //
@@ -344,14 +347,11 @@ export function useAddLedgerEntryMutation(supplierId: number | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (payload: {
-      supplier_id: number;
-      entry_type: string;
-      amount_usd?: number;
-      amount_lbp?: number;
-      note?: string;
-      drawer_name?: string;
-    }) => api.addSupplierLedgerEntry(supplierId!, payload),
+    // Typed from the core schema (rule 21) — the loose hand-written shape
+    // (`entry_type: string`, optional amounts) accepted payloads both
+    // transports' supplierLedgerEntrySchema rejects.
+    mutationFn: (payload: SupplierLedgerEntryPayload) =>
+      api.addSupplierLedgerEntry(supplierId!, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
@@ -504,13 +504,7 @@ export function useSupplierLedgerEntryMutation(
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: {
-      supplier_id: number;
-      entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
-      amount_usd: number;
-      amount_lbp: number;
-      note?: string;
-    }) => {
+    mutationFn: (data: SupplierLedgerEntryPayload) => {
       const { supplier_id, ...rest } = data;
       return api.addSupplierLedgerEntry(supplier_id, rest);
     },

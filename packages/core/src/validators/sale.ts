@@ -322,3 +322,14 @@ export const saleUndoItemRefundSchema = z.object({
 export type SaleUndoItemRefundInput = z.infer<
   typeof saleUndoItemRefundSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type SaleProcessPayload = z.input<typeof saleProcessSchema>;
+export type SaleUpdateMetadataPayload = z.input<
+  typeof saleUpdateMetadataSchema
+>;
+export type SaleRefundPayload = z.input<typeof saleRefundSchema>;
+export type SaleRefundItemPayload = z.input<typeof saleRefundItemSchema>;

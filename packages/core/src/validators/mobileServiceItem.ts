@@ -139,3 +139,14 @@ export const mobileServiceItemSeedSchema = z.array(
 export type MobileServiceItemSeedInput = z.infer<
   typeof mobileServiceItemSeedSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type MobileServiceItemCreatePayload = z.input<
+  typeof mobileServiceItemCreateSchema
+>;
+export type MobileServiceItemUpdatePayload = z.input<
+  typeof mobileServiceItemUpdateSchema
+>;

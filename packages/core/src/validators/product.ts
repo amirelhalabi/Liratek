@@ -240,3 +240,11 @@ export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type UpdateStockInput = z.infer<typeof updateStockSchema>;
 export type SearchProductsInput = z.infer<typeof searchProductsSchema>;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type BatchUpdateProductsPayload = z.input<
+  typeof batchUpdateProductsSchema
+>;

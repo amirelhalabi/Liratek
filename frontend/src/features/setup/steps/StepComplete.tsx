@@ -64,9 +64,10 @@ export default function StepComplete() {
       // Record the initial setup checkpoint (A4): ALWAYS written, so the
       // checkpoint timeline starts with a baseline row — even when the
       // operator skipped the drawer amounts (all drawers start at zero).
-      // user_id must be the admin's real id: the seed admin (id=1) is deleted
-      // when a custom username is chosen, so a hardcoded 1 would violate the
-      // daily_closings.created_by FK and roll the checkpoint back.
+      // The checkpoint is booked under the session login() just opened —
+      // the admin's real id (the seed admin, id=1, is deleted when a custom
+      // username is chosen, so a hardcoded 1 would violate the
+      // daily_closings.created_by FK and roll the checkpoint back).
       //
       // LIRA-252 item A — MTC/Alfa are excluded from this `amounts` array:
       // `completeSetup` above already created their carrier line(s) (if any
@@ -76,8 +77,9 @@ export default function StepComplete() {
       // refuses a bare non-zero MTC/Alfa amount with no `carrier_lines`
       // attached to this checkpoint (item C) — so it must never be sent.
       const CARRIER_DRAWER_NAMES = new Set(["MTC", "Alfa"]);
+      // No user_id: the server books the checkpoint under the signed-in
+      // user on both transports (LIRA-297).
       await api.createCheckpoint({
-        user_id: result.adminUserId ?? 1,
         drawer_name: "AGGREGATED",
         notes: "Initial drawer amounts from setup",
         amounts: (payload.drawer_amounts ?? [])

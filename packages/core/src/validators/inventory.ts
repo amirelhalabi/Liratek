@@ -73,3 +73,10 @@ export const getStockAdjustmentsSchema = z.object({
 export type GetStockAdjustmentsInput = z.infer<
   typeof getStockAdjustmentsSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type ReceiveStockPayload = z.input<typeof receiveStockSchema>;
+export type StockAdjustPayload = z.input<typeof stockAdjustSchema>;

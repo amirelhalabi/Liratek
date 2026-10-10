@@ -83,3 +83,9 @@ export type CreateTenantInput = z.infer<typeof createTenantSchema>;
 export type SignupBodyInput = z.input<typeof signupSchema>;
 export type CreateTenantBodyInput = z.input<typeof createTenantSchema>;
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type UpdateTenantPayload = z.input<typeof updateTenantSchema>;

@@ -6882,3 +6882,19 @@ Scope:
 2. Fix what the guard finds that is a real web defect (known: `Debts/index.tsx` `loadServiceDebtDetails`
    `if (!window.api) return;`, and the four latent `window.api ? … : …` gates there).
 3. Type every remaining write-path adapter payload from its core schema (`z.input<…>`, rule 21), money paths first.
+
+> **Progress 2026-10-10 — scope item 3 (typed adapters), uncommitted.** Write payloads in `backendApi.ts`,
+> `ElectronApiAdapter.ts` and the ui `ApiAdapter` now come from `z.input` aliases in `packages/core/src/validators/`.
+> What is left is the set of write paths with no core schema: products, currencies, payment methods, sessions,
+> daily-closing update, supplier create, drawer top-up, item costs, voucher images, setup.
+> - Key-set diffs of the desktop and core schemas (rule 23) found two live web-only bugs, now fixed in
+>   `createFinancialServiceSchema`, each proven failing-first:
+>   - `deferPayment` was stripped, so every sibling unit of a multi-unit iPick/Katsh catalog or bills cart booked its
+>     price again on the web.
+>   - `senderName`/`senderPhone`/`receiverName`/`receiverPhone`/`senderClientId`/`receiverClientId` were stripped, so
+>     the web never recorded the other party.
+> - Desktop `closing:create-checkpoint` now books under the session user, like REST, instead of a client-sent
+>   `user_id`.
+>
+> What users will notice: on the web app, multi-item iPick/Katsh checkouts no longer over-credit the drawer, and
+> OMT/Whish transfers save both parties' names and phones.

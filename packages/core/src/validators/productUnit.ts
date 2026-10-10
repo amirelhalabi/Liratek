@@ -164,3 +164,11 @@ export const updateCategorySchema = z
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 /** What a caller sends (rule 21: adapter payloads derive from the schema). */
 export type UpdateCategoryPayload = z.input<typeof updateCategorySchema>;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type RegisterProductUnitsPayload = z.input<
+  typeof registerProductUnitsSchema
+>;

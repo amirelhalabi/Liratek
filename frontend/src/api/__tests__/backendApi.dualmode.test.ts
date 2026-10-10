@@ -231,7 +231,7 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.deleteProduct(1);
 
     await apiMod.getDrafts();
-    await apiMod.processSale({});
+    await apiMod.processSale({} as Parameters<typeof apiMod.processSale>[0]);
     await apiMod.getSale(1);
     await apiMod.getSaleItems(1);
 
@@ -277,7 +277,9 @@ describe("backendApi dual-mode routing", () => {
 
     await apiMod.getOMTHistory();
     await apiMod.getOMTAnalytics();
-    await apiMod.addOMTTransaction({});
+    await apiMod.addOMTTransaction(
+      {} as Parameters<typeof apiMod.addOMTTransaction>[0],
+    );
 
     await apiMod.getMaintenanceJobs();
     // Transport routing only — the payload is typed from the core schema
@@ -298,7 +300,11 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.getSupplierBalances();
     await apiMod.getSupplierLedger(1, 10);
     await apiMod.createSupplier({ name: "s" });
-    await apiMod.addSupplierLedgerEntry(1, { entry_type: "TOP_UP" });
+    await apiMod.addSupplierLedgerEntry(1, {
+      entry_type: "TOP_UP",
+      amount_usd: 0,
+      amount_lbp: 0,
+    });
 
     await apiMod.getRates();
     await apiMod.setRate({

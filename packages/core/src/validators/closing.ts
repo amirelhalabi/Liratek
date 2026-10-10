@@ -146,3 +146,9 @@ export type HasOpeningBalanceTodayQueryInput = z.infer<
 export type DailyStatsSnapshotQuery = z.input<
   typeof dailyStatsSnapshotQuerySchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type CreateCheckpointPayload = z.input<typeof createCheckpointSchema>;

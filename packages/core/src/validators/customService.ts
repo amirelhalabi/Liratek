@@ -273,3 +273,17 @@ export const updateCustomServiceWorkStatusSchema = z.object({
 export type UpdateCustomServiceWorkStatusInput = z.infer<
   typeof updateCustomServiceWorkStatusSchema
 >;
+
+// LIRA-297 (rule 21) — what a caller SENDS: `z.input`, so `.default()`
+// fields stay optional. The adapters (backendApi.ts, ElectronApiAdapter.ts,
+// packages/ui ApiAdapter) type their payloads with these, never with a
+// hand-copied object literal.
+export type UpdateCustomServiceFulfillmentPayload = z.input<
+  typeof updateCustomServiceFulfillmentSchema
+>;
+export type UpdateCustomServiceWorkStatusPayload = z.input<
+  typeof updateCustomServiceWorkStatusSchema
+>;
+export type CustomServiceUpdateMetadataPayload = z.input<
+  typeof customServiceUpdateMetadataSchema
+>;
