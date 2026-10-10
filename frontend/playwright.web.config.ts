@@ -55,12 +55,32 @@ const SHARED_DESKTOP_SPECS: string[] = SPECS_OVERRIDE
       "lira-084-supplier-opening-balance.spec.ts", // suppliers.list/getBalances/addLedgerEntry (ledger money path)
       "lira-096-debt-split-repayment.spec.ts", // dashboard.getDrawerBalances/rates.list/maintenance.save/debt; split USD+LBP repayment
       "lira-097-debt-cashout.spec.ts", // clients.create + debt.addCredit (new POST /api/debts/credit) + cash-out
-      // lira-099-session-debt-detail: green STANDALONE (E2E_WEB_SPECS) but
-      // order-flaky in the full suite once 081/084 precede it — its session
-      // checkout succeeds yet its debtor doesn't surface (shared-DB/shared-page
-      // cross-spec state, NOT a shim/money bug — REST checkout→debtor verified).
-      // Its session.getActive/cartAdd/checkout shim mappings stay for standalone;
-      // re-add here once the isolation cause is found (roadmap §7b).
+      // LIRA-297 batch A — specs whose window.api surface is fully mapped
+      // (helpers/webApiShim.ts). Each passed over web via E2E_WEB_SPECS.
+      "harness-notification-override.spec.ts", // needed fixtures' web-branch notification init script + shim auth.restoreSession
+      "lira-064-payment-legs-summary.spec.ts",
+      "lira-083-send-receive-fields.spec.ts",
+      // 099: its order-flakiness was a hardcoded phone (03777888) that
+      // lira-web-019 also seeds — findOrCreateByPhone attached the basket
+      // to that client. Now per-run-unique phone + name.
+      "lira-099-session-debt-detail.spec.ts",
+      "lira-116-omt-whish-route-rename.spec.ts",
+      "lira-127-payment-legs-expandable-row.spec.ts",
+      "lira-130-maintenance-draft-and-unlock.spec.ts",
+      "lira-151-inventory-batch-delete-transport.spec.ts",
+      "lira-165-stock-intake-cost-visibility.spec.ts",
+      "lira-176-maintenance-parts.spec.ts",
+      "lira-232-session-item-refund.spec.ts",
+      "lira-session-basket-payment.spec.ts",
+      "lira-session-exchange-rate.spec.ts",
+      "lira-session-grouping-ui.spec.ts",
+      "lira-session-payout.spec.ts",
+      // Left out of batch A:
+      //  - lira-session-cashout-credit / lira-session-debt-payout-signs: their
+      //    on-account Binance cash-out checkout (CUSTOMER_ACCOUNT IN charge +
+      //    CUSTOMER_ACCOUNT OUT payout) is refused by core's LIRA-270
+      //    "nothing left to collect" guard (SessionPaymentService) — shared
+      //    core, so transport-independent; not a web difference.
     ];
 
 // Optional per-file sub-test filter for partially-passing spec files.

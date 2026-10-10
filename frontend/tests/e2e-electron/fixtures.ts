@@ -373,6 +373,15 @@ export const test = base.extend<
         // Phase 3: install the browser-side window.api → REST shim so the
         // IPC-driven desktop specs (page.evaluate(window.api.*)) run over HTTP.
         await installWebApiShim(context);
+        // Same context-level notification-duration stamp the Electron branch
+        // installs below, so the harness default survives `appPage.reload()`
+        // in web mode too (harness-notification-override.spec.ts guards it;
+        // without this the web branch only had the per-test evaluate()).
+        await context.addInitScript((ms: number) => {
+          (
+            window as unknown as { __e2eNotificationDurationMs: number }
+          ).__e2eNotificationDurationMs = ms;
+        }, E2E_NOTIFICATION_DURATION_MS);
         sharedPage = await context.newPage();
         sharedPage.on("dialog", (dialog) => {
           dialog.accept().catch(() => {});

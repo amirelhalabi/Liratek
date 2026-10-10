@@ -170,7 +170,10 @@ function webApiShimBody(): void {
     //    min_stock_level) — same remap seedProduct's own web branch does.
     "inventory.createProduct": async ([product]) => {
       const p = (product ?? {}) as Record<string, unknown>;
-      return rest("POST", "/api/inventory/products", {
+      // REST answers createSuccessResponse({ id }) = { success, data: { id } };
+      // the IPC contract is { success, id } — lift the id to the top level
+      // (same normalization as clients.create above).
+      const res = await rest("POST", "/api/inventory/products", {
         name: p.name,
         category: p.category,
         ...(p.barcode ? { barcode: p.barcode } : {}),
@@ -179,6 +182,17 @@ function webApiShimBody(): void {
         stock: p.stock_quantity ?? 0,
         min_stock_threshold: p.min_stock_level ?? 0,
       });
+      // Error path is createErrorResponse → { success:false, error:{ message } };
+      // the IPC contract's `error` is a string.
+      if (!res.success) {
+        const err = res.error;
+        return {
+          success: false,
+          error: typeof err === "string" ? err : (err?.message ?? String(err)),
+        };
+      }
+      const id = res.id ?? res.data?.id;
+      return { success: true, id };
     },
     "inventory.getProduct": async ([id]) =>
       (await rest("GET", `/api/inventory/products/${id}`)).product,
@@ -209,6 +223,88 @@ function webApiShimBody(): void {
             qs({ limit, ...(filters as Record<string, unknown>) }),
         )
       ).transactions,
+
+    // ── Auth (boot restore) — AuthContext.loadUser gates on RAW `window.api`
+    //    (not isElectron()), so under this shim a page reload takes the
+    //    desktop branch and calls auth.restoreSession; unmapped, it rejected
+    //    and every reload landed on the login screen. Real web users never
+    //    hit this (no window.api there). Answer it the way the web branch
+    //    does — GET /api/auth/me with the stored JWT — returning the IPC
+    //    `{ success, user }` shape with no sessionToken (nothing to store).
+    "auth.restoreSession": async () => {
+      const res = await rest("GET", "/api/auth/me");
+      return res.success && res.user
+        ? { success: true, user: res.user }
+        : { success: false, error: res.error ?? "No session" };
+    },
+
+    // ── LIRA-297 batch: the 15 most-needed unmapped methods across the
+    //    desktop specs. Every path below is the one backendApi.ts's own
+    //    REST branch calls (the app's source of truth for the web wire
+    //    shape). Reads unwrap to the IPC handler's RAW return; writes pass
+    //    the envelope through — except where the IPC handler itself returns
+    //    an envelope for a read (carrierLines.getAllAdmin,
+    //    mobileServiceItems.getAll), which stay enveloped here too. ──
+
+    // Reads — raw (IPC handler returns the service value directly).
+    "recharge.getDrawerBalances": async () =>
+      (await rest("GET", "/api/recharge/drawer-balances")).balances,
+    "partners.getBalance": async ([partnerId]) =>
+      (await rest("GET", `/api/partners/${partnerId}/balance`)).balance,
+    "profits.summary": async ([from, to]) =>
+      (await rest("GET", "/api/profits/summary" + qs({ from, to }))).data,
+    "suppliers.getLedger": async ([supplierId, limit]) =>
+      (await rest("GET", `/api/suppliers/${supplierId}/ledger` + qs({ limit })))
+        .ledger ?? [],
+    "suppliers.getUnsettledTransactions": async ([provider]) =>
+      (await rest("GET", "/api/suppliers/unsettled" + qs({ provider })))
+        .transactions ?? [],
+    "closing.getSystemExpectedBalancesDynamic": async () =>
+      (await rest("GET", "/api/closing/system-expected-balances-dynamic"))
+        .balances,
+
+    // Reads — enveloped (the IPC handler returns { success, data }).
+    // GET /api/carrier-lines is the admin listing (includes archived), the
+    // same getAllIncludingInactive() the IPC get-all-admin channel calls.
+    "carrierLines.getAllAdmin": async () => rest("GET", "/api/carrier-lines"),
+    "mobileServiceItems.getAll": async () =>
+      rest("GET", "/api/mobile-service-items"),
+
+    // Writes — envelope passthrough. userId/actor is injected server-side
+    // from the JWT on every one of these routes (never sent by the client).
+    "omt.addTransaction": async ([payload]) =>
+      rest("POST", "/api/services/transactions", payload),
+    "partners.create": async ([data]) => rest("POST", "/api/partners", data),
+    "recharge.process": async ([payload]) =>
+      rest("POST", "/api/recharge/process", payload),
+    "loto.sell": async ([data]) => rest("POST", "/api/loto/sell", data),
+    "sales.process": async ([payload]) =>
+      rest("POST", "/api/sales/process", payload),
+    "transactions.void": async ([id]) =>
+      rest("POST", `/api/transactions/${id}/void`),
+    // IPC is positional (id, refundLegs, unitExtras, exchangeRate,
+    // keptChange); REST takes them in the body, with unitExtras renamed to
+    // `refundUnitExtras` — same translation backendApi.refundTransaction
+    // does. Null/undefined args are dropped (the route validates any key
+    // that is present, and a literal null would fail that check).
+    "transactions.refund": async ([
+      id,
+      refundLegs,
+      unitExtras,
+      exchangeRate,
+      keptChange,
+    ]) => {
+      const body: Record<string, unknown> = {};
+      if (refundLegs != null) body.refundLegs = refundLegs;
+      if (unitExtras != null) body.refundUnitExtras = unitExtras;
+      if (exchangeRate != null) body.exchangeRate = exchangeRate;
+      if (keptChange != null) body.keptChange = keptChange;
+      return rest(
+        "POST",
+        `/api/transactions/${id}/refund`,
+        Object.keys(body).length ? body : undefined,
+      );
+    },
 
     // ── Database reset (LIRA-165) — unlike most reads in this table, both
     //    the IPC preload binding AND the REST route already return the full

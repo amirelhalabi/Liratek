@@ -26,8 +26,14 @@ import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
 
-const PHONE = "03777888";
-const CLIENT_NAME = "E2E SessionDetail Customer";
+// Per-run-unique identity (rule 15). The constant phone 03777888 is also
+// used by the web suite's lira-web-019 (telecom buyback seeds a client with
+// it), so in a full web run session.start's findOrCreateByPhone attached this
+// basket's debt to THAT client and the Debts search for CLIENT_NAME found
+// nothing. A unique phone + name makes the debtor card this spec's own.
+const RUN_ID = Date.now().toString().slice(-6);
+const PHONE = `0377${RUN_ID}`;
+const CLIENT_NAME = `E2E SessionDetail Customer ${RUN_ID}`;
 const ITEM_A_LABEL = "E2E Widget Repair";
 const ITEM_B_LABEL = "E2E Phone Case";
 
