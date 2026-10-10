@@ -6575,6 +6575,15 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
+## LIRA-303: landing page demo videos — web app first, desktop from the same screens, phone later — PLANNING (owner request 2026-10-10)
+
+- **What:** replace the landing hero video (`landing/assets/demo.mp4` + poster), which still shows the old green look, with a new demo of the **web app** in the new brand. The **desktop app** is showcased from the same screens (one React UI), framed as a desktop window. A **phone app** demo video follows later, once the phone changes and a seeded test shop are ready.
+- **How:** plan with Spec Kit (`specs/303-landing-demo-videos/`), then build with `/brag` (the earlier video's working files are in the git-ignored `brag-output/`).
+- **Constraints:** made-up data only (a seeded demo/test shop, never a real customer); no Electron on this Mac, so desktop shots come from the web app; show only what is built.
+- **Owner decisions 2026-10-10:** 4 product scenes — POS, OMT/Whish services, mobile recharge, Loto; USD and LBP shown briefly on POS, OMT/Whish and recharge, LBP only on Loto. Desktop = one ~4 s scene in the same hero video (screens inside a desktop window frame). Data = the owner's seeded test shop (same as the phone screenshots); capture waits for the owner. About 29 s.
+
+**What users will notice:** the landing page shows a new demo video of LiraTek in the new colours.
+
 ## LIRA-302: phone app — Katsh / iPick catalog sales (vouchers, cards) — DONE on the simulator, not yet released (owner decisions 2026-10-10)
 
 The second half of the after-hours use case (LIRA-289): a customer asks for a Katsh or iPick voucher/card at night;
