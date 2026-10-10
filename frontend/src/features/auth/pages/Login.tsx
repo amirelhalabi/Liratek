@@ -25,6 +25,7 @@ import {
   hashQuery,
 } from "@/features/auth/utils/browserNavigation";
 import PlatformSignIn from "@/features/auth/components/PlatformSignIn";
+import liratekLogo from "@/assets/brand/liratek-logo.png";
 import { rememberCurrentShop } from "@/features/auth/utils/rememberCurrentShop";
 
 interface LoginProps {
@@ -41,6 +42,10 @@ function prefilledUsername(): string {
   if (isElectron()) return "";
   return hashQuery().get("u")?.trim().slice(0, 100) ?? "";
 }
+
+// Brand panel colours (Cosmic Navy, light blue-grey) — fixed in both modes.
+const BRAND_NAVY = "#0c134f";
+const BRAND_SUBTITLE = "#bfc7dc";
 
 export default function Login({ adminOnly = false }: LoginProps = {}) {
   const { login } = useAuth();
@@ -201,30 +206,37 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
             : "bg-white/80 border border-gray-200/50",
         )}
       >
-        {/* Header */}
+        {/* Header: the LiraTek logo + "Management System" (owner decision
+            2026-10-10, same as the phone app). The logo is violet + blue, so it
+            sits on a Cosmic Navy panel in BOTH modes; colours are inline
+            because index.css repaints the slate/violet utility classes per
+            mode. A shop that has named itself is still named under the logo:
+            before login that is the only tenant identity on the page. */}
         <div
-          className={clsx(
-            "bg-gradient-to-r p-10 text-center relative overflow-hidden",
-            theme === "dark"
-              ? "from-violet-600 to-indigo-600"
-              : "from-violet-500 to-indigo-500",
-          )}
+          className="px-10 pt-9 pb-8 text-center"
+          style={{ backgroundColor: BRAND_NAVY }}
         >
-          {/* Decorative gradient overlay */}
-          <div className="absolute inset-0 opacity-20 bg-gradient-to-b from-white to-transparent"></div>
-
-          <div className="relative z-10">
-            {/* The PRODUCT name until a shop has named itself. This header is
-                what showed a stranger name on every login page: the shop name
-                came from a pre-auth settings read that fails on the web (no
-                tenant context without a JWT), and the fallback was a literal
-                customer name. Branding the product here is honest -- before
-                login there is no tenant to speak for. */}
-            <h1 className="text-4xl font-bold text-white whitespace-nowrap mb-2">
-              {shopName || hostShopName || "LiraTek"}
+          <img
+            src={liratekLogo}
+            alt="LiraTek"
+            className="mx-auto h-10 w-auto max-w-full"
+          />
+          <p
+            className="mt-3 text-xs font-medium uppercase tracking-[0.25em]"
+            style={{ color: BRAND_SUBTITLE }}
+          >
+            Management System
+          </p>
+          {shopName || hostShopName ? (
+            <h1
+              className="mt-4 text-2xl font-bold whitespace-nowrap"
+              style={{ color: "#ffffff" }}
+            >
+              {shopName || hostShopName}
             </h1>
-            <p className="font-medium text-white">Management System</p>
-          </div>
+          ) : (
+            <h1 className="sr-only">LiraTek</h1>
+          )}
         </div>
 
         {/* Form */}

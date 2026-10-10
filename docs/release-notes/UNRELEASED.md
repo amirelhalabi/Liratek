@@ -258,6 +258,7 @@
 - Web app: password emails now name the username. Someone who never had a password gets "Set a password for <username>", and the page they open says "Set a password" instead of "Choose a new password".
 - Web app: the page for choosing a new password has show/hide buttons on both fields, like the sign-in page, and your browser can suggest and save a password there. The sign-up, join-by-invitation and Add shop forms have the show/hide button too.
 - Web app: your shop's sign-in page now says under the username field that it is not your email. If you type an email there, it suggests using your username or "Continue with Google".
+- New LiraTek logo on the sign-in page, and the new LiraTek icon in the browser tab.
 
 ## 🧾 Expenses
 
@@ -288,3 +289,4 @@
 - Desktop app: My account is now in the desktop app too (the person icon next to your name at the top). It shows your account picture, username and role, plus your display options for this computer.
 - Desktop app: you can now change your own password in My account. Type your current password and the new one; other signed-in sessions of your account are signed out.
 - Windows desktop app: typing works straight away after closing a confirmation or top-up window.
+- New LiraTek logo on the sign-in page, and a new LiraTek app icon.
