@@ -1,17 +1,22 @@
-import { LinearGradient } from "expo-linear-gradient";
 import { Link } from "expo-router";
 import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { loginWithShop } from "@/api/auth";
 import { useAuth } from "@/auth/AuthContext";
 import { signInErrorMessage } from "@/auth/messages";
 import { ErrorBanner } from "@/components/ErrorBanner";
+import { PageBackground } from "@/components/PageBackground";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { TextField } from "@/components/TextField";
 import { useTheme } from "@/theme/ThemeProvider";
 import { radius, spacing } from "@/theme/tokens";
+
+// Owner-chosen logo (2026-10-10): swirl + LIRA in Pastel Violet, TEK in Signal Blue.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const LOGO = require("../../../assets/brand/liratek-logo.png") as number;
+const BRAND_NAVY = "#0c134f";
 
 /** Mirrors the web sign-in card (frontend/src/features/auth/pages/Login.tsx). */
 export default function SignIn() {
@@ -46,17 +51,22 @@ export default function SignIn() {
   }
 
   return (
-    <LinearGradient colors={[t.section, t.section, t.page]} style={styles.flex}>
-      <View style={[styles.blob, styles.blobTop, { backgroundColor: t.accent }]} />
-      <View style={[styles.blob, styles.blobBottom, { backgroundColor: t.gradientTo }]} />
+    <PageBackground>
       <SafeAreaView style={styles.flex}>
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <ScrollView contentContainerStyle={styles.center} keyboardShouldPersistTaps="handled">
             <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border }]}>
-              <LinearGradient colors={[t.gradientFrom, t.gradientTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.header}>
-                <Text style={[styles.title, { color: t.accentLabel }]}>LiraTek</Text>
-                <Text style={[styles.subtitle, { color: t.accentLabel }]}>Management System</Text>
-              </LinearGradient>
+              {/* Brand panel: the LiraTek logo (violet + blue) needs Cosmic Navy behind it in both modes. */}
+              <View style={[styles.header, { backgroundColor: BRAND_NAVY }]}>
+                <Image
+                  source={LOGO}
+                  style={styles.logo}
+                  resizeMode="contain"
+                  accessibilityRole="image"
+                  accessibilityLabel="LiraTek"
+                />
+                <Text style={styles.subtitle}>Management System</Text>
+              </View>
 
               <View style={styles.form}>
                 {error ? <ErrorBanner message={error} /> : null}
@@ -101,7 +111,7 @@ export default function SignIn() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </LinearGradient>
+    </PageBackground>
   );
 }
 
@@ -109,12 +119,9 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { flexGrow: 1, justifyContent: "center", padding: spacing.lg },
   card: { borderRadius: radius.xxl, borderWidth: 1, overflow: "hidden" },
-  header: { paddingVertical: 36, alignItems: "center" },
-  title: { fontSize: 34, fontWeight: "700" },
-  subtitle: { fontSize: 14, marginTop: 4, opacity: 0.85 },
+  header: { paddingVertical: 32, paddingHorizontal: 24, alignItems: "center" },
+  logo: { width: "100%", height: 48 },
+  subtitle: { fontSize: 13, marginTop: 10, color: "#bfc7dc", letterSpacing: 2, textTransform: "uppercase" },
   form: { padding: 24, gap: spacing.lg },
   footerRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing.sm },
-  blob: { position: "absolute", width: 288, height: 288, borderRadius: 144, opacity: 0.1 },
-  blobTop: { top: -80, right: -80 },
-  blobBottom: { bottom: -80, left: -80 },
 });

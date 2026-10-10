@@ -96,7 +96,7 @@ export default function Home() {
   }
 
   return (
-    <SafeAreaView style={[styles.flex, { backgroundColor: t.page }]} edges={["top"]}>
+    <SafeAreaView style={styles.flex} edges={["top"]}>
       <View style={[styles.topBar, { backgroundColor: t.card, borderBottomColor: t.border }]}>
         <Text style={[styles.shopName, { color: t.accent }]} numberOfLines={1}>
           {shop?.name ?? "LiraTek"}

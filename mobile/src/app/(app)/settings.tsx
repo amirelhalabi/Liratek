@@ -18,7 +18,7 @@ export default function SettingsScreen() {
   const { preference, setPreference } = useThemePreference();
 
   return (
-    <View style={[styles.body, { backgroundColor: t.page }]}>
+    <View style={styles.body}>
       <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border }]}>
         <Text style={{ color: t.textMuted, fontSize: 12 }}>Signed in to</Text>
         <Text style={{ color: t.text, fontSize: 18, fontWeight: "600" }}>{shop?.name}</Text>
