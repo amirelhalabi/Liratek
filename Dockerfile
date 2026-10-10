@@ -29,6 +29,9 @@ COPY frontend/package.json      frontend/package.json
 COPY electron-app/package.json  electron-app/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/ui/package.json   packages/ui/package.json
+# LIRA-289 added the `mobile` workspace (Expo). Every workspace's package.json
+# must be present or `yarn install --immutable` sees a different lockfile and fails.
+COPY mobile/package.json        mobile/package.json
 
 RUN corepack enable && yarn install --immutable
 
