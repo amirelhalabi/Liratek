@@ -1,7 +1,7 @@
 import { formatMoneyAmount } from "@liratek/core/utils/formatMoney";
 import { MAIN_DRAWER_CURRENCIES, visibleDrawerCurrencies } from "@liratek/core/utils/visibleDrawerCurrencies";
 import { router, useFocusEffect } from "expo-router";
-import { ClipboardCheck, History, Send, Settings, Wallet, Zap } from "lucide-react-native";
+import { ChevronRight, ClipboardCheck, History, Send, Settings, Users, Wallet, Zap } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -154,6 +154,16 @@ export default function Home() {
           )}
         </View>
 
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/debts")}
+          style={[styles.balances, styles.debtsRow, { backgroundColor: t.card, borderColor: t.border }]}
+        >
+          <Users size={18} color={t.accent} />
+          <Text style={[styles.sectionTitle, styles.flex, { color: t.text }]}>Customer debts</Text>
+          <ChevronRight size={18} color={t.textMuted} />
+        </Pressable>
+
         <Text style={[styles.sectionTitle, { color: t.text }]}>Record a sale</Text>
         <View style={styles.grid}>
           {[0, 2].map((row) => (
@@ -228,6 +238,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", gap: spacing.md },
   balances: { borderRadius: radius.xl, borderWidth: 1, padding: spacing.lg, gap: spacing.sm },
   balancesHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  debtsRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   line: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, gap: spacing.md },
   lineLabel: { fontSize: 14, fontWeight: "500" },
   lineValue: { fontSize: 14, fontWeight: "600", textAlign: "right", flexShrink: 1 },

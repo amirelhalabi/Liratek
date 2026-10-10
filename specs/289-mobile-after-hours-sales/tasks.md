@@ -262,7 +262,7 @@ This phase does not depend on US1/US2 and can ship first (plan "Slice 0").
   - "Since last count" (union over those drawers), with time, type, client, amount and payment;
   - a date switcher for "by date";
   - pull-to-refresh.
-- [ ] T053 [US4] Build `mobile/app/(app)/client/[id].tsx` showing the client's total debt (FR-015)
+- [x] T053 [US4] Build `mobile/app/(app)/client/[id].tsx` showing the client's total debt (FR-015)
 - [ ] T054 [P] [US4] Add component tests in `mobile/app/__tests__/home.test.tsx`: the balances render, the list renders, and the `useApi`-style mock returns a stable reference (rule 25)
 
 **Checkpoint**: The owner can check balances before accepting a night request.
@@ -275,9 +275,9 @@ This phase does not depend on US1/US2 and can ship first (plan "Slice 0").
 
 **Independent Test**: The repayment from the phone gives the same debt and drawer deltas as one from the counter (spec Story 5).
 
-- [ ] T055 [P] [US5] Write `packages/core/src/repositories/__tests__/DebtRepository.walletRepayment.test.ts`: repayments with `payments` on `WHISH`/`OMT`/`BINANCE` lower the debt and raise that drawer by the same amount (deltas), and a void nets to 0 per currency
-- [ ] T056 [US5] Add `recordRepayment(payload, idemKey)` → `POST /api/debts/repayments` in `mobile/src/api/endpoints.ts`, typed `z.input<typeof addRepaymentSchema>`. The fields come from the schema (`clientId`, `amountUSD`, `amountLBP`, `payments[]`); never snake_case copies (rule 22).
-- [ ] T057 [US5] Add a "Record repayment" form to `mobile/app/(app)/client/[id].tsx`: amount, currency, wallet choice `WHISH | OMT | BINANCE`, an Idempotency-Key per tap, and the same no-connection handling as T035
+- [x] T055 [P] [US5] Write `packages/core/src/repositories/__tests__/DebtRepository.walletRepayment.test.ts`: repayments with `payments` on `WHISH`/`OMT`/`BINANCE` lower the debt and raise that drawer by the same amount (deltas), and a void nets to 0 per currency
+- [x] T056 [US5] Add `recordRepayment(payload, idemKey)` → `POST /api/debts/repayments` in `mobile/src/api/endpoints.ts`, typed `z.input<typeof addRepaymentSchema>`. The fields come from the schema (`clientId`, `amountUSD`, `amountLBP`, `payments[]`); never snake_case copies (rule 22).
+- [x] T057 [US5] Add a "Record repayment" form to `mobile/app/(app)/client/[id].tsx`: amount, currency, wallet choice `WHISH | OMT | BINANCE`, an Idempotency-Key per tap, and the same no-connection handling as T035
 
 **Checkpoint**: The on-account loop can be closed from the phone.
 

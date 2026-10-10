@@ -18,6 +18,8 @@ export default function AppLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ title: "Settings" }} />
       <Stack.Screen name="sale/[provider]" options={{ title: "Record a sale" }} />
+      <Stack.Screen name="debts/index" options={{ title: "Customer debts" }} />
+      <Stack.Screen name="client/[id]" options={{ title: "Client" }} />
       </Stack>
     </PageBackground>
   );
