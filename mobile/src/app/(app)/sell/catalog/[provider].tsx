@@ -31,10 +31,10 @@ import { getCatalog, getRates, type CatalogRow } from "@/api/catalog";
 import { newIdempotencyKey, recordServiceSale } from "@/api/sales";
 import { ClientPicker, useClientPicker } from "@/components/ClientPicker";
 import { ErrorBanner } from "@/components/ErrorBanner";
+import { FloatingSearch } from "@/components/FloatingSearch";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { RefreshNotice } from "@/components/RefreshNotice";
 import { Segmented } from "@/components/Segmented";
-import { TextField } from "@/components/TextField";
 import { invalidateAfter } from "@/data/invalidation";
 import { queryKeys } from "@/data/queryKeys";
 import { useShopSlug } from "@/data/useShop";
@@ -241,9 +241,6 @@ export default function CatalogSaleScreen() {
     return (
       <View style={styles.flex}>
         <Stack.Screen options={{ title: provider }} />
-        <View style={styles.searchBar}>
-          <TextField label="" value={search} onChangeText={setSearch} placeholder={`Search ${provider} items`} autoCorrect={false} />
-        </View>
         <RefreshNotice error={catalog.error} hasData={catalog.data !== undefined} />
         {catalog.isPending ? (
           <ActivityIndicator color={t.accent} style={{ marginTop: spacing.xl }} />
@@ -298,6 +295,10 @@ export default function CatalogSaleScreen() {
             </Text>
             <Text style={{ color: t.accentLabel, fontWeight: "700" }}>Review</Text>
           </Pressable>
+        ) : null}
+        {/* Hidden while the cart bar is up, where the button would sit. */}
+        {itemCount === 0 || search ? (
+          <FloatingSearch value={search} onChangeText={setSearch} placeholder={`Search ${provider} items`} />
         ) : null}
       </View>
     );
@@ -398,7 +399,6 @@ export default function CatalogSaleScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  searchBar: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   // Room for the cart bar, which floats just above the tab bar.
   list: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE + 80, gap: spacing.sm },
   sectionHeader: { fontSize: 13, fontWeight: "700", textTransform: "uppercase", marginTop: spacing.md, marginBottom: spacing.xs },
