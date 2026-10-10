@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { router } from "expo-router";
-import { ChevronRight, ClipboardCheck, History, Wallet } from "lucide-react-native";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ClipboardCheck, Wallet } from "lucide-react-native";
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { getDrawerBalances, getSinceLastCount, type DrawerBalances } from "@/api/reads";
 import { RefreshNotice } from "@/components/RefreshNotice";
@@ -26,7 +25,7 @@ function sortedDrawers(balances: DrawerBalances): string[] {
 
 /**
  * Home tab (LIRA-300 FR-003): balances and "since the last count" only. The
- * latest transactions live on the Activity tab and load there.
+ * latest transactions live on the Activity tab (reached from the tab bar).
  */
 export default function Home() {
   const t = useTheme();
@@ -96,15 +95,6 @@ export default function Home() {
           </View>
         ) : null}
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.navigate("/activity")}
-          style={[styles.card, styles.linkRow, { backgroundColor: t.card, borderColor: t.border }]}
-        >
-          <History size={18} color={t.accent} />
-          <Text style={[styles.sectionTitle, styles.flex, { color: t.text }]}>Latest transactions</Text>
-          <ChevronRight size={18} color={t.textMuted} />
-        </Pressable>
       </ScrollView>
     </View>
   );
@@ -116,7 +106,6 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: "600" },
   card: { borderRadius: radius.xl, borderWidth: 1, padding: spacing.lg, gap: spacing.sm },
   cardHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  linkRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   line: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, gap: spacing.md },
   lineLabel: { fontSize: 14, fontWeight: "500" },
   lineValue: { fontSize: 14, fontWeight: "600", textAlign: "right", flexShrink: 1 },
