@@ -6565,6 +6565,16 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
+## LIRA-301: OMT send with no fee is refused ("OMT fee is required for this service type") — DONE, not yet released (owner decision 2026-10-10)
+
+Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OMT fee is required for this service type".
+
+- **Cause:** the Services page fee box (`DecimalInput`) emits `0` for both an empty box and a typed "0", and the page stores it as `""` (`setOmtFee(n ? String(n) : "")`), so a typed 0 is sent as no fee at all. The validator's "0 is fine, missing is refused" rule (2026-10-02) was therefore unreachable from the form.
+- **Owner decision:** the OMT fee is optional for every OMT service type, on SEND as well as RECEIVE. Missing = 0 (the repository already resolves `lookupOmtFee(...) ?? 0` and stores `omt_fee` NULL, read as 0 everywhere).
+- **Fix:** removed the "OMT fee is required" refine from `createFinancialServiceSchema` (`packages/core/src/validators/financial.ts`). Guard: `financial.omtFeeOptional.test.ts` (proven failing first); the two older tests' "missing fee on SEND is rejected" cases were removed.
+
+**What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
+
 ## LIRA-298: a backdated POS sale is booked at "now" — HIGH — TODO (found 2026-10-10 during LIRA-296)
 
 - **What:** the checkout sends `transaction_time` when the cashier backdates a sale (`CheckoutModal.tsx:542`), but `saleProcessSchema` (`packages/core/src/validators/sale.ts:49`) has no `transaction_time` key, so Zod strips it and the sale, its transaction row, drawer movements and profit are all dated "now". `createSaleSchema` (:146) has the key; the POS path does not use it. Verified for the web route (`backend/src/api/sales.ts:169` validates with `saleProcessSchema`); **desktop path not yet checked** (`salesHandlers.ts`).
