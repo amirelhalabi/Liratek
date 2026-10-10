@@ -365,7 +365,11 @@ contextBridge.exposeInMainWorld("api", {
       /** CQ-10 bundled discount — the page sends it; addRepaymentSchema
        *  carries it (rule 12: the binding type lists every field sent). */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+      /** LIRA-304 — ticked debt items. */
+      targets?: Array<{ kind: "sale" | "charge" | "member"; id: number }>;
     }) => ipcRenderer.invoke("debt:add-repayment", data),
+    getOpenItems: (clientId: number) =>
+      ipcRenderer.invoke("debt:get-open-items", clientId),
     cashOut: (data: {
       clientId: number;
       amountUSD: number;

@@ -394,11 +394,12 @@ describe("SessionPaymentService.recordBasketPayment — kind: PAYOUT/CHANGE (Pha
       userId: 1,
     });
 
-    // PAYOUT leg (40 @ ratio 0.75): PCD 30, General 10.
-    // CHANGE leg (100 @ ratio 0.6): PCD 60, General 40.
-    // Net PCD debit = 30 + 60 = 90; net General debit = 10 + 40 = 50.
-    expect(drawerBalance(db, "OMT_System", "USD")).toBe(-90);
-    expect(drawerBalance(db, "General", "USD")).toBe(-50);
+    // PAYOUT leg (40 @ ratio 0.75): PCD 30, General 10 — unchanged.
+    // CHANGE leg: LIRA-304 (owner decision 2026-10-10, "OMT first") — change
+    // handed back always comes out of General (was split by the charge-side
+    // ratio, 60/40). Net PCD −30; net General −10 −100 = −110.
+    expect(drawerBalance(db, "OMT_System", "USD")).toBe(-30);
+    expect(drawerBalance(db, "General", "USD")).toBe(-110);
 
     expect(result.drawerPayoutUsd).toBe(40);
     expect(result.drawerChangeUsd).toBe(100);
@@ -414,14 +415,10 @@ describe("SessionPaymentService.recordBasketPayment — kind: PAYOUT/CHANGE (Pha
       "Basket payout to customer",
     );
 
-    const changeRows = rows.filter((r) => r.amount === -60 || r.amount === -40);
-    expect(changeRows).toHaveLength(2);
-    expect(changeRows.find((r) => r.drawer_name === "OMT_System")?.note).toBe(
-      "Basket change returned (primary-system item share)",
-    );
-    expect(changeRows.find((r) => r.drawer_name === "General")?.note).toBe(
-      "Basket change returned",
-    );
+    const changeRows = rows.filter((r) => r.amount === -100);
+    expect(changeRows).toHaveLength(1);
+    expect(changeRows[0].drawer_name).toBe("General");
+    expect(changeRows[0].note).toBe("Basket change returned");
   });
 
   it("kind:CHANGE is byte-identical to kind-less (both legacy 'Basket change returned', charge-side ratio)", () => {
@@ -447,15 +444,16 @@ describe("SessionPaymentService.recordBasketPayment — kind: PAYOUT/CHANGE (Pha
       userId: 1,
     });
 
-    // IN 150 @ 0.5: PCD 75, General 75. OUT 50 @ 0.5 (kind CHANGE, same
-    // ratio as kind-less): PCD 25, General 25. Net PCD 50, net General 50 —
-    // identical numbers to the sibling basket.test.ts's kind-less rule-16 case.
+    // LIRA-304 ("OMT first"): IN 150 → PCD 50 (the OMT item), General 100;
+    // the kind:CHANGE OUT leg, like a kind-less one, comes out of General
+    // (−50). Net PCD 50, net General 50 — identical to the sibling
+    // basket.test.ts kind-less rule-16 case.
     expect(drawerBalance(db, "OMT_System", "USD")).toBe(50);
     expect(drawerBalance(db, "General", "USD")).toBe(50);
 
     const rows = paymentRows(db);
     const outRows = rows.filter((r) => r.amount < 0);
-    expect(outRows).toHaveLength(2);
+    expect(outRows).toHaveLength(1);
     for (const row of outRows) {
       expect(row.note).toMatch(/^Basket change returned/);
     }

@@ -55,6 +55,13 @@ export * from "./utils/sessionForPartnerItem.js";
 // LIRA-270 — the ONE "nothing left to collect" rule, shared by the checkout
 // modal and SessionPaymentService (pure leaf, rule 29).
 export * from "./utils/sessionNothingToCollect.js";
+// LIRA-304 — the ONE debt-repayment allocation (which items a payment pays,
+// how much cash goes to the primary cash drawer), shared by the repayment
+// modal preview and DebtRepository.addRepayment (pure leaf, rule 29).
+export * from "./utils/debtRepaymentAllocation.js";
+// LIRA-304 — basket checkout cash split, OMT first: shared by the session
+// checkout "Goes to" preview and SessionPaymentService (pure leaf, rule 29).
+export * from "./utils/sessionCashSplit.js";
 export * from "./utils/requestDay.js";
 export * from "./utils/telecomCredit.js";
 export * from "./utils/rechargeDiscount.js";

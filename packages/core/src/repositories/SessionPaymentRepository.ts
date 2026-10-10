@@ -25,6 +25,8 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import { getSettingsRepository } from "./SettingsRepository.js";
 import type { BaseSystem } from "../utils/payments.js";
+import { isPrimarySystemProvider } from "../utils/payments.js";
+import { allocateBasketMemberOwed } from "../utils/sessionMemberOwed.js";
 import { closingLogger } from "../utils/logger.js";
 import { SESSION_DEBT_TYPE } from "../constants/transactionTypes.js";
 
@@ -203,6 +205,87 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
         input.sessionId,
         getCurrentTenantId(),
       );
+  }
+
+  /**
+   * LIRA-304 — record which basket items the on-account part belongs to
+   * (`customer_session_transactions.owed_*`), right after the basket's
+   * 'Session Debt' row is booked. The row's non-sale debt (its amount minus
+   * the checkout pre-cover) is spread over the non-sale charge members by
+   * `allocateBasketMemberOwed` — "OMT first": the debt lands on the other
+   * items first and on the shop's primary-system transfers last (owner
+   * decision 2026-10-10). Keeps invariant I1: Σ member open = row outstanding.
+   * No-op when the basket has no debt row.
+   */
+  writeBasketMemberOwed(sessionId: number, rate: number): void {
+    // A database from before migration v209 (or a hand-rolled test schema
+    // holding only the tables its own test touches) has no member share
+    // columns to write — nothing to keep in step there. On every migrated
+    // database this always runs, and its errors propagate.
+    if (!this.hasMemberShareColumns()) return;
+    const tenantId = getCurrentTenantId();
+    const row = this.db
+      .prepare(
+        `SELECT amount_usd - covered_usd AS out_usd, amount_lbp - covered_lbp AS out_lbp
+         FROM debt_ledger
+         WHERE session_id = ? AND tenant_id = ? AND transaction_type = ?
+           AND transaction_id IS NULL
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(sessionId, tenantId, SESSION_DEBT_TYPE) as
+      | { out_usd: number; out_lbp: number }
+      | undefined;
+    if (!row) return;
+    const members = this.db
+      .prepare(
+        `SELECT cst.id, cst.amount_usd, cst.amount_lbp, fs.provider
+         FROM customer_session_transactions cst
+         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+         LEFT JOIN financial_services fs ON t.source_table = 'financial_services'
+           AND fs.id = t.source_id AND fs.tenant_id = t.tenant_id
+         WHERE cst.session_id = ? AND cst.tenant_id = ?
+           AND cst.transaction_type <> 'session_item_refund'
+           AND t.type <> 'SALE'
+           AND (cst.amount_usd > 0 OR cst.amount_lbp > 0)
+         ORDER BY cst.id ASC`,
+      )
+      .all(sessionId, tenantId) as Array<{
+      id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      provider: string | null;
+    }>;
+    if (members.length === 0) return;
+    const baseSystem = this.resolveBaseSystem();
+    const owed = allocateBasketMemberOwed({
+      outstandingUsd: row.out_usd,
+      outstandingLbp: row.out_lbp,
+      members: members.map((m) => ({
+        id: m.id,
+        amountUsd: m.amount_usd,
+        amountLbp: m.amount_lbp,
+        isPrimary: isPrimarySystemProvider(m.provider, baseSystem),
+      })),
+      rate,
+    });
+    const upd = this.db.prepare(
+      `UPDATE customer_session_transactions
+       SET owed_usd = ?, owed_lbp = ?, updated_at = datetime('now')
+       WHERE id = ? AND tenant_id = ?`,
+    );
+    for (const o of owed) upd.run(o.owedUsd, o.owedLbp, o.id, tenantId);
+  }
+
+  private hasMemberShareColumns(): boolean {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(customer_session_transactions)`)
+      .all() as Array<{ name: string }>;
+    const fs = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'financial_services'`,
+      )
+      .get();
+    return !!fs && cols.some((c) => c.name === "owed_usd");
   }
 
   /**

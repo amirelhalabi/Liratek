@@ -302,7 +302,11 @@ describe("DebtRepository — Service-Debt provider routing (outstanding-capped)"
   });
 
   it("routes an LBP-denominated service debt (the old amount_usd filter skipped it)", () => {
-    seedServiceDebt(db, 7, "WHISH", 0, 1_800_000);
+    // LIRA-304: only the shop's PRIMARY system is routed (this fixture's
+    // shop is OMT-based by default), so the LBP debt is an OMT transfer —
+    // a Whish (system) debt here would be the secondary system and stay in
+    // General (spec FR-002).
+    seedServiceDebt(db, 7, "OMT", 0, 1_800_000);
 
     repo.addRepayment({
       client_id: 7,
@@ -311,7 +315,7 @@ describe("DebtRepository — Service-Debt provider routing (outstanding-capped)"
       created_by: 1,
     });
 
-    expect(drawerBalance(db, "Whish_System", "LBP")).toBeCloseTo(1_800_000, 2);
+    expect(drawerBalance(db, "OMT_System", "LBP")).toBeCloseTo(1_800_000, 2);
   });
 
   it("caps routing at the NET kept when an overpayment is handed back as change", () => {
@@ -364,11 +368,14 @@ describe("DebtRepository — Service-Debt provider routing (outstanding-capped)"
     );
   });
 
-  it("keeps routing strictly per-currency: an LBP leg does NOT settle a USD service debt", () => {
-    // USD-only OMT service debt. Repaid in LBP. Per-currency routing: the LBP
-    // leg has no USD outstanding to match and OMT has no LBP debt, so nothing
-    // routes — the LBP stays in General (the cross-currency conversion that
-    // reopened settled debts on rate moves is gone).
+  it("LIRA-304: LBP cash paid for a USD OMT debt goes into the OMT cash drawer as LBP", () => {
+    // Owner decision 2026-10-10 (spec FR-003a): cash paid in another
+    // currency than the transfer is still routed, in the currency it was
+    // paid in. Its value against the cap is fixed at the repayment's own
+    // rate and stored per transfer, so a later rate move cannot reopen
+    // anything (research D3) — the reason the old code refused it.
+    // (Was: "keeps routing strictly per-currency: an LBP leg does NOT settle
+    // a USD service debt".)
     seedServiceDebt(db, 7, "OMT", 50);
     const generalLbpBefore = drawerBalance(db, "General", "LBP");
 
@@ -379,9 +386,9 @@ describe("DebtRepository — Service-Debt provider routing (outstanding-capped)"
       created_by: 1,
     });
 
-    expect(drawerBalance(db, "OMT_System", "LBP")).toBeCloseTo(0, 2);
+    expect(drawerBalance(db, "OMT_System", "LBP")).toBeCloseTo(900_000, 2);
     expect(drawerBalance(db, "General", "LBP")).toBeCloseTo(
-      generalLbpBefore + 900_000,
+      generalLbpBefore,
       2,
     );
   });

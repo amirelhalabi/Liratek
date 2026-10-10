@@ -750,6 +750,15 @@ CREATE TABLE IF NOT EXISTS customer_session_transactions (
   -- transactions.exchange_rate, which can legitimately differ.
   paid_exchange_rate REAL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  -- v209 (LIRA-304): a non-sale member's share of the basket's 'Session
+  -- Debt' row (owed_*) and how much repayments have paid of it (covered_*),
+  -- so a repayment can be aimed at one item. Σ members' (owed − covered −
+  -- item-refund credit) = the row's outstanding amount, per currency.
+  owed_usd REAL NOT NULL DEFAULT 0,
+  owed_lbp REAL NOT NULL DEFAULT 0,
+  covered_usd REAL NOT NULL DEFAULT 0,
+  covered_lbp REAL NOT NULL DEFAULT 0,
+  updated_at TEXT,
   FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE,
   FOREIGN KEY (unified_transaction_id) REFERENCES transactions(id)
 );
@@ -2854,4 +2863,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- and supplier_returns, declared above.
     (207, 'serial_categories_supplier_returns'),
     -- v208 (LIRA-289) adds idempotency_keys, declared above.
-    (208, 'idempotency_keys');
+    (208, 'idempotency_keys'),
+    -- v209 (LIRA-304) adds customer_session_transactions.owed_usd/owed_lbp/
+    -- covered_usd/covered_lbp/updated_at, declared above (back-fill is data
+    -- only: a fresh DB has no baskets).
+    (209, 'session_member_debt_share');

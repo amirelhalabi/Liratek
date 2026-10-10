@@ -49,6 +49,26 @@ router.get("/clients/:clientId/history", (req, res) => {
   res.json({ success: true, history });
 });
 
+// GET /api/debts/clients/:clientId/open-items — LIRA-304: the repayment
+// screen's picker + "Goes to" preview. Mirrors IPC `debt:get-open-items`
+// (same access as the history route above; router-level authenticateJWT).
+router.get("/clients/:clientId/open-items", (req, res) => {
+  const clientId = Number(req.params.clientId);
+  if (!Number.isFinite(clientId)) {
+    res.status(400).json({ success: false, error: "Invalid clientId" });
+    return;
+  }
+  try {
+    const items = getDebtService().getOpenDebtItems(clientId);
+    res.json({ success: true, items });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 // GET /api/debts/clients/:clientId/total
 router.get("/clients/:clientId/total", (req, res) => {
   const clientId = Number(req.params.clientId);

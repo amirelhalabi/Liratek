@@ -35,6 +35,8 @@ const mockApi = {
   getClientBalance: (...a: unknown[]) => mockGetClientBalance(...a),
   getClientDebtTotal: (...a: unknown[]) => mockGetClientDebtTotal(...a),
   addRepayment: (...a: unknown[]) => mockAddRepayment(...a),
+  // LIRA-304 — repayment picker: no open items here.
+  getOpenDebtItems: () => Promise.resolve([]),
   cashOut: (...a: unknown[]) => mockCashOut(...a),
   addAccountEntry: jest.fn(),
   getTransactionById: jest.fn(),

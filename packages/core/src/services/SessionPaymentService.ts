@@ -60,6 +60,7 @@ import { closingLogger } from "../utils/logger.js";
 import { resolveKeptChange } from "../repositories/keptChange.js";
 import type { KeptChange } from "../repositories/moneyPosting.js";
 import { basketHasNothingToCollect } from "../utils/sessionNothingToCollect.js";
+import { splitBasketCashOmtFirst } from "../utils/sessionCashSplit.js";
 
 // LIRA-270 — the ONE nothing-to-collect rule now lives in a pure shared
 // module (the checkout modal reads it too); re-exported for existing callers.
@@ -551,7 +552,41 @@ export class SessionPaymentService {
       }
     }
 
-    for (const leg of legs) {
+    // LIRA-304 (owner decision 2026-10-10, "OMT first"): the customer's
+    // cash pays the basket's primary-system transfers first — decided ONCE
+    // for every IN leg, by the same calculation the checkout screen's
+    // "Goes to" preview uses (`splitBasketCashOmtFirst`). Replaces the old
+    // by-share split on the charge side; change handed back now always
+    // comes out of General, so the transfer drawer receives exactly what
+    // the transfers cost. The payout side is unchanged.
+    const isPcdEligibleMethod = (method: string): boolean =>
+      isDrawerAffectingMethod(method) &&
+      resolveServiceCashDrawer(method, {
+        provider: cashSplitCtx.baseSystem,
+        baseSystem: cashSplitCtx.baseSystem,
+      }) === pcdDrawerName;
+    const inLegSplits = new Map<number, { pcdAmount: number; generalAmount: number }>();
+    {
+      const inLegIdx: number[] = [];
+      legs.forEach((l, i) => {
+        if (l.direction !== "OUT" && Math.abs(l.amount) > 0) inLegIdx.push(i);
+      });
+      const splits = splitBasketCashOmtFirst({
+        primaryChargeUsd: cashSplitCtx.primarySystemChargeUsd,
+        primaryChargeLbp: cashSplitCtx.primarySystemChargeLbp,
+        legs: inLegIdx.map((i) => ({
+          currencyCode: legs[i].currencyCode,
+          amount: Math.abs(legs[i].amount),
+          eligible:
+            legs[i].method !== "GIFT_CARD" &&
+            isPcdEligibleMethod(legs[i].method),
+        })),
+        rate,
+      });
+      inLegIdx.forEach((legIndex, k) => inLegSplits.set(legIndex, splits[k]));
+    }
+
+    for (const [legIndex, leg] of legs.entries()) {
       const amt = Math.abs(leg.amount);
       if (amt <= 0) continue;
       const isOut = leg.direction === "OUT";
@@ -666,17 +701,23 @@ export class SessionPaymentService {
         // proportion to ITS share of the basket's payout total, never the
         // charge-side ratio (which a negative payout item used to corrupt by
         // shrinking/inverting the old signed basket total).
-        const ratio = ratioForCurrency(
-          cashSplitCtx,
-          leg.currencyCode,
-          isPayout ? "payout" : "charge",
-          isPayout ? leg.payoutOrigin : undefined,
-        );
-        const { pcdAmount, generalAmount } = splitCashLegByItemShare(
-          amt,
-          ratio,
-          leg.currencyCode,
-        );
+        // IN leg → OMT-first split (above). Change (kind-less/CHANGE OUT)
+        // → General only. Payout (kind PAYOUT) → the payout-side share, as
+        // before.
+        const { pcdAmount, generalAmount } = !isOut
+          ? (inLegSplits.get(legIndex) ?? { pcdAmount: 0, generalAmount: amt })
+          : isPayout
+            ? splitCashLegByItemShare(
+                amt,
+                ratioForCurrency(
+                  cashSplitCtx,
+                  leg.currencyCode,
+                  "payout",
+                  leg.payoutOrigin,
+                ),
+                leg.currencyCode,
+              )
+            : { pcdAmount: 0, generalAmount: amt };
 
         if (pcdAmount > 0) {
           const signed = isOut ? -pcdAmount : pcdAmount;
@@ -754,6 +795,8 @@ export class SessionPaymentService {
         coveredLbp: allocation.preCoveredLbp,
         userId,
       });
+      // LIRA-304: which items that debt belongs to ("OMT first").
+      this.paymentRepo.writeBasketMemberOwed(sessionId, rate);
     }
 
     // Back-fill the paid state of the session's SALE rows so the Profits page

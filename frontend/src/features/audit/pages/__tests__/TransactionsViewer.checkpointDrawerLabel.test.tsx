@@ -167,9 +167,9 @@ describe("TransactionsViewer — checkpoint leg drawer name reaches the payment-
 
     const detail = await screen.findByTestId("payment-legs-detail-501");
 
-    expect(detail.textContent).toContain("In — Checkpoint General: $13,531");
+    // LIRA-304 (FR-019): one line per method + direction, currencies joined.
     expect(detail.textContent).toContain(
-      "In — Checkpoint General: 83,458,000 LBP",
+      "In — Checkpoint General: $13,531 + 83,458,000 LBP",
     );
     expect(detail.textContent).toContain(
       "In — Checkpoint OMT_System: 45,000,000 LBP",

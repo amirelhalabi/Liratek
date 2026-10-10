@@ -17,7 +17,8 @@ import {
   useApi,
   type PaymentLine,
 } from "@liratek/ui";
-import { basketHasNothingToCollect } from "@liratek/core";
+import { basketHasNothingToCollect, splitBasketCashOmtFirst } from "@liratek/core";
+import { useShopBase } from "@/hooks/useShopBase";
 import { useSession } from "../context/SessionContext";
 import {
   binanceCashSide,
@@ -284,6 +285,7 @@ export function SessionCheckoutModal({
       setKeptChange(null);
       setCheckoutSuccess(null);
       setPayoutMethodOverride({});
+      setChosenFirstMethod(null);
     }
   }, [isOpen]);
 
@@ -322,6 +324,25 @@ export function SessionCheckoutModal({
   // can cover any part of the combined total — matches how the backend already
   // treats payments[] as one flat pool per basket, see FEATURE_GUIDE §11).
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  // The method the operator last left on the FIRST payment line. A remount of
+  // MultiPaymentInput (paymentInputKey below) must re-seed from THIS, not from
+  // the derived default: picking Cash for a customer who has an account flips
+  // the derived payout default, which remounts the input — and re-seeding
+  // from the default (Customer Account) snapped the line straight back, so
+  // the basket could only be checked out on account (found live 2026-10-11).
+  const [chosenFirstMethod, setChosenFirstMethod] = useState<string | null>(
+    null,
+  );
+  const handlePaymentLinesChange = (lines: PaymentLine[]) => {
+    setPaymentLines(lines);
+    // Only an operator change counts — the input re-reporting its own seed
+    // (on mount, or when the methods finish loading) must not pin the
+    // default, or the Customer Account default could never apply.
+    const first = lines[0]?.method;
+    if (first && first !== (chosenFirstMethod ?? initialMethod)) {
+      setChosenFirstMethod(first);
+    }
+  };
   // Return/change (OUT) legs emitted by MultiPaymentInput
   const [returnLines, setReturnLines] = useState<PaymentLine[]>([]);
   // T3 keep-change: kept change → standalone KEPT_CHANGE profit row.
@@ -508,6 +529,74 @@ export function SessionCheckoutModal({
     exchangeRate,
   );
   const collectLines = hasChargeToCollect ? paymentLines : NO_LINES;
+
+  // LIRA-304 (spec FR-010a) — "Goes to": where the customer's cash lands,
+  // shown only when the basket has a primary-system transfer that receives
+  // cash. Computed by the SAME calculation the checkout posting uses
+  // (`splitBasketCashOmtFirst`, "OMT first"), so the preview cannot disagree
+  // with what is booked. Change handed back comes out of General.
+  const { baseSystem } = useShopBase();
+  const goesTo = useMemo(() => {
+    const primaryModule =
+      baseSystem === "WHISH" ? "whish_system" : "omt_system";
+    let primaryUsd = 0;
+    let primaryLbp = 0;
+    for (const item of cartItems) {
+      if (item.module !== primaryModule || item.amount <= 0) continue;
+      if (item.currency === "USD") primaryUsd += item.amount;
+      else if (item.currency === "LBP") primaryLbp += item.amount;
+    }
+    if (primaryUsd <= 0 && primaryLbp <= 0) return null;
+    const isCashFamily = (code: string): boolean => {
+      if (code === "GIFT_CARD" || code === "CUSTOMER_ACCOUNT") return false;
+      const m = allMethods.find((x) => x.code === code) as
+        | { drawer_name?: string; affects_drawer?: number }
+        | undefined;
+      return m && m.drawer_name !== undefined
+        ? m.affects_drawer === 1 && m.drawer_name === "General"
+        : code === "CASH";
+    };
+    const legs = collectLines
+      .filter((l) => l.amount > 0)
+      .map((l) => ({
+        currencyCode: l.currencyCode,
+        amount: l.amount,
+        eligible: isCashFamily(l.method),
+      }));
+    const splits = splitBasketCashOmtFirst({
+      primaryChargeUsd: primaryUsd,
+      primaryChargeLbp: primaryLbp,
+      legs,
+      rate: exchangeRate,
+    });
+    const system = { USD: 0, LBP: 0 } as Record<string, number>;
+    const general = { USD: 0, LBP: 0 } as Record<string, number>;
+    legs.forEach((leg, i) => {
+      if (!leg.eligible) return;
+      system[leg.currencyCode] =
+        (system[leg.currencyCode] ?? 0) + splits[i].pcdAmount;
+      general[leg.currencyCode] =
+        (general[leg.currencyCode] ?? 0) + splits[i].generalAmount;
+    });
+    for (const r of returnLines) {
+      if (r.amount > 0 && isCashFamily(r.method)) {
+        general[r.currencyCode] = (general[r.currencyCode] ?? 0) - r.amount;
+      }
+    }
+    if ((system.USD ?? 0) <= 0 && (system.LBP ?? 0) <= 0) return null;
+    const fmt = (byCur: Record<string, number>): string =>
+      [
+        byCur.USD > 0.004 ? `$${byCur.USD.toFixed(2).replace(/\.00$/, "")}` : "",
+        byCur.LBP > 0.5 ? `${Math.round(byCur.LBP).toLocaleString()} LBP` : "",
+      ]
+        .filter(Boolean)
+        .join(" + ");
+    return {
+      systemLabel: baseSystem === "WHISH" ? "Whish Cash Drawer" : "OMT Cash Drawer",
+      systemText: fmt(system),
+      generalText: fmt(general),
+    };
+  }, [baseSystem, cartItems, collectLines, returnLines, allMethods, exchangeRate]);
   const collectReturnLines = hasChargeToCollect ? returnLines : NO_LINES;
   useEffect(() => {
     if (!hasChargeToCollect) {
@@ -1179,7 +1268,7 @@ export function SessionCheckoutModal({
                       currency="USD"
                       totalAmountCurrency="USD"
                       initialLines={paymentInitialLines}
-                      onChange={setPaymentLines}
+                      onChange={handlePaymentLinesChange}
                       onReturnChange={setReturnLines}
                       onKeptChange={setKeptChange}
                       // The customer pays the shop: change kept = profit.
@@ -1192,7 +1281,7 @@ export function SessionCheckoutModal({
                       onRateChange={handleRateChange}
                       showDiscount={false}
                       label="Payment"
-                      initialMethod={initialMethod}
+                      initialMethod={chosenFirstMethod ?? initialMethod}
                       clientId={sessionClientId}
                       fetchClientVouchers={fetchClientVouchers}
                       // Owner decision #11-A: suggest whole USD notes + an
@@ -1201,6 +1290,31 @@ export function SessionCheckoutModal({
                       // the owner's "40$ + 10,000 LBP" example seeds itself.
                       smartSplitOverpay
                     />
+                  </div>
+                )}
+
+                {goesTo && (
+                  <div
+                    data-testid="checkout-goes-to"
+                    className="bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <div className="text-xs font-medium text-slate-300 mb-1">
+                      Goes to
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">{goesTo.systemLabel}</span>
+                      <span className="font-mono text-emerald-400">
+                        {goesTo.systemText}
+                      </span>
+                    </div>
+                    {goesTo.generalText && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">General</span>
+                        <span className="font-mono text-emerald-400">
+                          {goesTo.generalText}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
 

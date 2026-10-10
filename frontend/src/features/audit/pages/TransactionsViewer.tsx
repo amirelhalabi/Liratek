@@ -6,6 +6,7 @@ import {
   Fragment,
   type ReactElement,
 } from "react";
+import { buildPaymentDetailLines } from "../paymentDetailLines";
 import {
   voidTransaction,
   refundTransaction,
@@ -22,7 +23,6 @@ import {
 import { DataTable, useApi, appEvents } from "@liratek/ui";
 import logger from "@/utils/logger";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import { formatLegAmount } from "../cashFlow";
 import {
   billsCommissionModeLine,
   billsOnlyCommissionAmount,
@@ -759,10 +759,23 @@ export default function TransactionsViewer({
             {modeLine && (
               <div data-testid={`commission-mode-${row.id}`}>{modeLine}</div>
             )}
-            {legs.map((leg, i) => (
+            {buildPaymentDetailLines(
+              legs.map((leg) => ({
+                ...leg,
+                method: legMethodLabel(leg, methodLabelByCode),
+              })),
+              row.drawer_moves ?? [],
+            ).map((line, i) => (
               <div key={`own-${i}`}>
-                {leg.direction === "in" ? "In" : "Out"} —{" "}
-                {legMethodLabel(leg, methodLabelByCode)}: {formatLegAmount(leg)}
+                {line.direction === "in" ? "In" : "Out"} — {line.method}:{" "}
+                {line.amountText}
+                {line.drawersText && (
+                  <span className="text-slate-500">
+                    {"  {"}
+                    {line.drawersText}
+                    {"}"}
+                  </span>
+                )}
               </div>
             ))}
             {pooledLegs.length > 0 && (
@@ -773,16 +786,27 @@ export default function TransactionsViewer({
                 <div className="font-semibold">
                   Session #{row.session_id} pooled:
                 </div>
-                {pooledLegs.map((leg, i) => (
+                {buildPaymentDetailLines(
+                  pooledLegs.map((leg) => ({
+                    ...leg,
+                    method: legMethodLabel(leg, methodLabelByCode),
+                  })),
+                ).map((line, i) => (
                   <div key={`pooled-${i}`}>
-                    {leg.direction === "in" ? "In" : "Out"} —{" "}
-                    {legMethodLabel(leg, methodLabelByCode)}:{" "}
-                    {formatLegAmount(leg)}
+                    {line.direction === "in" ? "In" : "Out"} — {line.method}:{" "}
+                    {line.amountText}
+                    {line.drawersText && (
+                      <span className="text-sky-600/70">
+                        {"  {"}
+                        {line.drawersText}
+                        {"}"}
+                      </span>
+                    )}
                     {/* Production test 2026-10-07: a whole-basket void/refund's
                         legs sit in the same pooled list — mark them so the
                         (always-exported) detail doesn't read them as more
                         checkout money. */}
-                    {leg.reversal ? " (basket reversal)" : ""}
+                    {line.reversal ? " (basket reversal)" : ""}
                   </div>
                 ))}
               </div>

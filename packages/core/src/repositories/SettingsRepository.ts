@@ -64,6 +64,23 @@ export class SettingsRepository {
   }
 
   /**
+   * The shop's primary money-transfer system (`shop_base_system`), "OMT"
+   * unless set to "WHISH" — the same default every reader uses. LIRA-304:
+   * the one place new code reads it; four older inline copies remain
+   * (FinancialServiceRepository, TransactionRepository, SalesRepository,
+   * SessionPaymentRepository) and are known duplicates, not a pattern.
+   */
+  getShopBaseSystem(): "OMT" | "WHISH" {
+    try {
+      return this.getSettingValue("shop_base_system") === "WHISH"
+        ? "WHISH"
+        : "OMT";
+    } catch {
+      return "OMT";
+    }
+  }
+
+  /**
    * Upsert a setting (insert or update)
    */
   upsertSetting(key: string, value: string): void {

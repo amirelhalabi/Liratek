@@ -444,6 +444,14 @@ export interface RecentTransaction {
    * void/refund row carries the negated mirror.
    */
   returned_credits_usd?: number;
+  /** LIRA-304 — internal drawer→drawer moves of the customer's cash (a
+   *  repayment's primary-system share). Display only. */
+  drawer_moves?: Array<{
+    from: string;
+    to: string;
+    currency_code: string;
+    amount: number;
+  }>;
   /**
    * LIRA-236 follow-up (2026-09-27 review) — server-computed: true when THIS
    * row is a session-basket member that was netted as a payout at checkout
@@ -1299,6 +1307,8 @@ export interface ElectronAPI {
       /** CQ-10: bundled discount — forgives part of the debt alongside the
        *  cash payment. Posts a signed-profit 'Debt Discount' ledger row. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+      /** LIRA-304 — ticked debt items. */
+      targets?: Array<{ kind: "sale" | "charge" | "member"; id: number }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
      *  cash movement. Capped server-side at the client's outstanding balance
@@ -1354,6 +1364,8 @@ export interface ElectronAPI {
       error?: string;
     }>;
     getClientTotal: (clientId: number) => Promise<number>;
+    /** LIRA-304 — open debt items (repayment picker / preview). */
+    getOpenItems: (clientId: number) => Promise<unknown[]>;
     updateMetadata: (data: {
       id: number;
       note?: string;

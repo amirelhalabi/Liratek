@@ -11,8 +11,21 @@ import {
   paymentMethodToDrawerName,
   isNonCashDrawerMethod,
   isDrawerAffectingMethod,
+  isPrimarySystemProvider,
   partitionLegs,
+  resolveServiceCashDrawer,
+  type BaseSystem,
 } from "../utils/payments.js";
+import { getSettingsRepository } from "./SettingsRepository.js";
+import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
+import {
+  allocateRepayment,
+  type AllocationItem,
+  type CoverageTake,
+  type DebtItemRef,
+  type OpenDebtItem,
+} from "../utils/debtRepaymentAllocation.js";
+import { coverBasketMember } from "./basketMemberCoverage.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
@@ -24,6 +37,8 @@ import {
   coverableChargeSql,
   coverageOpenSql,
   coverageOutstandingSql,
+  memberOpenSql,
+  memberOutstandingSql,
 } from "./sessionDebtCoverage.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {
@@ -51,6 +66,9 @@ export interface RepaymentCoverageRecord {
   sales: Array<{ id: number; usd: number }>;
   /** `debt_ledger.covered_usd/covered_lbp` bumped by `_coverServiceDebtsFIFO`. */
   charges: Array<{ id: number; usd: number; lbp: number }>;
+  /** LIRA-304 — basket members paid: the member's `covered_*` and its basket
+   *  row (`row_id`) were bumped together. Absent on older repayments. */
+  members?: Array<{ id: number; row_id: number; usd: number; lbp: number }>;
 }
 
 /** Read a repayment's coverage record from its transaction metadata. Returns
@@ -69,7 +87,7 @@ export function readRepaymentCoverage(
   if (!parsed || typeof parsed !== "object") return null;
   const rec = (parsed as Record<string, unknown>)[REPAYMENT_COVERAGE_KEY];
   if (!rec || typeof rec !== "object") return null;
-  const { sales, charges } = rec as Record<string, unknown>;
+  const { sales, charges, members } = rec as Record<string, unknown>;
   if (!Array.isArray(sales) || !Array.isArray(charges)) return null;
   const num = (v: unknown): number =>
     typeof v === "number" && Number.isFinite(v) ? v : 0;
@@ -82,6 +100,21 @@ export function readRepaymentCoverage(
       .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
       .map((c) => ({ id: num(c.id), usd: num(c.usd), lbp: num(c.lbp) }))
       .filter((c) => c.id > 0),
+    // Absent (undefined) on repayments booked before LIRA-304 — the void
+    // then reopens a basket's items from the row-level record instead.
+    members: Array.isArray(members)
+      ? members
+          .filter(
+            (m): m is Record<string, unknown> => !!m && typeof m === "object",
+          )
+          .map((m) => ({
+            id: num(m.id),
+            row_id: num(m.row_id),
+            usd: num(m.usd),
+            lbp: num(m.lbp),
+          }))
+          .filter((m) => m.id > 0 && m.row_id > 0)
+      : undefined,
   };
 }
 
@@ -103,14 +136,6 @@ export interface RepaymentPaymentLine {
   direction?: "IN" | "OUT";
 }
 
-// Maps transaction_type stored in debt_ledger to the system drawer that should
-// receive the repayment funds (the drawer that tracks the provider debt)
-const SERVICE_DEBT_SYSTEM_DRAWER: Record<string, string> = {
-  "Service Debt": "", // resolved dynamically from originating financial_service
-  "Recharge Debt": "General", // recharge cost was paid from General
-  "Sale Debt": "", // no system drawer — sale profit recognised on full payment
-  Repayment: "", // repayment rows themselves
-};
 
 // =============================================================================
 // Entity Types
@@ -211,6 +236,10 @@ export interface CreateRepaymentData {
    * legacy behavior, stamps the server sell rate exactly as before.
    */
   tender_exchange_rate?: number;
+  /** LIRA-304 — the open debt items the cashier ticked (optional). Picked
+   *  items are paid first; the rest follows today's order. Re-checked
+   *  server-side: every target must be this client's and still open. */
+  targets?: DebtItemRef[];
 }
 
 // =============================================================================
@@ -615,188 +644,112 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           }),
       };
 
-      // Determine if this repayment settles a Service Debt — if so, funds must
-      // flow to the originating provider's cash drawer, not just stay in
-      // General. Primary Cash Drawer plan §0 decision #8 / §1
-      // (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md): under the new
-      // model `OMT_System`/`Whish_System` IS the shop's physical primary
-      // cash drawer (PCD) at the money-transfer counter, not a spendable
-      // float inside the provider's own books — so a client repaying an
-      // OMT/WHISH service debt later moves that share of cash physically
-      // into the PCD. The mechanism below (verified 2026-07-30, kept as-is —
-      // see plan §3 Phase C) already targets that same drawer name; only
-      // this comment and the note strings the RESERVE pair stamps change to
-      // describe a cash move into the counter drawer, not a "settlement
-      // reserve" (there is no settlement/float to reserve against anymore).
-      // Routing is PER CURRENCY and capped at the client's remaining
-      // OUTSTANDING service debt in that currency:
-      //   - Original 'Service Debt' rows keep their positive amounts forever
-      //     (repayments are separate negative rows), so the old "oldest
-      //     Service Debt row with amount_usd > 0 EVER" lookup routed EVERY
-      //     later repayment — even one settling an unrelated debt long after
-      //     the service was repaid — into the provider drawer, for the FULL
-      //     leg. Outstanding = SUM(Service Debt in ccy) − SUM(already routed
-      //     to that provider's system drawer in ccy), over ACTIVE rows only.
-      //     'Refund Reversal' rows are summed in too: a REFUND leaves the
-      //     original FINANCIAL_SERVICE txn ACTIVE and books a negative
-      //     reversal against the same transaction_id, so without it a
-      //     refunded service debt would keep routing repayments forever.
-      //     (The financial_services JOIN keeps sale/recharge reversals out.)
-      //   - Kept strictly per-currency (a USD service debt routes only USD
-      //     legs, LBP only LBP): converting through the sell rate reopened
-      //     already-settled debts whenever the rate moved and booked
-      //     fractional LBP no till can hold.
-      // Note: on a DB upgraded from the buggy version, prior over-routing can
-      // push outstanding below zero; it clamps to 0 (no routing), which is the
-      // safe direction — money simply stays in General.
-      const serviceDebtsByProvider = this.db
-        .prepare(
-          `SELECT fs.provider,
-                  COALESCE(SUM(dl.amount_usd), 0) AS debt_usd,
-                  COALESCE(SUM(dl.amount_lbp), 0) AS debt_lbp,
-                  MIN(dl.created_at) AS oldest_at
-           FROM debt_ledger dl
-           JOIN transactions t ON t.id = dl.transaction_id
-             AND t.source_table = 'financial_services'
-             AND t.status = 'ACTIVE'
-             AND t.tenant_id = dl.tenant_id
-           JOIN financial_services fs ON fs.id = t.source_id
-             AND fs.tenant_id = dl.tenant_id
-           WHERE dl.client_id = ?
-             AND dl.transaction_type IN ('Service Debt', 'Refund Reversal')
-             AND fs.provider IN ('OMT', 'WHISH')
-             AND dl.tenant_id = ?
-           GROUP BY fs.provider
-           ORDER BY oldest_at ASC`,
-        )
-        .all(data.client_id, tenantId) as Array<{
-        provider: "OMT" | "WHISH";
-        debt_usd: number;
-        debt_lbp: number;
-      }>;
+      // LIRA-304 — ONE calculation (`allocateRepayment`, shared with the
+      // repayment screen's preview) decides what this repayment pays and how
+      // much of its cash goes to the shop's primary cash drawer
+      // (specs/304-debt-item-picking/research.md D3/D6):
+      //  - only the PRIMARY system's transfers are routed (OMT_System in an
+      //    OMT shop, Whish_System in a Whish shop) — never the secondary
+      //    system, never a wallet app (OMT App / Whish App / Binance);
+      //  - only CASH is routed (a leg the primary-system resolver would send
+      //    to the cash drawer), in the currency it was paid in;
+      //  - ticked items first (a ticked transfer's share is routed, a ticked
+      //    item of any other kind is not), then "OMT drawer first";
+      //  - capped per transfer at its amount minus what earlier repayments
+      //    already routed for it, valued in the transfer's own currency at
+      //    each repayment's own rate — basket members and separate visits
+      //    alike.
+      // The routed share is written as an internal RESERVE pair (out of the
+      // paying drawer, into the cash drawer): internal legs are always
+      // mirrored exactly by a void/refund, even one that overrides the
+      // refund method (research D4).
+      const baseSystem = getSettingsRepository().getShopBaseSystem();
+      const pcdDrawer = primaryCashDrawerName(baseSystem);
+      const isRoutableCash = (method: string): boolean =>
+        method !== "GIFT_CARD" &&
+        isDrawerAffectingMethod(method) &&
+        resolveServiceCashDrawer(method, {
+          provider: baseSystem,
+          baseSystem,
+        }) === pcdDrawer;
+      const openItems = this._loadAllocationItems(data.client_id, baseSystem);
+      this._assertTargetsOpen(data.targets ?? [], openItems);
+      const routableCash = (ccy: string): number =>
+        inLegs
+          .filter(
+            (l) =>
+              l.currencyCode === ccy && l.amount > 0 && isRoutableCash(l.method),
+          )
+          .reduce((sum, l) => sum + l.amount, 0);
+      const allocation = allocateRepayment({
+        items: openItems,
+        targets: data.targets,
+        reductionUsd: data.amount_usd,
+        reductionLbp: data.amount_lbp,
+        appliedUsd: Math.max(0, appliedUSD),
+        appliedLbp: Math.max(0, appliedLBP),
+        cashUsd: Math.min(routableCash("USD"), Math.max(0, appliedUSD)),
+        cashLbp: Math.min(routableCash("LBP"), Math.max(0, appliedLBP)),
+        rate: recordExchangeRate,
+      });
 
-      const routedByDrawer = this.db
-        .prepare(
-          `SELECT p.drawer_name,
-                  COALESCE(SUM(CASE WHEN p.currency_code = 'USD' THEN p.amount ELSE 0 END), 0) AS routed_usd,
-                  COALESCE(SUM(CASE WHEN p.currency_code = 'LBP' THEN p.amount ELSE 0 END), 0) AS routed_lbp
-           FROM payments p
-           JOIN transactions t ON t.id = p.transaction_id AND t.tenant_id = p.tenant_id
-           WHERE t.client_id = ?
-             AND t.type = ?
-             AND t.status = 'ACTIVE'
-             AND p.drawer_name IN ('OMT_System', 'Whish_System')
-             AND p.amount > 0
-             AND p.tenant_id = ?
-           GROUP BY p.drawer_name`,
-        )
-        .all(
-          data.client_id,
-          TRANSACTION_TYPES.DEBT_REPAYMENT,
-          tenantId,
-        ) as Array<{
-        drawer_name: string;
-        routed_usd: number;
-        routed_lbp: number;
-      }>;
-
-      // Pick the provider (oldest service debt first) that still has an
-      // outstanding amount to route in either currency.
-      let providerSystemDrawer: string | null = null;
-      let routingProvider: string | null = null;
-      let outstandingUsd = 0;
-      let outstandingLbp = 0;
-      for (const sd of serviceDebtsByProvider) {
-        const drawer = sd.provider === "OMT" ? "OMT_System" : "Whish_System";
-        const routed = routedByDrawer.find((r) => r.drawer_name === drawer);
-        const ou = sd.debt_usd - (routed?.routed_usd ?? 0);
-        const ol = sd.debt_lbp - (routed?.routed_lbp ?? 0);
-        if (ou > 0.01 || ol > 0.5) {
-          providerSystemDrawer = drawer;
-          routingProvider = sd.provider;
-          outstandingUsd = Math.max(0, ou);
-          outstandingLbp = Math.max(0, ol);
-          break;
-        }
-      }
-
-      // Cap total routing per currency at the amount actually APPLIED to the
-      // debt (gross IN − change OUT − kept extra, G44): an overpayment handed
-      // back as change, or kept as shop profit, must not route more than
-      // what settled the debt.
-      let routeRemainingUsd = Math.min(outstandingUsd, Math.max(0, appliedUSD));
-      let routeRemainingLbp = Math.min(outstandingLbp, Math.max(0, appliedLBP));
-
-      // Process each customer-paid (IN) leg independently
+      // Customer-paid (IN) legs land in their own method's drawer.
+      const legNote = data.note || "Debt repayment";
       for (const leg of inLegs) {
         if (leg.amount <= 0) continue;
-
         const legDrawer = paymentMethodToDrawerName(leg.method);
-        const legCurrency = leg.currencyCode;
-        const legNote = data.note || "Debt repayment";
-
-        // Credit inbound payment to the leg's drawer
         insertPayment.run(
           txnId,
           leg.method,
           legDrawer,
-          legCurrency,
+          leg.currencyCode,
           leg.amount,
           legNote,
           data.created_by,
           tenantId,
         );
-        upsertBalance.run(legDrawer, legCurrency, leg.amount, tenantId);
+        upsertBalance.run(legDrawer, leg.currencyCode, leg.amount, tenantId);
+      }
 
-        // For Service Debt: move cash from the payment drawer → the
-        // provider's primary cash drawer (PCD), capped per currency at the
-        // remaining OUTSTANDING service debt — a leg that also covers
-        // non-service debt only routes its service share. Only
-        // drawer-affecting legs can fund this move (a CUSTOMER_ACCOUNT/
-        // GIFT_CARD leg moves no cash, so nothing to route). For non-cash
-        // legs (WHISH, OMT wallet), the move comes out of the wallet drawer;
-        // for CASH legs it comes out of General.
-        if (providerSystemDrawer && isDrawerAffectingMethod(leg.method)) {
-          const remaining =
-            legCurrency === "USD" ? routeRemainingUsd : routeRemainingLbp;
-          const threshold = legCurrency === "USD" ? 0.01 : 0.5;
-          if (remaining > threshold) {
-            const routeAmount = Math.min(leg.amount, remaining);
-            if (legCurrency === "USD") routeRemainingUsd -= routeAmount;
-            else routeRemainingLbp -= routeAmount;
-
-            insertPayment.run(
-              txnId,
-              "RESERVE",
-              legDrawer,
-              legCurrency,
-              -routeAmount,
-              `Move to ${providerSystemDrawer} cash drawer (${routingProvider} service debt)`,
-              data.created_by,
-              tenantId,
-            );
-            upsertBalance.run(legDrawer, legCurrency, -routeAmount, tenantId);
-
-            insertPayment.run(
-              txnId,
-              // Non-null: providerSystemDrawer and routingProvider are always
-              // set together (see the loop above that assigns both).
-              routingProvider!,
-              providerSystemDrawer,
-              legCurrency,
-              routeAmount,
-              `Debt repayment: cash into ${providerSystemDrawer}`,
-              data.created_by,
-              tenantId,
-            );
-            upsertBalance.run(
-              providerSystemDrawer,
-              legCurrency,
-              routeAmount,
-              tenantId,
-            );
-          }
-        }
+      // The routed share moves from the paying cash leg(s) into the primary
+      // cash drawer, in the tender currency the calculation chose.
+      const routableLeft = inLegs.map((l) =>
+        l.amount > 0 && isRoutableCash(l.method) ? l.amount : 0,
+      );
+      const routedLegs: Array<{ currency: string; amount: number }> = [];
+      for (const r of allocation.routing) {
+        let need = r.tenderAmount;
+        inLegs.forEach((leg, i) => {
+          if (need <= 1e-9 || leg.currencyCode !== r.tenderCurrency) return;
+          const x = Math.min(need, routableLeft[i]);
+          if (x <= 1e-9) return;
+          routableLeft[i] -= x;
+          need -= x;
+          const legDrawer = paymentMethodToDrawerName(leg.method);
+          insertPayment.run(
+            txnId,
+            "RESERVE",
+            legDrawer,
+            leg.currencyCode,
+            -x,
+            `Move to ${pcdDrawer} cash drawer (${baseSystem} transfer debt)`,
+            data.created_by,
+            tenantId,
+          );
+          upsertBalance.run(legDrawer, leg.currencyCode, -x, tenantId);
+          insertPayment.run(
+            txnId,
+            "RESERVE",
+            pcdDrawer,
+            leg.currencyCode,
+            x,
+            `Debt repayment: cash into ${pcdDrawer}`,
+            data.created_by,
+            tenantId,
+          );
+          upsertBalance.run(pcdDrawer, leg.currencyCode, x, tenantId);
+          routedLegs.push({ currency: leg.currencyCode, amount: x });
+        });
       }
 
       // Return (OUT) legs: overpaid change handed back via a chosen method, or
@@ -832,42 +785,34 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         }
       }
 
-      // 4. Mark originating sales as paid (FIFO — oldest unpaid sale first)
-      //    so that profit is recognized once fully paid.
-      //    Coverage budget = the ledger reduction itself (amount_usd /
-      //    amount_lbp), i.e. the amount actually APPLIED to the debt, in the
-      //    debt's own currencies. The caller already netted change (OUT legs)
-      //    and the kept extra out of it (G44: IN − OUT − kept, verified by
-      //    resolveKeptChange above whenever a kept amount is claimed) and
-      //    converted any cross-currency tender into the debt's currency.
-      //    Coverage used to be fed from the raw TENDER per currency
-      //    (`appliedUSD || amount_usd`, `appliedLBP || amount_lbp`): an LBP
-      //    tender against a USD debt then covered sales with the converted
-      //    USD AND module charges with the full LBP — one payment counted
-      //    twice — and a mixed USD+LBP tender covered only the USD leg. The
-      //    void (TransactionRepository._restoreRepaymentDebt) gives back
-      //    exactly what is recorded below.
-      const coverage: RepaymentCoverageRecord = { sales: [], charges: [] };
-      const usdRemainder = this._markSalesPaidFIFO(
-        data.client_id,
-        data.amount_usd,
-        coverage.sales,
-      );
-
-      // DBT-1 (owner decision 2026-07-14): client-account SERVICE profit is
-      // real only once the client repays. Whatever the repayment did NOT
-      // consume on sales (plus the LBP reduction — sale debts are
-      // USD-denominated) FIFO-covers the client's module-debt charge rows;
-      // ProfitRepository's notDebtPending gate reads the coverage. One
-      // repayment budget, applied once: sales first (existing behavior,
-      // unchanged), services with the remainder.
-      this._coverServiceDebtsFIFO(
-        data.client_id,
-        usdRemainder,
-        data.amount_lbp,
-        coverage.charges,
-      );
-      this._recordRepaymentCoverage(txnId, coverage);
+      // 4. Coverage — what this repayment paid, item by item (sales on
+      //    `sales.paid_usd`, charges on their row, basket items on their own
+      //    share and the basket row together), decided by the calculation
+      //    above: ticked items first, then today's order (sales first, then
+      //    oldest first). Coverage budget = the ledger reduction itself, in
+      //    the debt's own currencies (IN − OUT − kept, already netted by the
+      //    caller). Recorded so the void gives back exactly this
+      //    (TransactionRepository._restoreRepaymentDebt).
+      const coverage = this._applyCoverage(allocation.coverage, openItems);
+      this._recordRepaymentCoverage(txnId, coverage, {
+        ...(allocation.routing.length > 0
+          ? {
+              routed: {
+                provider: baseSystem,
+                drawer: pcdDrawer,
+                by_transfer: allocation.routing.map((r) => ({
+                  ref: { kind: r.kind, id: r.id },
+                  debt_currency: r.debtCurrency,
+                  value: r.value,
+                })),
+                legs: routedLegs,
+              },
+            }
+          : { routed: { provider: baseSystem, drawer: pcdDrawer, by_transfer: [], legs: [] } }),
+        ...(data.targets && data.targets.length > 0
+          ? { targets: data.targets }
+          : {}),
+      });
 
       // CQ-10 — bundled discount: posted AFTER the repayment's own coverage
       // so the discount's FIFO budget only touches whatever the cash portion
@@ -966,8 +911,24 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     // _markSalesPaidFIFO, the remainder covers module-debt charge rows via
     // _coverServiceDebtsFIFO — otherwise a forgiven balance would leave
     // deferred profit stuck behind an uncovered charge row forever.
-    const usdRemainder = this._markSalesPaidFIFO(clientId, amountUsd);
-    this._coverServiceDebtsFIFO(clientId, usdRemainder, amountLbp);
+    // LIRA-304: the same calculation and coverage writer as a repayment
+    // (today's order; a discount moves no cash, so nothing is routed). Its
+    // coverage is recorded on the discount's own metadata for audit —
+    // COUNTERPARTY_DISCOUNT stays non-reversible.
+    const baseSystem = getSettingsRepository().getShopBaseSystem();
+    const openItems = this._loadAllocationItems(clientId, baseSystem);
+    const allocation = allocateRepayment({
+      items: openItems,
+      reductionUsd: amountUsd,
+      reductionLbp: amountLbp,
+      appliedUsd: 0,
+      appliedLbp: 0,
+      cashUsd: 0,
+      cashLbp: 0,
+      rate: getUsdLbpSellRate(this.db),
+    });
+    const coverage = this._applyCoverage(allocation.coverage, openItems);
+    this._recordRepaymentCoverage(txnId, coverage);
 
     return txnId;
   }
@@ -1006,159 +967,467 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   // ---------------------------------------------------------------------------
 
   /**
-   * When a client repays debt, attribute the USD amount to their oldest unpaid
-   * sales (FIFO) by incrementing `sales.paid_usd`. This ensures profit is
-   * recognized once a sale is fully paid.
+   * LIRA-304 — every open debt item of the client, in the shape the shared
+   * allocation (`allocateRepayment`) reads:
    *
-   * Returns the UNCONSUMED remainder so `_coverServiceDebtsFIFO` can apply it
-   * to service charge rows (DBT-1) — the same dollars are never applied twice.
+   *  - "sale":   an unpaid sale (standalone or in a basket), covered on
+   *              `sales.paid_usd` — same open-sale rule as before;
+   *  - "charge": a coverable module charge row (`'Service Debt'`, `'Loto
+   *              Debt'`, …) that is not a basket;
+   *  - "member": one non-sale item of an open basket (`'Session Debt'`
+   *              row), with its own open share (invariant I1).
+   *
+   * An open primary-system transfer (charge or member) also carries its
+   * routing cap: its amount minus what earlier, still-standing repayments
+   * already routed for it, in its own currency (research D3/D5).
+   * 'Manual Debt' and other non-coverable rows are never listed.
    */
-  private _markSalesPaidFIFO(
+  private _loadAllocationItems(
     clientId: number,
-    repaymentUsd: number,
-    record?: RepaymentCoverageRecord["sales"],
-  ): number {
-    if (repaymentUsd <= 0) return 0;
+    baseSystem: BaseSystem,
+  ): AllocationItem[] {
     const tenantId = getCurrentTenantId();
+    const items: AllocationItem[] = [];
+    // A database from before v209, or a hand-rolled test schema, may lack
+    // the basket member shares or the financial_services table: baskets are
+    // then coverable as a whole and no transfer is routed (pre-LIRA-304).
+    const hasFs = this._hasTable("financial_services");
+    const hasMemberShares =
+      this._hasTable("customer_session_transactions") &&
+      this._hasColumn("customer_session_transactions", "owed_usd");
+    const fsJoin = (alias: string, txn: string): string =>
+      hasFs
+        ? `LEFT JOIN financial_services ${alias} ON ${txn}.source_table = 'financial_services'
+           AND ${alias}.id = ${txn}.source_id AND ${alias}.tenant_id = ${txn}.tenant_id`
+        : "";
+    const fsProvider = hasFs ? "fs.provider" : "NULL";
 
-    // Find the client's unpaid sales, oldest first
-    const unpaidSales = this.db
+    const sales = this.db
       .prepare(
-        `SELECT s.id, s.final_amount_usd, s.paid_usd,
-                COALESCE(s.paid_lbp, 0) AS paid_lbp,
-                COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1) AS rate
+        `SELECT DISTINCT s.id, s.created_at,
+                s.final_amount_usd - (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) AS open_usd
          FROM sales s
          JOIN transactions t ON t.source_table = 'sales' AND t.source_id = s.id
            AND t.tenant_id = s.tenant_id
          WHERE t.client_id = ? AND s.status = 'completed'
            AND (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) < s.final_amount_usd - 0.05
-           AND s.tenant_id = ?
-         ORDER BY s.created_at ASC`,
-      )
-      .all(clientId, tenantId) as {
-      id: number;
-      final_amount_usd: number;
-      paid_usd: number;
-      paid_lbp: number;
-      rate: number;
-    }[];
-
-    const updateStmt = this.db.prepare(
-      `UPDATE sales SET paid_usd = paid_usd + ? WHERE id = ? AND tenant_id = ?`,
-    );
-
-    // CQ-2 — shared FIFO allocator; epsilon 0.01 matches this site's original
-    // loop tolerance exactly (the SQL filter above uses a separate, larger
-    // 0.05 threshold to decide which sales are still "open" at all).
-    const takes = allocateFifo(
-      unpaidSales.map((sale) => ({
-        id: sale.id,
-        outstanding:
-          sale.final_amount_usd - (sale.paid_usd + sale.paid_lbp / sale.rate),
-      })),
-      repaymentUsd,
-      0.01,
-    );
-    let consumed = 0;
-    for (const t of takes) {
-      updateStmt.run(t.take, t.id, tenantId);
-      consumed += t.take;
-      record?.push({ id: Number(t.id), usd: t.take });
-    }
-    return Math.max(0, repaymentUsd - consumed);
-  }
-
-  /**
-   * DBT-1 — repayment coverage for MODULE-debt charge rows (Recharge/Service/
-   * Custom Service/Loto/Maintenance Debt; 'Sale Debt' is excluded — sales
-   * recognize via `sales.paid_usd` above). FIFO per client, per currency
-   * column, oldest first, bumping covered_usd/covered_lbp (v129).
-   * ProfitRepository's notDebtPending fragment treats the source transaction
-   * as realized only when its charge row is fully covered in BOTH currencies.
-   * Refunded charge rows are skipped (their source is excluded from profit
-   * anyway, and covering them would waste repayment budget).
-   *
-   * LIRA-258 / G17 — a session basket's 'Session Debt' charge is covered by
-   * the same sweep (REPAYMENT_COVERABLE_DEBT_TYPES), so basket items put on
-   * the account release their profit as the customer repays. Which rows are
-   * open and how much each absorbs come from the shared
-   * `sessionDebtCoverage.ts` fragments (rule 14 — the profit hold reads the
-   * same definition); a wholly reversed basket's charge is never covered.
-   */
-  private _coverServiceDebtsFIFO(
-    clientId: number,
-    repaymentUsd: number,
-    repaymentLbp: number,
-    record?: RepaymentCoverageRecord["charges"],
-  ): void {
-    let remainingUsd = Math.max(0, repaymentUsd);
-    let remainingLbp = Math.max(0, repaymentLbp);
-    if (remainingUsd <= 0.005 && remainingLbp <= 1) return;
-    const tenantId = getCurrentTenantId();
-
-    const open = this.db
-      .prepare(
-        `SELECT dl.id, dl.covered_usd, dl.covered_lbp,
-                ${coverageOutstandingSql("dl", "usd")} AS outstanding_usd,
-                ${coverageOutstandingSql("dl", "lbp")} AS outstanding_lbp
-         FROM debt_ledger dl
-         WHERE dl.client_id = ? AND dl.tenant_id = ?
-           AND ${coverableChargeSql("dl")}
-           AND ${coverageOpenSql("dl")}
-         ORDER BY dl.created_at ASC, dl.id ASC`,
+           AND s.tenant_id = ?`,
       )
       .all(clientId, tenantId) as Array<{
       id: number;
-      covered_usd: number;
-      covered_lbp: number;
-      outstanding_usd: number;
-      outstanding_lbp: number;
+      created_at: string;
+      open_usd: number;
+    }>;
+    for (const r of sales) {
+      items.push({
+        kind: "sale",
+        id: r.id,
+        rowId: r.id,
+        createdAt: r.created_at,
+        openUsd: Math.max(0, r.open_usd),
+        openLbp: 0,
+      });
+    }
+
+    const charges = this.db
+      .prepare(
+        `SELECT dl.id, dl.created_at, dl.transaction_type, ${fsProvider} AS provider,
+                t.status AS txn_status,
+                ${coverageOutstandingSql("dl", "usd")} AS open_usd,
+                ${coverageOutstandingSql("dl", "lbp")} AS open_lbp,
+                dl.amount_usd + COALESCE((SELECT SUM(rr.amount_usd) FROM debt_ledger rr
+                  WHERE rr.transaction_id = dl.transaction_id AND rr.tenant_id = dl.tenant_id
+                    AND rr.transaction_type = 'Refund Reversal'), 0) AS owed_usd,
+                dl.amount_lbp + COALESCE((SELECT SUM(rr.amount_lbp) FROM debt_ledger rr
+                  WHERE rr.transaction_id = dl.transaction_id AND rr.tenant_id = dl.tenant_id
+                    AND rr.transaction_type = 'Refund Reversal'), 0) AS owed_lbp
+         FROM debt_ledger dl
+         LEFT JOIN transactions t ON t.id = dl.transaction_id AND t.tenant_id = dl.tenant_id
+         ${fsJoin("fs", "t")}
+         WHERE dl.client_id = ? AND dl.tenant_id = ?
+           AND dl.transaction_type <> 'Session Debt'
+           AND ${coverableChargeSql("dl")}
+           AND ${coverageOpenSql("dl")}`,
+      )
+      .all(clientId, tenantId) as Array<{
+      id: number;
+      created_at: string;
+      transaction_type: string;
+      provider: string | null;
+      txn_status: string | null;
+      open_usd: number;
+      open_lbp: number;
+      owed_usd: number;
+      owed_lbp: number;
     }>;
 
-    const upd = this.db.prepare(
-      `UPDATE debt_ledger SET covered_usd = ?, covered_lbp = ? WHERE id = ? AND tenant_id = ?`,
-    );
+    const members = !hasMemberShares
+      ? []
+      : (this.db
+      .prepare(
+        `SELECT cst.id, dl.id AS row_id, dl.created_at, ${fsProvider} AS provider,
+                ${memberOutstandingSql("cst", "usd")} AS open_usd,
+                ${memberOutstandingSql("cst", "lbp")} AS open_lbp,
+                ${memberOutstandingSql("cst", "usd")} + cst.covered_usd AS owed_usd,
+                ${memberOutstandingSql("cst", "lbp")} + cst.covered_lbp AS owed_lbp
+         FROM debt_ledger dl
+         JOIN customer_session_transactions cst ON cst.session_id = dl.session_id
+           AND cst.tenant_id = dl.tenant_id
+         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+         ${fsJoin("fs", "t")}
+         WHERE dl.client_id = ? AND dl.tenant_id = ?
+           AND dl.transaction_type = 'Session Debt'
+           AND ${coverableChargeSql("dl")}
+           AND cst.transaction_type <> 'session_item_refund'
+           AND t.type <> 'SALE'
+           AND ${memberOpenSql("cst")}`,
+      )
+      .all(clientId, tenantId) as Array<{
+      id: number;
+      row_id: number;
+      created_at: string;
+      provider: string | null;
+      open_usd: number;
+      open_lbp: number;
+      owed_usd: number;
+      owed_lbp: number;
+    }>);
 
-    // CQ-2 — dual-currency site: the shared single-currency allocator is
-    // called TWICE (once per currency, over the same open rows, in the same
-    // order) and the two independent results are merged into ONE UPDATE per
-    // row — matching this site's original single UPDATE statement shape.
-    // Each currency's allocation is fully independent math (the original
-    // loop only ever coupled the two via a shared row list + a shared
-    // "either currency due" write-gate, never via a shared budget), so
-    // running two independent passes yields the same per-row take values.
-    const usdTakes = allocateFifo(
-      open.map((row) => ({
-        id: row.id,
-        outstanding: Math.max(0, row.outstanding_usd),
-      })),
-      remainingUsd,
-      COVERAGE_EPSILON_USD,
-    );
-    const lbpTakes = allocateFifo(
-      open.map((row) => ({
-        id: row.id,
-        outstanding: Math.max(0, row.outstanding_lbp),
-      })),
-      remainingLbp,
-      COVERAGE_EPSILON_LBP,
-    );
-    const usdById = new Map(usdTakes.map((t) => [t.id, t.take]));
-    const lbpById = new Map(lbpTakes.map((t) => [t.id, t.take]));
-
-    for (const row of open) {
-      const takeUsd = usdById.get(row.id) ?? 0;
-      const takeLbp = lbpById.get(row.id) ?? 0;
-      if (takeUsd > 0 || takeLbp > 0) {
-        upd.run(
-          row.covered_usd + takeUsd,
-          row.covered_lbp + takeLbp,
-          row.id,
-          tenantId,
-        );
-        record?.push({ id: row.id, usd: takeUsd, lbp: takeLbp });
+    // A basket row whose outstanding its members do not account for (a
+    // basket booked without member shares) stays coverable as a whole.
+    const baskets = this.db
+      .prepare(
+        `SELECT dl.id, dl.created_at,
+                ${coverageOutstandingSql("dl", "usd")} AS open_usd,
+                ${coverageOutstandingSql("dl", "lbp")} AS open_lbp
+         FROM debt_ledger dl
+         WHERE dl.client_id = ? AND dl.tenant_id = ?
+           AND dl.transaction_type = 'Session Debt'
+           AND ${coverableChargeSql("dl")}
+           AND ${coverageOpenSql("dl")}`,
+      )
+      .all(clientId, tenantId) as Array<{
+      id: number;
+      created_at: string;
+      open_usd: number;
+      open_lbp: number;
+    }>;
+    for (const b of baskets) {
+      const mine = members.filter((m) => m.row_id === b.id);
+      const gapUsd = b.open_usd - mine.reduce((s2, m) => s2 + m.open_usd, 0);
+      const gapLbp = b.open_lbp - mine.reduce((s2, m) => s2 + m.open_lbp, 0);
+      if (gapUsd > COVERAGE_EPSILON_USD || gapLbp > COVERAGE_EPSILON_LBP) {
+        items.push({
+          kind: "charge",
+          id: b.id,
+          rowId: b.id,
+          createdAt: b.created_at,
+          openUsd: Math.max(0, gapUsd),
+          openLbp: Math.max(0, gapLbp),
+        });
       }
     }
+
+    const routed = this._readRoutedByTransfer(clientId, baseSystem, charges);
+    for (const c of charges) {
+      const isTransfer =
+        c.transaction_type === "Service Debt" &&
+        c.txn_status === "ACTIVE" &&
+        isPrimarySystemProvider(c.provider, baseSystem);
+      const r = routed.get(`charge:${c.id}`) ?? { usd: 0, lbp: 0 };
+      items.push({
+        kind: "charge",
+        id: c.id,
+        rowId: c.id,
+        createdAt: c.created_at,
+        openUsd: Math.max(0, c.open_usd),
+        openLbp: Math.max(0, c.open_lbp),
+        routingCap: isTransfer
+          ? {
+              usd: Math.max(0, c.owed_usd - r.usd),
+              lbp: Math.max(0, c.owed_lbp - r.lbp),
+            }
+          : null,
+      });
+    }
+    for (const m of members) {
+      const isTransfer = isPrimarySystemProvider(m.provider, baseSystem);
+      const r = routed.get(`member:${m.id}`) ?? { usd: 0, lbp: 0 };
+      items.push({
+        kind: "member",
+        id: m.id,
+        rowId: m.row_id,
+        createdAt: m.created_at,
+        openUsd: Math.max(0, m.open_usd),
+        openLbp: Math.max(0, m.open_lbp),
+        routingCap: isTransfer
+          ? {
+              usd: Math.max(0, m.owed_usd - r.usd),
+              lbp: Math.max(0, m.owed_lbp - r.lbp),
+            }
+          : null,
+      });
+    }
+    return items;
+  }
+
+  /**
+   * LIRA-304 — how much earlier repayments already routed to the primary
+   * cash drawer, per transfer and debt currency. Counts only repayments
+   * still standing: not voided AND not reversed by a refund (a refund can
+   * leave the original ACTIVE — research D5). Repayments booked before
+   * LIRA-304 carry no per-transfer record; their positive cash-drawer rows
+   * are attributed to the client's primary-system transfer charges, oldest
+   * first, in the same currency (that routing was strictly per currency).
+   */
+  private _readRoutedByTransfer(
+    clientId: number,
+    baseSystem: BaseSystem,
+    charges: Array<{
+      id: number;
+      created_at: string;
+      transaction_type: string;
+      provider: string | null;
+      owed_usd: number;
+      owed_lbp: number;
+    }>,
+  ): Map<string, { usd: number; lbp: number }> {
+    const tenantId = getCurrentTenantId();
+    const out = new Map<string, { usd: number; lbp: number }>();
+    const add = (k: string, ccy: string, v: number): void => {
+      const cur = out.get(k) ?? { usd: 0, lbp: 0 };
+      if (ccy === "USD") cur.usd += v;
+      else if (ccy === "LBP") cur.lbp += v;
+      out.set(k, cur);
+    };
+    const standing = this.db
+      .prepare(
+        `SELECT t.id, t.metadata_json FROM transactions t
+         WHERE t.client_id = ? AND t.tenant_id = ? AND t.type = ?
+           AND t.status = 'ACTIVE'
+           AND NOT EXISTS (SELECT 1 FROM transactions rv
+                           WHERE rv.reverses_id = t.id AND rv.tenant_id = t.tenant_id)`,
+      )
+      .all(clientId, tenantId, TRANSACTION_TYPES.DEBT_REPAYMENT) as Array<{
+      id: number;
+      metadata_json: string | null;
+    }>;
+    const pcdDrawer = primaryCashDrawerName(baseSystem);
+    const legacyIds: number[] = [];
+    for (const row of standing) {
+      let routed: unknown = undefined;
+      try {
+        routed = row.metadata_json
+          ? (JSON.parse(row.metadata_json) as Record<string, unknown>).routed
+          : undefined;
+      } catch {
+        routed = undefined;
+      }
+      const byTransfer =
+        routed && typeof routed === "object"
+          ? (routed as { by_transfer?: unknown }).by_transfer
+          : undefined;
+      if (!Array.isArray(byTransfer)) {
+        legacyIds.push(row.id);
+        continue;
+      }
+      for (const e of byTransfer as Array<{
+        ref?: { kind?: string; id?: number };
+        debt_currency?: string;
+        value?: number;
+      }>) {
+        if (!e?.ref?.kind || typeof e.ref.id !== "number") continue;
+        add(
+          `${e.ref.kind}:${e.ref.id}`,
+          e.debt_currency ?? "USD",
+          typeof e.value === "number" ? e.value : 0,
+        );
+      }
+    }
+    if (legacyIds.length > 0) {
+      const placeholders = legacyIds.map(() => "?").join(", ");
+      const legacy = this.db
+        .prepare(
+          `SELECT currency_code, COALESCE(SUM(amount), 0) AS routed
+           FROM payments
+           WHERE transaction_id IN (${placeholders}) AND tenant_id = ?
+             AND drawer_name = ? AND amount > 0
+           GROUP BY currency_code`,
+        )
+        .all(...legacyIds, tenantId, pcdDrawer) as Array<{
+        currency_code: string;
+        routed: number;
+      }>;
+      const transfers = charges
+        .filter(
+          (c) =>
+            c.transaction_type === "Service Debt" &&
+            isPrimarySystemProvider(c.provider, baseSystem),
+        )
+        .sort((a, b) =>
+          a.created_at === b.created_at
+            ? a.id - b.id
+            : a.created_at < b.created_at
+              ? -1
+              : 1,
+        );
+      for (const l of legacy) {
+        let left = l.routed;
+        for (const c of transfers) {
+          if (left <= 0) break;
+          const owed = l.currency_code === "USD" ? c.owed_usd : c.owed_lbp;
+          const take = Math.min(left, Math.max(0, owed));
+          if (take > 0) add(`charge:${c.id}`, l.currency_code, take);
+          left -= take;
+        }
+      }
+    }
+    return out;
+  }
+
+  private _hasTable(name: string): boolean {
+    return !!this.db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(name);
+  }
+
+  private _hasColumn(table: string, column: string): boolean {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+    }>;
+    return cols.some((c) => c.name === column);
+  }
+
+  /**
+   * LIRA-304 — every open debt item of a client, as the repayment screen's
+   * picker lists it (and as its "Goes to" preview feeds the shared
+   * allocation): the allocation fields plus each item's own transaction
+   * summary, type and basket. Oldest first.
+   */
+  findOpenDebtItems(clientId: number): OpenDebtItem[] {
+    const tenantId = getCurrentTenantId();
+    const baseSystem = getSettingsRepository().getShopBaseSystem();
+    const items = this._loadAllocationItems(clientId, baseSystem);
+    const hasCst = this._hasTable("customer_session_transactions");
+    const saleInfo = this.db.prepare(
+      `SELECT t.summary, t.type${hasCst ? `,
+              (SELECT cst.session_id FROM customer_session_transactions cst
+                WHERE cst.unified_transaction_id = t.id AND cst.tenant_id = t.tenant_id
+                LIMIT 1) AS session_id` : ", NULL AS session_id"}
+       FROM transactions t
+       WHERE t.source_table = 'sales' AND t.source_id = ? AND t.tenant_id = ?
+         AND t.type = 'SALE'
+       ORDER BY t.id ASC LIMIT 1`,
+    );
+    const chargeInfo = this.db.prepare(
+      `SELECT COALESCE(t.summary, dl.note, dl.transaction_type) AS summary,
+              t.type, dl.session_id
+       FROM debt_ledger dl
+       LEFT JOIN transactions t ON t.id = dl.transaction_id AND t.tenant_id = dl.tenant_id
+       WHERE dl.id = ? AND dl.tenant_id = ?`,
+    );
+    const memberInfo = hasCst
+      ? this.db.prepare(
+          `SELECT t.summary, t.type, cst.session_id
+           FROM customer_session_transactions cst
+           JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+           WHERE cst.id = ? AND cst.tenant_id = ?`,
+        )
+      : null;
+    type Info = { summary: string | null; type: string | null; session_id: number | null };
+    return items
+      .map((it): OpenDebtItem => {
+        const info = (
+          it.kind === "sale"
+            ? saleInfo.get(it.id, tenantId)
+            : it.kind === "charge"
+              ? chargeInfo.get(it.id, tenantId)
+              : memberInfo?.get(it.id, tenantId)
+        ) as Info | undefined;
+        return {
+          ...it,
+          label: info?.summary ?? `${it.kind} #${it.id}`,
+          type: info?.type ?? null,
+          sessionId: info?.session_id ?? null,
+          isPrimary: !!it.routingCap,
+          primaryDrawer: it.routingCap ? primaryCashDrawerName(baseSystem) : null,
+        };
+      })
+      .sort((a, b) =>
+        a.createdAt === b.createdAt
+          ? a.rowId - b.rowId || a.id - b.id
+          : a.createdAt < b.createdAt
+            ? -1
+            : 1,
+      );
+  }
+
+  /** LIRA-304 — refuse (before any write) a ticked item that is not one of
+   *  this client's open items: closed, refunded, someone else's, or a kind
+   *  that cannot be paid item by item ('Manual Debt'). */
+  private _assertTargetsOpen(
+    targets: DebtItemRef[],
+    items: AllocationItem[],
+  ): void {
+    for (const t of targets) {
+      if (!items.some((it) => it.kind === t.kind && it.id === t.id)) {
+        throw new DatabaseError(
+          "One of the ticked items is no longer open for this customer — reload and try again.",
+        );
+      }
+    }
+  }
+
+  /**
+   * LIRA-304 — the ONE writer of a repayment's / discount's coverage:
+   * `sales.paid_usd` for sales, the charge row's `covered_*` for charges,
+   * and a basket member's `covered_*` together with its basket row for
+   * members (`coverBasketMember`, which also refuses to over-cover an item
+   * two cashiers raced for). Returns the record the void reads back.
+   */
+  private _applyCoverage(
+    takes: CoverageTake[],
+    items: AllocationItem[],
+  ): RepaymentCoverageRecord {
+    const tenantId = getCurrentTenantId();
+    const record: RepaymentCoverageRecord = {
+      sales: [],
+      charges: [],
+      members: [],
+    };
+    const updSale = this.db.prepare(
+      `UPDATE sales SET paid_usd = paid_usd + ? WHERE id = ? AND tenant_id = ?`,
+    );
+    const updCharge = this.db.prepare(
+      `UPDATE debt_ledger SET covered_usd = covered_usd + ?, covered_lbp = covered_lbp + ?
+       WHERE id = ? AND tenant_id = ?`,
+    );
+    for (const t of takes) {
+      if (t.usd <= 0 && t.lbp <= 0) continue;
+      if (t.kind === "sale") {
+        updSale.run(t.usd, t.id, tenantId);
+        record.sales.push({ id: t.id, usd: t.usd });
+      } else if (t.kind === "charge") {
+        updCharge.run(t.usd, t.lbp, t.id, tenantId);
+        record.charges.push({ id: t.id, usd: t.usd, lbp: t.lbp });
+      } else {
+        const item = items.find((i) => i.kind === "member" && i.id === t.id);
+        const { rowId } = coverBasketMember(
+          this.db,
+          tenantId,
+          t.id,
+          t.usd,
+          t.lbp,
+        );
+        record.members!.push({
+          id: t.id,
+          row_id: item?.rowId ?? rowId,
+          usd: t.usd,
+          lbp: t.lbp,
+        });
+      }
+    }
+    return record;
   }
 
   /**
@@ -1169,6 +1438,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   private _recordRepaymentCoverage(
     txnId: number,
     coverage: RepaymentCoverageRecord,
+    extra: Record<string, unknown> = {},
   ): void {
     const tenantId = getCurrentTenantId();
     const row = this.db
@@ -1190,6 +1460,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       }
     }
     meta[REPAYMENT_COVERAGE_KEY] = coverage;
+    Object.assign(meta, extra);
     this.db
       .prepare(
         `UPDATE transactions SET metadata_json = ? WHERE id = ? AND tenant_id = ?`,

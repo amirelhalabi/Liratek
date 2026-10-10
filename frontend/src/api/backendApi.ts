@@ -44,7 +44,11 @@ import type {
   SsoExchangeInput,
 } from "@liratek/core";
 // Debts write payloads derived from the core schemas (rule 21).
-import type { AddRepaymentPayload, DebtCashOutPayload } from "@liratek/core";
+import type {
+  AddRepaymentPayload,
+  DebtCashOutPayload,
+  OpenDebtItem,
+} from "@liratek/core";
 // LIRA-297 — write payloads derived from the core schemas (rule 21):
 // `z.input<…>` aliases computed inside core, never hand-copied literals.
 import type {
@@ -1696,6 +1700,25 @@ export async function getClientDebtTotal(clientId: number) {
         `/api/debts/clients/${clientId}/total`,
       );
       return res.total;
+    },
+  );
+}
+
+// LIRA-304 — a client's open debt items (repayment picker + "Goes to"
+// preview). Read → raw array, both transports.
+export async function getOpenDebtItems(
+  clientId: number,
+): Promise<OpenDebtItem[]> {
+  return ipcOrHttp(
+    async () =>
+      (await getElectronApi().debt.getOpenItems(clientId)) as OpenDebtItem[],
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        items?: OpenDebtItem[];
+        error?: string;
+      }>(`/api/debts/clients/${clientId}/open-items`);
+      return res.items ?? [];
     },
   );
 }

@@ -33,6 +33,7 @@
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import Debts from "../index";
 
+const mockGetOpenDebtItems = jest.fn().mockResolvedValue([]);
 const mockGetDebtors = jest.fn();
 const mockGetClientDebtHistory = jest.fn();
 const mockGetClientBalance = jest.fn();
@@ -76,6 +77,8 @@ jest.mock("@liratek/ui", () => {
       getClientBalance: mockGetClientBalance,
       getClientDebtTotal: mockGetClientDebtTotal,
       addRepayment: mockAddRepayment,
+      // LIRA-304 — repayment picker: no open items here.
+      getOpenDebtItems: mockGetOpenDebtItems,
       cashOut: mockCashOut,
       debtWriteOff: mockDebtWriteOff,
       addAccountEntry: mockAddAccountEntry,

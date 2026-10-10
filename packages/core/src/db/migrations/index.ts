@@ -14365,7 +14365,199 @@ CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created ON idempotency_keys(crea
       `);
     },
   },
+  {
+    version: 209,
+    name: "session_member_debt_share",
+    description:
+      "LIRA-304: each non-sale member of a basket checked out on Customer " +
+      "Account carries its own share of the basket's 'Session Debt' row " +
+      "(owed_usd/owed_lbp) and how much of it repayments have paid " +
+      "(covered_usd/covered_lbp), so a repayment can be aimed at one item. " +
+      "The row stays the authority; existing baskets are back-filled so the " +
+      "members' open amounts add up to the row's outstanding amount.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "customer_session_transactions")) return;
+      for (const col of [
+        "owed_usd",
+        "owed_lbp",
+        "covered_usd",
+        "covered_lbp",
+      ] as const) {
+        if (!columnExists(db, "customer_session_transactions", col)) {
+          db.exec(
+            `ALTER TABLE customer_session_transactions ADD COLUMN ${col} REAL NOT NULL DEFAULT 0;`,
+          );
+        }
+      }
+      if (!columnExists(db, "customer_session_transactions", "updated_at")) {
+        db.exec(
+          `ALTER TABLE customer_session_transactions ADD COLUMN updated_at TEXT;`,
+        );
+      }
+      backfillSessionMemberDebtShare(db);
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "customer_session_transactions")) return;
+      for (const col of [
+        "updated_at",
+        "covered_lbp",
+        "covered_usd",
+        "owed_lbp",
+        "owed_usd",
+      ] as const) {
+        if (columnExists(db, "customer_session_transactions", col)) {
+          db.exec(
+            `ALTER TABLE customer_session_transactions DROP COLUMN ${col};`,
+          );
+        }
+      }
+    },
+  },
 ];
+
+/**
+ * v209 back-fill (LIRA-304, research D12). For every basket charge still
+ * coverable (`'Session Debt'`, `transaction_id IS NULL`, basket not wholly
+ * reversed), spread the row's CURRENT outstanding amount over its non-sale
+ * charge members, per currency, in proportion to each member's own amount
+ * net of its item-refund credit — the by-share rule checkouts used before
+ * this change. Each member's `covered` starts at 0 and `owed` = its open
+ * share + its refund credit, so for every basket:
+ *
+ *   Σ member (owed − covered − refund credit) = row outstanding   (I1)
+ *
+ * Frozen copy of the outstanding/refund-credit definitions as they stand at
+ * v209 (`repositories/sessionDebtCoverage.ts`) — a migration must not change
+ * meaning when that module evolves. Exported for its own test only.
+ */
+export function backfillSessionMemberDebtShare(db: Database.Database): void {
+  if (
+    !tableExists(db, "debt_ledger") ||
+    !tableExists(db, "transactions") ||
+    !columnExists(db, "debt_ledger", "covered_usd") ||
+    !columnExists(db, "debt_ledger", "session_id")
+  ) {
+    return;
+  }
+  const baskets = db
+    .prepare(
+      `SELECT dl.id, dl.tenant_id, dl.session_id,
+              dl.amount_usd - dl.covered_usd AS out_usd,
+              dl.amount_lbp - dl.covered_lbp AS out_lbp
+       FROM debt_ledger dl
+       WHERE dl.transaction_type = 'Session Debt'
+         AND dl.transaction_id IS NULL
+         AND dl.session_id IS NOT NULL
+         AND COALESCE(dl.is_refunded, 0) = 0
+         AND NOT EXISTS (
+           SELECT 1 FROM debt_ledger rr
+           WHERE rr.session_id = dl.session_id AND rr.tenant_id = dl.tenant_id
+             AND rr.transaction_type = 'Refund Reversal')`,
+    )
+    .all() as Array<{
+    id: number;
+    tenant_id: number;
+    session_id: number;
+    out_usd: number;
+    out_lbp: number;
+  }>;
+
+  const membersStmt = db.prepare(
+    `SELECT cst.id, cst.amount_usd, cst.amount_lbp,
+            COALESCE(NULLIF(cst.paid_exchange_rate, 0), 89500) AS rate,
+            COALESCE((SELECT -SUM(r.amount_usd) FROM debt_ledger r
+                      JOIN transactions rt ON rt.id = r.transaction_id AND rt.tenant_id = r.tenant_id
+                      WHERE r.transaction_type = 'Session Item Refund'
+                        AND r.session_id = cst.session_id AND r.tenant_id = cst.tenant_id
+                        AND rt.reverses_id = cst.unified_transaction_id), 0) AS credit_usd,
+            COALESCE((SELECT -SUM(r.amount_lbp) FROM debt_ledger r
+                      JOIN transactions rt ON rt.id = r.transaction_id AND rt.tenant_id = r.tenant_id
+                      WHERE r.transaction_type = 'Session Item Refund'
+                        AND r.session_id = cst.session_id AND r.tenant_id = cst.tenant_id
+                        AND rt.reverses_id = cst.unified_transaction_id), 0) AS credit_lbp
+     FROM customer_session_transactions cst
+     JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+     WHERE cst.session_id = ? AND cst.tenant_id = ?
+       AND cst.transaction_type <> 'session_item_refund'
+       AND t.type <> 'SALE'
+       AND (cst.amount_usd > 0 OR cst.amount_lbp > 0)
+     ORDER BY cst.id ASC`,
+  );
+  const update = db.prepare(
+    `UPDATE customer_session_transactions
+     SET owed_usd = ?, owed_lbp = ?, covered_usd = 0, covered_lbp = 0, updated_at = datetime('now')
+     WHERE id = ? AND tenant_id = ?`,
+  );
+
+  type Member = {
+    id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    rate: number;
+    credit_usd: number;
+    credit_lbp: number;
+  };
+  const spread = (
+    members: Member[],
+    total: number,
+    currency: "usd" | "lbp",
+  ): number[] => {
+    const scale = currency === "usd" ? 100 : 1;
+    const units = Math.round(Math.max(0, total) * scale);
+    if (units === 0 || members.length === 0) return members.map(() => 0);
+    let weights = members.map((m) =>
+      currency === "usd"
+        ? Math.max(0, m.amount_usd - m.credit_usd)
+        : Math.max(0, m.amount_lbp - m.credit_lbp),
+    );
+    if (weights.every((w) => w === 0)) {
+      // Cross-currency basket (e.g. a USD charge paying an LBP-priced item):
+      // weight by each member's value instead.
+      weights = members.map((m) =>
+        Math.max(
+          0,
+          m.amount_usd -
+            m.credit_usd +
+            (m.amount_lbp - m.credit_lbp) / (m.rate > 0 ? m.rate : 89500),
+        ),
+      );
+    }
+    const sum = weights.reduce((s, w) => s + w, 0);
+    if (sum === 0) weights = members.map(() => 1);
+    const total2 = weights.reduce((s, w) => s + w, 0);
+    const out: number[] = [];
+    let given = 0;
+    members.forEach((_, i) => {
+      const share =
+        i === members.length - 1
+          ? units - given
+          : Math.floor((units * weights[i]) / total2);
+      given += share;
+      out.push(share / scale);
+    });
+    return out;
+  };
+
+  for (const b of baskets) {
+    const members = membersStmt.all(b.session_id, b.tenant_id) as Member[];
+    if (members.length === 0) continue;
+    // Row outstanding as `coverageOutstandingSql` defines it at v209:
+    // amount − covered − the non-sale members' item-refund credits.
+    const creditUsd = members.reduce((s, m) => s + m.credit_usd, 0);
+    const creditLbp = members.reduce((s, m) => s + m.credit_lbp, 0);
+    const openUsd = spread(members, b.out_usd - creditUsd, "usd");
+    const openLbp = spread(members, b.out_lbp - creditLbp, "lbp");
+    members.forEach((m, i) => {
+      update.run(
+        openUsd[i] + m.credit_usd,
+        openLbp[i] + m.credit_lbp,
+        m.id,
+        b.tenant_id,
+      );
+    });
+  }
+}
 // =============================================================================
 // Migration Runner
 // =============================================================================

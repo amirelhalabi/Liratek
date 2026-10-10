@@ -144,6 +144,7 @@ import type {
   DebtUpdateMetadataPayload,
   DebtWriteOffPayload,
   AddRepaymentPayload,
+  OpenDebtItem,
   ExpenseUpdateMetadataPayload,
   FinancialUpdateMetadataPayload,
   PartnerCreatePayload,
@@ -1355,6 +1356,8 @@ export type ApiAdapter = {
    * changes with it.
    */
   addRepayment: (payload: AddRepaymentPayload) => Promise<ApiResult>;
+  /** LIRA-304 — open debt items for the repayment picker / preview. */
+  getOpenDebtItems: (clientId: number) => Promise<OpenDebtItem[]>;
   /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
    *  cash movement. Capped server-side at the client's outstanding balance
    *  per currency. */

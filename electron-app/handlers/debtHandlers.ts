@@ -44,6 +44,9 @@ interface RepaymentData {
   keptChangeLBP?: number;
   tender_exchange_rate?: number;
   transaction_time?: string;
+  // LIRA-304 — ticked debt items (addRepaymentSchema `targets`), forwarded
+  // as-is; DebtRepository re-checks each one.
+  targets?: Array<{ kind: "sale" | "charge" | "member"; id: number }>;
 }
 
 export function registerDebtHandlers(): void {
@@ -62,6 +65,12 @@ export function registerDebtHandlers(): void {
   // Get total debt for a client
   ipcMain.handle("debt:get-client-total", (_event, clientId: number) => {
     return debtService.getClientTotal(clientId);
+  });
+
+  // LIRA-304 — a client's open debt items (the repayment screen's picker
+  // and the Accounts page's basket breakdown). Same access as the history.
+  ipcMain.handle("debt:get-open-items", (_event, clientId: number) => {
+    return debtService.getOpenDebtItems(clientId);
   });
 
   // Add a repayment

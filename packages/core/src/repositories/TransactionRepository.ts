@@ -16,6 +16,10 @@
  * - **Exchange rate**: Immutable snapshot captured at creation time.
  */
 
+import {
+  reopenBasketMembers,
+  uncoverBasketMember,
+} from "./basketMemberCoverage.js";
 import { localDayExpr } from "./reportingTimeFragments.js";
 import {
   MODULE_DEBT_TRANSACTION_TYPES,
@@ -1034,6 +1038,20 @@ export interface TransactionWithUser extends TransactionEntity {
    */
   session_account_payments?: TransactionPaymentLeg[];
   /**
+   * LIRA-304 — internal cash moves between two of the shop's own drawers
+   * that this transaction made (a debt repayment's share for a primary
+   * system transfer, moved from the paying drawer into OMT_System /
+   * Whish_System as an internal RESERVE pair). Hidden from `payments` (not
+   * customer cash), surfaced here so the payment detail can show where the
+   * customer's cash ended up. Display only.
+   */
+  drawer_moves?: Array<{
+    from: string;
+    to: string;
+    currency_code: string;
+    amount: number;
+  }>;
+  /**
    * LIRA-205 — net telecom credit returned to the shop on this transaction
    * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), in USD. Only
    * USD-denominated CREDIT_RETURN legs are accumulated into this figure (see
@@ -1743,6 +1761,33 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const returnedCreditsByTxn = new Map<number, number>();
 
     const byTxn = new Map<number, TransactionPaymentLeg[]>();
+    // LIRA-304 — pair each RESERVE out-leg with the in-leg that follows it
+    // (same transaction, same currency): one internal drawer→drawer move.
+    const movesByTxn = new Map<
+      number,
+      Array<{ from: string; to: string; currency_code: string; amount: number }>
+    >();
+    const pendingOut = new Map<string, { drawer: string; amount: number }[]>();
+    for (const p of legRows) {
+      if (p.method !== "RESERVE" || !p.drawer_name || p.amount === 0) continue;
+      const key = `${p.transaction_id}|${p.currency_code}`;
+      if (p.amount < 0) {
+        const q = pendingOut.get(key) ?? [];
+        q.push({ drawer: p.drawer_name, amount: -p.amount });
+        pendingOut.set(key, q);
+      } else {
+        const out = pendingOut.get(key)?.shift();
+        if (!out) continue;
+        const moves = movesByTxn.get(p.transaction_id) ?? [];
+        moves.push({
+          from: out.drawer,
+          to: p.drawer_name,
+          currency_code: p.currency_code,
+          amount: Math.min(out.amount, p.amount),
+        });
+        movesByTxn.set(p.transaction_id, moves);
+      }
+    }
     for (const p of legRows) {
       if (p.method === CREDIT_RETURN_LEG_METHOD && p.currency_code === "USD") {
         returnedCreditsByTxn.set(
@@ -1922,6 +1967,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       if (returnedCredits !== undefined) {
         row.returned_credits_usd = returnedCredits;
       }
+      const moves = movesByTxn.get(row.id);
+      if (moves && moves.length > 0) row.drawer_moves = moves;
     }
 
     return rows;
@@ -7210,6 +7257,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       for (const c of recorded.charges) {
         if (c.usd > 0 || c.lbp > 0) {
           updCharge.run(c.usd, c.lbp, c.id, ledger.client_id, tenantId);
+          // A repayment booked before LIRA-304 covered a basket row as a
+          // whole; reopen its items by the same amount so the members still
+          // add up to the row (I1). Newer records name the items instead.
+          if (recorded.members === undefined) {
+            reopenBasketMembers(this.db, tenantId, c.id, c.usd, c.lbp);
+          }
+        }
+      }
+      // LIRA-304 — basket items this repayment paid: give back exactly that
+      // on each item and its basket row together.
+      for (const m of recorded.members ?? []) {
+        if (m.usd > 0 || m.lbp > 0) {
+          uncoverBasketMember(this.db, tenantId, m.id, m.row_id, m.usd, m.lbp);
         }
       }
       return;
@@ -7348,6 +7408,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       const takeLbp = lbpById.get(row.id) ?? 0;
       if (takeUsd > 0 || takeLbp > 0) {
         upd.run(takeUsd, takeLbp, row.id, tenantId);
+        // LIRA-304: keep a basket's items adding up to its row (I1).
+        reopenBasketMembers(this.db, tenantId, row.id, takeUsd, takeLbp);
       }
     }
   }

@@ -53,6 +53,12 @@ import {
   type PaymentRowData,
 } from "../../components/ServiceDebtDetailModal";
 import { SessionDebtDetailModal } from "../../components/SessionDebtDetailModal";
+import DebtItemPicker from "../../components/DebtItemPicker";
+import {
+  allocateRepayment,
+  type DebtItemRef,
+  type OpenDebtItem,
+} from "@liratek/core";
 import {
   ImportCleanupModal,
   type ImportClient,
@@ -189,6 +195,9 @@ export default function Debts() {
   // header). LBP legs MUST convert at this rate — using a different one books
   // a reduction the operator never saw.
   const [repayModalRate, setRepayModalRate] = useState<number | null>(null);
+  // LIRA-304 — the client's open debt items and the ones the cashier ticked.
+  const [repayOpenItems, setRepayOpenItems] = useState<OpenDebtItem[]>([]);
+  const [repayTargets, setRepayTargets] = useState<DebtItemRef[]>([]);
   // T3 keep-change: change the operator chose to KEEP as shop profit rather
   // than return. Excluded from the debt reduction (it is NOT the client's
   // credit) and stamped on the DEBT_REPAYMENT transaction as profit.
@@ -578,6 +587,144 @@ export default function Debts() {
     setSessionDetail({ sessionId, amountUsd, amountLbp, mode });
   };
 
+  // LIRA-304 — load the open items whenever the repayment modal opens (repay
+  // mode). `api` is read through a ref (rule 25).
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  const repayClientId = selectedClient?.id ?? null;
+  useEffect(() => {
+    setRepayTargets([]);
+    if (!showRepaymentModal || repayMode !== "repay" || repayClientId == null) {
+      setRepayOpenItems([]);
+      return;
+    }
+    let cancelled = false;
+    apiRef.current
+      .getOpenDebtItems(repayClientId)
+      .then((items) => {
+        if (!cancelled) setRepayOpenItems(items);
+      })
+      .catch((error) => {
+        logger.error("Failed to load open debt items", { error });
+        if (!cancelled) setRepayOpenItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showRepaymentModal, repayMode, repayClientId]);
+
+  // ONE computation of a repayment's figures (paid per currency, the debt
+  // reduction, the rate) — used by the submit below AND the LIRA-304
+  // "Goes to" preview, so the preview can never disagree with what is sent.
+  // Change handed back (OUT legs) and kept change are netted out of the
+  // reduction so an overpayment is not counted twice (repaymentReduction.ts;
+  // kept uses the EXACT figure — owner note #8).
+  const computeRepayFigures = () => {
+    const validLines = repayPaymentLines.filter((l) => l.amount > 0);
+    const paidUSD = validLines
+      .filter((l) => l.currencyCode === "USD")
+      .reduce((s, l) => s + l.amount, 0);
+    const paidLBP = validLines
+      .filter((l) => l.currencyCode === "LBP")
+      .reduce((s, l) => s + l.amount, 0);
+    const conversionRate = repayModalRate ?? EXCHANGE_RATE;
+    const keptUsd = repayKeptChange?.usd ?? 0;
+    const keptLbp = repayKeptChange?.lbp ?? 0;
+    const { usd: keptUsdExact, lbp: keptLbpExact } =
+      resolveKeptChangeForReduction(repayKeptChange);
+    const returnedUsd =
+      repayReturnLegs
+        .filter((l) => l.currencyCode === "USD")
+        .reduce((s, l) => s + l.amount, 0) + keptUsdExact;
+    const returnedLbp =
+      repayReturnLegs
+        .filter((l) => l.currencyCode === "LBP")
+        .reduce((s, l) => s + l.amount, 0) + keptLbpExact;
+    // CQ-10: due is the DISCOUNT-ADJUSTED remaining due (see
+    // applyDebtDiscount's header comment).
+    const { reduceUsd, reduceLbp } = computeRepaymentReduction({
+      paidUsd: paidUSD,
+      paidLbp: paidLBP,
+      returnedUsd,
+      returnedLbp,
+      dueUsd: repayRemainingDueUsd,
+      dueLbp: repayRemainingDueLbp,
+      rate: conversionRate,
+    });
+    return {
+      validLines,
+      paidUSD,
+      paidLBP,
+      conversionRate,
+      keptUsd,
+      keptLbp,
+      returnedUsd,
+      returnedLbp,
+      reduceUsd,
+      reduceLbp,
+    };
+  };
+
+  // LIRA-304 (spec FR-010) — "Goes to": where this repayment's cash lands,
+  // computed by the SAME calculation the server posts with
+  // (`allocateRepayment`). Shown only when part of it goes to the primary
+  // system's cash drawer.
+  const repayPreview = (() => {
+    if (repayMode !== "repay" || repayOpenItems.length === 0) return null;
+    const f = computeRepayFigures();
+    if (!Number.isFinite(f.reduceUsd) || !Number.isFinite(f.reduceLbp)) {
+      return null;
+    }
+    const isCash = (code: string): boolean => {
+      if (code === "GIFT_CARD" || code === "CUSTOMER_ACCOUNT") return false;
+      const m = methods.find((x) => x.code === code) as
+        | { drawer_name?: string; affects_drawer?: number }
+        | undefined;
+      return m && m.drawer_name !== undefined
+        ? m.affects_drawer === 1 && m.drawer_name === "General"
+        : code === "CASH";
+    };
+    const appliedUsd = Math.max(0, f.paidUSD - f.returnedUsd);
+    const appliedLbp = Math.max(0, f.paidLBP - f.returnedLbp);
+    const cashOf = (ccy: string) =>
+      f.validLines
+        .filter((l) => l.currencyCode === ccy && isCash(l.method))
+        .reduce((sum, l) => sum + l.amount, 0);
+    const cashUsd = Math.min(cashOf("USD"), appliedUsd);
+    const cashLbp = Math.min(cashOf("LBP"), appliedLbp);
+    const result = allocateRepayment({
+      items: repayOpenItems,
+      targets: repayTargets,
+      reductionUsd: f.reduceUsd,
+      reductionLbp: f.reduceLbp,
+      appliedUsd,
+      appliedLbp,
+      cashUsd,
+      cashLbp,
+      rate: f.conversionRate,
+    });
+    if (result.routedUsd <= 0 && result.routedLbp <= 0) return null;
+    const fmt = (usd: number, lbp: number): string =>
+      [
+        usd > 0.004 ? `$${usd.toFixed(2).replace(/\.00$/, "")}` : "",
+        lbp > 0.5 ? `${Math.round(lbp).toLocaleString()} LBP` : "",
+      ]
+        .filter(Boolean)
+        .join(" + ");
+    return {
+      systemLabel:
+        repayOpenItems.find((i) => i.primaryDrawer)?.primaryDrawer ===
+        "Whish_System"
+          ? "Whish Cash Drawer"
+          : "OMT Cash Drawer",
+      systemText: fmt(result.routedUsd, result.routedLbp),
+      generalText: fmt(
+        Math.max(0, cashUsd - result.routedUsd),
+        Math.max(0, cashLbp - result.routedLbp),
+      ),
+    };
+  })();
+
   const handleProcessRepayment = async () => {
     if (!selectedClient) return;
 
@@ -737,31 +884,7 @@ export default function Debts() {
     // owner note #8's bug (2026-09-23): a $0.06-vs-$0.0562 rounding left a
     // client's debt short by 340 LBP after a repayment that should have
     // cleared it exactly.
-    const keptUsd = repayKeptChange?.usd ?? 0;
-    const keptLbp = repayKeptChange?.lbp ?? 0;
-    const { usd: keptUsdExact, lbp: keptLbpExact } =
-      resolveKeptChangeForReduction(repayKeptChange);
-    const returnedUsd =
-      repayReturnLegs
-        .filter((l) => l.currencyCode === "USD")
-        .reduce((s, l) => s + l.amount, 0) + keptUsdExact;
-    const returnedLbp =
-      repayReturnLegs
-        .filter((l) => l.currencyCode === "LBP")
-        .reduce((s, l) => s + l.amount, 0) + keptLbpExact;
-    // CQ-10: due passed here is the DISCOUNT-ADJUSTED remaining due, never
-    // the raw dueUsd/dueLbp — see applyDebtDiscount's header comment for why
-    // that seam matters (paid + discount must never be able to exceed the
-    // original due).
-    const { reduceUsd, reduceLbp } = computeRepaymentReduction({
-      paidUsd: paidUSD,
-      paidLbp: paidLBP,
-      returnedUsd,
-      returnedLbp,
-      dueUsd: repayRemainingDueUsd,
-      dueLbp: repayRemainingDueLbp,
-      rate: conversionRate,
-    });
+    const { keptUsd, keptLbp, reduceUsd, reduceLbp } = computeRepayFigures();
 
     if (!Number.isFinite(reduceUsd) || !Number.isFinite(reduceLbp)) {
       alert(
@@ -815,6 +938,8 @@ export default function Debts() {
           : {}),
         ...keptFields,
         ...discountFields,
+        // LIRA-304 — the items the cashier ticked (the server re-checks them).
+        ...(repayTargets.length > 0 ? { targets: repayTargets } : {}),
         ...(repayTransactionTime
           ? { transaction_time: repayTransactionTime }
           : {}),
@@ -2109,6 +2234,15 @@ export default function Debts() {
             confirmLabel={
               repayMode === "cashout" ? "Confirm Cash Out" : "Confirm Payment"
             }
+            beforeContent={
+              repayMode === "repay" && repayOpenItems.length > 0 ? (
+                <DebtItemPicker
+                  items={repayOpenItems}
+                  selected={repayTargets}
+                  onChange={setRepayTargets}
+                />
+              ) : undefined
+            }
             confirmColor="emerald"
             multiPaymentInput={{
               // Per-currency totals (multi-currency engine, T2 fix): the
@@ -2280,6 +2414,32 @@ export default function Debts() {
               )
             }
           >
+            {repayPreview && (
+              <div
+                data-testid="repay-goes-to"
+                className="bg-slate-800/50 border border-slate-700/40 rounded-xl px-3 py-2 text-sm"
+              >
+                <div className="text-xs font-medium text-slate-300 mb-1">
+                  Goes to
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">
+                    {repayPreview.systemLabel}
+                  </span>
+                  <span className="font-mono text-emerald-400">
+                    {repayPreview.systemText}
+                  </span>
+                </div>
+                {repayPreview.generalText && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">General</span>
+                    <span className="font-mono text-emerald-400">
+                      {repayPreview.generalText}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <label
                 htmlFor="repay-note"

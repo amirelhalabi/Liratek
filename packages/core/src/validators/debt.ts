@@ -58,6 +58,22 @@ export const addRepaymentSchema = z
     // throws, this is a stamp-only field.
     tender_exchange_rate: z.number().positive().optional(),
     transaction_time: transactionTimeSchema,
+    // LIRA-304 — the open debt items the cashier ticked: paid first, the
+    // rest in today's order. Re-checked server-side (DebtRepository).
+    targets: z
+      .array(
+        z.object({
+          kind: z.enum(["sale", "charge", "member"]),
+          id: z.number().int().positive(),
+        }),
+      )
+      .max(200)
+      .refine(
+        (list) =>
+          new Set(list.map((t) => `${t.kind}:${t.id}`)).size === list.length,
+        { message: "An item was ticked twice" },
+      )
+      .optional(),
   })
   .refine(
     (data) =>

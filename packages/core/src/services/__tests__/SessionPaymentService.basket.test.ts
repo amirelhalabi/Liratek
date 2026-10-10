@@ -571,12 +571,13 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
         userId: 1,
       });
 
-      // totalUnits = 700 cents; pcdUnits = round(700 * 1/3) = round(233.33..) = 233 -> $2.33
-      // generalUnits = 700 - 233 = 467 -> $4.67. 2.33 + 4.67 = 7.00 exactly.
+      // LIRA-304 (owner decision 2026-10-10, "OMT first"): the cash pays the
+      // primary-system transfer first — the $7 is less than the $10 OMT
+      // item, so all of it goes to the PCD. (By-share it was $2.33/$4.67.)
       const pcd = drawerBalance(db, "OMT_System", "USD");
       const general = drawerBalance(db, "General", "USD");
-      expect(pcd).toBe(2.33);
-      expect(general).toBe(4.67);
+      expect(pcd).toBe(7);
+      expect(general).toBe(0);
       // THE conservation property, asserted against real posted balances, not
       // just the pure function: PCD delta + General delta === the leg amount.
       expect(Math.round((pcd + general) * 100) / 100).toBe(7);
@@ -667,14 +668,12 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
         userId: 1,
       });
 
-      // leg1: 40 * 0.6 = 24 pcd / 16 general
-      // leg2: 60 * 0.6 = 36 pcd / 24 general
-      // totals: pcd = 24 + 36 = 60; general = 16 + 24 = 40
+      // LIRA-304 (owner decision 2026-10-10, "OMT first"): leg1 $40 → all
+      // PCD (the OMT item still needs $60); leg2 $60 → $20 PCD + $40 General.
+      // Same totals as the old by-share split, one fewer row.
       expect(drawerBalance(db, "OMT_System", "USD")).toBe(60);
       expect(drawerBalance(db, "General", "USD")).toBe(40);
-
-      // Two cash legs, each split in two -> 4 payments rows, no more, no fewer.
-      expect(paymentRows(db)).toHaveLength(4);
+      expect(paymentRows(db)).toHaveLength(3);
     });
 
     it("CUSTOMER_ACCOUNT and GIFT_CARD legs are UNTOUCHED by the split, even when ratio > 0", () => {
@@ -732,25 +731,21 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
         userId: 1,
       });
 
-      // IN leg:  150 * 0.5 = 75 pcd / 75 general (both credited)
-      // OUT leg:  50 * 0.5 = 25 pcd / 25 general (both DEBITED — posted once each)
-      // net PCD     = 75 - 25 = 50
-      // net General = 75 - 25 = 50
-      // net total kept by the shop = 100 = the basket total (150 in - 50 change)
+      // LIRA-304 (owner decision 2026-10-10, "OMT first"): the IN leg pays
+      // the $50 OMT item first ($50 PCD, $100 General); the change always
+      // comes out of General (−$50). Net PCD 50, net General 50.
       expect(drawerBalance(db, "OMT_System", "USD")).toBe(50);
       expect(drawerBalance(db, "General", "USD")).toBe(50);
 
-      // Exactly 4 payments rows total: 2 for the IN leg's split (pcd + general)
-      // + 2 for the OUT leg's split (pcd + general) — if a flow-specific branch
-      // additionally iterated a separate `returnLegs` array (rule 16's named
-      // trap), this would be 6 rows and the OUT amount would be debited twice.
+      // Exactly 3 payments rows: 2 for the IN leg (pcd + general) + 1 for the
+      // OUT leg — if a flow-specific branch additionally iterated a separate
+      // `returnLegs` array (rule 16's named trap), the change would be
+      // debited twice.
       const pays = paymentRows(db);
-      expect(pays).toHaveLength(4);
+      expect(pays).toHaveLength(3);
       const outRows = pays.filter((p) => p.amount < 0);
-      expect(outRows).toHaveLength(2);
-      expect(outRows.map((p) => p.amount).sort((a, b) => a - b)).toEqual([
-        -25, -25,
-      ]);
+      expect(outRows).toHaveLength(1);
+      expect(outRows[0].amount).toBe(-50);
     });
 
     it("symmetric by primary system (decision #3): WHISH primary routes to Whish_System, not OMT_System", () => {

@@ -107,6 +107,13 @@ export type TransactionRow = {
    * nothing. Read by `ReturnedCreditsCell` (../components/TransactionCells).
    */
   returned_credits_usd?: number;
+  /** LIRA-304 — see `RecentTransaction.drawer_moves` (electron.d.ts). */
+  drawer_moves?: Array<{
+    from: string;
+    to: string;
+    currency_code: string;
+    amount: number;
+  }>;
   /**
    * LIRA-236 follow-up (2026-09-27 review) — server-computed replacement for
    * the old amount-sign `isSessionPayoutMember` heuristic (see

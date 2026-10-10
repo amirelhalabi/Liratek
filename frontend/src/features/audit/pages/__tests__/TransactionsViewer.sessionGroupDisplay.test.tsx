@@ -245,8 +245,8 @@ describe("TransactionsViewer — session group display (LIRA-201b, owner note #1
 
     const detail = await screen.findByTestId("payment-legs-detail-10");
     expect(detail.textContent).toContain("In — Cash: $50");
-    expect(detail.textContent).toContain("Out — Cash: $40");
-    expect(detail.textContent).toContain("Out — Cash: 10,000 LBP");
+    // LIRA-304 (FR-019): one line per method + direction, currencies joined.
+    expect(detail.textContent).toContain("Out — Cash: $40 + 10,000 LBP");
   });
 
   it("a session member WITH its own leg keeps it, and still is not the pooled header when a lower id exists", async () => {

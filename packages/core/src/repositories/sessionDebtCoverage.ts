@@ -120,3 +120,47 @@ export function coverageOpenSql(alias: string): string {
   return `(${coverageOutstandingSql(alias, "usd")} > ${COVERAGE_EPSILON_USD}
        OR ${coverageOutstandingSql(alias, "lbp")} > ${COVERAGE_EPSILON_LBP})`;
 }
+
+/**
+ * LIRA-304 — one basket member's own item-refund credit in one currency
+ * column (positive = owed less): the `'Session Item Refund'` rows whose
+ * REFUND transaction reverses THIS member. Summed over a basket's non-sale
+ * members it equals {@link sessionItemRefundNetCreditSql} for the row.
+ */
+function memberItemRefundCreditSql(
+  cstAlias: string,
+  currency: CoverageCurrency,
+): string {
+  return `COALESCE((
+      SELECT -SUM(COALESCE(mir.amount_${currency}, 0)) FROM debt_ledger mir
+      JOIN transactions mirt ON mirt.id = mir.transaction_id
+      WHERE mir.session_id = ${cstAlias}.session_id
+        AND mir.tenant_id = ${cstAlias}.tenant_id
+        AND mir.transaction_type = '${SESSION_ITEM_REFUND_CREDIT_TYPE}'
+        AND mirt.reverses_id = ${cstAlias}.unified_transaction_id
+    ), 0)`;
+}
+
+/**
+ * LIRA-304 — how much of ONE non-sale basket member's share is still
+ * waiting for repayment, in one currency column:
+ * `owed − covered − this member's item-refund credit`.
+ *
+ * Invariant I1 (specs/304-debt-item-picking/data-model.md): for every
+ * coverable basket row, Σ over its non-sale members of this value equals
+ * {@link coverageOutstandingSql} for the row — the repayment writer keeps
+ * the row's `covered_*` in step with its members' (DebtRepository
+ * .applyCoverage), and the profit hold reads this per member.
+ */
+export function memberOutstandingSql(
+  cstAlias: string,
+  currency: CoverageCurrency,
+): string {
+  return `(COALESCE(${cstAlias}.owed_${currency}, 0) - COALESCE(${cstAlias}.covered_${currency}, 0) - ${memberItemRefundCreditSql(cstAlias, currency)})`;
+}
+
+/** The member still has an uncovered remainder in either currency. */
+export function memberOpenSql(cstAlias: string): string {
+  return `(${memberOutstandingSql(cstAlias, "usd")} > ${COVERAGE_EPSILON_USD}
+       OR ${memberOutstandingSql(cstAlias, "lbp")} > ${COVERAGE_EPSILON_LBP})`;
+}

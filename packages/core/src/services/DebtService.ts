@@ -10,6 +10,7 @@
  * - Dashboard debt summaries
  */
 
+import type { OpenDebtItem } from "../utils/debtRepaymentAllocation.js";
 import {
   DebtRepository,
   getDebtRepository,
@@ -53,6 +54,8 @@ export interface RepaymentData {
    *  the payment sheet's operator-tendered rate, threaded straight through
    *  to the repository (no business logic here). */
   tender_exchange_rate?: number;
+  /** LIRA-304 — ticked debt items (see DebtRepository.CreateRepaymentData). */
+  targets?: Array<{ kind: "sale" | "charge" | "member"; id: number }>;
 }
 
 /** Input for DebtService.addCredit / addCreditOrThrow. */
@@ -185,6 +188,14 @@ export class DebtService {
   // ---------------------------------------------------------------------------
 
   /**
+   * LIRA-304 — a client's open debt items for the repayment screen (picker
+   * + "Goes to" preview). Read-only; returns the raw array.
+   */
+  getOpenDebtItems(clientId: number): OpenDebtItem[] {
+    return this.debtRepo.findOpenDebtItems(clientId);
+  }
+
+  /**
    * Process a debt repayment
    */
   addRepayment(data: RepaymentData): RepaymentResult {
@@ -201,6 +212,7 @@ export class DebtService {
       transaction_time,
       discount,
       tender_exchange_rate,
+      targets,
     } = data;
 
     // Validate
@@ -268,6 +280,7 @@ export class DebtService {
         transaction_time,
         discount,
         tender_exchange_rate,
+        targets,
       });
 
       debtLogger.info(

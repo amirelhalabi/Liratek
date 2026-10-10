@@ -151,6 +151,21 @@ export function paymentMethodToDrawerName(method: string): string {
  */
 export type BaseSystem = "OMT" | "WHISH";
 
+/**
+ * LIRA-304 — is this transfer's provider the shop's PRIMARY money-transfer
+ * system? True only for the OMT or WHISH system that matches
+ * `shop_base_system`; false for the secondary system and for every wallet
+ * app (`OMT_APP`, `WHISH_APP`, `BINANCE` — Whish system is not Whish App) or
+ * other provider. The one definition of "money for this transfer belongs in
+ * the primary cash drawer" (rule 14).
+ */
+export function isPrimarySystemProvider(
+  provider: string | null | undefined,
+  baseSystem: BaseSystem,
+): boolean {
+  return (provider === "OMT" || provider === "WHISH") && provider === baseSystem;
+}
+
 /** Context a call site threads into {@link resolveServiceCashDrawer}: which
  *  provider this leg's transaction runs on, and which system is primary. */
 export interface ServiceCashDrawerContext {

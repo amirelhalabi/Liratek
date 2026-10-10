@@ -103,6 +103,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 - Refunding a currency exchange now works: the refund simply swaps the money back.
 - Refunds: you can now hand back a round amount and keep a small leftover (under $1 or 100,000 LBP, in the refund's currency) as shop profit — for example, refund $20.12, hand back $20. Works for sales, debt payments, OMT/Whish and wallet transfers, recharges, custom services, repairs and Loto tickets, paid back in cash or through a wallet (not a customer account or gift card). It shows on the Profits page under Kept change on the day of the refund (not the day of the original sale or transfer), and in that day's close, so the close matches the drawer.
+- Payment details now show each payment method on one line with both currencies (for example "In — Cash: $115 + 200,000 LBP"), and which drawer the money went to when it went to more than one, or into the OMT/Whish cash drawer.
+- Customer basket checkout: a "Goes to" line shows how much of the cash goes to the OMT/Whish cash drawer and how much to General. When the customer pays only part in cash, the cash now covers the OMT/Whish transfer first, and change always comes out of General. From now on.
 - Customer basket checkout: when a cash prize or payout covers the whole basket, a payment typed in earlier is no longer recorded as if the customer had paid it.
 - Customer basket checkout: an OMT receive no longer asks the customer to pay the OMT fee — OMT never charges a fee on a receive.
 - Customer basket checkout: a For Partner OMT or Whish transfer in the basket is no longer added to what the customer pays; it goes on the partner's account only. A For Partner receive is no longer paid out to the customer. From now on.
@@ -204,6 +206,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - POS: a sale that was already completed can no longer be completed a second time (for example when the web app loses its connection right after you press Complete and you press it again) — before, it could take the stock, the customer's debt and a partner's charge twice.
 - POS: refunding one item from a sale made for a partner now lowers what the partner owes by that item's price, and "Undo refund" puts it back. From now on only — earlier item refunds are not changed.
 - POS: when the customer kept their change as store credit, refunding an item now also takes back that item's share of the credit, so the customer is not paid the change twice. From now on only.
+- Customer sessions: at checkout, you can now switch the payment from Customer Account to Cash (or another method) for a customer who has an account. Before, the line jumped back to Customer Account, so the basket could only be put on the account.
 - Customer sessions: after a checkout, the "Checkout Complete" screen with the Print receipt button now stays open instead of disappearing straight away.
 - Customer sessions: if the change or a payout sent to the customer's account cannot be saved, the checkout now stops with an error instead of finishing without the customer's credit.
 - Refunding a sale paid with a gift card now gives the gift card back.
@@ -234,6 +237,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - From now on, a debt repayment paid in lira against a dollar debt (or partly in each currency) counts once toward what the customer owed. Before, it could also mark recharges or services on the account as paid, so their profit showed up too early.
 - From now on, voiding or refunding a debt repayment puts back exactly what that repayment paid off — it no longer marks an unrelated earlier sale, or a sale paid in cash, as unpaid again.
 - Hold Money: when you return a hold in both dollars and lira, you can now hand back a little less in either currency (for example $50 + 950,000 LBP on a $50 + 1,000,000 LBP hold); the difference is kept as shop profit and the hold is closed. The return sheet shows how much is being kept before you confirm.
+- Settle Debt: the window now lists everything the customer owes — each separate visit, and each item inside a basket that was put on the account — and you can tick what the money is for. Ticked items are paid first; if you tick nothing, payment works as before.
+- Settle Debt: money for an OMT or Whish transfer (on the system your shop runs on) now goes to the OMT/Whish cash drawer whether the customer bought it in one basket or in separate visits, and a "Goes to" line shows the split before you confirm. Only cash is moved there, also when paid in lira for a dollar transfer; wallet payments and the other system's transfers stay where they are. From now on.
 - The Cash Out window is now titled "Cash Out Credit" and its button says "Confirm Cash Out", so it no longer looks like a repayment.
 
 ## 🌐 Web app
