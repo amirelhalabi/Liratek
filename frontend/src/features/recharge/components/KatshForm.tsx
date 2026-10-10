@@ -35,6 +35,8 @@ import {
   // days the backend then refuses or clips.
   projectValidityExpiry,
   MAX_LINE_VALIDITY_DAYS,
+  buildCatalogSalePayload,
+  catalogCartTotals,
 } from "@liratek/core";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -1651,45 +1653,32 @@ function KatshFormInner({
     if (cart.size > 0) {
       const cartItems = Array.from(cart.values());
 
-      // Aggregate all items into one transaction
-      const totalSellPrice = cartItems.reduce((sum, line) => {
-        const onlyDaysTotal = resolveOnlyDaysPricing(
-          line,
-          catalogPricing,
-          tenantCreditSellPriceLbp,
-        ).total;
-        return (
-          sum +
-          calcPrice(
+      // LIRA-302: the cart is described ONCE, in core's buildCatalogSalePayload
+      // (shared with the phone app, rule 22). Each line carries its unit price
+      // as this form prices it (Only-Days lines included) and its GROSS cost
+      // (LIRA-090 B1: no pre-netting — the repo handles Only-Days credit
+      // returns via telecomCreditReturns below).
+      const catalogLines = cartItems.map((line) => ({
+        item: {
+          category: line.item.category,
+          label: line.item.label,
+          subcategory: line.item.subcategory,
+          cost_lbp: calcCost(line.item),
+          sell_lbp: calcPrice(
             line.item,
             line.onlyDays,
             line.returnedCreditsUsd,
             alfaCreditSellRate,
-            onlyDaysTotal,
-          ) *
-            line.quantity
-        );
-      }, 0);
-
-      // LIRA-090 B1: GROSS cost — no pre-netting. The repo handles everything
-      // via processTelecomCreditReturn when mobileServiceItemId is present.
-      const aggregatedCost = cartItems.reduce(
-        (sum, line) => sum + calcCost(line.item) * line.quantity,
-        0,
-      );
-
-      const discountedTotal = totalSellPrice - discount;
-      const aggregatedCommission = Math.max(
-        0,
-        discountedTotal - aggregatedCost,
-      );
-
-      const noteLines = cartItems.map((line) => {
-        const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
-        const onlyDays = line.onlyDays ? " [Only Days]" : "";
-        return `${formatCatalogItemName(line.item)}${qty}${onlyDays}`;
-      });
-      const note = noteLines.join(", ");
+            resolveOnlyDaysPricing(line, catalogPricing, tenantCreditSellPriceLbp)
+              .total,
+          ),
+        },
+        quantity: line.quantity,
+        noteSuffix: line.onlyDays ? " [Only Days]" : undefined,
+      }));
+      const totals = catalogCartTotals(catalogLines);
+      const discountedTotal = totals.price - discount;
+      const aggregatedCommission = Math.max(0, discountedTotal - totals.cost);
 
       // LIRA-090 §6.2 (walk-in aggregated payload): the aggregated SEND bundles
       // all cart lines into ONE transaction. For Only-Days lines, the repo needs
@@ -1723,14 +1712,18 @@ function KatshFormInner({
 
       try {
         const result = await api.addOMTTransaction({
-          provider: activeProvider,
-          serviceType: "SEND",
+          ...buildCatalogSalePayload({
+            provider: activeProvider as "Katsh" | "iPick",
+            lines: catalogLines,
+            paidByMethod: finalPaymentMethod,
+            payments: paymentsPayload,
+          }),
+          // Web-only on top of the shared cart: the discount lowers what the
+          // customer pays (and the margin) …
           amount: discountedTotal,
-          cost: aggregatedCost,
-          currency: "LBP",
           commission: aggregatedCommission,
-          paidByMethod: finalPaymentMethod,
-          payments: paymentsPayload,
+          // … and the carrier's checkout total covers the WHOLE checkout
+          // (items + bills), not just this cart.
           checkoutTotal:
             paymentsPayload !== undefined ? checkoutTotal : undefined,
           // Payment-Legs Integrity plan (Wave 9 + false-reject fix): the
@@ -1768,7 +1761,6 @@ function KatshFormInner({
             : {}),
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
-          note,
           transaction_time: transactionTime,
         });
 

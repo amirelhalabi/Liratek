@@ -54,14 +54,15 @@ Only-Days fields are read (FR-011).
   the same way (rule 14); the web keeps its hook.
 - The phone does **not** use the 89,000 fallback: if the rate cannot be loaded, USD is unavailable and LBP still
   works (spec edge case). A silent default rate on a money screen is the wrong direction.
-- USD amount = LBP total ÷ buy rate, rounded to the cent. Likely, based on the web's payment sheet showing cents: the
-  web rounds the same way — **verify while writing the builder by reading the web's LBP→USD tender computation
-  (`MultiPaymentInput` / PaymentSheet) and reuse it if it is a function**; if the rules differ, the core helper
-  adopts the web's rule (SC-002 compares the two).
+- **USD amount rule (verified 2026-10-10, T001):** the web's payment sheet (`packages/ui/src/components/ui/
+  MultiPaymentInput.tsx` `prefillAmountFor`) converts the LBP remaining with `packages/ui/src/money/convert.ts`
+  (`amount × crossRate`, base USD, so LBP→USD = `lbp × (1 / rate)`) and then `roundForCurrency` (USD: 2 decimals,
+  `Math.round(x × 100) / 100`, `packages/ui/src/money/registry.ts`). Core's `usdForLbp` reproduces exactly that
+  arithmetic (same operation order, so the same half-cent results); core cannot import `@liratek/ui`.
 - Booked as the web books it: one leg `{ method, currencyCode: "USD", amount }`, `checkoutTotal: { usd: 0, lbp:
   total }`, `tender_exchange_rate: buyRate`.
-- On account in USD: Likely, based on the leg currency, the customer's debt is booked in USD — unverified; T012
-  asserts what the repository actually books against the web's payload shape.
+- On account in USD: the customer's debt is booked in USD, the leg's currency (verified 2026-10-10 by T012 on the
+  real schema).
 
 ## R4. Payment choices and client
 

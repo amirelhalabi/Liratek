@@ -62,6 +62,9 @@ export * from "./utils/walletReceivePayout.js";
 export * from "./utils/walletTransfer.js";
 // LIRA-301 — transaction titles and summary wording, shared by web, desktop and phone (pure).
 export * from "./utils/transactionText.js";
+// LIRA-302 — catalog cart payload (web + phone) and the USD/LBP rate reader (pure).
+export * from "./utils/catalogSale.js";
+export * from "./utils/exchangeRates.js";
 // Generic calendar-date arithmetic (rule 14 — the one definition, moved out
 // of carrierLineValidity.js so date-neutral callers don't import a
 // carrier-line module to add a day to a date). Re-exported from BOTH entry

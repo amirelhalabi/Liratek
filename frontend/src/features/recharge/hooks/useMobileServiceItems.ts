@@ -1,4 +1,4 @@
-import type { ServiceItem } from "@/contexts/MobileServiceItemsContext";
+import { formatCatalogItemName } from "@liratek/core";
 
 export type {
   ProviderKey,
@@ -20,9 +20,5 @@ export { useMobileServiceItemsContext as useMobileServiceItems } from "@/context
  * the name. (The multi-item *session-basket* debt keeps its own "Session…"
  * recorder note; this helper is only the per-item name.)
  */
-export function formatCatalogItemName(
-  item: Pick<ServiceItem, "category" | "label" | "subcategory">,
-): string {
-  const sub = item.subcategory?.trim();
-  return `${item.category}: ${item.label}${sub ? ` (${sub})` : ""}`;
-}
+// Defined once in core (LIRA-302) and shared with the phone app.
+export { formatCatalogItemName };

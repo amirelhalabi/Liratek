@@ -64,6 +64,6 @@ Web extras layered on top in `KatshForm` only: discount (lowers `amount`), `tele
 | ------------------------- | ------------------------------- | ------------------------------------ |
 | Provider drawer (Katsh/iPick, LBP) | −cost                  | −cost                                |
 | Whish_App / OMT_App drawer | +price LBP (wallet payment)    | +USD amount (wallet payment)         |
-| Customer debt             | +price LBP (on account)         | as the web books a USD account leg on an LBP cart — expected +USD amount; **T012 asserts the observed result against the same payload, unverified until then** |
+| Customer debt             | +price LBP (on account)         | +USD amount (verified 2026-10-10 by T012: the debt is booked in the leg's currency) |
 | Profit                    | price − cost                    | price − cost                         |
 | Void / refund             | every line above back to 0      | every line above back to 0           |

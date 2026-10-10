@@ -52,16 +52,12 @@ import type { ProviderConfig } from "../../types";
 // packages/core/src/utils/telecomCredit.ts) so the pricing-model math under
 // test is real behaviour, not a mocked stub — the authoritative definitions
 // still live ONLY in core (rule 14).
-// Use the REAL core module. The previous version of this mock hand-rewrote
-// maxReturnableCredits and isTelecomSplitComplete in test code — a rule-14
-// duplication that lets the test agree with itself while disagreeing with
-// production, and which silently omitted resolveCreditSellPriceLbp once
-// KatshForm started importing it. requireActual on the pure-function file
-// keeps the assertions honest; the file has no Node-only imports, so it loads
-// cleanly under jsdom.
-jest.mock("@liratek/core", () =>
-  jest.requireActual("../../../../../../packages/core/src/utils/telecomCredit"),
-);
+// Use the REAL core browser entry (frontend jest maps @liratek/core to it).
+// An earlier mock hand-rewrote telecomCredit functions (a rule-14 copy that
+// drifted from production); a later one narrowed core to utils/telecomCredit,
+// which hid every other core function KatshForm uses (LIRA-302: the shared
+// cart builder). Neither again.
+jest.mock("@liratek/core", () => jest.requireActual("@liratek/core"));
 
 // ── Capture addOMTTransaction payloads ──────────────────────────────────────
 const mockAddOMTTransaction = jest

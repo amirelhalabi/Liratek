@@ -383,6 +383,9 @@ export * from "./utils/walletReceivePayout.js";
 export * from "./utils/walletTransfer.js";
 // LIRA-301 — transaction titles and summary wording, shared by web, desktop and phone (pure).
 export * from "./utils/transactionText.js";
+// LIRA-302 — catalog cart payload (web + phone) and the USD/LBP rate reader (pure).
+export * from "./utils/catalogSale.js";
+export * from "./utils/exchangeRates.js";
 // LIRA-289: local day of a stored UTC timestamp (Transactions date filter).
 export { localDayOfUtcTimestamp } from "./utils/localDate.js";
 

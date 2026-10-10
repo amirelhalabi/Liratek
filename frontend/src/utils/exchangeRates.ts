@@ -5,6 +5,8 @@
  * Follows industry standard: Money IN = Sell Rate (higher), Money OUT = Buy Rate (lower)
  */
 
+import { readUsdLbpRates } from "@liratek/core";
+
 export type RateType = "BUY" | "SELL" | "N/A";
 
 export interface RateInfo {
@@ -59,37 +61,11 @@ export interface CurrencyPair {
  * // sellRate: 90,000 (we sell USD — higher, favorable to us)
  */
 export function getExchangeRates(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rates: Array<any>,
+  rates: Array<unknown>,
   fallbackRate: number = 89000,
 ): ExchangeRates {
-  // ── Current schema (v59+): { to_code, market_rate, buy_rate, sell_rate, is_stronger } ──
-  const lbpRow = rates.find(
-    (r) => r.to_code === "LBP" && r.market_rate !== undefined,
-  );
-  if (lbpRow) {
-    // buy_rate = we buy USD from customer (lower, favorable to us)
-    // sell_rate = we sell USD to customer (higher, favorable to us)
-    return {
-      buyRate: lbpRow.buy_rate ?? lbpRow.market_rate,
-      sellRate: lbpRow.sell_rate ?? lbpRow.market_rate,
-    };
-  }
-
-  // ── Legacy from/to schema: { from_code, to_code, rate } ───────────────────
-  const buyRateEntry = rates.find(
-    (r: { from_code?: string; to_code?: string }) =>
-      r.from_code === "LBP" && r.to_code === "USD",
-  );
-  const sellRateEntry = rates.find(
-    (r: { from_code?: string; to_code?: string }) =>
-      r.from_code === "USD" && r.to_code === "LBP",
-  );
-
-  return {
-    buyRate: buyRateEntry?.rate || fallbackRate,
-    sellRate: sellRateEntry?.rate || fallbackRate + 500,
-  };
+  // One reader shared with the phone app (LIRA-302); same behaviour as before.
+  return readUsdLbpRates(rates, fallbackRate);
 }
 
 /**
