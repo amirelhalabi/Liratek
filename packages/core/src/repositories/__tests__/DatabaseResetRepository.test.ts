@@ -330,6 +330,26 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
          (tenant_id, drawer_name, from_currency, to_currency, amount_in, amount_out, rate)
        VALUES (?, 'OMT_App', 'USD', 'LBP', 1, 1, 1)`,
     ).run(tenantId);
+    // LIRA-296 v206 — a warranty claim and its defective item.
+    const saleItemId = Number(
+      (
+        db
+          .prepare(`SELECT id FROM sale_items WHERE tenant_id = ? LIMIT 1`)
+          .get(tenantId) as { id: number }
+      ).id,
+    );
+    const claimId = Number(
+      db
+        .prepare(
+          `INSERT INTO warranty_claims (tenant_id, sale_item_id, action, status, user_id)
+           VALUES (?, ?, 'REFUND', 'DONE', ?)`,
+        )
+        .run(tenantId, saleItemId, userId).lastInsertRowid,
+    );
+    db.prepare(
+      `INSERT INTO defective_items (tenant_id, product_id, quantity, unit_cost_usd, warranty_claim_id)
+       VALUES (?, ?, 1, 1, ?)`,
+    ).run(tenantId, productId, claimId);
   });
   run();
 }

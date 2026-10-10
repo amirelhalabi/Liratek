@@ -1203,8 +1203,32 @@ const PAYOUT_AND_EXPENSE_RULES = {
   },
 } as const satisfies Record<string, PostingRule>;
 
+// ─── Warranty — LIRA-296 P2 (owner decision D1, 2026-10-10) ────────────────
+
+const WARRANTY_RULES = {
+  "WARRANTY_COST/claim": {
+    transactionType: "WARRANTY_COST",
+    mode: "Warranty cost of a claim (replace / refund / repair parts) or its recovery",
+    mapRef: "POSTING_MAP.md §4.7 Warranty cost (LIRA-296)",
+    ledgers: {
+      // Profit-only: no payment legs, no counterparty. A REFUND claim's
+      // cash moves on its own REFUND row (the existing refund-item rule).
+      drawers: NONE,
+      supplier: NONE,
+      partner: NONE,
+      debt: NONE,
+    },
+    notes:
+      "profit_usd = −cost (replacement unit, refunded faulty unit, repair " +
+      "parts) or +recovery (not faulty back to stock, supplier credit). " +
+      "Reversal owner: WarrantyService.voidClaim (exact negation, " +
+      "reverses_id); the generic void refuses the type.",
+  },
+} as const satisfies Record<string, PostingRule>;
+
 export const POSTING_RULES = {
   ...FS_SYSTEM_RULES,
+  ...WARRANTY_RULES,
   ...LOTO_RULES,
   ...RECHARGE_RULES,
   ...TELECOM_RULES,

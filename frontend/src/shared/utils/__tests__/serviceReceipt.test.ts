@@ -325,7 +325,12 @@ describe("buildServiceReceiptText", () => {
         },
       },
       legs: [
-        { method: "CASH", currency_code: "LBP", amount: 280000, direction: "IN" },
+        {
+          method: "CASH",
+          currency_code: "LBP",
+          amount: 280000,
+          direction: "IN",
+        },
       ],
     });
     expect(r).toContain("Price:");
@@ -361,7 +366,12 @@ describe("buildServiceReceiptText", () => {
         },
       },
       legs: [
-        { method: "CASH", currency_code: "LBP", amount: 300000, direction: "IN" },
+        {
+          method: "CASH",
+          currency_code: "LBP",
+          amount: 300000,
+          direction: "IN",
+        },
       ],
     });
     expect(r).toContain("Amount:");
@@ -418,7 +428,14 @@ describe("buildServiceReceiptText", () => {
             commission: 2,
           }),
         },
-        [{ method: "CASH", currency_code: "USD", amount: 102, direction: "IN" }],
+        [
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 102,
+            direction: "IN",
+          },
+        ],
       );
 
       const result = await buildServiceReceiptTextByTransaction(api, 501, SHOP);
@@ -514,11 +531,50 @@ describe("buildServiceReceiptText — receipt header (LIRA-296)", () => {
   it("prints the header under the shop name", () => {
     const r = build({ shop: { ...SHOP, headerText: "Open daily 9-9" } });
     expect(r).toContain("Open daily 9-9");
-    expect(r.indexOf("Open daily 9-9")).toBeGreaterThan(r.indexOf("Corner Tech"));
+    expect(r.indexOf("Open daily 9-9")).toBeGreaterThan(
+      r.indexOf("Corner Tech"),
+    );
     expect(r.indexOf("Open daily 9-9")).toBeLessThan(r.indexOf("#501"));
   });
 
   it("prints nothing extra when the header is empty", () => {
     expect(build({ shop: { ...SHOP, headerText: "" } })).toBe(build({}));
+  });
+});
+
+// LIRA-296 (T043, user story 5) — a repair's own warranty prints on its
+// receipt, with the shop's warranty terms; a receipt with no warranty shows
+// neither.
+describe("buildServiceReceiptText — repair warranty (LIRA-296)", () => {
+  const repair = (metadata: Record<string, unknown>) =>
+    build({
+      shop: { ...SHOP, warrantyTerms: "Covers the replaced part only." },
+      txn: {
+        id: 77,
+        type: "MAINTENANCE",
+        summary: null,
+        note: "Screen swap",
+        client_name: null,
+        client_phone: null,
+        created_at: "2026-10-10T10:00:00Z",
+        metadata: {
+          final_amount: 50,
+          currency: "USD",
+          amount: 50,
+          ...metadata,
+        },
+      },
+    });
+
+  it("prints the warranty end day and the terms", () => {
+    const r = repair({ warranty_until: "2027-01-10" });
+    expect(r).toContain("Warranty until: 2027-01-10");
+    expect(r).toContain("Covers the replaced part only.");
+  });
+
+  it("prints neither without a warranty", () => {
+    const r = repair({});
+    expect(r).not.toContain("Warranty until");
+    expect(r).not.toContain("Covers the replaced part only.");
   });
 });

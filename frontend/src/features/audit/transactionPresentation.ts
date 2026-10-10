@@ -254,6 +254,13 @@ export const TRANSACTION_PRESENTATION: Record<
   // T3: a profit-only row, amount 0 — the tender is booked by the basket's
   // own payment legs, so this row moves no cash of its own.
   KEPT_CHANGE: { label: null, color: "text-slate-300", direction: null },
+  // LIRA-296 — the cost of honouring a warranty (or a recovery offsetting
+  // it): profit-only, no payment legs, no drawer — so no cash badge.
+  WARRANTY_COST: {
+    label: "Warranty Cost",
+    color: "text-amber-300",
+    direction: null,
+  },
   // Spans both directions: paying a supplier empties the drawer, a supplier
   // paying us back fills it — read from the CQ-8 counterparty contract.
   SUPPLIER_PAYMENT: {
@@ -340,7 +347,11 @@ export const TRANSACTION_PRESENTATION: Record<
   // LIRA-147 — same reasoning as REFUND immediately above: an admin "Undo
   // refund" row's money movement is carried by its own payment legs (the
   // negated inverse of the refund's), rendered by the same legs subtext.
-  REFUND_UNDO: { label: "Undo Refund", color: "text-amber-400", direction: null },
+  REFUND_UNDO: {
+    label: "Undo Refund",
+    color: "text-amber-400",
+    direction: null,
+  },
 
   // ── Client activity log ───────────────────────────────────────────────
   // CLIENT_CREATED is blanket-hidden from the table (HIDDEN_TRANSACTION_TYPES)

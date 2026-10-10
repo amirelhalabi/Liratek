@@ -915,9 +915,33 @@ export {
   WarrantyRepository,
   getWarrantyRepository,
   resetWarrantyRepository,
+  WarrantyClaimSideRepository,
+  getWarrantyClaimSideRepository,
 } from "./WarrantyRepository.js";
 export type {
   WarrantyLineRow,
   WarrantyUnitRow,
   WarrantyLineFilters,
 } from "./WarrantyRepository.js";
+
+// Warranty claims + defective holding (LIRA-296 P2)
+export {
+  WarrantyClaimRepository,
+  getWarrantyClaimRepository,
+  resetWarrantyClaimRepository,
+} from "./WarrantyClaimRepository.js";
+export type {
+  WarrantyClaimEntity,
+  WarrantyClaimAction,
+  WarrantyClaimStatus,
+  NewWarrantyClaimRow,
+} from "./WarrantyClaimRepository.js";
+export {
+  DefectiveItemRepository,
+  getDefectiveItemRepository,
+  resetDefectiveItemRepository,
+} from "./DefectiveItemRepository.js";
+export type {
+  DefectiveItemEntity,
+  DefectiveItemStatus,
+} from "./DefectiveItemRepository.js";

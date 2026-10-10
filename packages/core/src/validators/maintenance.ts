@@ -4,8 +4,10 @@ import {
   positiveIntegerSchema,
   optionalPhoneNumberSchema,
   transactionTimeSchema,
+  clientDayInputSchema,
 } from "./common.js";
 import { normalizeLineNumber } from "../utils/phoneNumber.js";
+import { warrantyMonthsSchema } from "./productUnit.js";
 
 /**
  * Maintenance job validation schemas
@@ -101,6 +103,13 @@ export const saveMaintenanceJobSchema = z.object({
   // legacy payload (and every status-transition resave, which sends no parts
   // key) into "delete all parts", silently wiping parts and leaking stock.
   parts: z.array(maintenancePartSchema).optional(),
+  // LIRA-296 (user story 5) — the repair's own warranty, in months (0–60;
+  // null clears it). Omitted = leave the job's value untouched. The end day
+  // is stamped once, when the job reaches Delivered_Paid.
+  warranty_months: warrantyMonthsSchema.nullable().optional(),
+  // LIRA-296 (rule 27) — the shop's own day: the repair warranty starts on
+  // it. Omitted: the request's day (clientDay()).
+  client_day: clientDayInputSchema,
 });
 
 export const getMaintenanceJobsSchema = z.object({

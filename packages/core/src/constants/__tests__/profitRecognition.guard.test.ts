@@ -553,9 +553,16 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "Own doc comment, verified verbatim: 'Mirrors getTopupBuybackProfit " +
     "minus the SUM — that totals query DOES gate on notDebtPending (hard " +
     "WHERE) and weight on partnerCoverageRatio, so ... this exposes both " +
-    "as columns, same \"expose the gate\" shape as getRechargeDetail.' " +
+    'as columns, same "expose the gate" shape as getRechargeDetail.\' ' +
     "Exact, explicit confirmation of this whole family's rationale from " +
     "the source itself.",
+  "ProfitRepository:getWarrantyDetail:(query)":
+    "LIRA-296 — the Warranty cost drill-down, same 'expose the gate' " +
+    "Detail-family shape as getTopupBuybackDetail: it mirrors " +
+    "getWarrantyTotals (which gates on notDebtPending in its WHERE) minus " +
+    "the SUM, and exposes `debt_pending` (notDebtPending) as its own column " +
+    "so ProfitService.buildWarrantyModuleDetail can list a pending row " +
+    "under 'not counted' instead of dropping it.",
 };
 
 describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)", () => {
@@ -583,7 +590,12 @@ describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)
       boundariesByFile.get(u.file)!,
       u.methodName,
     );
-    return isGatedPerColumn(u, methodSource, PROFIT_TOKEN_REGEX, GATE_FRAGMENTS);
+    return isGatedPerColumn(
+      u,
+      methodSource,
+      PROFIT_TOKEN_REGEX,
+      GATE_FRAGMENTS,
+    );
   }
 
   it("sanity: every named recognition-gate fragment still exists as a callable function", () => {
@@ -650,7 +662,9 @@ describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)
     // (rule 14) that this whole guard exists to prevent. If this ever
     // needs to change, the change belongs in
     // `ClosingService.profitParity.test.ts` first (rule 17), not here.
-    const closingProfitUnits = profitUnits.filter((u) => u.file === "ClosingRepository");
+    const closingProfitUnits = profitUnits.filter(
+      (u) => u.file === "ClosingRepository",
+    );
     expect(closingProfitUnits.map(unitKey)).toEqual([]);
   });
 

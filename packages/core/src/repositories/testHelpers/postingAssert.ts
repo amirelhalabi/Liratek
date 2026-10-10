@@ -269,3 +269,105 @@ export function expectPostingsMatchRule(
     postings: want,
   });
 }
+
+/**
+ * LIRA-296 (rule 20) — the NON-money ledgers a warranty claim moves, beside
+ * {@link snapshotLedgers}: product stock, FIFO batch cover, unit state, the
+ * defective-items holding and the profit stamp (Σ over every transactions
+ * row, per currency — a reversal writes the exact negation, so a create +
+ * void pair nets to the same sum). Compare two snapshots with `toEqual` to
+ * prove a create-then-void leaves every one of them exactly as before.
+ * A table missing from a hand-rolled schema contributes nothing.
+ */
+export interface StockProfitSnapshot {
+  stock: Record<string, number>;
+  batches: Record<string, number>;
+  units: Record<string, string>;
+  defective: Record<string, number>;
+  claimsOpenOrDone: number;
+  profit: { usd: number; lbp: number };
+}
+
+export function snapshotStockAndProfit(
+  db: Database.Database,
+): StockProfitSnapshot {
+  const stock: Record<string, number> = {};
+  if (hasTable(db, "products")) {
+    for (const r of db
+      /* tenant-exempt: test-only helper — whole in-memory test database */
+      .prepare(`SELECT id, stock_quantity FROM products`)
+      .all() as { id: number; stock_quantity: number }[]) {
+      stock[String(r.id)] = r.stock_quantity;
+    }
+  }
+  const batches: Record<string, number> = {};
+  if (hasTable(db, "product_stock_batches")) {
+    for (const r of db
+      /* tenant-exempt: test-only helper — whole in-memory test database */
+      .prepare(`SELECT id, quantity_remaining FROM product_stock_batches`)
+      .all() as { id: number; quantity_remaining: number }[]) {
+      batches[String(r.id)] = r.quantity_remaining;
+    }
+  }
+  const units: Record<string, string> = {};
+  if (hasTable(db, "product_units")) {
+    const claimCol = hasColumn(db, "product_units", "warranty_claim_id")
+      ? "warranty_claim_id"
+      : "NULL AS warranty_claim_id";
+    for (const r of db
+      /* tenant-exempt: test-only helper — whole in-memory test database */
+      .prepare(
+        `SELECT id, status, sale_item_id, is_defective, warranty_override_until, ${claimCol} FROM product_units`,
+      )
+      .all() as {
+      id: number;
+      status: string;
+      sale_item_id: number | null;
+      is_defective: number;
+      warranty_override_until: string | null;
+      warranty_claim_id: number | null;
+    }[]) {
+      units[String(r.id)] =
+        `${r.status}|${r.sale_item_id}|${r.is_defective}|${r.warranty_override_until}|${r.warranty_claim_id}`;
+    }
+  }
+  const defective: Record<string, number> = {};
+  if (hasTable(db, "defective_items")) {
+    for (const r of db
+      /* tenant-exempt: test-only helper — whole in-memory test database */
+      .prepare(
+        `SELECT status, COUNT(*) AS n FROM defective_items GROUP BY status`,
+      )
+      .all() as { status: string; n: number }[]) {
+      defective[r.status] = r.n;
+    }
+  }
+  let claimsOpenOrDone = 0;
+  if (hasTable(db, "warranty_claims")) {
+    claimsOpenOrDone = (
+      db
+        /* tenant-exempt: test-only helper — whole in-memory test database */
+        .prepare(
+          `SELECT COUNT(*) AS n FROM warranty_claims WHERE status IN ('OPEN', 'DONE')`,
+        )
+        .get() as { n: number }
+    ).n;
+  }
+  const p = db
+    /* tenant-exempt: test-only helper — whole in-memory test database */
+    .prepare(
+      `SELECT COALESCE(SUM(profit_usd), 0) AS usd, COALESCE(SUM(profit_lbp), 0) AS lbp FROM transactions`,
+    )
+    .get() as { usd: number; lbp: number };
+  return {
+    stock,
+    batches,
+    units,
+    defective,
+    claimsOpenOrDone,
+    profit: {
+      usd: Math.round(p.usd * 1e6) / 1e6,
+      lbp: Math.round(p.lbp * 1e6) / 1e6,
+    },
+  };
+}

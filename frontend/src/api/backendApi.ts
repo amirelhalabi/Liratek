@@ -115,6 +115,15 @@ import type {
   UpdateCategoryPayload,
   WarrantySearchInput,
   WarrantySearchRow,
+  CreateWarrantyClaimInput,
+  WarrantyClaimsForInput,
+  VoidWarrantyClaimInput,
+  ListDefectiveItemsInput,
+  ResolveDefectiveInput,
+  WarrantyClaimResultData,
+  WarrantyClaimView,
+  DefectiveItemView,
+  WarrantyEnvelope,
 } from "@liratek/core";
 
 export type { ProductListFilters };
@@ -8004,7 +8013,9 @@ export async function listUserEmails(): Promise<UserEmailView[]> {
  * desktop app has no email at all, so there it answers `data: null` without
  * a call — never the throw `assertWebOnly` would give.
  */
-export async function getMyEmail(): Promise<AccountRouteResult<OwnEmailView | null>> {
+export async function getMyEmail(): Promise<
+  AccountRouteResult<OwnEmailView | null>
+> {
   if (isElectron()) return { success: true, data: null };
   return requestJson<AccountRouteResult<OwnEmailView>>("/api/user-email/me");
 }
@@ -8256,10 +8267,9 @@ export async function changeOwnPassword(
     },
     async () => {
       try {
-        return await requestJson<PasswordResetEnvelope<ChangeOwnPasswordResult>>(
-          "/api/password-reset/change",
-          { method: "POST", body: input },
-        );
+        return await requestJson<
+          PasswordResetEnvelope<ChangeOwnPasswordResult>
+        >("/api/password-reset/change", { method: "POST", body: input });
       } catch (err) {
         return {
           success: false,
@@ -8468,5 +8478,92 @@ export async function searchWarranties(
       }
       return res.data ?? [];
     },
+  );
+}
+
+/** Query string from a flat input (undefined/null/"" skipped). */
+function toQuery(input: object): string {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== undefined && value !== null && value !== "") {
+      qs.set(key, String(value));
+    }
+  }
+  const text = qs.toString();
+  return text ? `?${text}` : "";
+}
+
+/** LIRA-296 P2 — start a warranty claim (repair / replace / refund). Write:
+ *  answers the envelope; a refusal carries its `code`. */
+export async function createWarrantyClaim(
+  input: CreateWarrantyClaimInput,
+): Promise<WarrantyEnvelope<WarrantyClaimResultData>> {
+  return ipcOrHttp(
+    async () => getElectronApi().warranty.claim(input),
+    async () =>
+      requestJson<WarrantyEnvelope<WarrantyClaimResultData>>(
+        "/api/warranty/claims",
+        { method: "POST", body: input },
+      ),
+  );
+}
+
+/** LIRA-296 P2 — claim history (newest first). Read: raw array; throws on a
+ *  refusal. */
+export async function getWarrantyClaims(
+  input: WarrantyClaimsForInput,
+): Promise<WarrantyClaimView[]> {
+  const res = await ipcOrHttp(
+    async () => getElectronApi().warranty.claimsFor(input),
+    async () =>
+      requestJson<WarrantyEnvelope<WarrantyClaimView[]>>(
+        `/api/warranty/claims${toQuery(input)}`,
+      ),
+  );
+  if (!res.success) throw new Error(res.error ?? "Failed to load claims");
+  return res.data;
+}
+
+/** LIRA-296 P2 — void a claim (admin): reverses everything it moved. */
+export async function voidWarrantyClaim(
+  input: VoidWarrantyClaimInput,
+): Promise<WarrantyEnvelope<WarrantyClaimView>> {
+  return ipcOrHttp(
+    async () => getElectronApi().warranty.voidClaim(input),
+    async () =>
+      requestJson<WarrantyEnvelope<WarrantyClaimView>>(
+        `/api/warranty/claims/${encodeURIComponent(String(input.claim_id))}/void`,
+        { method: "POST" },
+      ),
+  );
+}
+
+/** LIRA-296 P2 — the defective-items holding (admin). Read: raw array. */
+export async function listDefectiveItems(
+  input: ListDefectiveItemsInput = {},
+): Promise<DefectiveItemView[]> {
+  const res = await ipcOrHttp(
+    async () => getElectronApi().warranty.listDefective(input),
+    async () =>
+      requestJson<WarrantyEnvelope<DefectiveItemView[]>>(
+        `/api/warranty/defective${toQuery(input)}`,
+      ),
+  );
+  if (!res.success)
+    throw new Error(res.error ?? "Failed to load defective items");
+  return res.data;
+}
+
+/** LIRA-296 P2 — write off a defective item, or put it back in stock. */
+export async function resolveDefectiveItem(
+  input: ResolveDefectiveInput,
+): Promise<WarrantyEnvelope<DefectiveItemView>> {
+  return ipcOrHttp(
+    async () => getElectronApi().warranty.resolveDefective(input),
+    async () =>
+      requestJson<WarrantyEnvelope<DefectiveItemView>>(
+        `/api/warranty/defective/${encodeURIComponent(String(input.defective_item_id))}/resolve`,
+        { method: "POST", body: { outcome: input.outcome } },
+      ),
   );
 }

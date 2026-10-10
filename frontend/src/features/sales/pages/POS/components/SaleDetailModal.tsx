@@ -20,6 +20,11 @@ import { printReceipt } from "@/shared/utils/printReceipt";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
+import {
+  ClaimModal,
+  type ClaimTarget,
+} from "@/features/warranty/components/ClaimModal";
+import { useOptionalAuth } from "@/features/auth/context/AuthContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import {
   RefundMethodModal,
@@ -125,9 +130,7 @@ export default function SaleDetailModal({
   // the payment legs it was pre-filled with (that item's proportional
   // share for an item refund, the whole sale's legs for "Refund Sale").
   const [refundTarget, setRefundTarget] = useState<
-    | { kind: "sale" }
-    | { kind: "item"; item: SaleItem; quantity: number }
-    | null
+    { kind: "sale" } | { kind: "item"; item: SaleItem; quantity: number } | null
   >(null);
   const [refundModalLegs, setRefundModalLegs] = useState<
     TransactionPaymentLeg[]
@@ -155,9 +158,7 @@ export default function SaleDetailModal({
   // hook's onRefunded callback below (fixed at hook-construction time, so it
   // can't close over fresh state), never rendered directly.
   const sessionRefundKindRef = useRef<
-    | { kind: "sale" }
-    | { kind: "item"; item: SaleItem; quantity: number }
-    | null
+    { kind: "sale" } | { kind: "item"; item: SaleItem; quantity: number } | null
   >(null);
   const [sessionRefundUnits, setSessionRefundUnits] = useState<
     RefundableUnit[]
@@ -475,7 +476,12 @@ export default function SaleDetailModal({
                 exchangeRate,
                 keptChange,
               )
-            : await api.refundSale(saleId, refundLegs, unitExtras, exchangeRate);
+            : await api.refundSale(
+                saleId,
+                refundLegs,
+                unitExtras,
+                exchangeRate,
+              );
         if (result.success) {
           appEvents.emit(
             "notification:show",
@@ -636,6 +642,9 @@ export default function SaleDetailModal({
   // reaching `AccountReductionInfo.clientLabel` (exactOptionalPropertyTypes).
   const sessionAccountClientLabel: string | undefined =
     sessionRefund.preview?.accountClientName || sale?.client_name || undefined;
+  // LIRA-296 P2 — start a warranty claim from a covered line.
+  const [claimTarget, setClaimTarget] = useState<ClaimTarget | null>(null);
+  const isAdmin = useOptionalAuth()?.user?.role === "admin";
   // LIRA-296 — the per-line warranty state uses the shop's own day (the
   // browser's local day, rule 27), never the UTC day toISOString() gives.
   const today = localDay();
@@ -838,6 +847,23 @@ export default function SaleDetailModal({
                                   className={`text-[11px] mt-0.5 ${colorClass}`}
                                 >
                                   {base + partly}
+                                  {w.state !== "VOID" && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setClaimTarget({
+                                          saleItemId: item.id,
+                                          productId: item.product_id,
+                                          productName: item.name,
+                                          state: w.state,
+                                          units: [],
+                                        })
+                                      }
+                                      className="ml-2 underline text-violet-300 hover:text-violet-100"
+                                    >
+                                      Warranty claim
+                                    </button>
+                                  )}
                                 </div>
                               );
                             })()}
@@ -1050,7 +1076,9 @@ export default function SaleDetailModal({
           // successful preview) — no `sale.exchange_rate_snapshot`
           // re-derivation (rule 14, same fix as `resolveBookedRate` above).
           exchangeRate={sessionRefund.preview.bookedRate ?? EXCHANGE_RATE}
-          bookedRateSource={sessionRefund.preview.bookedRateSource ?? "fallback"}
+          bookedRateSource={
+            sessionRefund.preview.bookedRateSource ?? "fallback"
+          }
           entityLabel="sale"
           // LIRA-236 — re-preview (account reduction + remainder) at the
           // typed rate, debounced inside the hook.
@@ -1066,6 +1094,22 @@ export default function SaleDetailModal({
             sessionRefund.cancel();
           }}
           onConfirm={sessionRefund.confirm}
+        />
+      )}
+      {claimTarget && (
+        <ClaimModal
+          target={claimTarget}
+          isAdmin={isAdmin}
+          onClose={() => setClaimTarget(null)}
+          onDone={() => {
+            setClaimTarget(null);
+            appEvents.emit(
+              "notification:show",
+              "Warranty claim started",
+              "success",
+            );
+            loadSale();
+          }}
         />
       )}
     </div>

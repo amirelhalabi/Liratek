@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
+import { localDay } from "@/shared/utils/localDay";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   Plus,
@@ -79,6 +80,9 @@ type MaintenanceJob = {
   parts?: JobPart[];
   parts_cost_usd?: number;
   parts_price_usd?: number;
+  // LIRA-296 — the repair's own warranty (months) and its stamped end day.
+  warranty_months?: number | null;
+  warranty_until?: string | null;
 };
 
 /** Status tabs for the jobs list (client-side filtered). */
@@ -155,6 +159,8 @@ export default function Maintenance() {
 
   const [deviceName, setDeviceName] = useState("");
   const [issue, setIssue] = useState("");
+  // LIRA-296 — "Repair warranty (months)"; "" = no warranty.
+  const [warrantyMonths, setWarrantyMonths] = useState("");
   const [cost, setCost] = useState("");
   const [price, setPrice] = useState("");
   // Active pricing currency for the job ("USD" or "LBP").
@@ -289,6 +295,7 @@ export default function Maintenance() {
     setEditingJob(null);
     setDeviceName("");
     setIssue("");
+    setWarrantyMonths("");
     setCost("");
     setPrice("");
     setCurrency("USD");
@@ -304,6 +311,9 @@ export default function Maintenance() {
     setEditingJob(job);
     setDeviceName(job.device_name);
     setIssue(job.issue_description);
+    setWarrantyMonths(
+      job.warranty_months != null ? String(job.warranty_months) : "",
+    );
     setCurrency(cur);
     if (cur === "LBP") {
       setCost(job.cost_lbp?.toString() || "");
@@ -433,6 +443,9 @@ export default function Maintenance() {
         }
       | undefined;
     transactionTime?: string | undefined;
+    /** LIRA-296 — the form's "Repair warranty (months)" ("" = none). Omit
+     *  (status-only transitions) to leave the job's value untouched. */
+    warrantyMonths?: string | undefined;
   }): SaveMaintenanceJobPayload => {
     const finalAmount =
       params.finalAmount ??
@@ -488,6 +501,17 @@ export default function Maintenance() {
           }
         : {}),
       transaction_time: params.transactionTime,
+      ...(params.warrantyMonths !== undefined
+        ? {
+            warranty_months:
+              params.warrantyMonths.trim() === ""
+                ? null
+                : Number(params.warrantyMonths),
+          }
+        : {}),
+      // LIRA-296 (rule 27): the shop's own day — a repair warranty starts on
+      // it when the job is delivered and paid.
+      client_day: localDay(),
     };
   };
 
@@ -607,6 +631,7 @@ export default function Maintenance() {
       clientOverride,
       parts,
       transactionTime,
+      warrantyMonths,
     });
 
     // This call was never wrapped in try/catch — on web, a refused save
@@ -669,6 +694,7 @@ export default function Maintenance() {
         client_phone: paymentData.client_phone,
       },
       finalAmount: labourFinal,
+      warrantyMonths,
       // Only USD discounts have a dedicated column; LBP net is captured in
       // final_amount_lbp.
       discountUsd: cur === "USD" ? paymentData.discount || 0 : 0,
@@ -1040,6 +1066,32 @@ export default function Maintenance() {
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 resize-none h-24"
                   placeholder="e.g., Broken Screen, Battery Replacement..."
                 />
+              </div>
+
+              {/* LIRA-296 — the repair's own warranty */}
+              <div>
+                <label
+                  htmlFor="maintenance-warranty-months"
+                  className="text-xs text-slate-400 block mb-1"
+                >
+                  Repair warranty (months)
+                </label>
+                <input
+                  id="maintenance-warranty-months"
+                  type="number"
+                  min={0}
+                  max={60}
+                  step={1}
+                  value={warrantyMonths}
+                  onChange={(e) => setWarrantyMonths(e.target.value)}
+                  placeholder="No warranty"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                />
+                {editingJob?.warranty_until && (
+                  <p className="text-[11px] text-emerald-400 mt-1">
+                    Warranty until {editingJob.warranty_until}
+                  </p>
+                )}
               </div>
 
               {/* Cost & Price — single currency (USD/LBP toggle) */}

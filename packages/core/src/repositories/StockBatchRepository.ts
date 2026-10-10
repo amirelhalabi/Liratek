@@ -105,7 +105,8 @@ type ConsumptionOwnerColumn =
   | "sale_item_id"
   | "custom_service_id"
   | "maintenance_part_id"
-  | "expense_id";
+  | "expense_id"
+  | "warranty_claim_id";
 
 // =============================================================================
 // Constants
@@ -259,6 +260,10 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
        *  units (v193 owner column). Mutually exclusive in practice with the
        *  three owners above. */
       expenseId?: number | null;
+      /** LIRA-296 — a replacement unit given under a warranty claim (v206
+       *  owner column). Mutually exclusive in practice with the four owners
+       *  above. */
+      warrantyClaimId?: number | null;
       reason: ConsumeReason;
       fallbackUnitCostUsd: number;
     },
@@ -297,6 +302,18 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
         product_id, quantity, unit_cost_usd, reason, is_restored, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
+    // LIRA-296: `warranty_claim_id` (v206), named only when a claim owns
+    // this consumption — same reason as `expense_id` above.
+    const warrantyClaimId = opts.warrantyClaimId ?? null;
+    const insertClaimConsumption =
+      warrantyClaimId != null
+        ? this.db.prepare(
+            `INSERT INTO stock_batch_consumptions (
+        tenant_id, batch_id, sale_item_id, custom_service_id, maintenance_part_id,
+        product_id, quantity, unit_cost_usd, reason, is_restored, created_at, updated_at, warranty_claim_id
+      ) VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+          )
+        : null;
     const insertExpenseConsumption =
       expenseId != null
         ? this.db.prepare(
@@ -318,7 +335,17 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
       const takeQty = alloc.take;
 
       decrementBatch.run(takeQty, batch.id, tenantId);
-      if (insertExpenseConsumption) {
+      if (insertClaimConsumption) {
+        insertClaimConsumption.run(
+          tenantId,
+          batch.id,
+          productId,
+          takeQty,
+          batch.unit_cost_usd,
+          opts.reason,
+          warrantyClaimId,
+        );
+      } else if (insertExpenseConsumption) {
         insertExpenseConsumption.run(
           tenantId,
           batch.id,
@@ -497,6 +524,15 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
   }
 
   /**
+   * LIRA-296 — voiding a REPLACE warranty claim gives the replacement unit
+   * back to the batch(es) it was FIFO-consumed from (owner column
+   * `warranty_claim_id`, v206). The caller owns `stock_quantity`.
+   */
+  restoreForWarrantyClaim(warrantyClaimId: number, quantity?: number): void {
+    this._restoreConsumptions("warranty_claim_id", warrantyClaimId, quantity);
+  }
+
+  /**
    * LIRA-147 — admin "Undo refund" for a per-item sale refund: the exact
    * inverse of `restoreForSaleItem`. Only `is_restored = 1` rows (a
    * consumption fully given back by a prior restore) are recoverable this
@@ -600,7 +636,12 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
         const give = Math.min(remaining, row.quantity);
         if (give <= 0) continue;
 
-        const result = decrementRemaining.run(give, row.batch_id, tenantId, give);
+        const result = decrementRemaining.run(
+          give,
+          row.batch_id,
+          tenantId,
+          give,
+        );
         if (result.changes === 0) {
           throw new DatabaseError(
             "Insufficient restored stock to undo this refund — some of it may have been consumed by other sales since.",

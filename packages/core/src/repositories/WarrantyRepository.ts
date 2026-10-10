@@ -46,6 +46,19 @@ export interface WarrantyUnitRow {
   warranty_override_until: string | null;
 }
 
+/** A repair carrying its own warranty (LIRA-296 P2, user story 5). */
+export interface WarrantyRepairRow {
+  maintenance_id: number;
+  sold_at: string;
+  client_id: number | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  device_name: string;
+  is_refunded: number;
+  warranty_until: string;
+  warranty_months: number | null;
+}
+
 export interface WarrantyLineFilters {
   /** Name, phone, receipt number, product name/barcode or serial/IMEI. */
   q?: string | undefined;
@@ -150,6 +163,66 @@ export class WarrantyRepository extends BaseRepository<BaseEntity> {
     );
   }
 
+  /**
+   * LIRA-296 P2 — repairs that carry their own warranty (stamped at
+   * Delivered_Paid), matched by customer name, phone (spaces ignored) or the
+   * device; dated by the job's charge (its MAINTENANCE transaction).
+   * Tenant-scoped on every table. Empty on a schema predating v206.
+   */
+  searchRepairs(filters: WarrantyLineFilters): WarrantyRepairRow[] {
+    const cols = this.db.prepare(`PRAGMA table_info(maintenance)`).all() as {
+      name: string;
+    }[];
+    if (!cols.some((c) => c.name === "warranty_until")) return [];
+    const tenantId = getCurrentTenantId();
+    const soldAt = `COALESCE((SELECT MIN(t.created_at) FROM transactions t
+                     WHERE t.source_table = 'maintenance' AND t.source_id = m.id
+                       AND t.type = 'MAINTENANCE' AND t.tenant_id = ?), m.created_at)`;
+    const where: string[] = [
+      "m.tenant_id = ?",
+      "m.warranty_until IS NOT NULL",
+      "m.status NOT IN ('Voided', 'Deleted')",
+    ];
+    const params: unknown[] = [tenantId];
+    const q = filters.q?.trim();
+    if (q) {
+      const like = `%${escapeLike(q)}%`;
+      const phoneLike = `%${escapeLike(q.replace(/\s+/g, ""))}%`;
+      where.push(`(COALESCE(c.full_name, m.client_name) LIKE ? ${LIKE_ESCAPE_CLAUSE}
+                OR REPLACE(COALESCE(NULLIF(m.client_phone, ''), c.phone_number), ' ', '') LIKE ? ${LIKE_ESCAPE_CLAUSE}
+                OR m.device_name LIKE ? ${LIKE_ESCAPE_CLAUSE})`);
+      params.push(like, phoneLike, like);
+    }
+    if (filters.from) {
+      where.push(`${localDayExpr(soldAt)} >= ?`);
+      params.push(tenantId, filters.from);
+    }
+    if (filters.to) {
+      where.push(`${localDayExpr(soldAt)} <= ?`);
+      params.push(tenantId, filters.to);
+    }
+    return this.query<WarrantyRepairRow>(
+      `SELECT m.id AS maintenance_id,
+              ${soldAt} AS sold_at,
+              m.client_id AS client_id,
+              COALESCE(c.full_name, m.client_name) AS customer_name,
+              COALESCE(NULLIF(m.client_phone, ''), c.phone_number) AS customer_phone,
+              m.device_name AS device_name,
+              COALESCE(m.is_refunded, 0) AS is_refunded,
+              m.warranty_until AS warranty_until,
+              m.warranty_months AS warranty_months
+         FROM maintenance m
+         LEFT JOIN clients c ON c.id = m.client_id AND c.tenant_id = ?
+        WHERE ${where.join(" AND ")}
+        ORDER BY sold_at DESC, m.id DESC
+        LIMIT ?`,
+      tenantId,
+      tenantId,
+      ...params,
+      filters.limit,
+    );
+  }
+
   /** Tracked units (serial/IMEI) sold on the given lines. */
   unitsForLines(saleItemIds: number[]): WarrantyUnitRow[] {
     if (saleItemIds.length === 0) return [];
@@ -165,6 +238,197 @@ export class WarrantyRepository extends BaseRepository<BaseEntity> {
   }
 }
 
+/** One sale line with what a claim needs (cost, customer, product). */
+export interface WarrantyClaimLineRow extends WarrantyLineRow {
+  cost_price_snapshot_usd: number | null;
+  sale_status: string;
+}
+
+/** A product's stock facts for a REPLACE claim. */
+export interface WarrantyProductRow {
+  id: number;
+  name: string;
+  stock_quantity: number;
+  cost_price_usd: number;
+  in_stock_units: number;
+}
+
+export interface WarrantyUnitEntity {
+  id: number;
+  product_id: number;
+  imei: string | null;
+  status: "IN_STOCK" | "SOLD";
+  sale_item_id: number | null;
+  is_defective: number;
+  warranty_override_until: string | null;
+  warranty_claim_id: number | null;
+}
+
+/**
+ * LIRA-296 P2 — the claim side of warranty data (line, product, unit and
+ * stock writes a claim makes). SQL only; `WarrantyService` orchestrates.
+ */
+export class WarrantyClaimSideRepository extends BaseRepository<BaseEntity> {
+  constructor() {
+    super("sale_items");
+  }
+
+  protected getColumns(): string {
+    return "id";
+  }
+
+  lineForClaim(saleItemId: number): WarrantyClaimLineRow | null {
+    const tenantId = getCurrentTenantId();
+    return this.queryOne<WarrantyClaimLineRow>(
+      `SELECT si.id AS sale_item_id, si.sale_id AS sale_id, s.created_at AS sold_at,
+              s.client_id AS client_id,
+              COALESCE(c.full_name, tw.client_name) AS customer_name,
+              COALESCE(c.phone_number, tw.client_phone) AS customer_phone,
+              si.product_id AS product_id, p.name AS product_name, p.barcode AS barcode,
+              si.quantity AS quantity,
+              COALESCE(si.refunded_quantity, 0) AS refunded_quantity,
+              COALESCE(si.is_refunded, 0) AS is_refunded,
+              si.warranty_until AS warranty_until, si.warranty_months AS warranty_months,
+              si.cost_price_snapshot_usd AS cost_price_snapshot_usd,
+              s.status AS sale_status
+         FROM sale_items si
+         JOIN sales s ON s.id = si.sale_id AND s.tenant_id = ?
+         LEFT JOIN clients c ON c.id = s.client_id AND c.tenant_id = ?
+         LEFT JOIN transactions tw ON tw.id = (
+                SELECT t.id FROM transactions t
+                 WHERE t.source_table = 'sales' AND t.source_id = s.id
+                   AND t.type = 'SALE' AND t.tenant_id = ?
+                 ORDER BY t.id LIMIT 1)
+         LEFT JOIN products p ON p.id = si.product_id AND p.tenant_id = ?
+        WHERE si.id = ? AND si.tenant_id = ?`,
+      tenantId,
+      tenantId,
+      tenantId,
+      tenantId,
+      saleItemId,
+      tenantId,
+    );
+  }
+
+  product(productId: number): WarrantyProductRow | null {
+    const tenantId = getCurrentTenantId();
+    return this.queryOne<WarrantyProductRow>(
+      `SELECT p.id, p.name, p.stock_quantity, p.cost_price_usd,
+              (SELECT COUNT(*) FROM product_units pu
+                WHERE pu.product_id = p.id AND pu.status = 'IN_STOCK' AND pu.tenant_id = ?) AS in_stock_units
+         FROM products p WHERE p.id = ? AND p.tenant_id = ?`,
+      tenantId,
+      productId,
+      tenantId,
+    );
+  }
+
+  unit(unitId: number): WarrantyUnitEntity | null {
+    return this.queryOne<WarrantyUnitEntity>(
+      `SELECT id, product_id, imei, status, sale_item_id, is_defective,
+              warranty_override_until, warranty_claim_id
+         FROM product_units WHERE id = ? AND tenant_id = ?`,
+      unitId,
+      getCurrentTenantId(),
+    );
+  }
+
+  /** Take one unit off the shelf; false (nothing written) when none left. */
+  takeOneFromStock(productId: number): boolean {
+    return (
+      this.execute(
+        `UPDATE products SET stock_quantity = stock_quantity - 1
+          WHERE id = ? AND tenant_id = ? AND stock_quantity >= 1`,
+        productId,
+        getCurrentTenantId(),
+      ).changes > 0
+    );
+  }
+
+  /** Put units back on (or take off) the shelf. */
+  adjustStock(productId: number, delta: number): void {
+    this.execute(
+      `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
+      delta,
+      productId,
+      getCurrentTenantId(),
+    );
+  }
+
+  /** A replacement unit handed over under a claim: SOLD, linked to the
+   *  claim, covered until the ORIGINAL end date (owner decision D2). */
+  markReplacementSold(
+    unitId: number,
+    claimId: number,
+    overrideUntil: string | null,
+  ): boolean {
+    return (
+      this.execute(
+        `UPDATE product_units
+            SET status = 'SOLD', warranty_claim_id = ?, warranty_override_until = ?,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND tenant_id = ? AND status = 'IN_STOCK'`,
+        claimId,
+        overrideUntil,
+        unitId,
+        getCurrentTenantId(),
+      ).changes > 0
+    );
+  }
+
+  /** Undo {@link markReplacementSold} (claim voided). */
+  releaseReplacement(unitId: number): void {
+    this.execute(
+      `UPDATE product_units
+          SET status = 'IN_STOCK', warranty_claim_id = NULL, warranty_override_until = NULL,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND tenant_id = ?`,
+      unitId,
+      getCurrentTenantId(),
+    );
+  }
+
+  setUnitDefective(unitId: number, defective: boolean): void {
+    this.execute(
+      `UPDATE product_units SET is_defective = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND tenant_id = ?`,
+      defective ? 1 : 0,
+      unitId,
+      getCurrentTenantId(),
+    );
+  }
+
+  /** A "not faulty" unit back on the shelf. */
+  returnUnitToStock(unitId: number): void {
+    this.execute(
+      `UPDATE product_units SET status = 'IN_STOCK', is_defective = 0,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND tenant_id = ?`,
+      unitId,
+      getCurrentTenantId(),
+    );
+  }
+
+  /** Units handed over as replacements under the given claims. */
+  replacementUnitsForClaims(claimIds: number[]): WarrantyUnitEntity[] {
+    if (claimIds.length === 0) return [];
+    return this.query<WarrantyUnitEntity>(
+      `SELECT id, product_id, imei, status, sale_item_id, is_defective,
+              warranty_override_until, warranty_claim_id
+         FROM product_units
+        WHERE tenant_id = ? AND warranty_claim_id IN (${claimIds.map(() => "?").join(", ")})`,
+      getCurrentTenantId(),
+      ...claimIds,
+    );
+  }
+}
+
+let claimSideInstance: WarrantyClaimSideRepository | null = null;
+export function getWarrantyClaimSideRepository(): WarrantyClaimSideRepository {
+  if (!claimSideInstance) claimSideInstance = new WarrantyClaimSideRepository();
+  return claimSideInstance;
+}
+
 let instance: WarrantyRepository | null = null;
 
 export function getWarrantyRepository(): WarrantyRepository {
@@ -175,4 +439,5 @@ export function getWarrantyRepository(): WarrantyRepository {
 /** Reset the singleton (for testing). */
 export function resetWarrantyRepository(): void {
   instance = null;
+  claimSideInstance = null;
 }

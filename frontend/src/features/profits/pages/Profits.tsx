@@ -326,6 +326,14 @@ interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** LIRA-296 — the cost of honouring warranties (usually negative), net
+   *  of recoveries and voided claims. Already inside gross. Optional so an
+   *  older cached payload doesn't crash the page. */
+  warranty?: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   /** LO-V1 (round 2, OWNER_NOTES_2026-09-21.md §6) — the shop's total
    *  OTHER-currency kept change across recharges, mobile services and loto
    *  (`recharges.kept_change_usd/_lbp` + `mobile_services.kept_change_usd/
@@ -2130,6 +2138,50 @@ export default function Profits() {
                             className={`font-semibold ${profitClass(summary.hold_money.profit_lbp)}`}
                           >
                             {formatAmount(summary.hold_money.profit_lbp, "LBP")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+              {/* LIRA-296 — Warranty cost: the cost of honouring warranties
+                  (replacements, refunded faulty items, repair parts), net of
+                  recoveries. Same profit-only card pattern as Hold Money. */}
+              {summary.warranty &&
+                (summary.warranty.count > 0 ||
+                  summary.warranty.profit_usd !== 0 ||
+                  summary.warranty.profit_lbp !== 0) && (
+                  <div
+                    data-testid="overview-warranty-card"
+                    className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">
+                        Warranty cost
+                      </span>
+                      <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full">
+                        {summary.warranty.count} claims
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      {summary.warranty.profit_usd !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">USD</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.warranty.profit_usd)}`}
+                          >
+                            {formatAmount(summary.warranty.profit_usd, "USD")}
+                          </span>
+                        </div>
+                      )}
+                      {summary.warranty.profit_lbp !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">LBP</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.warranty.profit_lbp)}`}
+                          >
+                            {formatAmount(summary.warranty.profit_lbp, "LBP")}
                           </span>
                         </div>
                       )}

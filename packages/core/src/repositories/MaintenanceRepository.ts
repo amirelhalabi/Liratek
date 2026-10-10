@@ -175,6 +175,13 @@ export interface MaintenanceJob {
   parts_price_usd?: number;
 }
 
+/** LIRA-296: a job's error when the customer is charged for a warranty repair. */
+export const WARRANTY_JOB_NOT_CHARGEABLE_ERROR =
+  "This is a warranty repair — it is free for the customer and can't be charged.";
+/** LIRA-296: a job opened by a live warranty claim can't be deleted. */
+export const WARRANTY_JOB_DELETE_BLOCKED_ERROR =
+  "This repair belongs to a warranty claim — void the claim from the Warranty page instead.";
+
 export interface MaintenanceRow {
   id: number;
   client_id: number | null;
@@ -207,6 +214,11 @@ export interface MaintenanceRow {
   refunded_at: string | null;
   parts_cost_usd: number;
   parts_price_usd: number;
+  /** LIRA-296 v206 — a repair's own warranty and the claim that opened the
+   *  job. Absent on a connection that predates v206 (hand-built schemas). */
+  warranty_months?: number | null;
+  warranty_until?: string | null;
+  warranty_claim_id?: number | null;
   /** LIRA-263: the linked client's phone (`clients.phone_number`), read by
    *  `getJobs` only — `maintenance` has no phone column of its own, the
    *  number lives on the client record the job links to. Absent on rows
@@ -277,7 +289,91 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, cost_lbp, price_lbp, discount_usd, final_amount_usd, final_amount_lbp, currency, paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at, updated_at, edited_by, edited_at, is_refunded, refunded_at, parts_cost_usd, parts_price_usd";
+    const base =
+      "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, cost_lbp, price_lbp, discount_usd, final_amount_usd, final_amount_lbp, currency, paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at, updated_at, edited_by, edited_at, is_refunded, refunded_at, parts_cost_usd, parts_price_usd";
+    return this.hasWarrantyColumns()
+      ? `${base}, warranty_months, warranty_until, warranty_claim_id`
+      : base;
+  }
+
+  private _warrantyColumnsCache: boolean | null = null;
+  /** LIRA-296 v206 — do the maintenance warranty columns exist on this
+   *  connection? Hand-built test schemas may predate them. Probed once. */
+  hasWarrantyColumns(): boolean {
+    if (this._warrantyColumnsCache === null) {
+      const cols = this.db.prepare(`PRAGMA table_info(maintenance)`).all() as {
+        name: string;
+      }[];
+      this._warrantyColumnsCache = cols.some(
+        (c) => c.name === "warranty_claim_id",
+      );
+    }
+    return this._warrantyColumnsCache;
+  }
+
+  /** LIRA-296 — the repair's own warranty length (null clears it). */
+  setWarrantyMonths(jobId: number, months: number | null): void {
+    this.db
+      .prepare(
+        `UPDATE maintenance SET warranty_months = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(months, jobId, getCurrentTenantId());
+  }
+
+  /** LIRA-296 — stamp the repair warranty's end day, once (never moved). */
+  stampWarrantyUntil(jobId: number, until: string): void {
+    this.db
+      .prepare(
+        `UPDATE maintenance SET warranty_until = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ? AND warranty_until IS NULL`,
+      )
+      .run(until, jobId, getCurrentTenantId());
+  }
+
+  /** LIRA-296 — link a job opened by a warranty claim to its claim. */
+  setWarrantyClaim(jobId: number, claimId: number): void {
+    this.db
+      .prepare(
+        `UPDATE maintenance SET warranty_claim_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(claimId, jobId, getCurrentTenantId());
+  }
+
+  /** LIRA-296 — does this job belong to a claim that is still live? */
+  isLiveWarrantyJob(jobId: number): boolean {
+    if (!this.hasWarrantyColumns()) return false;
+    const tenantId = getCurrentTenantId();
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM maintenance m
+           JOIN warranty_claims wc ON wc.id = m.warranty_claim_id AND wc.tenant_id = ?
+          WHERE m.id = ? AND m.tenant_id = ? AND wc.status <> 'VOIDED'`,
+      )
+      .get(tenantId, jobId, tenantId);
+    return row !== undefined;
+  }
+
+  /**
+   * LIRA-296 — voiding a REPAIR claim: put the job's parts back on the shelf
+   * (stock + FIFO batches, the SAME restore deleteJob uses) and close the
+   * job as 'Voided'. The claim owns the job, so it never carries a charge.
+   */
+  voidWarrantyJob(jobId: number, actorUserId?: number | null): void {
+    const existing = this.findById(jobId);
+    restoreMaintenanceJobParts(this.db, {
+      maintenanceId: jobId,
+      tenantId: getCurrentTenantId(),
+    });
+    this.db
+      .prepare(
+        "UPDATE maintenance SET status = 'Voided', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?",
+      )
+      .run(jobId, getCurrentTenantId());
+    this.recordStatusChange(
+      jobId,
+      existing?.status ?? null,
+      "Voided",
+      actorUserId,
+    );
   }
 
   /**
@@ -549,6 +645,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
        *  — never cost or margin (the receipt must never leak the shop's
        *  cost). */
       parts?: { name: string; quantity: number; unit_price_usd: number }[];
+      /** LIRA-296 — the repair's own warranty end day, printed on its
+       *  receipt (stamped in metadata only when the job has one). */
+      warrantyUntil?: string | null;
     },
     /**
      * The user actually running this checkout (owner follow-up, 2026-09-28,
@@ -711,6 +810,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
           quantity: p.quantity,
           unit_price_usd: p.unit_price_usd,
         })),
+        ...(opts.warrantyUntil ? { warranty_until: opts.warrantyUntil } : {}),
       },
     });
 
@@ -901,6 +1001,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       throw new Error(
         "This job has recorded payments — refund or void it instead of deleting.",
       );
+    }
+    // LIRA-296 (rule 20): a job opened by a live warranty claim is owned by
+    // the claim — voiding the claim is what puts its parts back and books
+    // the cost reversal.
+    if (this.isLiveWarrantyJob(id)) {
+      throw new Error(WARRANTY_JOB_DELETE_BLOCKED_ERROR);
     }
     // The money-lock check above already ran and passed (a paid job is still
     // refused), so this is always an unpaid (or already-reversed) job —

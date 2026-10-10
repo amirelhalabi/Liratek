@@ -59,6 +59,11 @@ import type {
   SalesDateRangeInput,
   UpdateCategoryPayload,
   WarrantySearchInput,
+  CreateWarrantyClaimInput,
+  WarrantyClaimsForInput,
+  VoidWarrantyClaimInput,
+  ListDefectiveItemsInput,
+  ResolveDefectiveInput,
 } from "@liratek/core";
 
 export class ElectronApiAdapter implements ApiAdapter {
@@ -150,6 +155,16 @@ export class ElectronApiAdapter implements ApiAdapter {
   /** LIRA-296 — warranty lookup for any item. */
   searchWarranties = (input: WarrantySearchInput) =>
     api.searchWarranties(input);
+  createWarrantyClaim = (input: CreateWarrantyClaimInput) =>
+    api.createWarrantyClaim(input);
+  getWarrantyClaims = (input: WarrantyClaimsForInput) =>
+    api.getWarrantyClaims(input);
+  voidWarrantyClaim = (input: VoidWarrantyClaimInput) =>
+    api.voidWarrantyClaim(input);
+  listDefectiveItems = (input: ListDefectiveItemsInput = {}) =>
+    api.listDefectiveItems(input);
+  resolveDefectiveItem = (input: ResolveDefectiveInput) =>
+    api.resolveDefectiveItem(input);
 
   // ---------------------------------------------------------------------------
   // Categories (LIRA-143 Phase 5 — Settings manager)

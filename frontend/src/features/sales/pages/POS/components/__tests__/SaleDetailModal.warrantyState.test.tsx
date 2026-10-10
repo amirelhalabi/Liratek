@@ -10,7 +10,7 @@
  *
  * The `useApi` mock returns ONE stable object (rule 25).
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import SaleDetailModal from "../SaleDetailModal";
 
 const mockApi = {
@@ -119,7 +119,9 @@ async function renderModal() {
 describe("SaleDetailModal — warranty state on every line (LIRA-296)", () => {
   it("a covered line reads 'Covered until <date>'", async () => {
     await renderModal();
-    expect(screen.getAllByText("Covered until 2026-12-01")[0]).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Covered until 2026-12-01")[0],
+    ).toBeInTheDocument();
   });
 
   it("an expired line reads 'Expired on <date>'", async () => {
@@ -155,5 +157,29 @@ describe("SaleDetailModal — warranty state on every line (LIRA-296)", () => {
     jest.setSystemTime(new Date(2026, 11, 1, 23, 30, 0)); // 2026-12-01 23:30 local
     await renderModal();
     expect(screen.getAllByText(/Covered until 2026-12-01/).length).toBe(2);
+  });
+});
+
+// LIRA-296 P2 (T040) — a covered line offers "Warranty claim" right from
+// the sale (ClaimModal is mocked; its own behaviour has its own test).
+jest.mock("@/features/warranty/components/ClaimModal", () => ({
+  ClaimModal: (p: { target: { saleItemId: number; state: string } }) => (
+    <div data-testid="claim-modal">
+      claim {p.target.saleItemId} {p.target.state}
+    </div>
+  ),
+}));
+
+describe("SaleDetailModal — start a warranty claim (LIRA-296 P2)", () => {
+  it("a covered line opens the claim form; a void or warranty-less line does not offer it", async () => {
+    await renderModal();
+    const buttons = screen.getAllByRole("button", { name: "Warranty claim" });
+    // Charger, Earbuds (partly refunded), Phone (override) and the expired
+    // Old Speaker (admin may honour it) — not the void Cable, not the Sticker.
+    expect(buttons).toHaveLength(4);
+    fireEvent.click(buttons[0]!);
+    expect(await screen.findByTestId("claim-modal")).toHaveTextContent(
+      "claim 1 COVERED",
+    );
   });
 });

@@ -601,7 +601,9 @@ CREATE TABLE IF NOT EXISTS product_units (
     is_defective INTEGER NOT NULL DEFAULT 0,
     warranty_override_until TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- v206 (LIRA-296): set on a replacement unit given under a claim.
+    warranty_claim_id INTEGER REFERENCES warranty_claims(id)
 );
 
 -- Partial unique index: duplicate IMEI blocked only among in-stock units
@@ -615,6 +617,7 @@ CREATE INDEX IF NOT EXISTS idx_product_units_imei ON product_units(tenant_id, im
 CREATE INDEX IF NOT EXISTS idx_product_units_product ON product_units(tenant_id, product_id, status);
 -- Refund-flip lookup: find the unit(s) sold on a given sale_items row.
 CREATE INDEX IF NOT EXISTS idx_product_units_sale_item ON product_units(sale_item_id);
+CREATE INDEX IF NOT EXISTS idx_product_units_warranty_claim ON product_units(tenant_id, warranty_claim_id);
 
 -- =============================================================================
 -- 3. Transactional Tables
@@ -907,8 +910,14 @@ CREATE TABLE IF NOT EXISTS maintenance (
     -- job bills labour in LBP and parts in USD, with no conversion.
     parts_cost_usd DECIMAL(10, 2) NOT NULL DEFAULT 0,
     parts_price_usd DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    -- v206 (LIRA-296): a repair's own warranty (months; end day stamped at
+    -- Delivered_Paid from the shop's day) and the claim that opened this job.
+    warranty_months INTEGER,
+    warranty_until TEXT,
+    warranty_claim_id INTEGER REFERENCES warranty_claims(id),
     FOREIGN KEY (client_id) REFERENCES clients(id)
 );
+CREATE INDEX IF NOT EXISTS idx_maintenance_warranty_claim ON maintenance(tenant_id, warranty_claim_id);
 
 -- Migration v170: parts attached to a maintenance job that decrement stock,
 -- mirroring the custom_services/sale_items precedent (migration v152).
@@ -1849,8 +1858,11 @@ CREATE TABLE IF NOT EXISTS stock_batch_consumptions (
   reason TEXT NOT NULL DEFAULT 'SALE' CHECK(reason IN ('SALE','ADJUSTMENT','SERVICE')),
   is_restored INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  -- v206 (LIRA-296): a replacement unit consumed under a warranty claim.
+  warranty_claim_id INTEGER REFERENCES warranty_claims(id)
 );
+CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_warranty_claim ON stock_batch_consumptions(tenant_id, warranty_claim_id);
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_sale_item ON stock_batch_consumptions(tenant_id, sale_item_id);
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_custom_service ON stock_batch_consumptions(tenant_id, custom_service_id);
 CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_maint_part ON stock_batch_consumptions(tenant_id, maintenance_part_id);
@@ -2411,6 +2423,51 @@ CREATE INDEX IF NOT EXISTS idx_stock_adjustments_tenant_id ON stock_adjustments(
 -- 12. Migration Tracking
 -- =============================================================================
 
+-- =============================================================================
+-- v206 (LIRA-296): warranty claims and the defective-items holding
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS warranty_claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    sale_item_id INTEGER REFERENCES sale_items(id),
+    maintenance_id INTEGER REFERENCES maintenance(id),
+    unit_id INTEGER REFERENCES product_units(id),
+    quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity = 1),
+    action TEXT NOT NULL CHECK (action IN ('REPAIR', 'REPLACE', 'REFUND')),
+    status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'DONE', 'VOIDED')),
+    override_reason TEXT,
+    notes TEXT,
+    user_id INTEGER NOT NULL,
+    repair_job_id INTEGER REFERENCES maintenance(id),
+    replacement_unit_id INTEGER REFERENCES product_units(id),
+    refund_transaction_id INTEGER REFERENCES transactions(id),
+    voided_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CHECK ((sale_item_id IS NULL) <> (maintenance_id IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_warranty_claims_sale_item ON warranty_claims(tenant_id, sale_item_id);
+CREATE INDEX IF NOT EXISTS idx_warranty_claims_maintenance ON warranty_claims(tenant_id, maintenance_id);
+CREATE INDEX IF NOT EXISTS idx_warranty_claims_unit ON warranty_claims(tenant_id, unit_id);
+CREATE INDEX IF NOT EXISTS idx_warranty_claims_repair_job ON warranty_claims(tenant_id, repair_job_id);
+
+CREATE TABLE IF NOT EXISTS defective_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    unit_id INTEGER REFERENCES product_units(id),
+    quantity INTEGER NOT NULL,
+    unit_cost_usd REAL NOT NULL,
+    warranty_claim_id INTEGER NOT NULL REFERENCES warranty_claims(id),
+    status TEXT NOT NULL DEFAULT 'HELD' CHECK (status IN ('HELD', 'SENT_TO_SUPPLIER', 'WRITTEN_OFF', 'RETURNED_TO_STOCK')),
+    restock_batch_id INTEGER REFERENCES product_stock_batches(id),
+    resolved_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_defective_items_claim ON defective_items(tenant_id, warranty_claim_id);
+CREATE INDEX IF NOT EXISTS idx_defective_items_product ON defective_items(tenant_id, product_id);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -2739,4 +2796,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v205 (LIRA-296) adds product_categories.warranty_months,
     -- sale_items.warranty_months/warranty_set_by and
     -- idx_sale_items_warranty_until, declared above.
-    (205, 'warranty_category_default_and_line_audit');
+    (205, 'warranty_category_default_and_line_audit'),
+    -- v206 (LIRA-296 P2) adds warranty_claims, defective_items and the
+    -- maintenance / stock_batch_consumptions / product_units warranty
+    -- columns, declared above.
+    (206, 'warranty_claims_defective_items_repair_warranty');

@@ -242,6 +242,7 @@ on that expense row existing.
 | Expense, shop uses a Katsh / iPick / Whish App item — `EXPENSE_KATSH` / `EXPENSE_IPICK` / `EXPENSE_WHISH_APP` (LIRA-262) | provider drawer (`Katsh` / `iPick` / `Whish_App`) −`cost_lbp × qty` LBP, one leg noted `Cost: <provider>` (internal, not customer cash); **no cash drawer** | — (prepaid at top-up) | — | — | expense row `amount_lbp` = cost → net profit −cost (txn stamps 0) |
 | Hold money drop-off / pickup / void pickup | legs ± | — | — | — (liability lives in `hold_money`) | 0 |
 | Drawer cashout | General − | — | — | — | — |
+| Warranty claim — `WARRANTY_COST` (LIRA-296, `WarrantyService`; one profit-only row per claim cost/recovery, `source_table='warranty_claims'`, `is_auto`) | **— none** (no `payments` row). A REFUND claim's cash moves on its own REFUND row (the refund-item rule, `restock: false`) | — | — | — (a REFUND claim's account share via the refund-item rule) | REPLACE: −FIFO cost of the replacement (stock −1, consumption owner `warranty_claim_id`); REFUND: −the line's cost (faulty unit → `defective_items` HELD, never restocked); REPAIR: −(labour cost + parts) booked once when the free job reaches Delivered; NOT_FAULTY: +cost (back in stock). Profits "Warranty cost" line. Reversal: `WarrantyService.voidClaim` (exact negation, `reverses_id`) |
 
 ### 4.7 Counterparty operations — `SupplierRepository`, `PartnerRepository`, `PartnerService`
 
@@ -295,14 +296,20 @@ Generic path: `TransactionRepository._voidTransactionInternal` / `_refundTransac
 
 Module-owned reversals: sale item refund + undo (`SalesRepository`), session basket void/refund/
 item refund + undo (`TransactionRepository`), split checkout (`voidCheckoutGroup`), hold-money
-pickup void (`HoldMoneyRepository.voidPickup`).
+pickup void (`HoldMoneyRepository.voidPickup`), warranty claim void (`WarrantyService.voidClaim`,
+LIRA-296: undoes the claim's refund via `undoSaleItemRefund({ fromWarrantyClaim })`, returns a
+replacement to stock + its batch (`restoreForWarrantyClaim`), voids the free repair job and puts its
+parts back, deletes the defective row, negates every WARRANTY_COST row — proven by
+`WarrantyService.voidNetsZero.test.ts`). The generic "Undo refund" refuses a claim's REFUND row and
+a live warranty repair job can't be deleted or charged.
 
 `NON_REVERSIBLE_TRANSACTION_TYPES` (25, `constants/transactionTypes.ts`): LOTO_CASH_PRIZE,
 LOTO_SETTLEMENT, REFUND, CREDIT_CASH_OUT, CREDIT_CASH_IN, DEBT_CASH_OUT, KEPT_CHANGE,
 PARTNER_ADJUSTMENT, ACCOUNT_ADJUSTMENT, SUPPLIER_ADJUSTMENT, COUNTERPARTY_DISCOUNT, MTC_TOPUP,
 ALFA_TOPUP, DRAWER_TOPUP, DRAWER_CASHOUT, HOLD_MONEY, HOLD_MONEY_COLLECT, HOLD_MONEY_COLLECT_VOID,
 LOTO_MONTHLY_FEE, CHECKPOINT, CARRIER_LINE_ADJUSTMENT, CLIENT_CREATED, CLIENT_UPDATED,
-CLIENT_DELETED, REFUND_UNDO. Their owner is a manual opposite entry or the module's own page.
+CLIENT_DELETED, REFUND_UNDO, WARRANTY_COST (LIRA-296, owner: `WarrantyService.voidClaim`). Their
+owner is a manual opposite entry or the module's own page.
 
 ---
 

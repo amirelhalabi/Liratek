@@ -173,6 +173,16 @@ import {
   // LIRA-296 — warranty for any item (packages/core/src/validators/warranty.ts).
   warrantySearchSchema,
   type WarrantySearchQuery,
+  createWarrantyClaimSchema,
+  warrantyClaimsForSchema,
+  voidWarrantyClaimSchema,
+  listDefectiveItemsSchema,
+  resolveDefectiveSchema,
+  type CreateWarrantyClaimData,
+  type WarrantyClaimsForInput,
+  type VoidWarrantyClaimInput,
+  type ListDefectiveItemsInput,
+  type ResolveDefectiveInput,
   type RegisterProductUnitsInput,
   type ProductUnitsForProductInput,
   type ListProductUnitsInput,
@@ -1101,65 +1111,65 @@ export const MobileServiceItemSeedSchema =
 
 export const CustomServiceCreateSchema = z
   .object({
-  description: z.string().min(1, "Description is required"),
-  cost_usd: z.coerce.number().nonnegative().default(0),
-  cost_lbp: z.coerce.number().nonnegative().default(0),
-  price_usd: z.coerce.number().nonnegative().default(0),
-  price_lbp: z.coerce.number().nonnegative().default(0),
-  paid_by: z.string().min(1).default("CASH"),
-  status: z.enum(["pending", "completed"]).optional().default("completed"),
-  client_id: z.coerce.number().int().positive().optional(),
-  client_name: z.string().optional(),
-  phone_number: z.string().optional(),
-  note: z.string().optional(),
-  category: z.string().optional(),
-  voucher_code: z.string().optional(),
-  payments: z
-    .array(
-      z.object({
-        method: z.string().min(1),
-        currency_code: z.string().min(1),
-        amount: z.number(),
-        voucher_code: z.string().optional(),
-        direction: z.enum(["IN", "OUT"]).optional(),
-      }),
-    )
-    .optional(),
-  // T3 keep-change (KC-3) — LOCAL duplicate of the core schema (rule-14
-  // debt, same trap as DebtRepaymentSchema): fields must exist in BOTH or the
-  // desktop path silently strips them.
-  kept_change_usd: z.number().nonnegative().optional(),
-  kept_change_lbp: z.number().nonnegative().optional(),
-  // POSTING_MAP G42 — LOCAL duplicate of the core field (same rule-14 trap):
-  // the rate the payment sheet converted at. Without it desktop reconciled
-  // the payment lines at the server's fallback rate, not the till's.
-  exchange_rate: z.coerce.number().positive().optional(),
-  transaction_time: z.string().optional(),
-  // Insurance fulfilment tracking — mirrors the core schema field; without it
-  // the desktop path silently stripped "ORDERED" (rule 23, 2026-10-07).
-  fulfillment_status: z.enum(FULFILLMENT_STATUSES).optional(),
-  // LIRA-081 — LOCAL duplicate of the core createCustomServiceSchema field
-  // (rule-14 debt, same trap documented elsewhere in this file): fields must
-  // exist in BOTH or the desktop path silently strips them.
-  partnerId: z.number().int().positive().optional(),
-  // LIRA-154: widened to include "VIA" (partner performs the service; we owe
-  // the partner the cost). Kept in sync with the core createCustomServiceSchema
-  // enum — same rule-14 local-duplicate trap noted above.
-  partnerMode: z.enum(["FOR", "VIA"]).optional(),
-  // OWNER_NOTES_REMAINING_BUILD.md #16 (migration v185) — LOCAL duplicate of
-  // the core createCustomServiceSchema field (same rule-14 trap): "OUT" is a
-  // payout (Via-Partner only), see CustomServiceRepository's `isPayout`
-  // block. Omitting this here would silently strip `direction` on the
-  // desktop path and every submission would fall back to "IN". No
-  // `.default("IN")` — matches the core schema's own reasoning (kept
-  // truly optional so its inferred output type stays optional too).
-  direction: z.enum(["IN", "OUT"]).optional(),
-  // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — LOCAL duplicate of the
-  // core createCustomServiceSchema field (same rule-14 trap): an
-  // inventory-backed service must decrement stock like a POS sale; omitting
-  // this here would silently strip product_id on the desktop path and the
-  // repository would never learn a product was involved.
-  product_id: z.coerce.number().int().positive().optional(),
+    description: z.string().min(1, "Description is required"),
+    cost_usd: z.coerce.number().nonnegative().default(0),
+    cost_lbp: z.coerce.number().nonnegative().default(0),
+    price_usd: z.coerce.number().nonnegative().default(0),
+    price_lbp: z.coerce.number().nonnegative().default(0),
+    paid_by: z.string().min(1).default("CASH"),
+    status: z.enum(["pending", "completed"]).optional().default("completed"),
+    client_id: z.coerce.number().int().positive().optional(),
+    client_name: z.string().optional(),
+    phone_number: z.string().optional(),
+    note: z.string().optional(),
+    category: z.string().optional(),
+    voucher_code: z.string().optional(),
+    payments: z
+      .array(
+        z.object({
+          method: z.string().min(1),
+          currency_code: z.string().min(1),
+          amount: z.number(),
+          voucher_code: z.string().optional(),
+          direction: z.enum(["IN", "OUT"]).optional(),
+        }),
+      )
+      .optional(),
+    // T3 keep-change (KC-3) — LOCAL duplicate of the core schema (rule-14
+    // debt, same trap as DebtRepaymentSchema): fields must exist in BOTH or the
+    // desktop path silently strips them.
+    kept_change_usd: z.number().nonnegative().optional(),
+    kept_change_lbp: z.number().nonnegative().optional(),
+    // POSTING_MAP G42 — LOCAL duplicate of the core field (same rule-14 trap):
+    // the rate the payment sheet converted at. Without it desktop reconciled
+    // the payment lines at the server's fallback rate, not the till's.
+    exchange_rate: z.coerce.number().positive().optional(),
+    transaction_time: z.string().optional(),
+    // Insurance fulfilment tracking — mirrors the core schema field; without it
+    // the desktop path silently stripped "ORDERED" (rule 23, 2026-10-07).
+    fulfillment_status: z.enum(FULFILLMENT_STATUSES).optional(),
+    // LIRA-081 — LOCAL duplicate of the core createCustomServiceSchema field
+    // (rule-14 debt, same trap documented elsewhere in this file): fields must
+    // exist in BOTH or the desktop path silently strips them.
+    partnerId: z.number().int().positive().optional(),
+    // LIRA-154: widened to include "VIA" (partner performs the service; we owe
+    // the partner the cost). Kept in sync with the core createCustomServiceSchema
+    // enum — same rule-14 local-duplicate trap noted above.
+    partnerMode: z.enum(["FOR", "VIA"]).optional(),
+    // OWNER_NOTES_REMAINING_BUILD.md #16 (migration v185) — LOCAL duplicate of
+    // the core createCustomServiceSchema field (same rule-14 trap): "OUT" is a
+    // payout (Via-Partner only), see CustomServiceRepository's `isPayout`
+    // block. Omitting this here would silently strip `direction` on the
+    // desktop path and every submission would fall back to "IN". No
+    // `.default("IN")` — matches the core schema's own reasoning (kept
+    // truly optional so its inferred output type stays optional too).
+    direction: z.enum(["IN", "OUT"]).optional(),
+    // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — LOCAL duplicate of the
+    // core createCustomServiceSchema field (same rule-14 trap): an
+    // inventory-backed service must decrement stock like a POS sale; omitting
+    // this here would silently strip product_id on the desktop path and the
+    // repository would never learn a product was involved.
+    product_id: z.coerce.number().int().positive().optional(),
   })
   // OWNER_NOTES_REMAINING_BUILD.md #16 (fix-round I2) — these two refines
   // used to exist ONLY on the core `createCustomServiceSchema`, which REST
@@ -1563,6 +1573,16 @@ export const UpdateCategorySchema =
 
 export const WarrantySearchSchema =
   warrantySearchSchema as unknown as z.ZodSchema<WarrantySearchQuery>;
+export const CreateWarrantyClaimSchema =
+  createWarrantyClaimSchema as unknown as z.ZodSchema<CreateWarrantyClaimData>;
+export const WarrantyClaimsForSchema =
+  warrantyClaimsForSchema as unknown as z.ZodSchema<WarrantyClaimsForInput>;
+export const VoidWarrantyClaimSchema =
+  voidWarrantyClaimSchema as unknown as z.ZodSchema<VoidWarrantyClaimInput>;
+export const ListDefectiveItemsSchema =
+  listDefectiveItemsSchema as unknown as z.ZodSchema<ListDefectiveItemsInput>;
+export const ResolveDefectiveSchema =
+  resolveDefectiveSchema as unknown as z.ZodSchema<ResolveDefectiveInput>;
 
 // =============================================================================
 // Profits password gate (frozen contract)

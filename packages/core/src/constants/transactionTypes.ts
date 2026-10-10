@@ -330,6 +330,19 @@ export const TRANSACTION_TYPES = {
    *  `ProfitRepository.carrierLineAdjustmentExcluded.test.ts`). */
   CARRIER_LINE_ADJUSTMENT: "CARRIER_LINE_ADJUSTMENT",
 
+  /** LIRA-296 P2 (owner decision D1, 2026-10-10) — the cost of honouring a
+   *  warranty, as ONE "Warranty cost" line in Profits, dated on the claim
+   *  day and never by changing a past sale: a replacement unit's cost, a
+   *  refunded faulty unit's cost, a warranty repair's parts (all negative
+   *  `profit_usd`), and recoveries that offset them (a "not faulty" unit back
+   *  in stock, a supplier credit — positive). No payment legs and no drawer:
+   *  no cash moves. Written ONLY by `WarrantyService` (`source_table =
+   *  'warranty_claims'`), stamped `metadata_json.is_auto = true` from that
+   *  link (rule 26). Reversal owner (rule 20): `WarrantyService.voidClaim`,
+   *  which writes the exact negation as another WARRANTY_COST row with
+   *  `reverses_id` — so the type is in NON_REVERSIBLE_TRANSACTION_TYPES. */
+  WARRANTY_COST: "WARRANTY_COST",
+
   // Reversal
   REFUND: "REFUND",
   /** LIRA-147 — admin-only undo of a standalone per-item refund
@@ -438,6 +451,11 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // standalone void would desync profit from money. Rule-20 reversal owner:
     // none needed (the kept cash physically stays in the drawer regardless).
     TRANSACTION_TYPES.KEPT_CHANGE,
+    // WARRANTY_COST (LIRA-296): profit-only, no legs; owned by its warranty
+    // claim — `WarrantyService.voidClaim` reverses the claim as a whole
+    // (stock, units, defective holding, repair job, refund, cost rows).
+    // A standalone void would desync the cost from what the claim moved.
+    TRANSACTION_TYPES.WARRANTY_COST,
     // PARTNER_ADJUSTMENT (LIRA-066): a paper (no-cash) manual partner_ledger
     // entry — no payments row exists to reverse. LIRA-085 re-verified
     // (2026-07-21): a partner_ledger own-row reversal mechanism now EXISTS
@@ -748,7 +766,9 @@ export const SWAP_TRANSACTION_TYPES: ReadonlySet<string> = new Set<string>([
   TRANSACTION_TYPES.DRAWER_TRANSFER,
 ]);
 
-export function isSwapTransactionType(type: string | null | undefined): boolean {
+export function isSwapTransactionType(
+  type: string | null | undefined,
+): boolean {
   return type != null && SWAP_TRANSACTION_TYPES.has(type);
 }
 

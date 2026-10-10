@@ -8,6 +8,10 @@ import {
   MaintenancePartRow,
   MaintenanceStatusHistoryRow,
 } from "../repositories/MaintenanceRepository.js";
+import { WARRANTY_JOB_NOT_CHARGEABLE_ERROR } from "../repositories/MaintenanceRepository.js";
+import { getWarrantyService } from "./WarrantyService.js";
+import { addMonthsIso } from "../utils/dates.js";
+import { clientDay } from "../utils/requestDay.js";
 import { toErrorString } from "../utils/errors.js";
 import { maintenanceLogger } from "../utils/logger.js";
 import { normalizeMaintenancePhone } from "../validators/maintenance.js";
@@ -23,6 +27,12 @@ export interface MaintenanceJobWithParts extends MaintenanceRow {
 
 export interface SaveJobParams {
   id?: number;
+  /** LIRA-296 — the repair's own warranty (months, 0–60; null clears it;
+   *  omitted leaves it). Stamped as an end day at Delivered_Paid. */
+  warranty_months?: number | null;
+  /** LIRA-296 (rule 27) — the shop's own day; the repair warranty starts on
+   *  it. Omitted: `clientDay()`. */
+  client_day?: string;
   client_id?: number | null;
   client_name?: string | null;
   client_phone?: string | null;
@@ -249,6 +259,14 @@ export class MaintenanceService {
         if (params.id && wantsToCharge && this.repo.isJobCharged(params.id)) {
           throw new Error(MAINTENANCE_ALREADY_PAID_ERROR);
         }
+        // LIRA-296: a job opened by a live warranty claim is free for the
+        // customer — its cost is the warranty's (WARRANTY_COST), never a
+        // MAINTENANCE charge.
+        const isWarrantyJob =
+          params.id != null && this.repo.isLiveWarrantyJob(params.id);
+        if (isWarrantyJob && wantsToCharge) {
+          throw new Error(WARRANTY_JOB_NOT_CHARGEABLE_ERROR);
+        }
 
         // Shared processPayments opts builder. `parts` here is a PRICE-ONLY
         // receipt snapshot (never cost/margin — see processPayments' own
@@ -322,6 +340,7 @@ export class MaintenanceService {
           if (jobPhone !== undefined) {
             this.repo.setJobClientPhone(params.id, jobPhone);
           }
+          const warrantyUntil = this.applyRepairWarranty(params.id, params);
 
           // Process payments only when this save charges the job (already-
           // charged jobs were refused above). Deferred (session basket): always
@@ -331,9 +350,18 @@ export class MaintenanceService {
             this.repo.processPayments(
               params.id,
               params.payments ?? [],
-              buildPaymentOpts(params.id, partsPriceUsd, partsMarginUsd),
+              {
+                ...buildPaymentOpts(params.id, partsPriceUsd, partsMarginUsd),
+                warrantyUntil,
+              },
               actorUserId,
             );
+          }
+
+          // LIRA-296: a delivered warranty repair books its cost once
+          // (WARRANTY_COST) and closes its claim.
+          if (isWarrantyJob && isPaidStatus) {
+            getWarrantyService().onRepairDelivered(params.id, actorUserId);
           }
 
           // Log status change for completion
@@ -386,6 +414,8 @@ export class MaintenanceService {
             );
           }
 
+          const newWarrantyUntil = this.applyRepairWarranty(newId, params);
+
           // If creating with payment data (checkout from new job form).
           // Deferred (session basket): always create the unified transaction (so
           // the basket can link + back-fill it) even with no payment lines.
@@ -393,7 +423,10 @@ export class MaintenanceService {
             this.repo.processPayments(
               newId,
               params.payments ?? [],
-              buildPaymentOpts(newId, partsPriceUsd, partsMarginUsd),
+              {
+                ...buildPaymentOpts(newId, partsPriceUsd, partsMarginUsd),
+                warrantyUntil: newWarrantyUntil,
+              },
               actorUserId,
             );
           }
@@ -416,6 +449,37 @@ export class MaintenanceService {
       );
       return { success: false, error: toErrorString(error) };
     }
+  }
+
+  /**
+   * LIRA-296 (user story 5) — save the repair's warranty length and, the
+   * first time the job reaches Delivered_Paid, stamp its end day from the
+   * shop's own day (`client_day`, else `clientDay()`, rule 27). Returns the
+   * job's warranty end day (null when it has none) for the receipt.
+   */
+  private applyRepairWarranty(
+    jobId: number,
+    params: SaveJobParams,
+  ): string | null {
+    if (!this.repo.hasWarrantyColumns()) return null;
+    if (params.warranty_months !== undefined) {
+      this.repo.setWarrantyMonths(jobId, params.warranty_months);
+    }
+    const job = this.repo.findById(jobId);
+    if (!job) return null;
+    if (
+      params.status === "Delivered_Paid" &&
+      !job.warranty_until &&
+      (job.warranty_months ?? 0) > 0
+    ) {
+      const until = addMonthsIso(
+        params.client_day ?? clientDay(),
+        job.warranty_months!,
+      );
+      this.repo.stampWarrantyUntil(jobId, until);
+      return until;
+    }
+    return job.warranty_until ?? null;
   }
 
   /**

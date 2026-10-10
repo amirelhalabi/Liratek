@@ -1386,8 +1386,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               });
             } else {
               // Use derived payment totals (accounts for new payment lines structure)
-              const totalPaidUSD =
-                paymentUsd + paymentLbp / sale.exchange_rate;
+              const totalPaidUSD = paymentUsd + paymentLbp / sale.exchange_rate;
               if (sale.final_amount - totalPaidUSD > 0.05) {
                 const remainder = sale.final_amount - totalPaidUSD;
 
@@ -1877,10 +1876,20 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     exchangeRate?: number;
     /** Owner decision 2026-10-07 — refund kept change (see below). */
     keptChange?: KeptChange;
+    /** LIRA-296 — `false` for a warranty REFUND claim: the money is
+     *  refunded exactly as today, but the faulty unit goes to the defective
+     *  holding — no `stock_quantity +=`, no FIFO batch restore, and a tracked
+     *  unit stays out of IN_STOCK, flagged `is_defective`. Default `true`
+     *  (unchanged behaviour). */
+    restock?: boolean;
+    /** LIRA-296 — the warranty claim this refund belongs to. Stamped on the
+     *  REFUND row so only voiding the claim can undo it (rule 20). */
+    warrantyClaimId?: number;
   }): number {
     const db = this.db;
     const tenantId = getCurrentTenantId();
     const txnRepo = getTransactionRepository();
+    const restock = params.restock !== false;
 
     // ---- Pre-transaction guards & reads (mirrors _refundTransactionInternal's
     // "validate before this.transaction() opens" discipline — nothing is
@@ -1922,9 +1931,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     }
 
     if (sale.status === "refunded") {
-      throw new DatabaseError(
-        "Cannot refund items from a fully refunded sale",
-      );
+      throw new DatabaseError("Cannot refund items from a fully refunded sale");
     }
 
     // 5. Get the original SALE transaction
@@ -2030,7 +2037,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // `refundLegs` above). A no-op when the `product_units` table doesn't
     // exist on this connection, matching step 9b's own guard below.
     const unitExtras = params.unitExtras;
-    if (unitExtras && unitExtras.length > 0 && this._productUnitsTableExists()) {
+    if (
+      unitExtras &&
+      unitExtras.length > 0 &&
+      this._productUnitsTableExists()
+    ) {
       const linkedUnitIds = new Set(
         getProductUnitRepository()
           .findBySaleItemIds([params.saleItemId])
@@ -2094,6 +2105,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           ...(hasKept
             ? { kept_change_usd: kept.usd, kept_change_lbp: kept.lbp }
             : {}),
+          // LIRA-296 — a warranty REFUND claim: never restocked, owned by
+          // its claim (only voidClaim may undo it).
+          ...(restock ? {} : { restock: false }),
+          ...(params.warrantyClaimId != null
+            ? { warrantyClaimId: params.warrantyClaimId }
+            : {}),
         },
         device_id: originalTxn.device_id ?? undefined,
       });
@@ -2104,18 +2121,30 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       // session-linked sale's own `payments` rows are empty — the basket's
       // pooled leg is reversed by the session flow's dedicated account-first
       // + leg logic instead).
-      const { restoredUnitIds } = this._applySaleItemReversal({
-        saleId: params.saleId,
-        saleItemId: params.saleItemId,
-        productId: item.product_id,
-        refundQuantity: params.refundQuantity,
-        userId: params.userId,
-        refundTxnId,
-        originalSaleTxnId: originalTxn.id,
-        clientId: originalTxn.client_id,
-        lineShareOfSale,
-        unitExtras,
-      });
+      const { restoredUnitIds, defectiveUnitIds } = this._applySaleItemReversal(
+        {
+          saleId: params.saleId,
+          saleItemId: params.saleItemId,
+          productId: item.product_id,
+          refundQuantity: params.refundQuantity,
+          userId: params.userId,
+          refundTxnId,
+          originalSaleTxnId: originalTxn.id,
+          clientId: originalTxn.client_id,
+          lineShareOfSale,
+          unitExtras,
+          restock,
+        },
+      );
+
+      // LIRA-296 — a no-restock refund flags its tracked unit(s) defective
+      // instead of flipping them IN_STOCK; stamp which, so the claim's undo
+      // clears exactly those flags.
+      if (!restock && defectiveUnitIds.length > 0) {
+        db.prepare(
+          `UPDATE transactions SET metadata_json = json_set(metadata_json, '$.defectiveUnitIds', json(?)) WHERE id = ? AND tenant_id = ?`,
+        ).run(JSON.stringify(defectiveUnitIds), refundTxnId, tenantId);
+      }
 
       // LIRA-147 — stamp exactly which product_units this refund flipped
       // IN_STOCK, so `undoSaleItemRefund` can tell "this specific unit is
@@ -2222,7 +2251,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     lineShareOfSale: number;
     userId: number;
   }): {
-    partnerReversals: { partner_id: number; amount: number; currency: string }[];
+    partnerReversals: {
+      partner_id: number;
+      amount: number;
+      currency: string;
+    }[];
     creditReversalIds: number[];
   } {
     const db = this.db;
@@ -2415,6 +2448,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   undoSaleItemRefund(params: {
     refundTransactionId: number;
     userId: number;
+    /** LIRA-296 — only `WarrantyService.voidClaim` sets this: a warranty
+     *  claim's refund is owned by its claim (rule 20) and is refused here
+     *  otherwise. */
+    fromWarrantyClaim?: boolean;
   }): number {
     const db = this.db;
     const tenantId = getCurrentTenantId();
@@ -2482,6 +2519,15 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         "Undo refund only applies to a per-item refund made from a sale.",
       );
     }
+    // LIRA-296 (rule 20): a warranty claim's refund is reversed by voiding
+    // its claim, which also clears the defective holding and the warranty
+    // cost — undoing the refund alone would leave both behind.
+    if (metadata.warrantyClaimId != null && !params.fromWarrantyClaim) {
+      throw new DatabaseError(
+        "This refund belongs to a warranty claim — void the claim from the Warranty page instead.",
+      );
+    }
+    const restocked = metadata.restock !== false;
 
     const saleItemId = Number(metadata.saleItemId);
     const refundQuantity = Number(metadata.refundQuantity);
@@ -2543,7 +2589,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // `restoredUnitIds` in its metadata) — still safe-direction (refuses
     // rather than risks a double-restore) even though it can't perfectly
     // distinguish "never tracked" from "all moved on" for legacy data.
-    if (this._productUnitsTableExists()) {
+    // LIRA-296: a no-restock refund put no unit back in stock — nothing
+    // could have been resold, so there is nothing to check.
+    if (restocked && this._productUnitsTableExists()) {
       const restoredUnitIdsRaw = metadata.restoredUnitIds;
       if (Array.isArray(restoredUnitIdsRaw) && restoredUnitIdsRaw.length > 0) {
         const placeholders = restoredUnitIdsRaw.map(() => "?").join(",");
@@ -2584,7 +2632,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // Dependent-activity guard: has the restored stock capacity already been
     // consumed by something else since?
     const stockBatchRepo = getStockBatchRepository();
-    if (!stockBatchRepo.canUnrestoreForSaleItem(saleItemId, refundQuantity)) {
+    if (
+      restocked &&
+      !stockBatchRepo.canUnrestoreForSaleItem(saleItemId, refundQuantity)
+    ) {
       throw new DatabaseError(
         "This refund can't be undone — the stock it restored has already been consumed by other activity since.",
       );
@@ -2628,6 +2679,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             Array.isArray(restoredUnitIdsRaw) && restoredUnitIdsRaw.length > 0
               ? (restoredUnitIdsRaw as number[])
               : undefined,
+          restocked,
+          defectiveUnitIds: Array.isArray(metadata.defectiveUnitIds)
+            ? (metadata.defectiveUnitIds as number[])
+            : [],
         });
       }
 
@@ -2821,7 +2876,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // TransactionRepository.refundSessionBasketItem.test.ts's
     // "finding #1" case for the failing-first proof.
     const discountShareUsd = (sale.discount_usd || 0) * lineShareOfSale;
-    const refundAmount = item.sold_price_usd * refundQuantity - discountShareUsd;
+    const refundAmount =
+      item.sold_price_usd * refundQuantity - discountShareUsd;
     const grossMarginUsd = lineGrossMarginUsd(
       item.sold_price_usd,
       item.cost_price_snapshot_usd,
@@ -2859,54 +2915,76 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     clientId: number | null;
     lineShareOfSale: number;
     unitExtras?: RefundUnitExtra[];
-  }): { restoredUnitIds: number[] } {
+    /** LIRA-296 — `false`: a warranty REFUND claim (see refundSaleItem). */
+    restock?: boolean;
+  }): { restoredUnitIds: number[]; defectiveUnitIds: number[] } {
     const db = this.db;
     const tenantId = getCurrentTenantId();
     const restoredUnitIds: number[] = [];
+    const defectiveUnitIds: number[] = [];
 
     // Update sale_items.refunded_quantity
     db.prepare(
       `UPDATE sale_items SET refunded_quantity = refunded_quantity + ? WHERE id = ? AND tenant_id = ?`,
     ).run(params.refundQuantity, params.saleItemId, tenantId);
 
-    // Restore stock for refunded quantity
-    db.prepare(
-      `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
-    ).run(params.refundQuantity, params.productId, tenantId);
-
-    // Give the refunded units back to the batches they were FIFO-consumed
-    // from (newest-consumption-first — see StockBatchRepository
-    // .restoreForSaleItem), so `stock_quantity` and batch cover stay in step
-    // after an item refund exactly like they do after processSale's
-    // consumption.
-    getStockBatchRepository().restoreForSaleItem(
-      params.saleItemId,
-      params.refundQuantity,
-    );
-
-    // LIRA-143 phase 4 — flip up to `refundQuantity` SOLD product_units
-    // linked to THIS sale_item back to IN_STOCK, applying the operator's
-    // is_defective/warranty_override_until extras at the same moment.
-    // `markInStock` is idempotent (no-ops a unit that isn't currently SOLD),
-    // so re-running this on an already-flipped unit is harmless.
-    if (this._productUnitsTableExists()) {
-      const productUnitRepo = getProductUnitRepository();
-      const linkedUnits = productUnitRepo
-        .findBySaleItemIds([params.saleItemId])
-        .filter((u) => u.status === "SOLD")
-        .sort((a, b) => a.id - b.id)
-        .slice(0, params.refundQuantity);
-      const extrasByUnitId = new Map<number, RefundUnitExtra>();
-      for (const extra of params.unitExtras ?? []) {
-        extrasByUnitId.set(extra.unit_id, extra);
+    if (params.restock === false) {
+      // LIRA-296 — the faulty unit goes to the defective holding, never the
+      // shelf: no stock, no batch restore; a tracked unit stays SOLD (out of
+      // IN_STOCK, so it can't be sold again) and is flagged defective.
+      if (this._productUnitsTableExists()) {
+        const units = getProductUnitRepository()
+          .findBySaleItemIds([params.saleItemId])
+          .filter((u) => u.status === "SOLD" && !u.is_defective)
+          .sort((a, b) => a.id - b.id)
+          .slice(0, params.refundQuantity);
+        for (const unit of units) {
+          db.prepare(
+            `UPDATE product_units SET is_defective = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
+          ).run(unit.id, tenantId);
+          defectiveUnitIds.push(unit.id);
+        }
       }
-      for (const unit of linkedUnits) {
-        const extra = extrasByUnitId.get(unit.id);
-        productUnitRepo.markInStock(unit.id, {
-          isDefective: extra?.is_defective,
-          warrantyOverrideUntil: extra?.warranty_override_until,
-        });
-        restoredUnitIds.push(unit.id);
+    } else {
+      // Restore stock for refunded quantity
+      db.prepare(
+        `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
+      ).run(params.refundQuantity, params.productId, tenantId);
+
+      // Give the refunded units back to the batches they were FIFO-consumed
+      // from (newest-consumption-first — see StockBatchRepository
+      // .restoreForSaleItem), so `stock_quantity` and batch cover stay in step
+      // after an item refund exactly like they do after processSale's
+      // consumption.
+      getStockBatchRepository().restoreForSaleItem(
+        params.saleItemId,
+        params.refundQuantity,
+      );
+
+      // LIRA-143 phase 4 — flip up to `refundQuantity` SOLD product_units
+      // linked to THIS sale_item back to IN_STOCK, applying the operator's
+      // is_defective/warranty_override_until extras at the same moment.
+      // `markInStock` is idempotent (no-ops a unit that isn't currently SOLD),
+      // so re-running this on an already-flipped unit is harmless.
+      if (this._productUnitsTableExists()) {
+        const productUnitRepo = getProductUnitRepository();
+        const linkedUnits = productUnitRepo
+          .findBySaleItemIds([params.saleItemId])
+          .filter((u) => u.status === "SOLD")
+          .sort((a, b) => a.id - b.id)
+          .slice(0, params.refundQuantity);
+        const extrasByUnitId = new Map<number, RefundUnitExtra>();
+        for (const extra of params.unitExtras ?? []) {
+          extrasByUnitId.set(extra.unit_id, extra);
+        }
+        for (const unit of linkedUnits) {
+          const extra = extrasByUnitId.get(unit.id);
+          productUnitRepo.markInStock(unit.id, {
+            isDefective: extra?.is_defective,
+            warrantyOverrideUntil: extra?.warranty_override_until,
+          });
+          restoredUnitIds.push(unit.id);
+        }
       }
     }
 
@@ -2953,7 +3031,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       ).run(params.saleId, tenantId);
     }
 
-    return { restoredUnitIds };
+    return { restoredUnitIds, defectiveUnitIds };
   }
 
   /**
@@ -3273,6 +3351,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
      *  omitted/empty, falls back to the lowest-id-first IN_STOCK heuristic,
      *  same as `undoSaleItemRefund`'s own legacy fallback. */
     restoredUnitIds?: number[];
+    /** LIRA-296 — `false` for a no-restock (warranty claim) refund: nothing
+     *  went back on the shelf, so nothing is taken off it; only the units it
+     *  flagged defective (`defectiveUnitIds`) are cleared. */
+    restocked?: boolean;
+    defectiveUnitIds?: number[];
   }): void {
     const db = this.db;
     const tenantId = getCurrentTenantId();
@@ -3287,6 +3370,15 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     db.prepare(
       `UPDATE sale_items SET refunded_quantity = refunded_quantity - ? WHERE id = ? AND tenant_id = ?`,
     ).run(params.refundQuantity, params.saleItemId, tenantId);
+
+    if (params.restocked === false) {
+      for (const unitId of params.defectiveUnitIds ?? []) {
+        db.prepare(
+          `UPDATE product_units SET is_defective = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
+        ).run(unitId, tenantId);
+      }
+      return;
+    }
     db.prepare(
       `UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ? AND tenant_id = ?`,
     ).run(params.refundQuantity, item.product_id, tenantId);
@@ -3304,7 +3396,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           ? productUnitRepo
               .findBySaleItemIds([params.saleItemId])
               .filter(
-                (u) => u.status === "IN_STOCK" && restoredUnitIdsRaw.includes(u.id),
+                (u) =>
+                  u.status === "IN_STOCK" && restoredUnitIdsRaw.includes(u.id),
               )
           : productUnitRepo
               .findBySaleItemIds([params.saleItemId])
@@ -3955,7 +4048,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       // widens the parameter type again fails loudly here instead of
       // reintroducing a re-texted profit query (see this method's own doc
       // comment — DC-10 moved "Profit" to `SalesService.getChartData`).
-      throw new Error(`SalesRepository.getChartData: unsupported type "${type}"`);
+      throw new Error(
+        `SalesRepository.getChartData: unsupported type "${type}"`,
+      );
     } catch (error) {
       throw new DatabaseError("Failed to get chart data", { cause: error });
     }

@@ -51,6 +51,9 @@ export interface ServiceReceiptShop {
   phone?: string;
   location?: string;
   headerText?: string;
+  /** LIRA-296 — the shop's warranty terms, printed when the receipt carries
+   *  a warranty (a repair's own `metadata.warranty_until`). */
+  warrantyTerms?: string;
 }
 
 export interface ServiceReceiptInput {
@@ -71,7 +74,9 @@ export interface ServiceReceiptInput {
  */
 export interface ServiceReceiptApi {
   getTransactionById: (id: number) => Promise<unknown>;
-  getCustomerFacingLegs: (transactionId: number) => Promise<ServiceReceiptLeg[]>;
+  getCustomerFacingLegs: (
+    transactionId: number,
+  ) => Promise<ServiceReceiptLeg[]>;
   getAllSettings: () => Promise<Array<{ key_name: string; value: string }>>;
 }
 
@@ -245,6 +250,17 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
   if (outLegs.length > 0) {
     for (const l of outLegs) {
       r += line("Change:", fmtMoney(l.amount, l.currency_code));
+    }
+  }
+
+  // LIRA-296 — a repair's own warranty, with the shop's terms.
+  const warrantyUntil =
+    typeof meta.warranty_until === "string" ? meta.warranty_until : null;
+  if (warrantyUntil) {
+    r += rule + "\n";
+    r += `Warranty until: ${warrantyUntil}\n`;
+    for (const termsLine of wrapReceiptText(shop.warrantyTerms ?? "", WIDTH)) {
+      r += termsLine + "\n";
     }
   }
 

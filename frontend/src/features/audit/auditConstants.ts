@@ -119,7 +119,9 @@ export function isSessionItemRefundRow(
   type: string,
   metaJson: string | null | undefined,
 ): boolean {
-  return type === "REFUND" && parseMetaSafe(metaJson).refundType === "sessionItem";
+  return (
+    type === "REFUND" && parseMetaSafe(metaJson).refundType === "sessionItem"
+  );
 }
 
 /**
@@ -186,6 +188,20 @@ export function isExpenseVisible(
   activeOption: Pick<FilterOption, "type"> | undefined,
 ): boolean {
   if (activeOption?.type === "EXPENSE") return true;
+  return !isAutoRow(metaJson);
+}
+
+/**
+ * LIRA-296 (rule 26) — a WARRANTY_COST row is a system-written sibling of an
+ * operator's warranty claim (`metadata.is_auto = true`): hidden by default,
+ * revealed by the "Warranty Cost" type filter. Same rule as EXPENSE above;
+ * absent/unparsable metadata reads as visible.
+ */
+export function isWarrantyCostVisible(
+  metaJson: string | null | undefined,
+  activeOption: Pick<FilterOption, "type"> | undefined,
+): boolean {
+  if (activeOption?.type === "WARRANTY_COST") return true;
   return !isAutoRow(metaJson);
 }
 
@@ -378,6 +394,8 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       { label: "Custom Service", type: "CUSTOM_SERVICE" },
       { label: "Maintenance", type: "MAINTENANCE" },
       { label: "Expense", type: "EXPENSE" },
+      // LIRA-296 — reveals the auto WARRANTY_COST rows (hidden by default).
+      { label: "Warranty Cost", type: "WARRANTY_COST" },
       // LIRA-262 — "the shop used its own stock" expenses, one type per
       // source. Manual (never is_auto), so visible by default too.
       { label: "Expense · Stock", type: "EXPENSE_INVENTORY" },

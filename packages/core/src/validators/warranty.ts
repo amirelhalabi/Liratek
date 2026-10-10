@@ -6,7 +6,8 @@
  * `validators/index.ts`, so both `index.ts` and `browser.ts` carry it.
  */
 import { z } from "zod";
-import { localDayFormatSchema } from "./common.js";
+import { localDayFormatSchema, refundExchangeRateSchema } from "./common.js";
+import { refundKeptChangeSchema, refundLegsSchema } from "./transaction.js";
 import type { WarrantyState } from "../utils/warrantyState.js";
 
 // =============================================================================
@@ -90,3 +91,162 @@ export interface WarrantySearchRow {
   state: WarrantyState;
   openClaimId: number | null;
 }
+
+// =============================================================================
+// Warranty claims (P2) — IPC `warranty:claim` … / REST `/api/warranty/claims`
+// =============================================================================
+
+export const WARRANTY_CLAIM_ACTIONS = ["REPAIR", "REPLACE", "REFUND"] as const;
+export type WarrantyClaimActionInput = (typeof WARRANTY_CLAIM_ACTIONS)[number];
+
+/** Refusal codes a claim operation answers with (envelope `code`). */
+export const WARRANTY_CLAIM_ERROR_CODES = [
+  "NOT_COVERED",
+  "ALREADY_CLAIMED",
+  "OUT_OF_STOCK",
+  "NO_COVERED_UNIT_LEFT",
+  "FORBIDDEN_ACTION",
+  "REPLACEMENT_UNIT_REQUIRED",
+  "ALREADY_VOIDED",
+  "DEFECTIVE_ALREADY_SENT",
+  "DEFECTIVE_RESOLVED",
+  "NOT_HELD",
+  "NOT_FOUND",
+  "INVALID",
+] as const;
+export type WarrantyClaimErrorCode =
+  (typeof WARRANTY_CLAIM_ERROR_CODES)[number];
+
+const optionalText = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .optional()
+    .transform((v) => {
+      const t = v?.trim();
+      return t ? t : undefined;
+    });
+
+export const createWarrantyClaimSchema = z
+  .object({
+    /** The sale line claimed on — or `maintenance_id` for a repair's own
+     *  warranty. Exactly one of the two. */
+    sale_item_id: z.number().int().positive().optional(),
+    maintenance_id: z.number().int().positive().optional(),
+    /** The tracked unit (serial/IMEI) being claimed, when the line has one. */
+    unit_id: z.number().int().positive().optional(),
+    action: z.enum(WARRANTY_CLAIM_ACTIONS),
+    /** REPLACE of a tracked product: the IN_STOCK unit handed over. */
+    replacement_unit_id: z.number().int().positive().optional(),
+    notes: optionalText(500),
+    /** Admin only: why an EXPIRED warranty is honoured anyway. */
+    override_reason: optionalText(500),
+    /** REFUND only — the same return-method contract as "Refund item". */
+    refund: z
+      .object({
+        legs: refundLegsSchema.optional(),
+        exchange_rate: refundExchangeRateSchema,
+        kept_change: refundKeptChangeSchema.optional(),
+      })
+      .optional(),
+    /** The shop's own day: decides COVERED vs EXPIRED (rule 27). */
+    client_day: localDayFormatSchema,
+  })
+  .refine((v) => (v.sale_item_id == null) !== (v.maintenance_id == null), {
+    message: "Pick exactly one: a sale line or a repair job",
+    path: ["sale_item_id"],
+  });
+export type CreateWarrantyClaimInput = z.input<
+  typeof createWarrantyClaimSchema
+>;
+export type CreateWarrantyClaimData = z.output<
+  typeof createWarrantyClaimSchema
+>;
+
+export const voidWarrantyClaimSchema = z.object({
+  claim_id: z.coerce.number().int().positive(),
+});
+export type VoidWarrantyClaimInput = z.input<typeof voidWarrantyClaimSchema>;
+
+/** Claim history for a sale line, a repair job or a unit (one of them). */
+export const warrantyClaimsForSchema = z
+  .object({
+    sale_item_id: z.coerce.number().int().positive().optional(),
+    maintenance_id: z.coerce.number().int().positive().optional(),
+    unit_id: z.coerce.number().int().positive().optional(),
+  })
+  .refine(
+    (v) =>
+      [v.sale_item_id, v.maintenance_id, v.unit_id].filter((x) => x != null)
+        .length === 1,
+    { message: "Pick one of sale_item_id, maintenance_id or unit_id" },
+  );
+export type WarrantyClaimsForInput = z.input<typeof warrantyClaimsForSchema>;
+
+export const DEFECTIVE_ITEM_STATUSES = [
+  "HELD",
+  "SENT_TO_SUPPLIER",
+  "WRITTEN_OFF",
+  "RETURNED_TO_STOCK",
+] as const;
+
+export const listDefectiveItemsSchema = z.object({
+  status: z.enum(DEFECTIVE_ITEM_STATUSES).optional(),
+});
+export type ListDefectiveItemsInput = z.input<typeof listDefectiveItemsSchema>;
+
+export const resolveDefectiveSchema = z.object({
+  defective_item_id: z.coerce.number().int().positive(),
+  outcome: z.enum(["WRITE_OFF", "NOT_FAULTY"]),
+});
+export type ResolveDefectiveInput = z.input<typeof resolveDefectiveSchema>;
+
+/** One row of a claim history (newest first). */
+export interface WarrantyClaimView {
+  id: number;
+  sale_item_id: number | null;
+  maintenance_id: number | null;
+  unit_id: number | null;
+  action: WarrantyClaimActionInput;
+  status: "OPEN" | "DONE" | "VOIDED";
+  override_reason: string | null;
+  notes: string | null;
+  user_id: number;
+  username: string | null;
+  repair_job_id: number | null;
+  replacement_unit_id: number | null;
+  refund_transaction_id: number | null;
+  voided_at: string | null;
+  created_at: string;
+}
+
+/** What `warranty:claim` answers on success. */
+export interface WarrantyClaimResultData {
+  claim: WarrantyClaimView;
+  repairJobId?: number;
+  replacementUnitId?: number;
+  refundTransactionId?: number;
+}
+
+/** One defective item, as the admin list shows it. */
+export interface DefectiveItemView {
+  id: number;
+  product_id: number;
+  product_name: string | null;
+  unit_id: number | null;
+  serial: string | null;
+  quantity: number;
+  unit_cost_usd: number;
+  warranty_claim_id: number;
+  claim_action: string | null;
+  sale_item_id: number | null;
+  status: (typeof DEFECTIVE_ITEM_STATUSES)[number];
+  resolved_at: string | null;
+  created_at: string;
+}
+
+/** The envelope every warranty write answers with (rule 19c): a refusal
+ *  carries its machine `code`. */
+export type WarrantyEnvelope<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; code?: WarrantyClaimErrorCode };

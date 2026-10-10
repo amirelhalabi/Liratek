@@ -173,7 +173,7 @@
 **Goal**: act on a covered warranty; one "Warranty cost" line in Profits; faulty items held as defective (D1, D2).
 **Independent test**: quickstart.md, P2 table.
 
-- [ ] T030 [US4] Test first, then migration **v206 `warranty_claims_defective_items_repair_warranty`**:
+- [X] T030 [US4] Test first, then migration **v206 `warranty_claims_defective_items_repair_warranty`**:
   - new tables `warranty_claims` and `defective_items` (columns, CHECK lists and FKs exactly as in data-model.md);
   - `maintenance.warranty_months`, `maintenance.warranty_until`, `maintenance.warranty_claim_id`;
   - `stock_batch_consumptions.warranty_claim_id`;
@@ -182,13 +182,13 @@
   - a `down()`, the `create_db.sql` mirror and the ledger row.
 
   Register the new tables wherever tenant tables are listed: `tenantSplit` and the reset tables.
-- [ ] T031 [US4] Transaction type `WARRANTY_COST` in `packages/core/src/constants/transactionTypes.ts`:
+- [X] T031 [US4] Transaction type `WARRANTY_COST` in `packages/core/src/constants/transactionTypes.ts`:
   - add it to `NON_REVERSIBLE_TRANSACTION_TYPES` (reversal owner: the warranty service);
   - add its IN/OUT presentation (no drawer) in `getCashFlowDirection`;
   - `is_auto` is derived from its `warranty_claim_id` link at the single writer (rule 26), and `auditConstants` hides it by default.
 
   Tests first, including `moduleDebtTypes.guard` staying green.
-- [ ] T032 [US4] **Failing-first reversal test** before any claim code: `packages/core/src/services/__tests__/WarrantyService.voidNetsZero.test.ts`. For each of REFUND, REPLACE and REPAIR, a create-then-void asserts zero change, per currency, in:
+- [X] T032 [US4] **Failing-first reversal test** before any claim code: `packages/core/src/services/__tests__/WarrantyService.voidNetsZero.test.ts`. For each of REFUND, REPLACE and REPAIR, a create-then-void asserts zero change, per currency, in:
   - stock and batches;
   - units;
   - `defective_items`;
@@ -196,12 +196,12 @@
   - client debt;
   - the supplier ledger;
   - the profit sum (rule 20).
-- [ ] T033 [US4] Test first, then `refundSaleItem` gains the option `restock: false` (`packages/core/src/repositories/SalesRepository.ts:1750`, `_applySaleItemReversal` :2730):
+- [X] T033 [US4] Test first, then `refundSaleItem` gains the option `restock: false` (`packages/core/src/repositories/SalesRepository.ts:1750`, `_applySaleItemReversal` :2730):
   - it skips `stock_quantity +=` and `restoreForSaleItem`;
   - linked units stay out of IN_STOCK, flagged `is_defective = 1`;
   - the default behaviour is unchanged (existing refund tests stay green).
-- [ ] T034 [US4] Test first, then `WarrantyClaimRepository` and `DefectiveItemRepository` (`packages/core/src/repositories/`): create, get-by-line/job/unit, status update, and an open-claim lookup (invariant: one open claim per unit).
-- [ ] T035 [US4] Test first, then `WarrantyService.createClaim(input, actor, client_day)`:
+- [X] T034 [US4] Test first, then `WarrantyClaimRepository` and `DefectiveItemRepository` (`packages/core/src/repositories/`): create, get-by-line/job/unit, status update, and an open-claim lookup (invariant: one open claim per unit).
+- [X] T035 [US4] Test first, then `WarrantyService.createClaim(input, actor, client_day)`:
   - **Guards:**
     - EXPIRED: NOT_COVERED unless an admin gives an override with a reason;
     - VOID: always NOT_COVERED, even with an override (FR-003);
@@ -217,35 +217,35 @@
     - a `WARRANTY_COST` row (−replacement cost).
   - **REPAIR:** a maintenance job with price 0 and `warranty_claim_id`; the claim stays OPEN.
   - Everything runs in one transaction. Client propagation (rule 11): the claim's customer is carried to the job and the transactions.
-- [ ] T036 [US4] Test first, then `WarrantyService.voidClaim(id)`: reverses everything T035 wrote. T032 must now pass.
-- [ ] T037 [US4] Test first, then `WarrantyService.resolveDefective(id, 'WRITE_OFF'|'NOT_FAULTY')`. NOT_FAULTY puts the item back into stock (`stock_quantity` and a batch restore at cost) and books a `WARRANTY_COST` row of +cost.
-- [ ] T038 [US4] Test first, then the WARRANTY_JOB predicate and Profits:
+- [X] T036 [US4] Test first, then `WarrantyService.voidClaim(id)`: reverses everything T035 wrote. T032 must now pass.
+- [X] T037 [US4] Test first, then `WarrantyService.resolveDefective(id, 'WRITE_OFF'|'NOT_FAULTY')`. NOT_FAULTY puts the item back into stock (`stock_quantity` and a batch restore at cost) and books a `WARRANTY_COST` row of +cost.
+- [X] T038 [US4] Test first, then the WARRANTY_JOB predicate and Profits:
   - one named SQL fragment `WARRANTY_JOB` (`maintenance.warranty_claim_id IS NOT NULL`) excludes warranty jobs from the Maintenance totals and detail (`ProfitRepository.ts` ~:3577, :4966, :6054);
   - a warranty job's parts cost, booked at delivery, becomes a `WARRANTY_COST` row (`MaintenanceRepository.processPayments` ~:674 / its status change to Delivered*);
   - `ProfitRepository.getWarrantyTotals` and `getWarrantyDetail` sum `WARRANTY_COST`;
   - `ProfitService.getByModule` adds the row `{module:'WARRANTY', label:'Warranty cost'}`, and `getSummary` includes it in gross;
   - `getModuleDetail` gets a WARRANTY builder.
-- [ ] T039 [US4] Schemas: `createWarrantyClaimSchema`, `voidWarrantyClaimSchema` and `resolveDefectiveSchema` in `packages/core/src/validators/warranty.ts`. Then:
+- [X] T039 [US4] Schemas: `createWarrantyClaimSchema`, `voidWarrantyClaimSchema` and `resolveDefectiveSchema` in `packages/core/src/validators/warranty.ts`. Then:
   - IPC `warranty:claim`, `warranty:claims-for`, `warranty:void-claim`, `warranty:defective` and `warranty:defective-resolve` (roles as in contracts/api.md);
   - matching REST routes in `backend/src/api/warranty.ts`;
   - adapter functions (rule 21).
 
   Tests first for handlers and routes.
-- [ ] T040 [US4] Test first, then the UI in `frontend/src/features/warranty/components/`:
+- [X] T040 [US4] Test first, then the UI in `frontend/src/features/warranty/components/`:
   - **`ClaimModal.tsx`**, opened from WarrantyLookup and SaleDetailModal for covered lines: pick an action; REFUND reuses `RefundMethodModal` for the legs; out-of-stock shows a message; the admin override field.
   - **`ClaimHistory.tsx`**, on the sale line and the unit story.
   - **`DefectiveItems.tsx`**, an admin list with Write off and Not faulty.
-- [ ] T041 [US4] Test first, then the Profits page: a "Warranty cost" row and its detail list in `frontend/src/features/profits/pages/Profits.tsx`.
-- [ ] T042 [US4] Add a `WARRANTY_COST` posting row (legs, drawers, profit, reversal owner) in `docs/FEATURE_GUIDE.md` and `docs/POSTING_MAP.md`.
+- [X] T041 [US4] Test first, then the Profits page: a "Warranty cost" row and its detail list in `frontend/src/features/profits/pages/Profits.tsx`.
+- [X] T042 [US4] Add a `WARRANTY_COST` posting row (legs, drawers, profit, reversal owner) in `docs/FEATURE_GUIDE.md` and `docs/POSTING_MAP.md`.
 
 ## Phase 8: User Story 5 — Warranty on repairs (P2)
 
-- [ ] T043 [US5] Test first, then the repair warranty:
+- [X] T043 [US5] Test first, then the repair warranty:
   - `maintenance.warranty_months` is editable in the job form (`frontend/src/features/maintenance/...`), through `maintenance:save` and `POST /api/maintenance/jobs` (schema `packages/core/src/validators/maintenance.ts`; three-way key diff first, rule 23);
   - `warranty_until` is stamped from `client_day` when the job reaches Delivered_Paid (`MaintenanceRepository`);
   - it is printed by `serviceReceipt.ts`.
-- [ ] T044 [US5] Test first, then extend `WarrantyRepository.search` to return repair warranties (`source:'REPAIR'`), and allow `createClaim` on `maintenance_id` (REPAIR only).
-- [ ] T045 P2 release:
+- [X] T044 [US5] Test first, then extend `WarrantyRepository.search` to return repair warranties (`source:'REPAIR'`), and allow `createClaim` on `maintenance_id` (REPAIR only).
+- [X] T045 P2 release:
   - release-note lines: warranty claims, defective items, the Warranty cost in Profits, warranty on repairs;
   - the sprint line;
   - web e2e `lira-web-0NN-warranty-claims.spec.ts`: replace, then void, then deltas back to zero, plus the Profits row;

@@ -28,7 +28,7 @@ export const NON_REVERSIBLE_REASONS: Readonly<Record<string, string>> = {
   LOTO_SETTLEMENT:
     "A settled Loto checkpoint can't be refunded or voided here — correct it with a new checkpoint/settlement from the Loto page.",
   REFUND:
-    "This row is itself a refund — it can't be refunded or voided again. An admin can undo a per-item refund right from this row (\"Undo refund\"); other refunds have no undo yet.",
+    'This row is itself a refund — it can\'t be refunded or voided again. An admin can undo a per-item refund right from this row ("Undo refund"); other refunds have no undo yet.',
   REFUND_UNDO:
     "This row already undoes a refund — it can't be refunded, voided, or undone again.",
   CREDIT_CASH_OUT:
@@ -39,6 +39,8 @@ export const NON_REVERSIBLE_REASONS: Readonly<Record<string, string>> = {
     "Correct this from the Debts page with the opposite manual entry (Add Credit cancels Add Debt) — that corrects both the drawer and the client's balance.",
   KEPT_CHANGE:
     "Nothing to reverse on this row by itself — the kept change stays in the drawer either way. Void or refund the sale this change belongs to instead.",
+  WARRANTY_COST:
+    "This is the cost of a warranty claim. To undo it, void the claim from the Warranty page — that reverses everything the claim did.",
   PARTNER_ADJUSTMENT:
     "Correct this from the Partners page with an opposite Add Credit/Debt entry.",
   ACCOUNT_ADJUSTMENT:
@@ -51,14 +53,13 @@ export const NON_REVERSIBLE_REASONS: Readonly<Record<string, string>> = {
     "Correct this with an opposite manual top-up from the Recharge page.",
   ALFA_TOPUP:
     "Correct this with an opposite manual top-up from the Recharge page.",
-  DRAWER_TOPUP:
-    "Correct this with an opposite transfer from the Dashboard.",
+  DRAWER_TOPUP: "Correct this with an opposite transfer from the Dashboard.",
   DRAWER_CASHOUT:
     "Correct this with an opposite Drawer Top-Up from the Dashboard.",
   HOLD_MONEY:
     "Held money is reversed from the Hold Money page (collect or adjust it there), not with a refund here.",
   HOLD_MONEY_COLLECT:
-    "Undo a pickup from the Hold Money page (\"Void pickup\"), not with a refund here.",
+    'Undo a pickup from the Hold Money page ("Void pickup"), not with a refund here.',
   HOLD_MONEY_COLLECT_VOID:
     "This row already reverses a Hold Money pickup — it can't be reversed again.",
   LOTO_MONTHLY_FEE:

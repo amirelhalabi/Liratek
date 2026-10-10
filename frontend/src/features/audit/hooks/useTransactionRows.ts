@@ -7,6 +7,7 @@ import {
   ALL_FILTER_OPTIONS,
   parseMetaSafe,
   isExpenseVisible,
+  isWarrantyCostVisible,
   isSupplierPaymentVisible,
   isSessionItemRefundRow,
   type FilterOption,
@@ -178,6 +179,12 @@ function isRowVisibleForOption(
     return false;
   }
   if (row.type === "EXPENSE" && !isExpenseVisible(row.metadata_json, option)) {
+    return false;
+  }
+  if (
+    row.type === "WARRANTY_COST" &&
+    !isWarrantyCostVisible(row.metadata_json, option)
+  ) {
     return false;
   }
   if (option.cash_only) {

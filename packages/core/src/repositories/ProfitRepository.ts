@@ -2226,6 +2226,28 @@ export function holdMoneyCountEligible(alias: string): string {
 }
 
 /**
+ * LIRA-296 (owner decision D1) — the ONE "is this row a warranty cost"
+ * predicate: WARRANTY_COST rows (a claim's cost, a recovery, and their
+ * void negations — `WarrantyService.voidClaim` writes the exact negation
+ * with `reverses_id`, so summing every row nets a voided claim to 0, per
+ * currency, rule 20). Profit-only: no revenue, no legs. Feeds
+ * {@link PROFIT_TXN_TYPES}, the Warranty cost totals/detail and By Date.
+ */
+export function warrantyCostSource(alias: string): string {
+  return `${alias}.type = '${TRANSACTION_TYPES.WARRANTY_COST}'`;
+}
+
+/** A warranty-cost EVENT: a cost row (not a recovery, not a reversal) whose
+ *  claim was not voided. Same shape as {@link holdMoneyCountEligible}. */
+export function warrantyCostCountEligible(alias: string): string {
+  return `${alias}.type = '${TRANSACTION_TYPES.WARRANTY_COST}' AND ${alias}.reverses_id IS NULL AND ${alias}.profit_usd < 0
+    AND NOT EXISTS (SELECT 1 FROM transactions wcr
+                    WHERE wcr.reverses_id = ${alias}.id
+                      AND wcr.type = '${TRANSACTION_TYPES.WARRANTY_COST}'
+                      AND wcr.tenant_id = ${alias}.tenant_id)`;
+}
+
+/**
  * LCC-V7 (Round 2, rule 14) — the payment-method-fee recognition predicate
  * (PA-2.6): real money kept at the counter the instant it's charged,
  * regardless of whether the underlying transfer's OWN stamp has settled —
@@ -3200,8 +3222,10 @@ const REFUND_ADJUSTMENT_TYPES_SQL = [
 /** The SALE row plus every row in {@link REFUND_ADJUSTMENT_TYPES_SQL}. */
 const SALE_LEDGER_TYPES_SQL = `'${TRANSACTION_TYPES.SALE}', ${REFUND_ADJUSTMENT_TYPES_SQL}`;
 
+// LIRA-296: WARRANTY_COST (a claim's cost / recovery and its void's
+// negation) — profit-only, 0 revenue (its amount is always 0).
 const PROFIT_TXN_TYPES =
-  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'REFUND_UNDO', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP', " +
+  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'REFUND_UNDO', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP', 'WARRANTY_COST', " +
   HOLD_MONEY_PROFIT_TYPES_SQL;
 
 /**
@@ -3596,6 +3620,16 @@ export function maintenanceCostUsd(alias: string): string {
 }
 
 /**
+ * LIRA-296 — the ONE "warranty job" predicate (rule 14): a maintenance job
+ * opened by a warranty claim. Its cost is the warranty's (WARRANTY_COST),
+ * never Maintenance profit, so every Maintenance module query excludes it.
+ * `hasColumn` false (a schema predating v206) → nothing to exclude.
+ */
+export function notWarrantyJob(alias: string, hasColumn: boolean): string {
+  return hasColumn ? `${alias}.warranty_claim_id IS NULL` : "1 = 1";
+}
+
+/**
  * DBT-2 / PFT-6 (proportional recognition, 2026-09-05 — Step 2 of
  * docs/plans/done_plans/PARTNER_PROPORTIONAL_RECOGNITION.md) — the
  * transactions-alias counterpart of the (literal-`refTable`) fragment
@@ -3837,6 +3871,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       );
     }
     return this._hasTransactionsMetadataColumnCache;
+  }
+
+  private _hasMaintenanceWarrantyColumnCache: boolean | null = null;
+  /** LIRA-296 v206 — `maintenance.warranty_claim_id` present? */
+  private _hasMaintenanceWarrantyColumn(): boolean {
+    if (this._hasMaintenanceWarrantyColumnCache === null) {
+      const cols = this.db.prepare(`PRAGMA table_info(maintenance)`).all() as {
+        name: string;
+      }[];
+      this._hasMaintenanceWarrantyColumnCache = cols.some(
+        (c) => c.name === "warranty_claim_id",
+      );
+    }
+    return this._hasMaintenanceWarrantyColumnCache;
   }
 
   private _hasCommissionModelColumn(): boolean {
@@ -4264,6 +4312,56 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.tenant_id = ?`,
       )
       .get(fromDt, toDt, getCurrentTenantId()) as TopupBuybackProfitRow;
+  }
+
+  /**
+   * LIRA-296 (owner decision D1) — the "Warranty cost" line: Σ WARRANTY_COST
+   * profit (usually negative), dated by each row's own day (the claim day /
+   * the void day). Profit-only. Gated by {@link notDebtPending} like every
+   * PROFIT_TXN_TYPES row (a warranty cost is never a debt charge, so the
+   * gate always passes) so this and By Cashier/By Client agree.
+   */
+  getWarrantyTotals(fromDt: string, toDt: string): TopupBuybackProfitRow {
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
+          COALESCE(SUM(CASE WHEN ${warrantyCostCountEligible("t")} THEN 1 ELSE 0 END), 0) AS count
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${warrantyCostSource("t")}
+          AND ${notDebtPending("t.id")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, getCurrentTenantId()) as TopupBuybackProfitRow;
+  }
+
+  /** LIRA-296 — the Warranty cost drill-down: one row per WARRANTY_COST row,
+   *  the SAME source/gates as {@link getWarrantyTotals}. */
+  getWarrantyDetail(fromDt: string, toDt: string): ProfitOnlyDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          COALESCE(c.full_name, t.client_name) AS counterpart_name,
+          COALESCE(c.phone_number, t.client_phone) AS counterpart_phone,
+          t.summary AS txn_type,
+          t.profit_usd AS profit_usd,
+          t.profit_lbp AS profit_lbp,
+          CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
+        FROM transactions t
+        LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
+        WHERE t.status = 'ACTIVE'
+          AND ${warrantyCostSource("t")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
+        ORDER BY t.created_at DESC, t.id DESC`,
+      )
+      .all(tenantId, fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
   }
 
   /**
@@ -4981,6 +5079,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE ${maintenanceCompleted("m")}
           AND t.status = 'ACTIVE'
           AND ${notRefunded("m")}
+          AND ${notWarrantyJob("m", this._hasMaintenanceWarrantyColumn())}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("t.created_at")}
           AND m.tenant_id = ? AND t.tenant_id = ?`,
@@ -6074,6 +6173,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE ${maintenanceCompleted("m")}
           AND t.status = 'ACTIVE'
           AND ${notRefunded("m")}
+          AND ${notWarrantyJob("m", this._hasMaintenanceWarrantyColumn())}
           AND ${dateRange("t.created_at")}
           AND m.tenant_id = ? AND t.tenant_id = ?
         ORDER BY t.created_at DESC, m.id DESC`,
@@ -6501,6 +6601,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     params.push(fromDt, toDt, tenantId, tenantId); // daily_topup_buyback (r, t)
     params.push(fromDt, toDt, tenantId); // daily_hold_money (t)
     params.push(fromDt, toDt, tenantId); // daily_refund_kept (t)
+    params.push(fromDt, toDt, tenantId); // daily_warranty (t)
 
     return this.db
       .prepare(
@@ -6669,6 +6770,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE ${maintenanceCompleted("m")}
             AND t.status = 'ACTIVE'
             AND ${notRefunded("m")}
+          AND ${notWarrantyJob("m", this._hasMaintenanceWarrantyColumn())}
           AND ${notDebtPending("t.id")}
             AND ${dateRange("t.created_at")}
             AND m.tenant_id = ? AND t.tenant_id = ?
@@ -6838,6 +6940,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${dateRange(refundKeptChangeDay("t"))}
             AND t.tenant_id = ?
           GROUP BY ${localDayExpr(refundKeptChangeDay("t"))}
+        ),
+        daily_warranty AS (
+          -- LIRA-296 — the Warranty cost line, the SAME fragment
+          -- getWarrantyTotals uses (rule 14).
+          SELECT
+            ${localDayExpr("t.created_at")} AS d,
+            COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+            COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+          FROM transactions t
+          WHERE t.status = 'ACTIVE'
+            AND ${warrantyCostSource("t")}
+            AND ${notDebtPending("t.id")}
+            AND ${dateRange("t.created_at")}
+            AND t.tenant_id = ?
+          GROUP BY ${localDayExpr("t.created_at")}
         )
         SELECT
           dates.d AS date,
@@ -6845,17 +6962,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(dc.revenue_lbp, 0) + COALESCE(dr.revenue_lbp, 0) + COALESCE(dcm.revenue_lbp, 0) + COALESCE(dm.revenue_lbp, 0) + COALESCE(dl.revenue_lbp, 0) AS revenue_lbp,
           COALESCE(ds.cost_usd, 0) + COALESCE(dr.cost_usd, 0) + COALESCE(dcm.cost_usd, 0) + COALESCE(dm.cost_usd, 0) + COALESCE(dex.revenue_usd, 0) - COALESCE(dex.profit_usd, 0) AS cost_usd,
           COALESCE(dr.cost_lbp, 0) + COALESCE(dcm.cost_lbp, 0) + COALESCE(dm.cost_lbp, 0) AS cost_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) AS profit_usd,
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) AS profit_usd,
           -- PA-3.1: dsp.profit_lbp (a sale's LBP kept change) was missing
           -- from this column entirely. PA-2.2: dkc/ddisc/dbc/dtb are the
           -- four new sources above. LO-V1 (round 2): dl.profit_usd is loto's
           -- USD-side kept change (dc/dr already fold their own off-currency
           -- kept change unconditionally now — see each CTE's own comment).
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) AS profit_lbp,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) AS profit_lbp,
           COALESCE(de.expenses_usd, 0) AS expenses_usd,
           COALESCE(de.expenses_lbp, 0) AS expenses_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
         FROM dates
         LEFT JOIN daily_sales ds ON ds.d = dates.d
         LEFT JOIN daily_sales_profit dsp ON dsp.d = dates.d
@@ -6873,6 +6990,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN daily_topup_buyback dtb ON dtb.d = dates.d
         LEFT JOIN daily_hold_money dhm ON dhm.d = dates.d
         LEFT JOIN daily_refund_kept drk ON drk.d = dates.d
+        LEFT JOIN daily_warranty dwc ON dwc.d = dates.d
         ORDER BY dates.d DESC`,
       )
       .all(...params) as ProfitByDateRow[];
@@ -8197,6 +8315,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             WHEN t.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}, 'SUPPLIER_SETTLEMENT') THEN 0
             -- Hold Money: only a live pickup that kept change is an event.
             WHEN ${holdMoneyProfitSource("t")} THEN (CASE WHEN ${holdMoneyCountEligible("t")} THEN 1 ELSE 0 END)
+            -- LIRA-296: only a live warranty-cost row is an event.
+            WHEN ${warrantyCostSource("t")} THEN (CASE WHEN ${warrantyCostCountEligible("t")} THEN 1 ELSE 0 END)
             WHEN NOT ${notDebtPending("t.id")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN 1 ELSE 0 END
@@ -8863,6 +8983,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             WHEN t.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}, 'SUPPLIER_SETTLEMENT') THEN 0
             -- Hold Money: only a live pickup that kept change is an event.
             WHEN ${holdMoneyProfitSource("t")} THEN (CASE WHEN ${holdMoneyCountEligible("t")} THEN 1 ELSE 0 END)
+            -- LIRA-296: only a live warranty-cost row is an event.
+            WHEN ${warrantyCostSource("t")} THEN (CASE WHEN ${warrantyCostCountEligible("t")} THEN 1 ELSE 0 END)
             WHEN NOT ${notDebtPending("t.id")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN 1 ELSE 0 END

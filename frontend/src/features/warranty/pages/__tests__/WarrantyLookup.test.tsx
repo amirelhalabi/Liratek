@@ -51,7 +51,9 @@ const rows = [
     quantity: 1,
     refundedQuantity: 0,
     coveredQuantity: 1,
-    units: [{ id: 5, serial: "SN-12345", state: "EXPIRED", overrideUntil: null }],
+    units: [
+      { id: 5, serial: "SN-12345", state: "EXPIRED", overrideUntil: null },
+    ],
     warrantyUntil: "2025-02-01",
     warrantyMonths: 1,
     state: "EXPIRED",
@@ -72,16 +74,13 @@ jest.mock("@liratek/ui", () => {
 });
 
 const saleModal = jest.fn();
-jest.mock(
-  "@/features/sales/pages/POS/components/SaleDetailModal",
-  () => ({
-    __esModule: true,
-    default: (props: { saleId: number; onClose: () => void }) => {
-      saleModal(props.saleId);
-      return <div data-testid="sale-detail-modal">sale {props.saleId}</div>;
-    },
-  }),
-);
+jest.mock("@/features/sales/pages/POS/components/SaleDetailModal", () => ({
+  __esModule: true,
+  default: (props: { saleId: number; onClose: () => void }) => {
+    saleModal(props.saleId);
+    return <div data-testid="sale-detail-modal">sale {props.saleId}</div>;
+  },
+}));
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -175,5 +174,52 @@ describe("WarrantyLookup", () => {
     await screen.findByText("Earbuds Pro");
     await new Promise((r) => setTimeout(r, 50));
     expect(searchWarranties).toHaveBeenCalledTimes(1);
+  });
+});
+
+// LIRA-296 P2 (T040) — act on a found warranty: start a claim from the row,
+// see its history, and (admins) the defective-items holding.
+jest.mock("@/features/auth/context/AuthContext", () => ({
+  useOptionalAuth: () => ({ user: { role: "admin" } }),
+}));
+jest.mock("../../components/ClaimModal", () => ({
+  ClaimModal: (p: { target: { saleItemId: number } }) => (
+    <div data-testid="claim-modal">claim {p.target.saleItemId}</div>
+  ),
+}));
+jest.mock("../../components/ClaimHistory", () => ({
+  ClaimHistory: (p: { saleItemId: number }) => (
+    <div data-testid="claim-history">history {p.saleItemId}</div>
+  ),
+}));
+jest.mock("../../components/DefectiveItems", () => ({
+  DefectiveItems: () => <div data-testid="defective-items" />,
+}));
+
+describe("WarrantyLookup — claims (P2)", () => {
+  it("a covered row offers a claim, without opening the sale", async () => {
+    render(<WarrantyLookup />);
+    const row = (await screen.findByText("Earbuds Pro")).closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Claim" }));
+    expect(await screen.findByTestId("claim-modal")).toHaveTextContent(
+      "claim 1000",
+    );
+    expect(screen.queryByTestId("sale-detail-modal")).toBeNull();
+  });
+
+  it("shows a row's claim history", async () => {
+    render(<WarrantyLookup />);
+    const row = (await screen.findByText("Earbuds Pro")).closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "History" }));
+    expect(await screen.findByTestId("claim-history")).toHaveTextContent(
+      "history 1000",
+    );
+  });
+
+  it("admins get a Defective items tab", async () => {
+    render(<WarrantyLookup />);
+    await screen.findByText("Earbuds Pro");
+    fireEvent.click(screen.getByRole("tab", { name: "Defective items" }));
+    expect(await screen.findByTestId("defective-items")).toBeInTheDocument();
   });
 });

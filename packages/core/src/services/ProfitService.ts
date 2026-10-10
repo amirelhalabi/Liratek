@@ -606,6 +606,15 @@ export interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** LIRA-296 (owner decision D1) — the cost of honouring warranties
+   *  (usually negative), net of recoveries and voids. See
+   *  {@link ProfitRepository.getWarrantyTotals}. Profit-only, NETTED into
+   *  `totals` below. */
+  warranty: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   expenses: { total_usd: number; total_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;
@@ -1032,6 +1041,10 @@ export class ProfitService {
       // profit-only, pickup + void net to 0 (rule 20).
       const holdMoney = this.repo.getHoldMoneyProfit(fromDt, toDt);
 
+      // LIRA-296 — the Warranty cost line (claims' costs, recoveries,
+      // void negations) — profit-only, netted into gross.
+      const warranty = this.repo.getWarrantyTotals(fromDt, toDt);
+
       // LIRA-272 — kept change on a refund of any module (sales included;
       // debt repayments stay in debtRepayments): only the kept part, on the
       // REFUND's own day (owner decision 2026-10-07 — `getSalesProfit`
@@ -1126,6 +1139,7 @@ export class ProfitService {
         supplierCommission.profit_usd +
         topupsBuybacks.profit_usd +
         holdMoney.profit_usd +
+        warranty.profit_usd +
         refundKept.profit_usd;
       const grossProfitLbp =
         sales.profit_lbp +
@@ -1145,6 +1159,7 @@ export class ProfitService {
         supplierCommission.profit_lbp +
         topupsBuybacks.profit_lbp +
         holdMoney.profit_lbp +
+        warranty.profit_lbp +
         refundKept.profit_lbp;
 
       // LO-V1 / LO-R2 — additive visibility roll-up for the Kept Change card
@@ -1199,6 +1214,7 @@ export class ProfitService {
         supplier_commission: supplierCommission,
         topups_buybacks: topupsBuybacks,
         hold_money: holdMoney,
+        warranty,
         expenses,
         totals: {
           gross_revenue_usd: grossRevenueUsd,
@@ -1571,6 +1587,26 @@ export class ProfitService {
         });
       }
 
+      // LIRA-296 (owner decision D1) — ONE "Warranty cost" line.
+      const warrantyTotals = this.repo.getWarrantyTotals(fromDt, toDt);
+      if (
+        warrantyTotals.profit_usd !== 0 ||
+        warrantyTotals.profit_lbp !== 0 ||
+        warrantyTotals.count > 0
+      ) {
+        results.push({
+          module: "WARRANTY",
+          label: "Warranty cost",
+          revenue_usd: 0,
+          revenue_lbp: 0,
+          cost_usd: 0,
+          cost_lbp: 0,
+          profit_usd: warrantyTotals.profit_usd,
+          profit_lbp: warrantyTotals.profit_lbp,
+          count: warrantyTotals.count,
+        });
+      }
+
       // PA-4.21: margin_pct/margin_converted, computed once per row here
       // (not at every push site above — rule 14).
       const buyRate = this.getLbpBuyRate();
@@ -1670,6 +1706,11 @@ export class ProfitService {
       match: (key) => key === "SUPPLIER_COMMISSION",
       build: (_key, fromDt, toDt) =>
         this.buildSupplierCommissionModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "WARRANTY",
+      build: (_key, fromDt, toDt) =>
+        this.buildWarrantyModuleDetail(fromDt, toDt),
     },
     {
       match: (key) => key === "TOPUP_BUYBACK",
@@ -2798,6 +2839,56 @@ export class ProfitService {
 
     return {
       module: "TOPUP_BUYBACK",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-296 — the Warranty cost drill-down: every WARRANTY_COST row
+   * (a claim's cost, a recovery, a void's negation), always counted — the
+   * same rows {@link ProfitRepository.getWarrantyTotals} sums.
+   */
+  private buildWarrantyModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+    for (const r of this.repo.getWarrantyDetail(fromDt, toDt)) {
+      const pending = r.debt_pending === 1;
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "warranty",
+        date: r.created_at,
+        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        detail: r.txn_type,
+        amount_usd: 0,
+        amount_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: pending ? 0 : 100,
+        counted_profit_usd: pending ? 0 : r.profit_usd,
+        counted_profit_lbp: pending ? 0 : r.profit_lbp,
+        reason: null,
+        fee_note: null,
+      };
+      if (pending) {
+        notCounted.push(row);
+      } else {
+        counted.push(row);
+        countedProfitUsd += r.profit_usd;
+        countedProfitLbp += r.profit_lbp;
+      }
+    }
+    return {
+      module: "WARRANTY",
       counted,
       not_counted: notCounted,
       counted_total_profit_usd: countedProfitUsd,

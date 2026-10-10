@@ -149,6 +149,15 @@ For unit-tracked lines, the refunded units are the ones `_applySaleItemReversal`
 
 **Decision:** `maintenance.warranty_months` and `maintenance.warranty_until`. The end date is stamped when the job reaches Delivered_Paid, using the client's day. It is printed by `buildServiceReceiptText` and included in the R2 search.
 
+### Rule 23 three-way key diff — the maintenance job (T043, before the schema change)
+
+| Key | (a) `saveMaintenanceJobSchema` | (b) `SaveJobParams` (preload `maintenance.save` type) | (c) handler / REST route |
+|---|---|---|---|
+| `warranty_months` (new) | **added** (0–60, nullable, optional) | **added** | forwards the whole parsed body |
+| `client_day` (new) | **added** (`clientDayInputSchema`) | **added** | forwards the whole parsed body |
+
+No other drift found for these keys. Omitted `warranty_months` leaves the job's value untouched (status-only resaves send none).
+
 ## R8. Serials for any category (user story 6, P3)
 
 **Decision:**

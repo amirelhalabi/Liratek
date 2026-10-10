@@ -74,6 +74,8 @@ const PROFIT_ONLY_MODULES: ReadonlySet<string> = new Set([
   "TOPUP_BUYBACK",
   // Hold Money pickup kept change (owner decision 2026-10-07).
   "HOLD_MONEY",
+  // LIRA-296 — the Warranty cost line (no revenue/cost pair).
+  "WARRANTY",
 ]);
 
 /** `ProfitByModule.module` EXACT values whose revenue is a pass-through

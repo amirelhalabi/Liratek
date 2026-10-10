@@ -213,6 +213,8 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "daily_closing_carrier_lines",
   "daily_closings",
   "debt_ledger",
+  // LIRA-296 v206 — warranty claims and the defective-items holding.
+  "defective_items",
   "drawer_cashouts",
   "drawer_topups",
   "drawer_transfers",
@@ -249,6 +251,7 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "transactions",
   "vouchers",
   "wallet_exchanges",
+  "warranty_claims",
 ];
 
 /**

@@ -28,8 +28,13 @@ import type {
   CreateCustomServicePayload,
   // LIRA-293 — change your own password (core schema input, rule 21).
   ChangeOwnPasswordInput,
-  // LIRA-296 — warranty search payload (core schema input, rule 21).
+  // LIRA-296 — warranty payloads (core schema inputs, rule 21).
   WarrantySearchInput,
+  CreateWarrantyClaimInput,
+  WarrantyClaimsForInput,
+  VoidWarrantyClaimInput,
+  ListDefectiveItemsInput,
+  ResolveDefectiveInput,
   // LIRA-296 — category update payload incl. warranty_months (rule 21).
   UpdateCategoryPayload,
   // LIRA-296 — the sale payload (per-line warranty_months, client_day).
@@ -419,10 +424,8 @@ contextBridge.exposeInMainWorld("api", {
      *  shop's timezone (web deploys run on a UTC machine while the shop is
      *  Beirut, UTC+3). Falls back to the server's own `localDay()` when
      *  omitted. */
-    getAll: (
-      filters?: { status?: string; clientId?: number },
-      day?: string,
-    ) => ipcRenderer.invoke("voucher:get-all", filters, day),
+    getAll: (filters?: { status?: string; clientId?: number }, day?: string) =>
+      ipcRenderer.invoke("voucher:get-all", filters, day),
     validate: (code: string, day?: string) =>
       ipcRenderer.invoke("voucher:validate", code, day),
     cancel: (id: number) => ipcRenderer.invoke("voucher:cancel", id),
@@ -745,11 +748,7 @@ contextBridge.exposeInMainWorld("api", {
     // these are reads, same as getBalances/getLedger above.
     getAccountBalances: () => ipcRenderer.invoke("suppliers:account-balances"),
     getAccountLedger: (accountSupplierId: number, limit?: number) =>
-      ipcRenderer.invoke(
-        "suppliers:account-ledger",
-        accountSupplierId,
-        limit,
-      ),
+      ipcRenderer.invoke("suppliers:account-ledger", accountSupplierId, limit),
     getAccountUnsettled: (accountSupplierId: number) =>
       ipcRenderer.invoke("suppliers:account-unsettled", accountSupplierId),
     getAccountExpectedStatement: (accountSupplierId: number) =>
@@ -1177,6 +1176,16 @@ contextBridge.exposeInMainWorld("api", {
   warranty: {
     search: (data: WarrantySearchInput) =>
       ipcRenderer.invoke("warranty:search", data),
+    claim: (data: CreateWarrantyClaimInput) =>
+      ipcRenderer.invoke("warranty:claim", data),
+    claimsFor: (data: WarrantyClaimsForInput) =>
+      ipcRenderer.invoke("warranty:claims-for", data),
+    voidClaim: (data: VoidWarrantyClaimInput) =>
+      ipcRenderer.invoke("warranty:void-claim", data),
+    listDefective: (data: ListDefectiveItemsInput) =>
+      ipcRenderer.invoke("warranty:defective", data),
+    resolveDefective: (data: ResolveDefectiveInput) =>
+      ipcRenderer.invoke("warranty:defective-resolve", data),
   },
 
   // Product Units (LIRA-143 Phase 5 — phone IMEI units & warranty) —

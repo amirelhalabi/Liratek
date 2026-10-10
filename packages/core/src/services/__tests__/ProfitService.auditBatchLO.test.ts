@@ -130,8 +130,8 @@ function makeFakeRepo(overrides: FakeOverrides = {}): ProfitRepository {
     // test in this file (none of which seed it) is unaffected; tests that
     // need a non-empty bucket override it explicitly (rule 24 — never a
     // hand-typed payload where the schema/type already exists).
-    getFinancialWaitingForRepaymentByCurrency: (): FsWaitingForRepaymentRow[] =>
-      [],
+    getFinancialWaitingForRepaymentByCurrency:
+      (): FsWaitingForRepaymentRow[] => [],
     getPendingCommissionTotals: () => ({
       total_usd: 0,
       total_lbp: 0,
@@ -150,6 +150,7 @@ function makeFakeRepo(overrides: FakeOverrides = {}): ProfitRepository {
     getSupplierCommissionTotals: () => zeroSupplierCommission,
     getTopupBuybackProfit: () => zeroTopupBuyback,
     getHoldMoneyProfit: () => zeroTopupBuyback,
+    getWarrantyTotals: () => zeroTopupBuyback,
     // LIRA-272 — refund kept change on a module refund (profit-only).
     getRefundKeptChangeProfit: () => zeroTopupBuyback,
     getExpenseTotals: () => zeroExpense,
@@ -259,7 +260,11 @@ describe("PA-2.1 — By Module gains kept change, discounts, bills-only supplier
     // OBSERVED RED (pre-fix): rows.find(kept change) toBeDefined() failed —
     // getByModule never called getDebtRepaymentProfit at all.
     const repo = makeFakeRepo({
-      getDebtRepaymentProfit: () => ({ profit_usd: 3, profit_lbp: 0, count: 1 }),
+      getDebtRepaymentProfit: () => ({
+        profit_usd: 3,
+        profit_lbp: 0,
+        count: 1,
+      }),
     });
     const service = new ProfitService(repo, FAKE_RATE_REPO);
     const rows = service.getByModule("2026-01-01", "2026-01-01");
@@ -412,9 +417,7 @@ describe("PA-4.16 — getByModule / getByDate rethrow instead of swallowing to [
       },
     });
     const service = new ProfitService(repo, FAKE_RATE_REPO);
-    expect(() => service.getByDate("2026-01-01", "2026-01-01")).toThrow(
-      "boom",
-    );
+    expect(() => service.getByDate("2026-01-01", "2026-01-01")).toThrow("boom");
   });
 });
 
@@ -449,7 +452,9 @@ describe("PA-4.12 — By Module sorts by USD-equivalent at the LBP buy rate, and
     const service = new ProfitService(repo, rateRepo);
     const rows = service.getByModule("2026-01-01", "2026-01-01");
     const lotoIndex = rows.findIndex((r) => r.module === "LOTO");
-    const omtIndex = rows.findIndex((r) => r.module === "FINANCIAL_SERVICE_OMT");
+    const omtIndex = rows.findIndex(
+      (r) => r.module === "FINANCIAL_SERVICE_OMT",
+    );
     expect(lotoIndex).toBeGreaterThanOrEqual(0);
     expect(omtIndex).toBeGreaterThanOrEqual(0);
     expect(lotoIndex).toBeLessThan(omtIndex);
@@ -479,7 +484,7 @@ describe("PA-4.12 — By Module sorts by USD-equivalent at the LBP buy rate, and
   });
 });
 
-describe("note #3 (2026-09-24, CLOSED \"no change\") — the combined net-profit line is REMOVED; per-module margin", () => {
+describe('note #3 (2026-09-24, CLOSED "no change") — the combined net-profit line is REMOVED; per-module margin', () => {
   // NOT RUN tonight — red/green proof pending (tomorrow). These guards
   // replace the old PA-4.21 pair that asserted combined_net_profit_lbp/
   // combined_rate_used WERE present; against the pre-fix code (the field
@@ -567,10 +572,11 @@ describe("note #3 (2026-09-24, CLOSED \"no change\") — the combined net-profit
 describe("Owner decision (h) — Financial Services 'waiting for repayment' line", () => {
   it("getSummary: wires getFinancialWaitingForRepaymentByCurrency into financial_services.waiting_for_repayment_usd/_lbp, per currency", () => {
     const repo = makeFakeRepo({
-      getFinancialWaitingForRepaymentByCurrency: (): FsWaitingForRepaymentRow[] => [
-        { currency: "USD", commission: 5, count: 1 },
-        { currency: "LBP", commission: 30_000, count: 1 },
-      ],
+      getFinancialWaitingForRepaymentByCurrency:
+        (): FsWaitingForRepaymentRow[] => [
+          { currency: "USD", commission: 5, count: 1 },
+          { currency: "LBP", commission: 30_000, count: 1 },
+        ],
     });
     const service = new ProfitService(repo, FAKE_RATE_REPO);
     const summary = service.getSummary("2026-01-01", "2026-01-01");
@@ -581,14 +587,15 @@ describe("Owner decision (h) — Financial Services 'waiting for repayment' line
   it("getSummary: waiting-for-repayment is NEVER added to gross or net profit/revenue — kept out of profit until repaid", () => {
     const repoWithout = makeFakeRepo();
     const repoWith = makeFakeRepo({
-      getFinancialWaitingForRepaymentByCurrency: (): FsWaitingForRepaymentRow[] => [
-        { currency: "USD", commission: 5, count: 1 },
-      ],
+      getFinancialWaitingForRepaymentByCurrency:
+        (): FsWaitingForRepaymentRow[] => [
+          { currency: "USD", commission: 5, count: 1 },
+        ],
     });
-    const summaryWithout = new ProfitService(repoWithout, FAKE_RATE_REPO).getSummary(
-      "2026-01-01",
-      "2026-01-01",
-    );
+    const summaryWithout = new ProfitService(
+      repoWithout,
+      FAKE_RATE_REPO,
+    ).getSummary("2026-01-01", "2026-01-01");
     const summaryWith = new ProfitService(repoWith, FAKE_RATE_REPO).getSummary(
       "2026-01-01",
       "2026-01-01",

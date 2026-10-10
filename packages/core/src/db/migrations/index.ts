@@ -12645,11 +12645,7 @@ export const MIGRATIONS: Migration[] = [
         return;
       }
       if (
-        columnExists(
-          db,
-          "customer_session_transactions",
-          "paid_exchange_rate",
-        )
+        columnExists(db, "customer_session_transactions", "paid_exchange_rate")
       ) {
         console.log(
           "Migration v186 skipped: 'customer_session_transactions.paid_exchange_rate' already present",
@@ -12670,11 +12666,7 @@ export const MIGRATIONS: Migration[] = [
     },
     down(db: Database.Database) {
       if (
-        !columnExists(
-          db,
-          "customer_session_transactions",
-          "paid_exchange_rate",
-        )
+        !columnExists(db, "customer_session_transactions", "paid_exchange_rate")
       ) {
         console.log(
           "Migration v186 rollback skipped: 'customer_session_transactions.paid_exchange_rate' not present",
@@ -12911,7 +12903,7 @@ export const MIGRATIONS: Migration[] = [
       "(electron-app/create_db.sql's tenant-1 INSERTs and " +
       "TenantRepository.MODULE_SEED_ROWS) have always used custom_services=12, " +
       "profits=13, loto=16, and no migration between v49 and this one re-set " +
-      "them (`grep \"UPDATE modules SET sort_order\"` over migrations/index.ts " +
+      'them (`grep "UPDATE modules SET sort_order"` over migrations/index.ts ' +
       "returns only v49's up()/down()). So a genuinely UPGRADED tenant 1 " +
       "(migrated from v49 onward) and a FRESHLY INSTALLED one have disagreed " +
       "on sidebar order for these three modules ever since — presentation " +
@@ -13069,9 +13061,7 @@ export const MIGRATIONS: Migration[] = [
 
       // Same "no truthful predecessor label" reasoning as v164's down() for
       // STOCK_INTAKE — a RECORDED_DEBT row is removed, not relabeled.
-      db.exec(
-        `DELETE FROM supplier_ledger WHERE entry_type = 'RECORDED_DEBT'`,
-      );
+      db.exec(`DELETE FROM supplier_ledger WHERE entry_type = 'RECORDED_DEBT'`);
 
       db.exec(`
         CREATE TABLE supplier_ledger_old (
@@ -13196,7 +13186,8 @@ export const MIGRATIONS: Migration[] = [
         "Migration v190 rolled back: 'custom_services.work_status' dropped",
       );
     },
-  },  {
+  },
+  {
     version: 191,
     name: "backfill_system_suppliers",
     description:
@@ -13284,9 +13275,7 @@ export const MIGRATIONS: Migration[] = [
       ).run();
     },
     down(db: Database.Database) {
-      db.exec(
-        `DROP INDEX IF EXISTS idx_customer_session_transactions_unified`,
-      );
+      db.exec(`DROP INDEX IF EXISTS idx_customer_session_transactions_unified`);
       // Before v192 covered_* on a 'Session Debt' row was always 0.
       if (!tableExists(db, "debt_ledger")) return;
       db.prepare(
@@ -13491,7 +13480,8 @@ export const MIGRATIONS: Migration[] = [
         db.exec(`ALTER TABLE tenants DROP COLUMN contact_email;`);
       }
     },
-  },  {
+  },
+  {
     version: 196,
     name: "user_emails_and_auth_tokens",
     description:
@@ -14155,6 +14145,124 @@ export const MIGRATIONS: Migration[] = [
       if (columnExists(db, "product_categories", "warranty_months")) {
         db.exec(`ALTER TABLE product_categories DROP COLUMN warranty_months;`);
       }
+    },
+  },
+  {
+    version: 206,
+    name: "warranty_claims_defective_items_repair_warranty",
+    description:
+      "LIRA-296 P2 (warranty claims): new table warranty_claims (one unit per " +
+      "claim on a sale line OR a repair job; action REPAIR|REPLACE|REFUND; " +
+      "status OPEN|DONE|VOIDED; the repair job, replacement unit and refund " +
+      "transaction it wrote) and defective_items (faulty units taken back, " +
+      "HELD|SENT_TO_SUPPLIER|WRITTEN_OFF|RETURNED_TO_STOCK, at the sold unit's " +
+      "FIFO cost). maintenance gains warranty_months / warranty_until (a " +
+      "repair's own warranty) and warranty_claim_id (a job opened by a " +
+      "claim); stock_batch_consumptions and product_units gain " +
+      "warranty_claim_id (a replacement given under a claim). Indexes on " +
+      "every new foreign key.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS warranty_claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    sale_item_id INTEGER REFERENCES sale_items(id),
+    maintenance_id INTEGER REFERENCES maintenance(id),
+    unit_id INTEGER REFERENCES product_units(id),
+    quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity = 1),
+    action TEXT NOT NULL CHECK (action IN ('REPAIR', 'REPLACE', 'REFUND')),
+    status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'DONE', 'VOIDED')),
+    override_reason TEXT,
+    notes TEXT,
+    user_id INTEGER NOT NULL,
+    repair_job_id INTEGER REFERENCES maintenance(id),
+    replacement_unit_id INTEGER REFERENCES product_units(id),
+    refund_transaction_id INTEGER REFERENCES transactions(id),
+    voided_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CHECK ((sale_item_id IS NULL) <> (maintenance_id IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_warranty_claims_sale_item ON warranty_claims(tenant_id, sale_item_id);
+CREATE INDEX IF NOT EXISTS idx_warranty_claims_maintenance ON warranty_claims(tenant_id, maintenance_id);
+CREATE INDEX IF NOT EXISTS idx_warranty_claims_unit ON warranty_claims(tenant_id, unit_id);
+CREATE INDEX IF NOT EXISTS idx_warranty_claims_repair_job ON warranty_claims(tenant_id, repair_job_id);
+
+CREATE TABLE IF NOT EXISTS defective_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    unit_id INTEGER REFERENCES product_units(id),
+    quantity INTEGER NOT NULL,
+    unit_cost_usd REAL NOT NULL,
+    warranty_claim_id INTEGER NOT NULL REFERENCES warranty_claims(id),
+    status TEXT NOT NULL DEFAULT 'HELD' CHECK (status IN ('HELD', 'SENT_TO_SUPPLIER', 'WRITTEN_OFF', 'RETURNED_TO_STOCK')),
+    restock_batch_id INTEGER REFERENCES product_stock_batches(id),
+    resolved_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_defective_items_claim ON defective_items(tenant_id, warranty_claim_id);
+CREATE INDEX IF NOT EXISTS idx_defective_items_product ON defective_items(tenant_id, product_id);`);
+      const addCol = (table: string, col: string, ddl: string) => {
+        if (tableExists(db, table) && !columnExists(db, table, col)) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl};`);
+        }
+      };
+      addCol("maintenance", "warranty_months", "INTEGER");
+      addCol("maintenance", "warranty_until", "TEXT");
+      addCol(
+        "maintenance",
+        "warranty_claim_id",
+        "INTEGER REFERENCES warranty_claims(id)",
+      );
+      addCol(
+        "stock_batch_consumptions",
+        "warranty_claim_id",
+        "INTEGER REFERENCES warranty_claims(id)",
+      );
+      addCol(
+        "product_units",
+        "warranty_claim_id",
+        "INTEGER REFERENCES warranty_claims(id)",
+      );
+      if (tableExists(db, "maintenance")) {
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_maintenance_warranty_claim ON maintenance(tenant_id, warranty_claim_id);`,
+        );
+      }
+      if (tableExists(db, "stock_batch_consumptions")) {
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_stock_batch_consumptions_tenant_warranty_claim ON stock_batch_consumptions(tenant_id, warranty_claim_id);`,
+        );
+      }
+      if (tableExists(db, "product_units")) {
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_product_units_warranty_claim ON product_units(tenant_id, warranty_claim_id);`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_product_units_warranty_claim;
+        DROP INDEX IF EXISTS idx_stock_batch_consumptions_tenant_warranty_claim;
+        DROP INDEX IF EXISTS idx_maintenance_warranty_claim;
+      `);
+      for (const [table, col] of [
+        ["product_units", "warranty_claim_id"],
+        ["stock_batch_consumptions", "warranty_claim_id"],
+        ["maintenance", "warranty_claim_id"],
+        ["maintenance", "warranty_until"],
+        ["maintenance", "warranty_months"],
+      ] as const) {
+        if (columnExists(db, table, col)) {
+          db.exec(`ALTER TABLE ${table} DROP COLUMN ${col};`);
+        }
+      }
+      db.exec(`
+        DROP TABLE IF EXISTS defective_items;
+        DROP TABLE IF EXISTS warranty_claims;
+      `);
     },
   },
 ];

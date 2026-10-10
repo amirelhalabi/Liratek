@@ -711,6 +711,16 @@ booked once, at load time. Do not "fix" that.
 - Session-basket items must book the same profit as direct sales (lira-session-profits).
 - Hold Money books zero profit. Whish top-up-from-client margin appears only as a
   drawer delta, never a profit row (lira-057).
+- **Warranty cost** (LIRA-296, owner decision D1): the cost of honouring a warranty is ONE
+  "Warranty cost" line, summed from `WARRANTY_COST` rows — never a change to the past sale.
+  Posting: no payment legs, no drawer, `source_table='warranty_claims'`, `metadata.is_auto`
+  derived from the claim link (rule 26, hidden in Transactions by default). Profit: REPLACE
+  −replacement FIFO cost; REFUND −the line's cost (the refund itself is the ordinary
+  refund-item row, `restock: false`, the faulty unit held in `defective_items`); REPAIR
+  −(labour + parts) once at delivery (a warranty job is free and never Maintenance profit —
+  `notWarrantyJob`); NOT_FAULTY +cost. Reversal owner (rule 20): `WarrantyService.voidClaim`,
+  type in `NON_REVERSIBLE_TRANSACTION_TYPES`. Guard: `WarrantyService.voidNetsZero.test.ts`,
+  `ProfitService.warrantyCost.test.ts`, lira-web-048.
 
 ---
 

@@ -46,6 +46,13 @@ describe("MaintenanceService", () => {
       setJobClientPhone: jest.fn(),
       getClientPhone: jest.fn(() => null),
       processPayments: jest.fn(),
+      // LIRA-296 P2 (repair warranty, v206) — new repo methods saveJob calls.
+      // Defaults model a schema without the warranty columns and a job that
+      // is not a warranty job, which is what these tests assume.
+      hasWarrantyColumns: jest.fn(() => false),
+      isLiveWarrantyJob: jest.fn(() => false),
+      setWarrantyMonths: jest.fn(),
+      stampWarrantyUntil: jest.fn(),
     };
 
     // Make the constructor return our mock

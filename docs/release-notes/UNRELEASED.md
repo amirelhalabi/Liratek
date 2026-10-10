@@ -112,6 +112,7 @@
 
 ## 📊 Profits page
 
+- Profits: a new "Warranty cost" line (By Module, plus an Overview card) shows what honouring warranties cost the shop — replacements, refunded faulty items and warranty repair parts — on the day of each claim. Past sales are never changed, and a voided claim leaves it at zero.
 - A payout you make for a partner (for example a transfer you hand out on a partner's behalf) now
   counts its profit only as the partner pays you back, the same way "for partner" sales already
   do. This also applies to earlier payouts, but partner payments you recorded before this update
@@ -163,6 +164,10 @@
 - Settings → Categories: you can set a default warranty in months for each category (for example Accessories 1 month). From now on, a product without its own warranty uses its category's default when it is sold.
 - POS: you can change an item's warranty at the till before completing the sale — tap "edit" next to "Warranty" on the cart line. The new length is used for that sale, and the app records who changed it.
 - Settings → Shop Config: new "Warranty terms" box (up to 1,000 characters). Your terms print under the items on any receipt that has an item with a warranty.
+- Warranty claims: from the Warranty page or a sale's details, start a claim on an item that is still covered — Repair (opens a free repair job for the customer), Replace (gives the same item from stock; the new one keeps the original warranty end date) or Refund (refunds the item; the faulty one is kept aside, not put back on sale). Staff can start repairs; replacing and refunding need an admin. An expired warranty can only be honoured by an admin, with a reason; a refunded item can't be claimed.
+- Warranty claims: each item shows its claim history (date, who, what was done, notes). An admin can void a claim, which undoes everything it did — the stock, the refund, the repair job and the cost.
+- Warranty page (admins): a new "Defective items" list keeps faulty items taken back under warranty out of stock. Mark each one "Write off" or "Not faulty", which puts it back in stock.
+- Maintenance: a repair can now carry its own warranty (in months). The end date is set when the job is delivered and paid, prints on the repair receipt with your warranty terms, and the repair shows up on the Warranty page.
 
 ## 🛒 POS
 

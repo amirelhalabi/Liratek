@@ -34,6 +34,8 @@ export const MODULE_DETAIL_SUPPORTED_KEYS: ReadonlySet<string> = new Set([
   "COUNTERPARTY_DISCOUNT",
   "SUPPLIER_COMMISSION",
   "TOPUP_BUYBACK",
+  // LIRA-296 — the Warranty cost line.
+  "WARRANTY",
 ]);
 
 /** `RECHARGE_`/`FINANCIAL_SERVICE_` carry their carrier/provider suffix in

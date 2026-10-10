@@ -99,6 +99,15 @@ import type {
   WarrantySearchRow,
   UpdateCategoryPayload,
   SalesDateRangeInput,
+  CreateWarrantyClaimInput,
+  WarrantyClaimsForInput,
+  VoidWarrantyClaimInput,
+  ListDefectiveItemsInput,
+  ResolveDefectiveInput,
+  WarrantyClaimResultData,
+  WarrantyClaimView,
+  DefectiveItemView,
+  WarrantyEnvelope,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -1099,7 +1108,26 @@ export type ApiAdapter = {
   /** LIRA-296 — warranty lookup for any item (by customer, phone, receipt
    *  number, product or serial). Read: returns the raw row array; a refusal
    *  throws. */
-  searchWarranties: (input: WarrantySearchInput) => Promise<WarrantySearchRow[]>;
+  searchWarranties: (
+    input: WarrantySearchInput,
+  ) => Promise<WarrantySearchRow[]>;
+  /** LIRA-296 P2 — claims and the defective holding. Writes answer the
+   *  envelope (a refusal carries its `code`); reads return the raw array. */
+  createWarrantyClaim: (
+    input: CreateWarrantyClaimInput,
+  ) => Promise<WarrantyEnvelope<WarrantyClaimResultData>>;
+  getWarrantyClaims: (
+    input: WarrantyClaimsForInput,
+  ) => Promise<WarrantyClaimView[]>;
+  voidWarrantyClaim: (
+    input: VoidWarrantyClaimInput,
+  ) => Promise<WarrantyEnvelope<WarrantyClaimView>>;
+  listDefectiveItems: (
+    input?: ListDefectiveItemsInput,
+  ) => Promise<DefectiveItemView[]>;
+  resolveDefectiveItem: (
+    input: ResolveDefectiveInput,
+  ) => Promise<WarrantyEnvelope<DefectiveItemView>>;
 
   /** LIRA-143 Phase 5 — Settings manager (decision #9's tracks_imei_units
    *  toggle). Reads return the raw array. */

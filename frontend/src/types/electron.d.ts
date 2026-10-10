@@ -28,6 +28,15 @@ import type {
   WarrantySearchInput,
   WarrantySearchRow,
   UpdateCategoryPayload,
+  CreateWarrantyClaimInput,
+  WarrantyClaimsForInput,
+  VoidWarrantyClaimInput,
+  ListDefectiveItemsInput,
+  ResolveDefectiveInput,
+  WarrantyClaimResultData,
+  WarrantyClaimView,
+  DefectiveItemView,
+  WarrantyEnvelope,
 } from "@liratek/core";
 
 /**
@@ -1709,7 +1718,11 @@ export interface ElectronAPI {
       count: number;
       profit_usd: number;
       profit_lbp: number;
-      byCurrency: Array<{ currency: string; commission: number; count: number }>;
+      byCurrency: Array<{
+        currency: string;
+        commission: number;
+        count: number;
+      }>;
     }>;
     process: (data: {
       provider: "MTC" | "Alfa";
@@ -2836,6 +2849,21 @@ export interface ElectronAPI {
       data?: WarrantySearchRow[];
       error?: string;
     }>;
+    claim: (
+      data: CreateWarrantyClaimInput,
+    ) => Promise<WarrantyEnvelope<WarrantyClaimResultData>>;
+    claimsFor: (
+      data: WarrantyClaimsForInput,
+    ) => Promise<WarrantyEnvelope<WarrantyClaimView[]>>;
+    voidClaim: (
+      data: VoidWarrantyClaimInput,
+    ) => Promise<WarrantyEnvelope<WarrantyClaimView>>;
+    listDefective: (
+      data: ListDefectiveItemsInput,
+    ) => Promise<WarrantyEnvelope<DefectiveItemView[]>>;
+    resolveDefective: (
+      data: ResolveDefectiveInput,
+    ) => Promise<WarrantyEnvelope<DefectiveItemView>>;
   };
 
   // Product Units (LIRA-143 Phase 5 — phone IMEI units & warranty) —
@@ -3198,7 +3226,9 @@ export interface ElectronAPI {
     refundSessionBasketItem: (
       data: import("@liratek/core").SessionItemRefundInput,
     ) => Promise<
-      | ({ success: true } & import("@liratek/core").RefundSessionBasketItemResult)
+      | ({
+          success: true;
+        } & import("@liratek/core").RefundSessionBasketItemResult)
       | { success: false; error?: string }
     >;
     /** Read-only preview for the item-refund form's pre-fill (the account

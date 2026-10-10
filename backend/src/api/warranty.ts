@@ -11,11 +11,24 @@ import express from "express";
 import {
   getWarrantyService,
   warrantySearchSchema,
+  createWarrantyClaimSchema,
+  warrantyClaimsForSchema,
+  voidWarrantyClaimSchema,
+  listDefectiveItemsSchema,
+  resolveDefectiveSchema,
   warrantyLogger,
   type WarrantySearchQuery,
+  type CreateWarrantyClaimData,
+  type WarrantyClaimsForInput,
+  type ListDefectiveItemsInput,
 } from "@liratek/core";
-import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { validateQuery } from "../middleware/validation.js";
+import {
+  authenticateJWT,
+  requireRole,
+  type AuthRequest,
+} from "../middleware/auth.js";
+import { validateQuery, validateRequest } from "../middleware/validation.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 router.use(authenticateJWT);
@@ -43,5 +56,124 @@ router.get(
     }
   },
 );
+
+/** The acting user, from the JWT — never the body (rule 19c). */
+const actorOf = (req: AuthRequest) => ({
+  userId: req.user!.userId,
+  role: req.user!.role,
+});
+
+// POST /api/warranty/claims — start a claim (admin, staff; the service keeps
+// REPLACE/REFUND admin-only). Static paths stay above /:id.
+router.post(
+  "/claims",
+  requireRole(["admin", "staff"]),
+  validateRequest(createWarrantyClaimSchema),
+  (req, res) => {
+    const result = getWarrantyService().createClaim(
+      req.body as CreateWarrantyClaimData,
+      actorOf(req as AuthRequest),
+    );
+    if (result.success) {
+      auditRest(req as AuthRequest, {
+        action: "create",
+        entity_type: "warranty_claim",
+        entity_id: String(result.data.claim.id),
+        summary: `Warranty claim #${result.data.claim.id} (${result.data.claim.action})`,
+      });
+    }
+    res.json(result);
+  },
+);
+
+// GET /api/warranty/claims?sale_item_id=|maintenance_id=|unit_id= — history.
+router.get(
+  "/claims",
+  requireRole(["admin", "staff"]),
+  validateQuery(warrantyClaimsForSchema),
+  (req, res) => {
+    try {
+      const data = getWarrantyService().claimsFor(
+        req.query as unknown as WarrantyClaimsForInput,
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      res.json({
+        success: false,
+        error: errorMessage(error, "Failed to load claims"),
+      });
+    }
+  },
+);
+
+// POST /api/warranty/claims/:id/void — admin.
+router.post("/claims/:id/void", requireRole(["admin"]), (req, res) => {
+  const parsed = voidWarrantyClaimSchema.safeParse({ claim_id: req.params.id });
+  if (!parsed.success) {
+    res.json({ success: false, error: "Invalid claim id" });
+    return;
+  }
+  const result = getWarrantyService().voidClaim(
+    parsed.data,
+    actorOf(req as AuthRequest),
+  );
+  if (result.success) {
+    auditRest(req as AuthRequest, {
+      action: "delete",
+      entity_type: "warranty_claim",
+      entity_id: String(parsed.data.claim_id),
+      summary: `Voided warranty claim #${parsed.data.claim_id}`,
+    });
+  }
+  res.json(result);
+});
+
+// GET /api/warranty/defective?status= — admin.
+router.get(
+  "/defective",
+  requireRole(["admin"]),
+  validateQuery(listDefectiveItemsSchema),
+  (req, res) => {
+    try {
+      const data = getWarrantyService().listDefective(
+        req.query as unknown as ListDefectiveItemsInput,
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      res.json({
+        success: false,
+        error: errorMessage(error, "Failed to load defective items"),
+      });
+    }
+  },
+);
+
+// POST /api/warranty/defective/:id/resolve — admin.
+router.post("/defective/:id/resolve", requireRole(["admin"]), (req, res) => {
+  const parsed = resolveDefectiveSchema.safeParse({
+    defective_item_id: req.params.id,
+    outcome: (req.body as { outcome?: unknown })?.outcome,
+  });
+  if (!parsed.success) {
+    res.json({
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid request",
+    });
+    return;
+  }
+  const result = getWarrantyService().resolveDefective(
+    parsed.data,
+    actorOf(req as AuthRequest),
+  );
+  if (result.success) {
+    auditRest(req as AuthRequest, {
+      action: "update",
+      entity_type: "defective_item",
+      entity_id: String(parsed.data.defective_item_id),
+      summary: `Defective item #${parsed.data.defective_item_id}: ${parsed.data.outcome}`,
+    });
+  }
+  res.json(result);
+});
 
 export default router;
