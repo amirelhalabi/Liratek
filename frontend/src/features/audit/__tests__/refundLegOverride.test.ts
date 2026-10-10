@@ -485,8 +485,15 @@ describe("validateRefundValue — LIRA-236 F1 signed-net fix", () => {
 });
 
 // LIRA-143 Phase 6b — the phone-refund UI's per-unit extras-emission logic.
+// LIRA-296 follow-up (owner decision 2026-10-10): the refund pop-up no
+// longer takes a warranty date — a returned phone's warranty is chosen at the
+// till when it is sold again. `buildUnitExtras` therefore NEVER emits
+// `warranty_override_until`, even when handed a flag object of the old shape.
 describe("buildUnitExtras", () => {
-  const untouched: UnitFlagState = { isDefective: false, warrantyUntil: "" };
+  const untouched: UnitFlagState = { isDefective: false };
+  /** The pre-2026-10-10 flag shape, with the date the modal used to collect. */
+  const legacyFlag = (isDefective: boolean, warrantyUntil: string) =>
+    ({ isDefective, warrantyUntil }) as unknown as UnitFlagState;
 
   it("returns undefined (never []) when no unit was touched at all", () => {
     expect(buildUnitExtras([1, 2, 3], {})).toBeUndefined();
@@ -498,66 +505,50 @@ describe("buildUnitExtras", () => {
     ).toBeUndefined();
   });
 
-  it("includes only is_defective when the checkbox is checked and the date is blank", () => {
+  it("includes only is_defective when the checkbox is checked", () => {
     expect(
-      buildUnitExtras([1], {
-        1: { isDefective: true, warrantyUntil: "" },
-      }),
-    ).toEqual([{ unit_id: 1, is_defective: true }]);
+      buildUnitExtras([1], { 1: { isDefective: true } }),
+    ).toStrictEqual([{ unit_id: 1, is_defective: true }]);
   });
 
-  it("includes only warranty_override_until when only the date was set", () => {
+  it("never sends a warranty date: a date-only flag emits nothing", () => {
     expect(
-      buildUnitExtras([1], {
-        1: { isDefective: false, warrantyUntil: "2027-01-15" },
-      }),
-    ).toEqual([{ unit_id: 1, warranty_override_until: "2027-01-15" }]);
-  });
-
-  it("includes both fields when both were set", () => {
-    expect(
-      buildUnitExtras([1], {
-        1: { isDefective: true, warrantyUntil: "2027-01-15" },
-      }),
-    ).toEqual([
-      { unit_id: 1, is_defective: true, warranty_override_until: "2027-01-15" },
-    ]);
-  });
-
-  it("trims a whitespace-only date to blank (treated as not set)", () => {
-    expect(
-      buildUnitExtras([1], {
-        1: { isDefective: false, warrantyUntil: "   " },
-      }),
+      buildUnitExtras([1], { 1: legacyFlag(false, "2027-01-15") }),
     ).toBeUndefined();
+  });
+
+  it("never sends a warranty date alongside Defective either", () => {
+    const extras = buildUnitExtras([1], {
+      1: legacyFlag(true, "2027-01-15"),
+    });
+    expect(extras).toStrictEqual([{ unit_id: 1, is_defective: true }]);
+    expect(extras?.[0]).not.toHaveProperty("warranty_override_until");
   });
 
   it("emits an entry only for the units actually touched, skipping untouched ones", () => {
     expect(
       buildUnitExtras([1, 2, 3], {
         1: untouched,
-        2: { isDefective: true, warrantyUntil: "" },
+        2: { isDefective: true },
         3: untouched,
       }),
-    ).toEqual([{ unit_id: 2, is_defective: true }]);
+    ).toStrictEqual([{ unit_id: 2, is_defective: true }]);
   });
 
   it("ignores a unit id with no flags entry at all (never defaults it into the output)", () => {
     expect(
-      buildUnitExtras([1, 2], {
-        2: { isDefective: true, warrantyUntil: "" },
-      }),
-    ).toEqual([{ unit_id: 2, is_defective: true }]);
+      buildUnitExtras([1, 2], { 2: { isDefective: true } }),
+    ).toStrictEqual([{ unit_id: 2, is_defective: true }]);
   });
 
   it("preserves the order of unitIds in the output", () => {
     expect(
       buildUnitExtras([3, 1, 2], {
-        1: { isDefective: true, warrantyUntil: "" },
-        2: { isDefective: true, warrantyUntil: "" },
-        3: { isDefective: true, warrantyUntil: "" },
+        1: { isDefective: true },
+        2: { isDefective: true },
+        3: { isDefective: true },
       }),
-    ).toEqual([
+    ).toStrictEqual([
       { unit_id: 3, is_defective: true },
       { unit_id: 1, is_defective: true },
       { unit_id: 2, is_defective: true },

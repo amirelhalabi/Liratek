@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, ShieldCheck } from "lucide-react";
 import { PageHeader, useApi } from "@liratek/ui";
 import type {
+  WarrantyInStockUnit,
   WarrantySearchInput,
   WarrantySearchRow,
   WarrantySearchState,
@@ -45,6 +46,9 @@ export default function WarrantyLookup() {
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState<StateFilter>("");
   const [rows, setRows] = useState<WarrantySearchRow[]>([]);
+  // LIRA-296 follow-up: in-stock units whose serial is the query — a phone
+  // on the shelf has no warranty until it is sold.
+  const [inStock, setInStock] = useState<WarrantyInStockUnit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openSaleId, setOpenSaleId] = useState<number | null>(null);
@@ -67,10 +71,14 @@ export default function WarrantyLookup() {
     setError(null);
     try {
       const found = await apiRef.current.searchWarranties(input);
-      if (request === requestRef.current) setRows(found);
+      if (request === requestRef.current) {
+        setRows(found.rows);
+        setInStock(found.inStockUnits ?? []);
+      }
     } catch (err) {
       if (request === requestRef.current) {
         setRows([]);
+        setInStock([]);
         setError(errorText(err));
       }
     } finally {
@@ -300,7 +308,22 @@ export default function WarrantyLookup() {
                 ))}
               </tbody>
             </table>
-            {!loading && !error && rows.length === 0 && (
+            {!loading && !error && rows.length === 0 && inStock.length > 0 && (
+              <div
+                data-testid="warranty-in-stock-hint"
+                className="text-sm text-sky-300 px-4 py-6 text-center"
+              >
+                <p>In stock, not sold — warranty starts when it's sold.</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {inStock
+                    .map((u) =>
+                      u.productName ? `${u.productName} · ${u.imei}` : u.imei,
+                    )
+                    .join(", ")}
+                </p>
+              </div>
+            )}
+            {!loading && !error && rows.length === 0 && inStock.length === 0 && (
               <p className="text-sm text-slate-400 px-4 py-6 text-center">
                 No warranty items found.
               </p>

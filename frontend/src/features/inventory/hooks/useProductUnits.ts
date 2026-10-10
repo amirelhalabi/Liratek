@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
+import type { UnitWarrantyDisplay } from "@liratek/core";
 import type { WarrantyStatus } from "../productUnitsLogic";
 
 // Re-exported for convenience — callers that only need the warranty-status
@@ -58,6 +59,8 @@ export interface UnitStoryEntry extends ProductUnit {
   client_id: number | null;
   client_name: string | null;
   warranty: WarrantyStatus;
+  /** See {@link UnitListRowWithWarranty.warranty_display}. */
+  warranty_display?: UnitWarrantyDisplay;
 }
 
 /**
@@ -99,7 +102,7 @@ export interface UnitListRow {
   product_deleted: number | null;
   /** The owning MODEL's warranty term — display-only (see
    *  {@link UnitStoryEntry.product_warranty_months}); what lets fresh stock
-   *  of a 6-month model read "6 mo — starts at sale" instead of the
+   *  of a 6-month model read "Not sold (6 mo from sale)" instead of the
    *  misleading "No warranty". */
   product_warranty_months: number | null;
   sale_item_id: number | null;
@@ -114,6 +117,10 @@ export interface UnitListRow {
  *  (identical precedence: override → refund → sale). */
 export type UnitListRowWithWarranty = UnitListRow & {
   warranty: WarrantyStatus;
+  /** What the Warranty column shows — `NOT_SOLD` for a unit on the shelf
+   *  (core `unitWarrantyDisplay`, LIRA-296 follow-up). Optional: older
+   *  servers do not stamp it; the UI derives it with the same helper. */
+  warranty_display?: UnitWarrantyDisplay;
 };
 
 export interface UnitListResult {

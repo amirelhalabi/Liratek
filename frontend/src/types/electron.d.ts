@@ -3,6 +3,7 @@
 // (rule 21). `browser.ts` re-exports `DailyStatsSnapshot` as a type-only
 // export (rule 29), which is all a `.d.ts` needs.
 import type {
+  UnitWarrantyDisplay,
   DailyStatsSnapshot,
   DailyStatsSnapshotQuery,
   NetProfitWindowResult,
@@ -27,6 +28,7 @@ import type {
   // update payload (incl. warranty_months).
   WarrantySearchInput,
   WarrantySearchRow,
+  WarrantyInStockUnit,
   UpdateCategoryPayload,
   CreateWarrantyClaimInput,
   WarrantyClaimsForInput,
@@ -99,6 +101,10 @@ export interface ProductUnitStory extends ProductUnit {
     until: string | null;
     state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
   };
+  /** What the Warranty column shows — `NOT_SOLD` for a unit on the shelf
+   *  (core `unitWarrantyDisplay`, LIRA-296 follow-up). Optional: older
+   *  servers do not stamp it; the UI derives it with the same helper. */
+  warranty_display?: UnitWarrantyDisplay;
 }
 
 /** One row of the Phone Units management view: the unit's own columns, its
@@ -120,7 +126,7 @@ export interface ProductUnitListRow {
    *  truthy `1` means deleted (LIRA-152). */
   product_deleted: number | null;
   /** The owning MODEL's warranty term (`products.warranty_months`) —
-   *  display-only, so unsold stock can show "N mo — starts at sale" instead
+   *  display-only, so unsold stock can show "Not sold (N mo from sale)" instead
    *  of "No warranty". Never a coverage claim (decision #4). */
   product_warranty_months: number | null;
   sale_item_id: number | null;
@@ -134,6 +140,10 @@ export interface ProductUnitListRow {
     until: string | null;
     state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
   };
+  /** What the Warranty column shows — `NOT_SOLD` for a unit on the shelf
+   *  (core `unitWarrantyDisplay`, LIRA-296 follow-up). Optional: older
+   *  servers do not stamp it; the UI derives it with the same helper. */
+  warranty_display?: UnitWarrantyDisplay;
 }
 
 /** One page of {@link ProductUnitListRow}s plus the UNPAGED total over the
@@ -2873,6 +2883,8 @@ export interface ElectronAPI {
     search: (data: WarrantySearchInput) => Promise<{
       success: boolean;
       data?: WarrantySearchRow[];
+      /** LIRA-296 follow-up: in-stock units whose serial is the query. */
+      inStockUnits?: WarrantyInStockUnit[];
       error?: string;
     }>;
     claim: (

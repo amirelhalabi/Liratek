@@ -500,7 +500,7 @@ ${labels}
 
       if (result.success) {
         // The phone-unit reads carry their PRODUCT's `warranty_months` (so
-        // unsold stock can show "N mo — starts at sale"), and a product save
+        // unsold stock can show "Not sold (N mo from sale)"), and a product save
         // can change it without touching a single `product_units` row — no
         // unit mutation runs, so nothing else invalidates these keys. With
         // the app's 30s default `staleTime`, walking back to /inventory/units

@@ -12,6 +12,7 @@
 import {
   resolveWarranty,
   resolveWarrantyMonths,
+  unitWarrantyDisplay,
   warrantyState,
 } from "../warrantyState.js";
 
@@ -189,4 +190,30 @@ describe("resolveWarrantyMonths — line edit ?? product ?? category ?? none (LI
   ])("edit %p, product %p, category %p → %p", (edit, product, category, want) => {
     expect(resolveWarrantyMonths(edit, product, category)).toBe(want);
   });
+});
+
+/**
+ * LIRA-296 follow-up (owner decision 2026-10-10) — a unit on the shelf has
+ * no warranty yet: it starts when the unit is sold. So an IN_STOCK unit reads
+ * NOT_SOLD whatever its stored verdict (an old refund-time override date, a
+ * refunded sale's VOID, or NONE). A SOLD unit keeps its real verdict.
+ */
+describe("unitWarrantyDisplay", () => {
+  it.each(["COVERED", "EXPIRED", "VOID", "NONE"] as const)(
+    "an IN_STOCK unit reads NOT_SOLD even when its verdict is %s",
+    (state) => {
+      expect(
+        unitWarrantyDisplay({ status: "IN_STOCK", warranty: { state } }),
+      ).toBe("NOT_SOLD");
+    },
+  );
+
+  it.each(["COVERED", "EXPIRED", "VOID", "NONE"] as const)(
+    "a SOLD unit keeps its verdict %s",
+    (state) => {
+      expect(unitWarrantyDisplay({ status: "SOLD", warranty: { state } })).toBe(
+        state,
+      );
+    },
+  );
 });

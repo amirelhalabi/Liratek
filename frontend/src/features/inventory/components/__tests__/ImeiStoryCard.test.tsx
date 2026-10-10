@@ -137,39 +137,48 @@ describe("ImeiStoryCard render", () => {
       />,
     );
     expect(screen.getByTestId("imei-story-warranty-badge")).toHaveTextContent(
-      "No warranty",
+      "Not sold",
     );
   });
 
   /**
-   * Owner decision 2026-08-27 — the ONE case where this card deliberately
-   * DISAGREES with the Phone Units table. A refund voids the sale's warranty
-   * and returns the unit to stock; the table then advertises the term the next
-   * sale will carry, but this card is the unit's provenance, so it must keep
-   * reporting the refund. Rendered through `warrantyStoryBadge`, not the
-   * table's `warrantyDisplayBadge`.
+   * LIRA-296 follow-up (owner decision 2026-10-10) — supersedes 2026-08-27's
+   * "keep Void (refunded) on the card": a unit back on the shelf reads
+   * "Not sold" here exactly as in the Phone Units table, whatever its stored
+   * verdict — a refunded sale's VOID or an old refund-time override date.
    */
-  it("keeps Void (refunded) for a refunded unit back in stock, even with a model term", () => {
+  it("reads Not sold for a refunded unit back in stock (VOID verdict)", () => {
     render(
       <ImeiStoryCard
         story={makeStory({
           status: "IN_STOCK",
-          sale_item_id: null,
           is_refunded: 1,
-          warranty_until: null,
-          product_warranty_months: 6,
           warranty: { source: "REFUND", until: null, state: "VOID" },
         })}
       />,
     );
     const badge = screen.getByTestId("imei-story-warranty-badge");
-    expect(badge).toHaveTextContent("Void (refunded)");
-    expect(badge).not.toHaveTextContent("starts at sale");
+    expect(badge).toHaveTextContent("Not sold");
+    expect(badge).not.toHaveTextContent("Void");
   });
 
-  /** Owner-reported 2026-08-26 — the story card is the SECOND surface that
-   *  renders a verdict; for a NEVER-SOLD unit it agrees with the table. */
-  it("shows the model's term for an unsold unit instead of No warranty", () => {
+  it("reads Not sold for an in-stock unit carrying an old override date", () => {
+    render(
+      <ImeiStoryCard
+        story={makeStory({
+          status: "IN_STOCK",
+          warranty_override_until: "2027-03-01",
+          warranty: { source: "OVERRIDE", until: "2027-03-01", state: "COVERED" },
+        })}
+      />,
+    );
+    const badge = screen.getByTestId("imei-story-warranty-badge");
+    expect(badge).toHaveTextContent("Not sold");
+    expect(badge).not.toHaveTextContent("Covered");
+  });
+
+  /** Owner-reported 2026-08-26 — the next sale's term is still stated. */
+  it("adds the model's term for an unsold unit of a model that grants one", () => {
     render(
       <ImeiStoryCard
         story={makeStory({
@@ -185,7 +194,7 @@ describe("ImeiStoryCard render", () => {
       />,
     );
     expect(screen.getByTestId("imei-story-warranty-badge")).toHaveTextContent(
-      "6 mo — starts at sale",
+      "Not sold (6 mo from sale)",
     );
   });
 

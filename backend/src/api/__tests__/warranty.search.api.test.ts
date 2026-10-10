@@ -63,8 +63,8 @@ describe("GET /api/warranty/search", () => {
 
   it("staff can search; the parsed query reaches the service; envelope matches IPC", async () => {
     const spy = jest
-      .spyOn(service, "search")
-      .mockReturnValue([{ saleItemId: 1 } as never]);
+      .spyOn(service, "searchWithStock")
+      .mockReturnValue({ rows: [{ saleItemId: 1 } as never] });
     const res = await request(app)
       .get("/api/warranty/search")
       .query({ q: "RCP-12", client_day: "2026-10-10", limit: "20" })
@@ -79,7 +79,7 @@ describe("GET /api/warranty/search", () => {
   });
 
   it("admin can search", async () => {
-    jest.spyOn(service, "search").mockReturnValue([]);
+    jest.spyOn(service, "searchWithStock").mockReturnValue({ rows: [] });
     const res = await request(app)
       .get("/api/warranty/search")
       .query({ client_day: "2026-10-10" })
@@ -87,8 +87,26 @@ describe("GET /api/warranty/search", () => {
     expect(res.body).toEqual({ success: true, data: [] });
   });
 
+  // LIRA-296 follow-up: in-stock units whose serial is the query ride
+  // beside `data` (still the rows array), exactly as IPC returns them.
+  it("carries in-stock units beside the rows", async () => {
+    jest.spyOn(service, "searchWithStock").mockReturnValue({
+      rows: [],
+      inStockUnits: [{ imei: "350000111122223", productName: "Phone X" }],
+    });
+    const res = await request(app)
+      .get("/api/warranty/search")
+      .query({ q: "350000111122223", client_day: "2026-10-10" })
+      .set("x-test-role", "staff");
+    expect(res.body).toEqual({
+      success: true,
+      data: [],
+      inStockUnits: [{ imei: "350000111122223", productName: "Phone X" }],
+    });
+  });
+
   it("refuses an unauthenticated caller without searching", async () => {
-    const spy = jest.spyOn(service, "search");
+    const spy = jest.spyOn(service, "searchWithStock");
     const res = await request(app)
       .get("/api/warranty/search")
       .query({ client_day: "2026-10-10" });
@@ -97,7 +115,7 @@ describe("GET /api/warranty/search", () => {
   });
 
   it("refuses a role outside admin/staff", async () => {
-    const spy = jest.spyOn(service, "search");
+    const spy = jest.spyOn(service, "searchWithStock");
     const res = await request(app)
       .get("/api/warranty/search")
       .query({ client_day: "2026-10-10" })
@@ -107,7 +125,7 @@ describe("GET /api/warranty/search", () => {
   });
 
   it("an invalid query is a 200 { success:false } envelope, never a 4xx", async () => {
-    const spy = jest.spyOn(service, "search");
+    const spy = jest.spyOn(service, "searchWithStock");
     const res = await request(app)
       .get("/api/warranty/search")
       .query({ client_day: "10/10/2026" })
@@ -119,7 +137,7 @@ describe("GET /api/warranty/search", () => {
   });
 
   it("a thrown error becomes a failure envelope", async () => {
-    jest.spyOn(service, "search").mockImplementation(() => {
+    jest.spyOn(service, "searchWithStock").mockImplementation(() => {
       throw new Error("boom");
     });
     const res = await request(app)

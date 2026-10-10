@@ -33,6 +33,8 @@ import { clientDay } from "../utils/requestDay.js";
 import {
   isSaleLineFullyRefunded,
   resolveWarranty,
+  unitWarrantyDisplay,
+  type UnitWarrantyDisplay,
   type WarrantySource,
   type WarrantyState,
 } from "../utils/warrantyState.js";
@@ -86,6 +88,9 @@ function isSaleRefunded(row: UnitStory): boolean {
 
 export interface UnitStoryWithWarranty extends UnitStory {
   warranty: WarrantyStatus;
+  /** What the Warranty column shows: `NOT_SOLD` for a unit on the shelf,
+   *  else `warranty.state` (LIRA-296 follow-up, `unitWarrantyDisplay`). */
+  warranty_display: UnitWarrantyDisplay;
 }
 
 /**
@@ -98,6 +103,8 @@ export interface UnitStoryWithWarranty extends UnitStory {
  */
 export type UnitListRowWithWarranty = UnitListRow & {
   warranty: WarrantyStatus;
+  /** See {@link UnitStoryWithWarranty.warranty_display}. */
+  warranty_display: UnitWarrantyDisplay;
 };
 
 export interface UnitListResult {
@@ -267,15 +274,22 @@ export class ProductUnitService {
     try {
       const page = this.repo.listUnits(filters);
       return {
-        rows: page.rows.map((row) => ({
-          ...row,
-          warranty: computeWarrantyStatus({
+        rows: page.rows.map((row) => {
+          const warranty = computeWarrantyStatus({
             overrideUntil: row.warranty_override_until,
             saleRefunded: row.sale_refunded === 1,
             stampedUntil: row.warranty_until,
             today,
-          }),
-        })),
+          });
+          return {
+            ...row,
+            warranty,
+            warranty_display: unitWarrantyDisplay({
+              status: row.status,
+              warranty,
+            }),
+          };
+        }),
         total: page.total,
       };
     } catch (error) {
@@ -300,15 +314,22 @@ export class ProductUnitService {
   ): UnitStoryWithWarranty[] {
     try {
       const rows = this.repo.getUnitStoryByImei(imei);
-      return rows.map((row) => ({
-        ...row,
-        warranty: computeWarrantyStatus({
+      return rows.map((row) => {
+        const warranty = computeWarrantyStatus({
           overrideUntil: row.warranty_override_until,
           saleRefunded: isSaleRefunded(row),
           stampedUntil: row.warranty_until,
           today,
-        }),
-      }));
+        });
+        return {
+          ...row,
+          warranty,
+          warranty_display: unitWarrantyDisplay({
+            status: row.status,
+            warranty,
+          }),
+        };
+      });
     } catch (error) {
       inventoryLogger.error({ error, imei }, "getUnitStory failed");
       throw error;

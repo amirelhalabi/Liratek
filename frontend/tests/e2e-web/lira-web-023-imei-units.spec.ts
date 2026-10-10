@@ -48,7 +48,13 @@
  * SalesRepository's strictness check and ProductRepository's scan/search
  * code), so they stay valid either way.
  */
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  gotoAndSettle,
+  BACKEND_URL,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
 
 interface ApiEnvelope {
@@ -73,6 +79,8 @@ interface UnitStoryRow extends ProductUnitRow {
     until: string | null;
     state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
   };
+  /** LIRA-296 follow-up — what the Warranty column shows. */
+  warranty_display?: "NOT_SOLD" | "COVERED" | "EXPIRED" | "VOID" | "NONE";
 }
 
 async function authHeaders(page: Page): Promise<Record<string, string>> {
@@ -448,5 +456,76 @@ test.describe("LIRA-143 — phone IMEI units & warranty over REST", () => {
     expect(storyRow?.warranty.source).toBe("OVERRIDE");
     expect(storyRow?.warranty.state).toBe("COVERED");
     expect(storyRow?.warranty.until).toBe(overrideDateIso);
+    // LIRA-296 follow-up (owner decision 2026-10-10): the server still
+    // accepts an override date from older clients, but a unit back on the
+    // shelf DISPLAYS "not sold" whatever date it carries.
+    expect(storyRow?.warranty_display).toBe("NOT_SOLD");
+  });
+
+  /**
+   * (d) LIRA-296 follow-up (owner decision 2026-10-10) — a phone on the shelf
+   * has no warranty yet. Over the web transport: the warranty search for its
+   * exact serial returns no rows but names it in `inStockUnits` (beside the
+   * envelope's `data`), the Warranty page says "In stock, not sold", and the
+   * Phone Units register shows "Not sold". Rule 15: this run's own IMEI only.
+   */
+  test("(d) an in-stock serial reads 'not sold' on the Warranty page and Phone Units", async ({
+    page,
+  }) => {
+    await loginAsAdmin(page);
+    const headers = await authHeaders(page);
+
+    const ts = Date.now();
+    const productName = `L296-Shelf-Phone-${ts}`;
+    const imei = `296${ts}`.replace(/\D/g, "");
+    const productId = await createProduct(page, headers, {
+      name: productName,
+      cost_price_usd: 50,
+      retail_price_usd: 99.5,
+      stock: 1,
+      warranty_months: 6,
+    });
+    const registered = await registerUnits(page, headers, productId, [imei]);
+    expect(registered.success, JSON.stringify(registered)).toBeTruthy();
+    const unitId = registered.data!.units[0].id;
+
+    const day = new Date();
+    const clientDay = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    const search = await (
+      await page.request.get(
+        `${BACKEND_URL}/api/warranty/search?q=${encodeURIComponent(imei)}&client_day=${clientDay}`,
+        { headers },
+      )
+    ).json();
+    expect(search.success, JSON.stringify(search)).toBeTruthy();
+    expect(search.data).toEqual([]);
+    expect(search.inStockUnits).toEqual([{ imei, productName }]);
+
+    const story = await storyFor(page, headers, imei);
+    expect(story.find((s) => s.id === unitId)?.warranty_display).toBe(
+      "NOT_SOLD",
+    );
+
+    // The browser: the Warranty page.
+    await gotoAndSettle(page, "/#/warranty");
+    const box = page.getByPlaceholder(
+      "Name, phone, receipt (RCP-…), product or serial",
+    );
+    await box.fill(imei);
+    await box.press("Enter");
+    const hint = page.getByTestId("warranty-in-stock-hint");
+    await expect(hint).toBeVisible({ timeout: 10_000 });
+    await expect(hint).toContainText(
+      "In stock, not sold — warranty starts when it's sold.",
+    );
+    await expect(hint).toContainText(imei);
+
+    // The browser: Phone Units.
+    await gotoAndSettle(page, "/#/inventory/units");
+    await page.getByTestId("phone-units-search").fill(imei);
+    await expect(page.getByTestId(`phone-unit-warranty-${unitId}`)).toHaveText(
+      "Not sold (6 mo from sale)",
+      { timeout: 10_000 },
+    );
   });
 });

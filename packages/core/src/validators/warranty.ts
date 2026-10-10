@@ -92,6 +92,25 @@ export interface WarrantySearchRow {
   openClaimId: number | null;
 }
 
+/**
+ * LIRA-296 follow-up (owner decision 2026-10-10) — a unit still on the shelf
+ * whose IMEI/serial IS the search query. It has no warranty yet (that starts
+ * when it is sold), so the Warranty page says so instead of "nothing found".
+ */
+export interface WarrantyInStockUnit {
+  imei: string;
+  productName: string | null;
+}
+
+/** The warranty search response: the rows, plus — only when no row matched
+ *  and the query is the exact serial of in-stock units — those units. On the
+ *  wire `rows` travels as the envelope's `data` (unchanged) and
+ *  `inStockUnits` beside it. */
+export interface WarrantySearchResult {
+  rows: WarrantySearchRow[];
+  inStockUnits?: WarrantyInStockUnit[];
+}
+
 // =============================================================================
 // Warranty claims (P2) — IPC `warranty:claim` … / REST `/api/warranty/claims`
 // =============================================================================

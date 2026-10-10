@@ -61,6 +61,7 @@ import {
   type WarrantyReport,
   type WarrantyReportItem,
   type WarrantySearchInput,
+  type WarrantySearchResult,
   type WarrantySearchRow,
   type WarrantySearchUnit,
   type CreateWarrantyClaimInput,
@@ -222,6 +223,28 @@ export class WarrantyService {
       "Warranty search",
     );
     return filtered;
+  }
+
+  /**
+   * LIRA-296 follow-up (owner decision 2026-10-10) — {@link search}, plus the
+   * in-stock units whose IMEI/serial IS the query when no warranty row came
+   * back: a phone on the shelf has no warranty until it is sold, and the
+   * Warranty page says so instead of "nothing found". `inStockUnits` is left
+   * out when there is nothing to report.
+   */
+  searchWithStock(input: WarrantySearchInput): WarrantySearchResult {
+    const rows = this.search(input);
+    const q = input.q?.trim();
+    if (rows.length > 0 || !q) return { rows };
+    const units = this.repo.findInStockUnitsBySerial(q);
+    if (units.length === 0) return { rows };
+    return {
+      rows,
+      inStockUnits: units.map((u) => ({
+        imei: u.imei,
+        productName: u.product_name,
+      })),
+    };
   }
 
   // ===========================================================================

@@ -369,18 +369,25 @@ describe("PhoneUnits — row rendering", () => {
   it("renders each warranty state with its own badge label", async () => {
     mockList.mockResolvedValue(
       result([
-        row({ id: 1, imei: "111111111111111", warranty: COVERED }),
+        row({
+          id: 1,
+          imei: "111111111111111",
+          status: "SOLD",
+          warranty: COVERED,
+        }),
         row({
           id: 2,
           imei: "222222222222222",
+          status: "SOLD",
           warranty: { source: "SALE", until: "2025-02-01", state: "EXPIRED" },
         }),
         row({
           id: 3,
           imei: "333333333333333",
+          status: "SOLD",
           warranty: { source: "REFUND", until: null, state: "VOID" },
         }),
-        row({ id: 4, imei: "444444444444444", warranty: NONE }),
+        row({ id: 4, imei: "444444444444444", status: "SOLD", warranty: NONE }),
       ]),
     );
     renderPage();
@@ -401,75 +408,15 @@ describe("PhoneUnits — row rendering", () => {
   });
 
   /**
-   * Owner-reported 2026-08-26: fresh stock of a model that HAS a warranty
-   * term used to read "No warranty" here, because the clock only starts at
-   * the sale (decision #4) so the computed verdict is `NONE`. The page now
-   * shows the term for exactly that case — and for nothing else.
+   * LIRA-296 follow-up (owner decision 2026-10-10): a unit on the shelf has
+   * no warranty yet — it is chosen at the till when the unit is sold. So
+   * EVERY in-stock row reads "Not sold", whatever its stored verdict (an old
+   * refund-time override date, a refunded sale's VOID, or NONE), with the
+   * model's term added when it has one (the owner's 2026-08-26 report). Sold
+   * units keep their verdict, and the term never leaks onto them.
+   * Supersedes the 2026-08-26/27 "6 mo — starts at sale" mapping.
    */
-  it("shows the model's term for unsold stock, and never for a sold unit or a real verdict", async () => {
-    mockList.mockResolvedValue(
-      result([
-        // Unsold, model grants 6 months -> the term.
-        row({
-          id: 1,
-          imei: "111111111111111",
-          status: "IN_STOCK",
-          product_warranty_months: 6,
-          warranty: NONE,
-        }),
-        // Unsold, model grants nothing -> unchanged.
-        row({
-          id: 2,
-          imei: "222222222222222",
-          status: "IN_STOCK",
-          product_warranty_months: null,
-          warranty: NONE,
-        }),
-        // SOLD before the model had a term (no stamp on its sale line) ->
-        // stays "No warranty": the term is never applied retroactively.
-        row({
-          id: 3,
-          imei: "333333333333333",
-          status: "SOLD",
-          sale_item_id: 9,
-          sale_refunded: 0,
-          product_warranty_months: 6,
-          warranty: NONE,
-        }),
-        // A real verdict wins over the term, even in stock (refund override).
-        row({
-          id: 4,
-          imei: "444444444444444",
-          status: "IN_STOCK",
-          product_warranty_months: 6,
-          warranty: COVERED,
-        }),
-      ]),
-    );
-    renderPage();
-
-    await screen.findByText("111111111111111");
-    expect(screen.getByTestId("phone-unit-warranty-1")).toHaveTextContent(
-      "6 mo — starts at sale",
-    );
-    expect(screen.getByTestId("phone-unit-warranty-2")).toHaveTextContent(
-      "No warranty",
-    );
-    expect(screen.getByTestId("phone-unit-warranty-3")).toHaveTextContent(
-      "No warranty",
-    );
-    expect(screen.getByTestId("phone-unit-warranty-4")).toHaveTextContent(
-      "Covered (until 2027-01-31)",
-    );
-  });
-
-  /**
-   * Owner decision 2026-08-27 — a refund voids the sale's warranty AND puts
-   * the unit back on the shelf. The TABLE is forward-looking, so a shelved
-   * unit of a model that grants a term advertises what its NEXT sale will
-   * carry. (`ImeiStoryCard` keeps "Void (refunded)" — its own test pins that.)
-   */
-  it("shows the term for a refunded unit back in stock, and keeps Void once sold", async () => {
+  it("shows Not sold for every in-stock unit, whatever override date it carries", async () => {
     const VOID: WarrantyStatus = {
       source: "REFUND",
       until: null,
@@ -477,29 +424,45 @@ describe("PhoneUnits — row rendering", () => {
     };
     mockList.mockResolvedValue(
       result([
-        // Back in stock after a refund, model grants 6 months -> the term.
+        // Old refund-time override, still in stock -> Not sold.
         row({
           id: 1,
           imei: "111111111111111",
           status: "IN_STOCK",
-          product_warranty_months: 6,
-          warranty: VOID,
+          warranty_override_until: "2027-01-31",
+          warranty: { ...COVERED, source: "OVERRIDE" },
         }),
-        // Back in stock, but the model grants nothing -> the true verdict.
+        // Refunded back to stock, no override -> Not sold.
         row({
           id: 2,
           imei: "222222222222222",
           status: "IN_STOCK",
-          product_warranty_months: null,
           warranty: VOID,
         }),
-        // Still SOLD (refunded but not restocked) -> the true verdict, term
-        // or no term. Nothing forward-looking to say about a finished sale.
+        // Never sold, model grants 6 months -> Not sold plus the term.
         row({
           id: 3,
           imei: "333333333333333",
+          status: "IN_STOCK",
+          product_warranty_months: 6,
+          warranty: NONE,
+        }),
+        // SOLD before the model had a term -> stays "No warranty".
+        row({
+          id: 4,
+          imei: "444444444444444",
           status: "SOLD",
           sale_item_id: 9,
+          sale_refunded: 0,
+          product_warranty_months: 6,
+          warranty: NONE,
+        }),
+        // SOLD and refunded but not restocked -> keeps Void.
+        row({
+          id: 5,
+          imei: "555555555555555",
+          status: "SOLD",
+          sale_item_id: 10,
           sale_refunded: 1,
           product_warranty_months: 6,
           warranty: VOID,
@@ -510,12 +473,18 @@ describe("PhoneUnits — row rendering", () => {
 
     await screen.findByText("111111111111111");
     expect(screen.getByTestId("phone-unit-warranty-1")).toHaveTextContent(
-      "6 mo — starts at sale",
+      /^Not sold$/,
     );
     expect(screen.getByTestId("phone-unit-warranty-2")).toHaveTextContent(
-      "Void (refunded)",
+      /^Not sold$/,
     );
     expect(screen.getByTestId("phone-unit-warranty-3")).toHaveTextContent(
+      "Not sold (6 mo from sale)",
+    );
+    expect(screen.getByTestId("phone-unit-warranty-4")).toHaveTextContent(
+      "No warranty",
+    );
+    expect(screen.getByTestId("phone-unit-warranty-5")).toHaveTextContent(
       "Void (refunded)",
     );
   });

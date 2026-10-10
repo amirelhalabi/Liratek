@@ -1,6 +1,6 @@
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import type { UnitStoryEntry } from "../hooks/useProductUnits";
-import { warrantyStoryBadge } from "../productUnitsLogic";
+import { warrantyDisplayBadge } from "../productUnitsLogic";
 
 export interface ImeiStoryCardProps {
   story: UnitStoryEntry;
@@ -13,15 +13,9 @@ export interface ImeiStoryCardProps {
  * Inventory page wiring below.
  */
 export function ImeiStoryCard({ story }: ImeiStoryCardProps) {
-  // The BACKWARD-looking mapping (`warrantyStoryBadge`), NOT the Phone Units
-  // table's forward-looking one. The two agree on every case except a VOID
-  // verdict on an in-stock unit: the table shows what the unit's next sale
-  // will carry, this card shows what happened to the sale that was refunded
-  // ("Void (refunded)") — which is the fact the card exists to report. Both
-  // still read "N mo — starts at sale" for a never-sold unit of a model that
-  // grants a term (nothing happened to its warranty, so there is no past
-  // fact to preserve).
-  const badge = warrantyStoryBadge({
+  // The SAME mapping as the Phone Units table (LIRA-296 follow-up, owner
+  // decision 2026-10-10): a unit on the shelf reads "Not sold".
+  const badge = warrantyDisplayBadge({
     warranty: story.warranty,
     status: story.status,
     productWarrantyMonths: story.product_warranty_months,

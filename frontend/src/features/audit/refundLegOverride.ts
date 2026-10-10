@@ -430,26 +430,27 @@ export type RefundUnitExtraOverride = RefundUnitExtraInput;
 /**
  * RefundMethodModal's live per-unit form state — one entry per unit the
  * operator has interacted with. A unit absent from this map, or present but
- * with both fields at their untouched default (`isDefective: false`,
- * `warrantyUntil: ""`), contributes NOTHING to the emitted extras — see
- * `buildUnitExtras`.
+ * with its defective checkbox unchecked, contributes NOTHING to the emitted
+ * extras — see `buildUnitExtras`.
+ *
+ * LIRA-296 follow-up (owner decision 2026-10-10): there is no warranty date
+ * here any more. A returned phone's warranty is chosen at the till when it
+ * is sold again, so the refund pop-up never sends `warranty_override_until`
+ * (the server still accepts it, for older clients).
  */
 export interface UnitFlagState {
   isDefective: boolean;
-  /** ISO date string (`YYYY-MM-DD`, matches a native `<input type="date">`),
-   *  or `""` for "not set — never override". */
-  warrantyUntil: string;
 }
 
 /**
  * Build the `unitExtras` payload RefundMethodModal sends alongside
  * `refundLegs`. Mirrors `linesMatchDefault`'s "operator touched nothing ->
  * no override" contract for the units side: a unit whose defective checkbox
- * is unchecked AND whose warranty-override date is blank contributes no
- * entry at all, and if EVERY linked unit is untouched this returns
- * `undefined` (never `[]`) so the caller omits the argument entirely from
- * the `refundTransaction` call — same "send nothing when nothing changed"
- * contract as `refundLegs` above.
+ * is unchecked contributes no entry at all, and if EVERY linked unit is
+ * untouched this returns `undefined` (never `[]`) so the caller omits the
+ * argument entirely from the `refundTransaction` call — same "send nothing
+ * when nothing changed" contract as `refundLegs` above. Each entry is built
+ * from scratch, so no other key of a flag object can leak into the payload.
  */
 export function buildUnitExtras(
   unitIds: number[],
@@ -457,14 +458,8 @@ export function buildUnitExtras(
 ): RefundUnitExtraOverride[] | undefined {
   const entries: RefundUnitExtraOverride[] = [];
   for (const id of unitIds) {
-    const flag = flags[id];
-    if (!flag) continue;
-    const warrantyUntil = flag.warrantyUntil.trim();
-    if (!flag.isDefective && warrantyUntil === "") continue;
-    const entry: RefundUnitExtraOverride = { unit_id: id };
-    if (flag.isDefective) entry.is_defective = true;
-    if (warrantyUntil !== "") entry.warranty_override_until = warrantyUntil;
-    entries.push(entry);
+    if (!flags[id]?.isDefective) continue;
+    entries.push({ unit_id: id, is_defective: true });
   }
   return entries.length > 0 ? entries : undefined;
 }

@@ -220,9 +220,8 @@ export const PHONE_UNITS_EXPORT_HEADERS = [
  *
  * Every cell is the SAME text the table renders, produced by the same
  * helpers — the em dash for an absent value, `unit.status` verbatim, and the
- * warranty label from `warrantyDisplayBadge` (the TABLE mapping, so a
- * refunded-back-to-stock unit exports "6 mo — starts at sale" exactly as the
- * screen shows it, not the story card's "Void (refunded)").
+ * warranty label from `warrantyDisplayBadge` (so an in-stock unit exports
+ * "Not sold" exactly as the screen shows it).
  */
 export function buildUnitExportTable(
   rows: UnitListRowWithWarranty[],

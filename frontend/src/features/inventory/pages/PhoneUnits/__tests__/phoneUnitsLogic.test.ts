@@ -328,21 +328,25 @@ describe("buildUnitExportTable", () => {
       "Defective",
       "—", // never sold
       "—", // no client
-      "No warranty",
+      "Not sold",
     ]);
   });
 
-  it("uses the TABLE warranty mapping, so refunded stock exports its next-sale term", () => {
+  it("exports Not sold for in-stock units exactly as the screen shows it", () => {
     const table = buildUnitExportTable([
       row({
         status: "IN_STOCK",
         product_warranty_months: 6,
         warranty: { source: "REFUND", until: null, state: "VOID" },
       }),
+      row({
+        status: "IN_STOCK",
+        warranty_override_until: "2027-01-31",
+        warranty: { source: "OVERRIDE", until: "2027-01-31", state: "COVERED" },
+      }),
     ]);
-    // The story card would say "Void (refunded)"; the table — and therefore
-    // its export — says what the next sale will carry.
-    expect(table.rows[0]![6]).toBe("6 mo — starts at sale");
+    expect(table.rows[0]![6]).toBe("Not sold (6 mo from sale)");
+    expect(table.rows[1]![6]).toBe("Not sold");
   });
 
   it("renders a sold unit's date and client", () => {

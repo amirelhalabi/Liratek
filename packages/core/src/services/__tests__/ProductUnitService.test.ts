@@ -248,6 +248,43 @@ describe("ProductUnitService", () => {
       });
     });
 
+    // LIRA-296 follow-up (owner decision 2026-10-10): an IN_STOCK unit's
+    // display reads NOT_SOLD even when an old refund-time override date
+    // still makes its verdict COVERED; a SOLD unit shows its verdict.
+    it("stamps warranty_display: NOT_SOLD for an in-stock unit carrying an override, the verdict for a sold one", () => {
+      const storyRow = (status: "IN_STOCK" | "SOLD") => ({
+        ...makeUnit({
+          status,
+          sale_item_id: 501,
+          warranty_override_until: "2027-01-15",
+        }),
+        product_name: "iPhone 13",
+        warranty_until: "2026-12-01",
+        is_refunded: 1,
+        refunded_quantity: 1,
+        quantity: 1,
+        sold_price_usd: 700,
+        sale_id: 9,
+        sold_at: "2026-06-01 10:00:00",
+        client_id: null,
+        client_name: null,
+      });
+      const mockRepo = {
+        getUnitStoryByImei: jest
+          .fn()
+          .mockReturnValue([storyRow("IN_STOCK"), storyRow("SOLD")]),
+      } as unknown as ProductUnitRepository;
+      const service = new ProductUnitService(
+        mockRepo,
+        {} as unknown as ProductRepository,
+      );
+
+      const story = service.getUnitStory("111111111111111", "2026-08-25");
+      expect(story[0].warranty.state).toBe("COVERED");
+      expect(story[0].warranty_display).toBe("NOT_SOLD");
+      expect(story[1].warranty_display).toBe("COVERED");
+    });
+
     /**
      * Rule 27 (dual-transport day hazard) — `today`'s default used to be
      * `new Date().toISOString().slice(0, 10)`, which is ALWAYS the UTC day
@@ -452,6 +489,40 @@ describe("ProductUnitService", () => {
         state: "NONE",
       });
       expect(rows[1].warranty.state).toBe("NONE");
+    });
+
+    it("stamps warranty_display: NOT_SOLD for an in-stock unit carrying an override, the verdict for a sold one", () => {
+      const mockRepo = {
+        listUnits: jest.fn().mockReturnValue({
+          rows: [
+            makeListRow({
+              id: 1,
+              status: "IN_STOCK",
+              warranty_override_until: "2027-01-15",
+            }),
+            makeListRow({
+              id: 2,
+              status: "SOLD",
+              sale_item_id: 501,
+              warranty_until: "2026-01-01",
+              sale_refunded: 0,
+            }),
+          ],
+          total: 2,
+        }),
+      } as unknown as ProductUnitRepository;
+      const service = new ProductUnitService(
+        mockRepo,
+        {} as unknown as ProductRepository,
+      );
+
+      const { rows } = service.listUnits(
+        { limit: 50, offset: 0 },
+        "2026-08-25",
+      );
+      expect(rows[0].warranty.state).toBe("COVERED");
+      expect(rows[0].warranty_display).toBe("NOT_SOLD");
+      expect(rows[1].warranty_display).toBe("EXPIRED");
     });
 
     it("treats sale_refunded = null (never sold) as NOT refunded", () => {

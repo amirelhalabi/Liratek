@@ -160,3 +160,70 @@ describe("WarrantyService.search", () => {
     ).toThrow();
   });
 });
+
+/**
+ * LIRA-296 follow-up (owner decision 2026-10-10) — searching the serial of a
+ * phone still on the shelf finds no warranty (it starts when it is sold), so
+ * the same search response says so: `inStockUnits` lists the in-stock units
+ * whose IMEI/serial IS the query (exact, trimmed), only when no warranty row
+ * came back. Tenant-scoped.
+ */
+describe("WarrantyService.searchWithStock", () => {
+  const IN_STOCK_IMEI = "350000111122223";
+  beforeEach(() => {
+    addUnit(db, { id: 7, productId: 11, imei: IN_STOCK_IMEI, status: "IN_STOCK" });
+    // Same serial in ANOTHER tenant — never ours to report.
+    addProduct(db, { id: 90, name: "Other Shop Phone", tenant: 2 });
+    addUnit(db, {
+      id: 8,
+      productId: 90,
+      imei: "350000999988887",
+      status: "IN_STOCK",
+      tenant: 2,
+    });
+  });
+
+  it("names the in-stock unit when its serial is the query and no warranty matched", () => {
+    const result = service.searchWithStock({
+      client_day: "2026-10-10",
+      q: ` ${IN_STOCK_IMEI} `,
+    });
+    expect(result.rows).toEqual([]);
+    expect(result.inStockUnits).toEqual([
+      { imei: IN_STOCK_IMEI, productName: "Phone X" },
+    ]);
+  });
+
+  it("matches the whole serial only, never a fragment", () => {
+    const result = service.searchWithStock({
+      client_day: "2026-10-10",
+      q: "35000011",
+    });
+    expect(result.rows).toEqual([]);
+    expect(result.inStockUnits).toBeUndefined();
+  });
+
+  it("is absent when the search found warranty rows", () => {
+    const result = service.searchWithStock({
+      client_day: "2026-10-10",
+      q: "356789012345678",
+    });
+    expect(result.rows).toHaveLength(1);
+    expect(result.inStockUnits).toBeUndefined();
+  });
+
+  it("is absent with no query, and never reports another tenant's unit", () => {
+    expect(
+      service.searchWithStock({ client_day: "2026-10-10" }).inStockUnits,
+    ).toBeUndefined();
+    expect(
+      service.searchWithStock({ client_day: "2026-10-10", q: "350000999988887" })
+        .inStockUnits,
+    ).toBeUndefined();
+  });
+
+  it("returns the same rows as search()", () => {
+    const input = { client_day: "2026-10-10", q: "Rami" };
+    expect(service.searchWithStock(input).rows).toEqual(service.search(input));
+  });
+});

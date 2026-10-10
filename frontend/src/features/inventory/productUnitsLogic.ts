@@ -1,3 +1,5 @@
+import { unitWarrantyDisplay } from "@liratek/core";
+
 /**
  * Product-unit (phone IMEI) frontend-only pure logic — LIRA-143 Phase 6b
  * (inventory/settings/refund UI). Kept dependency-free (no React, no API
@@ -108,7 +110,7 @@ export function warrantyBadgeInfo(warranty: WarrantyStatus): {
   }
 }
 
-/** The inputs both surface mappings below need: the computed verdict, the
+/** The inputs `warrantyDisplayBadge` needs: the computed verdict, the
  *  unit's stock status, and the owning MODEL's term. */
 export interface WarrantyBadgeInput {
   warranty: WarrantyStatus;
@@ -117,11 +119,12 @@ export interface WarrantyBadgeInput {
   productWarrantyMonths: number | null;
 }
 
-/** "N mo — starts at sale" in sky: informative, deliberately NOT the emerald
- *  of real coverage, because nothing is covered yet. */
-function termBadge(months: number): WarrantyBadge {
+/** "Not sold" in sky: informative, deliberately NOT the emerald of real
+ *  coverage, because nothing is covered yet. When the model grants a term,
+ *  it says what the next sale will carry (owner-reported 2026-08-26). */
+function notSoldBadge(months: number): WarrantyBadge {
   return {
-    label: `${months} mo — starts at sale`,
+    label: months > 0 ? `Not sold (${months} mo from sale)` : "Not sold",
     className: "bg-sky-500/10 text-sky-400 border-sky-500/30",
   };
 }
@@ -133,73 +136,24 @@ function modelTermMonths(input: WarrantyBadgeInput): number {
 }
 
 /**
- * ── SURFACE 1 of 2: the Phone Units TABLE cell (FORWARD-looking) ───────────
+ * The Warranty badge for one unit — the Phone Units table cell, its export,
+ * and the unit story card (`ImeiStoryCard`) all use this ONE mapping.
  *
- * The register answers "what does this unit carry from here on?", so for a
- * unit sitting IN STOCK it shows the term the NEXT sale will stamp rather
- * than a verdict about a sale that is over.
+ * LIRA-296 follow-up (owner decision 2026-10-10): a unit on the shelf has no
+ * warranty yet — the warranty is chosen at the till when it is sold. So the
+ * rule is core's `unitWarrantyDisplay` (rule 14): every IN_STOCK unit reads
+ * "Not sold", whatever its stored verdict — an old refund-time override date
+ * (COVERED/EXPIRED), a refunded sale's VOID, or NONE — plus the model's term
+ * when it has one. A SOLD unit renders its verdict verbatim, and the model's
+ * term never leaks onto it (decision #4: a unit sold before its model gained
+ * a term stamped nothing, and must keep reading "No warranty").
  *
- * Why the `NONE` half exists (owner-reported 2026-08-26): the warranty CLOCK
- * starts at the SALE (decision #4 — `sale_items.warranty_until` is stamped at
- * checkout), so an IN_STOCK unit has no coverage yet and
- * `computeWarrantyStatus` correctly returns `NONE`. Rendering that as "No
- * warranty" told the operator something false about a 6-month model's fresh
- * stock.
- *
- * Why the `VOID` half exists (owner decision, 2026-08-27): a refund voids the
- * warranty of the sale it reverses AND puts the unit back on the shelf. The
- * verdict `VOID` is the truth about that finished sale, but on a shelved unit
- * it reads as "this phone has no warranty" — false, since selling it again
- * stamps the model's full term. Both branches are therefore the same rule:
- * *an in-stock unit's warranty is a promise about its next sale.*
- *
- *   - (`NONE` | `VOID`) + `IN_STOCK` + a model term -> "N mo — starts at sale"
- *   - (`NONE` | `VOID`) + `IN_STOCK` + no model term -> `warrantyBadgeInfo`
- *     verbatim ("No warranty" / "Void (refunded)") — the honest answer for a
- *     model that grants none.
- *   - `COVERED` / `EXPIRED` on an IN_STOCK unit -> verbatim. These can only
- *     come from an operator OVERRIDE on a shelved unit, which is a deliberate
- *     statement about THIS unit and must outrank the model's default.
- *   - Anything SOLD -> verbatim, always. A unit sold BEFORE its model gained
- *     a term stamped no `warranty_until`, and the model's term must never
- *     retroactively imply that sale carried one.
- *
- * NOT for the story card — see {@link warrantyStoryBadge}. A third surface
- * must pick one of the two deliberately, never default to this one.
+ * Supersedes the 2026-08-26/27 split ("N mo — starts at sale" in the table,
+ * an override outranking it, and the story card keeping "Void (refunded)").
  */
 export function warrantyDisplayBadge(input: WarrantyBadgeInput): WarrantyBadge {
-  const months = modelTermMonths(input);
-  const forwardLooking =
-    input.warranty.state === "NONE" || input.warranty.state === "VOID";
-  if (forwardLooking && input.status === "IN_STOCK" && months > 0) {
-    return termBadge(months);
-  }
-  return warrantyBadgeInfo(input.warranty);
-}
-
-/**
- * ── SURFACE 2 of 2: `ImeiStoryCard` (BACKWARD-looking) ─────────────────────
- *
- * The story card is this unit's provenance — product, sale, client, and what
- * happened to the warranty of that sale. It therefore keeps the TRUE verdict
- * including `VOID`: "Void (refunded)" is exactly the fact the operator opened
- * the card to learn, and hiding it behind the model's term would erase the
- * refund from the one surface whose job is to show it.
- *
- * Diverges from {@link warrantyDisplayBadge} in exactly one pair — `VOID` +
- * `IN_STOCK` — and is otherwise identical: `NONE` + `IN_STOCK` + a term still
- * reads "N mo — starts at sale", because `NONE` records no past event to
- * preserve (nothing ever happened to this unit's warranty), so the forward
- * statement is also the complete backward one.
- */
-export function warrantyStoryBadge(input: WarrantyBadgeInput): WarrantyBadge {
-  const months = modelTermMonths(input);
-  if (
-    input.warranty.state === "NONE" &&
-    input.status === "IN_STOCK" &&
-    months > 0
-  ) {
-    return termBadge(months);
+  if (unitWarrantyDisplay(input) === "NOT_SOLD") {
+    return notSoldBadge(modelTermMonths(input));
   }
   return warrantyBadgeInfo(input.warranty);
 }

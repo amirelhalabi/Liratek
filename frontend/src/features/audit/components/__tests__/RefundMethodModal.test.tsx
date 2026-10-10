@@ -196,9 +196,12 @@ describe("RefundMethodModal — units (phone-refund extras)", () => {
     ]);
   });
 
-  it("setting a warranty-override date sends it in unitExtras", () => {
+  // LIRA-296 follow-up (owner decision 2026-10-10): the warranty date is
+  // chosen at the till when the phone is sold again, so the refund pop-up no
+  // longer offers one — and nothing it sends carries a warranty date.
+  it("offers no warranty-date input for a returned phone, and never sends one", () => {
     const onConfirm = jest.fn();
-    render(
+    const { container } = render(
       <RefundMethodModal
         legs={[leg("in", 100, "USD", "CASH")]}
         units={[{ id: 1, imei: "356938035643809" }]}
@@ -209,13 +212,18 @@ describe("RefundMethodModal — units (phone-refund extras)", () => {
       />,
     );
 
-    const dateInput = screen.getByLabelText("New warranty expiry");
-    fireEvent.change(dateInput, { target: { value: "2027-01-15" } });
-    fireEvent.click(screen.getByRole("button", { name: "Confirm Refund" }));
+    const unitRow = screen.getByTestId("refund-unit-1");
+    expect(unitRow.querySelector('input[type="date"]')).toBeNull();
+    expect(container.querySelector('input[type="date"]')).toBeNull();
+    expect(screen.queryByLabelText("New warranty expiry")).toBeNull();
+    // The Defective checkbox stays.
+    expect(screen.getByRole("checkbox")).toBeInTheDocument();
 
-    expect(onConfirm).toHaveBeenCalledWith(undefined, [
-      { unit_id: 1, warranty_override_until: "2027-01-15" },
-    ]);
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Refund" }));
+    const sentExtras = onConfirm.mock.calls[0][1] as Record<string, unknown>[];
+    expect(sentExtras).toStrictEqual([{ unit_id: 1, is_defective: true }]);
+    expect(sentExtras[0]).not.toHaveProperty("warranty_override_until");
   });
 
   it("a units-only refund (no drawer legs) skips MultiPaymentInput and stays confirmable", () => {

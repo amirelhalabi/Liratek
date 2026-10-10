@@ -38,14 +38,14 @@
  *      read back in (b) — never a hardcoded date string.
  *   e. Refund with extras (decisions #10/#11) — the Transactions page's real
  *      Refund button opens `RefundMethodModal`'s "Returned phones" section
- *      for a sale carrying a linked unit; checking Defective + setting a new
- *      warranty expiry rides the SAME `refundTransaction` call as the
+ *      for a sale carrying a linked unit; checking Defective (no warranty
+ *      date since LIRA-296's 2026-10-10 follow-up — the warranty is chosen
+ *      at the till on resale) rides the SAME `refundTransaction` call as the
  *      drawer-return legs (rule 16). Asserted as DELTAS around the unit
  *      status, stock, and the General USD drawer (rule 15) — never absolute
  *      totals.
  *   f. Re-sell (decision #12, confirmed default) — selling the SAME
- *      now-IN_STOCK unit again clears its refund-time warranty override and
- *      stamps a fresh sale-based warranty, while `is_defective` (informational,
+ *      now-IN_STOCK unit again stamps a fresh sale-based warranty, while `is_defective` (informational,
  *      not a sale blocker) survives the re-sale.
  *   g. Management view — the shop-wide "Phone Units" register
  *      (`/inventory/units`), reached through Inventory's real entry button.
@@ -61,8 +61,8 @@
  *      2026-08-26) — a model created with NO `warranty_months` gains 6
  *      through the REAL ProductForm; navigating back to /inventory/units the
  *      way the owner did, its IN_STOCK unit must show the MODEL's term
- *      ("6 mo — starts at sale", a promise about the next sale) instead of
- *      the misleading "No warranty", on BOTH the table and the expanded
+ *      ("Not sold (6 mo from sale)", a promise about the next sale) instead
+ *      of a bare "Not sold", on BOTH the table and the expanded
  *      `ImeiStoryCard`. Doubles as the cache-freshness proof (both surfaces
  *      are read before the edit, inside the 30s default staleTime) and as
  *      the decision-#4 honesty proof: a unit sold BEFORE the edit stamped no
@@ -182,10 +182,10 @@ const PLAIN_STOCK_QUANTITY = 5;
 const CLIENT_5 = `L143-PART-${RUN_ID}`;
 
 /** The Phone Units / story badge copy for an unsold unit of a model that HAS
- *  a term (`productUnitsLogic.warrantyDisplayBadge`) — the em dash is part of
- *  the string, so it is written once here rather than retyped per assertion. */
+ *  a term (`productUnitsLogic.warrantyDisplayBadge`; LIRA-296 follow-up,
+ *  owner decision 2026-10-10: every in-stock unit reads "Not sold"). */
 function termBadgeLabel(months: number): string {
-  return `${months} mo — starts at sale`;
+  return `Not sold (${months} mo from sale)`;
 }
 
 // ─── Ambient window.api types are narrower than what a couple of these IPC
@@ -1035,10 +1035,9 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     const unitRow = appPage.getByTestId(`refund-unit-${unit1AfterSale.id}`);
     await expect(unitRow).toBeVisible({ timeout: 5_000 });
     await unitRow.locator('input[type="checkbox"]').check();
-    const overrideDate = new Date();
-    overrideDate.setDate(overrideDate.getDate() + 60);
-    const overrideDateIso = overrideDate.toISOString().slice(0, 10);
-    await unitRow.locator('input[type="date"]').fill(overrideDateIso);
+    // LIRA-296 follow-up (owner decision 2026-10-10): the refund pop-up no
+    // longer takes a warranty date — it is chosen at the till on resale.
+    await expect(unitRow.locator('input[type="date"]')).toHaveCount(0);
 
     const confirmRefundBtn = appPage.getByRole("button", {
       name: "Confirm Refund",
@@ -1051,7 +1050,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     const unit1AfterRefund = await unitByImei(appPage, productId, IMEI_1);
     expect(unit1AfterRefund.status).toBe("IN_STOCK");
     expect(unit1AfterRefund.is_defective).toBe(1);
-    expect(unit1AfterRefund.warranty_override_until).toBe(overrideDateIso);
+    expect(unit1AfterRefund.warranty_override_until).toBeNull();
 
     await expect
       .poll(async () => productStock(appPage, productId), { timeout: 8_000 })
@@ -1062,9 +1061,9 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
       .toBeCloseTo(drawerBeforeFirstSale, 2);
 
     const story1AfterRefund = await storyFor(appPage, IMEI_1);
-    expect(story1AfterRefund[0]?.warranty.source).toBe("OVERRIDE");
-    expect(story1AfterRefund[0]?.warranty.state).toBe("COVERED");
-    expect(story1AfterRefund[0]?.warranty.until).toBe(overrideDateIso);
+    // The refunded sale's warranty is void; the unit is back on the shelf.
+    expect(story1AfterRefund[0]?.warranty.source).toBe("REFUND");
+    expect(story1AfterRefund[0]?.warranty.state).toBe("VOID");
 
     // ─── (f) Re-sell ────────────────────────────────────────────────────────
     await navigateTo(appPage, "/pos");
@@ -1197,7 +1196,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
   /**
    * (h) The owner's exact repro (reported 2026-08-26): a model whose
    * `warranty_months` was NULL gains a 6-month term through the real
-   * ProductForm; its IN_STOCK units must stop reading "No warranty" the
+   * ProductForm; its IN_STOCK units must go from "Not sold" to showing the term the
    * moment the operator navigates back to /inventory/units.
    *
    * Its own test rather than a further step on the first one: this drives a
@@ -1211,7 +1210,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
    * The two halves are deliberately opposed, because the fix must NOT be
    * "show a warranty everywhere":
    *   - IMEI_4 is IN_STOCK: after the edit it shows the MODEL's term
-   *     ("6 mo — starts at sale") — a statement about what the buyer will
+   *     ("Not sold (6 mo from sale)") — a statement about what the buyer will
    *     get, not a coverage claim.
    *   - IMEI_5 was SOLD BEFORE the edit, so its sale line stamped no
    *     `warranty_until` at all: it keeps reading "No warranty" forever
@@ -1274,7 +1273,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     expect(nwSaleItem.imei).toBe(IMEI_5);
     expect(nwSaleItem.warranty_until).toBeNull();
 
-    // ─── Before the edit: both units read as warranty-less ────────────────
+    // ─── Before the edit: in stock reads "Not sold", sold reads none ──────
     await openPhoneUnitsPage(appPage);
 
     await searchPhoneUnits(appPage, IMEI_4);
@@ -1284,7 +1283,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
       },
     );
     await expect(phoneUnitWarrantyBadge(appPage, unit4.id)).toHaveText(
-      "No warranty",
+      "Not sold",
     );
 
     await searchPhoneUnits(appPage, IMEI_5);
@@ -1306,7 +1305,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     );
     await expect(
       await expandedStoryWarrantyBadge(appPage, unit4.id),
-    ).toHaveText("No warranty");
+    ).toHaveText("Not sold");
 
     // ─── The owner's edit: Warranty (months) = 6 in the REAL ProductForm ──
     await openEditProduct(appPage, PRODUCT_NAME_NW);

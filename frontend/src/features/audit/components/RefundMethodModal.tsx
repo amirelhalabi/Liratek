@@ -280,7 +280,7 @@ export function RefundMethodModal({
   };
 
   const getUnitFlag = (unitId: number): UnitFlagState =>
-    unitFlags[unitId] ?? { isDefective: false, warrantyUntil: "" };
+    unitFlags[unitId] ?? { isDefective: false };
 
   const setUnitFlag = (unitId: number, patch: Partial<UnitFlagState>) => {
     setUnitFlags((prev) => ({
@@ -447,9 +447,11 @@ export function RefundMethodModal({
             <h4 className="text-sm font-semibold text-white">
               Returned phones
             </h4>
+            {/* LIRA-296 follow-up (owner decision 2026-10-10): no warranty
+                date here — a returned phone's warranty is set at the till
+                when it is sold again. */}
             <p className="text-xs text-slate-400 mt-1">
-              Leave a phone's warranty override empty to simply void its
-              warranty along with this refund.
+              The warranty is set again when the phone is resold.
             </p>
           </div>
           {units.map((u) => {
@@ -471,17 +473,6 @@ export function RefundMethodModal({
                     className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-700 accent-red-600"
                   />
                   Defective
-                </label>
-                <label className="flex items-center gap-1.5 text-xs text-slate-400">
-                  New warranty expiry
-                  <input
-                    type="date"
-                    value={flag.warrantyUntil}
-                    onChange={(e) =>
-                      setUnitFlag(u.id, { warrantyUntil: e.target.value })
-                    }
-                    className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-red-500"
-                  />
                 </label>
               </div>
             );

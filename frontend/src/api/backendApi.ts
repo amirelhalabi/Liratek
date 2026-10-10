@@ -10,6 +10,7 @@ import { decodeJwtPayload } from "@/shared/utils/jwt";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
 import type { SinceLastCountDrawer } from "@liratek/core";
+import type { UnitWarrantyDisplay } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
 import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
@@ -181,6 +182,8 @@ import type {
   UpdateCategoryPayload,
   WarrantySearchInput,
   WarrantySearchRow,
+  WarrantySearchResult,
+  WarrantyInStockUnit,
   CreateWarrantyClaimInput,
   WarrantyClaimsForInput,
   VoidWarrantyClaimInput,
@@ -5820,6 +5823,10 @@ export interface ProductUnitStoryDto extends ProductUnitDto {
     until: string | null;
     state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
   };
+  /** What the Warranty column shows — `NOT_SOLD` for a unit on the shelf
+   *  (core `unitWarrantyDisplay`, LIRA-296 follow-up). Optional: older
+   *  servers do not stamp it; the UI derives it with the same helper. */
+  warranty_display?: UnitWarrantyDisplay;
 }
 
 export interface RegisterProductUnitsResultDto {
@@ -5892,7 +5899,7 @@ export interface ProductUnitListRowDto {
    *  truthy `1` means deleted (LIRA-152). */
   product_deleted: number | null;
   /** The owning MODEL's warranty term — display-only, so unsold stock reads
-   *  "N mo — starts at sale" rather than "No warranty". */
+   *  "Not sold (N mo from sale)" rather than "No warranty". */
   product_warranty_months: number | null;
   sale_item_id: number | null;
   sold_at: string | null;
@@ -5905,6 +5912,10 @@ export interface ProductUnitListRowDto {
     until: string | null;
     state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
   };
+  /** What the Warranty column shows — `NOT_SOLD` for a unit on the shelf
+   *  (core `unitWarrantyDisplay`, LIRA-296 follow-up). Optional: older
+   *  servers do not stamp it; the UI derives it with the same helper. */
+  warranty_display?: UnitWarrantyDisplay;
 }
 
 /** `total` is the UNPAGED count over the same filters — the pager's
@@ -8273,18 +8284,27 @@ export async function verifySigninCode(input: VerifySigninCodeInput) {
 
 /** Find warranty lines by customer, phone, receipt number (`RCP-12`),
  *  product or serial/IMEI. `client_day` is the shop's own day (rule 27). The
- *  payload type is derived from the core schema (rule 21). Throws on a
- *  refusal. */
+ *  payload type is derived from the core schema (rule 21). Returns the rows
+ *  plus — when nothing matched and the query is the serial of an in-stock
+ *  unit — those units (`inStockUnits`, beside the envelope's `data`;
+ *  LIRA-296 follow-up). Throws on a refusal. */
 export async function searchWarranties(
   input: WarrantySearchInput,
-): Promise<WarrantySearchRow[]> {
+): Promise<WarrantySearchResult> {
+  const toResult = (res: {
+    data?: WarrantySearchRow[];
+    inStockUnits?: WarrantyInStockUnit[];
+  }): WarrantySearchResult =>
+    res.inStockUnits && res.inStockUnits.length > 0
+      ? { rows: res.data ?? [], inStockUnits: res.inStockUnits }
+      : { rows: res.data ?? [] };
   return ipcOrHttp(
     async () => {
       const res = await getElectronApi().warranty.search(input);
       if (!res.success) {
         throw new Error(res.error ?? "Failed to search warranties");
       }
-      return res.data ?? [];
+      return toResult(res);
     },
     async () => {
       const qs = new URLSearchParams();
@@ -8296,12 +8316,13 @@ export async function searchWarranties(
       const res = await requestJson<{
         success: boolean;
         data?: WarrantySearchRow[];
+        inStockUnits?: WarrantyInStockUnit[];
         error?: string;
       }>(`/api/warranty/search?${qs.toString()}`);
       if (!res.success) {
         throw new Error(res.error ?? "Failed to search warranties");
       }
-      return res.data ?? [];
+      return toResult(res);
     },
   );
 }

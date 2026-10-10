@@ -96,7 +96,7 @@ import type {
   SupplierSettleInput,
   // LIRA-296 — warranty search payload + row, derived from the core schema.
   WarrantySearchInput,
-  WarrantySearchRow,
+  WarrantySearchResult,
   UpdateCategoryPayload,
   SalesDateRangeInput,
   CreateWarrantyClaimInput,
@@ -1142,11 +1142,12 @@ export type ApiAdapter = {
   }>;
 
   /** LIRA-296 — warranty lookup for any item (by customer, phone, receipt
-   *  number, product or serial). Read: returns the raw row array; a refusal
-   *  throws. */
+   *  number, product or serial). Read: returns the rows, plus — when nothing
+   *  matched and the query is the serial of an in-stock unit — those units
+   *  (LIRA-296 follow-up). A refusal throws. */
   searchWarranties: (
     input: WarrantySearchInput,
-  ) => Promise<WarrantySearchRow[]>;
+  ) => Promise<WarrantySearchResult>;
   /** LIRA-296 P2 — claims and the defective holding. Writes answer the
    *  envelope (a refusal carries its `code`); reads return the raw array. */
   createWarrantyClaim: (

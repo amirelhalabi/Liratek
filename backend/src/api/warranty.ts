@@ -49,10 +49,16 @@ router.get(
   validateQuery(warrantySearchSchema),
   (req, res) => {
     try {
-      const data = getWarrantyService().search(
+      // LIRA-296 follow-up: `data` stays the rows array; in-stock units whose
+      // serial is the query ride beside it (same shape as IPC).
+      const { rows, inStockUnits } = getWarrantyService().searchWithStock(
         req.query as unknown as WarrantySearchQuery,
       );
-      res.json({ success: true, data });
+      res.json({
+        success: true,
+        data: rows,
+        ...(inStockUnits ? { inStockUnits } : {}),
+      });
     } catch (error) {
       warrantyLogger.error({ error }, "GET /api/warranty/search failed");
       res.json({

@@ -37,8 +37,12 @@ describe("warrantyHandlers — warranty:search (LIRA-296)", () => {
     (ipcMain.handle as jest.Mock).mockImplementation((channel, handler) => {
       handlers.set(channel, handler);
     });
-    search.mockReturnValue([{ saleItemId: 1, state: "COVERED" }]);
-    (getWarrantyService as jest.Mock).mockReturnValue({ search });
+    // LIRA-296 follow-up: the channel calls `searchWithStock` (rows plus the
+    // optional in-stock units) — `search` here is that mock.
+    search.mockReturnValue({ rows: [{ saleItemId: 1, state: "COVERED" }] });
+    (getWarrantyService as jest.Mock).mockReturnValue({
+      searchWithStock: search,
+    });
     (requireRole as jest.Mock).mockReturnValue({ ok: true, userId: 42 });
     registerWarrantyHandlers();
   });
@@ -83,6 +87,22 @@ describe("warrantyHandlers — warranty:search (LIRA-296)", () => {
     expect(result).toEqual({
       success: true,
       data: [{ saleItemId: 1, state: "COVERED" }],
+    });
+  });
+
+  it("carries in-stock units beside the rows, leaving data an array", () => {
+    search.mockReturnValue({
+      rows: [],
+      inStockUnits: [{ imei: "350000111122223", productName: "Phone X" }],
+    });
+    const result = handlers.get("warranty:search")!(event, {
+      q: "350000111122223",
+      client_day: "2026-10-10",
+    });
+    expect(result).toEqual({
+      success: true,
+      data: [],
+      inStockUnits: [{ imei: "350000111122223", productName: "Phone X" }],
     });
   });
 

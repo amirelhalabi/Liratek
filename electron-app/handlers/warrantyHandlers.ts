@@ -41,7 +41,16 @@ export function registerWarrantyHandlers(): void {
     const v = validatePayload(WarrantySearchSchema, payload);
     if (!v.ok) return { success: false, error: v.error };
     try {
-      return { success: true, data: getWarrantyService().search(v.data) };
+      // LIRA-296 follow-up: `data` stays the rows array; in-stock units whose
+      // serial is the query ride beside it (same shape as REST).
+      const { rows, inStockUnits } = getWarrantyService().searchWithStock(
+        v.data,
+      );
+      return {
+        success: true,
+        data: rows,
+        ...(inStockUnits ? { inStockUnits } : {}),
+      };
     } catch (error) {
       warrantyLogger.error({ error }, "warranty:search failed");
       return {

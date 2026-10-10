@@ -164,6 +164,31 @@ export class WarrantyRepository extends BaseRepository<BaseEntity> {
   }
 
   /**
+   * LIRA-296 follow-up — in-stock units whose IMEI/serial is EXACTLY `serial`
+   * (the Warranty page's "in stock, not sold" hint). Exact, never LIKE, so a
+   * short query cannot light up a shelf of units. Tenant-scoped on both
+   * tables.
+   */
+  findInStockUnitsBySerial(
+    serial: string,
+    limit = 10,
+  ): { imei: string; product_name: string | null }[] {
+    const tenantId = getCurrentTenantId();
+    return this.query<{ imei: string; product_name: string | null }>(
+      `SELECT pu.imei AS imei, p.name AS product_name
+         FROM product_units pu
+         LEFT JOIN products p ON p.id = pu.product_id AND p.tenant_id = ?
+        WHERE pu.tenant_id = ? AND pu.status = 'IN_STOCK' AND pu.imei = ?
+        ORDER BY pu.id
+        LIMIT ?`,
+      tenantId,
+      tenantId,
+      serial,
+      limit,
+    );
+  }
+
+  /**
    * LIRA-296 P2 — repairs that carry their own warranty (stamped at
    * Delivered_Paid), matched by customer name, phone (spaces ignored) or the
    * device; dated by the job's charge (its MAINTENANCE transaction).

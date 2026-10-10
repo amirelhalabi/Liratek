@@ -85,7 +85,7 @@ jest.mock("@/features/sales/pages/POS/components/SaleDetailModal", () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   unstable = false;
-  searchWarranties.mockResolvedValue(rows);
+  searchWarranties.mockResolvedValue({ rows });
 });
 
 describe("WarrantyLookup", () => {
@@ -155,11 +155,29 @@ describe("WarrantyLookup", () => {
   });
 
   it("shows a message when nothing is found", async () => {
-    searchWarranties.mockResolvedValue([]);
+    searchWarranties.mockResolvedValue({ rows: [] });
     render(<WarrantyLookup />);
     expect(
       await screen.findByText("No warranty items found."),
     ).toBeInTheDocument();
+    expect(screen.queryByTestId("warranty-in-stock-hint")).toBeNull();
+  });
+
+  // LIRA-296 follow-up (owner decision 2026-10-10): a phone on the shelf has
+  // no warranty yet — searching its serial says so instead of "nothing found".
+  it("says the item is in stock, not sold, when the serial is an in-stock unit", async () => {
+    searchWarranties.mockResolvedValue({
+      rows: [],
+      inStockUnits: [{ imei: "350000111122223", productName: "Phone X" }],
+    });
+    render(<WarrantyLookup />);
+    const hint = await screen.findByTestId("warranty-in-stock-hint");
+    expect(hint).toHaveTextContent(
+      "In stock, not sold — warranty starts when it's sold.",
+    );
+    expect(hint).toHaveTextContent("Phone X");
+    expect(hint).toHaveTextContent("350000111122223");
+    expect(screen.queryByText("No warranty items found.")).toBeNull();
   });
 
   it("shows the error when the search is refused", async () => {

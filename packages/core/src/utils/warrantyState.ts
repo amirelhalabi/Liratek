@@ -75,6 +75,23 @@ export function warrantyState(
 }
 
 /**
+ * LIRA-296 follow-up (owner decision 2026-10-10) — what a unit's Warranty
+ * column shows, defined once (rule 14). A unit on the shelf has no warranty
+ * yet: it starts when the unit is sold, at the till. So an IN_STOCK unit is
+ * `NOT_SOLD` whatever its stored verdict — an old refund-time override date,
+ * a refunded sale's `VOID`, or `NONE` — and a SOLD unit keeps its verdict.
+ * The verdict itself (`warranty.state`) is left as is; this is display only.
+ */
+export type UnitWarrantyDisplay = "NOT_SOLD" | WarrantyState;
+
+export function unitWarrantyDisplay(unit: {
+  status: string;
+  warranty: { state: WarrantyState };
+}): UnitWarrantyDisplay {
+  return unit.status === "IN_STOCK" ? "NOT_SOLD" : unit.warranty.state;
+}
+
+/**
  * "Nothing of this sale line is left to cover": the line's own
  * `is_refunded` flag (a whole-sale refund) OR every unit refunded
  * (`refunded_quantity >= quantity`). The JS twin of

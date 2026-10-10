@@ -292,6 +292,7 @@
 
 ## 📦 Inventory
 - A product with a minimum stock of 0 no longer shows low-stock warnings (top-bar alert, Dashboard count, red stock figure on the Inventory list).
+- Returned phones: the refund window no longer asks for a warranty date — set the warranty at the till when you sell the phone again. Phone Units shows "Not sold" in the Warranty column for phones on the shelf, and searching a shelf phone's IMEI on the Warranty page now says it is in stock and not sold yet.
 
 ## 🖥️ Desktop app
 

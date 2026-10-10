@@ -14,7 +14,6 @@ import {
   looksLikeImei,
   warrantyBadgeInfo,
   warrantyDisplayBadge,
-  warrantyStoryBadge,
   type WarrantyStatus,
 } from "../productUnitsLogic";
 
@@ -43,227 +42,98 @@ describe("computeUnitDrift", () => {
 });
 
 /**
- * The display fix for the owner's 2026-08-26 report: a 6-month model's fresh
- * stock read "No warranty" because the warranty clock only starts at the sale
- * (decision #4), so `computeWarrantyStatus` returns `NONE` for every unsold
- * unit. `warrantyDisplayBadge` (the Phone Units TABLE cell) re-labels exactly
- * two verdict/status pairs — `NONE` + `IN_STOCK` and, per the owner decision
- * of 2026-08-27, `VOID` + `IN_STOCK` — and defers to `warrantyBadgeInfo` for
- * everything else. The cases below are the fence.
+ * LIRA-296 follow-up (owner decision 2026-10-10) — ONE mapping for both the
+ * Phone Units table and the unit story card. A unit on the shelf has no
+ * warranty yet (it starts at the sale, chosen at the till), so EVERY in-stock
+ * unit reads "Not sold" — whatever its stored verdict, including an old
+ * refund-time override date (COVERED/EXPIRED) or a refunded sale's VOID.
+ * When the model grants a term, the badge still says what the next sale will
+ * carry (the owner's 2026-08-26 report), as secondary text. A SOLD unit keeps
+ * its real verdict, and a model's term never leaks onto it (decision #4).
+ *
+ * Supersedes the 2026-08-26/27 mappings ("6 mo — starts at sale" for unsold
+ * stock, an override outranking it, the story card keeping "Void (refunded)").
  */
-describe("warrantyDisplayBadge — the Phone Units TABLE (forward-looking)", () => {
+describe("warrantyDisplayBadge — Phone Units table and story card", () => {
   const NONE: WarrantyStatus = { source: null, until: null, state: "NONE" };
+  const VOID: WarrantyStatus = { source: "REFUND", until: null, state: "VOID" };
+  const OVERRIDE_COVERED: WarrantyStatus = {
+    source: "OVERRIDE",
+    until: "2027-03-01",
+    state: "COVERED",
+  };
+  const OVERRIDE_EXPIRED: WarrantyStatus = {
+    source: "OVERRIDE",
+    until: "2025-03-01",
+    state: "EXPIRED",
+  };
 
-  it("NONE + IN_STOCK + a model term -> the term, informative (not the emerald of real coverage)", () => {
-    const badge = warrantyDisplayBadge({
-      warranty: NONE,
-      status: "IN_STOCK",
-      productWarrantyMonths: 6,
-    });
-    expect(badge.label).toBe("6 mo — starts at sale");
-    expect(badge.className).toMatch(/sky/);
-    expect(badge.className).not.toMatch(/emerald/);
-  });
-
-  it("carries the model's own number, whatever it is", () => {
-    expect(
-      warrantyDisplayBadge({
-        warranty: NONE,
-        status: "IN_STOCK",
-        productWarrantyMonths: 12,
-      }).label,
-    ).toBe("12 mo — starts at sale");
-    expect(
-      warrantyDisplayBadge({
-        warranty: NONE,
-        status: "IN_STOCK",
-        productWarrantyMonths: 1,
-      }).label,
-    ).toBe("1 mo — starts at sale");
-  });
-
-  it("NONE + IN_STOCK + no model term -> No warranty, unchanged", () => {
-    expect(
-      warrantyDisplayBadge({
-        warranty: NONE,
-        status: "IN_STOCK",
-        productWarrantyMonths: null,
-      }),
-    ).toEqual(warrantyBadgeInfo(NONE));
-  });
-
-  it("treats a 0-month term as no term (the form's min is 0)", () => {
-    expect(
-      warrantyDisplayBadge({
-        warranty: NONE,
-        status: "IN_STOCK",
-        productWarrantyMonths: 0,
-      }).label,
-    ).toBe("No warranty");
-  });
-
-  it("NEVER applies the term to a SOLD unit — decision #4 forbids retro-stamping", () => {
-    // Sold before the model had a term: its sale line stamped nothing, so the
-    // honest badge is still "No warranty".
-    expect(
-      warrantyDisplayBadge({
-        warranty: NONE,
-        status: "SOLD",
-        productWarrantyMonths: 6,
-      }).label,
-    ).toBe("No warranty");
-  });
-
-  it("VOID + IN_STOCK + a model term -> the forward-looking term, not 'Void (refunded)'", () => {
-    const badge = warrantyDisplayBadge({
-      warranty: { source: "REFUND", until: null, state: "VOID" },
-      status: "IN_STOCK",
-      productWarrantyMonths: 6,
-    });
-    expect(badge.label).toBe("6 mo — starts at sale");
-    expect(badge.className).toMatch(/sky/);
-  });
-
-  it("VOID + IN_STOCK + NO model term -> Void (refunded), unchanged", () => {
-    const voided: WarrantyStatus = {
-      source: "REFUND",
-      until: null,
-      state: "VOID",
-    };
-    expect(
-      warrantyDisplayBadge({
-        warranty: voided,
-        status: "IN_STOCK",
-        productWarrantyMonths: null,
-      }),
-    ).toEqual(warrantyBadgeInfo(voided));
-    expect(
-      warrantyDisplayBadge({
-        warranty: voided,
-        status: "IN_STOCK",
-        productWarrantyMonths: 0,
-      }).label,
-    ).toBe("Void (refunded)");
-  });
-
-  it("NEVER applies the term to a SOLD VOID unit — the refunded sale keeps its verdict", () => {
-    expect(
-      warrantyDisplayBadge({
-        warranty: { source: "REFUND", until: null, state: "VOID" },
-        status: "SOLD",
-        productWarrantyMonths: 6,
-      }).label,
-    ).toBe("Void (refunded)");
-  });
-
-  it("an operator OVERRIDE on an in-stock unit outranks the model's term", () => {
-    // COVERED/EXPIRED can only reach an IN_STOCK unit via
-    // `warranty_override_until` — a deliberate statement about THIS unit.
-    expect(
-      warrantyDisplayBadge({
-        warranty: { source: "OVERRIDE", until: "2027-03-01", state: "COVERED" },
-        status: "IN_STOCK",
-        productWarrantyMonths: 6,
-      }).label,
-    ).toBe("Covered (until 2027-03-01)");
-    expect(
-      warrantyDisplayBadge({
-        warranty: { source: "OVERRIDE", until: "2025-01-01", state: "EXPIRED" },
-        status: "IN_STOCK",
-        productWarrantyMonths: 6,
-      }).label,
-    ).toBe("Expired (2025-01-01)");
-  });
-
-  it("leaves every real verdict exactly as warrantyBadgeInfo renders it, term or not", () => {
-    const verdicts: WarrantyStatus[] = [
-      { source: "SALE", until: "2027-01-15", state: "COVERED" },
-      { source: "SALE", until: "2025-06-01", state: "EXPIRED" },
-      { source: "REFUND", until: null, state: "VOID" },
-      { source: "OVERRIDE", until: "2027-03-01", state: "COVERED" },
-    ];
-    for (const warranty of verdicts) {
-      for (const status of ["IN_STOCK", "SOLD"] as const) {
-        // VOID + IN_STOCK is the one pair the TABLE re-labels (see the test
-        // above); every other verdict/status pair defers verbatim.
-        if (warranty.state === "VOID" && status === "IN_STOCK") continue;
+  it.each([NONE, VOID, OVERRIDE_COVERED, OVERRIDE_EXPIRED])(
+    "an in-stock unit with no model term reads Not sold (verdict %o)",
+    (warranty) => {
+      for (const productWarrantyMonths of [null, 0]) {
         expect(
           warrantyDisplayBadge({
             warranty,
-            status,
-            productWarrantyMonths: 6,
-          }),
-        ).toEqual(warrantyBadgeInfo(warranty));
+            status: "IN_STOCK",
+            productWarrantyMonths,
+          }).label,
+        ).toBe("Not sold");
       }
-    }
-  });
-});
+    },
+  );
 
-/**
- * The other half of the 2026-08-27 split: `ImeiStoryCard` is this unit's
- * provenance, so it keeps the TRUE (backward-looking) verdict — "Void
- * (refunded)" is the fact the card exists to report. The two mappings diverge
- * in exactly ONE verdict/status pair, and these tests pin both halves of that
- * claim so a future edit cannot quietly re-merge them.
- */
-describe("warrantyStoryBadge — the ImeiStoryCard (backward-looking)", () => {
-  const VOID: WarrantyStatus = { source: "REFUND", until: null, state: "VOID" };
-  const NONE: WarrantyStatus = { source: null, until: null, state: "NONE" };
+  it.each([NONE, VOID, OVERRIDE_COVERED, OVERRIDE_EXPIRED])(
+    "an in-stock unit of a model with a term reads Not sold plus the term (verdict %o)",
+    (warranty) => {
+      expect(
+        warrantyDisplayBadge({
+          warranty,
+          status: "IN_STOCK",
+          productWarrantyMonths: 6,
+        }).label,
+      ).toBe("Not sold (6 mo from sale)");
+    },
+  );
 
-  it("VOID stays VOID on an in-stock unit, even when the model grants a term", () => {
-    expect(
-      warrantyStoryBadge({
-        warranty: VOID,
-        status: "IN_STOCK",
-        productWarrantyMonths: 6,
-      }),
-    ).toEqual(warrantyBadgeInfo(VOID));
-  });
-
-  it("still shows the term for a never-sold unit of a model that grants one", () => {
-    expect(
-      warrantyStoryBadge({
-        warranty: NONE,
-        status: "IN_STOCK",
-        productWarrantyMonths: 6,
-      }).label,
-    ).toBe("6 mo — starts at sale");
+  it("the Not sold badge is never the emerald of real coverage", () => {
+    const badge = warrantyDisplayBadge({
+      warranty: OVERRIDE_COVERED,
+      status: "IN_STOCK",
+      productWarrantyMonths: 6,
+    });
+    expect(badge.className).not.toContain("emerald");
   });
 
-  it("never applies the term to a SOLD unit", () => {
-    expect(
-      warrantyStoryBadge({
-        warranty: NONE,
-        status: "SOLD",
-        productWarrantyMonths: 6,
-      }).label,
-    ).toBe("No warranty");
-  });
-
-  it("diverges from the table mapping in EXACTLY one verdict/status pair", () => {
+  it("a SOLD unit keeps its verdict exactly as warrantyBadgeInfo renders it, term or not", () => {
     const verdicts: WarrantyStatus[] = [
       NONE,
       VOID,
       { source: "SALE", until: "2027-01-15", state: "COVERED" },
       { source: "SALE", until: "2025-06-01", state: "EXPIRED" },
-      { source: "OVERRIDE", until: "2027-03-01", state: "COVERED" },
+      OVERRIDE_COVERED,
     ];
-    const divergent: string[] = [];
     for (const warranty of verdicts) {
-      for (const status of ["IN_STOCK", "SOLD"] as const) {
-        for (const productWarrantyMonths of [null, 0, 6]) {
-          const input = { warranty, status, productWarrantyMonths };
-          const table = warrantyDisplayBadge(input);
-          const story = warrantyStoryBadge(input);
-          if (table.label !== story.label) {
-            divergent.push(
-              `${warranty.state}/${status}/${String(productWarrantyMonths)}`,
-            );
-          }
-        }
+      for (const productWarrantyMonths of [null, 0, 6]) {
+        expect(
+          warrantyDisplayBadge({
+            warranty,
+            status: "SOLD",
+            productWarrantyMonths,
+          }),
+        ).toEqual(warrantyBadgeInfo(warranty));
       }
     }
-    expect(divergent).toEqual(["VOID/IN_STOCK/6"]);
+  });
+
+  it("NEVER applies the term to a SOLD unit — decision #4 forbids retro-stamping", () => {
+    expect(
+      warrantyDisplayBadge({
+        warranty: NONE,
+        status: "SOLD",
+        productWarrantyMonths: 6,
+      }).label,
+    ).toBe("No warranty");
   });
 });
 
