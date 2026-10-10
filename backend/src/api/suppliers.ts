@@ -27,11 +27,26 @@ const supplierService = getSupplierService();
 // ── Reads (any authenticated role — mirrors the IPC handlers, none of which
 // call requireRole for reads) ───────────────────────────────────────────────
 
-// GET /api/suppliers
+/**
+ * `?includeInactive=` → boolean. Only the literal strings "true" / "1" count
+ * as true (what backendApi.ts sends); anything else — absent, "false", "0",
+ * a repeated param array — is false, which the repository treats exactly
+ * like the IPC handler's `undefined` (inactive rows hidden).
+ */
+function parseIncludeInactive(raw: unknown): boolean {
+  return raw === "true" || raw === "1";
+}
+
+// GET /api/suppliers?search=&includeInactive=true — mirrors suppliers:list
+// (search, includeInactive). includeInactive was dropped here until LIRA-297
+// B2, so the web never showed inactive suppliers/providers.
 router.get("/", requireAuth, async (req, res) => {
   try {
     const search = req.query.search as string | undefined;
-    const suppliers = supplierService.listSuppliers(search);
+    const suppliers = supplierService.listSuppliers(
+      search,
+      parseIncludeInactive(req.query.includeInactive),
+    );
     res.json({ success: true, suppliers });
   } catch (error) {
     logger.error({ error }, "List suppliers error");
@@ -39,10 +54,13 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/suppliers/balances
-router.get("/balances", requireAuth, async (_req, res) => {
+// GET /api/suppliers/balances?includeInactive=true — mirrors
+// suppliers:balances (includeInactive).
+router.get("/balances", requireAuth, async (req, res) => {
   try {
-    const balances = supplierService.getSupplierBalances();
+    const balances = supplierService.getSupplierBalances(
+      parseIncludeInactive(req.query.includeInactive),
+    );
     res.json({ success: true, balances });
   } catch (error) {
     logger.error({ error }, "Get supplier balances error");
@@ -254,30 +272,25 @@ router.get("/:id/account-unsettled", requireAuth, async (req, res) => {
 // GET /api/suppliers/:id/account-expected-statement — LIRA-255: "check
 // against OMT's statement" (gross owed minus unsettled commission, in
 // OMT's own sign; mirrors suppliers:account-expected-statement).
-router.get(
-  "/:id/account-expected-statement",
-  requireAuth,
-  async (req, res) => {
-    try {
-      const accountSupplierId = parseInt(req.params.id, 10);
-      if (isNaN(accountSupplierId)) {
-        res.status(400).json({ success: false, error: "Invalid supplier ID" });
-        return;
-      }
-
-      const statement = supplierService.getAccountExpectedStatement(
-        accountSupplierId,
-      );
-      res.json({ success: true, statement });
-    } catch (error) {
-      logger.error({ error }, "Get supplier account expected statement error");
-      res.status(500).json({
-        success: false,
-        error: "Failed to get account expected statement",
-      });
+router.get("/:id/account-expected-statement", requireAuth, async (req, res) => {
+  try {
+    const accountSupplierId = parseInt(req.params.id, 10);
+    if (isNaN(accountSupplierId)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      return;
     }
-  },
-);
+
+    const statement =
+      supplierService.getAccountExpectedStatement(accountSupplierId);
+    res.json({ success: true, statement });
+  } catch (error) {
+    logger.error({ error }, "Get supplier account expected statement error");
+    res.status(500).json({
+      success: false,
+      error: "Failed to get account expected statement",
+    });
+  }
+});
 
 // GET /api/suppliers/:id/product-items — inventory items for a product
 // supplier (name, qty, cost, total; mirrors suppliers:product-items).

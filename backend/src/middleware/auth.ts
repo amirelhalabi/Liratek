@@ -237,7 +237,9 @@ export function authenticateJWT(
     const authService = getAuthService();
     const validateSessionScoped = (): Promise<SafeUser | null> =>
       payload.tenantId === null
-        ? runWithoutTenant(() => authService.validateSession(payload.sessionToken))
+        ? runWithoutTenant(() =>
+            authService.validateSession(payload.sessionToken),
+          )
         : runWithTenant(payload.tenantId, () =>
             authService.validateSession(payload.sessionToken),
           );
@@ -357,13 +359,16 @@ export const requireAuth = authenticateJWT;
 
 export function requireRole(roles: string[]) {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    // `success: false` keeps the IPC envelope shape (IPC requireRole
+    // answers { success: false, error }) so callers that branch on
+    // `result.success` read a refusal, not an undefined field.
     if (!req.user) {
-      res.status(401).json({ error: "Not authenticated" });
+      res.status(401).json({ success: false, error: "Not authenticated" });
       return;
     }
 
     if (!roles.includes(req.user.role)) {
-      res.status(403).json({ error: "Forbidden" });
+      res.status(403).json({ success: false, error: "Forbidden" });
       return;
     }
 

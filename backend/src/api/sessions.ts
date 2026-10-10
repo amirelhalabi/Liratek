@@ -221,6 +221,8 @@ router.post(
         transactionId,
         amountUsd,
         amountLbp,
+        profitUsd,
+        profitLbp,
       } = req.body;
       if (!transactionType || !transactionId) {
         res.json({
@@ -236,12 +238,16 @@ router.post(
             transactionId,
             amountUsd || 0,
             amountLbp || 0,
+            profitUsd ?? 0,
+            profitLbp ?? 0,
           )
         : await sessionService.linkTransactionToActiveSession(
             transactionType,
             transactionId,
             amountUsd || 0,
             amountLbp || 0,
+            profitUsd ?? 0,
+            profitLbp ?? 0,
           );
       res.json(result);
     } catch (err) {

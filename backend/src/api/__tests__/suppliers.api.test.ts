@@ -435,12 +435,10 @@ describe("Suppliers REST routes", () => {
     });
 
     it("surfaces a repository validation error verbatim (rule 19c: 200 + string error, never a 4xx/5xx)", async () => {
-      jest
-        .spyOn(supplierService, "updateSupplierAccountLink")
-        .mockReturnValue({
-          success: false,
-          error: 'Supplier "OMT" cannot be its own account parent',
-        });
+      jest.spyOn(supplierService, "updateSupplierAccountLink").mockReturnValue({
+        success: false,
+        error: 'Supplier "OMT" cannot be its own account parent',
+      });
 
       const res = await request(app)
         .put("/api/suppliers/1/account-link")
@@ -452,6 +450,98 @@ describe("Suppliers REST routes", () => {
         success: false,
         error: 'Supplier "OMT" cannot be its own account parent',
       });
+    });
+  });
+
+  // ── GET / and GET /balances — includeInactive parity (LIRA-297 B2) ─────
+  // The IPC twins (suppliers:list / suppliers:balances) forward
+  // includeInactive to the service; backendApi.ts sends it as
+  // ?includeInactive=true. The spies model the repository's real filter
+  // (inactive rows only when the flag is true) so the assertion is on what
+  // the web user actually sees, not just on the call shape.
+  describe("includeInactive query parameter", () => {
+    const active = { id: 1, name: "Active Co", is_active: 1 };
+    const inactive = { id: 2, name: "Dormant Co", is_active: 0 };
+    const listImpl = (_search?: string, includeInactive?: boolean) =>
+      (includeInactive ? [active, inactive] : [active]) as any;
+    const balancesImpl = (includeInactive?: boolean) =>
+      (includeInactive
+        ? [
+            { ...active, balance_usd: 0 },
+            { ...inactive, balance_usd: 5 },
+          ]
+        : [{ ...active, balance_usd: 0 }]) as any;
+
+    it("GET /api/suppliers?includeInactive=true returns the inactive supplier", async () => {
+      const spy = jest
+        .spyOn(supplierService, "listSuppliers")
+        .mockImplementation(listImpl);
+
+      const res = await request(app)
+        .get("/api/suppliers?includeInactive=true")
+        .set("x-test-role", "staff");
+
+      expect(res.status).toBe(200);
+      expect(res.body.suppliers.map((s: any) => s.id)).toEqual([1, 2]);
+      expect(spy).toHaveBeenCalledWith(undefined, true);
+    });
+
+    it("GET /api/suppliers?includeInactive=1 is accepted too, and search still forwards", async () => {
+      const spy = jest
+        .spyOn(supplierService, "listSuppliers")
+        .mockImplementation(listImpl);
+
+      const res = await request(app)
+        .get("/api/suppliers?search=Co&includeInactive=1")
+        .set("x-test-role", "staff");
+
+      expect(res.body.suppliers.map((s: any) => s.id)).toEqual([1, 2]);
+      expect(spy).toHaveBeenCalledWith("Co", true);
+    });
+
+    it("GET /api/suppliers without the flag (or with a non-true value) hides the inactive supplier", async () => {
+      const spy = jest
+        .spyOn(supplierService, "listSuppliers")
+        .mockImplementation(listImpl);
+
+      const plain = await request(app)
+        .get("/api/suppliers")
+        .set("x-test-role", "staff");
+      const falsy = await request(app)
+        .get("/api/suppliers?includeInactive=false")
+        .set("x-test-role", "staff");
+
+      expect(plain.body.suppliers.map((s: any) => s.id)).toEqual([1]);
+      expect(falsy.body.suppliers.map((s: any) => s.id)).toEqual([1]);
+      expect(spy).toHaveBeenNthCalledWith(1, undefined, false);
+      expect(spy).toHaveBeenNthCalledWith(2, undefined, false);
+    });
+
+    it("GET /api/suppliers/balances?includeInactive=true returns the inactive supplier's balance", async () => {
+      const spy = jest
+        .spyOn(supplierService, "getSupplierBalances")
+        .mockImplementation(balancesImpl);
+
+      const res = await request(app)
+        .get("/api/suppliers/balances?includeInactive=true")
+        .set("x-test-role", "staff");
+
+      expect(res.status).toBe(200);
+      expect(res.body.balances.map((b: any) => b.id)).toEqual([1, 2]);
+      expect(spy).toHaveBeenCalledWith(true);
+    });
+
+    it("GET /api/suppliers/balances without the flag hides the inactive supplier", async () => {
+      const spy = jest
+        .spyOn(supplierService, "getSupplierBalances")
+        .mockImplementation(balancesImpl);
+
+      const res = await request(app)
+        .get("/api/suppliers/balances")
+        .set("x-test-role", "staff");
+
+      expect(res.body.balances.map((b: any) => b.id)).toEqual([1]);
+      expect(spy).toHaveBeenCalledWith(false);
     });
   });
 });
