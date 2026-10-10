@@ -33,6 +33,11 @@
 - Q: Which day does an after-hours sale count in? → A: **The shop's local calendar day it happened on.** A sale at 22:00 counts in today; a sale at 00:30 counts in tomorrow. No business-day concept is added. Next morning the shop sees the sales made since the last count.
 - "Owner" in this spec means a user with the **admin** role (LiraTek has only admin and staff); a shop may have several admins.
 
+### Session 2026-10-10 (owner decisions, during the build)
+
+- Q: Binance as a way the customer pays for a Whish/OMT App transfer? → A: **Left out for now.** The server refuses a USDT leg for these transfers (web too), and a USD-coded leg would create a USD balance on the USDT Binance drawer. The phone offers on account, Whish wallet and OMT wallet only. FR-003's "Binance" is deferred.
+- Q: Katch / iPick vouchers on the phone? → A: **Skipped for now.** The first phone version records Whish App and OMT App transfers only. FR-001's vouchers are deferred.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Owner signs in on the phone app and lands in the right shop (Priority: P1)

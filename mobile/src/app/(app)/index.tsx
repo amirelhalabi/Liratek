@@ -1,8 +1,8 @@
 import { formatMoneyAmount } from "@liratek/core/utils/formatMoney";
 import { MAIN_DRAWER_CURRENCIES, visibleDrawerCurrencies } from "@liratek/core/utils/visibleDrawerCurrencies";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { History, Send, Settings, Wallet, Zap } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -81,9 +81,13 @@ export default function Home() {
     setError(!b.success ? b.error : !r.success ? r.error : null);
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Reload every time home comes back into view (e.g. after saving a sale),
+  // not only on first mount.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   async function onRefresh() {
     setRefreshing(true);
