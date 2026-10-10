@@ -20,7 +20,7 @@ import { useRefreshOnFocus } from "@/data/useRefreshOnFocus";
 import { useShopSlug } from "@/data/useShop";
 import { unwrap } from "@/data/unwrap";
 import { useTheme } from "@/theme/ThemeProvider";
-import { radius, spacing } from "@/theme/tokens";
+import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 import { txnAmount, txnTime } from "@/utils/format";
 
 const LIMIT = 15;
@@ -111,7 +111,7 @@ export default function ActivityScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  body: { padding: spacing.lg, gap: spacing.lg },
+  body: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE, gap: spacing.lg },
   card: {
     borderRadius: radius.xl,
     borderWidth: 1,

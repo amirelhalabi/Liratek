@@ -13,7 +13,7 @@ import { useRefreshOnFocus } from "@/data/useRefreshOnFocus";
 import { useShopSlug } from "@/data/useShop";
 import { unwrap } from "@/data/unwrap";
 import { useTheme } from "@/theme/ThemeProvider";
-import { radius, spacing } from "@/theme/tokens";
+import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 
 /** Clients who owe the shop (spec Story 4 #3). Tap one to see the balance and record a repayment. */
 export default function DebtsScreen() {
@@ -66,7 +66,7 @@ export default function DebtsScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  body: { padding: spacing.lg, gap: spacing.md },
+  body: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE, gap: spacing.md },
   row: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: radius.xl, padding: spacing.lg, gap: spacing.md },
   amount: { fontWeight: "700", textAlign: "right" },
 });

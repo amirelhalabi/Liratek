@@ -15,7 +15,7 @@ import { TextField } from "@/components/TextField";
 import { invalidateAfter } from "@/data/invalidation";
 import { useShopSlug } from "@/data/useShop";
 import { useTheme } from "@/theme/ThemeProvider";
-import { radius, spacing } from "@/theme/tokens";
+import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 
 type Provider = "WHISH_APP" | "OMT_APP";
 type Currency = "USD" | "LBP";
@@ -176,7 +176,7 @@ export default function SaleScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  body: { padding: spacing.lg, gap: spacing.lg },
+  body: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE, gap: spacing.lg },
   card: { borderRadius: radius.xl, borderWidth: 1, padding: spacing.lg, gap: spacing.md },
   section: { fontSize: 16, fontWeight: "600" },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

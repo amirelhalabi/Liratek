@@ -3,7 +3,7 @@ import { Send, Zap } from "lucide-react-native";
 import { ScrollView, StyleSheet, View } from "react-native";
 
 import { ModuleTile } from "@/components/ModuleTile";
-import { spacing } from "@/theme/tokens";
+import { spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 
 // Module icons and accents follow the web (create_db.sql icons; HomeGrid accentMap):
 // OMT/Whish = Send (indigo), iPick/Katsh = Zap.
@@ -42,6 +42,6 @@ export default function SellScreen() {
 }
 
 const styles = StyleSheet.create({
-  body: { padding: spacing.lg, gap: spacing.md },
+  body: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE, gap: spacing.md },
   row: { flexDirection: "row", gap: spacing.md },
 });

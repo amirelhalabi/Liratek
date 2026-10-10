@@ -75,4 +75,7 @@ export const light: Palette = {
 
 /** Web radius conventions: inputs/buttons rounded-lg, cards rounded-xl, sign-in card rounded-2xl. */
 export const radius = { lg: 8, xl: 12, xxl: 16 } as const;
+/** Space to keep at the bottom of a scrolling page so its end clears the floating tab bar. */
+export const TAB_BAR_CLEARANCE = 110;
+
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 32 } as const;

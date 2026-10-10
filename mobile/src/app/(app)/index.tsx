@@ -13,7 +13,7 @@ import { useRefreshOnFocus } from "@/data/useRefreshOnFocus";
 import { useShopSlug } from "@/data/useShop";
 import { unwrap } from "@/data/unwrap";
 import { useTheme } from "@/theme/ThemeProvider";
-import { radius, spacing } from "@/theme/tokens";
+import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 import { drawerAmounts, drawerLabel, txnTime } from "@/utils/format";
 
 // Wallet and voucher drawers the phone sales move (LIRA-289 research R4), shown first.
@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   topBar: { height: 52, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, borderBottomWidth: 1 },
   shopName: { fontSize: 20, fontWeight: "700", flex: 1 },
-  body: { padding: spacing.lg, gap: spacing.lg },
+  body: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE, gap: spacing.lg },
   sectionTitle: { fontSize: 16, fontWeight: "600" },
   card: { borderRadius: radius.xl, borderWidth: 1, padding: spacing.lg, gap: spacing.sm },
   cardHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

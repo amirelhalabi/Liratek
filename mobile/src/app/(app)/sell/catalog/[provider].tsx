@@ -40,7 +40,7 @@ import { queryKeys } from "@/data/queryKeys";
 import { useShopSlug } from "@/data/useShop";
 import { unwrap } from "@/data/unwrap";
 import { useTheme } from "@/theme/ThemeProvider";
-import { radius, spacing } from "@/theme/tokens";
+import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 
 type Provider = "Katsh" | "iPick";
 type PayMethod = "CUSTOMER_ACCOUNT" | "WHISH" | "OMT";
@@ -399,7 +399,8 @@ export default function CatalogSaleScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   searchBar: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  list: { padding: spacing.lg, paddingBottom: 96, gap: spacing.sm },
+  // Room for the cart bar, which floats just above the tab bar.
+  list: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE + 80, gap: spacing.sm },
   sectionHeader: { fontSize: 13, fontWeight: "700", textTransform: "uppercase", marginTop: spacing.md, marginBottom: spacing.xs },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderRadius: radius.lg, padding: spacing.md },
   badge: { minWidth: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
@@ -407,14 +408,14 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: spacing.lg,
     right: spacing.lg,
-    bottom: spacing.lg,
+    bottom: TAB_BAR_CLEARANCE - spacing.sm,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
     borderRadius: radius.xl,
     padding: spacing.lg,
   },
-  body: { padding: spacing.lg, gap: spacing.lg },
+  body: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE, gap: spacing.lg },
   card: { borderRadius: radius.xl, borderWidth: 1, padding: spacing.lg, gap: spacing.md },
   section: { fontSize: 16, fontWeight: "600" },
   headRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

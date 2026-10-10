@@ -19,7 +19,7 @@ import { useRefreshOnFocus } from "@/data/useRefreshOnFocus";
 import { useShopSlug } from "@/data/useShop";
 import { unwrap } from "@/data/unwrap";
 import { useTheme } from "@/theme/ThemeProvider";
-import { radius, spacing } from "@/theme/tokens";
+import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 
 type Currency = "USD" | "LBP";
 /** Wallets the customer can pay into from the phone (no cash; Binance deferred, owner 2026-10-10). */
@@ -142,7 +142,7 @@ export default function ClientScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  body: { padding: spacing.lg, gap: spacing.lg },
+  body: { padding: spacing.lg, paddingBottom: TAB_BAR_CLEARANCE, gap: spacing.lg },
   card: { borderRadius: radius.xl, borderWidth: 1, padding: spacing.lg, gap: spacing.md },
   section: { fontSize: 16, fontWeight: "600" },
   owes: { gap: 2 },
