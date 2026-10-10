@@ -19,7 +19,7 @@ This guide is for running checks, not for implementing. Contracts are in `contra
    A fresh file runs every migration on start. A one-off seed script provisioned shop `mobiletest` with admin `admin` / `Mobile#2026` and staff `cashier` / `Cashier#2026`, through `TenantProvisioningService.provisionTenant` plus `UserRepository.createUser`. Local only, never on a deployed server.
 2. **Point the app at it:** `mobile/.env.local` (git-ignored) holds `EXPO_PUBLIC_API_BASE_URL=http://localhost:4310`. Without it, the app calls `https://api.liratek.shop`, where `/api/mobile/auth/login` does not exist until this work is deployed.
 3. **iOS simulator:** `yarn workspace @liratek/mobile ios` runs `expo run:ios`. The first build downloads about 250 MB of React Native and Hermes artifacts. After adding a native module, re-run it; JS-only changes hot-reload. Restart Metro with `npx expo start --clear` if it misbehaves.
-4. **Development preview:** the sign-in screen shows "Preview screens (development build only)". It opens the signed-in screens with no server (`__DEV__` only, no token stored).
+4. **Seeing the signed-in screens without the local backend:** use the development-only shop-address mode (`EXPO_PUBLIC_API_MODE=shop-host` in `mobile/.env.development.local`) and sign in to a deployed shop. The old "Preview screens" link was removed 2026-10-10 (owner).
 5. **Android:** needs JDK 17 (`/opt/homebrew/opt/openjdk@17`) and the SDK in `~/Library/Android/sdk` (platform-tools, emulator, `platforms;android-36`, `build-tools;36.0.0`, `system-images;android-36;google_apis;arm64-v8a`), then an emulator device and `yarn workspace @liratek/mobile android`. Install in progress 2026-10-10.
 
 Checked on 2026-10-10:

@@ -16,7 +16,7 @@ import { radius, spacing } from "@/theme/tokens";
 /** Mirrors the web sign-in card (frontend/src/features/auth/pages/Login.tsx). */
 export default function SignIn() {
   const t = useTheme();
-  const { completeSignIn, rememberedShop, previewSignIn } = useAuth();
+  const { completeSignIn, rememberedShop } = useAuth();
   const [shop, setShopAddress] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -96,11 +96,6 @@ export default function SignIn() {
                     Create your shop
                   </Link>
                 </View>
-                {previewSignIn ? (
-                  <Text onPress={previewSignIn} style={[styles.devLink, { color: t.textMuted }]}>
-                    Preview screens (development build only)
-                  </Text>
-                ) : null}
               </View>
             </View>
           </ScrollView>
@@ -118,7 +113,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 34, fontWeight: "700" },
   subtitle: { fontSize: 14, marginTop: 4, opacity: 0.85 },
   form: { padding: 24, gap: spacing.lg },
-  devLink: { textAlign: "center", fontSize: 12, textDecorationLine: "underline" },
   footerRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing.sm },
   blob: { position: "absolute", width: 288, height: 288, borderRadius: 144, opacity: 0.1 },
   blobTop: { top: -80, right: -80 },

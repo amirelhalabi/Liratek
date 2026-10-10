@@ -14,8 +14,6 @@ interface AuthState {
   rememberedShop: StoredShop | null;
   completeSignIn: (session: MobileSession) => Promise<void>;
   signOut: () => Promise<void>;
-  /** Development builds only: open the signed-in screens without a server. */
-  previewSignIn?: () => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -59,12 +57,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("signedOut");
   }, []);
 
-  // __DEV__ is false in release builds, so this never ships. No token is stored.
-  const previewSignIn = useCallback(() => {
-    setShopState({ slug: "preview", name: "Preview Shop" });
-    setStatus("signedIn");
-  }, []);
-
   const value = useMemo<AuthState>(
     () => ({
       status,
@@ -72,9 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       rememberedShop: shop,
       completeSignIn,
       signOut,
-      ...(__DEV__ ? { previewSignIn } : {}),
     }),
-    [status, shop, completeSignIn, signOut, previewSignIn],
+    [status, shop, completeSignIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
