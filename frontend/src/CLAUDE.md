@@ -2,28 +2,55 @@
 
 Loads automatically when working under `frontend/src/`. Root context is `../../CLAUDE.md`.
 
+### Data access — `useApi()`, never `window.api` (root rules 19, 21, 22, 25)
+
+Every page, component and hook reaches the backend through `useApi()` (from `@liratek/ui`). Its functions live in `frontend/src/api/backendApi.ts`, where `ipcOrHttp` picks IPC on desktop or REST on web — the ONLY place a transport may be branched on. So in feature code:
+
+- No raw `window.api.*` call, no `if (window.api)` / `window.api ? … : …` gate. If you truly need a runtime check (e.g. hide a desktop-only button), call `isElectron()`.
+- Build each payload ONCE, typed as the core schema's input type (`z.input<typeof xSchema>`, usually exported as `XInput`/`XRequest` from `@liratek/core`), and pass it to the adapter. Never one object literal per transport.
+- Inside `useEffect`/`useCallback`, read `api` through a ref — never put `api` in a dependency array.
+
+**CI enforces this.** `yarn check:transport-parity` (`scripts/check-transport-parity.mjs`, runs in CI) fails on (A1) a `window.api`/`isElectron()` branch whose both arms build object literals, and (C1) any `window.api` access in `frontend/src` (tests, `.d.ts` and the two adapter files excluded) that is not in `scripts/transport-parity-allowlist.json`. For a call that is genuinely desktop-only (setup wizard, native file dialogs, the voice bot), add an allowlist entry naming the file, the `window.api.<namespace>`s it touches (`(bare)` = a truthiness check) and a `reason`; mark `"temporary": true` only for a known web defect kept visible. Entries that stop matching are stale and fail the check, so remove the entry when you remove the call.
+
 ### Page Component Template
 
+Based on `features/expenses/pages/Expenses/index.tsx` (useApi) and `contexts/FeatureFlagContext.tsx` (the ref pattern):
+
 ```typescript
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { CreateThingInput } from "@liratek/core"; // = z.input<typeof createThingSchema>
+import { useApi } from "@liratek/ui";
+import logger from "@/utils/logger";
 
 export function ModulePage() {
-  const [data, setData] = useState<MyType | null>(null);
-  const [loading, setLoading] = useState(false);
+  const api = useApi();
+  // rule 25: stable loader identity — `.current` is reassigned every render,
+  // so it is never stale, and the effect below does not re-fire on api churn.
+  const apiRef = useRef(api);
+  apiRef.current = api;
+
+  const [items, setItems] = useState<Thing[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { loadData(); }, []);
-
-  async function loadData() {
-    setLoading(true);
-    setError(null);
-    const result = await window.api.myModule.get();
-    if (result.success) {
-      setData(result.data);
-    } else {
-      setError(result.error);
+  const load = useCallback(async () => {
+    try {
+      setItems(await apiRef.current.getThings()); // reads return the raw shape
+    } catch (err) {
+      logger.error("Failed to load things:", err);
     }
-    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleSubmit(form: FormState) {
+    // ONE payload, typed from the schema — no per-transport literal (rule 22)
+    const payload: CreateThingInput = { name: form.name, amountUSD: form.amount };
+    const result = await api.createThing(payload); // writes return the envelope
+    if (result.success) {
+      load();
+    } else {
+      setError(result.error ?? "Failed to save");
+    }
   }
 
   return (
@@ -46,16 +73,57 @@ const MyModule = lazy(() => import("@/features/myModule/pages/MyModule"));
 <Route path="/my-module" element={<ProtectedRoute><MyModule /></ProtectedRoute>} />
 ```
 
-### TypeScript Types (`frontend/src/types/electron.d.ts`)
+### Adding an API function (dual-mode)
+
+When the page needs a backend call `useApi()` does not have yet, add it in three places (the IPC handler, preload binding and REST route come first — see root **Dual-Transport Architecture**). Model: `addExpense`.
 
 ```typescript
-myModule: {
-  create: (data: CreateData) => Promise<{ success: boolean; result?: Entity; error?: string }>;
-  get: (id: number) => Promise<{ success: boolean; result?: Entity; error?: string }>;
-  update: (id: number, data: UpdateData) => Promise<{ success: boolean; result?: Entity; error?: string }>;
-  delete: (id: number) => Promise<{ success: boolean; error?: string }>;
-};
+// 1. frontend/src/api/backendApi.ts — payload type imported from @liratek/core (rule 21)
+export async function createThing(
+  payload: CreateThingInput,
+): Promise<{ success: boolean; id?: number; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().things.create(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/things`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+// 2. frontend/src/api/ElectronApiAdapter.ts
+createThing = (payload: CreateThingInput) => api.createThing(payload);
+
+// 3. packages/ui/src/api/types.ts — on ApiAdapter
+createThing: (payload: CreateThingInput) => Promise<ApiResult & { id?: number }>;
 ```
+
+Never type the payload as a hand-written object literal, `any` or `unknown` — that is a second copy of the contract nothing keeps in sync. Make sure the type is exported from `packages/core/src/browser.ts` (the entry Vite and jest resolve), not only `index.ts`. Reads return the RAW IPC shape (array/object); writes return the `{ success, … }` envelope.
+
+The desktop bridge type in `frontend/src/types/electron.d.ts` (`things.create: (data: CreateThingInput) => Promise<…>`) must still match the `preload.ts` binding, but only `backendApi.ts` calls it.
+
+### Testing a component that uses `useApi()`
+
+The mock MUST return a stable, module-level object (rule 25). A `useApi: () => ({ … })` literal creates a new identity every render; a component with `api` in a dependency list then loops synchronously, and jest reports it as **"Jest worker ran out of memory"**, not as a timeout. Pattern from `Expenses/__tests__/Expenses.addErrorMessage.test.tsx`:
+
+```typescript
+const mockAddExpense = jest.fn();
+const mockGetTodayExpenses = jest.fn();
+
+// module-level: one identity for the whole test file
+const mockApi = {
+  addExpense: mockAddExpense,
+  getTodayExpenses: mockGetTodayExpenses,
+};
+
+jest.mock("@liratek/ui", () => ({
+  useApi: () => mockApi,
+  // …plus any other @liratek/ui exports the component renders
+}));
+```
+
+Assert payload field names from the schema, not hand-typed (rule 24). When rewriting a test that covered an old `window.api` branch, turn it into a guard that the raw call is NOT made (`expect(rawWindowApiCall).not.toHaveBeenCalled()`).
 
 ### UI Component Patterns
 
@@ -121,10 +189,12 @@ myModule: {
 
 ### Custom Hook Template (TanStack Query)
 
-Use TanStack Query for all data fetching — it replaces manual `useState`/`useEffect`/`loading`/`error` boilerplate. The `unwrapIpc` helper (`frontend/src/shared/api/unwrapIpc.ts`) unwraps the standard `{ success, error? }` envelope.
+Use TanStack Query for all data fetching — it replaces manual `useState`/`useEffect`/`loading`/`error` boilerplate. Call `useApi()` at the top of the hook; reads return the raw shape, so the query function returns it directly. For writes, `unwrapIpc` (`frontend/src/shared/api/unwrapIpc.ts`) unwraps the `{ success, error? }` envelope and throws on failure. (`unwrapIpc`'s own doc comment still shows a `window.api` argument — pass an `api.*` call instead.)
 
 ```typescript
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { CreateThingInput } from "@liratek/core";
+import { useApi } from "@liratek/ui";
 import { unwrapIpc } from "@/shared/api/unwrapIpc";
 
 // ── Query key constants (co-locate with the hooks that use them) ──────────────
@@ -135,19 +205,20 @@ export const MODULE_KEYS = {
 
 // ── Read ──────────────────────────────────────────────────────────────────────
 export function useModuleListQuery() {
+  const api = useApi();
   return useQuery({
     queryKey: MODULE_KEYS.all,
-    queryFn: () =>
-      unwrapIpc(window.api.myModule.getAll(), (r) => r.items ?? []),
+    queryFn: () => api.getThings(),
   });
 }
 
 // ── Write ─────────────────────────────────────────────────────────────────────
 export function useCreateModuleMutation() {
+  const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateData) =>
-      unwrapIpc(window.api.myModule.create(data), (r) => r.item),
+    mutationFn: (payload: CreateThingInput) =>
+      unwrapIpc(api.createThing(payload), (r) => r.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: MODULE_KEYS.all });
     },
@@ -165,7 +236,7 @@ const create = useCreateModuleMutation();
 // loading: create.isPending
 ```
 
-`QueryClientProvider` is already wired in `App.tsx` with IPC-appropriate defaults (`retry: false`, `refetchOnWindowFocus: false`, `staleTime: 30_000`). New features should follow this pattern; old pages can be migrated as they are touched.
+`QueryClientProvider` is already wired in `App.tsx` with transport-agnostic defaults (`retry: false`, `refetchOnWindowFocus: false`, `staleTime: 30_000`). New features should follow this pattern; old pages can be migrated as they are touched.
 
 ### Frontend Commands
 

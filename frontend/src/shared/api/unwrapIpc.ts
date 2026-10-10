@@ -4,7 +4,7 @@
  *
  * Usage with TanStack Query:
  *   queryFn: () => unwrapIpc(
- *     window.api.suppliers.getAll(),
+ *     api.getSuppliers(), // api = useApi() — never raw window.api (rule 19)
  *     r => r.suppliers ?? [],
  *   )
  *
