@@ -6612,8 +6612,7 @@ customer's debt; no supplier row (prepaid drawdown); profit = price − cost. Ca
 5. **Check on the simulator and the Android phone;** the row reads "Katsh · client" with the item list on both web
    and phone (LIRA-301 wording).
 
-**Open question:** paying in USD. Catalog prices are in LBP; a USD payment into a wallet needs the day's rate on the
-phone (the web sends `tender_exchange_rate` + `checkoutTotal`). Suggested first version: LBP payment only.
+**Decided 2026-10-10 (owner):** the customer can pay in LBP or USD; USD is converted at the day's rate, booked as the web books it (`tender_exchange_rate` + `checkoutTotal`). Spec: `specs/302-mobile-catalog-sales/`.
 
 **What users will notice:** the phone app can record Katsh and iPick voucher and card sales.
 
