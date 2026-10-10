@@ -164,6 +164,31 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
     }
   }
 
+  /**
+   * LIRA-296 P3 — undo a restock batch (a supplier's replacement unit put on
+   * the shelf) when the warranty claim behind it is voided. Only a batch
+   * nothing has drawn from yet can go: true = deleted, false = some of it
+   * was sold since (nothing written — the caller refuses the void).
+   */
+  removeUntouchedBatch(batchId: number): boolean {
+    const tenantId = getCurrentTenantId();
+    const used = this.queryOne<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM stock_batch_consumptions
+        WHERE batch_id = ? AND tenant_id = ?`,
+      batchId,
+      tenantId,
+    );
+    if ((used?.n ?? 0) > 0) return false;
+    return (
+      this.execute(
+        `DELETE FROM product_stock_batches
+          WHERE id = ? AND tenant_id = ? AND quantity_remaining = quantity`,
+        batchId,
+        tenantId,
+      ).changes > 0
+    );
+  }
+
   /** All batches for a product, FIFO order (oldest first). */
   listByProduct(productId: number): StockBatchEntity[] {
     return this.query<StockBatchEntity>(

@@ -27,6 +27,16 @@ import {
   getDefectiveItemRepository,
   type DefectiveItemRepository,
 } from "../repositories/DefectiveItemRepository.js";
+import {
+  getSupplierReturnRepository,
+  type SupplierReturnRepository,
+  type SupplierReturnEntity,
+} from "../repositories/SupplierReturnRepository.js";
+import { getSupplierRepository } from "../repositories/SupplierRepository.js";
+import {
+  getWarrantyReportRepository,
+  type WarrantyReportRepository,
+} from "../repositories/WarrantyReportRepository.js";
 import { getSalesRepository } from "../repositories/SalesRepository.js";
 import { getTransactionRepository } from "../repositories/TransactionRepository.js";
 import { getStockBatchRepository } from "../repositories/StockBatchRepository.js";
@@ -39,6 +49,17 @@ import {
   warrantyClaimsForSchema,
   listDefectiveItemsSchema,
   resolveDefectiveSchema,
+  createSupplierReturnSchema,
+  closeSupplierReturnSchema,
+  listSupplierReturnsSchema,
+  type CreateSupplierReturnInput,
+  type CloseSupplierReturnInput,
+  type ListSupplierReturnsInput,
+  type SupplierReturnView,
+  warrantyReportSchema,
+  type WarrantyReportInput,
+  type WarrantyReport,
+  type WarrantyReportItem,
   type WarrantySearchInput,
   type WarrantySearchRow,
   type WarrantySearchUnit,
@@ -86,6 +107,14 @@ class WarrantyClaimError extends Error {
 
 const isAdmin = (actor: WarrantyActor) => actor.role === "admin";
 
+/** What a WARRANTY_COST row is (metadata `kind`). */
+export type WarrantyCostKind =
+  | "COST"
+  | "NOT_FAULTY"
+  | "SUPPLIER_CREDIT"
+  | "SUPPLIER_REPLACED"
+  | "REVERSAL";
+
 /** When a state filter is applied, the state is only known after the read,
  *  so read a wider window and trim to the caller's limit afterwards. */
 const STATE_FILTER_WINDOW = 1000;
@@ -94,6 +123,8 @@ export class WarrantyService {
   private readonly claims: WarrantyClaimRepository;
   private readonly defective: DefectiveItemRepository;
   private readonly side: WarrantyClaimSideRepository;
+  private readonly returns: SupplierReturnRepository;
+  private readonly reports: WarrantyReportRepository;
 
   constructor(
     private readonly repo: WarrantyRepository,
@@ -101,11 +132,15 @@ export class WarrantyService {
       claims?: WarrantyClaimRepository;
       defective?: DefectiveItemRepository;
       side?: WarrantyClaimSideRepository;
+      returns?: SupplierReturnRepository;
+      reports?: WarrantyReportRepository;
     } = {},
   ) {
     this.claims = deps.claims ?? getWarrantyClaimRepository();
     this.defective = deps.defective ?? getDefectiveItemRepository();
     this.side = deps.side ?? getWarrantyClaimSideRepository();
+    this.returns = deps.returns ?? getSupplierReturnRepository();
+    this.reports = deps.reports ?? getWarrantyReportRepository();
   }
 
   /** Warranty lines matching the input, newest sale first. Throws a
@@ -322,13 +357,14 @@ export class WarrantyService {
         unitCostUsd: lineCost,
         warrantyClaimId: claimId,
       });
-      this.bookCost(
+      this.bookCost({
         claimId,
-        line.client_id,
-        actor.userId,
-        -lineCost,
-        `WARRANTY: refund of faulty ${productName} (claim #${claimId})`,
-      );
+        clientId: line.client_id,
+        userId: actor.userId,
+        usd: -lineCost,
+        summary: `WARRANTY: refund of faulty ${productName} (claim #${claimId})`,
+        kind: "COST",
+      });
       result.refundTransactionId = refundTransactionId;
     } else if (data.action === "REPLACE") {
       const product = this.side.product(line.product_id);
@@ -379,13 +415,14 @@ export class WarrantyService {
         unitCostUsd: lineCost,
         warrantyClaimId: claimId,
       });
-      this.bookCost(
+      this.bookCost({
         claimId,
-        line.client_id,
-        actor.userId,
-        -consumed.totalCostUsd,
-        `WARRANTY: replacement ${productName} (claim #${claimId})`,
-      );
+        clientId: line.client_id,
+        userId: actor.userId,
+        usd: -consumed.totalCostUsd,
+        summary: `WARRANTY: replacement ${productName} (claim #${claimId})`,
+        kind: "COST",
+      });
     } else {
       const jobs = new MaintenanceRepository();
       const jobId = jobs.createJob(
@@ -513,13 +550,14 @@ export class WarrantyService {
     const job = new MaintenanceRepository().findById(jobId);
     if (!job) return;
     const cost = (job.cost_usd ?? 0) + (job.parts_cost_usd ?? 0);
-    this.bookCost(
-      claim.id,
-      job.client_id,
-      actorUserId ?? claim.user_id,
-      -cost,
-      `WARRANTY: repair parts for ${job.device_name} (claim #${claim.id})`,
-    );
+    this.bookCost({
+      claimId: claim.id,
+      clientId: job.client_id,
+      userId: actorUserId ?? claim.user_id,
+      usd: -cost,
+      summary: `WARRANTY: repair parts for ${job.device_name} (claim #${claim.id})`,
+      kind: "COST",
+    });
     this.claims.setStatus(claim.id, "DONE");
   }
 
@@ -546,13 +584,19 @@ export class WarrantyService {
             "This claim is already void.",
           );
         }
-        const held = this.defective.findByClaim(claim.id);
-        if (held && held.status === "SENT_TO_SUPPLIER") {
+        const returns = this.returns.listForClaim(claim.id);
+        if (returns.some((r) => r.status === "SENT")) {
           throw new WarrantyClaimError(
             "DEFECTIVE_ALREADY_SENT",
-            "The faulty item was sent to the supplier — close or cancel that return first.",
+            "The faulty item is with the supplier — record the supplier's answer first.",
           );
         }
+        // Closed supplier returns are undone first (rule 20); the item is
+        // then HELD again and the rest of the void runs as before.
+        if (returns.length > 0) {
+          this.undoSupplierReturns(claim, returns, actor.userId);
+        }
+        const held = this.defective.findByClaim(claim.id);
         if (held && held.status !== "HELD") {
           throw new WarrantyClaimError(
             "DEFECTIVE_RESOLVED",
@@ -689,13 +733,14 @@ export class WarrantyService {
             claim?.sale_item_id != null
               ? this.side.lineForClaim(claim.sale_item_id)
               : null;
-          this.bookCost(
-            item.warranty_claim_id,
-            line?.client_id ?? null,
-            actor.userId,
-            item.unit_cost_usd * item.quantity,
-            `WARRANTY: not faulty, back to stock (claim #${item.warranty_claim_id})`,
-          );
+          this.bookCost({
+            claimId: item.warranty_claim_id,
+            clientId: line?.client_id ?? null,
+            userId: actor.userId,
+            usd: item.unit_cost_usd * item.quantity,
+            summary: `WARRANTY: not faulty, back to stock (claim #${item.warranty_claim_id})`,
+            kind: "NOT_FAULTY",
+          });
         }
         return this.listDefective({}).find((d) => d.id === item.id)!;
       });
@@ -704,39 +749,49 @@ export class WarrantyService {
 
   /**
    * The ONE writer of WARRANTY_COST rows. No payment legs, no drawer: a
-   * profit-only row on the claim. `is_auto` is derived from the claim link
-   * here (rule 26) — never passed by a caller.
+   * profit-only row on the claim, per currency. `is_auto` is derived from
+   * the claim link here (rule 26) — never passed by a caller. `kind` says
+   * what the row is (the report splits gross cost from supplier recovery by
+   * it — the sign alone can't: not-faulty and reversal rows are positive
+   * too).
    */
-  private bookCost(
-    claimId: number,
-    clientId: number | null,
-    userId: number,
-    profitUsd: number,
-    summary: string,
-    reversesId?: number,
-  ): number {
+  private bookCost(row: {
+    claimId: number;
+    clientId: number | null;
+    userId: number;
+    usd: number;
+    lbp?: number;
+    summary: string;
+    kind: WarrantyCostKind;
+    reversesId?: number;
+    supplierReturnId?: number;
+  }): number {
     const id = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.WARRANTY_COST,
       source_table: "warranty_claims",
-      source_id: claimId,
-      user_id: userId,
+      source_id: row.claimId,
+      user_id: row.userId,
       amount_usd: 0,
       amount_lbp: 0,
-      profit_usd: Math.round(profitUsd * 100) / 100,
-      profit_lbp: 0,
-      client_id: clientId,
-      summary,
+      profit_usd: Math.round(row.usd * 100) / 100,
+      profit_lbp: Math.round(row.lbp ?? 0),
+      client_id: row.clientId,
+      summary: row.summary,
       metadata_json: {
-        warranty_claim_id: claimId,
-        is_auto: claimId != null,
-        ...(reversesId != null ? { reverses: reversesId } : {}),
+        warranty_claim_id: row.claimId,
+        is_auto: row.claimId != null,
+        kind: row.kind,
+        ...(row.supplierReturnId != null
+          ? { supplier_return_id: row.supplierReturnId }
+          : {}),
+        ...(row.reversesId != null ? { reverses: row.reversesId } : {}),
       },
     });
-    if (reversesId != null) this.claims.setReverses(id, reversesId);
+    if (row.reversesId != null) this.claims.setReverses(id, row.reversesId);
     return id;
   }
 
-  /** Negate every live WARRANTY_COST row of a claim (rule 20). */
+  /** Negate every live WARRANTY_COST row of a claim, per currency (rule 20). */
   private reverseCosts(claim: WarrantyClaimEntity, userId: number): void {
     const rows = this.claims.costRowsForClaim(claim.id);
     const reversed = new Set(
@@ -744,15 +799,386 @@ export class WarrantyService {
     );
     for (const r of rows) {
       if (r.reverses_id != null || reversed.has(r.id)) continue;
-      this.bookCost(
-        claim.id,
-        r.client_id,
+      this.bookCost({
+        claimId: claim.id,
+        clientId: r.client_id,
         userId,
-        -r.profit_usd,
-        `WARRANTY: claim #${claim.id} voided`,
-        r.id,
-      );
+        usd: -r.profit_usd,
+        lbp: -(r.profit_lbp ?? 0),
+        summary: `WARRANTY: claim #${claim.id} voided`,
+        kind: "REVERSAL",
+        reversesId: r.id,
+      });
     }
+  }
+
+  /**
+   * Undo every CLOSED supplier return of a claim being voided (rule 20 —
+   * the void is their reversal owner), then drop the return rows:
+   *   CREDITED — an opposite paper ADJUSTMENT puts the supplier balance
+   *              back (its +credit cost row is negated by reverseCosts);
+   *   REPLACED — the restock batch and the unit come off the shelf again
+   *              (refused when it was sold since);
+   *   REJECTED — nothing was written, and the item is left as it is (HELD,
+   *              or resolved since — then the void is refused).
+   * After a credit or a replacement the defective item ends HELD, as the
+   * rest of the void expects.
+   */
+  private undoSupplierReturns(
+    claim: WarrantyClaimEntity,
+    returns: SupplierReturnEntity[],
+    userId: number,
+  ): void {
+    const restockBatches: number[] = [];
+    for (const r of returns) {
+      if (r.status === "CREDITED") {
+        getSupplierRepository().addLedgerEntry({
+          supplier_id: r.supplier_id,
+          entry_type: "ADJUSTMENT",
+          amount_usd: Math.abs(r.credit_usd),
+          amount_lbp: Math.abs(r.credit_lbp),
+          note: `Warranty claim #${claim.id} voided — supplier credit on return #${r.id} reversed`,
+          created_by: userId,
+        });
+      }
+      if (r.status === "REPLACED") {
+        const item = this.defective.findById(r.defective_item_id);
+        if (item) {
+          if (
+            item.unit_id != null &&
+            !this.side.unitBackToDefective(item.unit_id)
+          ) {
+            throw new WarrantyClaimError(
+              "RESTOCK_ALREADY_SOLD",
+              "The supplier's replacement was already sold — this claim can't be voided.",
+            );
+          }
+          this.side.adjustStock(item.product_id, -item.quantity);
+        }
+        if (r.restock_batch_id != null) restockBatches.push(r.restock_batch_id);
+      }
+      // Only a credit or a replacement moved the item (and nothing else can
+      // move it after them). A REJECTED return left it HELD, where the owner
+      // may since have resolved it — leave that alone so the
+      // DEFECTIVE_RESOLVED guard below still refuses the void.
+      if (r.status === "CREDITED" || r.status === "REPLACED") {
+        this.defective.setStatus(r.defective_item_id, "HELD", null);
+      }
+    }
+    // Drop the links first (defective_items.restock_batch_id is cleared
+    // above; the return rows go now), then the restock batches themselves.
+    this.returns.deleteForClaim(claim.id);
+    for (const batchId of restockBatches) {
+      if (!getStockBatchRepository().removeUntouchedBatch(batchId)) {
+        throw new WarrantyClaimError(
+          "RESTOCK_ALREADY_SOLD",
+          "The supplier's replacement was already sold — this claim can't be voided.",
+        );
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // P3 — warranty report (US8). Admin (the transports gate it).
+  // -------------------------------------------------------------------------
+
+  /**
+   * Items still covered on the shop's day, grouped by category, and the
+   * claims made in [from, to] with their cost: gross (what claims cost),
+   * supplier recovered (credits and replacements), net = gross − recovered
+   * — and net equals minus the Profits "Warranty cost" line for the same
+   * days, because both read the same rows with the same bounds.
+   */
+  report(input: WarrantyReportInput): WarrantyReport {
+    const q = warrantyReportSchema.parse(input);
+    const today = q.client_day;
+
+    const lines = this.reports.coveredSaleLines(today);
+    const unitsByLine = new Map<number, WarrantyUnitRow[]>();
+    for (const unit of this.repo.unitsForLines(
+      lines.map((l) => l.sale_item_id),
+    )) {
+      const list = unitsByLine.get(unit.sale_item_id) ?? [];
+      list.push(unit);
+      unitsByLine.set(unit.sale_item_id, list);
+    }
+    const groups = new Map<string, WarrantyReportItem[]>();
+    const add = (category: string, item: WarrantyReportItem) => {
+      const list = groups.get(category) ?? [];
+      list.push(item);
+      groups.set(category, list);
+    };
+    for (const line of lines) {
+      const row = this.toRow(
+        line,
+        unitsByLine.get(line.sale_item_id) ?? [],
+        today,
+      );
+      if (row.state !== "COVERED" || row.coveredQuantity <= 0) continue;
+      add(line.category, {
+        source: "SALE",
+        saleId: row.saleId,
+        receiptNumber: row.receiptNumber,
+        saleItemId: row.saleItemId,
+        maintenanceId: null,
+        productName: row.product.name,
+        customerName: row.customer.name,
+        customerPhone: row.customer.phone,
+        coveredQuantity: row.coveredQuantity,
+        warrantyUntil: row.warrantyUntil ?? "",
+      });
+    }
+    for (const r of this.reports.coveredRepairs(today)) {
+      const state = warrantyState(r.warranty_until, today, {
+        fullyRefunded: !!r.is_refunded,
+      });
+      if (state !== "COVERED") continue;
+      add("Repairs", {
+        source: "REPAIR",
+        saleId: null,
+        receiptNumber: null,
+        saleItemId: null,
+        maintenanceId: r.maintenance_id,
+        productName: r.device_name,
+        customerName: r.customer_name,
+        customerPhone: r.customer_phone,
+        coveredQuantity: 1,
+        warrantyUntil: r.warranty_until,
+      });
+    }
+    const underWarranty = [...groups.entries()]
+      .map(([category, items]) => ({
+        category,
+        count: items.reduce((n, i) => n + i.coveredQuantity, 0),
+        items,
+      }))
+      .sort((a, b) => a.category.localeCompare(b.category));
+
+    // Same window shape as ProfitService (`from 00:00:00` … `to 23:59:59`,
+    // the operator's local day via dateRange).
+    const fromDt = `${q.from} 00:00:00`;
+    const toDt = `${q.to} 23:59:59`;
+    const byAction = { REPAIR: 0, REPLACE: 0, REFUND: 0 };
+    for (const c of this.reports.claimCounts(fromDt, toDt)) {
+      byAction[c.action] = c.n;
+    }
+    const split = this.reports.costSplit(fromDt, toDt);
+    // `+ 0` turns a −0 (no rows) into 0, so nothing prints "-$0.00".
+    const round2 = (n: number) => Math.round(n * 100) / 100 + 0;
+    const netCostUsd = round2(-split.net_usd);
+    const recoveredUsd = round2(split.recovered_usd);
+    const netCostLbp = Math.round(-split.net_lbp) + 0;
+    const recoveredLbp = Math.round(split.recovered_lbp) + 0;
+    return {
+      underWarranty,
+      claims: {
+        byAction,
+        total: byAction.REPAIR + byAction.REPLACE + byAction.REFUND,
+        grossCostUsd: round2(netCostUsd + recoveredUsd),
+        supplierRecoveredUsd: recoveredUsd,
+        netCostUsd,
+        grossCostLbp: netCostLbp + recoveredLbp,
+        supplierRecoveredLbp: recoveredLbp,
+        netCostLbp,
+      },
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // P3 — supplier returns (US7). Admin only.
+  // -------------------------------------------------------------------------
+
+  /** Send a HELD defective item back to a supplier (status SENT). The
+   *  supplier defaults from the FIFO batch the sold unit came from. */
+  createSupplierReturn(
+    input: CreateSupplierReturnInput,
+    actor: WarrantyActor,
+  ): WarrantyOpResult<SupplierReturnView> {
+    return this.run("createSupplierReturn", () => {
+      const q = createSupplierReturnSchema.parse(input);
+      if (!isAdmin(actor)) {
+        throw new WarrantyClaimError(
+          "FORBIDDEN_ACTION",
+          "Only an admin can send items back to a supplier.",
+        );
+      }
+      return this.claims.withTransaction(() => {
+        const item = this.defective.findById(q.defective_item_id);
+        if (!item)
+          throw new WarrantyClaimError("NOT_FOUND", "Defective item not found");
+        if (item.status !== "HELD") {
+          throw new WarrantyClaimError(
+            "NOT_HELD",
+            "Only an item still held can be sent to a supplier.",
+          );
+        }
+        const claim = this.claims.findById(item.warranty_claim_id);
+        const supplierId =
+          q.supplier_id ??
+          (claim?.sale_item_id != null
+            ? this.side.supplierForSaleItem(claim.sale_item_id)
+            : null);
+        if (supplierId == null) {
+          throw new WarrantyClaimError(
+            "SUPPLIER_REQUIRED",
+            "No supplier is on record for this item — pick the supplier.",
+          );
+        }
+        if (!this.side.supplierExists(supplierId)) {
+          throw new WarrantyClaimError("NOT_FOUND", "Supplier not found");
+        }
+        const id = this.returns.insertReturn({
+          defectiveItemId: item.id,
+          warrantyClaimId: item.warranty_claim_id,
+          supplierId,
+          userId: actor.userId,
+          notes: q.notes ?? null,
+        });
+        this.defective.setStatus(item.id, "SENT_TO_SUPPLIER", null);
+        warrantyLogger.info(
+          { supplierReturnId: id, defectiveItemId: item.id, supplierId },
+          "Defective item sent to supplier",
+        );
+        return this.returnView(id);
+      });
+    });
+  }
+
+  /** Record the supplier's answer to a SENT return. */
+  closeSupplierReturn(
+    input: CloseSupplierReturnInput,
+    actor: WarrantyActor,
+  ): WarrantyOpResult<SupplierReturnView> {
+    return this.run("closeSupplierReturn", () => {
+      const q = closeSupplierReturnSchema.parse(input);
+      if (!isAdmin(actor)) {
+        throw new WarrantyClaimError(
+          "FORBIDDEN_ACTION",
+          "Only an admin can close a supplier return.",
+        );
+      }
+      return this.claims.withTransaction(() => {
+        const ret = this.returns.findById(q.supplier_return_id);
+        if (!ret)
+          throw new WarrantyClaimError("NOT_FOUND", "Supplier return not found");
+        if (ret.status !== "SENT") {
+          throw new WarrantyClaimError(
+            "RETURN_NOT_OPEN",
+            "This supplier return is already closed.",
+          );
+        }
+        const item = this.defective.findById(ret.defective_item_id);
+        if (!item)
+          throw new WarrantyClaimError("NOT_FOUND", "Defective item not found");
+        const claim = this.claims.findById(ret.warranty_claim_id);
+        const clientId =
+          claim?.sale_item_id != null
+            ? (this.side.lineForClaim(claim.sale_item_id)?.client_id ?? null)
+            : null;
+        const notes = q.notes ?? null;
+
+        if (q.outcome === "CREDITED") {
+          const creditUsd = q.credit_usd ?? 0;
+          const creditLbp = q.credit_lbp ?? 0;
+          // A supplier credit lowers what the shop owes: a NEGATIVE paper
+          // ADJUSTMENT (no drawer) — POSTING_MAP "Supplier paper adjustment".
+          const ledger = getSupplierRepository().addLedgerEntry({
+            supplier_id: ret.supplier_id,
+            entry_type: "ADJUSTMENT",
+            amount_usd: -creditUsd,
+            amount_lbp: -creditLbp,
+            note: `Warranty return #${ret.id} credited (claim #${ret.warranty_claim_id})`,
+            created_by: actor.userId,
+          });
+          const costId = this.bookCost({
+            claimId: ret.warranty_claim_id,
+            clientId,
+            userId: actor.userId,
+            usd: creditUsd,
+            lbp: creditLbp,
+            summary: `WARRANTY: supplier credit on return #${ret.id} (claim #${ret.warranty_claim_id})`,
+            kind: "SUPPLIER_CREDIT",
+            supplierReturnId: ret.id,
+          });
+          // The supplier keeps the item: it stays SENT_TO_SUPPLIER, now
+          // resolved.
+          this.defective.setStatus(item.id, "SENT_TO_SUPPLIER", null);
+          this.returns.close(ret.id, {
+            status: "CREDITED",
+            creditUsd,
+            creditLbp,
+            ledgerEntryId: ledger.id,
+            costTransactionId: costId,
+            restockBatchId: null,
+            closedBy: actor.userId,
+            notes,
+          });
+        } else if (q.outcome === "REPLACED") {
+          this.side.adjustStock(item.product_id, item.quantity);
+          const batchId = getStockBatchRepository().createBatch({
+            product_id: item.product_id,
+            supplier_id: ret.supplier_id,
+            quantity: item.quantity,
+            unit_cost_usd: item.unit_cost_usd,
+            books_debt: false,
+            created_by: actor.userId,
+          });
+          if (item.unit_id != null) this.side.returnUnitToStock(item.unit_id);
+          this.defective.setStatus(item.id, "RETURNED_TO_STOCK", batchId);
+          const costId = this.bookCost({
+            claimId: ret.warranty_claim_id,
+            clientId,
+            userId: actor.userId,
+            usd: item.unit_cost_usd * item.quantity,
+            summary: `WARRANTY: supplier replacement on return #${ret.id} (claim #${ret.warranty_claim_id})`,
+            kind: "SUPPLIER_REPLACED",
+            supplierReturnId: ret.id,
+          });
+          this.returns.close(ret.id, {
+            status: "REPLACED",
+            creditUsd: 0,
+            creditLbp: 0,
+            ledgerEntryId: null,
+            costTransactionId: costId,
+            restockBatchId: batchId,
+            closedBy: actor.userId,
+            notes,
+          });
+        } else {
+          // REJECTED: nothing moves. The item comes back to the holding so
+          // the owner can write it off or mark it not faulty.
+          this.defective.setStatus(item.id, "HELD", null);
+          this.returns.close(ret.id, {
+            status: "REJECTED",
+            creditUsd: 0,
+            creditLbp: 0,
+            ledgerEntryId: null,
+            costTransactionId: null,
+            restockBatchId: null,
+            closedBy: actor.userId,
+            notes,
+          });
+        }
+        warrantyLogger.info(
+          { supplierReturnId: ret.id, outcome: q.outcome },
+          "Supplier return closed",
+        );
+        return this.returnView(ret.id);
+      });
+    });
+  }
+
+  /** Supplier returns (admin list), newest first. */
+  listSupplierReturns(input: ListSupplierReturnsInput = {}): SupplierReturnView[] {
+    const q = listSupplierReturnsSchema.parse(input);
+    return this.returns.list(q.status).map(toReturnView);
+  }
+
+  private returnView(id: number): SupplierReturnView {
+    const row = this.returns.list().find((r) => r.id === id);
+    if (!row)
+      throw new WarrantyClaimError("NOT_FOUND", "Supplier return not found");
+    return toReturnView(row);
   }
 
   private view(claimId: number): WarrantyClaimView {
@@ -862,6 +1288,28 @@ function toClaimView(c: WarrantyClaimEntity): WarrantyClaimView {
 }
 
 let instance: WarrantyService | null = null;
+
+function toReturnView(r: SupplierReturnEntity): SupplierReturnView {
+  return {
+    id: r.id,
+    defective_item_id: r.defective_item_id,
+    warranty_claim_id: r.warranty_claim_id,
+    supplier_id: r.supplier_id,
+    supplier_name: r.supplier_name ?? null,
+    product_id: r.product_id ?? null,
+    product_name: r.product_name ?? null,
+    serial: r.serial ?? null,
+    unit_cost_usd: r.unit_cost_usd ?? null,
+    status: r.status,
+    credit_usd: r.credit_usd,
+    credit_lbp: r.credit_lbp,
+    notes: r.notes,
+    sent_at: r.sent_at,
+    closed_at: r.closed_at,
+    user_id: r.user_id,
+    closed_by: r.closed_by,
+  };
+}
 
 export function getWarrantyService(): WarrantyService {
   if (!instance) instance = new WarrantyService(getWarrantyRepository());

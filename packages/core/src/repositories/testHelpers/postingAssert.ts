@@ -285,6 +285,8 @@ export interface StockProfitSnapshot {
   units: Record<string, string>;
   defective: Record<string, number>;
   claimsOpenOrDone: number;
+  /** v207 (P3): live supplier returns, per status. */
+  supplierReturns: Record<string, number>;
   profit: { usd: number; lbp: number };
 }
 
@@ -353,6 +355,17 @@ export function snapshotStockAndProfit(
         .get() as { n: number }
     ).n;
   }
+  const supplierReturns: Record<string, number> = {};
+  if (hasTable(db, "supplier_returns")) {
+    for (const r of db
+      /* tenant-exempt: test-only helper — whole in-memory test database */
+      .prepare(
+        `SELECT status, COUNT(*) AS n FROM supplier_returns GROUP BY status`,
+      )
+      .all() as { status: string; n: number }[]) {
+      supplierReturns[r.status] = r.n;
+    }
+  }
   const p = db
     /* tenant-exempt: test-only helper — whole in-memory test database */
     .prepare(
@@ -365,6 +378,7 @@ export function snapshotStockAndProfit(
     units,
     defective,
     claimsOpenOrDone,
+    supplierReturns,
     profit: {
       usd: Math.round(p.usd * 1e6) / 1e6,
       lbp: Math.round(p.lbp * 1e6) / 1e6,

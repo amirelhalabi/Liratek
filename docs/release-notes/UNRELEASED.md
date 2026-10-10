@@ -169,6 +169,10 @@
 - Warranty claims: each item shows its claim history (date, who, what was done, notes). An admin can void a claim, which undoes everything it did — the stock, the refund, the repair job and the cost.
 - Warranty page (admins): a new "Defective items" list keeps faulty items taken back under warranty out of stock. Mark each one "Write off" or "Not faulty", which puts it back in stock.
 - Maintenance: a repair can now carry its own warranty (in months). The end date is set when the job is delivered and paid, prints on the repair receipt with your warranty terms, and the repair shows up on the Warranty page.
+- Serial numbers for any item: in Settings → Categories, a category that tracks units (laptops, tablets, watches, consoles…) can call them "Serial" or "IMEI". The cart, receipts, sale details and the product form use that name.
+- Settings → Categories: each category that tracks serials chooses what happens when an item is sold without picking its serial — block the sale (as before) or allow it with a warning shown at the till.
+- Warranty page (admins): a faulty item can be sent back to its supplier ("Send to supplier" in Defective items — the supplier it was bought from is picked for you). In the new "Supplier returns" list, record the supplier's answer: Credited (the supplier's balance goes down by the credit, in dollars and/or LBP, and the warranty cost goes down by the same amount), Replaced (the item goes back in stock) or Rejected (with a note; the item comes back to Defective items). Voiding the claim later undoes the supplier's credit or replacement too.
+- Warranty page (admins): a new "Report" tab shows the items still under warranty, by category with their end dates (export to Excel or PDF), and the claims in the period you pick — how many repairs, replacements and refunds, what they cost the shop, what suppliers gave back, and the net cost (the same as the Profits "Warranty cost" line for those days).
 
 ## 🛒 POS
 

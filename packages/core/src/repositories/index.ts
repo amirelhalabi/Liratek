@@ -945,3 +945,14 @@ export type {
   DefectiveItemEntity,
   DefectiveItemStatus,
 } from "./DefectiveItemRepository.js";
+export {
+  SupplierReturnRepository,
+  getSupplierReturnRepository,
+  resetSupplierReturnRepository,
+} from "./SupplierReturnRepository.js";
+export type { SupplierReturnEntity } from "./SupplierReturnRepository.js";
+export {
+  WarrantyReportRepository,
+  getWarrantyReportRepository,
+  resetWarrantyReportRepository,
+} from "./WarrantyReportRepository.js";

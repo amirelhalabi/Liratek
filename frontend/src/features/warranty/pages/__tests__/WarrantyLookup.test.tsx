@@ -223,3 +223,26 @@ describe("WarrantyLookup — claims (P2)", () => {
     expect(await screen.findByTestId("defective-items")).toBeInTheDocument();
   });
 });
+
+jest.mock("../../components/SupplierReturns", () => ({
+  SupplierReturns: () => <div data-testid="supplier-returns" />,
+}));
+jest.mock("../../components/WarrantyReport", () => ({
+  WarrantyReport: () => <div data-testid="warranty-report" />,
+}));
+
+describe("WarrantyLookup — supplier returns and report (P3)", () => {
+  it("admins get a Supplier returns tab", async () => {
+    render(<WarrantyLookup />);
+    await screen.findByText("Earbuds Pro");
+    fireEvent.click(screen.getByRole("tab", { name: "Supplier returns" }));
+    expect(await screen.findByTestId("supplier-returns")).toBeInTheDocument();
+  });
+
+  it("admins get a Report tab", async () => {
+    render(<WarrantyLookup />);
+    await screen.findByText("Earbuds Pro");
+    fireEvent.click(screen.getByRole("tab", { name: "Report" }));
+    expect(await screen.findByTestId("warranty-report")).toBeInTheDocument();
+  });
+});

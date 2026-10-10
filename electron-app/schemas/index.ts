@@ -178,6 +178,14 @@ import {
   voidWarrantyClaimSchema,
   listDefectiveItemsSchema,
   resolveDefectiveSchema,
+  createSupplierReturnSchema,
+  closeSupplierReturnSchema,
+  listSupplierReturnsSchema,
+  warrantyReportSchema,
+  type CreateSupplierReturnInput,
+  type CloseSupplierReturnInput,
+  type ListSupplierReturnsInput,
+  type WarrantyReportInput,
   type CreateWarrantyClaimData,
   type WarrantyClaimsForInput,
   type VoidWarrantyClaimInput,
@@ -1583,6 +1591,15 @@ export const ListDefectiveItemsSchema =
   listDefectiveItemsSchema as unknown as z.ZodSchema<ListDefectiveItemsInput>;
 export const ResolveDefectiveSchema =
   resolveDefectiveSchema as unknown as z.ZodSchema<ResolveDefectiveInput>;
+// P3 — supplier returns and the warranty report.
+export const CreateSupplierReturnSchema =
+  createSupplierReturnSchema as unknown as z.ZodSchema<CreateSupplierReturnInput>;
+export const CloseSupplierReturnSchema =
+  closeSupplierReturnSchema as unknown as z.ZodSchema<CloseSupplierReturnInput>;
+export const ListSupplierReturnsSchema =
+  listSupplierReturnsSchema as unknown as z.ZodSchema<ListSupplierReturnsInput>;
+export const WarrantyReportSchema =
+  warrantyReportSchema as unknown as z.ZodSchema<WarrantyReportInput>;
 
 // =============================================================================
 // Profits password gate (frozen contract)

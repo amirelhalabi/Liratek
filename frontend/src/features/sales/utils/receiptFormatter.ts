@@ -12,6 +12,9 @@ export interface ReceiptItem {
   price: number;
   subtotal: number;
   imei?: string | null;
+  /** LIRA-296 P3: what the unit's serial is called ('IMEI' | 'Serial') —
+   *  the product's category label. Missing on older data: "IMEI". */
+  serial_label?: string | null;
   /** LIRA-143 phase 6a (owner decision #4) — live checkout preview/print,
    *  BEFORE the sale row exists: compute "Warranty until" from this
    *  receipt's `timestamp` + the product's warranty_months. Ignored when
@@ -154,7 +157,7 @@ export function formatReceipt58mm(data: ReceiptData): string {
     }
 
     if (item.imei) {
-      receipt += `  IMEI: ${item.imei}\n`;
+      receipt += `  ${item.serial_label || "IMEI"}: ${item.imei}\n`;
     }
 
     const warrantyLine = warrantyLineFor(item, data.timestamp);
@@ -307,7 +310,7 @@ export function formatReceipt80mm(data: ReceiptData): string {
     receipt += padRight(item.quantity.toString(), 8);
     receipt += `${sym}${item.subtotal.toFixed(2)}\n`;
     if (item.imei) {
-      receipt += `  IMEI: ${item.imei}\n`;
+      receipt += `  ${item.serial_label || "IMEI"}: ${item.imei}\n`;
     }
 
     const warrantyLine = warrantyLineFor(item, data.timestamp);

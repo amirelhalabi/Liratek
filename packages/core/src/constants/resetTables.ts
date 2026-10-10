@@ -247,6 +247,8 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "stock_batch_consumptions",
   "supplier_ledger",
   "supplier_purchases",
+  // LIRA-296 v207 — defective items sent back to their supplier.
+  "supplier_returns",
   "supplier_settlements",
   "transactions",
   "vouchers",

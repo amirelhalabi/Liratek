@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  SERIAL_LABELS,
+  SERIAL_REQUIRED_MODES,
+} from "../utils/serialLabel.js";
 
 /**
  * Product unit (per-IMEI phone tracking) validation — LIRA-143 Phase 5
@@ -129,7 +133,8 @@ export const warrantyMonthsSchema = z
   .min(0, "Warranty cannot be negative")
   .max(60, "Warranty can be at most 60 months");
 
-/** At least one of `name`/`tracks_imei_units`/`warranty_months` must be
+/** At least one of `name`/`tracks_imei_units`/`warranty_months`/
+ *  `serial_label`/`serial_required` must be
  *  provided — an all-omitted update is a no-op the caller should not have
  *  sent. */
 export const updateCategorySchema = z
@@ -138,15 +143,21 @@ export const updateCategorySchema = z
     tracks_imei_units: z.boolean().optional(),
     // LIRA-296: the category's default warranty (null clears it).
     warranty_months: warrantyMonthsSchema.nullable().optional(),
+    // LIRA-296 P3: what the unit's serial is called, and whether a sale of
+    // a tracked item without its unit is refused or allowed with a warning.
+    serial_label: z.enum(SERIAL_LABELS).optional(),
+    serial_required: z.enum(SERIAL_REQUIRED_MODES).optional(),
   })
   .refine(
     (v) =>
       v.name !== undefined ||
       v.tracks_imei_units !== undefined ||
-      v.warranty_months !== undefined,
+      v.warranty_months !== undefined ||
+      v.serial_label !== undefined ||
+      v.serial_required !== undefined,
     {
       message:
-        "At least one of name, tracks_imei_units or warranty_months must be provided",
+        "At least one of name, tracks_imei_units, warranty_months, serial_label or serial_required must be provided",
     },
   );
 

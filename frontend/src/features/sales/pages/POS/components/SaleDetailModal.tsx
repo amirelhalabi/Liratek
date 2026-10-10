@@ -83,6 +83,9 @@ interface SaleItem {
   /** LIRA-296 — the line's SOLD unit's override (LIRA-143), when there is
    *  one; it wins over `warranty_until` (same precedence as the search). */
   warranty_override_until?: string | null;
+  /** LIRA-296 P3 — what the line's serial is called ('IMEI' | 'Serial');
+   *  missing on older data (then "IMEI"). */
+  serial_label?: string | null;
 }
 
 interface SaleDetail {
@@ -575,6 +578,7 @@ export default function SaleDetailModal({
         price: item.sold_price_usd,
         subtotal: item.sold_price_usd * item.quantity,
         imei: item.imei || null,
+        serial_label: item.serial_label ?? null,
         // LIRA-143 phase 6a — the sale row already exists here, so use the
         // EXACT stamped value rather than recomputing it.
         warranty_until: item.warranty_until || null,
@@ -802,7 +806,7 @@ export default function SaleDetailModal({
                             )}
                             {item.imei && (
                               <span className="font-mono text-slate-600">
-                                IMEI: {item.imei}
+                                {item.serial_label || "IMEI"}: {item.imei}
                               </span>
                             )}
                           </div>

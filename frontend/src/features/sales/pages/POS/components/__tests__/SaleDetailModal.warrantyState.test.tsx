@@ -183,3 +183,15 @@ describe("SaleDetailModal — start a warranty claim (LIRA-296 P2)", () => {
     );
   });
 });
+
+describe("SaleDetailModal — the serial uses the category's label (LIRA-296 P3)", () => {
+  it("shows 'Serial: SN-1' for a Serial category and keeps 'IMEI:' without a label", async () => {
+    mockApi.getSaleItems.mockResolvedValue([
+      line({ id: 1, name: "Charger", imei: "SN-1", serial_label: "Serial" }),
+      line({ id: 2, name: "Phone", imei: "35-111" }),
+    ]);
+    await renderModal();
+    expect(screen.getByText("Serial: SN-1")).toBeInTheDocument();
+    expect(screen.getByText("IMEI: 35-111")).toBeInTheDocument();
+  });
+});

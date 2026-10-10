@@ -149,7 +149,7 @@ records, tasks/projects, manufacturing, Shopify/WooCommerce.
 
 **Suggested next batch:** #2 statements → #1 WhatsApp sharing (built on #2) → #3 admin PIN.
 Separately, warranty for any item is ticketed as **LIRA-296**
-(`docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md`).
+(`docs/plans/done_plans/WARRANTY_ANY_ITEM_PLAN.md`).
 
 ## 6. Positioning and marketing takeaways
 

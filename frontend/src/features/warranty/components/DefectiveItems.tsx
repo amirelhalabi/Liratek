@@ -2,10 +2,20 @@
  * LIRA-296 P2 (FR-021) — the defective-items holding (admin): faulty units
  * taken back under a warranty claim. Not sellable until resolved: Write off
  * (the cost stands) or Not faulty (back in stock at its cost).
+ * P3 (US7): Send to supplier — the supplier on record (the batch the unit
+ * came from) by default; the admin picks one when none is on record.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@liratek/ui";
-import type { DefectiveItemView } from "@liratek/core";
+import type {
+  CreateSupplierReturnInput,
+  DefectiveItemView,
+} from "@liratek/core";
+
+interface SupplierOption {
+  id: number;
+  name: string;
+}
 
 const STATUS_LABEL: Record<string, string> = {
   HELD: "Held",
@@ -24,6 +34,12 @@ export function DefectiveItems() {
   }, [api]);
   const [items, setItems] = useState<DefectiveItemView[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // P3 — the "Send to supplier" form for one held item.
+  const [sending, setSending] = useState<DefectiveItemView | null>(null);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [supplierId, setSupplierId] = useState("");
+  const [sendNotes, setSendNotes] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -39,6 +55,35 @@ export function DefectiveItems() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const openSend = async (item: DefectiveItemView) => {
+    setSending(item);
+    setSupplierId("");
+    setSendNotes("");
+    setSendError(null);
+    try {
+      const list = (await apiRef.current.getSuppliers()) as SupplierOption[];
+      setSuppliers(Array.isArray(list) ? list : []);
+    } catch {
+      setSuppliers([]);
+    }
+  };
+
+  const send = async () => {
+    if (!sending) return;
+    const payload: CreateSupplierReturnInput = {
+      defective_item_id: sending.id,
+      ...(supplierId ? { supplier_id: Number(supplierId) } : {}),
+      ...(sendNotes.trim() ? { notes: sendNotes.trim() } : {}),
+    };
+    const res = await apiRef.current.createSupplierReturn(payload);
+    if (!res.success) {
+      setSendError(res.error);
+      return;
+    }
+    setSending(null);
+    await load();
+  };
 
   const resolve = async (
     item: DefectiveItemView,
@@ -108,9 +153,15 @@ export function DefectiveItems() {
                       </button>
                       <button
                         onClick={() => void resolve(d, "NOT_FAULTY")}
-                        className="text-emerald-300 hover:text-emerald-200"
+                        className="text-emerald-300 hover:text-emerald-200 mr-3"
                       >
                         Not faulty
+                      </button>
+                      <button
+                        onClick={() => void openSend(d)}
+                        className="text-violet-300 hover:text-violet-200"
+                      >
+                        Send to supplier
                       </button>
                     </>
                   )}
@@ -125,6 +176,54 @@ export function DefectiveItems() {
           </p>
         )}
       </div>
+      {sending && (
+        <div className="flex flex-wrap items-end gap-3 p-3 bg-slate-900/60 rounded-lg">
+          <p className="text-sm text-white w-full">
+            Send {sending.product_name ?? "this item"} back to the supplier
+          </p>
+          <label className="text-xs text-slate-400 flex flex-col">
+            Supplier
+            <select
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+              className="mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white"
+            >
+              <option value="">The supplier it came from</option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-slate-400 flex flex-col flex-1 min-w-[10rem]">
+            Note
+            <input
+              value={sendNotes}
+              maxLength={500}
+              onChange={(e) => setSendNotes(e.target.value)}
+              className="mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white"
+            />
+          </label>
+          <button
+            onClick={() => void send()}
+            className="px-3 py-1.5 rounded-lg text-sm bg-violet-600 text-white"
+          >
+            Send
+          </button>
+          <button
+            onClick={() => setSending(null)}
+            className="px-3 py-1.5 rounded-lg text-sm text-slate-400 hover:text-white"
+          >
+            Cancel
+          </button>
+          {sendError && (
+            <p role="alert" className="text-sm text-red-300 w-full">
+              {sendError}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -346,10 +346,19 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
         )
         .run(tenantId, saleItemId, userId).lastInsertRowid,
     );
+    const defectiveId = Number(
+      db
+        .prepare(
+          `INSERT INTO defective_items (tenant_id, product_id, quantity, unit_cost_usd, warranty_claim_id)
+           VALUES (?, ?, 1, 1, ?)`,
+        )
+        .run(tenantId, productId, claimId).lastInsertRowid,
+    );
+    // LIRA-296 v207 — that item sent back to its supplier.
     db.prepare(
-      `INSERT INTO defective_items (tenant_id, product_id, quantity, unit_cost_usd, warranty_claim_id)
-       VALUES (?, ?, 1, 1, ?)`,
-    ).run(tenantId, productId, claimId);
+      `INSERT INTO supplier_returns (tenant_id, defective_item_id, warranty_claim_id, supplier_id, user_id)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(tenantId, defectiveId, claimId, supplierId, userId);
   });
   run();
 }

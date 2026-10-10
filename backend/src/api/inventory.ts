@@ -729,8 +729,9 @@ router.post(
   },
 );
 
-// PUT /api/inventory/categories/:id — name, tracks_imei_units flag and/or
-// the default warranty_months (LIRA-296)
+// PUT /api/inventory/categories/:id — name, tracks_imei_units flag, the
+// default warranty_months (LIRA-296) and/or serial_label / serial_required
+// (LIRA-296 P3)
 router.put(
   "/categories/:id",
   requireRole(["admin", "staff"]),
@@ -747,6 +748,9 @@ router.put(
         tracksImeiUnits: req.body.tracks_imei_units,
         // LIRA-296: the category's default warranty (null clears it).
         warrantyMonths: req.body.warranty_months,
+        // LIRA-296 P3: the serial label and the sale-without-unit rule.
+        serialLabel: req.body.serial_label,
+        serialRequired: req.body.serial_required,
       });
       auditRest(req, {
         action: "update",
@@ -757,7 +761,9 @@ router.put(
             ? `Updated category #${id} to "${req.body.name}"`
             : req.body.warranty_months !== undefined
               ? `Updated category #${id} (warranty_months=${req.body.warranty_months})`
-              : `Updated category #${id} (tracks_imei_units=${req.body.tracks_imei_units})`,
+              : req.body.tracks_imei_units !== undefined
+                ? `Updated category #${id} (tracks_imei_units=${req.body.tracks_imei_units})`
+                : `Updated category #${id} (serial_label=${req.body.serial_label ?? "—"}, serial_required=${req.body.serial_required ?? "—"})`,
         new_values: req.body,
       });
       res.json({ success: true, updated });

@@ -61,3 +61,58 @@ it("writes off and puts back in stock, only for a held item", async () => {
     }),
   );
 });
+
+describe("Send to supplier (P3)", () => {
+  beforeEach(() => {
+    Object.assign(api, {
+      createSupplierReturn: jest.fn(),
+      getSuppliers: jest
+        .fn()
+        .mockResolvedValue([{ id: 40, name: "Gadget Wholesale" }]),
+    });
+  });
+
+  it("sends a held item to the supplier on record", async () => {
+    (api as unknown as { createSupplierReturn: jest.Mock }).createSupplierReturn
+      .mockResolvedValue({ success: true, data: { id: 9, status: "SENT" } });
+    render(<DefectiveItems />);
+    await screen.findAllByText("Earbuds");
+    fireEvent.click(screen.getByRole("button", { name: "Send to supplier" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+    await waitFor(() =>
+      expect(
+        (api as unknown as { createSupplierReturn: jest.Mock })
+          .createSupplierReturn,
+      ).toHaveBeenCalledWith({ defective_item_id: 4 }),
+    );
+  });
+
+  it("asks for the supplier when none is on record, then sends with it", async () => {
+    const create = (api as unknown as { createSupplierReturn: jest.Mock })
+      .createSupplierReturn;
+    create
+      .mockResolvedValueOnce({
+        success: false,
+        code: "SUPPLIER_REQUIRED",
+        error: "No supplier is on record for this item — pick the supplier.",
+      })
+      .mockResolvedValueOnce({ success: true, data: { id: 9 } });
+    render(<DefectiveItems />);
+    await screen.findAllByText("Earbuds");
+    fireEvent.click(screen.getByRole("button", { name: "Send to supplier" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+    expect(
+      await screen.findByText(/No supplier is on record/),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Supplier"), {
+      target: { value: "40" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() =>
+      expect(create).toHaveBeenLastCalledWith({
+        defective_item_id: 4,
+        supplier_id: 40,
+      }),
+    );
+  });
+});

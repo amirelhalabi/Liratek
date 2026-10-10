@@ -4,7 +4,7 @@ import logger from "@/utils/logger";
 import { X, Save, Printer, Minus, Sparkles, PackagePlus } from "lucide-react";
 import { useApi, appEvents, DecimalInput } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
-import { isPhoneLineCategoryName } from "@liratek/core";
+import { isPhoneLineCategoryName, serialLabelFor } from "@liratek/core";
 import JsBarcode from "jsbarcode";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
@@ -105,7 +105,7 @@ export default function ProductForm({
   // just typed/switched to in this form), rather than the possibly-stale
   // flag baked onto the product row at load time.
   const [categoriesFull, setCategoriesFull] = useState<
-    Array<{ name: string; tracks_imei_units: number }>
+    Array<{ name: string; tracks_imei_units: number; serial_label?: string }>
   >([]);
   const [duplicateInfo, setDuplicateInfo] = useState<null | {
     attempted: string;
@@ -600,6 +600,10 @@ ${labels}
   const categoryTracksImei = categoriesFull.some(
     (c) => c.name === formData.category && c.tracks_imei_units === 1,
   );
+  // LIRA-296 P3 — what that category calls the serial ("IMEI" | "Serial").
+  const categorySerialLabel = serialLabelFor(
+    categoriesFull.find((c) => c.name === formData.category),
+  );
 
   // LIRA-207 (OWNER_NOTES_REMAINING_BUILD.md #13) — a "Phone Lines" category
   // sells resold phone numbers as products (barcode field holds the
@@ -1028,10 +1032,12 @@ ${labels}
                 <ProductUnitsSection
                   productId={product.id}
                   stockQuantity={formData.stock_quantity}
+                  serialLabel={categorySerialLabel}
                 />
               ) : (
                 <div className="text-xs text-slate-400 bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2">
-                  Save the product first to register its IMEI units.
+                  Save the product first to register its {categorySerialLabel}{" "}
+                  units.
                 </div>
               ))}
           </div>

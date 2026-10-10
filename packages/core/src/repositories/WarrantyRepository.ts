@@ -398,6 +398,46 @@ export class WarrantyClaimSideRepository extends BaseRepository<BaseEntity> {
     );
   }
 
+  /** Reverse {@link returnUnitToStock} when a claim void undoes a supplier
+   *  replacement: the unit is the faulty one again (SOLD, defective). False
+   *  (nothing written) when it is no longer on the shelf — sold again. */
+  unitBackToDefective(unitId: number): boolean {
+    return (
+      this.execute(
+        `UPDATE product_units SET status = 'SOLD', is_defective = 1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND tenant_id = ? AND status = 'IN_STOCK'`,
+        unitId,
+        getCurrentTenantId(),
+      ).changes > 0
+    );
+  }
+
+  /** The supplier of the earliest FIFO batch a sale line consumed — the
+   *  default for a supplier return. Null when no consumed batch names one. */
+  supplierForSaleItem(saleItemId: number): number | null {
+    const tenantId = getCurrentTenantId();
+    const row = this.queryOne<{ supplier_id: number }>(
+      `SELECT b.supplier_id FROM stock_batch_consumptions c
+         JOIN product_stock_batches b ON b.id = c.batch_id AND b.tenant_id = ?
+        WHERE c.sale_item_id = ? AND c.tenant_id = ? AND b.supplier_id IS NOT NULL
+        ORDER BY c.id LIMIT 1`,
+      tenantId,
+      saleItemId,
+      tenantId,
+    );
+    return row?.supplier_id ?? null;
+  }
+
+  /** True when the supplier exists in this shop. */
+  supplierExists(supplierId: number): boolean {
+    return !!this.queryOne<{ id: number }>(
+      `SELECT id FROM suppliers WHERE id = ? AND tenant_id = ?`,
+      supplierId,
+      getCurrentTenantId(),
+    );
+  }
+
   /** A "not faulty" unit back on the shelf. */
   returnUnitToStock(unitId: number): void {
     this.execute(

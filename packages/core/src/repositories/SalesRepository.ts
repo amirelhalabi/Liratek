@@ -11,6 +11,7 @@ import {
   DatabaseError,
   NotFoundError,
   BusinessRuleError,
+  SerialRequiredError,
 } from "../utils/errors.js";
 import { salesLogger } from "../utils/logger.js";
 import { lineGrossMarginUsd } from "../utils/saleMargin.js";
@@ -97,6 +98,9 @@ export interface SaleItemWithProduct extends SaleItemEntity {
    *  null — so the sale details apply the same precedence as the warranty
    *  search (override > refund > stamped date). */
   warranty_override_until?: string | null;
+  /** LIRA-296 P3: what the line's serial is called ('IMEI' | 'Serial');
+   *  null on a schema without v207. */
+  serial_label?: string | null;
 }
 
 export interface DraftSaleWithItems extends SaleWithClient {
@@ -391,6 +395,25 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     return this._warrantyV205Cache;
   }
 
+  /** LIRA-296 P3 (v207): does `product_categories.serial_required` exist?
+   *  Hand-built test schemas predate it — then every category is BLOCK,
+   *  exactly the pre-P3 behaviour. */
+  private _serialV207Cache: boolean | null = null;
+  private _serialV207(): boolean {
+    if (this._serialV207Cache === null) {
+      const has = (table: string, col: string): boolean =>
+        (
+          this.db.prepare(`PRAGMA table_info(${table})`).all() as {
+            name: string;
+          }[]
+        ).some((c) => c.name === col);
+      this._serialV207Cache =
+        has("product_categories", "serial_required") &&
+        has("products", "category_id");
+    }
+    return this._serialV207Cache;
+  }
+
   private _productUnitsTableExistsCache: boolean | null = null;
   private _productUnitsTableExists(): boolean {
     if (this._productUnitsTableExistsCache === null) {
@@ -420,6 +443,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     success: boolean;
     id?: number;
     error?: string;
+    /** LIRA-296 P3: `SERIAL_REQUIRED` when a BLOCK category refused it. */
+    code?: string;
+    /** LIRA-296 P3: things the cashier should know about a sale that went
+     *  through (a WARN category sold without its unit). */
+    warnings?: string[];
   } {
     const db = this.db;
     const tableName = this.tableName;
@@ -861,6 +889,24 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           ? sale.transaction_time.slice(0, 10)
           : (sale.client_day ?? clientDay());
 
+        // LIRA-296 P3: the category's serial rule (BLOCK | WARN), read only
+        // when a line trips the unit check below. By category_id, else (legacy
+        // rows) by the category NAME the product carries.
+        const warnings: string[] = [];
+        const serialModeStmt = this._serialV207()
+          ? db.prepare(
+              `SELECT COALESCE(
+                        (SELECT pc.serial_required FROM product_categories pc
+                          WHERE pc.tenant_id = ? AND pc.id = p.category_id),
+                        (SELECT pc.serial_required FROM product_categories pc
+                          WHERE pc.tenant_id = ? AND p.category_id IS NULL
+                            AND pc.name = p.category COLLATE NOCASE
+                          LIMIT 1)
+                      ) AS serial_required
+                 FROM products p WHERE p.id = ? AND p.tenant_id = ?`,
+            )
+          : null;
+
         sale.items.forEach((item, index) => {
           let imeiToWrite = item.imei || null;
           let matchedUnit: ProductUnitEntity | null = null;
@@ -921,9 +967,25 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               };
               if (countRow.count > 0) {
                 const productName = productMetaByIndex[index].name;
-                throw new BusinessRuleError(
-                  `"${productName}" has ${countRow.count} IMEI-registered unit(s) in stock — identify the unit being sold (scan its IMEI or pick it on the cart line)`,
-                );
+                // LIRA-296 P3 (FR-022): the product's category decides —
+                // BLOCK refuses (as before, now with a code), WARN lets the
+                // sale through with a warning and marks no unit sold.
+                const mode = serialModeStmt?.get(
+                  tenantId,
+                  tenantId,
+                  item.product_id,
+                  tenantId,
+                ) as { serial_required: string | null } | undefined;
+                if (mode?.serial_required === "WARN") {
+                  // The line carries on below with no unit matched.
+                  warnings.push(
+                    `"${productName}" was sold without picking which unit — its warranty can't be found by serial until the unit is recorded.`,
+                  );
+                } else {
+                  throw new SerialRequiredError(
+                    `"${productName}" has ${countRow.count} IMEI-registered unit(s) in stock — identify the unit being sold (scan its IMEI or pick it on the cart line)`,
+                  );
+                }
               }
             }
           }
@@ -1419,7 +1481,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           }
         }
 
-        return { success: true, id: saleId };
+        return {
+          success: true,
+          id: saleId,
+          ...(warnings.length > 0 ? { warnings } : {}),
+        };
       });
 
       // IMMEDIATE: take the write lock at BEGIN so the read-check-write is
@@ -1430,6 +1496,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof SerialRequiredError ? { code: error.code } : {}),
       };
     }
   }
@@ -1707,14 +1774,28 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                AND pu.status = 'SOLD'
              ORDER BY pu.id LIMIT 1) AS warranty_override_until`
         : `NULL AS warranty_override_until`;
+      // LIRA-296 P3: what the line's serial is called (the product's
+      // category's label; "IMEI" — the pre-P3 meaning — when it has none).
+      // NULL on a schema without v207 (the screens then say "IMEI").
+      const withSerial = this._serialV207();
+      const serialCol = withSerial
+        ? `COALESCE(
+             (SELECT pc.serial_label FROM product_categories pc
+               WHERE pc.id = p.category_id AND pc.tenant_id = ?),
+             (SELECT pc.serial_label FROM product_categories pc
+               WHERE p.category_id IS NULL AND pc.name = p.category COLLATE NOCASE
+                 AND pc.tenant_id = ? LIMIT 1),
+             'IMEI') AS serial_label`
+        : `NULL AS serial_label`;
       return this.query<SaleItemWithProduct>(
         `
-        SELECT si.*, p.name, p.barcode, ${overrideCol}
+        SELECT si.*, p.name, p.barcode, ${overrideCol}, ${serialCol}
         FROM sale_items si
         JOIN products p ON si.product_id = p.id AND p.tenant_id = ?
         WHERE si.sale_id = ? AND si.tenant_id = ?
       `,
         ...(withUnits ? [tenantId] : []),
+        ...(withSerial ? [tenantId, tenantId] : []),
         tenantId,
         saleId,
         tenantId,

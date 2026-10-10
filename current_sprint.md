@@ -6565,13 +6565,15 @@ Update 2026-10-07 (owner): instead of one drawer, a single "Checkpoint — all d
 
 **What users will notice:** after signing in, the Checkpoint window opens for any drawer not counted today; invites into a lapsed shop ask the owner to renew first.
 
-## LIRA-296: warranty for any item, not just phones — P1 + P2 DONE, not yet released (owner request 2026-10-10; decisions D1–D4 2026-10-10)
+## LIRA-296: warranty for any item, not just phones — P1 + P2 + P3 DONE, not yet released (owner request 2026-10-10; decisions D1–D4 2026-10-10)
 
-Spec: `specs/296-warranty-any-item/`. Plan: `docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md`. Migration v205 (P1).
+Spec: `specs/296-warranty-any-item/`. Plan: `docs/plans/done_plans/WARRANTY_ANY_ITEM_PLAN.md`. Migration v205 (P1).
 
 - **P1 DONE (local commit, not pushed):** one receipt number `RCP-<sale id>` (core `receiptNumberFor`/`parseReceiptNumber`); one warranty-state helper (core `warrantyState`, replaces `computeWarrantyStatus` + the frontend copy); v205 (`product_categories.warranty_months`, `sale_items.warranty_months`/`warranty_set_by`, `idx_sale_items_warranty_until`); warranty search (`WarrantyRepository`/`WarrantyService`, IPC `warranty:search`, REST `GET /api/warranty/search`, adapter `searchWarranties`, `/warranty` page + sidebar); state on every sale line incl. partial refunds; category default + till edit (`resolveWarrantyMonths`, `client_day` starts the clock, rule 27); warranty terms setting + receipts; side fixes SF-1 (web recent-sales day), SF-2 (`GET /api/sales/by-date-range` + `getSalesByDateRange`), SF-3 (receipt header prints).
 - **P2 DONE (local commit, not pushed):** migration v206 (`warranty_claims`, `defective_items`, maintenance/consumption/unit warranty columns); `WARRANTY_COST` type (no legs, `is_auto`, NON_REVERSIBLE, posting rule); `refundSaleItem({ restock: false })` + claim-owned undo; `WarrantyService.createClaim` (REPAIR/REPLACE/REFUND, guards), `voidClaim` (nets every ledger to 0 — `voidNetsZero.test.ts`), `resolveDefective`; warranty jobs free + cost booked once at delivery (`notWarrantyJob`); Profits "Warranty cost" line (totals, detail, By Date/By Cashier, Overview card); IPC + REST + adapters for claims/defective; ClaimModal / ClaimHistory / DefectiveItems; repair warranty (months, stamped at Delivered_Paid from `client_day`, on the receipt, in the search, claimable).
-- **P3:** serials for any category, supplier returns, report — see tasks.md.
+- **P3 DONE (local commit, not pushed):** migration v207 (`product_categories.serial_label`/`serial_required`, `supplier_returns` with the links its outcome wrote); serial label through every layer (Settings, cart picker, checkout receipt, sale details + reprint via `getSaleItems.serial_label`, product form units section; core `serialLabelFor`); a sale without the unit: BLOCK → `code: SERIAL_REQUIRED`, WARN → `warnings[]` + a till warning; supplier returns (`SupplierReturnRepository`, `WarrantyService.createSupplierReturn/closeSupplierReturn/listSupplierReturns`; CREDITED = paper ADJUSTMENT −credit + `WARRANTY_COST` +credit per currency, REPLACED = restock batch + +cost, REJECTED = back to HELD; `voidClaim` undoes closed returns and refuses an open one); warranty report (`WarrantyReportRepository`, `WarrantyService.report`, net = −Profits "Warranty cost"); IPC + REST + adapters; `SupplierReturns.tsx`, `WarrantyReport.tsx`, "Send to supplier" in Defective items.
+
+**What users will notice (P3):** categories can call their serials "Serial" or "IMEI" and choose to block or only warn when an item is sold without its serial; faulty items can be sent back to the supplier and the supplier's credit, replacement or rejection recorded; a Warranty report shows what is still under warranty and what claims cost versus what suppliers gave back.
 
 **What users will notice (P2):** from a found warranty, staff start a repair claim and admins a replacement or refund; faulty items are held aside until written off or found not faulty; Profits shows one "Warranty cost" line; repairs can carry their own warranty, printed on the repair receipt.
 
@@ -6580,7 +6582,7 @@ Spec: `specs/296-warranty-any-item/`. Plan: `docs/plans/todo_plans/WARRANTY_ANY_
 ### Before P1 (original ticket)
 
 
-Plan: `docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md`.
+Plan: `docs/plans/done_plans/WARRANTY_ANY_ITEM_PLAN.md`.
 
 - **Already there (LIRA-143):** `products.warranty_months` on ANY product, stamped as `sale_items.warranty_until` on every completed sale line, printed on the receipt.
 - **Missing:** looking a warranty up and acting on it without an IMEI. Gaps G1–G8 in the plan: find by customer / phone / receipt (G1), serial numbers for non-phone items (G2), warranty state on every sale line (G3), claim flow — repair / replace / refund (G4), supplier RMA (G5), per-category default + per-line edit + terms on receipt (G6), warranty on repairs (G7), warranty report (G8).

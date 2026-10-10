@@ -11,6 +11,8 @@ import { ImeiAddRow, type ImeiAddRowResult } from "./ImeiAddRow";
 export interface ProductUnitsSectionProps {
   productId: number;
   stockQuantity: number;
+  /** LIRA-296 P3: what the category calls the serial ("IMEI" | "Serial"). */
+  serialLabel?: "IMEI" | "Serial";
 }
 
 /**
@@ -27,6 +29,7 @@ export interface ProductUnitsSectionProps {
 export function ProductUnitsSection({
   productId,
   stockQuantity,
+  serialLabel = "IMEI",
 }: ProductUnitsSectionProps) {
   const {
     data: units = [],
@@ -75,7 +78,9 @@ export function ProductUnitsSection({
       className="border-t border-slate-700 pt-4 space-y-3"
       data-testid="product-units-section"
     >
-      <h3 className="text-sm font-semibold text-white">Units / IMEIs</h3>
+      <h3 className="text-sm font-semibold text-white">
+        Units / {serialLabel}s
+      </h3>
 
       {!drift.matches && (
         <div
@@ -148,9 +153,12 @@ export function ProductUnitsSection({
 
       <div>
         <label className="block text-xs text-slate-400 mb-1">
-          Add a unit — scan or type the IMEI, then press Enter
+          Add a unit — scan or type the {serialLabel}, then press Enter
         </label>
-        <ImeiAddRow onAdd={handleAddImei} placeholder="356938035643809" />
+        <ImeiAddRow
+          onAdd={handleAddImei}
+          placeholder={serialLabel === "IMEI" ? "356938035643809" : "SN-0001"}
+        />
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 # Warranty for any item, not just phones — LIRA-296
 
-**Status:** TODO — nothing built beyond what LIRA-143 already shipped. Owner request 2026-10-10:
+**Status:** DONE 2026-10-10 — built in three local commits (P1, P2, P3; not pushed). The
+spec, plan and task list are in `specs/296-warranty-any-item/`. Owner request 2026-10-10:
 "there could be different items that can have warranty, not just phones."
 
 ## What already exists (verified against source, 2026-10-10)

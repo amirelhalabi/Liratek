@@ -70,6 +70,8 @@ export * from "./utils/sqlLike.js";
 // LIRA-296: receipt number + warranty state (pure; also in browser.ts).
 export * from "./utils/receiptNumber.js";
 export * from "./utils/warrantyState.js";
+// LIRA-296 P3: what a unit serial is called (IMEI | Serial).
+export * from "./utils/serialLabel.js";
 // OMT / WHISH fee tables + commission rates — also exported from browser.ts.
 export * from "./utils/omtFees.js";
 export * from "./utils/whishFees.js";

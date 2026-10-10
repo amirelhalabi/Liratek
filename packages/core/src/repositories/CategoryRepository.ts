@@ -2,6 +2,10 @@ import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
+import type {
+  SerialLabel,
+  SerialRequiredMode,
+} from "../utils/serialLabel.js";
 
 export interface ProductCategory {
   id: number;
@@ -14,11 +18,21 @@ export interface ProductCategory {
   /** LIRA-296 v205: the category's default warranty in months (0–60);
    *  NULL = none. A product without its own length uses it at sale time. */
   warranty_months: number | null;
+  /** LIRA-296 v207: what the unit's serial is called ('IMEI' | 'Serial'). */
+  serial_label: SerialLabel;
+  /** LIRA-296 v207: a sale of a tracked item without its unit is refused
+   *  (BLOCK) or allowed with a warning (WARN). */
+  serial_required: SerialRequiredMode;
   created_at: string;
 }
 
-const COLUMNS =
-  "id, name, sort_order, is_active, tracks_imei_units, warranty_months, created_at";
+const BASE_COLUMNS =
+  "id, name, sort_order, is_active, tracks_imei_units, warranty_months";
+/** v207 columns, or their pre-v207 meaning on an older/hand-built schema. */
+const SERIAL_COLUMNS =
+  "serial_label, serial_required";
+const SERIAL_FALLBACK =
+  "CASE WHEN tracks_imei_units = 1 THEN 'IMEI' ELSE 'Serial' END AS serial_label, 'BLOCK' AS serial_required";
 
 /** Fields `update()` may change — at least one must be provided. `name`
  *  omitted/`undefined` leaves the existing name untouched; same for
@@ -28,6 +42,9 @@ export interface CategoryUpdateOptions {
   tracksImeiUnits?: boolean | undefined;
   /** LIRA-296: `null` clears the default; `undefined` leaves it alone. */
   warrantyMonths?: number | null | undefined;
+  /** LIRA-296 P3 (v207). `undefined` leaves it alone. */
+  serialLabel?: SerialLabel | undefined;
+  serialRequired?: SerialRequiredMode | undefined;
 }
 
 export class CategoryRepository {
@@ -49,10 +66,21 @@ export class CategoryRepository {
     return this._db ?? getDatabase();
   }
 
+  /** Does this database have the v207 serial columns? Not cached: the
+   *  repository follows whichever connection is current (see `db`). */
+  private hasSerialColumns(): boolean {
+    return (
+      this.db.prepare(`PRAGMA table_info(product_categories)`).all() as {
+        name: string;
+      }[]
+    ).some((c) => c.name === "serial_required");
+  }
+
   getAll(): ProductCategory[] {
+    const serial = this.hasSerialColumns() ? SERIAL_COLUMNS : SERIAL_FALLBACK;
     return this.db
       .prepare(
-        `SELECT ${COLUMNS} FROM product_categories WHERE is_active = 1 AND tenant_id = ? ORDER BY sort_order ASC, name ASC`,
+        `SELECT ${BASE_COLUMNS}, ${serial}, created_at FROM product_categories WHERE is_active = 1 AND tenant_id = ? ORDER BY sort_order ASC, name ASC`,
       )
       .all(getCurrentTenantId()) as ProductCategory[];
   }
@@ -95,9 +123,17 @@ export class CategoryRepository {
       setClauses.push("warranty_months = ?");
       params.push(opts.warrantyMonths);
     }
+    if (opts.serialLabel !== undefined) {
+      setClauses.push("serial_label = ?");
+      params.push(opts.serialLabel);
+    }
+    if (opts.serialRequired !== undefined) {
+      setClauses.push("serial_required = ?");
+      params.push(opts.serialRequired);
+    }
     if (setClauses.length === 0) {
       throw new DatabaseError(
-        "update: at least one of name/tracksImeiUnits/warrantyMonths must be provided",
+        "update: at least one of name/tracksImeiUnits/warrantyMonths/serialLabel/serialRequired must be provided",
       );
     }
 

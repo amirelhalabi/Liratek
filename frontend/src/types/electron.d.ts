@@ -33,6 +33,12 @@ import type {
   VoidWarrantyClaimInput,
   ListDefectiveItemsInput,
   ResolveDefectiveInput,
+  CreateSupplierReturnInput,
+  CloseSupplierReturnInput,
+  ListSupplierReturnsInput,
+  WarrantyReportInput,
+  SupplierReturnView,
+  WarrantyReport,
   WarrantyClaimResultData,
   WarrantyClaimView,
   DefectiveItemView,
@@ -969,6 +975,9 @@ export interface ElectronAPI {
         tracks_imei_units: number;
         /** LIRA-296 v205: default warranty in months; null = none. */
         warranty_months: number | null;
+        /** LIRA-296 P3 (v207): the serial name and the sale-without-unit rule. */
+        serial_label?: "IMEI" | "Serial";
+        serial_required?: "BLOCK" | "WARN";
       }>
     >;
     createCategory: (
@@ -1049,7 +1058,15 @@ export interface ElectronAPI {
   sales: {
     process: (
       saleData: import("@liratek/core").SaleRequest,
-    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    ) => Promise<{
+      success: boolean;
+      id?: number;
+      error?: string;
+      /** LIRA-296 P3: `SERIAL_REQUIRED` when a BLOCK category refused it. */
+      code?: string;
+      /** LIRA-296 P3: notes for the cashier on a sale that went through. */
+      warnings?: string[];
+    }>;
     get: (saleId: number) => Promise<any>;
     getItems: (saleId: number) => Promise<any[]>;
     getDrafts: () => Promise<
@@ -2864,6 +2881,19 @@ export interface ElectronAPI {
     resolveDefective: (
       data: ResolveDefectiveInput,
     ) => Promise<WarrantyEnvelope<DefectiveItemView>>;
+    // P3 — supplier returns and the report (admin).
+    createSupplierReturn: (
+      data: CreateSupplierReturnInput,
+    ) => Promise<WarrantyEnvelope<SupplierReturnView>>;
+    closeSupplierReturn: (
+      data: CloseSupplierReturnInput,
+    ) => Promise<WarrantyEnvelope<SupplierReturnView>>;
+    listSupplierReturns: (
+      data: ListSupplierReturnsInput,
+    ) => Promise<WarrantyEnvelope<SupplierReturnView[]>>;
+    report: (
+      data: WarrantyReportInput,
+    ) => Promise<WarrantyEnvelope<WarrantyReport>>;
   };
 
   // Product Units (LIRA-143 Phase 5 — phone IMEI units & warranty) —

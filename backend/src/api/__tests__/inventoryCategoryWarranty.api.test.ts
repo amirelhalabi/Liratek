@@ -95,4 +95,41 @@ describe("category default warranty over REST", () => {
       .set("x-test-role", "staff");
     expect(res.body.data[0]).toHaveProperty("warranty_months", 1);
   });
+
+  it("LIRA-296 P3: PUT forwards serial_label and serial_required (rule 23)", async () => {
+    const spy = jest.spyOn(repo, "update").mockReturnValue(true);
+    const res = await request(buildApp())
+      .put("/api/inventory/categories/3")
+      .set("x-test-role", "admin")
+      .send({ serial_label: "Serial", serial_required: "WARN" });
+    expect(res.body).toEqual({ success: true, updated: true });
+    expect((spy.mock.calls[0] as unknown[])[1]).toMatchObject({
+      serialLabel: "Serial",
+      serialRequired: "WARN",
+    });
+  });
+
+  it("LIRA-296 P3: GET /categories-full returns serial_label and serial_required", async () => {
+    jest.spyOn(repo, "getAll").mockReturnValue([
+      {
+        id: 3,
+        name: "Laptops",
+        sort_order: 0,
+        is_active: 1,
+        tracks_imei_units: 1,
+        warranty_months: null,
+        serial_label: "Serial",
+        serial_required: "WARN",
+        created_at: "x",
+      },
+    ] as never);
+    const res = await request(buildApp())
+      .get("/api/inventory/categories-full")
+      .set("x-test-role", "staff");
+    expect(res.body.data[0]).toMatchObject({
+      serial_label: "Serial",
+      serial_required: "WARN",
+    });
+  });
 });
+

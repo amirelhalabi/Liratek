@@ -124,6 +124,12 @@ const TABLE_GROUPS: Array<{ label: string; tables: string[] }> = [
     ],
   },
   {
+    // LIRA-296: warranty claims, the faulty items taken back, and the
+    // returns sent to suppliers.
+    label: "Warranty claims & supplier returns",
+    tables: ["warranty_claims", "defective_items", "supplier_returns"],
+  },
+  {
     label: "Expenses",
     tables: ["expenses"],
   },

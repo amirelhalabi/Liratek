@@ -24,7 +24,11 @@ import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { DEFAULT_DRAWER_NAME as DRAWER_B } from "@/constants/checkout";
-import { receiptNumberFor } from "@liratek/core";
+import {
+  receiptNumberFor,
+  serialLabelFor,
+  type SerialLabel,
+} from "@liratek/core";
 import {
   isPaymentComplete,
   convertLBPToUSD,
@@ -106,6 +110,12 @@ interface CheckoutModalProps {
   /** LIRA-296: the sale's id when it already exists (a resumed draft) — the
    *  receipt then prints `RCP-<id>`, the same number a reprint prints. */
   saleId?: number | null | undefined;
+  /** LIRA-296 P3: what a line's category calls its unit serial ("IMEI" or
+   *  "Serial"), for the receipt. Omitted: the tracking flag decides. */
+  serialLabelOf?: (
+    category: string | null | undefined,
+    tracksImeiUnits?: number | boolean | null,
+  ) => SerialLabel;
 }
 
 export type CheckoutDraftData = {
@@ -144,6 +154,8 @@ export default function CheckoutModal({
   onRestoreDraftComplete,
   isDraft,
   saleId,
+  serialLabelOf = (_category, tracksImeiUnits) =>
+    serialLabelFor({ tracks_imei_units: tracksImeiUnits ?? 1 }),
 }: CheckoutModalProps) {
   useModalFocusFix(true);
   // Currency the total is expressed in ("USD" by default). When "LBP" the
@@ -636,6 +648,10 @@ export default function CheckoutModal({
         price: item.retail_price,
         subtotal: item.retail_price * item.quantity,
         imei: item.imei || null,
+        // LIRA-296 P3 — "IMEI" or "Serial", as the category calls it.
+        serial_label: item.imei
+          ? serialLabelOf(item.category, item.tracks_imei_units)
+          : null,
         // LIRA-143 phase 6a (owner decision #4) — the sale row doesn't
         // exist yet at print-preview time, so there's no stamped
         // warranty_until to read; the formatter computes it from

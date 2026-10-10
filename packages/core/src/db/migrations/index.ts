@@ -14265,6 +14265,75 @@ CREATE INDEX IF NOT EXISTS idx_defective_items_product ON defective_items(tenant
       `);
     },
   },
+  {
+    version: 207,
+    name: "serial_categories_supplier_returns",
+    description:
+      "LIRA-296 P3: product_categories gains serial_label ('IMEI' | " +
+      "'Serial', default 'Serial', back-filled to 'IMEI' where the category " +
+      "already tracks units) and serial_required ('BLOCK' | 'WARN': a sale " +
+      "of a serial-tracked item without its unit is refused or allowed with " +
+      "a warning). New table supplier_returns: a defective item sent back to " +
+      "its supplier (SENT → CREDITED | REPLACED | REJECTED), with the supplier " +
+      "ledger entry, cost transaction and restock batch its outcome wrote, so " +
+      "voiding the claim can reverse each one (rule 20).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (tableExists(db, "product_categories")) {
+        if (!columnExists(db, "product_categories", "serial_label")) {
+          db.exec(
+            `ALTER TABLE product_categories ADD COLUMN serial_label TEXT NOT NULL DEFAULT 'Serial' CHECK (serial_label IN ('IMEI', 'Serial'));`,
+          );
+          if (columnExists(db, "product_categories", "tracks_imei_units")) {
+            db.exec(
+              `UPDATE product_categories SET serial_label = 'IMEI' WHERE tracks_imei_units = 1;`,
+            );
+          }
+        }
+        if (!columnExists(db, "product_categories", "serial_required")) {
+          db.exec(
+            `ALTER TABLE product_categories ADD COLUMN serial_required TEXT NOT NULL DEFAULT 'BLOCK' CHECK (serial_required IN ('BLOCK', 'WARN'));`,
+          );
+        }
+      }
+      db.exec(`CREATE TABLE IF NOT EXISTS supplier_returns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    defective_item_id INTEGER NOT NULL REFERENCES defective_items(id),
+    warranty_claim_id INTEGER NOT NULL REFERENCES warranty_claims(id),
+    supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+    status TEXT NOT NULL DEFAULT 'SENT' CHECK (status IN ('SENT', 'CREDITED', 'REPLACED', 'REJECTED')),
+    credit_usd REAL NOT NULL DEFAULT 0,
+    credit_lbp REAL NOT NULL DEFAULT 0,
+    ledger_entry_id INTEGER REFERENCES supplier_ledger(id),
+    cost_transaction_id INTEGER REFERENCES transactions(id),
+    restock_batch_id INTEGER REFERENCES product_stock_batches(id),
+    user_id INTEGER NOT NULL,
+    closed_by INTEGER,
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    closed_at TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_supplier_returns_defective_item ON supplier_returns(tenant_id, defective_item_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_returns_claim ON supplier_returns(tenant_id, warranty_claim_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_returns_supplier ON supplier_returns(tenant_id, supplier_id);`);
+    },
+    down(db: Database.Database) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_supplier_returns_supplier;
+        DROP INDEX IF EXISTS idx_supplier_returns_claim;
+        DROP INDEX IF EXISTS idx_supplier_returns_defective_item;
+        DROP TABLE IF EXISTS supplier_returns;
+      `);
+      for (const col of ["serial_required", "serial_label"] as const) {
+        if (columnExists(db, "product_categories", col)) {
+          db.exec(`ALTER TABLE product_categories DROP COLUMN ${col};`);
+        }
+      }
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

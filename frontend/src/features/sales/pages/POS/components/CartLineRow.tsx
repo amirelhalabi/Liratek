@@ -8,7 +8,10 @@ import {
   shouldAlwaysAddNewLine,
 } from "@/features/sales/utils/cartGate";
 import { getCartLineKey } from "@/features/sales/utils/cartLineKey";
-import { useCategoryWarrantyDefaults } from "@/features/sales/hooks/useCategoryWarrantyDefaults";
+import {
+  useCategorySerialLabels,
+  useCategoryWarrantyDefaults,
+} from "@/features/sales/hooks/useCategoryWarrantyDefaults";
 import { resolveWarrantyMonths, warrantyMonthsSchema } from "@liratek/core";
 
 function WarrantyBadge({ months }: { months: number | null | undefined }) {
@@ -159,6 +162,11 @@ export function CartLineRow({
   onSetWarranty,
 }: CartLineRowProps) {
   const lineKey = getCartLineKey(item);
+  // LIRA-296 P3: "IMEI" or "Serial", as the category calls it.
+  const serialLabel = useCategorySerialLabels()(
+    item.category,
+    item.tracks_imei_units,
+  );
   const { data: units = [] } = useInStockUnitsQuery(
     item.tracks_imei_units ? item.id : null,
   );
@@ -231,7 +239,7 @@ export function CartLineRow({
               }}
               className="w-full h-[30px] bg-slate-900 border border-slate-700/50 rounded-lg px-2 text-[10px] text-white focus:border-violet-500/50 outline-none font-mono"
             >
-              <option value="">Select IMEI / Serial…</option>
+              <option value="">Select {serialLabel}…</option>
               {unitOptions.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.is_defective ? `${u.imei} — Defective` : u.imei}
@@ -270,7 +278,7 @@ export function CartLineRow({
             aria-label="Decrease quantity"
             title={
               isLockedQty
-                ? "Locked at 1 — each IMEI/unit is its own line"
+                ? `Locked at 1 — each ${serialLabel}/unit is its own line`
                 : undefined
             }
           >
@@ -286,7 +294,7 @@ export function CartLineRow({
             aria-label="Increase quantity"
             title={
               isLockedQty
-                ? "Locked at 1 — each IMEI/unit is its own line"
+                ? `Locked at 1 — each ${serialLabel}/unit is its own line`
                 : undefined
             }
           >

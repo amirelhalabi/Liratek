@@ -242,7 +242,8 @@ on that expense row existing.
 | Expense, shop uses a Katsh / iPick / Whish App item — `EXPENSE_KATSH` / `EXPENSE_IPICK` / `EXPENSE_WHISH_APP` (LIRA-262) | provider drawer (`Katsh` / `iPick` / `Whish_App`) −`cost_lbp × qty` LBP, one leg noted `Cost: <provider>` (internal, not customer cash); **no cash drawer** | — (prepaid at top-up) | — | — | expense row `amount_lbp` = cost → net profit −cost (txn stamps 0) |
 | Hold money drop-off / pickup / void pickup | legs ± | — | — | — (liability lives in `hold_money`) | 0 |
 | Drawer cashout | General − | — | — | — | — |
-| Warranty claim — `WARRANTY_COST` (LIRA-296, `WarrantyService`; one profit-only row per claim cost/recovery, `source_table='warranty_claims'`, `is_auto`) | **— none** (no `payments` row). A REFUND claim's cash moves on its own REFUND row (the refund-item rule, `restock: false`) | — | — | — (a REFUND claim's account share via the refund-item rule) | REPLACE: −FIFO cost of the replacement (stock −1, consumption owner `warranty_claim_id`); REFUND: −the line's cost (faulty unit → `defective_items` HELD, never restocked); REPAIR: −(labour cost + parts) booked once when the free job reaches Delivered; NOT_FAULTY: +cost (back in stock). Profits "Warranty cost" line. Reversal: `WarrantyService.voidClaim` (exact negation, `reverses_id`) |
+| Warranty claim — `WARRANTY_COST` (LIRA-296, `WarrantyService`; one profit-only row per claim cost/recovery, `source_table='warranty_claims'`, `is_auto`) | **— none** (no `payments` row). A REFUND claim's cash moves on its own REFUND row (the refund-item rule, `restock: false`) | — | — | — (a REFUND claim's account share via the refund-item rule) | REPLACE: −FIFO cost of the replacement (stock −1, consumption owner `warranty_claim_id`); REFUND: −the line's cost (faulty unit → `defective_items` HELD, never restocked); REPAIR: −(labour cost + parts) booked once when the free job reaches Delivered; NOT_FAULTY: +cost (back in stock); supplier return (P3) CREDITED: +credit per currency, REPLACED: +cost (unit back in stock, a fresh batch from that supplier). Each row's `metadata.kind` says which (COST / NOT_FAULTY / SUPPLIER_CREDIT / SUPPLIER_REPLACED / REVERSAL). Profits "Warranty cost" line. Reversal: `WarrantyService.voidClaim` (exact negation, `reverses_id`, per currency) |
+| Warranty supplier return CREDITED — `SUPPLIER_ADJUSTMENT` (LIRA-296 P3, `WarrantyService.closeSupplierReturn` → `SupplierRepository.addLedgerEntry` ADJUSTMENT, no drawer) | **— none** | — | supplier −credit (USD and/or LBP: the shop owes less) | — | the matching +credit is the `WARRANTY_COST` row above. Reversal: voiding the claim writes the opposite ADJUSTMENT (`undoSupplierReturns`); the link is `supplier_returns.ledger_entry_id` |
 
 ### 4.7 Counterparty operations — `SupplierRepository`, `PartnerRepository`, `PartnerService`
 
@@ -299,8 +300,10 @@ item refund + undo (`TransactionRepository`), split checkout (`voidCheckoutGroup
 pickup void (`HoldMoneyRepository.voidPickup`), warranty claim void (`WarrantyService.voidClaim`,
 LIRA-296: undoes the claim's refund via `undoSaleItemRefund({ fromWarrantyClaim })`, returns a
 replacement to stock + its batch (`restoreForWarrantyClaim`), voids the free repair job and puts its
-parts back, deletes the defective row, negates every WARRANTY_COST row — proven by
-`WarrantyService.voidNetsZero.test.ts`). The generic "Undo refund" refuses a claim's REFUND row and
+parts back, deletes the defective row, negates every WARRANTY_COST row; P3: first undoes every
+CLOSED supplier return — an opposite paper ADJUSTMENT for a credit, the restock batch and unit taken
+back off the shelf for a replacement (refused, `RESTOCK_ALREADY_SOLD`, once sold) — and refuses while
+a return is still SENT — proven by `WarrantyService.voidNetsZero.test.ts`). The generic "Undo refund" refuses a claim's REFUND row and
 a live warranty repair job can't be deleted or charged.
 
 `NON_REVERSIBLE_TRANSACTION_TYPES` (25, `constants/transactionTypes.ts`): LOTO_CASH_PRIZE,

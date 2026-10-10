@@ -297,3 +297,34 @@ describe("ProductUnitsSection — single-IMEI add row (ImeiAddRow)", () => {
     expect(mockRegister).not.toHaveBeenCalled();
   });
 });
+
+describe("ProductUnitsSection — the category's serial name (LIRA-296 P3)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetForProduct.mockResolvedValue([]);
+  });
+
+  it("says 'Serials' and 'scan or type the Serial' for a Serial category", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProductUnitsSection
+          productId={42}
+          stockQuantity={0}
+          serialLabel="Serial"
+        />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("Units / Serials")).toBeInTheDocument();
+    expect(
+      screen.getByText("Add a unit — scan or type the Serial, then press Enter"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps 'IMEIs' by default", async () => {
+    renderSection(0);
+    expect(await screen.findByText("Units / IMEIs")).toBeInTheDocument();
+  });
+});

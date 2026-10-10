@@ -64,6 +64,10 @@ import type {
   VoidWarrantyClaimInput,
   ListDefectiveItemsInput,
   ResolveDefectiveInput,
+  CreateSupplierReturnInput,
+  CloseSupplierReturnInput,
+  ListSupplierReturnsInput,
+  WarrantyReportInput,
 } from "@liratek/core";
 
 export class ElectronApiAdapter implements ApiAdapter {
@@ -165,6 +169,14 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.listDefectiveItems(input);
   resolveDefectiveItem = (input: ResolveDefectiveInput) =>
     api.resolveDefectiveItem(input);
+  createSupplierReturn = (input: CreateSupplierReturnInput) =>
+    api.createSupplierReturn(input);
+  closeSupplierReturn = (input: CloseSupplierReturnInput) =>
+    api.closeSupplierReturn(input);
+  listSupplierReturns = (input: ListSupplierReturnsInput = {}) =>
+    api.listSupplierReturns(input);
+  getWarrantyReport = (input: WarrantyReportInput) =>
+    api.getWarrantyReport(input);
 
   // ---------------------------------------------------------------------------
   // Categories (LIRA-143 Phase 5 — Settings manager)

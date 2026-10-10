@@ -113,6 +113,10 @@ export const WARRANTY_CLAIM_ERROR_CODES = [
   "NOT_HELD",
   "NOT_FOUND",
   "INVALID",
+  // P3 — supplier returns
+  "SUPPLIER_REQUIRED",
+  "RETURN_NOT_OPEN",
+  "RESTOCK_ALREADY_SOLD",
 ] as const;
 export type WarrantyClaimErrorCode =
   (typeof WARRANTY_CLAIM_ERROR_CODES)[number];
@@ -250,3 +254,142 @@ export interface DefectiveItemView {
 export type WarrantyEnvelope<T> =
   | { success: true; data: T }
   | { success: false; error: string; code?: WarrantyClaimErrorCode };
+
+// ---------------------------------------------------------------------------
+// P3 — supplier returns (US7)
+// ---------------------------------------------------------------------------
+
+export const SUPPLIER_RETURN_STATUSES = [
+  "SENT",
+  "CREDITED",
+  "REPLACED",
+  "REJECTED",
+] as const;
+export type SupplierReturnStatus = (typeof SUPPLIER_RETURN_STATUSES)[number];
+
+export const SUPPLIER_RETURN_OUTCOMES = [
+  "CREDITED",
+  "REPLACED",
+  "REJECTED",
+] as const;
+export type SupplierReturnOutcome = (typeof SUPPLIER_RETURN_OUTCOMES)[number];
+
+/** Send a HELD defective item back to a supplier. The supplier defaults
+ *  from the FIFO batch the sold unit came from. */
+export const createSupplierReturnSchema = z.object({
+  defective_item_id: z.coerce.number().int().positive(),
+  supplier_id: z.coerce.number().int().positive().optional(),
+  notes: optionalText(500),
+});
+export type CreateSupplierReturnInput = z.input<
+  typeof createSupplierReturnSchema
+>;
+
+/** Record the supplier's answer. CREDITED needs a credit (USD and/or LBP);
+ *  REJECTED needs a note saying why. */
+export const closeSupplierReturnSchema = z
+  .object({
+    supplier_return_id: z.coerce.number().int().positive(),
+    outcome: z.enum(SUPPLIER_RETURN_OUTCOMES),
+    credit_usd: z.number().min(0).max(1_000_000).optional(),
+    credit_lbp: z.number().min(0).max(100_000_000_000).optional(),
+    notes: optionalText(500),
+  })
+  .refine(
+    (v) =>
+      v.outcome !== "CREDITED" ||
+      (v.credit_usd ?? 0) > 0 ||
+      (v.credit_lbp ?? 0) > 0,
+    { message: "Enter the credit the supplier gave", path: ["credit_usd"] },
+  )
+  .refine((v) => v.outcome !== "REJECTED" || !!v.notes, {
+    message: "Say why the supplier rejected it",
+    path: ["notes"],
+  });
+export type CloseSupplierReturnInput = z.input<
+  typeof closeSupplierReturnSchema
+>;
+
+export const listSupplierReturnsSchema = z.object({
+  status: z.enum(SUPPLIER_RETURN_STATUSES).optional(),
+});
+export type ListSupplierReturnsInput = z.input<
+  typeof listSupplierReturnsSchema
+>;
+
+/** One supplier return, as the admin list shows it. */
+export interface SupplierReturnView {
+  id: number;
+  defective_item_id: number;
+  warranty_claim_id: number;
+  supplier_id: number;
+  supplier_name: string | null;
+  product_id: number | null;
+  product_name: string | null;
+  serial: string | null;
+  unit_cost_usd: number | null;
+  status: SupplierReturnStatus;
+  credit_usd: number;
+  credit_lbp: number;
+  notes: string | null;
+  sent_at: string | null;
+  closed_at: string | null;
+  user_id: number;
+  closed_by: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// P3 — warranty report (US8)
+// ---------------------------------------------------------------------------
+
+/** Claims in [from, to] (the shop's own days); "today" decides what is
+ *  still covered (rule 27). */
+export const warrantyReportSchema = z
+  .object({
+    from: localDayFormatSchema,
+    to: localDayFormatSchema,
+    client_day: localDayFormatSchema,
+  })
+  .refine((v) => v.from <= v.to, {
+    message: "The start day must be on or before the end day",
+    path: ["from"],
+  });
+export type WarrantyReportInput = z.input<typeof warrantyReportSchema>;
+
+/** One item still under warranty. */
+export interface WarrantyReportItem {
+  source: "SALE" | "REPAIR";
+  saleId: number | null;
+  receiptNumber: string | null;
+  saleItemId: number | null;
+  maintenanceId: number | null;
+  productName: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  coveredQuantity: number;
+  warrantyUntil: string;
+}
+
+export interface WarrantyReport {
+  /** Items still COVERED on `client_day`, grouped by category. */
+  underWarranty: {
+    category: string;
+    count: number;
+    items: WarrantyReportItem[];
+  }[];
+  /** Claims made in the period (voided claims left out). The money comes
+   *  from the same WARRANTY_COST rows the Profits "Warranty cost" line sums,
+   *  so `netCost` here equals minus that line for the same days. */
+  claims: {
+    byAction: { REPAIR: number; REPLACE: number; REFUND: number };
+    total: number;
+    grossCostUsd: number;
+    supplierRecoveredUsd: number;
+    netCostUsd: number;
+    /** A supplier credit given in LBP (USD fields above stay USD-only). */
+    grossCostLbp: number;
+    supplierRecoveredLbp: number;
+    netCostLbp: number;
+  };
+}
+

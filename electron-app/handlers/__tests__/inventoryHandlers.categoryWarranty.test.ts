@@ -85,4 +85,27 @@ describe("inventory:update-category — warranty_months (LIRA-296)", () => {
     expect(result.success).toBe(false);
     expect(catRepo.update).not.toHaveBeenCalled();
   });
+
+  it("LIRA-296 P3: forwards serial_label and serial_required (rule 23)", async () => {
+    const result = await handlers.get("inventory:update-category")!(
+      { sender: { id: 1 } },
+      3,
+      { serial_label: "IMEI", serial_required: "WARN" },
+    );
+    expect(result).toEqual({ success: true, updated: true });
+    expect(catRepo.update.mock.calls[0][1]).toMatchObject({
+      serialLabel: "IMEI",
+      serialRequired: "WARN",
+    });
+  });
+
+  it("LIRA-296 P3: refuses an unknown serial rule before the repository", async () => {
+    const result = await handlers.get("inventory:update-category")!(
+      { sender: { id: 1 } },
+      3,
+      { serial_required: "MAYBE" },
+    );
+    expect(result.success).toBe(false);
+    expect(catRepo.update).not.toHaveBeenCalled();
+  });
 });

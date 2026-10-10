@@ -104,6 +104,12 @@ import type {
   VoidWarrantyClaimInput,
   ListDefectiveItemsInput,
   ResolveDefectiveInput,
+  CreateSupplierReturnInput,
+  CloseSupplierReturnInput,
+  ListSupplierReturnsInput,
+  WarrantyReportInput,
+  SupplierReturnView,
+  WarrantyReport,
   WarrantyClaimResultData,
   WarrantyClaimView,
   DefectiveItemView,
@@ -601,6 +607,10 @@ export type ProcessSaleResult = {
   success: boolean;
   id?: number;
   error?: string;
+  /** LIRA-296 P3: `SERIAL_REQUIRED` when a BLOCK category refused it. */
+  code?: string;
+  /** LIRA-296 P3: notes for the cashier on a sale that went through. */
+  warnings?: string[];
 };
 
 export type PaymentMethodEntity = {
@@ -1128,6 +1138,19 @@ export type ApiAdapter = {
   resolveDefectiveItem: (
     input: ResolveDefectiveInput,
   ) => Promise<WarrantyEnvelope<DefectiveItemView>>;
+  /** LIRA-296 P3 — supplier returns (admin). Writes answer the envelope;
+   *  the list returns the raw array. */
+  createSupplierReturn: (
+    input: CreateSupplierReturnInput,
+  ) => Promise<WarrantyEnvelope<SupplierReturnView>>;
+  closeSupplierReturn: (
+    input: CloseSupplierReturnInput,
+  ) => Promise<WarrantyEnvelope<SupplierReturnView>>;
+  listSupplierReturns: (
+    input?: ListSupplierReturnsInput,
+  ) => Promise<SupplierReturnView[]>;
+  /** LIRA-296 P3 — the warranty report (admin). Read: throws on a refusal. */
+  getWarrantyReport: (input: WarrantyReportInput) => Promise<WarrantyReport>;
 
   /** LIRA-143 Phase 5 — Settings manager (decision #9's tracks_imei_units
    *  toggle). Reads return the raw array. */
@@ -1140,6 +1163,9 @@ export type ApiAdapter = {
       tracks_imei_units: number;
       /** LIRA-296: default warranty in months; null = none. */
       warranty_months: number | null;
+      /** LIRA-296 P3 (v207): the serial name and the sale-without-unit rule. */
+      serial_label?: "IMEI" | "Serial";
+      serial_required?: "BLOCK" | "WARN";
     }>
   >;
   createCategory: (

@@ -242,3 +242,46 @@ describe("Receipt Formatter — warranty terms and header (LIRA-296)", () => {
     });
   }
 });
+
+describe("LIRA-296 P3 — the serial line uses the category's label", () => {
+  const base: ReceiptData = {
+    shop_name: "Shop",
+    shop_phone: "",
+    shop_location: "",
+    receipt_number: "RCP-1",
+    client_name: "Walk-in Customer",
+    client_phone: "",
+    items: [
+      {
+        name: "ThinkPad",
+        quantity: 1,
+        price: 600,
+        subtotal: 600,
+        imei: "SN-001",
+        serial_label: "Serial",
+      },
+    ],
+    subtotal: 600,
+    discount: 0,
+    total: 600,
+    payment_usd: 600,
+    payment_lbp: 0,
+    change_usd: 0,
+    change_lbp: 0,
+    exchange_rate: 89500,
+    timestamp: "2026-10-10 10:00:00",
+  } as ReceiptData;
+
+  it("prints 'Serial:' for a Serial category on both widths", () => {
+    expect(formatReceipt58mm(base)).toContain("Serial: SN-001");
+    expect(formatReceipt80mm(base)).toContain("Serial: SN-001");
+    expect(formatReceipt58mm(base)).not.toContain("IMEI: SN-001");
+  });
+
+  it("keeps 'IMEI:' when the item carries no label (older data)", () => {
+    const { serial_label: _omit, ...withoutLabel } = base.items[0]!;
+    void _omit;
+    const old: ReceiptData = { ...base, items: [withoutLabel] };
+    expect(formatReceipt58mm(old)).toContain("IMEI: SN-001");
+  });
+});

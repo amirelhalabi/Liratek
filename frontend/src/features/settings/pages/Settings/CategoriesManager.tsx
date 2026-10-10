@@ -1,7 +1,12 @@
 import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, Check, X, Tag, Truck } from "lucide-react";
 import { DataTable, useApi } from "@liratek/ui";
-import { warrantyMonthsSchema } from "@liratek/core";
+import {
+  serialLabelFor,
+  warrantyMonthsSchema,
+  type SerialLabel,
+  type SerialRequiredMode,
+} from "@liratek/core";
 
 interface Category {
   id: number;
@@ -12,6 +17,10 @@ interface Category {
   tracks_imei_units: number;
   // LIRA-296 — the category's default warranty in months; null = none.
   warranty_months?: number | null;
+  // LIRA-296 P3 — what the serial is called, and the rule for a sale
+  // without one. Missing on an older backend: derived / BLOCK.
+  serial_label?: string | null;
+  serial_required?: string | null;
 }
 
 const WARRANTY_RANGE_MESSAGE = "Warranty must be 0 to 60 whole months.";
@@ -199,6 +208,17 @@ export default function CategoriesManager() {
     else setError(res?.error ?? "Failed to update");
   };
 
+  // LIRA-296 P3 — the serial name and the sale-without-serial rule.
+  const handleSerial = async (
+    cat: Category,
+    patch: { serial_label: SerialLabel } | { serial_required: SerialRequiredMode },
+  ) => {
+    setError("");
+    const res = await api.updateCategory(cat.id, patch);
+    if (res?.success) load();
+    else setError(res?.error ?? "Failed to update");
+  };
+
   const handleDelete = async (id: number, name: string) => {
     if (
       !confirm(
@@ -378,9 +398,9 @@ export default function CategoriesManager() {
                 className: "p-3 border-b border-slate-700",
               },
               {
-                header: "Tracks IMEI Units",
+                header: "Tracks serials (IMEI)",
                 className: "p-3 border-b border-slate-700 text-center",
-                width: "150px",
+                width: "190px",
               },
               {
                 header: "Default warranty (months)",
@@ -461,7 +481,7 @@ export default function CategoriesManager() {
                       role="switch"
                       aria-checked={cat.tracks_imei_units === 1}
                       onClick={() => handleToggleTracksImei(cat)}
-                      title="Toggle whether products in this category track per-unit IMEIs"
+                      title="Toggle whether products in this category track a serial (or IMEI) per unit"
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
                         cat.tracks_imei_units === 1
                           ? "bg-violet-600"
@@ -476,6 +496,40 @@ export default function CategoriesManager() {
                         }`}
                       />
                     </button>
+                    {/* LIRA-296 P3 — serial name and the sale-without-serial rule */}
+                    {cat.tracks_imei_units === 1 && (
+                      <div className="mt-2 flex flex-col gap-1 items-center">
+                        <select
+                          aria-label={`Serial name for ${cat.name}`}
+                          value={serialLabelFor(cat)}
+                          onChange={(e) =>
+                            void handleSerial(cat, {
+                              serial_label: e.target.value as SerialLabel,
+                            })
+                          }
+                          className="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-xs text-white"
+                        >
+                          <option value="IMEI">Called IMEI</option>
+                          <option value="Serial">Called Serial</option>
+                        </select>
+                        <select
+                          aria-label={`Sold without a serial — ${cat.name}`}
+                          value={
+                            cat.serial_required === "WARN" ? "WARN" : "BLOCK"
+                          }
+                          onChange={(e) =>
+                            void handleSerial(cat, {
+                              serial_required: e.target
+                                .value as SerialRequiredMode,
+                            })
+                          }
+                          className="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-xs text-white"
+                        >
+                          <option value="BLOCK">No serial: block sale</option>
+                          <option value="WARN">No serial: warn only</option>
+                        </select>
+                      </div>
+                    )}
                   </td>
 
                   {/* LIRA-296 — default warranty for the category */}

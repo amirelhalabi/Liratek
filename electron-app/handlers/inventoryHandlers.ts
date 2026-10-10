@@ -561,6 +561,9 @@ export function registerInventoryHandlers(): void {
           tracksImeiUnits: v.data.tracks_imei_units,
           // LIRA-296: the category's default warranty (null clears it).
           warrantyMonths: v.data.warranty_months,
+          // LIRA-296 P3: the serial label and the sale-without-unit rule.
+          serialLabel: v.data.serial_label,
+          serialRequired: v.data.serial_required,
         });
         audit(e.sender.id, {
           action: "update",
@@ -571,7 +574,9 @@ export function registerInventoryHandlers(): void {
               ? `Updated category #${id} to "${v.data.name}"`
               : v.data.warranty_months !== undefined
                 ? `Updated category #${id} (warranty_months=${v.data.warranty_months})`
-                : `Updated category #${id} (tracks_imei_units=${v.data.tracks_imei_units})`,
+                : v.data.tracks_imei_units !== undefined
+                  ? `Updated category #${id} (tracks_imei_units=${v.data.tracks_imei_units})`
+                  : `Updated category #${id} (serial_label=${v.data.serial_label ?? "—"}, serial_required=${v.data.serial_required ?? "—"})`,
           new_values: v.data,
         });
         return { success: true, updated };

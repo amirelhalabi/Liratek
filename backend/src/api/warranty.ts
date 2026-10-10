@@ -16,11 +16,17 @@ import {
   voidWarrantyClaimSchema,
   listDefectiveItemsSchema,
   resolveDefectiveSchema,
+  createSupplierReturnSchema,
+  closeSupplierReturnSchema,
+  listSupplierReturnsSchema,
+  warrantyReportSchema,
   warrantyLogger,
   type WarrantySearchQuery,
   type CreateWarrantyClaimData,
   type WarrantyClaimsForInput,
   type ListDefectiveItemsInput,
+  type ListSupplierReturnsInput,
+  type WarrantyReportInput,
 } from "@liratek/core";
 import {
   authenticateJWT,
@@ -175,5 +181,105 @@ router.post("/defective/:id/resolve", requireRole(["admin"]), (req, res) => {
   }
   res.json(result);
 });
+
+// ---- P3: supplier returns and the report (admin) --------------------------
+
+// POST /api/warranty/supplier-returns — send a HELD defective item back.
+router.post("/supplier-returns", requireRole(["admin"]), (req, res) => {
+  const parsed = createSupplierReturnSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.json({
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid request",
+    });
+    return;
+  }
+  const result = getWarrantyService().createSupplierReturn(
+    parsed.data,
+    actorOf(req as AuthRequest),
+  );
+  if (result.success) {
+    auditRest(req as AuthRequest, {
+      action: "create",
+      entity_type: "supplier_return",
+      entity_id: String(result.data.id),
+      summary: `Defective item #${parsed.data.defective_item_id} sent to supplier (return #${result.data.id})`,
+    });
+  }
+  res.json(result);
+});
+
+// GET /api/warranty/supplier-returns?status= — admin list.
+router.get(
+  "/supplier-returns",
+  requireRole(["admin"]),
+  validateQuery(listSupplierReturnsSchema),
+  (req, res) => {
+    try {
+      const data = getWarrantyService().listSupplierReturns(
+        req.query as unknown as ListSupplierReturnsInput,
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      res.json({
+        success: false,
+        error: errorMessage(error, "Failed to load supplier returns"),
+      });
+    }
+  },
+);
+
+// POST /api/warranty/supplier-returns/:id/close — record the answer.
+router.post(
+  "/supplier-returns/:id/close",
+  requireRole(["admin"]),
+  (req, res) => {
+    const parsed = closeSupplierReturnSchema.safeParse({
+      ...((req.body as Record<string, unknown>) ?? {}),
+      supplier_return_id: req.params.id,
+    });
+    if (!parsed.success) {
+      res.json({
+        success: false,
+        error: parsed.error.issues[0]?.message ?? "Invalid request",
+      });
+      return;
+    }
+    const result = getWarrantyService().closeSupplierReturn(
+      parsed.data,
+      actorOf(req as AuthRequest),
+    );
+    if (result.success) {
+      auditRest(req as AuthRequest, {
+        action: "update",
+        entity_type: "supplier_return",
+        entity_id: String(parsed.data.supplier_return_id),
+        summary: `Supplier return #${parsed.data.supplier_return_id}: ${parsed.data.outcome}`,
+      });
+    }
+    res.json(result);
+  },
+);
+
+// GET /api/warranty/report?from&to&client_day — admin.
+router.get(
+  "/report",
+  requireRole(["admin"]),
+  validateQuery(warrantyReportSchema),
+  (req, res) => {
+    try {
+      const data = getWarrantyService().report(
+        req.query as unknown as WarrantyReportInput,
+      );
+      res.json({ success: true, data });
+    } catch (error) {
+      warrantyLogger.error({ error }, "GET /api/warranty/report failed");
+      res.json({
+        success: false,
+        error: errorMessage(error, "Failed to build the warranty report"),
+      });
+    }
+  },
+);
 
 export default router;

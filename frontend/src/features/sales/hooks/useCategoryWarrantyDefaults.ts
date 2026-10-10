@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
+import { serialLabelFor, type SerialLabel } from "@liratek/core";
 
 /**
  * LIRA-296 — each category's default warranty (Settings → Categories), keyed
@@ -27,4 +28,40 @@ export function useCategoryWarrantyDefaults(): Map<string, number | null> {
     map.set(c.name.trim().toLowerCase(), c.warranty_months ?? null);
   }
   return map;
+}
+
+interface CategorySerialRow {
+  name: string;
+  tracks_imei_units?: number | boolean | null;
+  serial_label?: string | null;
+}
+
+/**
+ * LIRA-296 P3 (FR-015) — what each category calls its unit serial ("IMEI"
+ * or "Serial"), from the SAME category query as the warranty defaults (one
+ * cached fetch). Returns a lookup by category NAME; an unknown category
+ * falls back on the line's own tracking flag (core's `serialLabelFor`).
+ */
+export function useCategorySerialLabels(): (
+  category: string | null | undefined,
+  tracksImeiUnits?: number | boolean | null,
+) => SerialLabel {
+  const api = useApi() as unknown as {
+    getCategoriesFull: () => Promise<CategorySerialRow[]>;
+  };
+  const { data } = useQuery({
+    queryKey: CATEGORY_WARRANTY_KEY,
+    queryFn: () => api.getCategoriesFull(),
+    staleTime: 60_000,
+  });
+  const byName = new Map<string, CategorySerialRow>();
+  for (const c of (data ?? []) as CategorySerialRow[]) {
+    byName.set(c.name.trim().toLowerCase(), c);
+  }
+  return (category, tracksImeiUnits) =>
+    serialLabelFor(
+      byName.get((category ?? "").trim().toLowerCase()) ?? {
+        tracks_imei_units: tracksImeiUnits ?? null,
+      },
+    );
 }

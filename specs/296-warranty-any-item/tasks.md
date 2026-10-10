@@ -254,40 +254,40 @@
 
 ## Phase 9: User Story 6 — Serial numbers for any category (P3)
 
-- [ ] T046 [US6] Test first, then migration **v207 `serial_categories_supplier_returns`**:
+- [X] T046 [US6] Test first, then migration **v207 `serial_categories_supplier_returns`**:
   - `product_categories.serial_label TEXT NOT NULL DEFAULT 'Serial'`, back-filled to `'IMEI'` where `tracks_imei_units=1`;
   - `product_categories.serial_required TEXT CHECK IN ('BLOCK','WARN') DEFAULT 'BLOCK'`;
   - the `supplier_returns` table (data-model.md).
 
   Mirror it in `create_db.sql`, with a `down()`. Register `supplier_returns` wherever tenant tables are listed (tenantSplit, the reset tables), as T030 does for P2 (G2).
-- [ ] T047 [US6] Test first, then the category fields through all layers and `CategoriesManager.tsx`. Every IMEI label in inventory, POS, receipts and the unit story card uses the category's `serial_label`.
-- [ ] T048 [US6] Test first, then `SalesRepository.processSale`: a serial-tracked line without a unit gets `SERIAL_REQUIRED` when the category is BLOCK; when it is WARN, the response carries `warnings[]`, and the checkout shows the warning.
+- [X] T047 [US6] Test first, then the category fields through all layers and `CategoriesManager.tsx`. Every IMEI label in inventory, POS, receipts and the unit story card uses the category's `serial_label`.
+- [X] T048 [US6] Test first, then `SalesRepository.processSale`: a serial-tracked line without a unit gets `SERIAL_REQUIRED` when the category is BLOCK; when it is WARN, the response carries `warnings[]`, and the checkout shows the warning.
 
 ## Phase 10: User Story 7 — Supplier returns (P3)
 
-- [ ] T049 [US7] Test first, then `SupplierReturnRepository` and `WarrantyService.createSupplierReturn/closeSupplierReturn`. The supplier defaults from the FIFO batch (via `stock_batch_consumptions.sale_item_id` → batch `supplier_id`).
+- [X] T049 [US7] Test first, then `SupplierReturnRepository` and `WarrantyService.createSupplierReturn/closeSupplierReturn`. The supplier defaults from the FIFO batch (via `stock_batch_consumptions.sale_item_id` → batch `supplier_id`).
   - **CREDITED:** `SupplierRepository.addLedgerEntry` ADJUSTMENT plus a `WARRANTY_COST` +credit row.
   - **REPLACED:** the unit goes back IN_STOCK at cost, plus a +cost row.
   - **REJECTED:** no money moves.
   - `voidClaim` refuses `DEFECTIVE_ALREADY_SENT`.
 
   Extend the T032 nets-to-zero test to supplier outcomes.
-- [ ] T050 [US7] Schemas, IPC, REST and adapter for `warranty:supplier-return-*` (admin), then the UI `SupplierReturns.tsx`. Tests first.
+- [X] T050 [US7] Schemas, IPC, REST and adapter for `warranty:supplier-return-*` (admin), then the UI `SupplierReturns.tsx`. Tests first.
 
 ## Phase 11: User Story 8 — Warranty report (P3)
 
-- [ ] T051 [US8] Test first, then `WarrantyService.report({from,to,client_day})`: items under warranty grouped by category, and claims by action with gross cost, supplier recovered and net. Wire IPC and REST `warranty:report`, plus the adapter.
-- [ ] T052 [US8] Test first, then the report UI `frontend/src/features/warranty/components/WarrantyReport.tsx`, using `@liratek/ui` DataTable and ExportBar, with a "Report" tab on the Warranty page (admin).
+- [X] T051 [US8] Test first, then `WarrantyService.report({from,to,client_day})`: items under warranty grouped by category, and claims by action with gross cost, supplier recovered and net. Wire IPC and REST `warranty:report`, plus the adapter.
+- [X] T052 [US8] Test first, then the report UI `frontend/src/features/warranty/components/WarrantyReport.tsx`, using `@liratek/ui` DataTable and ExportBar, with a "Report" tab on the Warranty page (admin).
 
 ## Phase 12: Polish and release
 
-- [ ] T053 P3 release:
+- [X] T053 P3 release:
   - release-note lines: serial numbers for any item, supplier returns, the warranty report;
   - the sprint line;
   - web e2e `lira-web-0NN-warranty-supplier.spec.ts`;
   - gates;
   - local commit, then report.
-- [ ] T054 Move `docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md` to `docs/plans/ongoing_plans/` after P1 ships, and to `done_plans/` after P3. Update `PLAN_OVERVIEW.md` and every reference to the file.
+- [X] T054 Move `docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md` to `docs/plans/ongoing_plans/` after P1 ships, and to `done_plans/` after P3. Update `PLAN_OVERVIEW.md` and every reference to the file.
 
 ## Dependencies
 

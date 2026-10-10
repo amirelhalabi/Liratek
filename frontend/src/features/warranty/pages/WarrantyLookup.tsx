@@ -25,6 +25,8 @@ import { WarrantyStateBadge } from "../components/WarrantyStateBadge";
 import { ClaimModal, type ClaimTarget } from "../components/ClaimModal";
 import { ClaimHistory } from "../components/ClaimHistory";
 import { DefectiveItems } from "../components/DefectiveItems";
+import { SupplierReturns } from "../components/SupplierReturns";
+import { WarrantyReport } from "../components/WarrantyReport";
 
 const SEARCH_HINT = "Name, phone, receipt (RCP-…), product or serial";
 
@@ -48,7 +50,9 @@ export default function WarrantyLookup() {
   const [openSaleId, setOpenSaleId] = useState<number | null>(null);
   // LIRA-296 P2 — act on a found warranty.
   const isAdmin = useOptionalAuth()?.user?.role === "admin";
-  const [tab, setTab] = useState<"search" | "defective">("search");
+  const [tab, setTab] = useState<
+    "search" | "defective" | "returns" | "report"
+  >("search");
   const [claimTarget, setClaimTarget] = useState<ClaimTarget | null>(null);
   const [historyFor, setHistoryFor] = useState<number | null>(null);
   const [historyKey, setHistoryKey] = useState(0);
@@ -98,6 +102,8 @@ export default function WarrantyLookup() {
             [
               ["search", "Find a warranty"],
               ["defective", "Defective items"],
+              ["returns", "Supplier returns"],
+              ["report", "Report"],
             ] as const
           ).map(([key, label]) => (
             <button
@@ -115,6 +121,10 @@ export default function WarrantyLookup() {
 
       {tab === "defective" && isAdmin ? (
         <DefectiveItems />
+      ) : tab === "returns" && isAdmin ? (
+        <SupplierReturns />
+      ) : tab === "report" && isAdmin ? (
+        <WarrantyReport />
       ) : (
         <>
           <form onSubmit={submit} className="flex flex-wrap gap-3 items-end">

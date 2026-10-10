@@ -8,7 +8,7 @@
 
 **Input**: User description: "--number 296 Warranty for any item, not just phones (LIRA-296, owner request 2026-10-10). Existing (LIRA-143): products.warranty_months on any product, stamped as sale_items.warranty_until on every completed sale line, printed on the receipt; lookup/acting only via phone IMEI (ImeiStoryCard). Build: G1 find a warranty without an IMEI (by customer, phone number, receipt/sale number, product); G2 serial numbers for non-phone items (generalise IMEI to Serial/IMEI per category); G3 warranty state on every sale line in sale detail; G4 warranty claim flow — repair (Maintenance job marked warranty, no charge to customer), replace (swap from stock linked to original sale) or refund, with claim history; G5 supplier warranty/RMA tracking until credit, replacement or rejection; G6 warranty rules — default per category, editable per line at sale time, warranty terms on the receipt; G7 warranty on repairs (maintenance jobs give their own warranty); G8 report of items under warranty and claim costs. Both desktop and web (dual transport). Plan doc: docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md (owner decisions D1–D4 open)."
 
-**Ticket**: LIRA-296. Plan: `docs/plans/todo_plans/WARRANTY_ANY_ITEM_PLAN.md`.
+**Ticket**: LIRA-296. Plan: `docs/plans/done_plans/WARRANTY_ANY_ITEM_PLAN.md`.
 
 ## Background
 

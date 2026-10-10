@@ -70,6 +70,8 @@ export * from "./utils/googlePicture.js";
 // and the frontend jest config resolve @liratek/core to this file.
 export * from "./utils/receiptNumber.js";
 export * from "./utils/warrantyState.js";
+// LIRA-296 P3: what a unit serial is called (IMEI | Serial).
+export * from "./utils/serialLabel.js";
 export {
   EMAIL_ALREADY_HAS_SHOP,
   EMAIL_ALREADY_HAS_SHOP_MESSAGE,

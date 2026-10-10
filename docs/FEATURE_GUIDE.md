@@ -721,6 +721,17 @@ booked once, at load time. Do not "fix" that.
   `notWarrantyJob`); NOT_FAULTY +cost. Reversal owner (rule 20): `WarrantyService.voidClaim`,
   type in `NON_REVERSIBLE_TRANSACTION_TYPES`. Guard: `WarrantyService.voidNetsZero.test.ts`,
   `ProfitService.warrantyCost.test.ts`, lira-web-048.
+- **Supplier returns** (LIRA-296 P3): a HELD defective item goes back to its supplier
+  (`supplier_returns`, SENT). CREDITED writes a paper supplier ADJUSTMENT of −credit (USD
+  and/or LBP, no drawer) plus a +credit `WARRANTY_COST` row (`kind: SUPPLIER_CREDIT`);
+  REPLACED puts the unit back in stock at its cost (a fresh batch from that supplier) with a
+  +cost row (`kind: SUPPLIER_REPLACED`); REJECTED moves nothing and the item is HELD again.
+  Each closed return keeps its links (`ledger_entry_id`, `cost_transaction_id`,
+  `restock_batch_id`). Reversal owner: `WarrantyService.voidClaim` → `undoSupplierReturns`
+  (refused while a return is SENT). Guard: the P3 block of `WarrantyService.voidNetsZero.test.ts`
+  (REFUND and REPLACE × every outcome, both currencies), lira-web-049. The warranty report's net
+  equals minus the Profits "Warranty cost" line for the same days (same rows, same bound —
+  `WarrantyService.report.test.ts`).
 
 ---
 

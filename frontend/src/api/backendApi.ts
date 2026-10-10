@@ -120,6 +120,12 @@ import type {
   VoidWarrantyClaimInput,
   ListDefectiveItemsInput,
   ResolveDefectiveInput,
+  CreateSupplierReturnInput,
+  CloseSupplierReturnInput,
+  ListSupplierReturnsInput,
+  WarrantyReportInput,
+  SupplierReturnView,
+  WarrantyReport,
   WarrantyClaimResultData,
   WarrantyClaimView,
   DefectiveItemView,
@@ -1270,6 +1276,10 @@ export type ProcessSaleResult = {
   success: boolean;
   id?: number;
   error?: string;
+  /** LIRA-296 P3: `SERIAL_REQUIRED` when a BLOCK category refused it. */
+  code?: string;
+  /** LIRA-296 P3: notes for the cashier on a sale that went through. */
+  warnings?: string[];
 };
 
 export async function processSale(payload: any): Promise<ProcessSaleResult> {
@@ -6159,6 +6169,9 @@ export interface CategoryDto {
   tracks_imei_units: number;
   /** LIRA-296 v205: the category's default warranty in months; null = none. */
   warranty_months: number | null;
+  /** LIRA-296 P3 (v207): the serial name and the sale-without-unit rule. */
+  serial_label?: "IMEI" | "Serial";
+  serial_required?: "BLOCK" | "WARN";
 }
 
 export async function getCategoriesFull(): Promise<CategoryDto[]> {
@@ -8551,6 +8564,68 @@ export async function listDefectiveItems(
   );
   if (!res.success)
     throw new Error(res.error ?? "Failed to load defective items");
+  return res.data;
+}
+
+/** LIRA-296 P3 — send a HELD defective item back to its supplier (admin). */
+export async function createSupplierReturn(
+  input: CreateSupplierReturnInput,
+): Promise<WarrantyEnvelope<SupplierReturnView>> {
+  return ipcOrHttp(
+    async () => getElectronApi().warranty.createSupplierReturn(input),
+    async () =>
+      requestJson<WarrantyEnvelope<SupplierReturnView>>(
+        "/api/warranty/supplier-returns",
+        { method: "POST", body: input },
+      ),
+  );
+}
+
+/** LIRA-296 P3 — record the supplier's answer (admin). The id travels in
+ *  the path on REST; the rest of the payload is the body. */
+export async function closeSupplierReturn(
+  input: CloseSupplierReturnInput,
+): Promise<WarrantyEnvelope<SupplierReturnView>> {
+  const { supplier_return_id, ...body } = input;
+  return ipcOrHttp(
+    async () => getElectronApi().warranty.closeSupplierReturn(input),
+    async () =>
+      requestJson<WarrantyEnvelope<SupplierReturnView>>(
+        `/api/warranty/supplier-returns/${encodeURIComponent(String(supplier_return_id))}/close`,
+        { method: "POST", body },
+      ),
+  );
+}
+
+/** LIRA-296 P3 — supplier returns (admin). Read: raw array. */
+export async function listSupplierReturns(
+  input: ListSupplierReturnsInput = {},
+): Promise<SupplierReturnView[]> {
+  const res = await ipcOrHttp(
+    async () => getElectronApi().warranty.listSupplierReturns(input),
+    async () =>
+      requestJson<WarrantyEnvelope<SupplierReturnView[]>>(
+        `/api/warranty/supplier-returns${toQuery(input)}`,
+      ),
+  );
+  if (!res.success)
+    throw new Error(res.error ?? "Failed to load supplier returns");
+  return res.data;
+}
+
+/** LIRA-296 P3 — the warranty report (admin). Read: throws on a refusal. */
+export async function getWarrantyReport(
+  input: WarrantyReportInput,
+): Promise<WarrantyReport> {
+  const res = await ipcOrHttp(
+    async () => getElectronApi().warranty.report(input),
+    async () =>
+      requestJson<WarrantyEnvelope<WarrantyReport>>(
+        `/api/warranty/report${toQuery(input)}`,
+      ),
+  );
+  if (!res.success)
+    throw new Error(res.error ?? "Failed to build the warranty report");
   return res.data;
 }
 

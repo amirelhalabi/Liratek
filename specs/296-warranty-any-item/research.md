@@ -167,6 +167,22 @@ No other drift found for these keys. Omitted `warranty_months` leaves the job's 
 
 **Alternatives considered:** a separate `serials` table. Rejected: it would duplicate all of LIRA-143's unit machinery.
 
+### Rule 23 three-way key diff — the category update (T047, before the schema change)
+
+| Key | (a) `updateCategorySchema` | (b) preload `inventory.updateCategory` `data` | (c) IPC handler / REST route |
+|---|---|---|---|
+| `name` | present | `UpdateCategoryPayload` (derived) | forwarded as `name` |
+| `tracks_imei_units` | present | derived | forwarded as `tracksImeiUnits` |
+| `warranty_months` | present | derived | forwarded as `warrantyMonths` |
+| `serial_label` (new) | **added** (`'IMEI' \| 'Serial'`) | derived — automatic | **added** → `serialLabel` |
+| `serial_required` (new) | **added** (`'BLOCK' \| 'WARN'`) | derived — automatic | **added** → `serialRequired` |
+
+No pre-existing drift. The handler and the route both map field by field, so both needed the two new lines (a key in the schema alone would have been dropped there).
+
+**Where the label is read (sweep, T047):** Settings → Categories (the choice itself), the POS cart line's unit picker, the checkout receipt (POS passes the category lookup to `CheckoutModal`), the sale details and their reprint (`getSaleItems.serial_label`), and the product form's units section. The Phone Units register lists units from every category in one table, so its column header stays generic ("IMEI"); the unit story card shows the serial without a label. The label comes from the category list, not from product rows: projecting it onto `ProductRepository`'s DTO queries would change SQL that existing tests pin byte for byte.
+
+**Sale without the unit (T048):** the trigger is unchanged (the product has registered IN_STOCK units no line on the sale claims — owner decision #5's drift rule). Only the outcome now depends on the category: BLOCK refuses with `code: 'SERIAL_REQUIRED'` (same message as before), WARN lets the sale through with `warnings[]` and marks no unit sold.
+
 ## R9. Supplier returns (user story 7, P3)
 
 **Decision:**

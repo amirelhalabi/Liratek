@@ -13,6 +13,8 @@ import CheckoutModal, {
 import ProductForm from "@/features/inventory/pages/Inventory/ProductForm";
 import SaleDetailModal from "./components/SaleDetailModal";
 import { appEvents, useApi } from "@liratek/ui";
+import { emitSaleWarnings } from "@/features/sales/utils/saleWarnings";
+import { useCategorySerialLabels } from "@/features/sales/hooks/useCategoryWarrantyDefaults";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -34,6 +36,8 @@ import { localDay } from "@/shared/utils/localDay";
 
 export default function POS() {
   const api = useApi();
+  // LIRA-296 P3: "IMEI" or "Serial" per category, for the checkout receipt.
+  const serialLabelOf = useCategorySerialLabels();
   const queryClient = useQueryClient();
   const {
     activeSession,
@@ -721,6 +725,8 @@ export default function POS() {
           "Sale completed successfully!",
           "success",
         );
+        // LIRA-296 P3: e.g. a serial item sold without picking its unit.
+        emitSaleWarnings(result);
         // Emit event to refresh dashboard immediately
         appEvents.emit("sale:completed", result);
         appEvents.emit("checkout:closed");
@@ -793,6 +799,7 @@ export default function POS() {
       {isCheckoutOpen && (
         <CheckoutModal
           items={cartItems}
+          serialLabelOf={serialLabelOf}
           allowKeepChange={true}
           allowForPartner={true}
           totalAmount={cartItems.reduce(

@@ -10,6 +10,8 @@
  * keeps REPLACE/REFUND admin-only), `warranty:void-claim`,
  * `warranty:defective`, `warranty:defective-resolve` (admin). The actor
  * (user id + role) always comes from the session, never the payload.
+ * P3: `warranty:supplier-return-create`, `warranty:supplier-return-close`,
+ * `warranty:supplier-returns` and `warranty:report` (admin).
  */
 import { ipcMain } from "electron";
 import { getWarrantyService, warrantyLogger } from "@liratek/core";
@@ -22,6 +24,10 @@ import {
   VoidWarrantyClaimSchema,
   ListDefectiveItemsSchema,
   ResolveDefectiveSchema,
+  CreateSupplierReturnSchema,
+  CloseSupplierReturnSchema,
+  ListSupplierReturnsSchema,
+  WarrantyReportSchema,
 } from "../schemas/index.js";
 import { audit } from "./auditHelper.js";
 
@@ -138,5 +144,85 @@ export function registerWarrantyHandlers(): void {
       });
     }
     return result;
+  });
+
+  // ---- P3: supplier returns and the report (admin) ------------------------
+
+  ipcMain.handle(
+    "warranty:supplier-return-create",
+    (event, payload: unknown) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+      const v = validatePayload(CreateSupplierReturnSchema, payload);
+      if (!v.ok) return { success: false, error: v.error };
+      const result = getWarrantyService().createSupplierReturn(v.data, {
+        userId: auth.userId,
+        role: auth.role,
+      });
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "supplier_return",
+          entity_id: String(result.data.id),
+          summary: `Defective item #${v.data.defective_item_id} sent to supplier (return #${result.data.id})`,
+        });
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle("warranty:supplier-return-close", (event, payload: unknown) => {
+    const auth = requireRole(event.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const v = validatePayload(CloseSupplierReturnSchema, payload);
+    if (!v.ok) return { success: false, error: v.error };
+    const result = getWarrantyService().closeSupplierReturn(v.data, {
+      userId: auth.userId,
+      role: auth.role,
+    });
+    if (result.success) {
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "supplier_return",
+        entity_id: String(v.data.supplier_return_id),
+        summary: `Supplier return #${v.data.supplier_return_id}: ${v.data.outcome}`,
+      });
+    }
+    return result;
+  });
+
+  ipcMain.handle("warranty:supplier-returns", (event, payload: unknown) => {
+    const auth = requireRole(event.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const v = validatePayload(ListSupplierReturnsSchema, payload ?? {});
+    if (!v.ok) return { success: false, error: v.error };
+    try {
+      return {
+        success: true,
+        data: getWarrantyService().listSupplierReturns(v.data),
+      };
+    } catch (error) {
+      warrantyLogger.error({ error }, "warranty:supplier-returns failed");
+      return {
+        success: false,
+        error: errorMessage(error, "Failed to load supplier returns"),
+      };
+    }
+  });
+
+  ipcMain.handle("warranty:report", (event, payload: unknown) => {
+    const auth = requireRole(event.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const v = validatePayload(WarrantyReportSchema, payload);
+    if (!v.ok) return { success: false, error: v.error };
+    try {
+      return { success: true, data: getWarrantyService().report(v.data) };
+    } catch (error) {
+      warrantyLogger.error({ error }, "warranty:report failed");
+      return {
+        success: false,
+        error: errorMessage(error, "Failed to build the warranty report"),
+      };
+    }
   });
 }

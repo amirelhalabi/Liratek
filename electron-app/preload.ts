@@ -35,6 +35,10 @@ import type {
   VoidWarrantyClaimInput,
   ListDefectiveItemsInput,
   ResolveDefectiveInput,
+  CreateSupplierReturnInput,
+  CloseSupplierReturnInput,
+  ListSupplierReturnsInput,
+  WarrantyReportInput,
   // LIRA-296 — category update payload incl. warranty_months (rule 21).
   UpdateCategoryPayload,
   // LIRA-296 — the sale payload (per-line warranty_months, client_day).
@@ -1186,6 +1190,15 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("warranty:defective", data),
     resolveDefective: (data: ResolveDefectiveInput) =>
       ipcRenderer.invoke("warranty:defective-resolve", data),
+    // P3 — supplier returns and the report (admin).
+    createSupplierReturn: (data: CreateSupplierReturnInput) =>
+      ipcRenderer.invoke("warranty:supplier-return-create", data),
+    closeSupplierReturn: (data: CloseSupplierReturnInput) =>
+      ipcRenderer.invoke("warranty:supplier-return-close", data),
+    listSupplierReturns: (data: ListSupplierReturnsInput) =>
+      ipcRenderer.invoke("warranty:supplier-returns", data),
+    report: (data: WarrantyReportInput) =>
+      ipcRenderer.invoke("warranty:report", data),
   },
 
   // Product Units (LIRA-143 Phase 5 — phone IMEI units & warranty) —

@@ -134,6 +134,19 @@ export class BusinessRuleError extends AppError {
 }
 
 /**
+ * LIRA-296 P3 (FR-022) — a serial-tracked item sold without its unit, in a
+ * category set to BLOCK. Carries a machine `code` so the till can tell this
+ * refusal apart from any other.
+ */
+export class SerialRequiredError extends BusinessRuleError {
+  readonly code = "SERIAL_REQUIRED" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "SerialRequiredError";
+  }
+}
+
+/**
  * Configuration errors (missing or invalid config)
  */
 export class ConfigurationError extends AppError {

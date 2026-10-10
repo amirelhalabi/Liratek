@@ -61,6 +61,10 @@ export interface SaleResult {
   success: boolean;
   id?: number;
   error?: string;
+  /** LIRA-296 P3: `SERIAL_REQUIRED` when a BLOCK category refused it. */
+  code?: string;
+  /** LIRA-296 P3: notes for the cashier on a sale that went through. */
+  warnings?: string[];
 }
 
 // =============================================================================

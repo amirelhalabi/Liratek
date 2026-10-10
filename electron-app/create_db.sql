@@ -559,16 +559,21 @@ CREATE TABLE IF NOT EXISTS product_categories (
     -- v205 (LIRA-296): the category's default warranty in months (0–60);
     -- NULL = none. A product without its own warranty_months uses it.
     warranty_months INTEGER,
+    -- v207 (LIRA-296 P3): what the unit's serial is called ('IMEI' for
+    -- phones, 'Serial' for anything else) and whether a sale of a tracked
+    -- item without its unit is refused (BLOCK) or allowed with a warning.
+    serial_label TEXT NOT NULL DEFAULT 'Serial' CHECK (serial_label IN ('IMEI', 'Serial')),
+    serial_required TEXT NOT NULL DEFAULT 'BLOCK' CHECK (serial_required IN ('BLOCK', 'WARN')),
     UNIQUE (tenant_id, name)
 );
 
-INSERT OR IGNORE INTO product_categories (tenant_id, name, sort_order, tracks_imei_units) VALUES
-    (1, 'Accessories', 0, 0),
-    (1, 'Phones', 1, 1),
-    (1, 'Chargers', 2, 0),
-    (1, 'Audio', 3, 0),
-    (1, 'Parts', 4, 0),
-    (1, 'Services', 5, 0);
+INSERT OR IGNORE INTO product_categories (tenant_id, name, sort_order, tracks_imei_units, serial_label) VALUES
+    (1, 'Accessories', 0, 0, 'Serial'),
+    (1, 'Phones', 1, 1, 'IMEI'),
+    (1, 'Chargers', 2, 0, 'Serial'),
+    (1, 'Audio', 3, 0, 'Serial'),
+    (1, 'Parts', 4, 0, 'Serial'),
+    (1, 'Services', 5, 0, 'Serial');
 
 -- Product Suppliers (normalised inventory supplier names)
 CREATE TABLE IF NOT EXISTS product_suppliers (
@@ -2468,6 +2473,32 @@ CREATE TABLE IF NOT EXISTS defective_items (
 CREATE INDEX IF NOT EXISTS idx_defective_items_claim ON defective_items(tenant_id, warranty_claim_id);
 CREATE INDEX IF NOT EXISTS idx_defective_items_product ON defective_items(tenant_id, product_id);
 
+-- v207 (LIRA-296 P3): a defective item sent back to its supplier. The links
+-- record what the outcome wrote so a claim void can reverse it (rule 20).
+CREATE TABLE IF NOT EXISTS supplier_returns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    defective_item_id INTEGER NOT NULL REFERENCES defective_items(id),
+    warranty_claim_id INTEGER NOT NULL REFERENCES warranty_claims(id),
+    supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+    status TEXT NOT NULL DEFAULT 'SENT' CHECK (status IN ('SENT', 'CREDITED', 'REPLACED', 'REJECTED')),
+    credit_usd REAL NOT NULL DEFAULT 0,
+    credit_lbp REAL NOT NULL DEFAULT 0,
+    ledger_entry_id INTEGER REFERENCES supplier_ledger(id),
+    cost_transaction_id INTEGER REFERENCES transactions(id),
+    restock_batch_id INTEGER REFERENCES product_stock_batches(id),
+    user_id INTEGER NOT NULL,
+    closed_by INTEGER,
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    closed_at TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_supplier_returns_defective_item ON supplier_returns(tenant_id, defective_item_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_returns_claim ON supplier_returns(tenant_id, warranty_claim_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_returns_supplier ON supplier_returns(tenant_id, supplier_id);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -2800,4 +2831,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v206 (LIRA-296 P2) adds warranty_claims, defective_items and the
     -- maintenance / stock_batch_consumptions / product_units warranty
     -- columns, declared above.
-    (206, 'warranty_claims_defective_items_repair_warranty');
+    (206, 'warranty_claims_defective_items_repair_warranty'),
+    -- v207 (LIRA-296 P3) adds product_categories.serial_label/serial_required
+    -- and supplier_returns, declared above.
+    (207, 'serial_categories_supplier_returns');
