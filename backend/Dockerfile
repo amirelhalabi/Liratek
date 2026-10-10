@@ -49,7 +49,8 @@ COPY electron-app/package.json  electron-app/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/ui/package.json   packages/ui/package.json
 # LIRA-289 added the `mobile` workspace (Expo). Every workspace's package.json
-# must be present or `yarn install --immutable` sees a different lockfile and fails.
+# must be present for Yarn to resolve the workspace graph, even though only the
+# backend's dependencies are installed below.
 COPY mobile/package.json        mobile/package.json
 
 # The root `postinstall` is `node scripts/rebuild-native-deps.cjs`, so the file
@@ -61,7 +62,18 @@ COPY mobile/package.json        mobile/package.json
 # far more often and would invalidate the (slow) install layer on every edit.
 COPY scripts/rebuild-native-deps.cjs scripts/rebuild-native-deps.cjs
 
-RUN corepack enable && yarn install --immutable
+# Install only what the API needs: the backend (and core, its workspace
+# dependency) plus the ROOT workspace, whose devDependencies the build relies on
+# (@types/jest / @jest/globals: core's and backend's tsconfig name the jest
+# types). A full `yarn install` also pulled in the Expo/React Native tree of the
+# `mobile` workspace (LIRA-289), plus frontend and electron-app, which roughly
+# doubled deploy time and bloated the image the runtime stage copies
+# node_modules from. `focus` still resolves
+# the whole graph (hence every manifest above) and reads yarn.lock; immutable
+# mode makes a lockfile that is out of date fail the build instead of being
+# rewritten.
+ENV YARN_ENABLE_IMMUTABLE_INSTALLS=true
+RUN corepack enable && yarn workspaces focus liratek @liratek/backend
 
 # Sources: core (the actual business logic) + backend (routes only).
 COPY packages/core/ packages/core/
