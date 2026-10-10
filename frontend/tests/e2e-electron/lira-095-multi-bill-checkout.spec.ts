@@ -32,6 +32,16 @@ import { test, expect, navigateTo } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
 
+// LIRA-297 (web mode): the web app re-polls sessions only every 120s, so a
+// session this spec starts/closes over window.api would not reach the UI in
+// time. Nudge the app's own visibilitychange refresh (SessionContext) right
+// after — harmless on desktop, where the 7s poll picks it up anyway.
+async function syncSessionsUi(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  );
+}
+
 test.describe.configure({ retries: 0 });
 
 // This spec asserts on toast visibility — opt out of the harness's 2ms
@@ -302,6 +312,7 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
   test.afterEach(async ({ appPage }) => {
     // Session-leak hygiene: never leave an open session for later specs.
     await closeAllActiveSessions(appPage).catch(() => {});
+    await syncSessionsUi(appPage).catch(() => {});
   });
 
   test("normal mode: two Katsh bills, one CASH payment, client on both rows", async ({
@@ -314,6 +325,8 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     const TOTAL = 350_000;
 
     await closeAllActiveSessions(appPage);
+
+    await syncSessionsUi(appPage);
     await navigateTo(appPage, "/recharge");
     await providerTab(appPage, "Katsh");
     await expect(
@@ -382,6 +395,8 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     const TOTAL = 300_000;
 
     await closeAllActiveSessions(appPage);
+
+    await syncSessionsUi(appPage);
     await navigateTo(appPage, "/recharge");
     await providerTab(appPage, "iPick");
     await expect(
@@ -420,6 +435,8 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     const LBP_BILL = 300_000;
 
     await closeAllActiveSessions(appPage);
+
+    await syncSessionsUi(appPage);
     await navigateTo(appPage, "/recharge");
     await providerTab(appPage, "Katsh");
     await expect(
@@ -494,6 +511,8 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     const BILLS = [120_000, 180_000];
 
     await closeAllActiveSessions(appPage);
+
+    await syncSessionsUi(appPage);
     await navigateTo(appPage, "/recharge");
     await providerTab(appPage, "Katsh");
     await expect(
@@ -587,6 +606,8 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     const TOTAL = 583_000;
 
     await closeAllActiveSessions(appPage);
+
+    await syncSessionsUi(appPage);
     const sessionId = await appPage.evaluate(
       async ({ name, phone }) => {
         const w = window as unknown as Api;
@@ -602,6 +623,7 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
       { name: CUSTOMER, phone: PHONE },
     );
     expect(sessionId).toBeTruthy();
+    await syncSessionsUi(appPage);
 
     // Add bills through the real page UI so each page's session branch writes
     // the basket formData (that is what checkout replays verbatim).

@@ -145,15 +145,15 @@ export async function selectKatshSupplierTile(page: Page) {
   );
 }
 
-/** The Katsh row's own bill in the Settle-tab checklist, matched by its
- *  unique LBP amount text -- never by position (rule 15: the tab also lists
- *  stale unsettled bills from earlier spec files). */
-export function billRowLabel(page: Page, amountLbp: number): Locator {
-  const amountText = `${amountLbp.toLocaleString()} LBP`;
-  return page
-    .locator("label")
-    .filter({ hasText: "Bill" })
-    .filter({ hasText: amountText });
+/** A row in the Commission Settlement checklist, matched by its own
+ *  unsettled-transaction id (`data-testid="settle-row-<id>"`) -- never by
+ *  position or amount text (rule 15: the tab also lists stale unsettled rows
+ *  from earlier spec files, and since c2f4429d the row shows `supplier_owed`,
+ *  not the raw amount -- 0 for a bill -- so amount text no longer identifies
+ *  it). Resolve the id from `suppliers.getUnsettledTransactions(provider)`,
+ *  the same query the checklist renders. */
+export function settleRowById(page: Page, id: number): Locator {
+  return page.getByTestId(`settle-row-${id}`);
 }
 
 /** The settle confirm modal root (CounterpartySettleModal, data-testid). */

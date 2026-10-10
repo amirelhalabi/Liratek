@@ -27,7 +27,14 @@
  * snapshots before/after and matches rows by unique client names.
  */
 
-import { test, expect, navigateTo, seedClient, seedProduct } from "./fixtures";
+import {
+  test,
+  expect,
+  navigateTo,
+  seedClient,
+  seedProduct,
+  isWebMode,
+} from "./fixtures";
 import { closeAllActiveSessions, goToPOSCheckout } from "./helpers/nav";
 import { CheckoutModalPO } from "./page-objects/components/CheckoutModal.po";
 import type { Page } from "@playwright/test";
@@ -561,7 +568,12 @@ test.describe("LIRA-123 — auto-debt remainder scenarios", () => {
     expect(seeded.ok, seeded.error ?? "debt seed failed").toBe(true);
 
     await navigateTo(appPage, "/debts");
-    await appPage.waitForLoadState("networkidle", { timeout: 10_000 });
+    // Web mode: "networkidle" never settled here within 10s (cause not
+    // pinned down — no request loop: ~1 request per 6s on /debts). The
+    // client-row visibility wait below is the real readiness gate.
+    if (!isWebMode) {
+      await appPage.waitForLoadState("networkidle", { timeout: 10_000 });
+    }
     const clientRow = appPage
       .locator("button")
       .filter({ hasText: CLIENT })

@@ -2266,6 +2266,7 @@ export default function SuppliersPage() {
                             {selectableUnsettled.map((t) => (
                               <label
                                 key={t.id}
+                                data-testid={`settle-row-${t.id}`}
                                 className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-700/30 cursor-pointer"
                               >
                                 <input

@@ -39,7 +39,7 @@
  * are never counted as rows to remove; case 1 now asserts exactly that.)
  */
 
-import { test, expect, navigateTo } from "./fixtures";
+import { test, expect, navigateTo, isWebMode } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
@@ -50,6 +50,10 @@ const TRAILING_SPACE_NEAR_MISS = "RESET ALL DATA ";
 
 const STAFF_USERNAME = "lira165_staff";
 const STAFF_PASSWORD = "StaffPass1!";
+
+// The persisted credential AuthContext restores on reload: the desktop's DB
+// session token, or the web app's JWT (LIRA-297 web mode).
+const TOKEN_KEY = isWebMode ? "liratek.jwt" : "sessionToken";
 
 interface ResetPreview {
   counts: Record<string, number>;
@@ -80,6 +84,8 @@ type ResetApi = {
       success: boolean;
       user?: { id: number; username: string; role: string };
       sessionToken?: string | null;
+      /** Web shim only — the JWT the web app persists as its credential. */
+      token?: string;
       error?: string;
     }>;
   };
@@ -99,7 +105,7 @@ async function getPreview(page: Page): Promise<ResetPreview> {
 /** Create a staff user (idempotent) and log them in; returns their session token. */
 async function createAndLoginStaff(page: Page): Promise<string> {
   return page.evaluate(
-    async ({ username, password }) => {
+    async ({ username, password, web }) => {
       const api = (window as unknown as { api: ResetApi }).api;
       // createUser is admin-only; the shared session is admin at this point.
       // Ignore "already exists" so the spec is safe on a warm DB / re-run.
@@ -107,22 +113,26 @@ async function createAndLoginStaff(page: Page): Promise<string> {
         success: false,
       }));
       const res = await api.auth.login(username, password, false);
-      if (!res.success || !res.sessionToken) {
+      const credential = web ? res.token : res.sessionToken;
+      if (!res.success || !credential) {
         throw new Error(
           `staff login failed: ${res.error ?? "no session token"}`,
         );
       }
-      return res.sessionToken;
+      return credential;
     },
-    { username: STAFF_USERNAME, password: STAFF_PASSWORD },
+    { username: STAFF_USERNAME, password: STAFF_PASSWORD, web: isWebMode },
   );
 }
 
 /** Swap the persisted session token and reload so AuthContext restores it. */
 async function reloadAs(page: Page, sessionToken: string): Promise<void> {
-  await page.evaluate((token) => {
-    localStorage.setItem("sessionToken", token);
-  }, sessionToken);
+  await page.evaluate(
+    ({ key, token }) => {
+      localStorage.setItem(key, token);
+    },
+    { key: TOKEN_KEY, token: sessionToken },
+  );
   await page.reload();
   await page.waitForLoadState("load");
   await page.waitForSelector("nav a[href]", { timeout: 15_000 });
@@ -221,7 +231,8 @@ test.describe("LIRA-165 — Database Reset guard (no real reset ever runs)", () 
     appPage,
   }) => {
     const adminToken = await appPage.evaluate(
-      () => localStorage.getItem("sessionToken") ?? "",
+      (key) => localStorage.getItem(key) ?? "",
+      TOKEN_KEY,
     );
     expect(adminToken).not.toBe("");
 

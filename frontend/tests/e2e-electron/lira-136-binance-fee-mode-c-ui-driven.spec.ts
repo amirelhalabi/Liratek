@@ -26,6 +26,16 @@ import { test, expect, navigateTo } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
 
+// LIRA-297 (web mode): the web app re-polls sessions only every 120s, so a
+// session this spec starts/closes over window.api would not reach the UI in
+// time. Nudge the app's own visibilitychange refresh (SessionContext) right
+// after — harmless on desktop, where the 7s poll picks it up anyway.
+async function syncSessionsUi(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  );
+}
+
 test.describe.configure({ retries: 0 });
 
 type Api = {
@@ -121,14 +131,19 @@ async function dismissToasts(page: Page): Promise<void> {
 async function openBinanceCashOut(page: Page) {
   await navigateTo(page, "/recharge");
   await dismissToasts(page);
-  await page
-    .locator("button")
-    .filter({ hasText: /^Binance$/ })
-    .first()
-    .click({ force: true });
-  await expect(page.locator("#crypto-amount")).toBeVisible({
-    timeout: 20_000,
-  });
+  // LIRA-297 (web mode): one force-click on "Binance" right after
+  // navigation can land before the provider tabs settle and the crypto
+  // form never opens. Retry the click until the form is up.
+  await expect(async () => {
+    await page
+      .locator("button")
+      .filter({ hasText: /^Binance$/ })
+      .first()
+      .click({ force: true });
+    await expect(page.locator("#crypto-amount")).toBeVisible({
+      timeout: 3_000,
+    });
+  }).toPass({ timeout: 20_000 });
   await page
     .locator("button")
     .filter({ hasText: /^Cash Out$/ })
@@ -139,10 +154,12 @@ async function openBinanceCashOut(page: Page) {
 test.describe("LIRA-136 — Binance mode C (customer pays separately), UI-driven", () => {
   test.beforeEach(async ({ appPage }) => {
     await closeAllActiveSessions(appPage);
+    await syncSessionsUi(appPage);
   });
 
   test.afterEach(async ({ appPage }) => {
     await closeAllActiveSessions(appPage).catch(() => {});
+    await syncSessionsUi(appPage).catch(() => {});
   });
 
   test("wallet receives the bare amount, payout drawer pays the FULL amount, fee routes via the chosen counter-flow method", async ({
@@ -215,6 +232,7 @@ test.describe("LIRA-136 — Binance mode C (customer pays separately), UI-driven
       });
       if (!started.sessionId) await w.api.session.getActive();
     }, `L136 Session Guard ${ts}`);
+    await syncSessionsUi(appPage);
 
     await navigateTo(appPage, "/recharge");
     // Wait for the session context to actually pick up the active session
@@ -232,14 +250,19 @@ test.describe("LIRA-136 — Binance mode C (customer pays separately), UI-driven
     // Binance below — see `dismissToasts()`'s doc comment for the mechanism.
     await dismissToasts(appPage);
 
-    await appPage
-      .locator("button")
-      .filter({ hasText: /^Binance$/ })
-      .first()
-      .click({ force: true });
-    await expect(appPage.locator("#crypto-amount")).toBeVisible({
-      timeout: 20_000,
-    });
+    // LIRA-297 (web mode): one force-click on "Binance" right after
+    // navigation can land before the provider tabs settle and the crypto
+    // form never opens. Retry the click until the form is up.
+    await expect(async () => {
+      await appPage
+        .locator("button")
+        .filter({ hasText: /^Binance$/ })
+        .first()
+        .click({ force: true });
+      await expect(appPage.locator("#crypto-amount")).toBeVisible({
+        timeout: 3_000,
+      });
+    }).toPass({ timeout: 20_000 });
     await appPage
       .locator("button")
       .filter({ hasText: /^Cash Out$/ })

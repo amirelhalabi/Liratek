@@ -30,6 +30,15 @@ export async function closeAllActiveSessions(page: Page): Promise<void> {
     })
     .catch(() => {});
 
+  // Ask SessionContext to refresh now instead of waiting for its poll. The
+  // web app polls sessions only every 120s (desktop: 7s), so without this a
+  // session closed here stays on screen there and keeps capturing the next
+  // spec's transactions into its basket. visibilitychange is the app's own
+  // refresh trigger (SessionContext.tsx).
+  await page
+    .evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
+    .catch(() => {});
+
   // Wait up to 6s for the React SessionContext to re-poll and reflect the
   // close. The FAB title changes from "*active session(s)*" to
   // "Start Customer Session" once activeSession becomes null.

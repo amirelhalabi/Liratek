@@ -24,6 +24,16 @@ import { test, expect, navigateTo } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
 
+// LIRA-297 (web mode): the web app re-polls sessions only every 120s, so a
+// session this spec starts/closes over window.api would not reach the UI in
+// time. Nudge the app's own visibilitychange refresh (SessionContext) right
+// after — harmless on desktop, where the 7s poll picks it up anyway.
+async function syncSessionsUi(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  );
+}
+
 test.describe.configure({ retries: 0 });
 
 type DrawerRow = {
@@ -75,6 +85,7 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
 
   test.afterEach(async ({ appPage }) => {
     await closeAllActiveSessions(appPage).catch(() => {});
+    await syncSessionsUi(appPage).catch(() => {});
   });
 
   test("basket shows the customer's cash side only, checkout instructs the payout, drawers move once", async ({
@@ -86,6 +97,8 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
     const USDT = 50;
 
     await closeAllActiveSessions(appPage);
+
+    await syncSessionsUi(appPage);
     const sessionId = await appPage.evaluate(
       async ({ name, phone }) => {
         const w = window as unknown as Api;
@@ -101,6 +114,7 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
       { name: CUSTOMER, phone: PHONE },
     );
     expect(sessionId).toBeTruthy();
+    await syncSessionsUi(appPage);
 
     // Binance → Cash Out tab, $50, through the real UI. Wait for the page to
     // pick the session up first (else the submit books immediately instead of
@@ -112,14 +126,19 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
         .filter({ hasText: /Session - / })
         .first(),
     ).toBeVisible({ timeout: 20_000 });
-    await appPage
-      .locator("button")
-      .filter({ hasText: /^Binance$/ })
-      .first()
-      .click({ force: true });
-    await expect(appPage.locator("#crypto-amount")).toBeVisible({
-      timeout: 20_000,
-    });
+    // LIRA-297 (web mode): one force-click on "Binance" right after
+    // navigation can land before the provider tabs settle and the crypto
+    // form never opens. Retry the click until the form is up.
+    await expect(async () => {
+      await appPage
+        .locator("button")
+        .filter({ hasText: /^Binance$/ })
+        .first()
+        .click({ force: true });
+      await expect(appPage.locator("#crypto-amount")).toBeVisible({
+        timeout: 3_000,
+      });
+    }).toPass({ timeout: 20_000 });
     await appPage
       .locator("button")
       .filter({ hasText: /^Cash Out$/ })

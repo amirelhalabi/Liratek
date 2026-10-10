@@ -93,7 +93,11 @@ import {
 } from "./fixtures";
 import type { Page, Locator } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
-import { settleModalRoot, beforeContentBlock } from "./helpers/katshSettlement";
+import {
+  settleModalRoot,
+  beforeContentBlock,
+  settleRowById,
+} from "./helpers/katshSettlement";
 
 test.describe.configure({ retries: 0 });
 
@@ -218,7 +222,10 @@ async function getProfitFigures(page: Page): Promise<{
  *  half, so a nonzero LBP amount can't get concatenated into the USD number. */
 async function readProfitsPageFigures(
   page: Page,
-): Promise<{ commissionAtSettlementUsd: number; deferredClientDebtUsd: number }> {
+): Promise<{
+  commissionAtSettlementUsd: number;
+  deferredClientDebtUsd: number;
+}> {
   await navigateTo(page, "/");
   await navigateTo(page, "/profits");
   await unlockProfitsPage(page);
@@ -354,24 +361,20 @@ async function selectSupplierTile(page: Page, provider: string) {
   );
 }
 
-/** The unsettled-queue row for THIS run's own SEND, matched by its unique
- *  USD amount text — never by position (rule 15: the tab also lists every
- *  other spec's own stale unsettled OMT rows). */
-function omtRowLabel(page: Page, amountUsd: number): Locator {
-  const amountText = `$${amountUsd.toFixed(2)}`;
-  return page.locator("label").filter({ hasText: amountText });
-}
-
 /** Select this run's OMT row, open the Commission Settlement modal, force
  *  LUMP entry mode, enter a commission through the REAL "Commission (USD)"
  *  input (never a hand-built IPC payload), pick CASH for the net payment,
  *  and confirm. */
 async function settleOmtRow(
   page: Page,
-  amountUsd: number,
+  rowId: number,
   enteredCommissionUsd: number,
 ) {
-  const row = omtRowLabel(page, amountUsd);
+  // THIS run's own SEND, by its unsettled-transaction id -- never by
+  // position (rule 15: the tab also lists every other spec's stale
+  // unsettled OMT rows) and no longer by amount text: since c2f4429d the
+  // row shows `supplier_owed` (amount + fee), not the raw amount.
+  const row = settleRowById(page, rowId);
   await expect(row).toBeVisible({ timeout: 15_000 });
   await row.locator('input[type="checkbox"]').check();
 
@@ -476,7 +479,7 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
     // entering ENTERED_COMMISSION — never a hand-built IPC payload. ──────
     await navigateTo(appPage, "/suppliers");
     await selectSupplierTile(appPage, "OMT");
-    await settleOmtRow(appPage, AMOUNT, ENTERED_COMMISSION);
+    await settleOmtRow(appPage, unsettledRow!.id, ENTERED_COMMISSION);
 
     // ── 5. D17: the client hasn't repaid yet, so this cashless settlement's
     // commission must NOT be recognised — it must show up as deferred

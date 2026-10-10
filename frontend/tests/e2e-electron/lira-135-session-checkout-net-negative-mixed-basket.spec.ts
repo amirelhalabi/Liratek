@@ -48,6 +48,16 @@ import { test, expect, navigateTo } from "./fixtures";
 import type { Page } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
 
+// LIRA-297 (web mode): the web app re-polls sessions only every 120s, so a
+// session this spec starts/closes over window.api would not reach the UI in
+// time. Nudge the app's own visibilitychange refresh (SessionContext) right
+// after — harmless on desktop, where the 7s poll picks it up anyway.
+async function syncSessionsUi(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  );
+}
+
 test.describe.configure({ retries: 0 });
 
 type Api = {
@@ -81,12 +91,14 @@ async function drawers(
 test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven through the real modal", () => {
   test.afterEach(async ({ appPage }) => {
     await closeAllActiveSessions(appPage).catch(() => {});
+    await syncSessionsUi(appPage).catch(() => {});
   });
 
   test("$50 charge + $100 same-currency General payout (net −$50): #11-A nets the charge away, Confirm Checkout completes with no widget", async ({
     appPage,
   }) => {
     await closeAllActiveSessions(appPage);
+    await syncSessionsUi(appPage);
 
     const ts = Date.now();
     const SERVICE_DESC = `L135 mixed basket charge ${ts}`;
@@ -100,6 +112,7 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
       return started.sessionId ?? (await w.api.session.getActive()).session?.id;
     }, `L135 Mixed Basket Customer ${ts}`);
     expect(sessionId).toBeTruthy();
+    await syncSessionsUi(appPage);
 
     // ── Item 1: a $50 charge, via the real Custom Services form ───────────
     await navigateTo(appPage, "/custom-services");
@@ -130,13 +143,19 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
     // (Binance Cash Out) form — a bare cashout item, module
     // "binance_receive", no fee — exactly bug 2's scenario, module-agnostic.
     await navigateTo(appPage, "/recharge");
-    await appPage
-      .locator("button")
-      .filter({ hasText: /^Binance$/ })
-      .first()
-      .click({ force: true });
     const cryptoAmountInput = appPage.locator("#crypto-amount");
-    await expect(cryptoAmountInput).toBeVisible({ timeout: 20_000 });
+    // LIRA-297 (web mode): a single force-click on "Binance" right after
+    // navigation could land before the provider tabs settled (or on a
+    // leftover overlay) and the crypto form never opened. Retry the click
+    // until the form is up — same end state, no fixed sleep.
+    await expect(async () => {
+      await appPage
+        .locator("button")
+        .filter({ hasText: /^Binance$/ })
+        .first()
+        .click({ force: true });
+      await expect(cryptoAmountInput).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 20_000 });
     await appPage
       .locator("button")
       .filter({ hasText: /^Cash Out$/ })

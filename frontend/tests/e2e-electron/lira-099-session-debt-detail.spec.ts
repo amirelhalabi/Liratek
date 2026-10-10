@@ -23,6 +23,7 @@
 import { test, expect } from "./fixtures";
 import { navigateTo } from "./fixtures";
 import type { Page } from "@playwright/test";
+import { closeAllActiveSessions } from "./helpers/nav";
 
 test.describe.configure({ retries: 0 });
 
@@ -188,6 +189,11 @@ test.describe("Session Debt — itemized basket detail on the Debts page", () =>
     expect(setup.addBOk).toBe(true);
     expect(setup.error).toBeNull();
     expect(setup.ok).toBe(true);
+
+    // The basket is checked out; close the session so its TopBar hover
+    // popup cannot cover the client list below.
+    await closeAllActiveSessions(appPage);
+    await appPage.mouse.move(10, 400);
 
     // ── Drive the real Debts page UI ──────────────────────────────────────
     await navigateTo(appPage, "/debts");

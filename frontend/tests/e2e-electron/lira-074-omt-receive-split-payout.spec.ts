@@ -25,6 +25,10 @@
  * from `FinancialServiceRepository.ts`'s RECEIVE branch (`+receiveAmount`
  * posted once, unconditionally, before the cashout-method branch) —
  * unexecuted.
+ *
+ * UPDATED (LIRA-297): the third case no longer expects a RECEIVE's OUT
+ * (change) leg to be accepted — it now guards the G43 refusal (owner decision
+ * 2026-10-07: a payout cannot carry change). See that test's own comment.
  */
 
 import { test, expect } from "./fixtures";
@@ -164,7 +168,17 @@ test.describe("LIRA-074 (C1) — OMT system RECEIVE split-currency cashout", () 
     expect(result.generalLbpDelta).toBeCloseTo(0, 2);
   });
 
-  test("an OUT (change) leg is debited exactly once — no double-debit", async ({
+  // REWRITTEN (LIRA-297, CLAUDE.md rule 24): this case used to assert that
+  // an OUT (change) leg on a RECEIVE was ACCEPTED and debited once. Owner
+  // decision 2026-10-07 (FEATURE_GUIDE §4.1 "Kept change", POSTING_MAP G43)
+  // made a RECEIVE a payout that cannot carry change at all —
+  // `FinancialServiceRepository.createTransaction` refuses OUT legs on a
+  // RECEIVE outright. The old premise is gone, so the case now guards the
+  // refusal: the call fails with that error AND no drawer moves (the throw
+  // sits inside `this.db.transaction`, so the already-inserted transaction
+  // row rolls back). Not proven failing-first (rule 17): written against
+  // code that already refuses.
+  test("a RECEIVE carrying an OUT (change) leg is refused and moves no drawer", async ({
     appPage,
   }) => {
     const result = await appPage.evaluate(async () => {
@@ -173,30 +187,39 @@ test.describe("LIRA-074 (C1) — OMT system RECEIVE split-currency cashout", () 
       const before = await w.api.dashboard.getDrawerBalances();
 
       // 100 USD payout (IN leg) + a 50,000 LBP change leg tagged OUT.
-      const res = await w.api.omt.addTransaction({
-        provider: "OMT",
-        serviceType: "RECEIVE",
-        amount: 100,
-        currency: "USD",
-        commission: 0,
-        omtServiceType: "INTRA",
-        cashoutMethod: "CASH",
-        payments: [
-          { method: "CASH", currencyCode: "USD", amount: 100 },
-          {
-            method: "CASH",
-            currencyCode: "LBP",
-            amount: 50000,
-            direction: "OUT",
-          },
-        ],
-      });
+      let success = false;
+      let error: string | null = null;
+      try {
+        const res = await w.api.omt.addTransaction({
+          provider: "OMT",
+          serviceType: "RECEIVE",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          cashoutMethod: "CASH",
+          payments: [
+            { method: "CASH", currencyCode: "USD", amount: 100 },
+            {
+              method: "CASH",
+              currencyCode: "LBP",
+              amount: 50000,
+              direction: "OUT",
+            },
+          ],
+        });
+        success = res?.success === true;
+        error = res?.error ?? null;
+      } catch (e) {
+        // Either failure shape (envelope or rejection) counts as a refusal.
+        error = e instanceof Error ? e.message : String(e);
+      }
 
       const after = await w.api.dashboard.getDrawerBalances();
 
       return {
-        success: res?.success === true,
-        error: res?.error ?? null,
+        success,
+        error,
         generalUsdDelta: after.generalDrawer.usd - before.generalDrawer.usd,
         generalLbpDelta: after.generalDrawer.lbp - before.generalDrawer.lbp,
         omtUsdDelta: after.omtDrawer.usd - before.omtDrawer.usd,
@@ -204,15 +227,12 @@ test.describe("LIRA-074 (C1) — OMT system RECEIVE split-currency cashout", () 
       };
     });
 
-    expect(result.error).toBeNull();
-    expect(result.success).toBe(true);
-    expect(result.omtUsdDelta).toBeCloseTo(-100, 2);
-    // CLAUDE.md rule 16, the whole point of this case: the OUT (change) leg is
-    // debited ONCE (−50,000), not twice (−100,000 was the double-debit bug).
-    // Rerouting the drawer does not change that risk — the shared return-leg
-    // loop still owns OUT legs, and a flow branch that also iterated them
-    // would now double-debit the OMT drawer instead of General.
-    expect(result.omtLbpDelta).toBeCloseTo(-50000, 2);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/cannot carry change \(OUT\) legs/);
+    // Refused means NOTHING posted — neither the payout leg nor the change
+    // leg (the old double-debit risk is now moot: zero debits, not one).
+    expect(result.omtUsdDelta).toBeCloseTo(0, 2);
+    expect(result.omtLbpDelta).toBeCloseTo(0, 2);
     expect(result.generalUsdDelta).toBeCloseTo(0, 2);
     expect(result.generalLbpDelta).toBeCloseTo(0, 2);
   });

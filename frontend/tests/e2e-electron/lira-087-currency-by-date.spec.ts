@@ -46,7 +46,11 @@ test.describe("LIRA-087 (D1) — cash report by date", () => {
   }) => {
     const result = await appPage.evaluate(async (DATE) => {
       const w = window as unknown as Api;
-      const time = `${DATE} 12:00:00`;
+      // ISO-8601 UTC — `transactionTimeSchema` is `z.string().datetime()`,
+      // which rejects the old "YYYY-MM-DD HH:MM:SS" shape. Noon UTC lands on
+      // the same calendar day in UTC and Beirut, so the business date (the
+      // first 10 chars of created_at) is DATE on either transport.
+      const time = `${DATE}T12:00:00Z`;
 
       // USD in: customer pays $25 cash for a SEND.
       const send = await w.api.omt.addTransaction({

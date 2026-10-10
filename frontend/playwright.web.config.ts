@@ -75,34 +75,144 @@ const SHARED_DESKTOP_SPECS: string[] = SPECS_OVERRIDE
       "lira-session-exchange-rate.spec.ts",
       "lira-session-grouping-ui.spec.ts",
       "lira-session-payout.spec.ts",
-      // Left out of batch A:
-      //  - lira-session-cashout-credit / lira-session-debt-payout-signs: their
-      //    on-account Binance cash-out checkout (CUSTOMER_ACCOUNT IN charge +
-      //    CUSTOMER_ACCOUNT OUT payout) is refused by core's LIRA-270
-      //    "nothing left to collect" guard (SessionPaymentService) — shared
-      //    core, so transport-independent; not a web difference.
       // LIRA-297 batch B1 — BEGIN (edit only inside your own block)
+      "lira-101-app-wallet-receive-fee-ui.spec.ts", // omt.getHistory
+      "lira-109-session-keep-change.spec.ts", // transactions.getById
+      "lira-alfa-gift-recording.spec.ts", // recharge.getHistory, session.cartGet
+      "lira-session-allocation.spec.ts", // vouchers.create, sales.get
+      "lira-session-basket-debt.spec.ts", // clients.getAll
+      "lira-session-profits.spec.ts",
+      // The four below start/close sessions over window.api and nudge the
+      // app's visibilitychange refresh (web session poll is 120s).
+      "lira-094-session-client-propagation.spec.ts", // + exchange.addTransaction, session.linkTransaction, partners.getAll
+      "lira-095-multi-bill-checkout.spec.ts", // + session.cartGet
+      "lira-098-binance-session-cashout.spec.ts",
+      "lira-136-binance-fee-mode-c-ui-driven.spec.ts",
       // LIRA-297 batch B1 — END
       // LIRA-297 batch B2 — BEGIN (edit only inside your own block)
+      // Suppliers / settlement / OMT account. No spec changes needed; 059
+      // passes without the desktop wizard's base-system step (the seeded OMT
+      // supplier is active and is_system=1 on the fresh web DB).
+      "lira-056-supplier-credit-topup-settle.spec.ts",
+      "lira-059-supplier-cashflow-bidirectional.spec.ts",
+      "lira-061-sale-cost-supplier-ledger.spec.ts",
+      "lira-062-ipick-katsh-bill.spec.ts",
+      "lira-076-supplier-ledger-amount.spec.ts",
+      "lira-079-created-at-ordering.spec.ts",
+      "lira-089-bill-commission-settlement.spec.ts",
+      "lira-134-refund-fee-on-top-receive.spec.ts",
+      "lira-148-omt-system-account-settlement-routing.spec.ts",
+      "lira-159-unsettled-summary-count.spec.ts",
+      "lira-188-omt-account-rollup.spec.ts",
+      "lira-189-omt-account-settlement.spec.ts",
+      "lira-190-omt-app-credit-topup.spec.ts",
+      "lira-192-omt-app-cashout.spec.ts",
+      "lira-transactions-hidden-types.spec.ts",
+      // GET /api/suppliers and /balances now forward includeInactive.
+      "lira-supplier-secondary-system.spec.ts",
+      // Left out of B2:
+      //  - lira-137 / lira-141 (Checkpoint 1) / lira-158: find their row by
+      //    the raw transfer amount, but since c2f4429d (2026-10-02) the
+      //    settlement list shows supplier_owed (Katsh bill → 0 LBP; OMT SEND
+      //    → amount + fee). Stale on both transports, not a web difference.
       // LIRA-297 batch B2 — END
       // LIRA-297 batch B3 — BEGIN (edit only inside your own block)
+      "lira-063-omt-whish-optional-client.spec.ts", // shim omt.getById
+      "lira-069-receipt-print-gating.spec.ts",
+      "lira-073-datatable-export-columns.spec.ts", // createOmtAppSend now opens on web
+      "lira-075-omt-inout-semantics.spec.ts",
+      "lira-077-app-drawer-movement.spec.ts",
+      "lira-078-prepaid-units.spec.ts",
+      "lira-082-loto-inout.spec.ts",
+      "lira-089-card-face-values.spec.ts",
+      "lira-112-service-receipt-legs.spec.ts", // shim transactions.getCustomerLegs
+      "lira-128-wallet-exchange.spec.ts", // shim walletExchange.create
+      "lira-131-omt-fee-ui-driven.spec.ts",
+      "recharge.spec.ts",
+      // nested shim routes loto.cashPrize.* / loto.checkpoint.*
+      "lira-091-loto-ledger-sign.spec.ts",
+      "lira-092-supplier-payment-void.spec.ts",
+      "lira-129-loto-refund.spec.ts",
+      // Stale on both transports, brought up to date then enabled:
+      // 074 test 3 now guards the RECEIVE OUT-leg refusal, 087 sends an ISO
+      // transaction_time, 137/141/158 find settle rows by data-testid.
+      "lira-074-omt-receive-split-payout.spec.ts",
+      "lira-087-currency-by-date.spec.ts",
+      "lira-137-katsh-bill-settlement-commission-topup.spec.ts",
+      "lira-141-settlement-modes-and-topup-arrows.spec.ts",
+      "lira-158-deferred-settlement-commission.spec.ts",
       // LIRA-297 batch B3 — END
       // LIRA-297 batch B4 — BEGIN (edit only inside your own block)
+      // Partners / profits / keep-change / custom services.
+      "lira-057-whish-topup-partner-client.spec.ts",
+      // 071: web branch swaps `liratek.jwt` (not `sessionToken`) to the
+      // staff JWT and back.
+      "lira-071-profits-password-gate.spec.ts",
+      "lira-086-profits-coverage.spec.ts",
+      "lira-088-change-legs-all-forms.spec.ts",
+      "lira-090-profit-correctness.spec.ts",
+      "lira-106-keep-change-profit.spec.ts",
+      "lira-107-debt-keep-change.spec.ts",
+      "lira-108-keep-change-modules.spec.ts",
+      "lira-113-partner-for-pos.spec.ts",
+      "lira-114-partner-for-pos-ui.spec.ts",
+      "lira-115-partner-for-recharge.spec.ts",
+      "lira-116-partner-for-loto.spec.ts",
+      "lira-118-partner-lifecycle.spec.ts",
+      "lira-119-partner-for-financial-service.spec.ts",
+      "lira-120-partner-profit-recognition.spec.ts",
+      "lira-121-partner-payment-debt-profit.spec.ts",
+      "lira-124-split-void-group.spec.ts",
+      "lira-126-owner-notes-money-flows.spec.ts",
+      "lira-custom-service-payout.spec.ts",
+      "lira-services-for-partner-ui.spec.ts",
       // LIRA-297 batch B4 — END
       // LIRA-297 batch B5 — BEGIN (edit only inside your own block)
+      // Debt / closing / exchange / hold money.
+      "lira-060-hold-money.spec.ts",
+      "lira-080-debt-import-totals.spec.ts",
+      // 091/150: tops up General's float only if short (a fresh web DB
+      // running a subset can start at 0), so the checkpoint seed is valid.
+      "lira-091-checkpoint-timeline-variance.spec.ts",
+      "lira-093-customer-account-everywhere.spec.ts",
+      "lira-100-checkpoint-timeline-timezone.spec.ts",
+      "lira-103-business-day-today.spec.ts",
+      "lira-104-refund-account-debt.spec.ts",
+      "lira-105-debt-repayment-rate-invariance.spec.ts",
+      "lira-110-expense-payment-methods.spec.ts",
+      "lira-122-auto-debt-split.spec.ts",
+      // 123: S9's networkidle wait is desktop-only (never settles on web).
+      "lira-123-auto-debt-scenarios.spec.ts",
+      "lira-142-exchange-lot-settlement.spec.ts",
+      "lira-146-exchange-cross-currency-override.spec.ts",
+      "lira-147-general-drawer-foreign-currency.spec.ts",
+      "lira-150-dashboard-checkpoint-time.spec.ts",
+      // 165: web credential key is liratek.jwt; never runs a real reset.
+      "lira-165-database-reset-guard.spec.ts",
       // LIRA-297 batch B5 — END
       // LIRA-297 batch B6 — BEGIN (edit only inside your own block)
+      "lira-077-stock-adjustments.spec.ts",
+      "lira-111-walkin-customer-rename.spec.ts",
+      "lira-117-custom-service-item-pick.spec.ts",
+      "lira-125-carrier-lines-validity-credits.spec.ts",
+      "lira-132-telecom-only-days.spec.ts",
+      "lira-133-telecom-credit-buyback-ui-driven.spec.ts",
+      "lira-145-carrier-line-usage-expense.spec.ts", // + shim profits gate (ensureProfitsUnlocked)
+      "lira-149-validity-rule-and-onlydays-profit.spec.ts",
+      // Left out: lira-143 / lira-144 — the shared shim inventory.createProduct
+      // drops warranty_months (143) and supplier (144), so their seeds differ.
       // LIRA-297 batch B6 — END
       // LIRA-297 batch LIRA270 — BEGIN (edit only inside your own block)
+      // Were refused by core's LIRA-270 guard (a gross kind-less payout leg
+      // read as netted change); fixed in SessionPaymentService.basketCollectNet.
+      "lira-session-cashout-credit.spec.ts",
+      "lira-session-debt-payout-signs.spec.ts",
       // LIRA-297 batch LIRA270 — END
     ];
 
 // Optional per-file sub-test filter for partially-passing spec files.
 // app.spec.ts passes IN FULL in web mode (2026-07-10, incl. POS sale + debt
 // settle after the shared saleProcessSchema landed) — no filter needed.
-// Known exclusions (tracked in the plan doc's Appendix A):
-//  - lira-073 (export column picker) — its createOmtAppSend seeding helper's
-//    #transfer-amount form does not open in web mode; needs its own look.
 const SHARED_DESKTOP_GREP: RegExp | undefined = undefined;
 
 const DB_PATH = path.join(

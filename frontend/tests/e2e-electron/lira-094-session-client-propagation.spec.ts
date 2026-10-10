@@ -26,6 +26,16 @@
 import { test, expect, navigateTo } from "./fixtures";
 import type { Page } from "@playwright/test";
 
+// LIRA-297 (web mode): the web app re-polls sessions only every 120s, so a
+// session this spec starts/closes over window.api would not reach the UI in
+// time. Nudge the app's own visibilitychange refresh (SessionContext) right
+// after — harmless on desktop, where the 7s poll picks it up anyway.
+async function syncSessionsUi(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  );
+}
+
 test.describe.configure({ retries: 0, mode: "serial" });
 
 // This spec asserts on toast visibility — opt out of the harness's 2ms
@@ -251,6 +261,7 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
     expect(res.error).toBeNull();
     expect(res.id).toBeGreaterThan(0);
     sessionId = res.id;
+    await syncSessionsUi(appPage);
 
     // Product for the POS flow (UI path proven in app.spec).
     await navigateTo(appPage, "/products");

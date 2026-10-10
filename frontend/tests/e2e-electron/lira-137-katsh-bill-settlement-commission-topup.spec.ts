@@ -63,7 +63,7 @@ import {
   addBill,
   payCashWithClient,
   selectKatshSupplierTile,
-  billRowLabel,
+  settleRowById,
   settleModalRoot,
   beforeContentBlock,
   captureModalState,
@@ -189,11 +189,28 @@ test.describe("LIRA-137 -- Katsh bill settlement commission books as a drawer to
     // ── 2. Navigate to Suppliers -> Katsh -> select exactly the 2 NEW bills
     // by identity (never "select all" -- the settle tab already carries
     // stale unsettled bills from lira-062/078/089/095). ─────────────────────
+    // Resolve each bill's own id from the SAME query the checklist renders
+    // (identity, rule 15) -- the row shows `supplier_owed` (0 for a bill),
+    // so its amount text no longer identifies it.
+    const billIds = await appPage.evaluate(
+      async ({ a, b }) => {
+        const w = window as unknown as Api;
+        const rows = await w.api.suppliers.getUnsettledTransactions("Katsh");
+        const idOf = (amt: number) =>
+          rows.find((r) => r.service_type === "BILL" && r.amount === amt)?.id ??
+          null;
+        return { a: idOf(a), b: idOf(b) };
+      },
+      { a: BILL_A_LBP, b: BILL_B_LBP },
+    );
+    expect(billIds.a, `bill ${BILL_A_LBP} LBP not unsettled`).not.toBeNull();
+    expect(billIds.b, `bill ${BILL_B_LBP} LBP not unsettled`).not.toBeNull();
+
     await navigateTo(appPage, "/suppliers");
     await selectKatshSupplierTile(appPage);
 
-    const rowA = billRowLabel(appPage, BILL_A_LBP);
-    const rowB = billRowLabel(appPage, BILL_B_LBP);
+    const rowA = settleRowById(appPage, billIds.a!);
+    const rowB = settleRowById(appPage, billIds.b!);
     await expect(rowA).toBeVisible({ timeout: 15_000 });
     await expect(rowB).toBeVisible({ timeout: 15_000 });
     await rowA.locator('input[type="checkbox"]').check();

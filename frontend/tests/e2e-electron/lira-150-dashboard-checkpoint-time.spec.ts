@@ -96,6 +96,54 @@ type Api = {
   };
 };
 
+/**
+ * Precondition seed (rule 15): this spec's checkpoint posts General's CURRENT
+ * balances as counted amounts, which must be >= 0 (and, here, large enough
+ * for the variance to be sub-tolerance). The shared DB's General balance
+ * depends on which specs ran first — a fresh web-mode DB running a subset
+ * can sit at 0 or below — so top up ONLY the shortfall, with a cash-in.
+ */
+async function ensureGeneralFloat(
+  page: import("@playwright/test").Page,
+  minUsd: number,
+  minLbp: number,
+): Promise<void> {
+  const res = await page.evaluate(
+    async ({ minUsd, minLbp }) => {
+      const w = window as unknown as {
+        api: {
+          closing: {
+            getSystemExpectedBalancesDynamic: () => Promise<
+              Record<string, Record<string, number>>
+            >;
+          };
+          drawerTopUp: {
+            create: (data: {
+              amount_usd: number;
+              amount_lbp: number;
+              notes?: string;
+            }) => Promise<{ success: boolean; error?: string }>;
+          };
+        };
+      };
+      const bal = await w.api.closing.getSystemExpectedBalancesDynamic();
+      const usd = bal?.General?.USD ?? 0;
+      const lbp = bal?.General?.LBP ?? 0;
+      const amount_usd = usd < minUsd ? Math.ceil(minUsd - usd) : 0;
+      const amount_lbp = lbp < minLbp ? Math.ceil(minLbp - lbp) : 0;
+      if (amount_usd === 0 && amount_lbp === 0) return { success: true };
+      return w.api.drawerTopUp.create({
+        amount_usd,
+        amount_lbp,
+        notes: "E2E precondition: General float for checkpoint seed",
+      });
+    },
+    { minUsd, minLbp },
+  );
+  expect(res.error ?? null).toBeNull();
+  expect(res.success).toBe(true);
+}
+
 test.describe("Dashboard — per-drawer checkpoint time (LIRA-156)", () => {
   test("General's dashboard chip reflects its OWN latest checkpoint, not a stale AGGREGATED one", async ({
     appPage,
@@ -108,6 +156,8 @@ test.describe("Dashboard — per-drawer checkpoint time (LIRA-156)", () => {
       const res = await w.api.closing.getLastCheckpointPerDrawer();
       return res.data?.General?.checked_at ?? null;
     });
+
+    await ensureGeneralFloat(appPage, 0, 0);
 
     // ── Create a zero-variance, General-only checkpoint (mirrors the real
     // per-drawer Checkpoint page, not the multi-drawer AGGREGATED baseline)

@@ -6913,3 +6913,23 @@ Scope:
 >
 > What users will notice: on the web app, multi-item iPick/Katsh checkouts no longer over-credit the drawer, and
 > OMT/Whish transfers save both parties' names and phones.
+>
+> **Progress 2026-10-10 — desktop specs in web mode, uncommitted.** 114 desktop e2e specs now also run against the web
+> app (`SHARED_DESKTOP_SPECS` in `frontend/playwright.web.config.ts`, was 7). The web shim
+> (`frontend/tests/e2e-electron/helpers/webApiShim.ts`) maps each spec's direct `window.api.*` call to its REST route
+> (reads raw, writes enveloped), now including nested namespaces (`loto.cashPrize.*`, `loto.checkpoint.*`), and refreshes
+> the app's session list after a shim `session.start`/`close` (the web polls sessions every 120s, so a stale open session
+> otherwise swallowed the next spec's transactions). Web bugs found and fixed, each with a failing-first backend test:
+> - `GET /api/suppliers` and `/balances` ignored `includeInactive`, so inactive suppliers/providers never showed on web.
+> - `POST /api/sessions/link-transaction` dropped `profitUsd`/`profitLbp`, so a session-linked exchange saved 0 profit.
+> - `requireRole` refusals now carry `success: false` like IPC (test written after the fix — not proven failing-first).
+> Stale on both transports, brought up to date: 074 test 3 (now guards the RECEIVE OUT-leg refusal), 087 (ISO time),
+> 137/141/158 (settle rows located by `data-testid="settle-row-<id>"`).
+> Left out / open:
+> - lira-135: checkout succeeds on the server but "Checkout Complete" never shows. Likely, from reading the code:
+>   `refreshActiveSessions()` unmounts the modal before `setCheckoutSuccess`. Unconfirmed on desktop.
+> - REST `GET /api/sessions/range`, `/today`, `/today-all` have no admin/staff role check (desktop requires one).
+> - Live socket session updates did not reach the test tab (unconfirmed whether production is affected).
+>
+> What users will notice: on the web app, inactive suppliers and service providers can be shown again, and transactions
+> added to a customer session keep their profit.

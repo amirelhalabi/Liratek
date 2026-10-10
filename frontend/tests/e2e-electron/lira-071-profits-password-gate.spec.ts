@@ -47,7 +47,13 @@
  * consolidated suite.
  */
 
-import { test, expect, navigateTo, E2E_PROFITS_PASSWORD } from "./fixtures";
+import {
+  test,
+  expect,
+  navigateTo,
+  E2E_PROFITS_PASSWORD,
+  isWebMode,
+} from "./fixtures";
 import type { Page } from "@playwright/test";
 
 test.describe.configure({ retries: 0 });
@@ -60,6 +66,11 @@ const STAFF_PASSWORD = "StaffPass1!";
 // SAME value or their unlock IPC call fails against the real stored password.
 const PROFITS_PASSWORD = E2E_PROFITS_PASSWORD;
 const WRONG_PROFITS_PASSWORD = "0000";
+// Web mode (LIRA-297): the web app persists its credential as the JWT under
+// `liratek.jwt` (httpClient.ts), and the shim's auth.restoreSession reads it
+// from there — swapping `sessionToken` would leave the page signed in as
+// admin. Desktop keeps the Electron session token.
+const TOKEN_KEY = isWebMode ? "liratek.jwt" : "sessionToken";
 
 // Minimal typed view of the window.api surface this spec touches, so we never
 // reach for `any` inside page.evaluate callbacks.
@@ -78,6 +89,8 @@ type AuthApi = {
       success: boolean;
       user?: { id: number; username: string; role: string };
       sessionToken?: string | null;
+      /** Web shim only: the JWT the web app persists. */
+      token?: string;
       error?: string;
     }>;
   };
@@ -95,30 +108,36 @@ type AuthApi = {
 /** Create a staff user (idempotent) and log them in; returns their session token. */
 async function createAndLoginStaff(page: Page): Promise<string> {
   return page.evaluate(
-    async ({ username, password }) => {
+    async ({ username, password, web }) => {
       const api = (window as unknown as { api: AuthApi }).api;
       // createUser is admin-only; the shared session is admin, so this is allowed.
       // Ignore "already exists" so the spec is safe on a warm DB / re-run.
       await api.auth.createUser(username, password, "staff").catch(() => ({
         success: false,
       }));
+      // Web: the shim's login does NOT touch the shared page's storage; the
+      // credential to swap in is the JWT (`token`), not a session token.
       const res = await api.auth.login(username, password, false);
-      if (!res.success || !res.sessionToken) {
+      const credential = web ? res.token : res.sessionToken;
+      if (!res.success || !credential) {
         throw new Error(
           `staff login failed: ${res.error ?? "no session token"}`,
         );
       }
-      return res.sessionToken;
+      return credential;
     },
-    { username: STAFF_USERNAME, password: STAFF_PASSWORD },
+    { username: STAFF_USERNAME, password: STAFF_PASSWORD, web: isWebMode },
   );
 }
 
 /** Swap the persisted session token and reload so AuthContext restores it. */
 async function reloadAs(page: Page, sessionToken: string): Promise<void> {
-  await page.evaluate((token) => {
-    localStorage.setItem("sessionToken", token);
-  }, sessionToken);
+  await page.evaluate(
+    ({ key, token }) => {
+      localStorage.setItem(key, token);
+    },
+    { key: TOKEN_KEY, token: sessionToken },
+  );
   await page.reload();
   await page.waitForLoadState("load");
   // Wait until the app shell (sidebar nav) is mounted again.
@@ -131,7 +150,8 @@ test.describe("LIRA-071 — Profits password gate", () => {
   }) => {
     // Capture the admin session token up front so we can restore it at the end.
     const adminToken = await appPage.evaluate(
-      () => localStorage.getItem("sessionToken") ?? "",
+      (key) => localStorage.getItem(key) ?? "",
+      TOKEN_KEY,
     );
     expect(adminToken).not.toBe("");
 

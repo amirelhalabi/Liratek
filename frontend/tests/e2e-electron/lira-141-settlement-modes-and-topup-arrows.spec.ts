@@ -208,7 +208,7 @@ import {
   addBill,
   payCashWithClient,
   selectKatshSupplierTile,
-  billRowLabel,
+  settleRowById,
   settleModalRoot,
   beforeContentBlock,
   captureModalState,
@@ -659,11 +659,14 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
       mode: "TOP_UP" | "OTHER_PAYMENT",
       billLbp: number,
       rateLbp: number,
+      billId: number,
     ) {
       // Select just this ONE bill for settlement (identity, never "select
       // all" -- the settle tab carries stale unsettled bills from every
       // other Katsh-bill spec in the suite, plus this run's OWN other bill).
-      const row = billRowLabel(appPage, billLbp);
+      // Located by its unsettled-transaction id from the pre-flight fetch
+      // above: the row shows `supplier_owed` (0 for a bill), not its amount.
+      const row = settleRowById(appPage, billId);
       await expect(row).toBeVisible({ timeout: 15_000 });
       await row.locator('input[type="checkbox"]').check();
 
@@ -862,7 +865,12 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
       );
     }
 
-    await settleOneBillRow("TOP_UP", BILL_TOPUP_LBP, RATE_TOPUP_LBP);
+    await settleOneBillRow(
+      "TOP_UP",
+      BILL_TOPUP_LBP,
+      RATE_TOPUP_LBP,
+      foundTopUpBill!.id,
+    );
 
     // ── 3. Return to Suppliers for the second settlement. The /audit check
     // inside settleOneBillRow just navigated away from /suppliers, so a
@@ -872,7 +880,12 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
     // this is exactly the gap fix-round 2 note #1 closes. ──────────────────
     await navigateTo(appPage, "/suppliers");
     await selectKatshSupplierTile(appPage);
-    await settleOneBillRow("OTHER_PAYMENT", BILL_OTHER_LBP, RATE_OTHER_LBP);
+    await settleOneBillRow(
+      "OTHER_PAYMENT",
+      BILL_OTHER_LBP,
+      RATE_OTHER_LBP,
+      foundOtherBill!.id,
+    );
   });
 
   test("Checkpoint 2 -- top-up cash-flow arrows follow what actually moved", async ({
@@ -955,9 +968,7 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
     // pre-existing drawer-to-drawer transfer path (the thing Checkpoint 2 is
     // testing: a real source-drawer debit maps to "both"), which is still a
     // real, reachable operator choice via the "Transfer from drawer" toggle.
-    await modalC
-      .getByTestId("topup-funding-transfer")
-      .click();
+    await modalC.getByTestId("topup-funding-transfer").click();
     await fillPlainAmount(modalC, AMOUNT_C, "LBP");
     await modalC
       .getByRole("button", { name: "Confirm Top-Up", exact: true })

@@ -34,6 +34,9 @@ async function closeAllActiveSessions(page: Page) {
     for (const s of list) {
       await (window as any).api.session.close(s.id, "admin");
     }
+    // Refresh SessionContext now: the web app polls sessions only every
+    // 120s, so the closed session would otherwise stay on screen.
+    document.dispatchEvent(new Event("visibilitychange"));
   });
 }
 
