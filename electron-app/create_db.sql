@@ -2499,6 +2499,24 @@ CREATE INDEX IF NOT EXISTS idx_supplier_returns_defective_item ON supplier_retur
 CREATE INDEX IF NOT EXISTS idx_supplier_returns_claim ON supplier_returns(tenant_id, warranty_claim_id);
 CREATE INDEX IF NOT EXISTS idx_supplier_returns_supplier ON supplier_returns(tenant_id, supplier_id);
 
+-- v208 (LIRA-289): one row per money submission that carried an
+-- Idempotency-Key (the phone app sends one per "Save" tap). A retry with the
+-- same key, by the same user on the same route, replays the stored reply
+-- instead of booking again. Only successful replies are stored; rows older
+-- than 24 h are swept. created_at/updated_at are app-written UTC ISO strings.
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL,
+    route TEXT NOT NULL,
+    idem_key TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_idempotency_keys_scope ON idempotency_keys(tenant_id, user_id, route, idem_key);
+CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created ON idempotency_keys(created_at);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -2834,4 +2852,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (206, 'warranty_claims_defective_items_repair_warranty'),
     -- v207 (LIRA-296 P3) adds product_categories.serial_label/serial_required
     -- and supplier_returns, declared above.
-    (207, 'serial_categories_supplier_returns');
+    (207, 'serial_categories_supplier_returns'),
+    -- v208 (LIRA-289) adds idempotency_keys, declared above.
+    (208, 'idempotency_keys');

@@ -14334,6 +14334,37 @@ CREATE INDEX IF NOT EXISTS idx_supplier_returns_supplier ON supplier_returns(ten
       }
     },
   },
+  {
+    version: 208,
+    name: "idempotency_keys",
+    description:
+      "LIRA-289: duplicate-submission guard for the money write routes the " +
+      "phone app uses. One row per successful submission that carried an " +
+      "Idempotency-Key, unique per (tenant, user, route, key); a retry " +
+      "replays response_json instead of booking again. Swept after 24 h.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS idempotency_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL,
+    route TEXT NOT NULL,
+    idem_key TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_idempotency_keys_scope ON idempotency_keys(tenant_id, user_id, route, idem_key);
+CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created ON idempotency_keys(created_at);`);
+    },
+    down(db: Database.Database) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_idempotency_keys_created;
+        DROP INDEX IF EXISTS idx_idempotency_keys_scope;
+        DROP TABLE IF EXISTS idempotency_keys;
+      `);
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

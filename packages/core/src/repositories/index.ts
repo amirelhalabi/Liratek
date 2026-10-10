@@ -956,3 +956,14 @@ export {
   getWarrantyReportRepository,
   resetWarrantyReportRepository,
 } from "./WarrantyReportRepository.js";
+
+// LIRA-289 v208: stored replies for Idempotency-Key submissions.
+export {
+  IdempotencyRepository,
+  getIdempotencyRepository,
+  resetIdempotencyRepository,
+} from "./IdempotencyRepository.js";
+export type {
+  IdempotencyEntity,
+  IdempotencyScope,
+} from "./IdempotencyRepository.js";

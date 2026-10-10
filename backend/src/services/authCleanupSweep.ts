@@ -13,7 +13,7 @@
  * The boot run is delayed slightly rather than run inline: nothing is urgent
  * about a week-old expired row, so it should not compete with startup.
  */
-import { getAuthTokenCleanupService } from "@liratek/core";
+import { getAuthTokenCleanupService, getIdempotencyService } from "@liratek/core";
 import { logger } from "../server.js";
 
 /** Hourly — far more often than a 7-day grace needs; a missed hour is invisible. */
@@ -48,6 +48,17 @@ export function runAuthCleanupOnce(): void {
     // A failed sweep must never take the server down; expired rows simply
     // wait for the next tick.
     logger.error({ error }, "auth token cleanup failed");
+  }
+
+  // LIRA-289: stored Idempotency-Key replies older than 24 h. Its own pass,
+  // so a failure here never affects the auth-token cleanup above.
+  try {
+    const idem = getIdempotencyService().sweepAll(new Date().toISOString());
+    if (idem.deleted > 0 || idem.failed > 0) {
+      logger.info(idem, "idempotency key cleanup completed");
+    }
+  } catch (error) {
+    logger.error({ error }, "idempotency key cleanup failed");
   }
 }
 

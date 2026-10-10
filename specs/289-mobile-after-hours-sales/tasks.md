@@ -14,14 +14,13 @@ description: "Task list for LIRA-289 — mobile app for after-hours digital sale
 
 ## Progress (2026-10-10)
 
-- **Done (8 of 62):** T001, T002, T003, T006, T013, T014, T020, T027.
+- **Done (16 of 62):** T001, T002, T003, T006, T007–T012 (double-save protection, migration v208), T013, T014, T016, T020, T023, T027.
 - **Partial:**
   - T026: sign-in form without Google.
   - T024: `POST /login` only.
 - **Not done in Setup/Foundational:**
   - T004 (zod in `mobile/`; not needed yet, because the phone imports core schema *types* only);
   - T005 (mobile lint/`expo export` CI job);
-  - T007–T012 (idempotency);
   - T015 (client tests).
 - **Changes from the plan** (research R11/R12):
   - SDK 55;
@@ -68,12 +67,12 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 
 ### Tests (write first, see them fail)
 
-- [ ] T007 [P] Write `packages/core/src/repositories/__tests__/IdempotencyRepository.test.ts`:
+- [x] T007 [P] Write `packages/core/src/repositories/__tests__/IdempotencyRepository.test.ts`:
   - claim + store-response + replay;
   - a concurrent claim with the same `(tenant_id, user_id, route, idem_key)` replays instead of re-running;
   - `{success:false}` responses are NOT stored;
   - rows older than 24 h are deleted by the sweep.
-- [ ] T008 [P] Write `backend/src/api/__tests__/idempotency.api.test.ts` against `POST /api/services/transactions` and `POST /api/debts/repayments`:
+- [x] T008 [P] Write `backend/src/api/__tests__/idempotency.api.test.ts` against `POST /api/services/transactions` and `POST /api/debts/repayments`:
   - two requests with one `Idempotency-Key` give one transaction and an identical replayed body;
   - two parallel requests give one transaction;
   - a business refusal followed by a retry with the same key runs fresh;
@@ -81,13 +80,13 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 
 ### Implementation
 
-- [ ] T009 Add migration v202 `idempotency_keys` to `packages/core/src/db/migrations/index.ts`, with `down()`, and to `electron-app/create_db.sql`.
+- [x] T009 Add migration v202 `idempotency_keys` to `packages/core/src/db/migrations/index.ts`, with `down()`, and to `electron-app/create_db.sql`.
   - Columns: `id` INTEGER PK, `tenant_id` INTEGER NOT NULL, `user_id` INTEGER NOT NULL, `idem_key` TEXT NOT NULL ("client UUID … 8–128 chars `[A-Za-z0-9-]`"), `route` TEXT NOT NULL, `response_json` TEXT, `created_at`, `updated_at`.
   - Unique index `(tenant_id, user_id, route, idem_key)`.
   - Re-read the last migration entry first. If v202 is taken, use the next free number.
-- [ ] T010 Implement `packages/core/src/repositories/IdempotencyRepository.ts` (extends `BaseRepository`, tenant-scoped, `?` placeholders): `claim`, `storeResponse`, `findResponse`, `deleteOlderThan(hours)`
-- [ ] T011 Implement `backend/src/middleware/idempotency.ts`. When `Idempotency-Key` is present, the claim, the route's service call and the stored success response run in ONE SQLite transaction: no `pending` state, and a crash rolls everything back (data-model.md). It replays stored responses and does not store `{success:false}`. Mount it on `POST /api/services/transactions` (`backend/src/api/services.ts`) and `POST /api/debts/repayments` (`backend/src/api/debts.ts`).
-- [ ] T012 Add `deleteOlderThan(24)` for idempotency keys to the hourly sweep in `backend/src/services/authCleanupSweep.ts`
+- [x] T010 Implement `packages/core/src/repositories/IdempotencyRepository.ts` (extends `BaseRepository`, tenant-scoped, `?` placeholders): `claim`, `storeResponse`, `findResponse`, `deleteOlderThan(hours)`
+- [x] T011 Implement `backend/src/middleware/idempotency.ts`. When `Idempotency-Key` is present, the claim, the route's service call and the stored success response run in ONE SQLite transaction: no `pending` state, and a crash rolls everything back (data-model.md). It replays stored responses and does not store `{success:false}`. Mount it on `POST /api/services/transactions` (`backend/src/api/services.ts`) and `POST /api/debts/repayments` (`backend/src/api/debts.ts`).
+- [x] T012 Add `deleteOlderThan(24)` for idempotency keys to the hourly sweep in `backend/src/services/authCleanupSweep.ts`
 - [x] T013 [P] Implement `mobile/src/api/client.ts`. It sends:
   - `Authorization: Bearer`;
   - `X-Client-Day` (the phone's local `YYYY-MM-DD`);
@@ -113,7 +112,7 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 
 ### Tests (write first, see them fail)
 
-- [ ] T016 [P] [US1] Write `backend/src/api/__tests__/mobileAuth.api.test.ts` covering every row of quickstart Slice 1:
+- [x] T016 [P] [US1] Write `backend/src/api/__tests__/mobileAuth.api.test.ts` covering every row of quickstart Slice 1:
   - shop A + A's password → success with `sessions.device_type = 'mobile'`;
   - shop A + B's password, an unknown shop, or an inactive shop → the identical `INVALID_CREDENTIALS` body;
   - staff → `ADMIN_ONLY` with no session row;
@@ -144,7 +143,7 @@ After any core change, rebuild core and sync it: `cp -r packages/core/dist/. nod
 
   Also implement `packages/core/src/repositories/MobileNonceRepository.ts` on the platform DB (pattern: `signin_codes`, v199), and add its sweep to `backend/src/services/authCleanupSweep.ts`.
 - [ ] T022 [US1] Extend `GoogleAuthService.verifyIdToken` in `packages/core/src/services/GoogleAuthService.ts` to take an audience allow-list. Add env `GOOGLE_MOBILE_CLIENT_IDS` (comma-separated) in `packages/core/src/config/env.ts`. Existing web callers keep passing the single web client ID.
-- [ ] T023 [US1] Implement `packages/core/src/services/MobileAuthService.ts` (no SQL; repositories only, rule 13):
+- [x] T023 [US1] Implement `packages/core/src/services/MobileAuthService.ts` (no SQL; repositories only, rule 13):
   - `loginWithShop`: tenant by slug via the tenant repository. Then, inside `runWithTenant(tenant.id)`, authenticate the username in that tenant only, require `role === 'admin'`, and create the session with `deviceType 'mobile'` and `deviceInfo = deviceName`. Use a dummy hash compare when the shop or user is unknown.
   - `loginWithGoogle`: verify, consume the nonce, read `signin_directory` matches for the `sub`, look up each match's role inside `runWithTenant(match.tenant_id)`, and keep admins in active or lapsed shops. Exactly one → session. Otherwise return the refusal codes in `contracts/mobile-api.md`.
 - [ ] T024 [US1] (partial 2026-10-10: `POST /login` built and mounted, curl-verified locally for admin / wrong password / unknown shop / other shop / staff; the shop/role logic lives in the route for now and moves into `MobileAuthService` with T023; Google routes pending; "Create your shop" reuses the web's `POST /api/auth/signup/request`) Implement `backend/src/api/mobileAuth.ts`:

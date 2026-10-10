@@ -12,6 +12,11 @@ import {
 } from "@liratek/core";
 import { logger } from "../server.js";
 import type { AuthRequest } from "../middleware/auth.js";
+import {
+  INVALID_IDEMPOTENCY_KEY,
+  readIdempotencyKey,
+  runIdempotent,
+} from "../middleware/idempotency.js";
 import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
@@ -102,12 +107,20 @@ router.post(
     try {
       const financialService = getFinancialService();
       const userId = (req as AuthRequest).user!.userId;
-      const result = financialService.addTransaction({
-        ...req.body,
-        userId,
-      });
+      // LIRA-289 FR-017: a repeated Idempotency-Key replays the first reply.
+      const key = readIdempotencyKey(req);
+      if (key === "invalid") {
+        res.json({ success: false, error: INVALID_IDEMPOTENCY_KEY });
+        return;
+      }
+      const { replayed, result } = runIdempotent(
+        req,
+        "POST /api/services/transactions",
+        key,
+        () => financialService.addTransaction({ ...req.body, userId }),
+      );
 
-      if (result.success) {
+      if (result.success && !replayed) {
         // Mirrors omtHandlers.ts's omt:add-transaction audit
         // (create/financial_transaction).
         auditRest(req, {

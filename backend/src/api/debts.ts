@@ -12,6 +12,11 @@ import {
   debtWriteOffSchema,
 } from "@liratek/core";
 import type { AuthRequest } from "../middleware/auth.js";
+import {
+  INVALID_IDEMPOTENCY_KEY,
+  readIdempotencyKey,
+  runIdempotent,
+} from "../middleware/idempotency.js";
 import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
@@ -100,8 +105,19 @@ router.post(
     // cash-out, account-entry, credit, use-credit and write-off all spread
     // `{ ...req.body, userId }`. This one was simply missed.
     const userId = (req as AuthRequest).user!.userId;
-    const result = service.addRepayment({ ...req.body, userId });
-    if (result.success) {
+    // LIRA-289 FR-017: a repeated Idempotency-Key replays the first reply.
+    const key = readIdempotencyKey(req);
+    if (key === "invalid") {
+      res.json({ success: false, error: INVALID_IDEMPOTENCY_KEY });
+      return;
+    }
+    const { replayed, result } = runIdempotent(
+      req,
+      "POST /api/debts/repayments",
+      key,
+      () => service.addRepayment({ ...req.body, userId }),
+    );
+    if (result.success && !replayed) {
       // Mirrors debtHandlers.ts's debt:add-repayment audit.
       auditRest(req, {
         action: "create",

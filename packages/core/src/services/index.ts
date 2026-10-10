@@ -24,6 +24,16 @@ export type {
   MobileAuthServiceDeps,
 } from "./MobileAuthService.js";
 
+// Idempotency Service (LIRA-289: book a money submission once per key)
+export {
+  IdempotencyService,
+  getIdempotencyService,
+  resetIdempotencyService,
+  IDEMPOTENCY_KEY_PATTERN,
+  IDEMPOTENCY_RETENTION_MS,
+} from "./IdempotencyService.js";
+export type { IdempotentOutcome } from "./IdempotencyService.js";
+
 // Inventory Service
 export {
   InventoryService,

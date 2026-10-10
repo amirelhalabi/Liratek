@@ -226,6 +226,8 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "financial_services",
   "hold_money",
   "hold_money_pickups",
+  // LIRA-289 v208 — duplicate-submission replies (operational, 24 h).
+  "idempotency_keys",
   "loto_cash_prizes",
   "loto_checkpoints",
   "loto_monthly_fees",
