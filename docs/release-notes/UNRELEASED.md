@@ -299,6 +299,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## ⚙️ Settings
 
+- New shops: catalog items (mostly iPick) that came without a selling price now start with the selling price equal to their cost, so they can be sold right away. Existing shops keep their own prices.
 - Settings → Mobile Services: "Category" now works. Type the new category's name and the new item form opens; the category is saved with its first item. You can now also change the subcategory in that form.
 - Recharge page: admins can add a new category with the "New category" button under the cards (iPick, Katsh and Whish App), not only new items in existing categories.
 - If you type a category or subcategory name that already exists with different capital letters (for example "ALFA"), the item goes into the existing one instead of a second copy.
