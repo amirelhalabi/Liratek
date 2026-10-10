@@ -1,12 +1,14 @@
 :root {
-  --bg: #0a0f2e;
-  --bg-2: #10173f;
-  --card: #141c4a;
-  --line: #26306a;
-  --text: #eef1ff;
-  --muted: #a9b1d9;
-  --accent: #10b981;
-  --accent-ink: #04261b;
+  --bg: #020222;
+  --bg-2: #050938;
+  --card: #0c134f;
+  --line: #25336a;
+  --text: #ffffff;
+  --muted: #bfc7dc;
+  --accent: #d4adfc;
+  --accent-hover: #dfc3ff;
+  --accent-ink: #0c134f;
+  --focus: #dfc3ff;
   --radius: 14px;
   --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-ar: "IBM Plex Sans Arabic", "Inter", system-ui, sans-serif;
@@ -59,7 +61,7 @@ a {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(10, 15, 46, 0.85);
+  background: rgba(2, 2, 34, 0.85);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
 }
@@ -79,6 +81,17 @@ a {
   text-decoration: none;
   font-weight: 800;
   font-size: 20px;
+}
+
+.brand img {
+  display: block;
+  height: 28px;
+  width: auto;
+}
+
+.brand .brand-mark {
+  display: none;
+  height: 32px;
 }
 
 .topnav {
@@ -162,7 +175,7 @@ a {
 }
 
 .btn-primary:hover {
-  filter: brightness(1.08);
+  background: var(--accent-hover);
 }
 
 .btn-ghost {
@@ -177,7 +190,7 @@ a {
 .btn:focus-visible,
 .lang-toggle:focus-visible,
 input:focus-visible {
-  outline: 3px solid #6ee7b7;
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -185,7 +198,7 @@ input:focus-visible {
 .hero {
   padding: 56px 0 64px;
   background:
-    radial-gradient(1000px 500px at 80% 0%, #1b2a7a55, transparent), var(--bg);
+    radial-gradient(1000px 500px at 80% 0%, #1a276166, transparent), var(--bg);
 }
 
 .hero-grid {
@@ -279,7 +292,7 @@ html[lang="ar"] h1 {
 }
 
 .sound-toggle:focus-visible {
-  outline: 3px solid #6ee7b7;
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -481,9 +494,12 @@ h2 {
   }
 }
 
-@media (max-width: 400px) {
-  .brand span {
+@media (max-width: 520px) {
+  .brand .brand-logo {
     display: none;
+  }
+  .brand .brand-mark {
+    display: block;
   }
 }
 
