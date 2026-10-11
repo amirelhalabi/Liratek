@@ -119,7 +119,7 @@ description: "Task list for LIRA-304 — debt repayment item picking and primary
 
 - [X] T039 [US4] Write failing `core/repositories/__tests__/ProfitRepository.memberDebtHold.test.ts`: basket with two non-sale charge members on account; tick and fully pay one → its profit released, the other still held; no-tick payments release as today's order.
 - [X] T040 [US4] Change the second arm of `ProfitRepository.notDebtPending` (`core/repositories/ProfitRepository.ts:1041-1065`) to hold a member only while `memberOutstandingSql` for that member is open; update the doc comment (:1035-1037). T039 passes; existing profit suites green.
-- [ ] T041 [US4] (BLOCKED on owner: needs a copy of a real database — the local one has no baskets on account) Measure D10: rerun the T002 query after migration + T040 on the same DB copy; write before/after totals and the difference into `specs/304-debt-item-picking/profit-baseline.md`; if the Profits page changes for users, add a release-note line (rule 30).
+- [X] T041 [US4] (done on the live test shop 2026-10-11: before/after the deploy, every Profits figure and the held-profit totals identical — no change, as predicted; see profit-baseline.md) Measure D10: rerun the T002 query after migration + T040 on the same DB copy; write before/after totals and the difference into `specs/304-debt-item-picking/profit-baseline.md`; if the Profits page changes for users, add a release-note line (rule 30).
 
 ---
 
@@ -166,7 +166,7 @@ description: "Task list for LIRA-304 — debt repayment item picking and primary
 - [X] T054 [P] Release notes in `docs/release-notes/UNRELEASED.md` (shop-owner wording, rule 30): Debts — tick what a payment is for; money for OMT/Whish transfers goes to the transfer cash drawer whether bought in one visit or several, from now on; Transactions — payment details show each method on one line and which drawer got the money; Checkpoint — total in dollars shown for information; plus T041's line if needed. Update the LIRA-304 "What users will notice" line in `current_sprint.md`.
 - [X] T055 Gates: `yarn typecheck`, `yarn lint`, `yarn check:tenant-scoping`, `yarn check:bind-arity`, `yarn check:schema-equivalence`, core + backend + frontend jest; confirm suite counts and elapsed times (rule 28). Desktop e2e runs in CI only (no Electron on this Mac).
 - [X] T057 Desktop e2e `frontend/tests/e2e-electron/lira-304-debt-item-picking.spec.ts` mirroring T051 (basket + separate visits, OMT ticked, drawer deltas matched by identity, rule 15). Runs in CI's desktop job only (no Electron on this Mac); add it to `frontend/tests/e2e-electron/README.md`.
-- [ ] T056 (BLOCKED on owner: needs a push to main, which deploys) Manual check on the test shop per quickstart.md §3 (owner present for the password); record results in `current_sprint.md` under LIRA-304.
+- [X] T056 (done on the live test shop 2026-10-11 after deploy c54f428b: basket breakdown, picker, Goes to $50, OMT_System +$50 only, row "In — Cash: $50 {$50 OMT Cash Drawer}") Manual check on the test shop per quickstart.md §3 (owner present for the password); record results in `current_sprint.md` under LIRA-304.
 
 ---
 

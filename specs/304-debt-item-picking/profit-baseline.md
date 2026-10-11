@@ -28,3 +28,7 @@ Read through the live web app (Profits API, 2025-10-01 → 2026-10-11, unlocked 
 Pending (held) profit: `{"rows": [{"sale_id": 111, "created_at": "2026-10-10 22:22:06", "client_name": "Claude Demo 1011", "client_phone": "03101011", "total_amount_usd": 33, "paid_usd": 0, "outstanding_usd": 33, "potential_profit_usd": 18, "items_summary": "1x Anker Braided USB-C Cable 2m, 1x Apple 20W USB-C Power Adapter"}], "totals": {"total_outstanding_usd": 33, "total_pending_profit_usd": 18, "count": 1}, "unsettled_commissions": [], "unsettled_totals": {"total_pending_commission_usd": 0, "total_pending_commission_lbp": 0, "count": 0, "awaiting_settlement_count": 4}, "deferred": {"partner_profit_usd": 0, "partne`
 
 Baskets on account on the test shop that the per-item hold could change: "Claude Demo 1010" is fully repaid (no change expected) and "Claude Demo 1011" ($134, unpaid, its only non-sale item is the OMT send) has no partly-paid basket with two non-sale items — so **no change is expected** in these totals. After the deploy, re-run the same read and compare (T041).
+
+## Test shop "after" — 2026-10-11, after deploy c54f428b (LIRA-304 live)
+
+Same read, same range. **Result: no difference** — every summary figure and the held-profit totals (outstanding $33, pending profit $18, 1 row) are identical before and after. Matches the prediction above (no partly-paid basket with two or more non-sale items on the test shop). T041 done; no release-note line needed for existing figures.

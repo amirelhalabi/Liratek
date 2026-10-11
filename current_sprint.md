@@ -6589,6 +6589,8 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 - **Found during live testing 2026-10-11, fixed locally (not yet released):** session checkout could not switch the payment from Customer Account to Cash for a customer with an account — picking Cash flipped the derived payout default, which remounted the payment input and re-seeded Customer Account. Fix: `SessionCheckoutModal` re-seeds from the operator's last choice (`chosenFirstMethod`). Guard: `SessionCheckoutModal.cashWithClient.test.tsx` (seen failing first: submitted CUSTOMER_ACCOUNT).
 
+- **Shipped 2026-10-11** (pushed c54f428b; Fly deploy verified, one machine; Vercel live). Live check on the test shop: basket breakdown, picker, Goes to, OMT_System +$50 only, payment detail "In — Cash: $50 {$50 OMT Cash Drawer}". Profit totals unchanged before/after (T041). All 58 tasks done.
+
 **What users will notice:** when a customer pays off their debt, the cashier can tick what the money is for, and money for OMT/Whish transfers goes to the transfer cash drawer whether the items were bought in one visit or several.
 
 ## LIRA-303: landing page demo videos — web app first, desktop from the same screens, phone later — DONE, not yet pushed (owner request 2026-10-10)
