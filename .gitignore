@@ -36,6 +36,8 @@ pnpm-debug.log*
 
 # Databases (must never be committed)
 *.db
+*.db-shm
+*.db-wal
 *.db-journal
 *.sqlite
 *.sqlite3
