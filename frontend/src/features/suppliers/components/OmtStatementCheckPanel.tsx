@@ -1,8 +1,14 @@
 import { useState } from "react";
+import type { OmtCoveredType } from "@liratek/core";
 import {
   useSupplierAccountExpectedStatementQuery,
   type AccountBalance,
 } from "../hooks/useSuppliers";
+import OmtCoveredTypesPicker from "./OmtCoveredTypesPicker";
+import {
+  loadCoveredTypes,
+  saveCoveredTypes,
+} from "../utils/omtCoveredTypesStorage";
 
 /**
  * LIRA-255 — "check against OMT's statement" panel on the OMT account card.
@@ -24,6 +30,12 @@ import {
  * as a convenience so a reload doesn't lose what the operator just typed;
  * that storage is per-browser/per-device and is never read back by the app
  * for any other purpose (CLAUDE.md's browser-storage rule).
+ *
+ * LIRA-256 — OMT's SMS may cover only some commission types ("INCLUDES
+ * INTRA SHARES"). The operator ticks the covered types; the read then
+ * subtracts only those types' commission (see the core doc comment for the
+ * old-style-row rule, S9). The choice is remembered per account on this
+ * device (`omtCoveredTypesStorage`), shared with both settle screens.
  */
 
 const DIFF_EPS_USD = 0.01;
@@ -111,8 +123,15 @@ export function OmtStatementCheckPanel({
   account: AccountBalance;
 }) {
   const accountSupplierId = account.account_supplier_id;
-  const statementQuery =
-    useSupplierAccountExpectedStatementQuery(accountSupplierId);
+  // LIRA-256 — lazily initialised from this device's last choice (no
+  // setState in an effect); undefined = All types.
+  const [coveredTypes, setCoveredTypes] = useState<
+    OmtCoveredType[] | undefined
+  >(() => loadCoveredTypes(accountSupplierId));
+  const statementQuery = useSupplierAccountExpectedStatementQuery(
+    accountSupplierId,
+    coveredTypes,
+  );
 
   // Lazy-initialized from localStorage (never in an effect — a synchronous
   // setState-in-effect on mount is exactly the cascading-render pattern
@@ -151,6 +170,16 @@ export function OmtStatementCheckPanel({
       <div className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
         Check against OMT&apos;s statement
       </div>
+
+      <OmtCoveredTypesPicker
+        value={coveredTypes}
+        onChange={(next) => {
+          setCoveredTypes(next);
+          saveCoveredTypes(accountSupplierId, next);
+        }}
+        byType={statement?.commission_by_type}
+        testIdPrefix="omt-statement-covered"
+      />
 
       <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-mono">
         <div className="text-slate-400">Owed to OMT (gross)</div>

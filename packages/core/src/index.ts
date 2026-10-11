@@ -93,6 +93,8 @@ export * from "./utils/warrantyState.js";
 export * from "./utils/serialLabel.js";
 // OMT / WHISH fee tables + commission rates — also exported from browser.ts.
 export * from "./utils/omtFees.js";
+// LIRA-256 — OMT statement covered-types predicate (pure leaf, rule 29).
+export * from "./utils/omtCoveredTypes.js";
 export * from "./utils/whishFees.js";
 
 // Repositories

@@ -268,6 +268,17 @@ settles with the supplier, and that figure is what the books and Profits use.
   (D11): realized figures filter on the `COMMISSION_PROVIDERS` set. An iPick/Katsh/BOB card margin is
   Mobile Services profit, never commission
   (`ProfitRepository.commissionProviderSet.test.ts`).
+- **Statements that cover only some OMT types (LIRA-256).** OMT's balance SMS
+  can say which commission types it already deducted ("INCLUDES INTRA
+  SHARES"). A settlement may carry that list (`covered_omt_service_types`,
+  validated by the shared `omtCoveredTypesSchema`); when it does, the batch is
+  refused before any write if it selects a new-model OMT transfer of another
+  type (`_assertRowsCoveredByStatement`, run on every selected FS row in
+  `settleAccount`, so the two-member path is covered too). Those transfers
+  stay unsettled at gross with their commission pending, so the commission
+  split only ever lands on rows actually settled. No new ledger row, no
+  reversal change: the list is only stamped on the settlement's
+  `metadata_json` for the record. Legacy rows are never restricted.
 - **Reversal (rule 20).** Voiding the `SUPPLIER_SETTLEMENT` returns every row
   to the unsettled queue, voids the ledger rows and legs, and deletes the
   `supplier_settlements` + allocation rows; create → settle → void nets to 0

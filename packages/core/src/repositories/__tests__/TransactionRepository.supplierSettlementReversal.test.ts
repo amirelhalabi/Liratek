@@ -877,6 +877,113 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
       expect(allocationsFor(db, settlement.id)).toHaveLength(0);
     });
 
+    // ── LIRA-256 — a settlement that names covered OMT commission types ──
+    // The metadata-stamp assertion is the line that was red first (the key
+    // was missing before LIRA-256). The net-zero part is a regression net —
+    // net-zero: not proven failing-first, existing reversal code is
+    // unchanged (research R1: no new side-effect row, rule 20 by
+    // construction).
+    it("LIRA-256: covered-types settle (INTRA only, USD + LBP) then VOID nets ledger + drawers + allocations to 0 per currency; the uncovered WU row is never touched", () => {
+      const omtId = supplierIdByProvider(db, "OMT");
+      const seedSend = (
+        amount: number,
+        fee: number,
+        currency: "USD" | "LBP",
+        type: string,
+      ): number => {
+        const id = Number(
+          db
+            .prepare(
+              `INSERT INTO financial_services
+                 (provider, service_type, amount, currency, commission, omt_fee,
+                  omt_service_type, commission_model, is_settled)
+               VALUES ('OMT', 'SEND', ?, ?, ?, ?, ?, 1, 0)`,
+            )
+            .run(amount, currency, fee * 0.1, fee, type).lastInsertRowid,
+        );
+        db.prepare(
+          `INSERT INTO supplier_ledger
+             (supplier_id, entry_type, amount_usd, amount_lbp, is_auto, source_ref_table, source_ref_id)
+           VALUES (?, 'TOP_UP', ?, ?, 1, 'financial_services', ?)`,
+        ).run(
+          omtId,
+          currency === "USD" ? amount + fee : 0,
+          currency === "LBP" ? amount + fee : 0,
+          id,
+        );
+        return id;
+      };
+      const intraUsd = seedSend(461, 7, "USD", "INTRA");
+      const intraLbp = seedSend(1_000_000, 50_000, "LBP", "INTRA");
+      const wu = seedSend(517, 9, "USD", "WESTERN_UNION");
+
+      const ledger = () =>
+        db
+          .prepare(
+            `SELECT COALESCE(SUM(amount_usd),0) AS usd, COALESCE(SUM(amount_lbp),0) AS lbp
+             FROM supplier_ledger WHERE supplier_id = ? AND COALESCE(is_refunded,0) = 0`,
+          )
+          .get(omtId) as { usd: number; lbp: number };
+      const drawers = () =>
+        db
+          .prepare(
+            `SELECT drawer_name, currency_code, balance FROM drawer_balances ORDER BY drawer_name, currency_code`,
+          )
+          .all();
+      const wuState = () =>
+        db
+          .prepare(
+            `SELECT settlement_id, is_settled, commission FROM financial_services WHERE id = ?`,
+          )
+          .get(wu);
+
+      const preLedger = ledger();
+      const preDrawers = drawers();
+      const preWu = wuState();
+
+      const settlement = supplierRepo.settleTransactions({
+        supplier_id: omtId,
+        financial_service_ids: [intraUsd, intraLbp],
+        amount_usd: 468 - 1.37,
+        amount_lbp: 1_050_000 - 15_000,
+        commission_usd: 1.37,
+        commission_lbp: 15_000,
+        created_by: 1,
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 468 - 1.37 },
+          { method: "CASH", currency_code: "LBP", amount: 1_050_000 - 15_000 },
+        ],
+        covered_omt_service_types: ["INTRA"],
+      });
+      const settlementTxn = txnRepo.getBySourceId(
+        "supplier_ledger",
+        settlement.id,
+      )!;
+      expect(
+        JSON.parse(settlementTxn.metadata_json ?? "{}")
+          .covered_omt_service_types,
+      ).toEqual(["INTRA"]);
+      expect(allocationsFor(db, settlement.id)).toHaveLength(2);
+      expect(wuState()).toEqual(preWu);
+
+      txnRepo.voidTransaction(settlementTxn.id, 1);
+
+      const postLedger = ledger();
+      expect(postLedger.usd).toBeCloseTo(preLedger.usd, 6);
+      expect(postLedger.lbp).toBeCloseTo(preLedger.lbp, 6);
+      expect(drawers()).toEqual(preDrawers);
+      expect(allocationsFor(db, settlement.id)).toHaveLength(0);
+      const status = (
+        db
+          .prepare(`SELECT status FROM transactions WHERE id = ?`)
+          .get(settlementTxn.id) as {
+          status: string;
+        }
+      ).status;
+      expect(status).toBe("VOIDED");
+      expect(wuState()).toEqual(preWu);
+    });
+
     // ── Rule 17 — FAILING-FIRST: prove _reverseCommissionAtSettlementRecords
     // is genuinely the piece doing this work, not a coincidence of the
     // generic cascade. Reproduced by calling the void path with that one

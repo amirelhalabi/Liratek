@@ -43,6 +43,8 @@ import type {
   UpdateCategoryPayload,
   // LIRA-296 — the sale payload (per-line warranty_months, client_day).
   SaleRequest,
+  // LIRA-256 — OMT statement covered commission types (core schema input).
+  OmtCoveredTypesInput,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -772,10 +774,15 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("suppliers:account-ledger", accountSupplierId, limit),
     getAccountUnsettled: (accountSupplierId: number) =>
       ipcRenderer.invoke("suppliers:account-unsettled", accountSupplierId),
-    getAccountExpectedStatement: (accountSupplierId: number) =>
+    // LIRA-256 — optional covered OMT commission types (undefined = all).
+    getAccountExpectedStatement: (
+      accountSupplierId: number,
+      coveredTypes?: OmtCoveredTypesInput,
+    ) =>
       ipcRenderer.invoke(
         "suppliers:account-expected-statement",
         accountSupplierId,
+        coveredTypes,
       ),
     create: (data: {
       name: string;
@@ -842,6 +849,9 @@ contextBridge.exposeInMainWorld("api", {
         amount: number;
         direction?: "IN" | "OUT";
       }>;
+      /** LIRA-256 — OMT commission types this settlement's statement covers
+       *  (absent = all types). Rule 12: mirrors the core settle schema. */
+      covered_omt_service_types?: OmtCoveredTypesInput;
     }) => ipcRenderer.invoke("suppliers:settle-transactions", data),
     // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
     // payment across the account parent (OMT) + its children (OMT App,
@@ -872,6 +882,9 @@ contextBridge.exposeInMainWorld("api", {
        *  booked as a standalone account credit (direction: "PAY" only). */
       surplus_usd?: number;
       surplus_lbp?: number;
+      /** LIRA-256 — OMT commission types this settlement's statement covers
+       *  (absent = all types). Rule 12: mirrors the core settle schema. */
+      covered_omt_service_types?: OmtCoveredTypesInput;
     }) => ipcRenderer.invoke("suppliers:settle-account", data),
     recordCashflow: (data: {
       supplier_id: number;

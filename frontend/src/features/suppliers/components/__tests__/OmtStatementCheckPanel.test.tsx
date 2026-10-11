@@ -20,6 +20,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { OmtStatementCheckPanel } from "../OmtStatementCheckPanel";
 import type { AccountBalance, AccountExpectedStatement } from "../../hooks/useSuppliers";
+import { OMT_COVERED_TYPE_VALUES, coveredTypeLabel } from "@liratek/core";
 
 const mockGetStatement = jest.fn();
 // Module-level stable object — rule 25: returning the SAME reference every
@@ -214,5 +215,128 @@ describe("OmtStatementCheckPanel (LIRA-255)", () => {
     // The most recently rendered instance picked up the saved values.
     expect(usdInputs[usdInputs.length - 1].value).toBe("207.75");
     expect(lbpInputs[lbpInputs.length - 1].value).toBe("1045000");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// LIRA-256 — "Which shares does this SMS include?" picker. RULE 17: run red
+// before the picker existed (no "All types" control; the read was only ever
+// called with one argument).
+// ─────────────────────────────────────────────────────────────────────────
+describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
+  const BASE: AccountExpectedStatement = {
+    account_supplier_id: 1,
+    gross_owed_usd: 600,
+    gross_owed_lbp: 1_050_000,
+    unsettled_commission_usd: 1.5,
+    unsettled_commission_lbp: 5_000,
+    expected_usd: 598.5,
+    expected_lbp: 1_045_000,
+    covered_omt_service_types: null,
+    commission_by_type: [
+      { omt_service_type: "INTRA", commission_usd: 0.3, commission_lbp: 5_000, count: 2 },
+      { omt_service_type: "WESTERN_UNION", commission_usd: 1.2, commission_lbp: 0, count: 1 },
+    ],
+  };
+  const INTRA_ONLY: AccountExpectedStatement = {
+    ...BASE,
+    unsettled_commission_usd: 0.3,
+    expected_usd: 599.7,
+    covered_omt_service_types: ["INTRA"],
+  };
+
+  function renderWith(impl: (id: number, covered?: string[]) => AccountExpectedStatement) {
+    mockGetStatement.mockImplementation((id: number, covered?: string[]) =>
+      Promise.resolve(impl(id, covered)),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OmtStatementCheckPanel account={ACCOUNT} />
+      </QueryClientProvider>,
+    );
+  }
+  const byChoice = (_id: number, covered?: string[]) => (covered ? INTRA_ONLY : BASE);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+    try {
+      window.localStorage.clear();
+    } catch {
+      // ignore
+    }
+  });
+
+  it("shows 'All types', every OMT type label and 'Type not recorded'", async () => {
+    renderWith(byChoice);
+    expect(await screen.findByTestId("omt-statement-covered-all")).toBeChecked();
+    for (const v of OMT_COVERED_TYPE_VALUES) {
+      expect(screen.getByTestId(`omt-statement-covered-${v}`)).not.toBeChecked();
+      expect(screen.getByText(coveredTypeLabel(v))).toBeInTheDocument();
+    }
+    expect(screen.getByText("Type not recorded")).toBeInTheDocument();
+  });
+
+  it("'All types' calls the read with ONE argument (id only)", async () => {
+    renderWith(byChoice);
+    await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1));
+    expect(mockGetStatement.mock.calls[0]).toHaveLength(1);
+  });
+
+  it("ticking only Intra re-reads with (id, ['INTRA']) and renders that response", async () => {
+    renderWith(byChoice);
+    await screen.findByTestId("omt-statement-covered-INTRA");
+    fireEvent.click(screen.getByTestId("omt-statement-covered-INTRA"));
+    await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1, ["INTRA"]));
+    await waitFor(() =>
+      expect(screen.getByTestId("omt-statement-commission-usd")).toHaveTextContent("$0.30"),
+    );
+    expect(screen.getByTestId("omt-statement-expected-usd")).toHaveTextContent("$599.70");
+    expect(screen.getByTestId("omt-statement-covered-all")).not.toBeChecked();
+  });
+
+  it("each type shows its count and unsettled commission from commission_by_type", async () => {
+    renderWith(byChoice);
+    await waitFor(() =>
+      expect(screen.getByTestId("omt-statement-covered-INTRA-amount")).toHaveTextContent("2"),
+    );
+    expect(screen.getByTestId("omt-statement-covered-INTRA-amount")).toHaveTextContent("$0.30");
+    expect(screen.getByTestId("omt-statement-covered-INTRA-amount")).toHaveTextContent("5,000");
+    expect(screen.getByTestId("omt-statement-covered-WESTERN_UNION-amount")).toHaveTextContent("$1.20");
+  });
+
+  it("saves the choice per account on this device and restores it on remount", async () => {
+    renderWith(byChoice);
+    fireEvent.click(await screen.findByTestId("omt-statement-covered-INTRA"));
+    expect(window.localStorage.getItem("liratek:omt-covered-types:1")).toBe(JSON.stringify(["INTRA"]));
+    cleanup();
+    mockGetStatement.mockClear();
+    renderWith(byChoice);
+    expect(await screen.findByTestId("omt-statement-covered-INTRA")).toBeChecked();
+    await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1, ["INTRA"]));
+  });
+
+  it("unticking the last type returns to 'All types' (never sends [])", async () => {
+    renderWith(byChoice);
+    fireEvent.click(await screen.findByTestId("omt-statement-covered-INTRA"));
+    fireEvent.click(screen.getByTestId("omt-statement-covered-INTRA"));
+    expect(screen.getByTestId("omt-statement-covered-all")).toBeChecked();
+    for (const call of mockGetStatement.mock.calls) {
+      if (call.length > 1) expect(call[1]).not.toEqual([]);
+    }
+  });
+
+  it("a localStorage that throws does not break the panel (falls back to All types)", async () => {
+    jest.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    jest.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    renderWith(byChoice);
+    expect(await screen.findByTestId("omt-statement-covered-all")).toBeChecked();
+    fireEvent.click(screen.getByTestId("omt-statement-covered-INTRA"));
+    expect(screen.getByTestId("omt-statement-covered-INTRA")).toBeChecked();
   });
 });

@@ -130,6 +130,8 @@ import type {
   CompleteSetupInput,
 } from "@liratek/core";
 import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
+// LIRA-256 — OMT statement covered commission types (rule 21).
+import type { OmtCoveredTypesInput } from "@liratek/core";
 // LIRA-297 (rule 21) — currency / payment-method / supplier-create / drawer
 // top-up payloads, derived from the core schemas.
 import type {
@@ -513,8 +515,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   getSupplierAccountUnsettled = (accountSupplierId: number) =>
     api.getSupplierAccountUnsettled(accountSupplierId);
   /** LIRA-255 — gross owed minus unsettled commission, in OMT's own sign. */
-  getSupplierAccountExpectedStatement = (accountSupplierId: number) =>
-    api.getSupplierAccountExpectedStatement(accountSupplierId);
+  getSupplierAccountExpectedStatement = (
+    accountSupplierId: number,
+    coveredTypes?: OmtCoveredTypesInput,
+  ) => api.getSupplierAccountExpectedStatement(accountSupplierId, coveredTypes);
   updateSupplierAccountLink = (data: SupplierAccountLinkInput) =>
     api.updateSupplierAccountLink(data);
   createSupplier = (data: SupplierCreatePayload) => api.createSupplier(data);

@@ -25,6 +25,8 @@ import type {
   CompleteSetupInput,
 } from "@liratek/core";
 import type { PartnerSettleInput, SupplierSettleInput } from "@liratek/core";
+// LIRA-256 — OMT statement covered commission types (rule 21).
+import type { OmtCoveredTypesInput } from "@liratek/core";
 // LIRA-267 — sign-up / invite payloads and views, derived from the core
 // schemas (rule 21). The `*BodyInput`/`*Input` aliases are `z.input<…>`
 // computed inside core, against core's own zod major.
@@ -3206,15 +3208,36 @@ export async function getSupplierAccountUnsettled(
 // unsettled commission, in OMT's own sign convention. Display-only.
 export async function getSupplierAccountExpectedStatement(
   accountSupplierId: number,
+  // LIRA-256 — covered OMT commission types; undefined = all types. One
+  // call site per transport, the choice built once by the caller (rule 22).
+  coveredTypes?: OmtCoveredTypesInput,
 ): Promise<AccountExpectedStatement> {
   return ipcOrHttp(
     async () =>
-      getElectronApi().suppliers.getAccountExpectedStatement(accountSupplierId),
+      coveredTypes === undefined
+        ? getElectronApi().suppliers.getAccountExpectedStatement(
+            accountSupplierId,
+          )
+        : getElectronApi().suppliers.getAccountExpectedStatement(
+            accountSupplierId,
+            coveredTypes,
+          ),
     async () => {
+      const query =
+        coveredTypes === undefined
+          ? ""
+          : `?covered=${encodeURIComponent(coveredTypes.join(","))}`;
       const res = await requestJson<{
         success: boolean;
-        statement: AccountExpectedStatement;
-      }>(`/api/suppliers/${accountSupplierId}/account-expected-statement`);
+        statement?: AccountExpectedStatement;
+        error?: string;
+      }>(`/api/suppliers/${accountSupplierId}/account-expected-statement${query}`);
+      // LIRA-256 — a refused choice must surface as an error on BOTH
+      // transports (the IPC handler throws), never as a silent zeroed
+      // statement that would look like "nothing owed".
+      if (res.success === false) {
+        throw new Error(res.error ?? "Failed to get account expected statement");
+      }
       return (
         res.statement ?? {
           account_supplier_id: accountSupplierId,
@@ -3224,6 +3247,8 @@ export async function getSupplierAccountExpectedStatement(
           unsettled_commission_lbp: 0,
           expected_usd: 0,
           expected_lbp: 0,
+          covered_omt_service_types: null,
+          commission_by_type: [],
         }
       );
     },

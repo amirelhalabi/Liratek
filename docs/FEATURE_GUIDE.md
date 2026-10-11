@@ -722,6 +722,13 @@ booked once, at load time. Do not "fix" that.
   already embedded in the row, read by `embeddedCommission`; nothing was restated.
   While a new-model row waits, Profits shows a COUNT ("N awaiting settlement"), never a
   dollar estimate.
+  **OMT statement types (LIRA-256):** a settlement may name the OMT commission types its
+  statement covers (`covered_omt_service_types`). A new-model OMT transfer of another type is
+  then **refused** from that batch (the error names it) and stays queued at gross with its
+  commission pending until a statement covers its type — never settled with a zero share.
+  Legacy rows and non-OMT rows are never restricted; absent = all types. The statement check
+  (LIRA-255) subtracts only covered types' commission, and an old-style row (already booked
+  net) is subtracted nothing more when covered and added back when not (S9).
 - **"Commission" means supplier-paid only** (owner decision D11). Every REALIZED Profits
   commission figure filters on `COMMISSION_PROVIDERS` (OMT, WHISH, OMT_APP, WHISH_APP, BINANCE)
   or comes from settlement commission. An iPick/Katsh/BOB card margin (price − cost) is

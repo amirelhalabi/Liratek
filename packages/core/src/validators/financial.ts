@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OMT_SERVICE_TYPES } from "../utils/omtFees.js";
 import {
   positiveDecimalSchema,
   currencyCodeSchema,
@@ -108,18 +109,8 @@ export const createFinancialServiceSchema = z
     receiverPhone: z.string().max(30).optional(),
     senderClientId: z.number().int().positive().optional(),
     receiverClientId: z.number().int().positive().optional(),
-    omtServiceType: z
-      .enum([
-        "INTRA",
-        "WESTERN_UNION",
-        "CASH_TO_BUSINESS",
-        "CASH_TO_GOV",
-        "OMT_WALLET",
-        "OMT_CARD",
-        "OGERO_MECANIQUE",
-        "ONLINE_BROKERAGE",
-      ])
-      .optional(),
+    // LIRA-256 — the ONE type list (rule 14), not an inline copy.
+    omtServiceType: z.enum(OMT_SERVICE_TYPES).optional(),
     itemKey: z.string().max(255).optional(),
     itemCategory: z.string().max(500).optional(),
     note: z.string().max(500).optional(),

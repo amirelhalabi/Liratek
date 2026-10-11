@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
+import { normaliseCoveredTypes, type OmtCoveredType } from "@liratek/core";
 import type {
   SupplierLedgerEntryPayload,
   SupplierSettleInput,
@@ -234,14 +235,24 @@ export function useSupplierAccountUnsettledQuery(
  */
 export function useSupplierAccountExpectedStatementQuery(
   accountSupplierId: number | null,
+  /** LIRA-256 — covered OMT commission types; undefined = all types. */
+  coveredTypes?: OmtCoveredType[],
 ) {
   const api = useApi();
   return useQuery({
-    queryKey: SUPPLIER_KEYS.accountExpectedStatement(accountSupplierId ?? 0),
+    // Prefix stays `accountExpectedStatement(id)` so invalidateAccountQueries'
+    // prefix match still refreshes every choice's cached figure.
+    queryKey: [
+      ...SUPPLIER_KEYS.accountExpectedStatement(accountSupplierId ?? 0),
+      coveredTypes ? normaliseCoveredTypes(coveredTypes).join(",") : "ALL",
+    ],
     queryFn: () =>
-      api.getSupplierAccountExpectedStatement(
-        accountSupplierId!,
-      ) as Promise<AccountExpectedStatement>,
+      (coveredTypes === undefined
+        ? api.getSupplierAccountExpectedStatement(accountSupplierId!)
+        : api.getSupplierAccountExpectedStatement(
+            accountSupplierId!,
+            coveredTypes,
+          )) as Promise<AccountExpectedStatement>,
     enabled: !!accountSupplierId,
   });
 }

@@ -209,6 +209,8 @@ import type {
   SupplierCreatePayload,
   DrawerTopUpCreatePayload,
   DrawerTopUpFromDrawerPayload,
+  // LIRA-256 — OMT statement covered commission types (rule 21).
+  OmtCoveredTypesInput,
 } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
@@ -582,6 +584,11 @@ export type AccountUnsettledRow = {
    */
   commission_usd: number;
   commission_lbp: number;
+  /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows). Optional
+   *  so fixtures built before this field still type-check; read `?? null`. */
+  omt_service_type?: string | null;
+  /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows). */
+  commission_model?: number | null;
 };
 
 /**
@@ -595,14 +602,26 @@ export type AccountExpectedStatement = {
   /** = {@link AccountBalance.total_usd}/`total_lbp` for this account. */
   gross_owed_usd: number;
   gross_owed_lbp: number;
-  /** Sum of `commission` across every pending-settlement financial_services
-   *  row for this account's members, ALL commission types/models. */
+  /** Commission still to take off the gross to reach OMT's figure (covered
+   *  new-style OMT rows, minus uncovered old-style ones — LIRA-256/S9 — plus
+   *  every other member's pending row). */
   unsettled_commission_usd: number;
   unsettled_commission_lbp: number;
   /** gross_owed − unsettled_commission, in OMT's own sign convention
    *  (minus = OMT owes the shop, plus = the shop owes OMT). */
   expected_usd: number;
   expected_lbp: number;
+  /** LIRA-256 — echo of the covered-types choice; null = all types.
+   *  Optional so older typed fixtures compile; read `?? null`. */
+  covered_omt_service_types?: string[] | null;
+  /** LIRA-256 — per OMT commission type: stored commission + count, for
+   *  every OMT counter row in the queue. Read `?? []`. */
+  commission_by_type?: Array<{
+    omt_service_type: string;
+    commission_usd: number;
+    commission_lbp: number;
+    count: number;
+  }>;
 };
 
 /**
@@ -1684,6 +1703,8 @@ export type ApiAdapter = {
    *  convention. Display-only; no mutation. */
   getSupplierAccountExpectedStatement: (
     accountSupplierId: number,
+    /** LIRA-256 — covered OMT commission types; omit for all types. */
+    coveredTypes?: OmtCoveredTypesInput,
   ) => Promise<AccountExpectedStatement>;
   createSupplier: (
     data: SupplierCreatePayload,

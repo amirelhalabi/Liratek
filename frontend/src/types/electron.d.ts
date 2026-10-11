@@ -3,6 +3,8 @@
 // (rule 21). `browser.ts` re-exports `DailyStatsSnapshot` as a type-only
 // export (rule 29), which is all a `.d.ts` needs.
 import type {
+  // LIRA-256 — OMT statement covered commission types (core schema input).
+  OmtCoveredTypesInput,
   UnitWarrantyDisplay,
   DailyStatsSnapshot,
   DailyStatsSnapshotQuery,
@@ -340,6 +342,10 @@ export interface AccountUnsettledRow {
   entry_type: string | null;
   /** Set for FINANCIAL_SERVICE rows. */
   service_type: string | null;
+  /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows). */
+  omt_service_type?: string | null;
+  /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows). */
+  commission_model?: number | null;
 }
 
 /**
@@ -356,6 +362,15 @@ export interface AccountExpectedStatement {
    *  (minus = OMT owes the shop, plus = the shop owes OMT). */
   expected_usd: number;
   expected_lbp: number;
+  /** LIRA-256 — echo of the covered-types choice; null = all types. */
+  covered_omt_service_types?: string[] | null;
+  /** LIRA-256 — per OMT commission type: stored commission + count. */
+  commission_by_type?: Array<{
+    omt_service_type: string;
+    commission_usd: number;
+    commission_lbp: number;
+    count: number;
+  }>;
 }
 
 /**
@@ -1953,6 +1968,7 @@ export interface ElectronAPI {
     ) => Promise<AccountUnsettledRow[]>;
     getAccountExpectedStatement: (
       accountSupplierId: number,
+      coveredTypes?: OmtCoveredTypesInput,
     ) => Promise<AccountExpectedStatement>;
     create: (data: {
       name: string;
@@ -2029,6 +2045,9 @@ export interface ElectronAPI {
         amount: number;
         direction?: "IN" | "OUT";
       }>;
+      /** LIRA-256 — OMT commission types this settlement's statement covers
+       *  (absent = all types). Rule 12: mirrors the core settle schema. */
+      covered_omt_service_types?: OmtCoveredTypesInput;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
     // payment across the account parent (OMT) + its children (OMT App,
@@ -2059,6 +2078,9 @@ export interface ElectronAPI {
        *  booked as a standalone account credit (direction: "PAY" only). */
       surplus_usd?: number;
       surplus_lbp?: number;
+      /** LIRA-256 — OMT commission types this settlement's statement covers
+       *  (absent = all types). Rule 12: mirrors the core settle schema. */
+      covered_omt_service_types?: OmtCoveredTypesInput;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     recordCashflow: (data: {
       supplier_id: number;

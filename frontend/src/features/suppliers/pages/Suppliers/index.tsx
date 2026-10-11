@@ -38,6 +38,12 @@ import {
 } from "../../hooks/useSuppliers";
 import { AccountSettleSheet } from "../../components/AccountSettleSheet";
 import { OmtStatementCheckPanel } from "../../components/OmtStatementCheckPanel";
+import OmtCoveredTypesPicker from "../../components/OmtCoveredTypesPicker";
+import {
+  loadCoveredTypes,
+  saveCoveredTypes,
+} from "../../utils/omtCoveredTypesStorage";
+import { isOmtRowCovered, type OmtCoveredType } from "@liratek/core";
 
 type Supplier = {
   id: number;
@@ -877,6 +883,24 @@ export default function SuppliersPage() {
 
   const isProductSupplier = selectedSupplier?.is_system === 0;
 
+  // LIRA-256 — the OMT commission types the statement covers, for the
+  // Settle tab of the OMT supplier only. Per-device memory shared with the
+  // statement check panel and the account settle sheet; undefined = All
+  // types (unchanged behaviour). Read from storage when this supplier has no
+  // choice made in this session yet (no setState in an effect).
+  const isOmtSettle = selectedSupplier?.provider === "OMT";
+  const [settleCoveredChoice, setSettleCoveredChoice] = useState<{
+    supplierId: number;
+    value: OmtCoveredType[] | undefined;
+  } | null>(null);
+  const settleCovered: OmtCoveredType[] | undefined =
+    !isOmtSettle || selectedSupplierId == null
+      ? undefined
+      : settleCoveredChoice?.supplierId === selectedSupplierId
+        ? settleCoveredChoice.value
+        : loadCoveredTypes(selectedSupplierId);
+  const settleCoveredKey = settleCovered ? settleCovered.join(",") : "ALL";
+
   const ledgerQuery = useSupplierLedgerQuery(selectedSupplierId);
   const allTxnsQuery = useAllTransactionsQuery(
     isProductSupplier ? null : (selectedSupplier?.provider ?? null),
@@ -1595,7 +1619,7 @@ export default function SuppliersPage() {
     preSettleCurrency === "LBP" ? settleTotalOwedLbp : settleTotalOwedUsd;
   const preSettleNetPay =
     preSettleCurrency === "LBP" ? settleNetPayLbp : settleNetPayUsd;
-  const selectableUnsettled = useMemo(
+  const displayUnsettled = useMemo(
     () =>
       // Owner decision (2026-10-02): display newest-first, matching the
       // Transactions page — purely a render-order change, the underlying
@@ -1607,6 +1631,50 @@ export default function SuppliersPage() {
       ),
     [unsettledTxns],
   );
+  // LIRA-256 — a new-style OMT transfer whose type the statement does not
+  // cover waits for a later statement: shown, but not selectable (the
+  // server would refuse the batch). ONE core predicate (rule 14).
+  const isWaitingSettleRow = (t: UnsettledSupplierTransaction): boolean =>
+    t.commission_model === 1 &&
+    !isOmtRowCovered(
+      {
+        provider: selectedSupplier?.provider ?? null,
+        omt_service_type: t.omt_service_type,
+      },
+      settleCovered,
+    );
+  const selectableUnsettled = useMemo(
+    () => displayUnsettled.filter((t) => !isWaitingSettleRow(t)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- settleCoveredKey stands in for settleCovered (a fresh array per render)
+    [displayUnsettled, settleCoveredKey, selectedSupplier?.provider],
+  );
+  const handleSettleCoveredChange = (next: OmtCoveredType[] | undefined) => {
+    if (selectedSupplierId == null) return;
+    setSettleCoveredChoice({ supplierId: selectedSupplierId, value: next });
+    saveCoveredTypes(selectedSupplierId, next);
+    // Drop rows the new choice leaves waiting (never auto-select new ones —
+    // the Settle tab starts empty, FR-003).
+    const stillSelectable = new Set(
+      displayUnsettled
+        .filter(
+          (t) =>
+            !(
+              t.commission_model === 1 &&
+              !isOmtRowCovered(
+                {
+                  provider: selectedSupplier?.provider ?? null,
+                  omt_service_type: t.omt_service_type,
+                },
+                next,
+              )
+            ),
+        )
+        .map((t) => t.id),
+    );
+    setSelectedSettleIds(
+      (prev) => new Set([...prev].filter((id) => stillSelectable.has(id))),
+    );
+  };
 
   const handleOpenSettleConfirm = () => {
     setSettlePaymentLines([]);
@@ -1713,6 +1781,8 @@ export default function SuppliersPage() {
               })),
             }
           : {}),
+        // LIRA-256 — OMT supplier only, and only when not "All types".
+        ...(settleCovered ? { covered_omt_service_types: settleCovered } : {}),
       });
       if (!(result as { success: boolean }).success) {
         alert((result as { error?: string }).error || "Settlement failed");
@@ -2183,6 +2253,16 @@ export default function SuppliersPage() {
                     <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
                       Commission Settlement
                     </h3>
+                    {isOmtSettle && (
+                      <div className="mb-2">
+                        <OmtCoveredTypesPicker
+                          value={settleCovered}
+                          onChange={handleSettleCoveredChange}
+                          testIdPrefix="supplier-settle-covered"
+                          heading="Which OMT shares does this statement include?"
+                        />
+                      </div>
+                    )}
                     <div className="border border-slate-700 rounded-xl overflow-hidden">
                       <div className="flex items-center justify-between px-3 py-2 bg-slate-900/60">
                         <label className="flex items-center gap-2 text-slate-300 text-xs cursor-pointer">
@@ -2241,7 +2321,7 @@ export default function SuppliersPage() {
                         <div className="text-slate-400 text-xs py-4 text-center">
                           Loading pending transactions…
                         </div>
-                      ) : selectableUnsettled.length === 0 ? (
+                      ) : displayUnsettled.length === 0 ? (
                         <div className="text-slate-500 text-xs py-4 text-center">
                           No pending transactions to settle for{" "}
                           {selectedSupplier.name}
@@ -2263,73 +2343,84 @@ export default function SuppliersPage() {
                             <span className="w-36 text-right">Date</span>
                           </div>
                           <div className="max-h-[30vh] overflow-y-auto divide-y divide-slate-700">
-                            {selectableUnsettled.map((t) => (
-                              <label
-                                key={t.id}
-                                data-testid={`settle-row-${t.id}`}
-                                className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-700/30 cursor-pointer"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={selectedSettleIds.has(t.id)}
-                                  onChange={(e) => {
-                                    const next = new Set(selectedSettleIds);
-                                    if (e.target.checked) next.add(t.id);
-                                    else next.delete(t.id);
-                                    setSelectedSettleIds(next);
-                                  }}
-                                  className="w-4 h-4 rounded border-slate-600 bg-slate-900 shrink-0"
-                                />
-                                <span className="flex-1 text-slate-300">
-                                  {t.service_type === "BILL"
-                                    ? "Bill"
-                                    : t.omt_service_type || t.service_type}
-                                </span>
-                                {(() => {
-                                  // Owner decision (2026-10-02) — main figure
-                                  // is always `supplier_owed` (what we
-                                  // actually owe the provider), never the raw
-                                  // transfer amount; see `formatOwedCell`'s
-                                  // own doc comment.
-                                  const cell = formatOwedCell(
-                                    t.supplier_owed,
-                                    t.amount,
-                                    t.omt_fee,
-                                    t.currency,
-                                  );
-                                  return (
-                                    <span
-                                      data-testid="settle-row-amount"
-                                      className="font-mono text-white text-right leading-tight"
-                                    >
-                                      <div>{cell.main}</div>
-                                      {cell.breakdown && (
-                                        <div
-                                          data-testid="settle-row-breakdown"
-                                          className="text-[9px] text-slate-500 font-normal"
-                                        >
-                                          {cell.breakdown}
-                                        </div>
-                                      )}
-                                    </span>
-                                  );
-                                })()}
-                                <span className="font-mono text-emerald-400 w-20 text-right">
-                                  {t.service_type === "BILL" ? (
-                                    // Commission is entered AT settlement (D8) —
-                                    // no per-row commission to show for a bill.
-                                    <span className="text-slate-600">—</span>
-                                  ) : t.commission > 0 ? (
-                                    `+$${t.commission.toFixed(4)}`
-                                  ) : (
-                                    "—"
-                                  )}
-                                </span>
-                                <span className="text-slate-500 w-36 text-right">
-                                  {parseDbDate(t.created_at).toLocaleString()}
-                                </span>
-                              </label>
-                            ))}
+                            {displayUnsettled.map((t) => {
+                              const waiting = isWaitingSettleRow(t);
+                              return (
+                                <label
+                                  key={t.id}
+                                  data-testid={`settle-row-${t.id}`}
+                                  className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-700/30 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    disabled={waiting}
+                                    checked={
+                                      !waiting && selectedSettleIds.has(t.id)
+                                    }
+                                    onChange={(e) => {
+                                      const next = new Set(selectedSettleIds);
+                                      if (e.target.checked) next.add(t.id);
+                                      else next.delete(t.id);
+                                      setSelectedSettleIds(next);
+                                    }}
+                                    className="w-4 h-4 rounded border-slate-600 bg-slate-900 shrink-0"
+                                  />
+                                  <span className="flex-1 text-slate-300">
+                                    {t.service_type === "BILL"
+                                      ? "Bill"
+                                      : t.omt_service_type || t.service_type}
+                                    {waiting && (
+                                      <span className="ml-2 px-1 py-0.5 rounded bg-slate-700 text-slate-400 text-[9px] font-semibold">
+                                        Waiting — not in this statement
+                                      </span>
+                                    )}
+                                  </span>
+                                  {(() => {
+                                    // Owner decision (2026-10-02) — main figure
+                                    // is always `supplier_owed` (what we
+                                    // actually owe the provider), never the raw
+                                    // transfer amount; see `formatOwedCell`'s
+                                    // own doc comment.
+                                    const cell = formatOwedCell(
+                                      t.supplier_owed,
+                                      t.amount,
+                                      t.omt_fee,
+                                      t.currency,
+                                    );
+                                    return (
+                                      <span
+                                        data-testid="settle-row-amount"
+                                        className="font-mono text-white text-right leading-tight"
+                                      >
+                                        <div>{cell.main}</div>
+                                        {cell.breakdown && (
+                                          <div
+                                            data-testid="settle-row-breakdown"
+                                            className="text-[9px] text-slate-500 font-normal"
+                                          >
+                                            {cell.breakdown}
+                                          </div>
+                                        )}
+                                      </span>
+                                    );
+                                  })()}
+                                  <span className="font-mono text-emerald-400 w-20 text-right">
+                                    {t.service_type === "BILL" ? (
+                                      // Commission is entered AT settlement (D8) —
+                                      // no per-row commission to show for a bill.
+                                      <span className="text-slate-600">—</span>
+                                    ) : t.commission > 0 ? (
+                                      `+$${t.commission.toFixed(4)}`
+                                    ) : (
+                                      "—"
+                                    )}
+                                  </span>
+                                  <span className="text-slate-500 w-36 text-right">
+                                    {parseDbDate(t.created_at).toLocaleString()}
+                                  </span>
+                                </label>
+                              );
+                            })}
                           </div>
                         </>
                       )}

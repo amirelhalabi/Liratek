@@ -48,22 +48,30 @@ import {
   lookupOmtFee,
   lookupIntraLbpFee,
   isForPartnerPayload,
+  OMT_SERVICE_TYPES,
   type OmtServiceType,
 } from "@liratek/core";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
 
-const OMT_SERVICE_OPTIONS: { value: OmtServiceType; label: string }[] = [
-  { value: "INTRA", label: "Intra (10% of OMT fee)" },
-  { value: "WESTERN_UNION", label: "Western Union (10% of OMT fee)" },
-  { value: "CASH_TO_BUSINESS", label: "Cash to Business (25% of OMT fee)" },
-  { value: "CASH_TO_GOV", label: "Cash to Gov (25% of OMT fee)" },
-  { value: "OMT_WALLET", label: "OMT Wallet (No Fees)" },
-  { value: "OMT_CARD", label: "OMT Card (10% of OMT fee)" },
-  { value: "OGERO_MECANIQUE", label: "Ogero/Mecanique (25% of OMT fee)" },
-  { value: "ONLINE_BROKERAGE", label: "Online Brokerage (% of amount)" },
-];
+// LIRA-256 — values come from the ONE list in core (rule 14); only the
+// rate-suffixed labels are this page's own.
+const OMT_SERVICE_LABELS: Record<OmtServiceType, string> = {
+  INTRA: "Intra (10% of OMT fee)",
+  WESTERN_UNION: "Western Union (10% of OMT fee)",
+  CASH_TO_BUSINESS: "Cash to Business (25% of OMT fee)",
+  CASH_TO_GOV: "Cash to Gov (25% of OMT fee)",
+  OMT_WALLET: "OMT Wallet (No Fees)",
+  OMT_CARD: "OMT Card (10% of OMT fee)",
+  OGERO_MECANIQUE: "Ogero/Mecanique (25% of OMT fee)",
+  ONLINE_BROKERAGE: "Online Brokerage (% of amount)",
+};
+const OMT_SERVICE_OPTIONS: { value: OmtServiceType; label: string }[] =
+  OMT_SERVICE_TYPES.map((value) => ({
+    value,
+    label: OMT_SERVICE_LABELS[value],
+  }));
 
 // OMT commission rates, the INTRA / Western Union / Whish fee tiers and the
 // fee lookups come from @liratek/core (utils/omtFees.ts, utils/whishFees.ts)

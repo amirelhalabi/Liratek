@@ -394,6 +394,226 @@ describe("SupplierRepository.getAccountExpectedStatement() — LIRA-255", () => 
     expect(statement.expected_usd).toBeLessThan(0);
   });
 
+  // ─────────────────────────────────────────────────────────────────────
+  // LIRA-256 — OMT statement commission types. Rows come from the REAL
+  // writer with real `omtServiceType`/`omtFee`, so the stored estimate is
+  // the writer's own figure (never a `commission: 0` fixture). Every
+  // expected value is read back from the row itself, never hand-typed.
+  // ─────────────────────────────────────────────────────────────────────
+  describe("LIRA-256 covered types", () => {
+    const commissionOf = (id: number): number =>
+      (
+        db.prepare(`SELECT commission FROM financial_services WHERE id = ?`).get(id) as {
+          commission: number;
+        }
+      ).commission;
+
+    function seedFourTypes() {
+      const intraUsd = financialServiceRepo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 207,
+        currency: "USD",
+        // `commission` is required by the type; the writer replaces it with
+        // its own fee-table estimate for a typed OMT row (asserted > 0).
+        commission: 0,
+        omtServiceType: "INTRA",
+        omtFee: 3,
+        paidByMethod: "CASH",
+        includingFees: false,
+        exchangeRate: 90000,
+      }).id;
+      const wuUsd = financialServiceRepo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 400,
+        currency: "USD",
+        // `commission` is required by the type; the writer replaces it with
+        // its own fee-table estimate for a typed OMT row (asserted > 0).
+        commission: 0,
+        omtServiceType: "WESTERN_UNION",
+        omtFee: 12,
+        paidByMethod: "CASH",
+        includingFees: false,
+        exchangeRate: 90000,
+      }).id;
+      const intraLbp = financialServiceRepo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 1_000_000,
+        currency: "LBP",
+        // `commission` is required by the type; the writer replaces it with
+        // its own fee-table estimate for a typed OMT row (asserted > 0).
+        commission: 0,
+        omtServiceType: "INTRA",
+        omtFee: 50_000,
+        paidByMethod: "CASH",
+        includingFees: false,
+        exchangeRate: 90000,
+      }).id;
+      // No type recorded (the Services form lets the select be cleared).
+      const untyped = financialServiceRepo.createTransaction({
+        provider: "OMT",
+        serviceType: "SEND",
+        amount: 150,
+        currency: "USD",
+        commission: 0.6,
+        omtFee: 2,
+        paidByMethod: "CASH",
+        includingFees: false,
+        exchangeRate: 90000,
+      }).id;
+      return { intraUsd, wuUsd, intraLbp, untyped };
+    }
+
+    it("covered = [INTRA] subtracts only the INTRA rows' commission, per currency", () => {
+      const ids = seedFourTypes();
+      const cIntraUsd = commissionOf(ids.intraUsd);
+      const cIntraLbp = commissionOf(ids.intraLbp);
+      expect(cIntraUsd).toBeGreaterThan(0);
+      expect(cIntraLbp).toBeGreaterThan(0);
+      expect(commissionOf(ids.wuUsd)).toBeGreaterThan(0);
+
+      const s = supplierRepo.getAccountExpectedStatement(OMT_ACCOUNT_ID, [
+        "INTRA",
+      ]);
+      expect(s.unsettled_commission_usd).toBeCloseTo(cIntraUsd, 5);
+      expect(s.unsettled_commission_lbp).toBeCloseTo(cIntraLbp, 5);
+      expect(s.expected_usd).toBeCloseTo(s.gross_owed_usd - cIntraUsd, 5);
+      expect(s.expected_lbp).toBeCloseTo(s.gross_owed_lbp - cIntraLbp, 5);
+      expect(s.covered_omt_service_types).toEqual(["INTRA"]);
+    });
+
+    it("no choice (or undefined) = every row's commission, today's figure (S3), and covered echo is null", () => {
+      const ids = seedFourTypes();
+      const allUsd =
+        commissionOf(ids.intraUsd) +
+        commissionOf(ids.wuUsd) +
+        commissionOf(ids.untyped);
+      const allLbp = commissionOf(ids.intraLbp);
+      for (const s of [
+        supplierRepo.getAccountExpectedStatement(OMT_ACCOUNT_ID),
+        supplierRepo.getAccountExpectedStatement(OMT_ACCOUNT_ID, undefined),
+      ]) {
+        expect(s.unsettled_commission_usd).toBeCloseTo(allUsd, 5);
+        expect(s.unsettled_commission_lbp).toBeCloseTo(allLbp, 5);
+        expect(s.covered_omt_service_types).toBeNull();
+      }
+    });
+
+    it("UNSPECIFIED covers only the row saved without a type", () => {
+      const ids = seedFourTypes();
+      const s = supplierRepo.getAccountExpectedStatement(OMT_ACCOUNT_ID, [
+        "UNSPECIFIED",
+      ]);
+      expect(s.unsettled_commission_usd).toBeCloseTo(commissionOf(ids.untyped), 5);
+      expect(s.unsettled_commission_lbp).toBeCloseTo(0, 5);
+    });
+
+    it("commission_by_type lists every OMT type in the queue, whatever the choice, in tuple order", () => {
+      const ids = seedFourTypes();
+      for (const covered of [undefined, ["INTRA"] as const]) {
+        const s = supplierRepo.getAccountExpectedStatement(
+          OMT_ACCOUNT_ID,
+          covered ? [...covered] : undefined,
+        );
+        expect(s.commission_by_type.map((t) => t.omt_service_type)).toEqual([
+          "INTRA",
+          "WESTERN_UNION",
+          "UNSPECIFIED",
+        ]);
+        const intra = s.commission_by_type.find(
+          (t) => t.omt_service_type === "INTRA",
+        )!;
+        expect(intra.count).toBe(2);
+        expect(intra.commission_usd).toBeCloseTo(commissionOf(ids.intraUsd), 5);
+        expect(intra.commission_lbp).toBeCloseTo(commissionOf(ids.intraLbp), 5);
+        const wu = s.commission_by_type.find(
+          (t) => t.omt_service_type === "WESTERN_UNION",
+        )!;
+        expect(wu.count).toBe(1);
+        expect(wu.commission_usd).toBeCloseTo(commissionOf(ids.wuUsd), 5);
+        const un = s.commission_by_type.find(
+          (t) => t.omt_service_type === "UNSPECIFIED",
+        )!;
+        expect(un.count).toBe(1);
+      }
+    });
+
+    it("a non-OMT member's pending row (OMT App bill) is counted under EVERY choice — only OMT counter rows have types", () => {
+      seedFourTypes();
+      db.prepare(
+        `INSERT INTO financial_services
+           (provider, service_type, amount, currency, commission, commission_model, is_settled)
+         VALUES ('OMT_APP', 'BILL', 25, 'USD', 0.40, 1, 0)`,
+      ).run();
+      const none = supplierRepo.getAccountExpectedStatement(OMT_ACCOUNT_ID, [
+        "UNSPECIFIED",
+      ]);
+      // UNSPECIFIED covers the 0.6 untyped OMT row; the OMT App 0.40 is
+      // always in.
+      expect(none.unsettled_commission_usd).toBeCloseTo(0.6 + 0.4, 5);
+      const all = supplierRepo.getAccountExpectedStatement(OMT_ACCOUNT_ID);
+      const allWithout = all.unsettled_commission_usd - 0.4;
+      expect(allWithout).toBeGreaterThan(0.6);
+    });
+
+    // S9 (supersedes S7's "not changed") — a LEGACY (commission_model = 0)
+    // OMT row's ledger TOP_UP was booked NET of its commission at creation
+    // (SUPPLIER_OWED_EXPR's legacy branch; measured there: x=100 f=5 c=0.5
+    // booked 104.50). The account's gross figure is a supplier_ledger sum,
+    // so for such a row it ALREADY equals OMT's after-deduction number.
+    // OMT's SMS: gross minus the commission of the types it includes. So:
+    //   covered legacy row   → subtract nothing more (expected = 104.50)
+    //   uncovered legacy row → OMT has not deducted c yet: add it back (105.00)
+    // Before LIRA-256 the check subtracted c again (104.00) — the S7 bug.
+    function seedLegacyWesternUnion(): number {
+      const id = Number(
+        db
+          .prepare(
+            `INSERT INTO financial_services
+               (provider, service_type, amount, currency, commission, omt_fee,
+                omt_service_type, commission_model, is_settled)
+             VALUES ('OMT', 'SEND', 100, 'USD', 0.5, 5, 'WESTERN_UNION', 0, 0)`,
+          )
+          .run().lastInsertRowid,
+      );
+      db.prepare(
+        `INSERT INTO supplier_ledger
+           (supplier_id, entry_type, amount_usd, amount_lbp, is_auto,
+            source_ref_table, source_ref_id)
+         VALUES (1, 'TOP_UP', 104.5, 0, 1, 'financial_services', ?)`,
+      ).run(id);
+      return id;
+    }
+
+    it("S9: a legacy row whose type the statement includes is NOT subtracted twice (no choice = all included)", () => {
+      seedLegacyWesternUnion();
+      const s = supplierRepo.getAccountExpectedStatement(OMT_ACCOUNT_ID);
+      expect(s.gross_owed_usd).toBeCloseTo(104.5, 5);
+      expect(s.expected_usd).toBeCloseTo(104.5, 5);
+      const s2 = supplierRepo.getAccountExpectedStatement(OMT_ACCOUNT_ID, [
+        "WESTERN_UNION",
+      ]);
+      expect(s2.expected_usd).toBeCloseTo(104.5, 5);
+    });
+
+    it("S9: a legacy row whose type the statement does NOT include gets its commission added back (OMT still shows it at full)", () => {
+      seedLegacyWesternUnion();
+      const s = supplierRepo.getAccountExpectedStatement(OMT_ACCOUNT_ID, [
+        "INTRA",
+      ]);
+      expect(s.expected_usd).toBeCloseTo(105, 5);
+      // Ticking its type moves the figure by exactly its commission —
+      // the same per-tick effect a new-style row has (commission_by_type).
+      const wu = s.commission_by_type.find(
+        (t) => t.omt_service_type === "WESTERN_UNION",
+      )!;
+      expect(wu.commission_usd).toBeCloseTo(0.5, 5);
+      expect(wu.count).toBe(1);
+    });
+  });
+
   it("zeroed statement for an unknown account id (no account members) — never throws", () => {
     const statement = supplierRepo.getAccountExpectedStatement(999);
     expect(statement).toEqual({
@@ -404,6 +624,10 @@ describe("SupplierRepository.getAccountExpectedStatement() — LIRA-255", () => 
       unsettled_commission_lbp: 0,
       expected_usd: 0,
       expected_lbp: 0,
+      // LIRA-256 — two always-present keys added to the read (T014's one
+      // sanctioned edit to a pre-existing assertion; every value unchanged).
+      covered_omt_service_types: null,
+      commission_by_type: [],
     });
   });
 });

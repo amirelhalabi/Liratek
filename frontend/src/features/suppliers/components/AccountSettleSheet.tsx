@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { appEvents, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { X } from "lucide-react";
+import { isOmtRowCovered, type OmtCoveredType } from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
@@ -16,6 +17,34 @@ import {
   computeSelectionTotals,
   sortOldestFirst,
 } from "../utils/accountSettleMath";
+import OmtCoveredTypesPicker from "./OmtCoveredTypesPicker";
+import {
+  loadCoveredTypes,
+  saveCoveredTypes,
+} from "../utils/omtCoveredTypesStorage";
+
+/**
+ * LIRA-256 — a new-style (commission_model = 1) OMT transfer whose type the
+ * statement does not cover waits for a later statement: it cannot be
+ * selected here (the server would refuse the batch). Old-style rows and
+ * LEDGER rows are never restricted. Uses the ONE core predicate (rule 14).
+ */
+function isWaitingRow(
+  row: AccountUnsettledRow,
+  covered: OmtCoveredType[] | undefined,
+): boolean {
+  return (
+    row.kind === "FINANCIAL_SERVICE" &&
+    row.commission_model === 1 &&
+    !isOmtRowCovered(
+      {
+        provider: row.source_provider,
+        omt_service_type: row.omt_service_type ?? null,
+      },
+      covered,
+    )
+  );
+}
 
 /**
  * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, wave 2, lane W6) — one action
@@ -149,6 +178,12 @@ export function AccountSettleSheet({
   );
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // LIRA-256 — the OMT commission types this statement covers, lazily read
+  // from this device's last choice (shared with the statement check panel
+  // and the Settle tab). undefined = All types (unchanged behaviour).
+  const [coveredTypes, setCoveredTypes] = useState<
+    OmtCoveredType[] | undefined
+  >(() => loadCoveredTypes(account.account_supplier_id));
   const [directionOverride, setDirectionOverride] = useState<
     "PAY" | "COLLECT" | null
   >(null);
@@ -170,8 +205,24 @@ export function AccountSettleSheet({
   useEffect(() => {
     if (!unsettledQuery.isSuccess || preselectedRef.current) return;
     preselectedRef.current = true;
-    setSelected(new Set(rows.map(accountRowKey)));
+    // LIRA-256 — waiting (uncovered) transfers are never pre-selected.
+    setSelected(
+      new Set(
+        rows.filter((r) => !isWaitingRow(r, coveredTypes)).map(accountRowKey),
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- first resolve only; the choice's own changes re-derive in handleCoveredChange
   }, [unsettledQuery.isSuccess, rows]);
+
+  // LIRA-256 — a change of covered types re-derives the selection (covered
+  // rows oldest-first, as on open) and is remembered on this device.
+  const handleCoveredChange = (next: OmtCoveredType[] | undefined) => {
+    setCoveredTypes(next);
+    saveCoveredTypes(account.account_supplier_id, next);
+    setSelected(
+      new Set(rows.filter((r) => !isWaitingRow(r, next)).map(accountRowKey)),
+    );
+  };
 
   const totals = useMemo(
     () => computeSelectionTotals(rows, selected),
@@ -306,6 +357,9 @@ export function AccountSettleSheet({
             ? { surplus_lbp: surplusAmount }
             : { surplus_usd: surplusAmount }
           : {}),
+        // LIRA-256 — only when the statement covers some types, never for
+        // "All types" (absent = unchanged behaviour).
+        ...(coveredTypes ? { covered_omt_service_types: coveredTypes } : {}),
       });
 
       if (!result.success) {
@@ -410,6 +464,13 @@ export function AccountSettleSheet({
             </div>
           )}
 
+          <OmtCoveredTypesPicker
+            value={coveredTypes}
+            onChange={handleCoveredChange}
+            testIdPrefix="supplier-account-settle-covered"
+            heading="Which OMT shares does this statement include?"
+          />
+
           <div className="border border-slate-700 rounded-xl overflow-hidden">
             <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
               <div className="col-span-1" aria-hidden="true" />
@@ -429,7 +490,8 @@ export function AccountSettleSheet({
               ) : (
                 rows.map((row) => {
                   const key = accountRowKey(row);
-                  const checked = selected.has(key);
+                  const waiting = isWaitingRow(row, coveredTypes);
+                  const checked = !waiting && selected.has(key);
                   return (
                     <label
                       key={key}
@@ -443,12 +505,18 @@ export function AccountSettleSheet({
                           type="checkbox"
                           data-testid="supplier-account-settle-row-toggle"
                           checked={checked}
+                          disabled={waiting}
                           onChange={() => handleToggleRow(row)}
-                          className="w-4 h-4 rounded border-slate-600 bg-slate-900"
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-900 disabled:opacity-40"
                         />
                       </div>
                       <div className="col-span-3 text-slate-300 truncate flex items-center gap-1">
                         {rowTypeLabel(row)}
+                        {waiting && (
+                          <span className="px-1 py-0.5 rounded bg-slate-700 text-slate-400 text-[9px] font-semibold">
+                            Waiting — not in this statement
+                          </span>
+                        )}
                         {/* LIRA-203/§8.4 — any negative row (an overpayment
                             surplus OR a WALLET_CASHOUT) is account credit,
                             not debt; badge it so ticking it reads as

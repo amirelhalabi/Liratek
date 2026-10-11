@@ -139,6 +139,125 @@ changed, so there is no release-note line.
 
 ## 2. LIRA-256
 
+Result: **built** (all 47 tasks in `specs/256-omt-statement-commission-types/tasks.md`), not
+committed or pushed. The owner can tick which OMT commission types a balance SMS includes; the
+statement check subtracts only those types' commission, and both settle screens settle only those
+transfers (the others are refused from the batch and wait in the list at the full amount). No
+database change (still v209), no new kind of ledger row, no change to how voiding works. The
+analyze re-check found S7 is real and inside the changed code, so it was fixed (S9). Measured:
+core 643 suites / 6274 tests, backend 165 / 1735, electron handlers 63 / 348, frontend 513 of 514
+suites (the one failure only parses landing-page HTML identical to HEAD — pre-existing); `yarn typecheck`, `yarn lint`
+(0 errors), `yarn build`, tenant-scoping, bind-arity, transport-parity and schema-equivalence all
+pass; web e2e lira-web-053 1 passed. **Unverified:** the desktop twin
+(`lira-256-omt-statement-commission-types`) has not run (G5, CI first); the assumption that OMT's
+SMS equals gross minus the included types' commission is the owner's LIRA-255 model, not
+confirmed with OMT; S9 was measured on an old-style SEND only (RECEIVE not run). Without a tick, every
+screen behaves as before, except S9. Note: `yarn build` replaced the `node_modules/@liratek/core`
+symlink with a real copy, so later core edits need the `cp` sync again.
+
+- **S1 — What happens to transfers of a type the SMS does not include, when you settle?**
+  *Choice:* they stay in the settle list, unsettled, still owed to OMT at the full amount, with
+  their commission still to come. A settlement that names covered types is **refused** if it
+  includes one of them, and the message names the transfer. They get settled later, when a
+  statement includes their type (or with "All types").
+  *Why:* the alternative was settling them with a commission of 0, which loses that commission
+  for good. They would leave the list, and Profits only counts a new-style transfer's commission
+  when it is entered at settlement. A second alternative was "settle now, add the commission
+  later". It needs a new kind of settlement, a new void rule and a new screen: much more money
+  code for the same result. Refusing changes nothing that already exists, and voiding works
+  exactly as before.
+  *Undo:* remove the one check in `SupplierRepository` (`_assertRowsCoveredByStatement`) and the
+  optional `covered_omt_service_types` field. Past data is untouched.
+  *Measured:* `SupplierRepository.coveredTypesSettlement.test.ts` (a), (b), (e), (i): a
+  settlement naming Intra that includes a Western Union (or untyped) transfer throws, naming
+  `#id` and the type, and leaves the ledger, payments, settlements, allocations and transactions
+  row counts unchanged — on `settleTransactions`, on `settleAccount`, and on the two-member
+  `settleAccount` path. All four settled instead before the change. Web: lira-web-053 step 3 on
+  both endpoints.
+
+- **S2 — Where is the "which types" choice kept?**
+  *Choice:* it is not saved as a shop setting. It is sent with each statement check and each
+  settlement. The screen remembers your last choice per account, **on that device only**, the
+  same way the typed SMS figures already are. Each settlement also writes the types it followed
+  into its own transaction details, for the record.
+  *Why:* the types change from one SMS to the next, so a saved setting would quietly carry
+  yesterday's tick into today's settlement. Nothing needs the saved copy to undo a settlement.
+  *Undo:* nothing to migrate; delete the field and the remembered value.
+  *Measured:* the panel test saves `["INTRA"]` under `liratek:omt-covered-types:<id>` and
+  restores it on remount; a throwing `localStorage` falls back to "All types". Settlements stamp
+  `covered_omt_service_types` (de-duplicated, in type order) — tests (c), (g) and lira-web-053.
+
+- **S3 — What if nothing is ticked?**
+  *Choice:* all types count, which is exactly today's behaviour on both apps.
+  *Why:* it is the safest default, and every existing test stays valid.
+  *Undo:* not applicable.
+  *Measured:* with no choice, both rows settle and both get allocations and no metadata key
+  (test (d)); the read gives today's sum and a `null` echo; all baseline suites still pass, with
+  one sanctioned edit (the zeroed-statement `toEqual` gained the two new keys).
+
+- **S4 — OMT transfers saved without a type.**
+  *Choice:* they show as their own choice, "Type not recorded", so they can always be included
+  and never get stuck.
+  *Undo:* drop the extra choice. Such rows would then settle only under "All types".
+  *Measured:* an untyped OMT transfer is refused under `["INTRA"]` (message "Type not recorded")
+  and settles under `["INTRA","UNSPECIFIED"]` (test (e)); the check's `UNSPECIFIED` choice
+  subtracts only that row's commission.
+
+- **S5 — Old-style OMT transfers (from before commission-at-settlement).**
+  *Choice:* the type choice does not block them at settlement. Their commission was already
+  taken off what was owed when they were created. The statement check still filters them by
+  type, the same as the new ones.
+  *Undo:* not applicable.
+  *Measured:* a legacy (model 0) Intra + Western Union batch under `["INTRA"]` is not refused and
+  is stamped (test (f)); an old-style row is never disabled on the account settle sheet.
+
+- **S6 — Paying OMT's full SMS figure while some transfers wait.**
+  *Choice:* no new money path. The OMT account settle sheet's existing "pay more than the ticked
+  rows" option records the extra as an account credit, and you tick that credit at a later
+  settlement.
+  *Undo:* not applicable.
+  *Measured:* not re-tested; the existing LIRA-203 surplus path is unchanged (no code touched).
+
+- **S7 — A probable existing mistake found while designing; not changed.**
+  The statement check (LIRA-255) also subtracts the commission of old-style transfers, whose
+  owed amount already had that commission taken off. So for those rows the commission is likely
+  subtracted twice. This is `Likely`, based on the code; the local database has no such rows,
+  so it could not be measured. I did not change it, because it would change a figure you
+  already use. It is noted on the LIRA-256 ticket as a follow-up.
+  *Measured:* superseded by S9 below — measured and fixed.
+
+- **S8 — Review fixes (Spec Kit "analyze").**
+  An independent read-only review found 4 critical and 5 high issues in the plan. All were fixed
+  in the plan before any code exists. The important one: the OMT account settlement skips the
+  commission step when the ticked rows come from two account members. So the type check must
+  look at **every** ticked OMT transfer, not only at the rows that get commission. Otherwise an
+  uncovered transfer could slip through and lose its commission. The other fixes: test fixtures
+  that could not hold new-style rows; two tests that could never fail first, now labelled
+  honestly; an unstable test mock (rule 25); `yarn build` missing from the final checks; and
+  three places where an older test would have broken.
+  *Undo:* not applicable (planning only).
+  *Measured:* the second analyze pass (research.md R11) confirmed the first pass's fixes and found
+  one remaining HIGH (S7, now S9). The two-member guard is proven by test (i).
+
+- **S9 — The S7 double subtraction is real; fixed in LIRA-256 (supersedes S7's "not changed").**
+  *Question:* the analyze re-check found that S7 sits inside the very loop LIRA-256 changes.
+  Fix it, or leave it?
+  *Measured first:* a test with an old-style Western Union transfer (100 + fee 5, commission
+  0.50, booked on the OMT balance as 104.50, the shape the code itself documents) showed an
+  expected statement figure of **104.00** before any change. The right figure is **104.50**
+  when the SMS includes Western Union (OMT already took the 0.50 off, and so did the app's
+  balance) and **105.00** when it does not (OMT still shows the transfer at full).
+  *Choice:* fixed. For an old-style transfer the check now subtracts nothing more when its
+  type is included and adds the commission back when it is not. New-style transfers are
+  unchanged (subtract the commission when included).
+  *Why:* the figure was wrong by exactly the commission of every old-style transfer still
+  waiting, and the change is display only: nothing is booked, no balance moves. Leaving it
+  would have made the new per-type ticks wrong for old-style transfers too.
+  *What users will notice:* a shop that still has old unsettled OMT transfers sees a
+  different "expected on OMT's statement" figure, now matching OMT's. Shops without them see
+  no change.
+  *Undo:* in `getAccountExpectedStatement`, treat model-0 rows like model-1 rows again.
+
 ## 3. Syria remittance (LIRA-305)
 
 ## 4. Offline desktop fallback (LIRA-306)

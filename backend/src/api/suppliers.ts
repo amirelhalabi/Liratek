@@ -18,7 +18,9 @@ import {
   supplierAccountLinkSchema,
   supplierRecordDebtSchema,
   supplierCreateSchema,
+  omtCoveredTypesSchema,
   type SupplierCreateInput,
+  type OmtCoveredTypesInput,
 } from "@liratek/core";
 import { logger } from "../server.js";
 import { auditRest } from "../middleware/audit.js";
@@ -282,8 +284,32 @@ router.get("/:id/account-expected-statement", requireAuth, async (req, res) => {
       return;
     }
 
-    const statement =
-      supplierService.getAccountExpectedStatement(accountSupplierId);
+    // LIRA-256 — `?covered=INTRA,WESTERN_UNION` (or repeated `covered=`):
+    // the OMT commission types the statement covers. Absent = all types.
+    // Parsed with the SAME core schema the IPC handler uses (rule 14);
+    // invalid → HTTP 200 { success: false } (rule 6 envelope parity).
+    let covered: OmtCoveredTypesInput | undefined;
+    const rawCovered = req.query.covered;
+    if (rawCovered !== undefined) {
+      const parts = (Array.isArray(rawCovered) ? rawCovered : [rawCovered])
+        .flatMap((v) => String(v).split(","))
+        .map((v) => v.trim())
+        .filter((v) => v !== "");
+      const parsed = omtCoveredTypesSchema.safeParse(parts);
+      if (!parsed.success) {
+        res.json({
+          success: false,
+          error: "Invalid covered OMT commission types",
+        });
+        return;
+      }
+      covered = parsed.data;
+    }
+
+    const statement = supplierService.getAccountExpectedStatement(
+      accountSupplierId,
+      covered,
+    );
     res.json({ success: true, statement });
   } catch (error) {
     logger.error({ error }, "Get supplier account expected statement error");

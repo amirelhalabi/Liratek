@@ -1,5 +1,9 @@
 import { ipcMain } from "electron";
-import { getSupplierService, getFinancialService } from "@liratek/core";
+import {
+  getSupplierService,
+  getFinancialService,
+  type OmtCoveredTypesInput,
+} from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import {
@@ -11,6 +15,7 @@ import {
   SupplierPurchaseCreateSchema,
   SupplierAccountLinkSchema,
   SupplierRecordDebtSchema,
+  OmtCoveredTypesSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -68,10 +73,21 @@ export function registerSupplierHandlers(): void {
   /** LIRA-255 — "check against OMT's statement" panel: gross owed (from
    *  the account balances above) minus unsettled commission, in OMT's own
    *  sign convention. Read-only, same no-role-gate treatment. */
+  // LIRA-256 — optional 2nd argument: the OMT commission types the
+  // statement covers (undefined = all types). Validated with the shared
+  // core schema. This is a RAW-shape read (the renderer expects a
+  // statement, never an envelope), so an invalid value THROWS — the invoke
+  // promise rejects and the query enters its error state.
   ipcMain.handle(
     "suppliers:account-expected-statement",
-    (_e, accountSupplierId: number) => {
-      return service.getAccountExpectedStatement(accountSupplierId);
+    (_e, accountSupplierId: number, coveredTypes?: unknown) => {
+      let covered: OmtCoveredTypesInput | undefined;
+      if (coveredTypes !== undefined) {
+        const v = validatePayload(OmtCoveredTypesSchema, coveredTypes);
+        if (!v.ok) throw new Error(v.error);
+        covered = v.data;
+      }
+      return service.getAccountExpectedStatement(accountSupplierId, covered);
     },
   );
 

@@ -1,5 +1,18 @@
 import { z } from "zod";
 import { counterpartyDiscountInputSchema } from "./counterparty.js";
+import { OMT_COVERED_TYPE_VALUES } from "../utils/omtCoveredTypes.js";
+
+/**
+ * LIRA-256 — which OMT commission types one statement (balance SMS) covers.
+ * Shared by the statement-check read (IPC + REST) and both settle schemas.
+ * Non-empty: `[]` would mean "covers nothing" — almost certainly a client
+ * bug, so it is refused. Absent (on the settle schemas) = all types =
+ * unchanged behaviour (S3). Duplicates are allowed and ignored.
+ */
+export const omtCoveredTypesSchema = z
+  .array(z.enum(OMT_COVERED_TYPE_VALUES))
+  .min(1);
+export type OmtCoveredTypesInput = z.input<typeof omtCoveredTypesSchema>;
 
 /**
  * Supplier ledger validation schemas (CQ-8, rule 14).
@@ -126,6 +139,12 @@ export const supplierSettleSchema = z.object({
   // showed (hand-typed or the buy rate), stamped on the SUPPLIER_SETTLEMENT
   // transaction. Stamp-only — legs reconcile per currency, never converted.
   exchange_rate: z.number().positive().optional(),
+  // LIRA-256 — the OMT commission types this settlement's statement covers.
+  // When present, the batch is REFUSED if a new-style (commission_model = 1)
+  // OMT transfer of another type is selected (decision S1); stamped on the
+  // settlement's metadata for the record. Absent = all types = unchanged
+  // behaviour (S3).
+  covered_omt_service_types: omtCoveredTypesSchema.optional(),
 });
 
 /** Pay a supplier / record a supplier paying us, via payment-method legs. */
@@ -200,6 +219,12 @@ export const supplierSettleAccountSchema = z.object({
   // rejects a nonzero value on direction: "COLLECT".
   surplus_usd: z.number().nonnegative().optional(),
   surplus_lbp: z.number().nonnegative().optional(),
+  // LIRA-256 — the OMT commission types this settlement's statement covers.
+  // When present, the batch is REFUSED if a new-style (commission_model = 1)
+  // OMT transfer of another type is selected (decision S1); stamped on the
+  // settlement's metadata for the record. Absent = all types = unchanged
+  // behaviour (S3).
+  covered_omt_service_types: omtCoveredTypesSchema.optional(),
 });
 
 // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set or clear a supplier's

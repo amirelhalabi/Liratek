@@ -194,6 +194,8 @@ export * from "./constants/omtAppCashout.js";
 // repository books. Must be exported HERE, not only from index.ts — see the
 // telecomCredit.js note above for the exact failure mode this avoids.
 export * from "./utils/omtFees.js";
+// LIRA-256 — OMT statement covered-types predicate (pure leaf, rule 29).
+export * from "./utils/omtCoveredTypes.js";
 export * from "./utils/whishFees.js";
 
 // By Module row classification (PA-4.23 a, OWNER_NOTES_2026-09-21.md §6.9) —

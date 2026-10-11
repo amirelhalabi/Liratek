@@ -64,6 +64,8 @@ import request from "supertest";
 import {
   getSupplierService,
   getFinancialService,
+  supplierSettleSchema,
+  supplierSettleAccountSchema,
   type SupplierCreatePayload,
 } from "@liratek/core";
 import suppliersRouter from "../suppliers.js";
@@ -621,6 +623,145 @@ describe("Suppliers REST routes", () => {
         success: false,
         error: "UNIQUE constraint failed",
       });
+    });
+  });
+
+  // ── LIRA-256 — OMT statement commission types ────────────────────────────
+  describe("LIRA-256 covered types", () => {
+    // RULE 17 — the read-path cases were run red before the route parsed
+    // `covered` (service called with one argument; BOGUS not refused).
+    describe("GET /api/suppliers/:id/account-expected-statement?covered=", () => {
+      const statement = { account_supplier_id: 3 };
+
+      it("parses a comma list and forwards it as an array", async () => {
+        const spy = jest
+          .spyOn(supplierService, "getAccountExpectedStatement")
+          .mockReturnValue(statement as any);
+        const res = await request(app)
+          .get(
+            "/api/suppliers/3/account-expected-statement?covered=INTRA,WESTERN_UNION",
+          )
+          .set("x-test-role", "staff");
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ success: true, statement });
+        expect(spy).toHaveBeenCalledWith(3, ["INTRA", "WESTERN_UNION"]);
+      });
+
+      it("repeated ?covered=A&covered=B is accepted too", async () => {
+        const spy = jest
+          .spyOn(supplierService, "getAccountExpectedStatement")
+          .mockReturnValue(statement as any);
+        await request(app)
+          .get(
+            "/api/suppliers/3/account-expected-statement?covered=INTRA&covered=UNSPECIFIED",
+          )
+          .set("x-test-role", "staff");
+        expect(spy).toHaveBeenCalledWith(3, ["INTRA", "UNSPECIFIED"]);
+      });
+
+      it("no covered → (id, undefined): all types, today's behaviour", async () => {
+        const spy = jest
+          .spyOn(supplierService, "getAccountExpectedStatement")
+          .mockReturnValue(statement as any);
+        await request(app)
+          .get("/api/suppliers/3/account-expected-statement")
+          .set("x-test-role", "staff");
+        expect(spy).toHaveBeenCalledWith(3, undefined);
+      });
+
+      it.each([["BOGUS"], [""]])(
+        "covered=%s → 200 { success: false } and the service is not called",
+        async (value) => {
+          const spy = jest
+            .spyOn(supplierService, "getAccountExpectedStatement")
+            .mockReturnValue(statement as any);
+          const res = await request(app)
+            .get(`/api/suppliers/3/account-expected-statement?covered=${value}`)
+            .set("x-test-role", "staff");
+          expect(res.status).toBe(200);
+          expect(res.body.success).toBe(false);
+          expect(typeof res.body.error).toBe("string");
+          expect(spy).not.toHaveBeenCalled();
+        },
+      );
+    });
+
+    // Not proven failing-first: forwarding is automatic once the schema key
+    // exists (the route spreads the validated body). Rule-23 regression net:
+    // proves Zod does not strip the key on its way to the service.
+    describe("settle routes forward covered_omt_service_types", () => {
+      const coveredKey = "covered_omt_service_types";
+      it("schemas declare the key (rule 24 — names from the schema)", () => {
+        expect(Object.keys(supplierSettleSchema.shape)).toContain(coveredKey);
+        expect(Object.keys(supplierSettleAccountSchema.shape)).toContain(
+          coveredKey,
+        );
+      });
+
+      const settleBody = {
+        financial_service_ids: [1, 2],
+        amount_usd: 100,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 0,
+      };
+      const accountBody = {
+        direction: "PAY",
+        selections: [{ kind: "FINANCIAL_SERVICE", id: 1 }],
+        amount_usd: 100,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 0,
+      };
+
+      it("POST /:id/settle reaches the service WITH the key", async () => {
+        const spy = jest
+          .spyOn(supplierService, "settleTransactions")
+          .mockReturnValue({ success: true, id: 5 });
+        const res = await request(app)
+          .post("/api/suppliers/1/settle")
+          .set("x-test-role", "admin")
+          .send({ ...settleBody, [coveredKey]: ["INTRA"] });
+        expect(res.body).toEqual({ success: true, id: 5 });
+        expect(spy).toHaveBeenCalledWith(
+          expect.objectContaining({ [coveredKey]: ["INTRA"] }),
+        );
+      });
+
+      it("POST /:id/settle-account reaches the service WITH the key", async () => {
+        const spy = jest
+          .spyOn(supplierService, "settleAccount")
+          .mockReturnValue({ success: true, id: 6 } as any);
+        await request(app)
+          .post("/api/suppliers/1/settle-account")
+          .set("x-test-role", "admin")
+          .send({ ...accountBody, [coveredKey]: ["INTRA"] });
+        expect(spy).toHaveBeenCalledWith(
+          expect.objectContaining({ [coveredKey]: ["INTRA"] }),
+        );
+      });
+
+      it.each([
+        ["/settle", settleBody, "settleTransactions"],
+        ["/settle-account", accountBody, "settleAccount"],
+      ] as const)(
+        "POST %s with [] or BOGUS → 200 { success: false }, service not called",
+        async (path, body, method) => {
+          const spy = jest
+            .spyOn(supplierService, method)
+            .mockReturnValue({ success: true, id: 1 } as any);
+          for (const bad of [[], ["BOGUS"]]) {
+            const res = await request(app)
+              .post(`/api/suppliers/1${path}`)
+              .set("x-test-role", "admin")
+              .send({ ...body, [coveredKey]: bad });
+            expect(res.status).toBe(200);
+            expect(res.body.success).toBe(false);
+            expect(typeof res.body.error).toBe("string");
+          }
+          expect(spy).not.toHaveBeenCalled();
+        },
+      );
     });
   });
 });

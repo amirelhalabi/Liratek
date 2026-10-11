@@ -10,15 +10,24 @@
  *   - WESTERN_UNION: tiered USD fee schedule
  */
 
-export type OmtServiceType =
-  | "INTRA"
-  | "WESTERN_UNION"
-  | "CASH_TO_BUSINESS"
-  | "CASH_TO_GOV"
-  | "OMT_WALLET"
-  | "OMT_CARD"
-  | "OGERO_MECANIQUE"
-  | "ONLINE_BROKERAGE";
+/**
+ * The eight OMT commission types — the ONE list (rule 14). The validator
+ * (`validators/financial.ts`), the LIRA-256 covered-types schema and the
+ * Services page options all derive from it; a guard test checks it against
+ * `create_db.sql`'s `omt_service_type` CHECK.
+ */
+export const OMT_SERVICE_TYPES = [
+  "INTRA",
+  "WESTERN_UNION",
+  "CASH_TO_BUSINESS",
+  "CASH_TO_GOV",
+  "OMT_WALLET",
+  "OMT_CARD",
+  "OGERO_MECANIQUE",
+  "ONLINE_BROKERAGE",
+] as const;
+
+export type OmtServiceType = (typeof OMT_SERVICE_TYPES)[number];
 
 /**
  * Commission rates: shop's profit as % of OMT fee charged by OMT

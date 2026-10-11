@@ -1,3 +1,4 @@
+import type { OmtCoveredType } from "../utils/omtCoveredTypes.js";
 import {
   getSupplierRepository,
   getProductSupplierRepository,
@@ -69,11 +70,16 @@ export class SupplierService {
   }
 
   // LIRA-255 — "check against OMT's statement" panel (rule 13: thin
-  // pass-through, same as the three reads above).
+  // pass-through, same as the three reads above). LIRA-256: optional
+  // covered OMT commission types (undefined = all types).
   getAccountExpectedStatement(
     accountSupplierId: number,
+    coveredTypes?: OmtCoveredType[],
   ): AccountExpectedStatement {
-    return this.repo.getAccountExpectedStatement(accountSupplierId);
+    return this.repo.getAccountExpectedStatement(
+      accountSupplierId,
+      coveredTypes,
+    );
   }
 
   /**

@@ -6176,19 +6176,63 @@ stands out at a glance.
 
 ---
 
-## LIRA-256: tell the app which commission types an OMT statement includes, and settle the FIFO queue by type — LOW (later)
+## LIRA-256: tell the app which commission types an OMT statement includes, and settle the FIFO queue by type — LOW — DONE (not deployed)
 
 | Field | Value |
 | --- | --- |
-| **Type** | Feature (future, owner 2026-10-03) |
+| **Type** | Feature (owner 2026-10-03; built 2026-10-11 overnight, decisions delegated) |
 | **Priority** | Low |
-| **Status** | TODO, not now |
+| **Status** | **DONE** 2026-10-11 in the working tree; ships on the next deploy. Desktop e2e twin unverified until CI. |
+| **Spec** | `specs/256-omt-statement-commission-types/` (spec, plan, research incl. R10 baseline + R11 analyze re-check, tasks 47/47) |
+| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §2, S1–S9 |
 
 ### Summary
 
 OMT's statement sometimes includes only some commission types ("INCLUDES INTRA SHARES", sometimes intra plus another
-type). Later: let the owner mark which types a statement covers, so that LIRA-255's check, and settlement in the FIFO
-queue, deduct only those types' commission.
+type). The owner can now mark which types a statement covers: LIRA-255's check and settlement deduct only those types'
+commission.
+
+### What was built
+
+- **One type list, one predicate.** `OMT_SERVICE_TYPES` (core `utils/omtFees.ts`) replaces the inline validator copy and
+  feeds the Services page options; `utils/omtCoveredTypes.ts` (pure, browser-safe) holds `isOmtRowCovered`,
+  `normaliseCoveredTypes`, labels and the `UNSPECIFIED` ("Type not recorded") value; `omtCoveredTypesSchema` is shared by
+  IPC and REST. A guard test pins the list to `create_db.sql`'s CHECK.
+- **Statement check** (`getAccountExpectedStatement(id, covered?)`, IPC 2nd argument, REST `?covered=`): subtracts only
+  covered OMT rows' commission, returns `commission_by_type` and the echo. Other account members unchanged.
+  **S9:** an old-style (model 0) transfer, already booked net, is subtracted nothing more when covered and added back when
+  not — this fixes the LIRA-255 double subtraction (measured 104.00 vs correct 104.50).
+- **Settlement guard** (`_assertRowsCoveredByStatement`): with `covered_omt_service_types`, `settleTransactions` and
+  `settleAccount` refuse a batch containing an uncovered new-style OMT transfer (error names it), before any write; in
+  `settleAccount` it runs on every selected FS row (two-member path covered). Uncovered transfers stay queued at gross;
+  the choice is stamped on the settlement's metadata. No new ledger row, no reversal change, no migration (v209).
+- **UI:** shared `OmtCoveredTypesPicker` on the statement check panel, the OMT account settle sheet (uncovered rows
+  disabled, "Waiting — not in this statement", pre-selection skips them) and the OMT Settle tab ("Select all" picks
+  covered rows only; still starts empty). Choice remembered per account on the device.
+
+### Tests (measured)
+
+- Core: new `omtCoveredTypes.test.ts`, `supplier.coveredTypes.test.ts`, `SupplierRepository.coveredTypesSettlement.test.ts`
+  (10), extended `accountExpectedStatement` (+7) and `supplierSettlementReversal` (+1). Full core **643 suites / 6274
+  tests pass (12 s)**.
+- Backend `suppliers.api.test.ts` +10 → full backend **165 / 1735 pass (8 s)**. Electron handlers new
+  `supplierHandlers.coveredTypes.test.ts` (8) → **63 / 348 pass (8 s)**.
+- Frontend suppliers folder **21 suites / 91 tests** (baseline 19 / 75). Full frontend 513 / 514 suites pass (45 s);
+  the one failure, `landingSignIn.test.ts`, only parses landing-page HTML that is identical to HEAD — pre-existing, unreachable from this change.
+- Web e2e **lira-web-053: 1 passed** (and with lira-web-052: 2 passed, 8 s). Desktop twin
+  `lira-256-omt-statement-commission-types` typechecks; **unverified until CI** (never run on the owner's Mac).
+- Failing-first records per test are in `tasks.md` "Completion notes"; the regression nets that could not be red first
+  are labelled there.
+- Unverified: S9 was measured on an old-style SEND only (a legacy RECEIVE embeds its commission the same way in
+  `SUPPLIER_OWED_EXPR`, not run); with an uncovered old-style row queued the panel's "− Unsettled commission" line can show
+  a negative figure (correct, reads oddly); if the stored choice is changed from the statement panel while rows are ticked
+  on the Settle tab, those rows stay selected until the server refuses the batch with a clear message (no money moves).
+
+**What users will notice:** On the OMT account, the statement check now asks which shares OMT's SMS includes (for example
+only Intra). Tick those types and the expected balance counts only their commission; the settle screens then settle only
+those transfers and the others wait in the list until a statement includes them. Shops that still have older OMT
+transfers waiting will also see the expected figure change, because those transfers' commission is no longer taken off
+twice.
 
 ---
 

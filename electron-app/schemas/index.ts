@@ -32,6 +32,7 @@ import {
   // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — the
   // cast-bridge pattern immediately below mirrors SupplierSettleSchema's.
   supplierSettleAccountSchema,
+  omtCoveredTypesSchema,
   supplierCashflowSchema,
   supplierPurchaseCreateSchema,
   // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — same cast-bridge pattern.
@@ -137,6 +138,7 @@ import {
   type SupplierLedgerEntryInput,
   type SupplierSettleInput,
   type SupplierSettleAccountInput,
+  type OmtCoveredTypesInput,
   type SupplierCashflowInput,
   type SupplierPurchaseCreateInput,
   type SupplierAccountLinkInput,
@@ -1421,6 +1423,10 @@ export const SupplierSettleSchema =
 // consumed by supplierHandlers.ts's `suppliers:settle-account` IPC channel.
 export const SupplierSettleAccountSchema =
   supplierSettleAccountSchema as unknown as z.ZodSchema<SupplierSettleAccountInput>;
+// LIRA-256 — which OMT commission types a statement covers; parsed for the
+// `suppliers:account-expected-statement` read's optional 2nd argument.
+export const OmtCoveredTypesSchema =
+  omtCoveredTypesSchema as unknown as z.ZodSchema<OmtCoveredTypesInput>;
 export const SupplierCashflowSchema =
   supplierCashflowSchema as unknown as z.ZodSchema<SupplierCashflowInput>;
 export const SupplierPurchaseCreateSchema =

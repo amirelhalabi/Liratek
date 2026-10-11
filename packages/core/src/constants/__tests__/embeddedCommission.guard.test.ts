@@ -484,8 +484,11 @@ const EXCLUDED_UNITS: ExclusionRule[] = [
   {
     file: "SupplierRepository",
     method: "settleTransactions",
+    // LIRA-256 added an `omt_service_type` projection after `currency`, so
+    // the identity substring now stops at `currency,` (same query, same
+    // dead-column reason; still unique within the method).
     sqlContains:
-      "id, provider, service_type, commission, commission_model, currency FROM financial_services",
+      "id, provider, service_type, commission, commission_model, currency, ",
     reason:
       "Dead SELECT column, not a reporting read. The true source is the " +
       "PRIVATE method `_resolveSettlementBatchModel` — mis-attributed by the " +

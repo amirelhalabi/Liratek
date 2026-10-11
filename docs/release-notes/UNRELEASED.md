@@ -57,6 +57,13 @@ The receipt header you typed in Settings now prints at the top of sale and repai
   now goes through with a fee of 0 or no fee typed. It used to say "OMT fee is required".
 - OMT account on the Suppliers page: a new check shows what OMT's balance SMS should say (your
   balance minus the commission OMT already deducted). Type the SMS figures to see any difference.
+- OMT account: when OMT's balance SMS says which shares it includes (for example only Intra), tick
+  those types in the statement check. The expected balance then counts only those types'
+  commission, and the settle screens settle only those transfers; the others wait in the list
+  until a statement includes them. Your choice is remembered on this device.
+- OMT account statement check: older OMT transfers (from before commission was entered at
+  settlement) no longer have their commission taken off twice, so the expected figure now matches
+  OMT's SMS for shops that still have some of those waiting.
 - Web app: shops created on the web now get OMT, iPick, Katsh, OMT App, Whish App and Loto Liban on
   the Suppliers page, like desktop shops always had. Existing web shops get the missing ones added
   automatically.

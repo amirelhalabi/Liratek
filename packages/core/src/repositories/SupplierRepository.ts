@@ -26,6 +26,14 @@ import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
 import { allocateProportional } from "../utils/largestRemainder.js";
 import {
+  OMT_COVERED_TYPE_VALUES,
+  coveredTypeLabel,
+  isOmtRowCovered,
+  normaliseCoveredTypes,
+  omtRowCoveredType,
+  type OmtCoveredType,
+} from "../utils/omtCoveredTypes.js";
+import {
   applyDrawerDelta,
   cashierRateStamp,
   insertPaymentRow,
@@ -376,6 +384,13 @@ export interface SettleTransactionsData {
    *  showed; stamped on the SUPPLIER_SETTLEMENT transaction when sent.
    *  Stamp-only: legs reconcile per currency, nothing converts at it. */
   exchange_rate?: number;
+  /**
+   * LIRA-256 — the OMT commission types this settlement's statement covers.
+   * When present, the batch is refused if a model-1 OMT row's type is not
+   * covered; see `_assertRowsCoveredByStatement`. Stamped (normalised) on
+   * the SUPPLIER_SETTLEMENT transaction's metadata. Absent = all types.
+   */
+  covered_omt_service_types?: OmtCoveredType[];
 }
 
 /**
@@ -392,6 +407,9 @@ interface EligibleSettlementRow {
   commission: number;
   commission_model: number;
   currency: string;
+  /** LIRA-256 — read for the covered-types guard only (NULL on a fixture
+   *  whose financial_services predates the column). */
+  omt_service_type: string | null;
 }
 
 /**
@@ -564,9 +582,23 @@ export interface AccountChildBalance {
  * deducted, and OMT computes that deduction from the exact same
  * deterministic fee tables `omtFees.ts` uses to calculate `commission` at
  * creation time (`calculateCommission`) — so the creation-time estimate IS
- * the real number for this one purpose, for every row regardless of model,
- * all commission types summed together (owner, 2026-10-03: don't split by
- * type yet — LIRA-256). D17 (CASHLESS settlement commission defers
+ * the real number for this one purpose, for every row regardless of model.
+ *
+ * LIRA-256 — OMT's SMS sometimes covers only some commission types
+ * ("INCLUDES INTRA SHARES"). The caller may pass the covered types
+ * (`undefined` = all types). Per OMT counter row (`provider = 'OMT'`):
+ *   - new-style (commission_model = 1, payable GROSS): subtract its
+ *     commission when its type is covered, nothing when not;
+ *   - old-style (commission_model = 0, payable booked NET of commission —
+ *     `SUPPLIER_OWED_EXPR`'s legacy branch, so the ledger-based gross
+ *     ALREADY has it off): subtract nothing more when covered, ADD it back
+ *     when not (OMT still shows that transfer at full). Before LIRA-256 the
+ *     legacy commission was subtracted a second time (decision S9,
+ *     superseding S7 — measured 104.00 vs the correct 104.50).
+ * So ticking a type moves the expected figure by exactly that type's
+ * commission for both kinds of row (`commission_by_type`). Rows of the
+ * account's other members (OMT App, iPick) are counted exactly as before,
+ * under every choice — only OMT counter rows carry a type. D17 (CASHLESS settlement commission defers
  * PROFIT RECOGNITION until the client repays, LIRA-158_COMMISSION
  * _REPORTING_PLAN.md §8) does not change this: D17 only delays when the
  * shop books the commission as ITS OWN profit, never whether OMT itself
@@ -589,15 +621,31 @@ export interface AccountExpectedStatement {
   /** = {@link AccountBalance.total_usd}/`total_lbp` for this account. */
   gross_owed_usd: number;
   gross_owed_lbp: number;
-  /** Sum of `commission` across every pending-settlement financial_services
-   *  row for this account's members (ALL commission types, ALL
-   *  commission_model values) — never negative by construction
-   *  (`calculateCommission`/legacy `commission` are always stored >= 0). */
+  /** The commission still to take off the app's gross figure to reach
+   *  OMT's: covered new-style OMT rows, MINUS uncovered old-style OMT rows
+   *  (S9), plus every other member's pending row. With no choice and no
+   *  old-style rows this is the plain sum of `commission`. Negative only
+   *  when an uncovered old-style row is queued. */
   unsettled_commission_usd: number;
   unsettled_commission_lbp: number;
   /** gross_owed − unsettled_commission, per currency, in OMT's sign. */
   expected_usd: number;
   expected_lbp: number;
+  /** LIRA-256 — echo of the covered-types choice used (normalised);
+   *  `null` = all types. */
+  covered_omt_service_types: OmtCoveredType[] | null;
+  /** LIRA-256 — per type, the stored commission and count of every OMT
+   *  counter row in the queue (covered or not, both models), in
+   *  {@link OMT_COVERED_TYPE_VALUES} order: what ticking that type changes. */
+  commission_by_type: AccountCommissionByType[];
+}
+
+/** One entry of {@link AccountExpectedStatement.commission_by_type}. */
+export interface AccountCommissionByType {
+  omt_service_type: OmtCoveredType;
+  commission_usd: number;
+  commission_lbp: number;
+  count: number;
 }
 
 /** One `supplier_ledger` row surfaced through the account's merged ledger
@@ -651,6 +699,11 @@ export interface AccountUnsettledRow {
    */
   commission_usd: number;
   commission_lbp: number;
+  /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows): the
+   *  OMT commission type, for the covered-types settle filter. */
+  omt_service_type: string | null;
+  /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows). */
+  commission_model: number | null;
 }
 
 /**
@@ -756,6 +809,13 @@ export interface SettleAccountData {
    */
   surplus_usd?: number;
   surplus_lbp?: number;
+  /**
+   * LIRA-256 — the OMT commission types this settlement's statement covers.
+   * When present, the batch is refused if a model-1 OMT row's type is not
+   * covered; see `_assertRowsCoveredByStatement`. Stamped (normalised) on
+   * the SUPPLIER_SETTLEMENT transaction's metadata. Absent = all types.
+   */
+  covered_omt_service_types?: OmtCoveredType[];
 }
 
 /**
@@ -2223,6 +2283,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    */
   getAccountExpectedStatement(
     accountSupplierId: number,
+    coveredTypes?: OmtCoveredType[],
   ): AccountExpectedStatement {
     try {
       const tenantId = getCurrentTenantId();
@@ -2235,6 +2296,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
       let commissionUsd = 0;
       let commissionLbp = 0;
+      const byType = new Map<OmtCoveredType, AccountCommissionByType>();
       if (this._suppliersHasAccountLinkColumn()) {
         const members = this._getAccountMembers(accountSupplierId, tenantId);
         const financialServiceRepo = getFinancialServiceRepository();
@@ -2250,11 +2312,44 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             member.provider,
           );
           for (const row of rows) {
-            if (row.currency === "LBP") commissionLbp += row.commission ?? 0;
-            else commissionUsd += row.commission ?? 0;
+            const c = row.commission ?? 0;
+            const isLbp = row.currency === "LBP";
+            let toSubtract = c;
+            if (row.provider === "OMT") {
+              // LIRA-256 — per-type breakdown (always, whatever the choice).
+              const type = omtRowCoveredType(row);
+              const entry = byType.get(type) ?? {
+                omt_service_type: type,
+                commission_usd: 0,
+                commission_lbp: 0,
+                count: 0,
+              };
+              if (isLbp) entry.commission_lbp += c;
+              else entry.commission_usd += c;
+              entry.count += 1;
+              byType.set(type, entry);
+
+              const covered = isOmtRowCovered(row, coveredTypes);
+              // S9 — a legacy row was booked NET (already off the gross).
+              toSubtract =
+                row.commission_model === 0
+                  ? covered
+                    ? 0
+                    : -c
+                  : covered
+                    ? c
+                    : 0;
+            }
+            if (isLbp) commissionLbp += toSubtract;
+            else commissionUsd += toSubtract;
           }
         }
       }
+
+      const commission_by_type = OMT_COVERED_TYPE_VALUES.flatMap((t) => {
+        const e = byType.get(t);
+        return e ? [e] : [];
+      });
 
       return {
         account_supplier_id: accountSupplierId,
@@ -2267,6 +2362,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // flip.
         expected_usd: grossUsd - commissionUsd,
         expected_lbp: grossLbp - commissionLbp,
+        covered_omt_service_types: coveredTypes
+          ? normaliseCoveredTypes(coveredTypes)
+          : null,
+        commission_by_type,
       };
     } catch (e) {
       throw new DatabaseError("Failed to get account expected statement", {
@@ -2395,6 +2494,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             amount_lbp: row.currency === "LBP" ? row.supplier_owed : 0,
             entry_type: null,
             service_type: row.service_type,
+            // LIRA-256 — lets the settle sheet tell covered from waiting rows.
+            omt_service_type: row.omt_service_type ?? null,
+            commission_model: row.commission_model ?? null,
             // A FINANCIAL_SERVICE row is never a WALLET_CASHOUT credit (D14
             // only ever stamps cashout commission onto a raw LEDGER row —
             // see `_cashoutCommissionByLedgerId`'s own doc comment).
@@ -2457,6 +2559,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             amount_lbp: r.amount_lbp,
             entry_type: r.entry_type,
             service_type: null,
+            omt_service_type: null,
+            commission_model: null,
             commission_usd: commission?.usd ?? 0,
             commission_lbp: commission?.lbp ?? 0,
           };
@@ -2633,6 +2737,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         data.financial_service_ids,
         getCurrentTenantId(),
       );
+    // LIRA-256 — refuse an uncovered new-style OMT transfer before any
+    // write (same pre-try tier as the mixed-model guard above). Legacy
+    // batches come back with `rows: []`, so they are never restricted (S5).
+    this._assertRowsCoveredByStatement(
+      eligibleRows,
+      data.covered_omt_service_types,
+    );
     // BILL_COMMISSION_SETTLEMENT_PLAN.md — narrow scope (owner, 2026-08-11):
     // the drawer-top-up-and-profit treatment applies ONLY when every
     // eligible row is a BILL. `commission_model = 1` is NO LONGER
@@ -3052,6 +3163,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             // record for a new-model batch is `supplier_settlements`).
             commission_model: batchModel,
             entry_mode: data.entry_mode ?? "LUMP",
+            // LIRA-256 — informational: which OMT commission types this
+            // settlement's statement covered (absent = all types).
+            ...(data.covered_omt_service_types
+              ? {
+                  covered_omt_service_types: normaliseCoveredTypes(
+                    data.covered_omt_service_types,
+                  ),
+                }
+              : {}),
             // Owner follow-up (2026-08-13) — HOW a bills-only batch's
             // commission arrived: 'TOP_UP' (provider-drawer credit) or
             // 'OTHER_PAYMENT' (real payment-method legs, see `payments`
@@ -3195,6 +3315,54 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * ONE connection means "settle exactly as before this plan", never a
    * half-written commission record.
    */
+  /** LIRA-256 — schema-drift guard for `financial_services.omt_service_type`
+   *  (same PRAGMA shape as `_supplierLedgerHasSettlementIdColumn`). */
+  private _financialServicesHasOmtServiceTypeColumn(): boolean {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(financial_services)`)
+      .all() as { name: string }[];
+    return cols.some((c) => c.name === "omt_service_type");
+  }
+
+  /**
+   * LIRA-256 (decision S1) — a settlement that names the OMT commission
+   * types its statement covers is REFUSED, before any write, when it selects
+   * a new-style (commission_model = 1) OMT transfer of another type. That
+   * transfer stays queued at gross with its commission pending, so its
+   * commission can never be lost by settling it with a zero share; it is
+   * settled later, when a statement covers its type (or with "All types").
+   *
+   * Old-style (model 0) rows are never restricted (S5): their commission was
+   * netted at creation. Non-OMT rows always pass (`isOmtRowCovered`, the ONE
+   * predicate — rule 14). `covered === undefined` = all types = no-op (S3).
+   *
+   * Read-only; throws a plain `DatabaseError` from the pre-write tier so the
+   * message reaches the caller verbatim on both transports.
+   */
+  private _assertRowsCoveredByStatement(
+    rows: ReadonlyArray<{
+      id: number;
+      provider: string | null;
+      omt_service_type: string | null | undefined;
+      commission_model: number | null | undefined;
+    }>,
+    covered: OmtCoveredType[] | undefined,
+  ): void {
+    if (covered === undefined) return;
+    const offenders = rows
+      .filter((r) => r.commission_model === 1 && !isOmtRowCovered(r, covered))
+      .sort((a, b) => a.id - b.id);
+    if (offenders.length === 0) return;
+    const first = offenders[0];
+    const more =
+      offenders.length > 1 ? ` (and ${offenders.length - 1} more)` : "";
+    throw new DatabaseError(
+      `Cannot settle transfer #${first.id}: its commission type ` +
+        `${coveredTypeLabel(omtRowCoveredType(first))} is not included in ` +
+        `this statement${more}`,
+    );
+  }
+
   private _hasCommissionAtSettlementSchema(): boolean {
     const tableExists = (name: string): boolean =>
       !!this.db
@@ -3299,9 +3467,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       return { model: 0, rows: [] };
     }
     const placeholders = financialServiceIds.map(() => "?").join(",");
+    // LIRA-256 — project omt_service_type for the covered-types guard; a
+    // schema without the column (some older fixtures) reads NULL.
+    const omtTypeCol = this._financialServicesHasOmtServiceTypeColumn()
+      ? "omt_service_type"
+      : "NULL AS omt_service_type";
     const rows = this.db
       .prepare(
-        `SELECT id, provider, service_type, commission, commission_model, currency
+        `SELECT id, provider, service_type, commission, commission_model, currency, ${omtTypeCol}
          FROM financial_services
          WHERE id IN (${placeholders}) AND settlement_id IS NULL AND tenant_id = ?`,
       )
@@ -4272,6 +4445,23 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       selectedRows.push(row);
     }
 
+    // LIRA-256 — the covered-types guard runs on EVERY selected
+    // FINANCIAL_SERVICE row, before any write and independent of commission
+    // scope: when the FS selections span two members no commission member is
+    // resolved below, so checking only `commissionEligibleRows` would let an
+    // uncovered transfer settle with no commission share (analyze C1).
+    this._assertRowsCoveredByStatement(
+      selectedRows
+        .filter((r) => r.kind === "FINANCIAL_SERVICE")
+        .map((r) => ({
+          id: r.id,
+          provider: r.source_provider,
+          omt_service_type: r.omt_service_type,
+          commission_model: r.commission_model,
+        })),
+      data.covered_omt_service_types,
+    );
+
     // ── 1. Group by the member that actually OWNS each row (§4) ───────────
     const byMember = new Map<number, AccountUnsettledRow[]>();
     for (const row of selectedRows) {
@@ -4805,6 +4995,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             surplus_usd: surplusUsd,
             surplus_lbp: surplusLbp,
             members: memberIds,
+            // LIRA-256 — informational: which OMT commission types this
+            // settlement's statement covered (absent = all types).
+            ...(data.covered_omt_service_types
+              ? {
+                  covered_omt_service_types: normaliseCoveredTypes(
+                    data.covered_omt_service_types,
+                  ),
+                }
+              : {}),
             counterparty: buildCounterpartyMetadata({
               kind: "supplier",
               id: data.account_supplier_id,
