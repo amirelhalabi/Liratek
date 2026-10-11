@@ -1,10 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import logger from "@/utils/logger";
 import { X, Save, Printer, Minus, Sparkles, PackagePlus } from "lucide-react";
 import { useApi, appEvents, DecimalInput } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
-import { isPhoneLineCategoryName, serialLabelFor } from "@liratek/core";
+import {
+  isPhoneLineCategoryName,
+  serialLabelFor,
+  type SaveResaleLineInput,
+} from "@liratek/core";
 import JsBarcode from "jsbarcode";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
@@ -123,6 +127,15 @@ export default function ProductForm({
   // operator ticks it, nothing is sent, nothing happens. It is now disabled
   // whenever `product` is set (mirrors the Quantity field's treatment below).
   const [isOldStock, setIsOldStock] = useState(false);
+  // LIRA-309 — a line held for sale carries its carrier, expiry and credit in
+  // its own details row (resale_lines), saved after the product itself.
+  // Empty carrier = details not set; required only once an expiry or credit
+  // is entered, so editing an older line's name still works without them.
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  const [lineCarrier, setLineCarrier] = useState<"" | "mtc" | "alfa">("");
+  const [lineExpiry, setLineExpiry] = useState("");
+  const [lineCredits, setLineCredits] = useState("");
   // LIRA-208 — set when the operator asks for Adjust Stock while the form has
   // unsaved edits. Handing off closes this form, so the discard is confirmed
   // explicitly rather than happening silently.
@@ -458,6 +471,28 @@ ${labels}
     }
   }, [formData.barcode, printCopies, api]);
 
+  // LIRA-309 — load an existing line's details when editing it.
+  const productId = product?.id;
+  const productIsLine = isPhoneLineCategoryName(product?.category);
+  useEffect(() => {
+    if (productId == null || !productIsLine) return;
+    let cancelled = false;
+    apiRef.current
+      .getResaleLines({ include_sold: true })
+      .then((rows) => {
+        if (cancelled) return;
+        const row = rows.find((r) => r.product_id === productId);
+        if (!row || !row.carrier) return;
+        setLineCarrier(row.carrier);
+        setLineExpiry(row.validity_expires_at ?? "");
+        setLineCredits(row.credits ? String(row.credits) : "");
+      })
+      .catch((err) => logger.error("Failed to load line details", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, productIsLine]);
+
   /** The save request itself — validation, the API call, duplicate-barcode
    *  and error handling — WITHOUT deciding what happens next on success.
    *  `handleSubmit` ("Save Product") and `handleSaveAndAdjust` (LIRA-224's
@@ -469,6 +504,23 @@ ${labels}
   const performSave = async (): Promise<boolean> => {
     setError("");
     setDuplicateInfo(null);
+
+    // LIRA-309 — line details are validated before anything is saved.
+    const isLine = isPhoneLineCategoryName(formData.category);
+    const wantsLineDetails =
+      isLine && (lineCarrier !== "" || lineExpiry !== "" || lineCredits !== "");
+    const lineCreditsValue = lineCredits.trim() === "" ? 0 : Number(lineCredits);
+    if (wantsLineDetails) {
+      if (lineCarrier === "") {
+        setError("Choose the line's carrier (MTC or Alfa).");
+        return false;
+      }
+      if (!Number.isFinite(lineCreditsValue) || lineCreditsValue < 0) {
+        setError("Line credit must be zero or more.");
+        return false;
+      }
+    }
+
     setIsLoading(true);
 
     const warrantyMonthsValue =
@@ -499,6 +551,43 @@ ${labels}
       }
 
       if (result.success) {
+        // LIRA-309 — save the line's details once the product exists. The
+        // product is already saved, so a failure here is reported but does
+        // not keep the form open (re-saving would create it twice).
+        const savedId = product?.id ?? result.id;
+        if (wantsLineDetails && savedId == null) {
+          appEvents.emit(
+            "notification:show",
+            "Product saved, but the line details were not: open the line on the Phone Lines page to add them.",
+            "warning",
+          );
+        } else if (wantsLineDetails && savedId != null && lineCarrier !== "") {
+          const linePayload: SaveResaleLineInput = {
+            product_id: savedId,
+            carrier: lineCarrier,
+            validity_expires_at: lineExpiry || null,
+            credits: lineCreditsValue,
+          };
+          try {
+            const lineRes = await api.saveResaleLine(linePayload);
+            if (!lineRes.success) {
+              appEvents.emit(
+                "notification:show",
+                `Product saved, but the line details were not: ${lineRes.error ?? "unknown error"}`,
+                "warning",
+              );
+            }
+          } catch (err) {
+            appEvents.emit(
+              "notification:show",
+              getApiErrorMessage(
+                err,
+                "Product saved, but the line details were not.",
+              ),
+              "warning",
+            );
+          }
+        }
         // The phone-unit reads carry their PRODUCT's `warranty_months` (so
         // unsold stock can show "Not sold (N mo from sale)"), and a product save
         // can change it without touching a single `product_units` row — no
@@ -1022,6 +1111,65 @@ ${labels}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
                 />
               </div>
+
+              {/* LIRA-309 — a line held for sale: carrier, expiry, credit. */}
+              {categoryIsLines && (
+                <>
+                  <div>
+                    <label
+                      htmlFor="product-line-carrier"
+                      className="block text-sm font-medium text-slate-400 mb-1"
+                    >
+                      Carrier
+                    </label>
+                    <select
+                      id="product-line-carrier"
+                      value={lineCarrier}
+                      onChange={(e) =>
+                        setLineCarrier(e.target.value as "" | "mtc" | "alfa")
+                      }
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                    >
+                      <option value="">Choose…</option>
+                      <option value="mtc">MTC</option>
+                      <option value="alfa">Alfa</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="product-line-expiry"
+                      className="block text-sm font-medium text-slate-400 mb-1"
+                    >
+                      Line expiry date
+                    </label>
+                    <input
+                      id="product-line-expiry"
+                      type="date"
+                      value={lineExpiry}
+                      onChange={(e) => setLineExpiry(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="product-line-credits"
+                      className="block text-sm font-medium text-slate-400 mb-1"
+                    >
+                      Line credit ($)
+                    </label>
+                    <input
+                      id="product-line-credits"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={lineCredits}
+                      onChange={(e) => setLineCredits(e.target.value)}
+                      placeholder="0"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             {/* LIRA-143 Phase 6b — Units/IMEIs, only for a category that tracks

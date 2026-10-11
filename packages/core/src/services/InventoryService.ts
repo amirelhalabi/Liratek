@@ -44,7 +44,10 @@ import {
   normalizeLineNumber,
   isPhoneLineCategoryName,
   isPhoneShapedTerm,
+  isSameLebanesePhone,
 } from "../utils/phoneNumber.js";
+import { getCarrierLineRepository } from "../repositories/CarrierLineRepository.js";
+import { LINE_NUMBER_TAKEN_ERROR } from "./ResaleLineService.js";
 import { inventoryLogger } from "../utils/logger.js";
 
 // =============================================================================
@@ -419,6 +422,18 @@ export class InventoryService {
    * IPC handler / REST route) MUST pass it; an unattributed row here is a
    * genuine audit-trail gap.
    */
+  /**
+   * LIRA-309 (FR-005) — a phone number is a shop line OR a line held for
+   * sale, never both. True when `number` (already normalised) is an ACTIVE
+   * shop line's number. Only called for a lines-category product, so the
+   * carrier-line read never runs for ordinary products.
+   */
+  private isActiveShopLineNumber(number: string): boolean {
+    return getCarrierLineRepository()
+      .getAllActive()
+      .some((l) => isSameLebanesePhone(l.phone_number, number));
+  }
+
   createProduct(
     data: CreateProductData,
     userId: number | null = null,
@@ -468,6 +483,9 @@ export class InventoryService {
     let barcode = data.barcode?.trim() || "";
     if (barcode && categoryIsLines) {
       barcode = normalizeLineNumber(barcode);
+      if (barcode && this.isActiveShopLineNumber(barcode)) {
+        return { success: false, error: LINE_NUMBER_TAKEN_ERROR };
+      }
     }
     if (!barcode) {
       barcode = generateUniqueNumericBarcode((code: string) =>
@@ -633,6 +651,9 @@ export class InventoryService {
         };
       }
       barcode = normalized;
+      if (this.isActiveShopLineNumber(barcode)) {
+        return { success: false, error: LINE_NUMBER_TAKEN_ERROR };
+      }
     }
 
     // Check for duplicate barcode (excluding this product). In a

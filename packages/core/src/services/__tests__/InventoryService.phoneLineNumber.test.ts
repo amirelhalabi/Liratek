@@ -117,6 +117,24 @@ function createTestDb(): Database.Database {
       created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- LIRA-309: a lines-category create/update checks the number against the
+    -- shop's active carrier lines (FR-005), so the table must exist.
+    CREATE TABLE carrier_lines (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id           INTEGER DEFAULT 1,
+      carrier             TEXT NOT NULL CHECK(carrier IN ('alfa','mtc')),
+      phone_number        TEXT NOT NULL,
+      label               TEXT,
+      credits             REAL NOT NULL DEFAULT 0,
+      validity_expires_at TEXT,
+      days_owed           INTEGER NOT NULL DEFAULT 0,
+      notes               TEXT,
+      is_active           INTEGER NOT NULL DEFAULT 1,
+      is_primary          INTEGER NOT NULL DEFAULT 0,
+      created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at          TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }

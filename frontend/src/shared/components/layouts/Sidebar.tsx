@@ -31,6 +31,7 @@ import {
   Pin,
   ShieldCheck,
   CloudOff,
+  Phone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -140,6 +141,16 @@ export default function Sidebar({
               label: "Mobile Recharge",
               prefetch: () => import("@/features/recharge/pages/Recharge"),
             });
+            // LIRA-309 — Phone Lines sits under the recharge module (carrier
+            // lines already belong to it); shown only when it is enabled.
+            if (enabledModules.some((em) => em.key === "recharge")) {
+              acc.push({
+                to: "/phone-lines",
+                icon: Phone,
+                label: "Phone Lines",
+                prefetch: () => import("@/features/phoneLines/pages/PhoneLines"),
+              });
+            }
           }
           return acc;
         }

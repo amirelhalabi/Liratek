@@ -97,7 +97,9 @@ function addEvent(o: { device: number; eventId: string; seq: number; status?: st
 describe("v210 offline_events_model", () => {
   it("is the migration after v209 with the documented name", () => {
     expect(v210().name).toBe("offline_events_model");
-    expect(MIGRATIONS[MIGRATIONS.length - 1].version).toBe(210);
+    // Directly after v209 (later migrations may follow — LIRA-309 added v211).
+    const i = MIGRATIONS.findIndex((m) => m.version === 210);
+    expect(MIGRATIONS[i - 1].version).toBe(209);
   });
 
   it("creates all eight tables, each with id, tenant_id, created_at, updated_at", () => {

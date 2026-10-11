@@ -81,6 +81,8 @@ export * from "./utils/exchangeRates.js";
 // points for the same reason carrierLineValidity.js is: see browser.ts.
 export * from "./utils/calendarDate.js";
 export * from "./utils/carrierLineValidity.js";
+// LIRA-309 — line status (OK/EXPIRING/IN_GRACE/LOST) for both kinds of line.
+export * from "./utils/lineStatus.js";
 export * from "./utils/insuranceFulfillment.js";
 export * from "./utils/customServiceWorkStatus.js";
 export * from "./utils/phoneNumber.js";

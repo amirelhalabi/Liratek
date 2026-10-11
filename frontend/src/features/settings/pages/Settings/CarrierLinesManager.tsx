@@ -13,6 +13,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useApi } from "@liratek/ui";
 import type { CarrierLineEntity } from "@liratek/ui";
+import { SHOP_LINE_EXPIRY_WARNING_DAYS } from "@liratek/core";
+import { LineStatusChip } from "@/features/phoneLines/components/LineStatusChip";
 
 interface FormData {
   carrier: "alfa" | "mtc";
@@ -186,6 +188,7 @@ export default function CarrierLinesManager() {
               <th className="py-2 px-3">Label</th>
               <th className="py-2 px-3">Credits</th>
               <th className="py-2 px-3">Validity Expires</th>
+              <th className="py-2 px-3">Status</th>
               <th className="py-2 px-3">Active</th>
               <th className="py-2 px-3">Actions</th>
             </tr>
@@ -223,6 +226,14 @@ export default function CarrierLinesManager() {
                 </td>
                 <td className="py-2 px-3 text-slate-300 font-mono text-xs">
                   {line.validity_expires_at || "—"}
+                </td>
+                <td className="py-2 px-3">
+                  {/* LIRA-309: same status rule as the Phone Lines page;
+                      shop lines keep their 7-day warning. */}
+                  <LineStatusChip
+                    expiry={line.validity_expires_at}
+                    warningDays={SHOP_LINE_EXPIRY_WARNING_DAYS}
+                  />
                 </td>
                 <td className="py-2 px-3">
                   <button
@@ -268,7 +279,7 @@ export default function CarrierLinesManager() {
             {lines.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="py-4 px-3 text-center text-slate-500"
                 >
                   No carrier lines yet.

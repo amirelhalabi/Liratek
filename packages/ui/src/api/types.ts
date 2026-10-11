@@ -7,6 +7,13 @@
 
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-309 — phone lines held for sale (schema-derived payload types, rule 21).
+import type {
+  ListResaleLinesQueryInput,
+  SaveResaleLineInput,
+  ResaleLineRow,
+  ResaleLineEntity,
+} from "@liratek/core";
 // LIRA-306 — offline desktop fallback controls (desktop-only, E1; rule 21).
 import type {
   DesktopPairInput,
@@ -1976,6 +1983,16 @@ export type ApiAdapter = {
   ) => Promise<ApiResult>;
   /** Rejects with a clear error for one of the 9 seeded system providers. */
   deleteServiceProvider: (id: number) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Resale lines (LIRA-309 — phone lines the shop holds for sale)
+  // ---------------------------------------------------------------------------
+  /** Raw list (reads return the raw shape); unsold lines unless include_sold. */
+  getResaleLines: (query?: ListResaleLinesQueryInput) => Promise<ResaleLineRow[]>;
+  /** Admin: create or update a for-sale line's carrier/credit/expiry. */
+  saveResaleLine: (
+    data: SaveResaleLineInput,
+  ) => Promise<{ success: boolean; data?: ResaleLineEntity; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only)

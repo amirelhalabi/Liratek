@@ -624,6 +624,44 @@ CREATE INDEX IF NOT EXISTS idx_product_units_product ON product_units(tenant_id,
 CREATE INDEX IF NOT EXISTS idx_product_units_sale_item ON product_units(sale_item_id);
 CREATE INDEX IF NOT EXISTS idx_product_units_warranty_claim ON product_units(tenant_id, warranty_claim_id);
 
+-- LIRA-309 (v211): phone lines held for sale — details per product, kept
+-- apart from carrier_lines (never in the MTC/Alfa drawer), and the record of
+-- each internal recharge (reversal record for LINE_RECHARGE).
+CREATE TABLE IF NOT EXISTS resale_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    carrier TEXT NOT NULL CHECK(carrier IN ('mtc', 'alfa')),
+    credits REAL NOT NULL DEFAULT 0 CHECK(credits >= 0),
+    validity_expires_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resale_lines_product ON resale_lines(tenant_id, product_id);
+
+CREATE TABLE IF NOT EXISTS resale_line_recharges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id),
+    resale_line_id INTEGER NOT NULL REFERENCES resale_lines(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    source TEXT NOT NULL CHECK(source IN ('CARD', 'SHOP_LINE_CREDIT', 'DAYS')),
+    days_added INTEGER NOT NULL DEFAULT 0 CHECK(days_added >= 0),
+    credits_added REAL NOT NULL DEFAULT 0 CHECK(credits_added >= 0),
+    cost_usd REAL NOT NULL CHECK(cost_usd > 0),
+    source_carrier_line_id INTEGER REFERENCES carrier_lines(id),
+    mobile_service_item_id INTEGER REFERENCES mobile_service_items(id),
+    prev_cost_usd REAL NOT NULL,
+    prev_price_usd REAL NOT NULL,
+    prev_validity_expires_at TEXT,
+    prev_credits REAL NOT NULL,
+    batch_id INTEGER REFERENCES product_stock_batches(id),
+    is_reversed INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_resale_line_recharges_line ON resale_line_recharges(tenant_id, resale_line_id, is_reversed, id);
+
 -- =============================================================================
 -- 3. Transactional Tables
 -- =============================================================================
@@ -3027,4 +3065,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- only: a fresh DB has no baskets).
     (209, 'session_member_debt_share'),
     -- v210 (LIRA-306) adds the eight offline_* tables, declared above.
-    (210, 'offline_events_model');
+    (210, 'offline_events_model'),
+    -- v211 (LIRA-309) adds resale_lines and resale_line_recharges, declared above.
+    (211, 'resale_lines');

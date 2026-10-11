@@ -169,6 +169,14 @@ export {
   getProductUnitRepository,
   resetProductUnitRepository,
 } from "./ProductUnitRepository.js";
+export {
+  ResaleLineRepository,
+  getResaleLineRepository,
+  resetResaleLineRepository,
+  UNSOLD_LINE_SQL,
+  type ResaleLineEntity,
+  type ResaleLineRow,
+} from "./ResaleLineRepository.js";
 export type {
   ProductUnitStatus,
   ProductUnitEntity,

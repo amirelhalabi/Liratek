@@ -6639,6 +6639,21 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
+## LIRA-309: Phone Lines management — shop lines, lines for sale, expiry alerts, internal recharge — HIGH — IN PROGRESS (MVP built and committed 2026-10-11; not pushed)
+
+Spec: `specs/309-phone-lines-management/` (spec, plan, research, data model, contracts, quickstart, tasks).
+
+**Owner decisions 2026-10-11 (binding):**
+1. One Phone Lines page for shop lines (`carrier_lines`) and lines held for sale (inventory products in a lines category, LIRA-207).
+2. For-sale lines warn 3 days before expiry; shop lines keep their 7-day warning. Both red through the 5-day grace, then lost.
+3. Recharging a for-sale line adds its cost to the line's cost AND selling price (no expense that day; profit unchanged — $15/$25 + $3 → $18/$28).
+4. Recharge sources: MTC/Alfa days from a shop line, credit from a shop line, a card from the iPick/Katsh balance. "Paid in cash" dropped.
+5. A lost for-sale line stays in stock with a "write off?" alert; only the owner's Write off books the loss.
+
+**MVP built 2026-10-11 (tasks T001–T025, phases 1–3 = US1):** migration v211 (`resale_lines`, `resale_line_recharges`), `lineStatus.ts` (shared status rule), `ResaleLineRepository`/`ResaleLineService`, list + save on both transports (`resale-lines:list`/`:save`, `GET`/`PUT /api/resale-lines`), the Phone Lines page (`/phone-lines`, under the recharge module), carrier/expiry/credit in the product form, a status column in Settings → Carrier Lines, and the FR-005 guard on every path (saving line details, Inventory product create/edit in a lines category, and shop-line create / number change / reactivate — a number is a shop line or an unsold for-sale line, never both). Reset Data now clears `resale_lines`/`resale_line_recharges` with the other stock data (products survive with stock 0, so their line details go too) — chosen while building, owner not yet asked. Tests not proven failing-first (written after their code): `ResaleLineRepository.test`, `resaleLines.api.test`, `ProductForm.lineDetails.test` (first 5 cases), `v211.resaleLines.test`. Not yet run in the live app on either transport. Not yet built: US2 alerts + write-off, US3 internal recharge, US4 Mobile Recharge detection.
+
+**What users will notice:** a new Phone Lines page next to Mobile Recharge lists your shop lines and the lines you sell with credit, expiry and days left; you can enter a sold line's carrier, expiry and credit there or in the product form.
+
 ## LIRA-310: Waive on every payment page — HIGH — DONE, not yet released (owner decisions 2026-10-11)
 
 Spec: `specs/310-waive-everywhere/spec.md`. Today only POS (and Maintenance through the POS checkout) has a Waive button, for gaps under $1.

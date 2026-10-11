@@ -14595,6 +14595,60 @@ CREATE TABLE IF NOT EXISTS offline_copy_meta (
       `);
     },
   },
+  {
+    version: 211,
+    name: "resale_lines",
+    description:
+      "LIRA-309: phone lines the shop holds for sale (inventory products in a " +
+      "lines category) get their own details row (resale_lines: carrier, " +
+      "credits, expiry), kept apart from carrier_lines so it never reaches " +
+      "the MTC/Alfa drawer, checkpoints or buy-back matching. " +
+      "resale_line_recharges records each internal recharge of such a line " +
+      "and is the reversal record for LINE_RECHARGE.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS resale_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    carrier TEXT NOT NULL CHECK(carrier IN ('mtc', 'alfa')),
+    credits REAL NOT NULL DEFAULT 0 CHECK(credits >= 0),
+    validity_expires_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resale_lines_product ON resale_lines(tenant_id, product_id);
+
+CREATE TABLE IF NOT EXISTS resale_line_recharges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id),
+    resale_line_id INTEGER NOT NULL REFERENCES resale_lines(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    source TEXT NOT NULL CHECK(source IN ('CARD', 'SHOP_LINE_CREDIT', 'DAYS')),
+    days_added INTEGER NOT NULL DEFAULT 0 CHECK(days_added >= 0),
+    credits_added REAL NOT NULL DEFAULT 0 CHECK(credits_added >= 0),
+    cost_usd REAL NOT NULL CHECK(cost_usd > 0),
+    source_carrier_line_id INTEGER REFERENCES carrier_lines(id),
+    mobile_service_item_id INTEGER REFERENCES mobile_service_items(id),
+    prev_cost_usd REAL NOT NULL,
+    prev_price_usd REAL NOT NULL,
+    prev_validity_expires_at TEXT,
+    prev_credits REAL NOT NULL,
+    batch_id INTEGER REFERENCES product_stock_batches(id),
+    is_reversed INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_resale_line_recharges_line ON resale_line_recharges(tenant_id, resale_line_id, is_reversed, id);`);
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_resale_line_recharges_line;
+DROP TABLE IF EXISTS resale_line_recharges;
+DROP INDEX IF EXISTS idx_resale_lines_product;
+DROP TABLE IF EXISTS resale_lines;`);
+    },
+  },
 ];
 
 /**

@@ -32,9 +32,9 @@ description: "Task list for LIRA-309 Phone Lines Management"
 
 **Purpose**: confirm the baseline and register the ticket.
 
-- [ ] T001 Read the last entry of `packages/core/src/db/migrations/index.ts`. Confirm it is still **v210**; if not, use last+1 everywhere this file says v211, and record the number here.
-- [ ] T002 Add the LIRA-309 ticket entry to `current_sprint.md` with status, spec link `specs/309-phone-lines-management/`, the owner decisions (for-sale 3 days / shop 7 days; recharge cost capitalized into cost and price; 3 sources: days, shop-line credit, iPick/Katsh card; lost line → owner Write off) and a "What users will notice:" line. Edit only the new entry; another session also edits this file.
-- [ ] T003 [P] Read `docs/FEATURE_GUIDE.md` §13 and `specs/309-phone-lines-management/plan.md` §13 walk-through before any money code (rule 18).
+- [x] T001 Read the last entry of `packages/core/src/db/migrations/index.ts`. Confirm it is still **v210**; if not, use last+1 everywhere this file says v211, and record the number here.
+- [x] T002 Add the LIRA-309 ticket entry to `current_sprint.md` with status, spec link `specs/309-phone-lines-management/`, the owner decisions (for-sale 3 days / shop 7 days; recharge cost capitalized into cost and price; 3 sources: days, shop-line credit, iPick/Katsh card; lost line → owner Write off) and a "What users will notice:" line. Edit only the new entry; another session also edits this file.
+- [x] T003 [P] Read `docs/FEATURE_GUIDE.md` §13 and `specs/309-phone-lines-management/plan.md` §13 walk-through before any money code (rule 18).
 
 ---
 
@@ -42,28 +42,28 @@ description: "Task list for LIRA-309 Phone Lines Management"
 
 **Purpose**: schema, the shared status helper and the repository skeleton.
 
-- [ ] T004 Write the migration **v211** in `packages/core/src/db/migrations/index.ts`, with `down()` dropping both tables. Create:
+- [x] T004 Write the migration **v211** in `packages/core/src/db/migrations/index.ts`, with `down()` dropping both tables. Create:
   - `resale_lines`: `id INTEGER PK`, `tenant_id INTEGER REFERENCES tenants(id)`, `product_id INTEGER NOT NULL REFERENCES products(id)`, `carrier TEXT NOT NULL CHECK(carrier IN ('mtc','alfa'))`, `credits REAL NOT NULL DEFAULT 0`, `validity_expires_at TEXT` (NULL = "No expiry set"), `created_at`, `updated_at`; `UNIQUE(tenant_id, product_id)`. **No phone column** (the number is `products.barcode`).
   - `resale_line_recharges`: `id`, `tenant_id`, `transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id)`, `resale_line_id INTEGER NOT NULL`, `product_id INTEGER NOT NULL`, `source TEXT NOT NULL CHECK(source IN ('CARD','SHOP_LINE_CREDIT','DAYS'))`, `days_added INTEGER NOT NULL DEFAULT 0`, `credits_added REAL NOT NULL DEFAULT 0`, `cost_usd REAL NOT NULL`, `source_carrier_line_id INTEGER NULL`, `mobile_service_item_id INTEGER NULL`, `prev_cost_usd REAL NOT NULL`, `prev_price_usd REAL NOT NULL`, `prev_validity_expires_at TEXT NULL`, `prev_credits REAL NOT NULL`, `batch_id INTEGER NULL`, `is_reversed INTEGER NOT NULL DEFAULT 0`, `created_at`, `updated_at`; index `(tenant_id, resale_line_id, is_reversed, id)`.
-- [ ] T005 Mirror T004's two tables byte-for-byte into `electron-app/create_db.sql`, then run `yarn check:schema-equivalence`.
-- [ ] T006 Add the tenant-scoping registration for the two new tables wherever `yarn check:tenant-scoping` requires it (see `packages/core/src/constants/resetTables.ts` for the reset classification). Decide whether Reset Data wipes `resale_line_recharges` and keeps `resale_lines`, matching how product data is treated.
-- [ ] T007 [P] Write the guard test `packages/core/src/utils/__tests__/lineStatus.test.ts` (quickstart C1). Cases:
+- [x] T005 Mirror T004's two tables byte-for-byte into `electron-app/create_db.sql`, then run `yarn check:schema-equivalence`.
+- [x] T006 Add the tenant-scoping registration for the two new tables wherever `yarn check:tenant-scoping` requires it (see `packages/core/src/constants/resetTables.ts` for the reset classification). Decide whether Reset Data wipes `resale_line_recharges` and keeps `resale_lines`, matching how product data is treated.
+- [x] T007 [P] Write the guard test `packages/core/src/utils/__tests__/lineStatus.test.ts` (quickstart C1). Cases:
   - `classifyLineStatus(expiry, today, 3)` at d = 4, 3, 0, −1, −5, −6 and null gives OK, EXPIRING, EXPIRING, IN_GRACE(daysToSave 4), IN_GRACE(0), LOST, NO_EXPIRY.
   - With window 7: d = 8 gives OK, d = 7 gives EXPIRING.
 
   Run it and record that it fails because the module does not exist.
-- [ ] T008 Create the browser-safe leaf `packages/core/src/utils/lineStatus.ts`:
+- [x] T008 Create the browser-safe leaf `packages/core/src/utils/lineStatus.ts`:
   - `RESALE_LINE_EXPIRY_WARNING_DAYS = 3`, `SHOP_LINE_EXPIRY_WARNING_DAYS = 7`;
   - `classifyLineStatus(expiry, today, warningDays)` as a **thin layer over `classifyLineValidity`** (`utils/carrierLineValidity.ts:180`). VALID with `daysRemaining ≤ window` → EXPIRING, other VALID → OK, GRACE → IN_GRACE with `daysToSave = LINE_REVIVAL_GRACE_DAYS − lapseDays`, BURNED → LOST, NO_EXPIRY → NO_EXPIRY.
 
   Do not compare the grace boundary again here. Export from `index.ts` and `browser.ts`. T007 passes, and `src/__tests__/browserEntryIsNodeFree.guard.test.ts` stays green.
-- [ ] T009 Create `packages/core/src/validators/resaleLine.ts` with `listResaleLinesQuerySchema` `{ carrier?: 'mtc'|'alfa', include_sold?: boolean }`, `saveResaleLineSchema` and `writeOffResaleLineSchema` exactly as in `contracts/resale-lines.md`:
+- [x] T009 Create `packages/core/src/validators/resaleLine.ts` with `listResaleLinesQuerySchema` `{ carrier?: 'mtc'|'alfa', include_sold?: boolean }`, `saveResaleLineSchema` and `writeOffResaleLineSchema` exactly as in `contracts/resale-lines.md`:
   - `validity_expires_at`: `'YYYY-MM-DD'` real calendar date or null;
   - `credits ≥ 0`;
   - `client_day` optional `'YYYY-MM-DD'`.
 
   Export the input types. Export from `index.ts` and `browser.ts`, and re-export in `electron-app/schemas/index.ts` with the zod-major cast.
-- [ ] T010 Create `packages/core/src/repositories/ResaleLineRepository.ts` (extends `BaseRepository`):
+- [x] T010 Create `packages/core/src/repositories/ResaleLineRepository.ts` (extends `BaseRepository`):
   - Define the "unsold line" SQL fragment ONCE as a named constant (`products.is_active = 1 AND products.stock_quantity > 0`, plus a lines-category check) (rule 14).
   - `listLines({ carrier?, includeSold })` joins `products` (barcode = number, name, cost_price_usd, selling_price_usd, stock_quantity, category) LEFT JOIN `resale_lines`, so line products with no details row list as NO_EXPIRY.
   - `getByProductId`, `upsertDetails(productId, { carrier, credits, validityExpiresAt })`, and `findUnsoldByNumber(normalisedNumber, carrier?)`.
@@ -81,51 +81,51 @@ description: "Task list for LIRA-309 Phone Lines Management"
 
 ### Tests for User Story 1 (write first, see them fail)
 
-- [ ] T011 [P] [US1] Write `packages/core/src/repositories/__tests__/ResaleLineRepository.test.ts` (in-memory DB):
+- [x] T011 [P] [US1] Write `packages/core/src/repositories/__tests__/ResaleLineRepository.test.ts` (in-memory DB):
   - a line product with no details lists as NO_EXPIRY;
   - after upsert it lists carrier, credits and expiry;
   - a sold product (stock 0) is excluded unless `includeSold`;
   - **C15**: saving details on 3 lines leaves `getCarrierCreditsSum` and the MTC/Alfa drawer balance unchanged.
-- [ ] T012 [P] [US1] Write `packages/core/src/services/__tests__/ResaleLineService.save.test.ts` (**C13**):
+- [x] T012 [P] [US1] Write `packages/core/src/services/__tests__/ResaleLineService.save.test.ts` (**C13**):
   - saving details for a product whose barcode equals an **active** `carrier_lines.phone_number` (compared with `normalizeLebanesePhone`) is refused with "This number is already one of your lines.";
   - a non-lines-category product is refused.
-- [ ] T013 [P] [US1] Write `packages/core/src/repositories/__tests__/CarrierLineRepository.resaleConflict.test.ts`: creating or updating a carrier line whose number equals an unsold for-sale line's barcode is refused (FR-005, reverse direction).
+- [x] T013 [P] [US1] Write `packages/core/src/repositories/__tests__/CarrierLineRepository.resaleConflict.test.ts`: creating or updating a carrier line whose number equals an unsold for-sale line's barcode is refused (FR-005, reverse direction).
 
 ### Implementation for User Story 1
 
-- [ ] T014 [US1] Create `packages/core/src/services/ResaleLineService.ts`, with the repository injected through the constructor (rule 13; no `getDatabase()`). Add `listLines(query)` and `saveDetails(input)`:
+- [x] T014 [US1] Create `packages/core/src/services/ResaleLineService.ts`, with the repository injected through the constructor (rule 13; no `getDatabase()`). Add `listLines(query)` and `saveDetails(input)`:
   - validate the lines category with `isPhoneLineCategoryName`;
   - run the FR-005 conflict check against active carrier lines;
   - call `upsertDetails`.
 
   T011 and T012 pass.
-- [ ] T015 [US1] In `packages/core/src/repositories/CarrierLineRepository.ts` create/update, refuse a number that matches `ResaleLineRepository.findUnsoldByNumber`. T013 passes.
-- [ ] T016 [US1] Create the IPC handlers in `electron-app/handlers/resaleLineHandlers.ts`:
+- [x] T015 [US1] In `packages/core/src/repositories/CarrierLineRepository.ts` create/update, refuse a number that matches `ResaleLineRepository.findUnsoldByNumber`. T013 passes.
+- [x] T016 [US1] Create the IPC handlers in `electron-app/handlers/resaleLineHandlers.ts`:
   - `resale-lines:list` (any authenticated session);
   - `resale-lines:save` (`requireRole(['admin'])` + `validatePayload(SaveResaleLineSchema)`).
 
   Register them in `electron-app/main.ts`. Add preload bindings with full `data` types (rule 12) in `electron-app/preload.ts`, and types in `frontend/src/types/electron.d.ts`.
-- [ ] T017 [US1] Classify `resale-lines:list` (read, offline-safe) and `resale-lines:save` (write) in `packages/core/src/offline/channelPolicy.ts`, following neighbouring carrier-line channels.
-- [ ] T018 [US1] Create the REST routes in `backend/src/api/resaleLines.ts`:
+- [x] T017 [US1] Classify `resale-lines:list` (read, offline-safe) and `resale-lines:save` (write) in `packages/core/src/offline/channelPolicy.ts`, following neighbouring carrier-line channels.
+- [x] T018 [US1] Create the REST routes in `backend/src/api/resaleLines.ts`:
   - `GET /` (`authenticateJWT`, query via `listResaleLinesQuerySchema`);
   - `PUT /:productId` (`authenticateJWT` → `requireRole('admin')` → `validateRequest(saveResaleLineSchema)`; `product_id` from the path must equal the body's).
 
   Return the IPC-identical envelope with HTTP 200 on failure. Mount at `/api/resale-lines` in `backend/src/server.ts`, with static paths before `/:productId`.
-- [ ] T019 [P] [US1] Write the backend route test `backend/src/api/__tests__/resaleLines.routes.test.ts`: a cashier gets a refusal on PUT, and an admin gets `{success:true}`. Assert payload field names from the schema (rule 24).
-- [ ] T020 [US1] Add adapter functions in `frontend/src/api/backendApi.ts` (`ipcOrHttp`): `getResaleLines(q?)` returns the raw array, and `saveResaleLine(input: z.input<typeof saveResaleLineSchema>)` returns the envelope. Expose them in `frontend/src/api/ElectronApiAdapter.ts` and type them in `packages/ui/src/api/types.ts` (`ApiAdapter`).
-- [ ] T021 [P] [US1] Write the frontend test `frontend/src/features/phoneLines/pages/PhoneLines/__tests__/PhoneLines.test.tsx`. With fixtures, the page shows a Shop lines group and a For sale group, and the status chips are right (green OK, amber EXPIRING, red IN_GRACE, grey LOST / "No expiry set"). The `useApi` mock returns a **stable** reference (rule 25).
-- [ ] T022 [US1] Create `frontend/src/features/phoneLines/pages/PhoneLines/index.tsx`, a default-export page with two tabs:
+- [x] T019 [P] [US1] Write the backend route test `backend/src/api/__tests__/resaleLines.routes.test.ts`: a cashier gets a refusal on PUT, and an admin gets `{success:true}`. Assert payload field names from the schema (rule 24).
+- [x] T020 [US1] Add adapter functions in `frontend/src/api/backendApi.ts` (`ipcOrHttp`): `getResaleLines(q?)` returns the raw array, and `saveResaleLine(input: z.input<typeof saveResaleLineSchema>)` returns the envelope. Expose them in `frontend/src/api/ElectronApiAdapter.ts` and type them in `packages/ui/src/api/types.ts` (`ApiAdapter`).
+- [x] T021 [P] [US1] Write the frontend test `frontend/src/features/phoneLines/pages/PhoneLines/__tests__/PhoneLines.test.tsx`. With fixtures, the page shows a Shop lines group and a For sale group, and the status chips are right (green OK, amber EXPIRING, red IN_GRACE, grey LOST / "No expiry set"). The `useApi` mock returns a **stable** reference (rule 25).
+- [x] T022 [US1] Create `frontend/src/features/phoneLines/pages/PhoneLines/index.tsx`, a default-export page with two tabs:
   - **Shop lines**: lists via the existing `getAdminCarrierLines` and edits through the existing carrier-line add/edit/archive/reactivate UI from `CarrierLinesManager.tsx`. Extract or reuse it; do not copy it.
   - **For sale**: lists via `getResaleLines`, with an inline edit of carrier (owner picks MTC/Alfa; never guessed from the prefix), expiry and credit via `saveResaleLine`, a "No expiry set" filter and a "Sold" filter.
 
   Columns: number, carrier, credit, expiry, days left, status chip. Status comes from `classifyLineStatus(expiry, localDay(), window)`, with window `SHOP_LINE_EXPIRY_WARNING_DAYS` for shop lines and `RESALE_LINE_EXPIRY_WARNING_DAYS` for for-sale lines. `api` is read through a ref. T021 passes.
-- [ ] T023 [US1] Add the route `/phone-lines` (lazy) in `frontend/src/app/App.tsx`. Add a sidebar link "Phone Lines" in `frontend/src/shared/components/layouts/Sidebar.tsx`, gated on `isModuleEnabled("recharge")` like the Warranty link (≈:265), and add `"/phone-lines": "recharge"` to the `routeToModule` map in `frontend/src/contexts/ActiveModuleContext.tsx`.
-- [ ] T024 [US1] In `frontend/src/features/inventory/pages/Inventory/ProductForm.tsx`, when `isPhoneLineCategoryName(category)`, show Carrier (MTC/Alfa, required), Expiry date and Credit fields:
+- [x] T023 [US1] Add the route `/phone-lines` (lazy) in `frontend/src/app/App.tsx`. Add a sidebar link "Phone Lines" in `frontend/src/shared/components/layouts/Sidebar.tsx`, gated on `isModuleEnabled("recharge")` like the Warranty link (≈:265), and add `"/phone-lines": "recharge"` to the `routeToModule` map in `frontend/src/contexts/ActiveModuleContext.tsx`.
+- [x] T024 [US1] In `frontend/src/features/inventory/pages/Inventory/ProductForm.tsx`, when `isPhoneLineCategoryName(category)`, show Carrier (MTC/Alfa, required), Expiry date and Credit fields:
   - load existing details with `getResaleLines`;
   - after product create/update succeeds, call `saveResaleLine` once.
   - Build the payload once (rule 22).
   - Add a test `ProductForm.lineDetails.test.tsx` beside the existing `ProductForm.numberLabel.test.tsx`.
-- [ ] T025 [US1] Add a release note line under `## 📱 MTC / Alfa` in `docs/release-notes/UNRELEASED.md`: a new Phone Lines page lists your shop lines and the lines you sell, with credit, expiry and days left, and you can now enter the expiry and credit of a line you sell.
+- [x] T025 [US1] Add a release note line under `## 📱 MTC / Alfa` in `docs/release-notes/UNRELEASED.md`: a new Phone Lines page lists your shop lines and the lines you sell, with credit, expiry and days left, and you can now enter the expiry and credit of a line you sell.
 
 **Checkpoint**: US1 works on desktop and web, and the MVP is demonstrable.
 

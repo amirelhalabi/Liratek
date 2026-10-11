@@ -29,6 +29,12 @@ import {
   type CarrierLineOwedDeliveryEntity,
 } from "../repositories/CarrierLineOwedDeliveryRepository.js";
 import { financialLogger } from "../utils/logger.js";
+import {
+  getResaleLineRepository,
+  type ResaleLineRepository,
+} from "../repositories/ResaleLineRepository.js";
+import { isSameLebanesePhone } from "../utils/phoneNumber.js";
+import { LINE_NUMBER_TAKEN_ERROR } from "./ResaleLineService.js";
 
 // =============================================================================
 // Types
@@ -136,16 +142,29 @@ export class CarrierLineService {
   private repo: CarrierLineRepository;
   private movementRepo: CarrierLineMovementRepository;
   private owedDeliveryRepo: CarrierLineOwedDeliveryRepository;
+  private resaleRepo: ResaleLineRepository;
 
   constructor(
     repo?: CarrierLineRepository,
     movementRepo?: CarrierLineMovementRepository,
     owedDeliveryRepo?: CarrierLineOwedDeliveryRepository,
+    resaleRepo?: ResaleLineRepository,
   ) {
     this.repo = repo ?? getCarrierLineRepository();
     this.movementRepo = movementRepo ?? getCarrierLineMovementRepository();
     this.owedDeliveryRepo =
       owedDeliveryRepo ?? getCarrierLineOwedDeliveryRepository();
+    this.resaleRepo = resaleRepo ?? getResaleLineRepository();
+  }
+
+  /**
+   * LIRA-309 (FR-005) — true when `phone` is the number of a line the shop
+   * holds for sale and has not sold yet. A shop line may not take it.
+   */
+  private isUnsoldForSaleLine(phone: string | null | undefined): boolean {
+    return this.resaleRepo
+      .listLines({ includeSold: false })
+      .some((l) => isSameLebanesePhone(l.phone_number, phone));
   }
 
   /** Active lines for one carrier — the Recharge-tab compact panel. */
@@ -227,6 +246,9 @@ export class CarrierLineService {
           error: "Carrier and phone number are required",
         };
       }
+      if (this.isUnsoldForSaleLine(data.phone_number)) {
+        return { success: false, error: LINE_NUMBER_TAKEN_ERROR };
+      }
       const line = this.repo.createLine(data, userId ?? null);
       financialLogger.info(
         { lineId: line.id, carrier: data.carrier },
@@ -255,6 +277,17 @@ export class CarrierLineService {
     userId?: number | null,
   ): CarrierLineResult {
     try {
+      // Only when the number actually changes: the edit form always sends
+      // the current number, and an existing overlap must not lock the owner
+      // out of editing the line's credits.
+      if (data.phone_number !== undefined) {
+        const current = this.repo.getById(id);
+        const changes =
+          !current || !isSameLebanesePhone(current.phone_number, data.phone_number);
+        if (changes && this.isUnsoldForSaleLine(data.phone_number)) {
+          return { success: false, error: LINE_NUMBER_TAKEN_ERROR };
+        }
+      }
       const line = this.repo.updateLineAndSyncDrawer(
         id,
         data,
@@ -544,6 +577,14 @@ export class CarrierLineService {
    *  decision B) — `userId` identifies the actor. */
   toggleActive(id: number, userId?: number | null): CarrierLineResult {
     try {
+      const current = this.repo.getById(id);
+      if (
+        current &&
+        !current.is_active &&
+        this.isUnsoldForSaleLine(current.phone_number)
+      ) {
+        return { success: false, error: LINE_NUMBER_TAKEN_ERROR };
+      }
       const line = this.repo.toggleActive(id, userId ?? null);
       if (!line) return { success: false, error: "Carrier line not found" };
       financialLogger.info(

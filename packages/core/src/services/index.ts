@@ -396,6 +396,13 @@ export {
   getCarrierLineService,
   resetCarrierLineService,
 } from "./CarrierLineService.js";
+export {
+  ResaleLineService,
+  getResaleLineService,
+  resetResaleLineService,
+  LINE_NUMBER_TAKEN_ERROR,
+  type ResaleLineResult,
+} from "./ResaleLineService.js";
 export type {
   CarrierLineResult,
   ApplyMovementInput,

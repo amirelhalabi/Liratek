@@ -28,6 +28,8 @@ const mockApi = {
   getProductByBarcode: jest.fn(),
   updateProduct: jest.fn(),
   createProduct: jest.fn(),
+  // LIRA-309 — a lines-category product loads its line details on open.
+  getResaleLines: jest.fn().mockResolvedValue([]),
 };
 
 jest.mock("@liratek/ui", () => ({

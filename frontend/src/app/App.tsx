@@ -33,6 +33,10 @@ const ProductList = lazyWithReload(
 const PhoneUnits = lazyWithReload(
   () => import("@/features/inventory/pages/PhoneUnits"),
 );
+// LIRA-309 — shop lines and lines held for sale.
+const PhoneLines = lazyWithReload(
+  () => import("@/features/phoneLines/pages/PhoneLines"),
+);
 // LIRA-296 — warranty lookup for any item.
 const WarrantyLookup = lazyWithReload(
   () => import("@/features/warranty/pages/WarrantyLookup"),
@@ -275,6 +279,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <PhoneUnits />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/phone-lines"
+          element={
+            <ProtectedRoute>
+              <PhoneLines />
             </ProtectedRoute>
           }
         />

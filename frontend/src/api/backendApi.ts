@@ -13,6 +13,13 @@ import type { SaveMaintenanceJobPayload } from "@liratek/core";
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 import type { SinceLastCountDrawer } from "@liratek/core";
 import type { UnitWarrantyDisplay } from "@liratek/core";
+// LIRA-309 — phone lines held for sale (schema-derived payloads, rule 21).
+import type {
+  ListResaleLinesQueryInput,
+  SaveResaleLineInput,
+  ResaleLineRow,
+  ResaleLineEntity,
+} from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
 // LIRA-306 — offline desktop fallback controls (desktop-only, E1; rule 21).
@@ -7589,6 +7596,49 @@ export type CarrierLineOwedDeliveryEntity = {
   created_at: string;
   updated_at: string;
 };
+
+// =============================================================================
+// Resale lines (LIRA-309 — phone lines the shop holds for sale)
+// =============================================================================
+
+/** The For sale list — raw rows (reads return the raw shape). Unsold lines
+ *  only unless `include_sold`. */
+export async function getResaleLines(
+  query: ListResaleLinesQueryInput = {},
+): Promise<ResaleLineRow[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().resaleLines.list(query);
+      return res.success ? (res.data ?? []) : [];
+    },
+    async () => {
+      const params = new URLSearchParams();
+      if (query.carrier) params.set("carrier", query.carrier);
+      if (query.include_sold !== undefined) {
+        params.set("include_sold", String(query.include_sold));
+      }
+      const qs = params.toString();
+      const res = await requestJson<{ success: boolean; data?: ResaleLineRow[] }>(
+        `/api/resale-lines${qs ? `?${qs}` : ""}`,
+      );
+      return res.success ? (res.data ?? []) : [];
+    },
+  );
+}
+
+/** Admin: create or update a for-sale line's carrier, credit and expiry. */
+export async function saveResaleLine(
+  data: SaveResaleLineInput,
+): Promise<{ success: boolean; data?: ResaleLineEntity; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().resaleLines.save(data),
+    async () =>
+      requestJson<{ success: boolean; data?: ResaleLineEntity; error?: string }>(
+        `/api/resale-lines/${data.product_id}`,
+        { method: "PUT", body: data },
+      ),
+  );
+}
 
 export async function getActiveCarrierLines(
   carrier: "alfa" | "mtc",

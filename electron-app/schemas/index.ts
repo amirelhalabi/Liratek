@@ -181,6 +181,11 @@ import {
   type SessionItemRefundInput,
   sessionItemRefundPreviewSchema,
   type SessionItemRefundPreviewInput,
+  // LIRA-309 — phone lines held for sale (packages/core/src/validators/resaleLine.ts).
+  listResaleLinesQuerySchema,
+  saveResaleLineSchema,
+  type ListResaleLinesQuery,
+  type SaveResaleLineData,
   registerProductUnitsSchema,
   productUnitsForProductSchema,
   listProductUnitsSchema,
@@ -1128,6 +1133,17 @@ export const LotBreakdownSchema =
   lotBreakdownSchema as unknown as z.ZodSchema<LotBreakdownInput>;
 export const AdjustLotPositionSchema =
   adjustLotPositionSchema as unknown as z.ZodSchema<AdjustLotPositionInput>;
+
+// =============================================================================
+// Resale lines (LIRA-309 — phone lines the shop holds for sale)
+// =============================================================================
+
+// Shared with backend/src/api/resaleLines.ts (rule 14). Same zod-major cast
+// as every other core schema re-exported here.
+export const ListResaleLinesQuerySchema =
+  listResaleLinesQuerySchema as unknown as z.ZodSchema<ListResaleLinesQuery>;
+export const SaveResaleLineSchema =
+  saveResaleLineSchema as unknown as z.ZodSchema<SaveResaleLineData>;
 
 // =============================================================================
 // Product Units (LIRA-143 phase 5 — phone IMEI units & warranty)

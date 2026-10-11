@@ -175,6 +175,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Binance cash-outs, OMT App / Whish App receives, MTC/Alfa credit buy-backs and Whish App credit bought from a client: you can hand out a round amount a little under what's owed (less than $1 or 100,000 LBP) and the difference is shop profit. Payouts to a customer's account, from a wallet, for a partner or inside a customer session still need the exact amount.
 - Binance: the "≈ LBP" amount under the total now uses the rate you typed in the payment sheet, so it matches what is recorded.
 - MTC / Alfa: if the drawer no longer matches the total of its SIM lines, the Recharge page now shows a warning with both amounts, so you can fix it with a checkpoint.
+- New Phone Lines page (next to Mobile Recharge): your shop lines and the lines you sell in one place, with credit, expiry date and days left. For a line you sell, you can now enter its carrier, expiry and credit there or in the product form. Shop lines also show their days left in Settings → Carrier Lines.
 
 ## 🎟️ Loto
 

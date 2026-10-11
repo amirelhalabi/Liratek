@@ -47,6 +47,8 @@ export * from "./utils/calendarDate.js";
 // exported HERE, not only from index.ts — see the telecomCredit note above for
 // the exact failure mode this avoids.
 export * from "./utils/carrierLineValidity.js";
+// LIRA-309 — line status (OK/EXPIRING/IN_GRACE/LOST) for both kinds of line.
+export * from "./utils/lineStatus.js";
 // Subscription policy constants (v173). Pure data, so it belongs in BOTH
 // entry points: the frontend hides non-entitled modules and must apply the
 // same ungateable rule the backend enforces, rather than keeping a copy.
@@ -295,6 +297,12 @@ export type {
 // missing here fails at load (same failure mode as the telecomCredit.js note
 // above).
 export type { SafeSession } from "./repositories/SessionRepository.js";
+// LIRA-309 — a For sale list row (type only: erased, nothing bundled).
+export type {
+  ResaleLineRow,
+  ResaleLineEntity,
+} from "./repositories/ResaleLineRepository.js";
+export type { ResaleLineResult } from "./services/ResaleLineService.js";
 
 // LIRA-252 wave 2 — the manual carrier-line (MTC/Alfa) drawer-adjustment
 // read shape (`ClosingRepository.getCarrierLineAdjustments`), derived by the

@@ -51,6 +51,11 @@ import type {
   WarrantyClaimView,
   DefectiveItemView,
   WarrantyEnvelope,
+  // LIRA-309 — phone lines held for sale.
+  ResaleLineRow,
+  ResaleLineEntity,
+  ListResaleLinesQueryInput,
+  SaveResaleLineInput,
 } from "@liratek/core";
 
 /** LIRA-306 — the plain envelope the offline:* channels reply with. */
@@ -3711,6 +3716,20 @@ export interface ElectronAPI {
     sendNow: () => Promise<{ success: boolean; data?: { sent: number; waiting: number }; error?: string }>;
     openWebApp: () => Promise<OfflineEnvelope>;
     installUpdate: () => Promise<OfflineEnvelope>;
+  };
+
+  /** LIRA-309 — must match preload.ts's `resaleLines` binding. */
+  resaleLines: {
+    list: (query?: ListResaleLinesQueryInput) => Promise<{
+      success: boolean;
+      data?: ResaleLineRow[];
+      error?: string;
+    }>;
+    save: (data: SaveResaleLineInput) => Promise<{
+      success: boolean;
+      data?: ResaleLineEntity;
+      error?: string;
+    }>;
   };
 
   carrierLines: {

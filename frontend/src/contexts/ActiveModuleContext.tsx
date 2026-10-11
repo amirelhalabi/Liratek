@@ -9,6 +9,8 @@ const routeToModule: Record<string, string> = {
   "/exchange": "exchange",
   "/omt-whish": "omt_whish",
   "/recharge": "recharge",
+  // LIRA-309 — Phone Lines belongs to the recharge module.
+  "/phone-lines": "recharge",
   "/expenses": "expenses",
   "/maintenance": "maintenance",
   "/custom-services": "custom_services",

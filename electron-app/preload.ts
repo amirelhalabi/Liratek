@@ -1901,6 +1901,17 @@ contextBridge.exposeInMainWorld("api", {
       }>,
   },
 
+  // LIRA-309 — phone lines the shop holds for sale (details per product).
+  resaleLines: {
+    list: (query?: { carrier?: "mtc" | "alfa"; include_sold?: boolean }) =>
+      ipcRenderer.invoke("resale-lines:list", query ?? {}),
+    save: (data: {
+      product_id: number;
+      carrier: "mtc" | "alfa";
+      validity_expires_at?: string | null;
+      credits?: number;
+    }) => ipcRenderer.invoke("resale-lines:save", data),
+  },
   carrierLines: {
     getActiveByCarrier: (carrier: "alfa" | "mtc") =>
       ipcRenderer.invoke("carrier-lines:get-active-by-carrier", carrier),

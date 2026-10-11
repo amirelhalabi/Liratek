@@ -165,10 +165,24 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
          VALUES (?, 'OMT', 'BILL', 10, 'USD')`,
       )
       .run(tenantId).lastInsertRowid as number;
+    const txnId = db
+      .prepare(
+        `INSERT INTO transactions (tenant_id, type, source_table, source_id, user_id)
+         VALUES (?, 'SALE', 'sales', ?, ?)`,
+      )
+      .run(tenantId, saleId, userId).lastInsertRowid as number;
+    // LIRA-309 v211 — a for-sale line's details and one internal recharge.
+    const resaleLineId = db
+      .prepare(
+        `INSERT INTO resale_lines (tenant_id, product_id, carrier) VALUES (?, ?, 'mtc')`,
+      )
+      .run(tenantId, productId).lastInsertRowid as number;
     db.prepare(
-      `INSERT INTO transactions (tenant_id, type, source_table, source_id, user_id)
-       VALUES (?, 'SALE', 'sales', ?, ?)`,
-    ).run(tenantId, saleId, userId);
+      `INSERT INTO resale_line_recharges
+         (tenant_id, transaction_id, resale_line_id, product_id, source, days_added,
+          cost_usd, prev_cost_usd, prev_price_usd, prev_credits)
+       VALUES (?, ?, ?, ?, 'DAYS', 30, 3, 15, 25, 0)`,
+    ).run(tenantId, txnId, resaleLineId, productId);
 
     // The remaining tables — one plain row each.
     db.prepare(

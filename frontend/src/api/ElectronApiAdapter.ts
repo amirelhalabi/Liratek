@@ -8,6 +8,9 @@
 
 import type { ApiAdapter } from "@liratek/ui";
 import type {
+  // LIRA-309 — phone lines held for sale.
+  ListResaleLinesQueryInput,
+  SaveResaleLineInput,
   // LIRA-306 — offline desktop fallback (desktop-only, E1; rule 21).
   DesktopPairInput,
   DesktopUnpairInput,
@@ -755,6 +758,13 @@ export class ElectronApiAdapter implements ApiAdapter {
   updateServiceProvider = (id: number, data: UpdateServiceProviderPayload) =>
     api.updateServiceProvider(id, data);
   deleteServiceProvider = (id: number) => api.deleteServiceProvider(id);
+
+  // ---------------------------------------------------------------------------
+  // Resale lines (LIRA-309 — phone lines the shop holds for sale)
+  // ---------------------------------------------------------------------------
+  getResaleLines = (query?: ListResaleLinesQueryInput) =>
+    api.getResaleLines(query);
+  saveResaleLine = (data: SaveResaleLineInput) => api.saveResaleLine(data);
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking)
