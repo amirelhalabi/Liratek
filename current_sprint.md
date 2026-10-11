@@ -6633,28 +6633,87 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
-## LIRA-306: Offline desktop fallback — web-first with a desktop Plan B — HIGH — IN PROGRESS (design phases running 2026-10-11 overnight; not built)
+## LIRA-306: Offline desktop fallback — web-first with a desktop Plan B — HIGH — IN PROGRESS (redesigned 2026-10-11 on owner decisions N1–N9; design only, not built)
 
 | Field | Value |
 | --- | --- |
-| **Type** | Big feature (owner request 2026-10-11 overnight batch, item 4; decisions delegated) |
+| **Type** | Big feature (owner request 2026-10-11; redesigned the same day in a live conversation with the owner) |
 | **Priority** | High |
-| **Status** | **IN PROGRESS** — Spec Kit design phases (specify → plan → tasks → analyze); implementation not started |
-| **Modules** | core (new offline module, v210), backend (device routes, write lock, replay), electron-app (paired mode, outbox), frontend (lock banner, review list, standby screen); docs |
-| **Plan** | `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (owner decisions D1–D5, 2026-09-27) |
-| **Spec** | `specs/306-offline-desktop-fallback/` |
-| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §4, O1… |
+| **Status** | **IN PROGRESS** — Spec Kit design (specify → plan → tasks → analyze) redone on the events model; implementation not started |
+| **Modules** | core (offline event store, id ranges, replay engine, duplicate detector, review list; v210), backend (device routes, event upload, review routes), electron-app (paired modes, IPC event recorder, working copy, sender), frontend (review list, devices panel, desktop standby/offline screens); docs |
+| **Plan** | `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (D1–D5, 2026-09-27) — D2 revoked by N1 |
+| **Spec** | `specs/306-offline-desktop-fallback/` (replaces the superseded lock-based design committed in a3698788) |
+| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §4 (N1–N9 owner; O-new-1… agent) |
 
 ### Summary
 
-When a web shop's internet drops, the cashier keeps selling on the desktop app on the same PC, from a recent copy of the
-shop's own data. While the desktop works offline, the shop's web app (and phone app) is read-only (D2). When the internet
-returns, the offline work is sent back as operations through the server's own services — the server numbers every new row
-(D4) — each with a one-time operation key so nothing is booked twice, keeping its original time and day.
+Every desktop PC of a web shop keeps a fresh local copy of the shop's online data (about every 5 minutes). When the
+shop's internet or power fails, each PC can switch to **offline mode** on its own copy and do every cashier action the
+web app offers. Each action is recorded as an **event** (the validated request, who did it, when, which day, in which
+order on that PC). When the internet returns, each PC uploads its events; the server merges all PCs' events in time
+order (never reordering one PC's own events) and re-runs each through the **same core services the web app uses**,
+with its original time and day. The web app and phones **never lock** — they keep working during an outage. Duplicates,
+stock that went negative, drawer counts taken offline and anything the server could not book land on an
+**"Offline work to review"** list on the web app.
 
-_Details, slices and what is blocked on the owner/infrastructure: filled in when the design phases finish._
+### Owner decisions (2026-10-11, live conversation — binding)
 
-**What users will notice:** _to be finished at implement time._
+- **N1** The web app NEVER locks. Other devices (web, phones, other PCs) keep working online while any PC is offline.
+  Replaces old D2.
+- **N2** Offline mode allows every cashier action the online app has: POS/sales, customer sessions/baskets,
+  OMT/Whish/wallet transfers, recharge, debts/repayments, expenses, exchange, maintenance/repairs, custom services, loto,
+  refunds/voids, clients, stock movements. Online-only (refused offline with a clear message): Settings,
+  users/permissions, Reset Data, supplier/partner settlement, subscription/licensing, setup.
+- **N3** Worst case is the shop network/power going down, so EVERY desktop PC can go offline independently and works
+  on its OWN local copy of the shop's online data. While online each PC keeps a fresh local copy (target ~5 min). Do not
+  rely on the shop network (Windows share) being up offline.
+- **N4** EVENTS model: each PC records an event for every write action (channel + core-schema-parsed payload + acting
+  user + occurred-at instant + client day/tz offset + per-PC sequence number + globally unique event id) in the same
+  SQLite transaction as the local write. On reconnect the PC uploads its queue; the server processes events ordered by
+  time across PCs while ALWAYS preserving each PC's own sequence, through the SAME core services the website uses, with
+  the event's original time/day. Events reference other events, not local row ids. Offline-created records get ids from
+  a per-PC far-away range so the server can rewrite them to the real ids it assigns on replay (D4).
+- **N5** Change detection: a PC with events has changes. Cross-check the PC's working file against its starting copy
+  (new rows per key table) and require agreement with the event log; a mismatch is flagged on the review list, never
+  silently ignored.
+- **N6** Real money is always booked. If stock goes negative after the merge it is booked and flagged "stock count was
+  off". (One physical item sold twice is a duplicate — N7.)
+- **N7** Duplicates: same event id → skip silently (resend). Certain external duplicate (same OMT/Whish reference
+  number; same recharge carrier + phone + amount within 10 min) → skip and note. Likely duplicate (all listed fields
+  match within ±5 min, ignoring acting user and exact second) → HELD on the review list (Apply / Dismiss), never
+  auto-dropped. Compared against BOTH online rows created during the outage and other PCs' events.
+- **N8** Drawer counts / checkpoints taken offline are never auto-applied; they go to the review list.
+- **N9** Still valid: D1 web is primary; D3 Google Drive not in the sync path; D4 row ids assigned only by the storing
+  database. Old D2 (web read-only) is revoked by N1.
+
+### Design in one screen (details in `specs/306-offline-desktop-fallback/plan.md`)
+
+- **Channels:** 414 desktop channels classified — 71 work offline, 105 are online-only, 7 are drawer counts/checkpoints
+  (recorded, held for review), 215 reads, 16 local. One recorder wraps the desktop's channel registration, so no feature
+  code changes to record events; a guard test fails on any unclassified channel.
+- **Ids:** an offline-created row's id encodes PC number + table + counter (`P·10¹² + T·10⁹ + n`, e.g. PC 1, sales =
+  table 7 → `1 007 000 000 005`), far above any amount in LBP. Only id-named positions are rewritten, using a map the
+  server keeps per shop.
+- **Not built in this release:** vouchers and product-catalog changes offline (online-only, O-new decisions).
+- **Spec:** 152 tasks in 10 phases. Three analyze passes (owner cap): 1C+8H → 1C+7H → 0C+4H, all fixed; the last four
+  HIGH items are failing-first test tasks T011, T016, T034, T059. Resolutions in
+  `specs/306-offline-desktop-fallback/checklists/requirements.md`.
+
+### Slices
+
+0. **Gate G0 — owner:** approve O-new-7 (actor = the person on the PC) and O-new-8 (PC device key). Until then the
+   PC key routes, PC sending and web e2e `lira-web-055`/`lira-web-056` are not started (constitution Governance).
+1. Buildable and testable on the Mac now (core jest): event store + id ranges + replay engine + duplicate detector +
+   review service + money prep (schema lifts, replay time, rates) + the copy builder. After G0: device routes, review
+   routes/page/PCs panel, web e2e 055/056.
+2. Buildable with core jest (money, failing-first): lifting 23 desktop schemas to core; replay time ("effective now");
+   id-order queries.
+3. Desktop (electron jest only; desktop behaviour **unverified** until CI / the owner's Windows PC): paired modes,
+   recorder, working copy, sender, screens.
+4. Owner-run (G5): push/deploy, desktop release, pairing real PCs, outage drill with two PCs, Phase D, Litestream feed.
+
+**What users will notice:** _filled in at implement time — draft in the spec (release note lines: offline mode on the
+desktop app, the review list on the web app, and that past days' totals can change when a PC sends late work)._
 
 ---
 
@@ -6667,7 +6726,7 @@ _Details, slices and what is blocked on the owner/infrastructure: filled in when
 | **Status** | **DONE (not deployed)** 2026-10-11 — `/speckit-implement`, 21/21 tasks; local only, the push waits for the owner (G1) |
 | **Modules** | custom_services, partners, profits (core read rule only); docs |
 | **Spec** | `specs/305-syria-remittance/` (spec, plan, research R1–R9, data-model, contract, quickstart, tasks 21) |
-| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §3, Y1–Y15 (Y14: the parent agent went ahead with Y6; Y15: seven test fixtures got their missing real-schema columns) |
+| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §3, Y1–Y15 (Y14: the parent agent went ahead with Y6 — **owner confirmed keep, 2026-10-11**; Y15: seven test fixtures got their missing real-schema columns) |
 
 ### Summary
 

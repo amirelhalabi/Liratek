@@ -415,6 +415,7 @@ Nothing in the database changes (still v209). The OMT/Whish screens are not touc
   *Undo:* delete `partnerEffectiveCoveredSql` in `packages/core/src/constants/partnerObligation.ts` and point its two users
   in the same file (`partnerCoverageRatioWhereSql`, `partnerUncoveredExistsWhereSql`) back at `covered_amount`. Every
   figure goes back to what it was. There is no data to fix and no migration.
+  **Owner confirmed 2026-10-11: keep Y14** (netting counts as the partner covering a pay-out; past Profits may rise).
 
 - **Y15 — Seven older unit tests broke on the new rule. Change the code or the tests?**
   *Choice:* the tests' cut-down tables. Seven older core tests build their own small copy of the partner and transaction
@@ -430,161 +431,196 @@ Nothing in the database changes (still v209). The OMT/Whish screens are not touc
 
 ## 4. Offline desktop fallback (LIRA-306)
 
-Result: **designed, not built.** Ticket **LIRA-306**. Spec Kit design (specify → plan → tasks → analyze) is in
-`specs/306-offline-desktop-fallback/`: 92 tasks. Three independent review passes were run. The first found 1 critical
-and 9 high problems, the second found 0 critical and 12 high, and all were fixed in the design. Pass 3 results are in the
-ticket. No code, no database change yet. The design adds one migration (v210, three new tables).
+Result: **redesigned, not built.** The first overnight design (web paused while a PC was offline, three offline actions
+only, committed in `a3698788`) is **superseded**. On 2026-10-11 the owner decided a different model in a live
+conversation (N1–N9 below). The new Spec Kit design is in `specs/306-offline-desktop-fallback/` (152 tasks, 10 phases). Three independent review
+passes were run (your cap): pass 1 found 1 critical + 8 high, pass 2 found 1 critical + 7 high, pass 3 found 0 critical
++ 4 high. All were fixed in the design; the last four high items are also written as tests that must fail first
+(T011, T016, T034, T059). No code, no
+database change yet. The design adds one migration (v210, eight new tables).
 
-**What it does, in short.** You pair the shop's PC as the backup till for your web shop. While the internet works, the PC
-keeps a copy of the shop's data, refreshed every 5 minutes, and shows "use the web app". If the internet drops, the
-cashier presses "Work offline" and can keep selling, recording expenses and taking debt repayments. While that happens,
-the web and phone apps pause saving, so nobody books the same money twice. When the internet comes back, the PC sends
-the work. The server books each item once, on the day it happened, with the same rules as a web sale. Anything it cannot
-book goes on a review list for you.
+**What it does, in short.** Every PC of the shop keeps a copy of the shop's data, refreshed about every 5 minutes. If the
+internet or the power goes, each PC can switch to offline mode on its own copy and do everything a cashier does on the
+web app. Each action is saved as an "event". The web app and phones keep working the whole time. When the internet is
+back, each PC sends its events. The server puts all PCs' events in time order and books each one through the same rules
+as the web app, on the day it happened. Duplicates, stock that went below zero, drawer counts taken offline and anything
+it cannot book go on an "Offline work to review" page on the web app.
 
-**Two things I found that the September plan got wrong.**
-- A "book once" key already exists. The phone app added it (LIRA-289). It keeps replies for only 24 hours, though, so
-  offline work gets its own permanent record.
-- Receipts print `RCP-<sale number>` now, so an offline sale needs its own receipt number.
+### Owner decisions (2026-10-11, live conversation — decided by the owner, not by me)
 
-**What can be built and tested tonight or by the next agent on this Mac.**
-- The web lock: pairing, check-ins, pausing web and phone saves, the admin Unlock, and the banner. Web test lira-web-055.
-- Sending offline work back: booked once, kept on its own day, the review list. Web test lira-web-056.
-- The server side of the data copy.
+- **N1** The web app never locks. Web, phones and other PCs keep working online while any PC is offline. Replaces D2.
+- **N2** Offline mode allows every cashier action the online app has: sales, customer baskets, OMT/Whish/wallet
+  transfers, recharge, debts and repayments, expenses, exchange, repairs, custom services, loto, refunds and voids,
+  clients, stock movements. Online-only, refused offline with a clear message: Settings, users and permissions, Reset
+  Data, supplier/partner settlement, subscription/licensing, setup.
+- **N3** The worst case is the shop network or power going down, so every PC can go offline on its own and works on its
+  own copy. While online each PC refreshes its copy (about every 5 minutes). Offline mode does not rely on the shop
+  network (the Windows share).
+- **N4** Events: each PC records an event for every write (the validated request, who, when, which day and time zone,
+  the PC's own sequence number, a unique id) in the same save as the change itself. On reconnect the server processes
+  events in time order across PCs, never reordering one PC's own events, through the same core services the website
+  uses, with each event's original time and day. Events refer to other events, not to local row numbers. Rows created
+  offline get numbers from a far-away range per PC so the server can swap them for the real numbers it assigns (D4).
+- **N5** A PC with events has changes. Cross-check: the rows the PC's working file gained must agree with its events;
+  any mismatch goes on the review list.
+- **N6** Real money is always booked. Stock that goes below zero after the merge is booked and flagged "stock count was
+  off". One physical item sold twice is a duplicate (N7).
+- **N7** Duplicates: same event id → skipped silently. Certain duplicate (same OMT/Whish reference number; same recharge
+  carrier + phone + amount within 10 minutes) → skipped and noted. Likely duplicate (all listed fields equal within ±5
+  minutes, ignoring who and the exact second) → held on the review list with Apply / Dismiss, never dropped by itself.
+  Compared against online rows made during the outage and other PCs' events.
+- **N8** Drawer counts and checkpoints taken offline are never applied by themselves; they go to the review list.
+- **N9** Still valid: D1 the web is primary; D3 Google Drive is not used for syncing; D4 row numbers are assigned only by
+  the database that stores the row. D2 is revoked by N1.
 
-The desktop parts (standby screen, offline mode, tray) can be written and unit-tested here. They cannot be seen working
-until CI or your Windows PC, because Electron never runs on this Mac.
+### Decisions I took within N1–N9 (question, choice, why, undo)
 
-**Blocked on you or on infrastructure (G5), with a runbook in `docs/OPERATIONS.md` once built:**
+- **O-new-1 — How are offline row numbers built?**
+  *Choice:* PC number × 10¹² + table number × 10⁹ + a counter (PC 1's 5th sale might be `1 007 000 000 005`). Each
+  PC gets its number when it is paired, never reused.
+  *Why:* the owner's example started at 1,000,000,001, but 1,000,000,000 LBP is only about $11,200, an ordinary sale. A
+  number that low could be mistaken for an amount. Putting the table in the number also tells the server which table a
+  number belongs to without extra lists.
+  *Undo:* change the layout before the first release; after that, never.
+- **O-new-2 — Can a PC sell an item its copy shows as out of stock?**
+  *Choice:* yes, with a warning on screen. On the server the sale is booked and flagged "stock count was off".
+  *Why:* the copy can be minutes old, and N6 says the count may be wrong, not the sale.
+  *Undo:* respect the shop's out-of-stock setting offline.
+- **O-new-3 — A repayment ticked a debt that someone paid online meanwhile.**
+  *Choice:* book the money anyway against the oldest open debts (any extra becomes credit, as today) and add a note.
+  *Why:* today such a repayment is refused as a whole; N6 says real money is booked.
+  *Undo:* send it to the review list instead.
+- **O-new-4 — A customer created offline has a phone number that already exists.**
+  *Choice:* use the existing customer for everything that PC did with the new one, and add a note.
+  *Why:* otherwise every later sale and repayment for that customer would be held.
+  *Undo:* hold it for review instead.
+- **O-new-5 — A certain duplicate was really a second transfer.**
+  *Choice:* the note has a "Book anyway" button.
+  *Why:* a recharge rule of "same phone and amount within 10 minutes" can be a real second recharge; N6.
+  *Undo:* remove the button.
+- **O-new-6 — Vouchers offline?**
+  *Choice:* creating a voucher is online-only. Cancelling one works offline.
+  *Why:* the server makes the voucher code; a code printed offline would not match.
+  *Undo:* send the PC's code with the event (a service change).
+- **O-new-7 — Whose name goes on replayed work? Please confirm.** (was O23)
+  *Choice:* the person who did it on the PC. The server checks that person belongs to the shop and is allowed to do
+  that action. Someone switched off since is still booked, with a note, because the money moved.
+  *Undo:* credit the pairing admin instead.
+- **O-new-8 — How does a PC prove itself with no one signed in? Please confirm.** (was O25)
+  *Choice:* its own device key, issued when an admin pairs it, stored hashed on the server, revocable in Settings. Any
+  number of PCs per shop.
+  *Undo:* revoke the PC.
+- **O-new-9 — Product catalog changes offline?**
+  *Choice:* online-only (create, edit, delete products, categories, product suppliers). Stock movements work offline.
+  *Why:* N2 does not list them; an old offline price edit landing later would overwrite a newer online one.
+  *Undo:* move the channels to offline.
+- **O-new-10 — Receipt number of an offline sale.**
+  *Choice:* it prints `RCP-<offline number>`; after sending, that number still finds the sale (reprint, warranty).
+  *Undo:* not applicable.
+- **O-new-11 — Actions N2 does not name** (drawer top-up, cash-out and transfer, hold money, warranty claims, debt
+  write-off, carrier-line usage, deleting an expense/repair/custom service, editing notes and statuses).
+  *Choice:* allowed offline — they are actions on the shop's own till and records.
+  *Undo:* move any of them to online-only (one line each).
+- **O-new-12 — The same record was edited online and offline.**
+  *Choice:* the edit processed last wins.
+  *Undo:* hold conflicting edits for review (needs a change-tracking column).
+- **O-new-13 — Which time do replayed rows carry, including the cash-drawer detail lines?** (re-decides old O26)
+  *Choice:* the time the action happened on the PC, for every timestamp the save writes. A time the user typed
+  (backdating) still wins. Backdating on the web/desktop is unchanged.
+  *Why:* the money entered the drawer then; the old choice (lines dated when sent) would move drawer lines to the
+  reconnect day.
+  *Undo:* stop passing the event time to the drawer lines.
+- **O-new-14 — Order across PCs.**
+  *Choice:* earliest next event first by corrected time, each PC's own order always kept; the server waits 30 seconds
+  after an upload so PCs that reconnect together interleave; it never waits for a PC still offline.
+  *Undo:* change the 30 seconds (a server setting).
+- **O-new-15 — A PC's clock is wrong.**
+  *Choice:* the server measures each PC's clock at every check-in and upload and corrects event times when the error is
+  over 2 minutes, never into the future and never before the copy the PC worked on; a note says so. Money is still booked.
+  *Undo:* change the 2 minutes.
+- **O-new-16 — Does the desktop window show the web app while online?**
+  *Choice:* no. The standby screen has "Open the web app", which opens the browser.
+  *Why:* inside the desktop window the web app would talk to the PC's local copy instead of the server.
+- **O-new-17 — Can the cashier keep working offline after the internet is back?**
+  *Choice:* yes; events send by themselves in the background and a banner asks to go back to the web app. "Back to the web
+  app" finishes sending and returns the PC to standby.
+  *Why:* never cut a sale off half-way.
+- **O-new-18 — How are duplicates compared?**
+  *Choice:* the server books the event in a trial step, takes the same "fingerprint" from the rows it just made as from
+  the rows already there, and undoes the trial if it is a duplicate.
+  *Why:* one definition of "the same", used on both sides.
+- **O-new-19 — Lists that use row number as time** (customer running balance, carrier-line movements).
+  *Choice:* keep today's order. A replayed row shows in a customer's running balance where it was sent, not where it
+  happened; the release note says so.
+  *Why:* switching to time order would also change today's online running balances for backdated entries (the review
+  found the row-number order is deliberate there).
+  *Undo:* a follow-up that orders by time with a tie-break, after checking backdated entries.
+- **O-new-20 — A held or refused event has later events that depend on it.**
+  *Choice:* only those are held ("waits on item …"); everything else carries on. When the item is applied they are
+  processed automatically.
+- **O-new-21 — Kept from the first design:** permanent "processed once" record (old O9), working copy with the event in
+  the same save (O10), version check and updates on standby (O11), copy contents (O16), the PC's own request allowance
+  (O17), desktop-only shops unchanged (O18, O19), re-pairing keeps waiting work (O24), copy made by the server (O3),
+  device key (O4). **Superseded:** O1, O2, O5, O6, O7, O8, O12, O13 (replaced by O-new-20), O14 (O-new-15), O15
+  (O-new-10), O20 (O-new-19), O22, O23 (O-new-7), O25 (O-new-8), O26 (O-new-13).
+- **O-new-22 — Timings.** PCs check in every 30 seconds; "Work offline" appears after 30 seconds without the server.
+  *Undo:* settings.
+- **O-new-23 — Can a web sale get mixed into a replayed event's save?**
+  *Choice:* no. Each replayed event is saved in one uninterrupted step; the server checks that nothing else ran in the
+  middle and undoes the step if something did (it is then retried). A web sale arriving at that moment simply runs
+  right after it.
+  *Undo:* not applicable.
+- **O-new-24 — Which exchange rate does replayed work use?**
+  *Choice:* the rate the PC had when the cashier did it (saved with the event). If today's rate on the web differs
+  from it when the work arrives, the item gets a "rate changed during the outage" note. Fee tables and commissions use today's server
+  values.
+  *Undo:* use the server's rate at replay time.
+- **O-new-25 — A PC loses power in the middle of offline mode.**
+  *Choice:* on restart it reopens the same working copy with its unsent events, never a fresh one. A re-paired PC keeps
+  its PC number, so its waiting events still fit.
+- **O-new-26 — An app update changes an offline form while a PC still has unsent work.**
+  *Choice:* work whose form is still compatible is booked normally; work that no longer fits is put on the review list
+  with everything the cashier entered, so you can re-enter it. Rule for releases: don't publish a change to an offline
+  form while the PCs panel shows unsent work.
+  *Undo:* not applicable.
+- **O-new-27 — A drawer count taken offline is applied later.**
+  *Choice:* when you press Apply, the server works out the expected amount again at that time (the PC could not see the
+  web's and other PCs' sales) and shows you both figures before booking.
+  *Undo:* book the PC's own figure.
+- **O-new-28 — "Same as" links for duplicates.**
+  *Choice:* when you confirm a duplicate, only the sale or transfer itself is linked to the existing one, not its lines;
+  a later offline refund of one line of it waits on the review list instead of guessing which line.
+  *Why:* the two entries may list items in a different order.
+- **O-new-29 — A PC's event numbering gets out of step with the server** (it lost its saved state).
+  *Choice:* the PCs panel shows it and offers "Renumber this PC's unsent work"; nothing is lost and nothing is booked
+  twice.
+- **Gate G0 — what waits for your yes.** Following the project's rules, the parts that need O-new-7 and O-new-8 (the PC
+  key routes, sending from PCs, and the two web tests that use them) are not started until you approve. Everything
+  else (the merge engine, duplicates, the review logic behind the page, money preparation, copy builder) can be built
+  now. The review page itself, its routes and the PCs panel also wait (they are web-only, part of E1).
+
+### What can be built and tested on this Mac
+
+The server side: merging, id swapping, duplicates, the review logic, the copy builder — with core tests. The review
+page, its routes and the PCs panel wait for G0. The web tests lira-web-055 (sending work) and lira-web-056 (review page) drive the PC key routes, so
+they wait for your yes on O-new-7/O-new-8 (gate G0). Also the money
+preparation: moving 23 desktop checks into the shared core and making replayed rows keep their own time (core tests,
+failing first). The PC parts (recorder, working copy, sending, screens) are written with unit tests only; they cannot be
+seen working until CI or your Windows PC.
+
+### Blocked on you or on infrastructure (G5)
+
 - push and deploy;
-- a desktop release, so paired PCs match the server's data version;
-- the first real pairing and an outage drill on the test shop's Windows PC;
-- hosting Phase D;
-- the faster "live copy" through Litestream/R2 (spikes S1 and S3, which need R2 credentials).
+- a desktop release with the same data version;
+- pairing two real PCs and the two-PC outage drill at the test shop;
+- your yes on O-new-7, O-new-8 and the web-only/desktop-only parts (E1) — needed before the PC key routes, the
+  review page and the two web tests can be started (gate G0);
+- later and optional: hosting Phase D, and the faster copy through Litestream (needs R2 keys).
 
-- **O1 — Which actions work offline?**
-  *Choice:* only three: a POS sale, adding an expense, and taking a debt repayment. Everything else says "not available
-  while offline".
-  *Why:* this is what a shop needs during an outage, and each of the three already accepts "when it happened". Every
-  extra action adds money risk.
-  *Undo:* add more actions later, one by one, each with its own test.
-- **O2 — Can the cashier create a new customer or product, or refund, while offline?**
-  *Choice:* no. Offline sales use existing customers and products only. Refunds and voids wait for the internet.
-  *Why:* an item created offline gets a different number on the server. Handling that needs a translation table. Leaving
-  it out removes that risk completely.
-  *Undo:* build the translation table later.
-- **O3 — Where does the PC's copy come from?**
-  *Choice:* the server makes a copy of just your shop every 5 minutes, and the PC downloads it.
-  *Why:* it works on today's server without hosting Phase D and without R2 keys. A copy a few minutes old loses nothing,
-  because offline work is replayed on top of the server's current data, never copied over it.
-  *Undo:* switch to the Litestream live copy after spikes S1/S3 (owner-run).
-- **O4 — How does the PC prove who it is?**
-  *Choice:* its own key, created when an admin pairs it. The server stores only a scrambled form (hash) of the key.
-  *Why:* the licence key is a read-only check issued by you as super admin. Turning it into a "can book money" key would
-  widen it. A device key can be revoked by the shop admin.
-  *Undo:* revoke the device in Settings.
-- **O5 — How many backup PCs per shop?**
-  *Choice:* one. Pairing a second replaces the first, unless the first still has offline work. Then pairing needs an
-  explicit "replace", and that work goes to review.
-  *Undo:* not applicable.
-- **O6 — When is the web app paused?**
-  *Choice:* the PC checks in every 15 seconds. The web pauses if the PC has been silent for 90 seconds without saying
-  goodbye, or while it reports offline work. Looking at screens and signing in always work. An admin can press "Unlock —
-  the desktop isn't in use", and that is recorded.
-  *Why:* this is your D2.
-  *Risk:* a power cut at closing pauses after-hours phone sales until an admin unlocks on the web. Windows does not give
-  apps the normal "closing" signal on shutdown, so the goodbye is sent from the shutdown notice itself. The drill on your
-  PC will show whether that works.
-  *Undo:* make the 90 seconds longer (a server setting), or revoke the device.
-- **O7 — What if the server cannot check the pause state (a database hiccup)?**
-  *Choice:* the save goes through and is logged.
-  *Why:* stopping every paired shop from selling is worse. The review rule in O8 still catches clashes.
-  *Undo:* one line.
-- **O8 — When is offline work held for you to review instead of booked?**
-  *Choice:* when anything was saved on the web or phone app for that shop after the offline period began. That covers
-  an Unlock followed by a sale, and a PC that said goodbye last night and started offline this morning while the owner
-  sold from the phone. You get "Apply", "Apply all" and "Dismiss".
-  *Why:* the first design looked only at "an admin unlocked", and the review proved that it never triggered in a real
-  outage. Watching for actual web saves is exact.
-  *What you will notice:* a save made in the last few seconds before the internet cut (up to one 15-second check-in)
-  also sends that outage to review. That is expected and safe: press "Apply all".
-  *Undo:* not applicable.
-- **O9 — Where is the "booked once" record kept?**
-  *Choice:* a new permanent table. It is not the phone app's 24-hour one, and not the old unused `sync_queue`, which has
-  no shop column and copies rows.
-  *Undo:* drop the table (v210 down).
-- **O10 — Where do offline sales go on the PC?**
-  *Choice:* into a working copy. Each sale and its "to send" entry are saved together, both or neither. The downloaded
-  copy is never changed. Finished working copies are kept (the last 3).
-  *Why:* a crash can never leave a sale that the server will not hear about.
-- **O11 — What if the PC's app version differs from the server's?**
-  *Choice:* offline mode refuses to start, and the standby screen says "update this app". Paired PCs keep updating while
-  on standby.
-  *Why:* a mismatch could silently drop fields on money records.
-  *Undo:* not applicable. Ship a desktop release with every database change.
-- **O12 — When can the cashier press "Work offline"?**
-  *Choice:* after the server has been unreachable for 30 seconds longer than the web pause delay, so about 2 minutes. New
-  offline work is refused one minute after the internet is back, and the cashier is told to send.
-  *Why:* the web is then already paused when the PC starts, and the shop goes back to the web quickly (D1).
-- **O13 — What if the server refuses an offline item (out of stock, user switched off)?**
-  *Choice:* the item goes on the review list with the reason, and the rest carries on. A later item for the same
-  customer is held too, so a repayment is never booked against a sale you may dismiss.
-- **O14 — The PC's clock is wrong.**
-  *Choice:* up to 5 minutes fast: booked at the server's time, with a note. More than that: sent to review.
-  *Undo:* change the 5 minutes.
-- **O15 — Receipt number for an offline sale.**
-  *Choice:* `RCP-OFFLINE-` followed by 8 characters. The "Offline history" list shows which web sale number it became.
-- **O16 — What is in the PC's copy?**
-  *Choice:* only your shop's data, with sign-in codes, tokens, device keys, invitations, API keys and the licence key
-  removed. Users' password hashes stay, so cashiers can sign in offline. It is stored like today's desktop database, not
-  encrypted.
-  *Undo:* encryption is a follow-up.
-- **O17 — Server limits on requests.**
-  *Choice:* the PC's calls get their own allowance, so they never use up the shared allowance that sign-in pages rely on.
-- **O18 — Desktop-only shops.**
-  *Choice:* unchanged. A paired PC never opens the desktop shop's own database file.
-- **O19 — Shops without a paired PC.**
-  *Choice:* nothing changes for them.
-- **O20 — Not in this release.**
-  *Choice:* the check of 24 "newest by number" queries, and reprint numbering. With the pause in place, replayed sales are
-  the newest anyway.
-  *Undo:* follow-up ticket.
-- **O21 — Who can start offline mode?**
-  *Choice:* any active user of the shop, by signing in on the PC. The server checks the user again when the work arrives.
-- **O22 — The 90 seconds.**
-  *Choice:* a server setting, default 90. Tests use 3.
-- **O23 — Whose name goes on an offline sale? Please confirm.**
-  *Choice:* the cashier who rang it up on the PC, not a web sign-in. This is a narrow exception to the rule that the
-  person comes from the sign-in. The server checks that the user belongs to your shop, is active and is allowed to do
-  that action.
-  *Why:* otherwise every offline sale would be credited to the wrong person.
-  *Undo:* credit the pairing admin instead (one line).
-- **O24 — The PC's key stops working while it holds offline work** (reinstall, revoked).
-  *Choice:* an admin re-pairs from the offline PC. The waiting work is kept and sent with the new key. It goes to review
-  when the old PC had to be forcibly replaced, or when anything was saved on the web meanwhile. Otherwise it is booked
-  normally.
-  *Undo:* not applicable.
-- **O25 — How does the PC prove itself when nobody is signed in? Please confirm.**
-  *Choice:* the PC's own calls (check-in, goodbye, download the copy, send work) use its device key. The standby-screen
-  buttons (pair, unpair, work offline, restart to update) work before anyone signs in. On standby, updates download by
-  themselves and install only when someone presses "Restart to update", never by surprise. Pairing and unpairing still
-  ask for an admin's password, except unpairing a PC that holds no shop data. Nothing can be sold until a cashier
-  signs in.
-  *Why:* during an outage nobody can sign in to the server, so a normal sign-in cannot be required.
-  *Undo:* revoke the device. Requiring a sign-in for "Work offline" is a small change.
-- **O26 — Which day do the cash-drawer lines of offline work carry?**
-  *Choice:* the sale, its transaction row and its profit keep the day the sale happened. The detailed payment lines
-  behind the drawer are dated when the work is sent. Backdated sales already work this way today.
-  *Why:* dating those lines back would change the closing "since last count" list, the dashboard's cash collected and
-  Profits by payment method for every backdated entry you have already made. That is a separate money change, so I
-  filed it as a follow-up instead of slipping it in here.
-  *What you will notice:* after an outage that crossed midnight, the drawer detail lines for the offline sales show the
-  day they were sent. Sales, transactions and profit show the right day.
-  *Undo:* the follow-up ticket would date the lines from the sale time.
-- **Morning summary line for LIRA-306.**
-  Designed only. Two choices need your yes: O23 (whose name goes on an offline sale) and O25 (the PC's key replaces a
-  sign-in for its own calls). The web lock and the send-back can be built and tested on this Mac. Everything on the
-  shop PC needs CI or your Windows PC, and production steps wait for you.
+- **Morning summary line for LIRA-306.** Redesigned on your N1–N9: the web never pauses; every PC can work offline and
+  sends events that the server merges and books once. Two choices need your yes: O-new-7 and O-new-8. The engine, duplicate
+  checks, review logic and money preparation can be built and tested on this Mac; the review page and PC routes wait
+  for your yes; the PC parts need CI or your Windows PC.
 
 ## Morning summary
 

@@ -1,48 +1,19 @@
 # Quickstart — proving LIRA-306 slice by slice
 
-Prerequisites: `yarn install`; core built and synced after core edits
-(`cd packages/core && npm run build`, then `cp -r packages/core/dist/. node_modules/@liratek/core/dist/`); Node ABI for
-core/backend jest and web e2e (`yarn rebuild:node`). Never launch Electron on this Mac.
+Prereqs: Node ABI for core/backend jest and web e2e (`node -e "const D=require('better-sqlite3'); new D(':memory:'); console.log('Node ABI')"`
+must construct a database). Never launch Electron on this Mac (G5). Confirm every green run actually ran (suite/test
+counts and elapsed time, rule 28).
 
-## Slice US1 — web write lock (tonight)
-
-1. `yarn workspace @liratek/core test -- offline` — registry, lock predicate, device repository/service tests.
-2. `yarn workspace @liratek/backend test -- offline requireShopUnlocked deviceAuth` — gate (locked / unlocked / no device /
-   GET passes / auth exempt / lookup error passes), device auth, routes.
-3. Web e2e (`yarn rebuild:node` first): `cd frontend && npx playwright test --config playwright.web.config.ts tests/e2e-web/lira-web-055-offline-lock.spec.ts --reporter=list`
-   — confirm "1 passed" (or the spec's test count) and a non-trivial duration (rule 28).
-   Expected: banner after the short stale window, refused sale (HTTP 200, `success:false`, `SHOP_LOCKED_OFFLINE`), reads OK, admin Unlock →
-   sale OK, audit row present; device revoked at the end.
-
-## Slice US2 — replay (tonight)
-
-1. `yarn workspace @liratek/core test -- OfflineReplay` — book once, refused continues, held after unlock, day/offset
-   carry-through (23:50 Beirut op lands on day N), parity (SC-001), void-after-replay.
-2. Backend route tests for `/replay`, `/period/complete`, `/review/*`.
-3. Web e2e `lira-web-056` — replay 3 ops dated yesterday 23:50 Beirut, deltas match, resend changes nothing, a refused op is
-   on the review page, Dismiss works, period complete unlocks, device revoked at the end.
-
-## Slice US3 — mirror (server half tonight)
-
-1. `yarn workspace @liratek/core test -- tenantSnapshot tenantSplit` — two-shop source → snapshot holds one shop, no
-   stripped rows, licence key null, integrity ok; the split tool's own tests still pass after the `narrowToTenant`
-   extraction.
-2. Record the build time on a copy of a local DB (task T056).
-3. Desktop half: `yarn workspace @liratek/electron-app test -- offline` (boot decision, guard, pairing store). Visible
-   behaviour: unverified until CI / Windows.
-
-## Slice US4 — offline mode (code + electron jest tonight)
-
-`yarn workspace @liratek/electron-app test -- offline` — recorder atomicity (throw mid-transaction → no sale, no op),
-refusals (standby write, non-registry write, ref to offline row, after reconnect), sender marks results and retires the
-working copy only at 0 waiting. Desktop CI spec `lira-306-unpaired-desktop-unchanged` runs on CI only.
-
-## Gates (every slice)
-
-`yarn typecheck`, `yarn lint`, `yarn check:tenant-scoping`, `yarn check:bind-arity`, `yarn check:schema-equivalence`,
-core/backend/electron/frontend jest (suite counts above floors), `yarn build`, `node scripts/build-release-notes.cjs --check`.
-
-## Owner-run (US5)
-
-See `docs/OPERATIONS.md` § "Offline desktop fallback" (written by task T080): push/deploy, first pairing on the test
-shop, outage drill, Phase D, S1/S3.
+| Slice | Prove it with | Expected |
+| --- | --- | --- |
+| Pure modules (policy, id range, id positions) | `yarn workspace @liratek/core test offline/` | guards fail on an unclassified channel / undeclared id key; LBP amount ≥ 10¹² in an amount key untouched |
+| Migration v210 | core jest migration test + `yarn check:schema-equivalence` | tables in both files; `down()` drops them |
+| Replay engine + id map | core jest `ReplayEngine.*.test.ts` | scenario client → sale on account → repayment → refund lands on server rows; parity per currency (SC-001) |
+| Effective now | core jest per family `*.replayTime.test.ts` | 23:50 day N replayed on N+1 → every timestamp on day N |
+| Merge + skew | core jest `OfflineMergeProcessor.basic.test.ts` / `.multiPc.test.ts` | plan §D order; gap stops one PC; skew correction + clamp |
+| Duplicates | core jest `DuplicateDetector.test.ts` | certain → skipped + note; likely → held; near-misses booked |
+| Device + review routes | backend jest `offlineDevice.api.test.ts` (after G0) / `offlineReview.api.test.ts` (tenant ≠ 1, see `jest.setup.ts` trap) | envelopes, admin-only review, device key scoping |
+| Web e2e (after G0) | `yarn test:e2e:web -g "lira-web-05[56]"` (`OFFLINE_MERGE_GATHER_MS=0` in the web config) | 055: upload through device API, rows booked once on the right day, resend no-op; 056: review page apply/dismiss/book-anyway/mark reviewed, staff refused |
+| Snapshot | core jest `tenantSnapshot.test.ts` (two shops) | only the shop's rows; secrets stripped; high-water marks |
+| Desktop recorder / modes | `yarn workspace @liratek/electron-app test offline/` | write + event in one transaction; online-only refused; id seeding; manifest — **desktop behaviour unverified until CI/Windows** |
+| Owner drill | `docs/OPERATIONS.md` runbook | two PCs + phone; review list shows only the planted duplicates and drawer counts |

@@ -1,73 +1,220 @@
-# Implementation Plan: Offline desktop fallback — web-first with a desktop Plan B
+# Implementation Plan: Offline desktop fallback — every PC keeps working, events merge back
 
 **Branch**: `306-offline-desktop-fallback` (work on `main`, owner rule) | **Date**: 2026-10-11 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/306-offline-desktop-fallback/spec.md`
+**Input**: Feature specification from `specs/306-offline-desktop-fallback/spec.md` (owner decisions N1–N9)
+
+## Architecture at a glance
+
+### A. Components
+
+```text
+                         ┌───────────────────────── SERVER (Fly, one machine) ─────────────────────────┐
+  Web app (Vercel) ─────▶│  existing REST routes ──▶ @liratek/core services ──▶ tenant DB (SQLite)     │
+  Phone app ────────────▶│        ▲ (unchanged; never locked — N1)              ▲   ▲                   │
+                         │        │                                             │   │                   │
+                         │  /api/offline/review/*  (JWT, admin) ──▶ OfflineReviewService ─┘   │         │
+                         │                                                                    │         │
+                         │  /api/offline/* device routes (device key)                         │         │
+                         │    pair · checkin · snapshot · events (upload) · events/status ·   │         │
+                         │    manifest                                                        │         │
+                         │        │                                                           │         │
+                         │        ▼                                                           │         │
+                         │  OfflineEventStore ──▶ OfflineMergeProcessor (per shop, rounds) ───┤         │
+                         │   (offline_events)        │  k-way merge, skew-corrected            │         │
+                         │                           ▼                                         │         │
+                         │                  ReplayEngine (per event, ONE transaction that      │         │
+                         │                   never yields to the event loop — no web write     │         │
+                         │                   can run inside it)                                │         │
+                         │                   1 rewrite ids (OfflineIdMap)                      │         │
+                         │                   2 binding[channel] → SAME core service ───────────┘         │
+                         │                     inside runWithTenant(day, tz, effectiveNow, rates)       │
+                         │                   3 capture created rows (sqlite_sequence diff)              │
+                         │                   4 DuplicateDetector (fingerprint in a savepoint)           │
+                         │                   5 outcome + id map + review items                          │
+                         │  SnapshotBuilder (copy of ONE shop, ≤ every 5 min, cached)                   │
+                         └──────────────────────────────────────────────────────────────────────────────┘
+                                     ▲ HTTPS, device key                   ▲ HTTPS, device key
+             ┌───────────────────────┴──────────────┐      ┌───────────────┴──────────────────────┐
+             │ PC 1 (Electron, PC number 1)         │      │ PC 2 (Electron, PC number 2)         │
+             │  SyncClient: checkin 30 s, copy 5 min│      │  same                                 │
+             │  mirror-*.db (copies, read-only)     │      │                                       │
+             │  offline-work.db (working copy):     │      │  ids 2·10¹²+…                         │
+             │    shop data, ids 1·10¹²+T·10⁹+n     │      │                                       │
+             │    offline_outbox (events)           │      │                                       │
+             │  OfflineRecorder wraps ipcMain.handle│      │                                       │
+             │    allowed → write + event, 1 txn    │      │                                       │
+             │    online-only → refused             │      │                                       │
+             │  React UI (unchanged pages, IPC)     │      │                                       │
+             └──────────────────────────────────────┘      └───────────────────────────────────────┘
+   Never on the sync path: Google Drive (D3), the Windows share / db-path.txt UNC file (N3).
+```
+
+### B. Desktop state machine (per PC, independent of every other PC)
+
+```text
+               pair (admin signs in)                    unpair / revoke
+  STANDALONE ───────────────────────▶ STANDBY ◀─────────────────────────────── (any paired mode)
+  (never paired;                       │  online: checkin 30 s, new copy ≤5 min,
+   today's app,                        │  window = status + "Open the web app" (system browser)
+   unchanged)                          │  ready = copy present AND versions equal
+                                       │
+           server unreachable ≥ 30 s   │  "Work offline" (any user; sign-in follows)
+           AND ready                   ▼
+                                    OFFLINE ──────────── every action: write + event in ONE txn
+                                       │  │              online-only channels refused
+                                       │  │  server reachable → events upload by themselves
+                                       │  │  (offline actions still allowed; banner nags)
+                                       │  ▼
+                                       │ "Back to the web app" (needs server reachable)
+                                       ▼
+                                   FINISHING ── no new actions; upload rest; send manifest (N5);
+                                       │        working copy → finished/ (keep 3)
+                                       └──────▶ STANDBY (download fresh copy)
+  BLOCKED = paired but no usable copy (first boot, version mismatch): standby screen only, explains why.
+```
+
+### C. An outage with two PCs and web users
+
+```text
+ time   PC 1 (copy c1 @10:00)          PC 2 (copy c2 @10:02)         Web / phone (online)        Server
+ 10:05  ── shop internet and LAN die ──────────────────────────────────────────────────────────────────
+ 10:06  Work offline                    Work offline                  owner sells on phone ──▶  online sale S#880
+ 10:10  e1 new client Rami  (P1·cli)    e1 sale $40 CASH (P2·sales)                              (id < 10¹²)
+ 10:12  e2 sale on account to Rami      e2 OMT send ref OM-7731       web: same $40 sale typed  online sale S#881
+ 10:15  e3 OMT send ref OM-7731  ◀──── same transfer typed on both PCs (certain duplicate)
+ 10:20  e4 repay Rami, tick sale e2     e3 drawer count
+ 10:40  ── internet back for PC 1 only ───────────────────────────────────────────────────────────────
+ 10:40  uploads e1..e4  ───────────────────────────────────────────────────────────────▶ stored, acked
+ 10:41                                                                                   round (after 30 s pause):
+                                                                                         P1.e1 → client 512
+                                                                                         P1.e2 → sale 2001 (client 512)
+                                                                                         P1.e3 → OMT booked (first)
+                                                                                         P1.e4 → repay ticks 2001
+ 11:30  ── PC 2 reconnects ───────────────────────────────────────────────────────────────────────────
+ 11:30                                  uploads e1..e3 ───────────────────────────────▶ round:
+                                                                                         P2.e1 $40 sale (10:10) ≈ S#881
+                                                                                           (10:12), ±5 min → HELD
+                                                                                         P2.e2 ref OM-7731 = P1.e3 →
+                                                                                           SKIPPED + note (certain)
+                                                                                         P2.e3 drawer count → HELD (N8)
+ 11:35  "Back to the web app" → manifest → standby                                      review list: 2 held, 1 note
+ (S#881 is a likely duplicate only because it is within 5 minutes of P2.e1 — N7; at 10:20 it would simply be booked.)
+```
+
+### D. The event queue merge
+
+```text
+ PC 1 queue (seq): [1 @10:10] [2 @10:12] [3 @10:15] [4 @10:20]
+ PC 2 queue (seq): [1 @10:11] [2 @10:13] [3 @10:09 ← PC 2 clock jumped back]
+ rule: pick the HEAD with the smallest corrected time; never look past a head.
+   heads (1@10:10, 1@10:11) → P1.1   heads (2@10:12, 1@10:11) → P2.1   heads (2@10:12, 2@10:13) → P1.2
+   heads (3@10:15, 2@10:13) → P2.2   heads (3@10:15, 3@10:09) → P2.3   then P1.3, P1.4
+ P2.3 is processed AFTER P2.2 although its time is earlier: a PC's own order always wins.
+ A gap (PC 2 sent seq 1,3) stops PC 2 at seq 2 until it arrives; PC 1 continues.
+ A business refusal does NOT stop the queue; only events that depend on it are held.
+```
+
+### E. Id rewriting example (PC number 1)
+
+```text
+ table index list (append-only, in code): clients=4, sales=7, transactions=12, debt_ledger=15 … (example values)
+ working copy sqlite_sequence on go-offline: clients → 1·10¹² + 4·10⁹ + last_used(4) …
+ PC 1 events:
+   e1 clients:create {name:"Rami", phone:"70123456"}            created: clients[1 004 000 000 001]
+   e2 sales:process  {client_id: 1 004 000 000 001, items:[{product_id: 33, …}], payments:[…LBP 1 250 000 000…]}
+                                                                created: sales[1 007 000 000 001],
+                                                                         transactions[1 012 000 000 001], debt_ledger[…]
+   e4 debt:add-repayment {clientId: 1 004 000 000 001, targets:[{kind:"sale", id: 1 007 000 000 001}]}
+ server:
+   e1 → clients 512                     map: 1 004 000 000 001 → (clients, 512, e1)
+   e2 rewrite client_id → 512; product_id 33 < 10¹² untouched; LBP amount is not an id position → untouched
+      → sales 2001, transactions 9050 … map rows per table in creation order (counts must agree)
+   e4 rewrite clientId → 512, targets[0].id → 2001 (decoded table = sales; the value says which table)
+ An in-range id with no map entry (its event was held/refused) → e4 is HELD "waits on item e2".
+```
+
+### F. Duplicate handling
+
+```text
+ for each money event, inside the event transaction:
+   SAVEPOINT s ─▶ book through the service ─▶ fingerprint(rows just created)
+        │
+        ├─ certain?  OMT/Whish reference equal, or recharge carrier+phone+amount within 10 min
+        │            → ROLLBACK TO s; outcome SKIPPED; NO map rows yet; note (Mark reviewed / Book anyway);
+        │              events depending on it wait until the note is resolved; a link maps the MAIN row only
+        ├─ likely?   every N7 field equal within ±5 min (skew-corrected), user and seconds ignored
+        │            → ROLLBACK TO s; outcome HELD; review item shows the matching row (Apply / Dismiss)
+        └─ none      → RELEASE s; outcome BOOKED; stock < 0? note "stock count was off"
+ compared against: rows with id > this copy's high-water mark (created during THIS PC's outage),
+                   minus every server row this PC's booked/applied events created (from their stored results)
+                   ⇒ online rows + other PCs' rows.
+ same event id twice → stored outcome returned before any of this runs.
+```
 
 ## Summary
 
-A web shop pairs one desktop as its backup till. The server gives the paired desktop a single-shop copy of the data every
-5 minutes (built from the live file with the Phase D split's own narrowing logic, so it works before Phase D). The
-desktop checks in every 15 s; a global write gate refuses every write from that shop's web and phone users while the
-desktop is silent without a goodbye or reports offline work (D2), with an audited admin Unlock. In an outage the desktop
-relaunches onto a **working copy** of the mirror, where only three operations (POS checkout of a new completed sale,
-add expense, debt repayment) may write, each recorded in an **outbox in the same file and the same SQLite transaction**. On reconnect it
-sends batches of ≤ 50 operations to a device-authenticated replay route; core's `OfflineReplayService` books each
-through the same service the web route calls, as the recording user, with the operation's own instant, day and offset,
-once per operation key (permanent `offline_replay_ops` record). The gate notes every web write it lets through; an
-offline period during which any web write happened is held for owner review instead of booked. Refused or held
-operations go to an admin review list on the web. One migration, v210, adds three tenant-scoped tables (`offline_devices`, `offline_replay_ops`,
-`offline_outbox`).
+Every paired PC keeps a copy of its shop (≤ 5 min old). Offline, one recorder wrapped around the desktop's channel
+registration writes each allowed action to a working copy and records an event (channel, core-parsed payload, user,
+instant, day/offset, PC sequence, event id, created rows, dependencies) in the same transaction; rows get ids from the
+PC's range. On reconnect events upload automatically; the server stores them idempotently, merges all PCs' events per
+shop by skew-corrected time while keeping each PC's order, rewrites offline ids through a per-shop id map, and books
+each event through a per-channel binding to the same core service the web route calls, inside a tenant context carrying
+the event's day, offset and "effective now". A savepoint-based duplicate detector, replay-only stock override and
+per-category outcomes implement N6–N8; everything doubtful lands on a web review list. One migration (v210) adds the
+tables. The web never locks.
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5 (strict), Node 20 (backend, Electron 31 main), React 19 (frontend)
 
-**Primary Dependencies**: Express (backend), better-sqlite3, Zod (shared validators in `packages/core/src/validators/`),
-Electron (`powerMonitor`, `Tray`, `app.setLoginItemSettings`, `safeStorage`, `app.relaunch`), TanStack Query (frontend)
+**Primary Dependencies**: Express, better-sqlite3, Zod (shared validators in `packages/core/src/validators/`), Electron
+(`ipcMain`, `safeStorage`, `app.relaunch`, `shell.openExternal`, `powerMonitor`), TanStack Query
 
-**Storage**: SQLite. Server: tenant DB (shared file today, `/data/tenants/<id>.db` after Phase D). Desktop paired mode:
-`<userData>/web-fallback/mirror-<ts>.db` (read-only copies, newest 2 kept), `<userData>/web-fallback/offline-work.db`
-(working copy + outbox), `<userData>/web-fallback/finished/offline-work-<ts>.db` (last 3), pairing state
-`<userData>/web-fallback/pairing.json` (device key encrypted with `safeStorage`). The standalone desktop DB
-(`resolveDatabasePath()`) is never opened in paired mode.
+**Storage**: SQLite. Server: tenant DB (shared file today; per-tenant after Phase D). PC: `<userData>/offline/`
+(`mirror-<ts>.db` ×2, `offline-work.db`, `finished/` ×3, `pairing.json` with the device key encrypted by `safeStorage`).
+The standalone desktop DB (`resolveDatabasePath()`, incl. a `db-path.txt` UNC share) is never opened in paired modes.
 
-**Testing**: core jest (`packages/core`, real schema via migrations on `:memory:`), backend jest (`backend/src/**/__tests__`,
-supertest `*.api.test.ts`), electron-app jest (`electron-app/**/__tests__`), frontend jest + RTL, web e2e Playwright
-(`frontend/tests/e2e-web/lira-web-055-*`, `lira-web-056-*`). Desktop e2e is not run on this Mac (G5); one CI-only
-regression spec for the never-paired desktop.
+**Testing**: core jest (real schema on `:memory:`), backend jest + supertest, electron-app jest, frontend jest + RTL, web
+e2e Playwright `frontend/tests/e2e-web/lira-web-055-offline-replay.spec.ts`, `lira-web-056-offline-review.spec.ts`
+(052–054 are taken; verified). Desktop e2e is never run on this Mac (G5).
 
 **Target Platform**: Fly (Linux) backend, Vercel SPA, Windows desktop (Electron)
 
 **Project Type**: Monorepo — desktop app + web service + shared core
 
-**Performance Goals**: lock decision adds one indexed single-row read per write request of a shop (none for reads);
-snapshot at most once per 5 min per shop; replay ≤ 50 ops per request.
+**Performance Goals**: processing ≥ 20 events/s per shop on the Fly machine (sync SQLite, one transaction per event);
+copy built ≤ once per 5 min per shop and shared by all its PCs; upload batches ≤ 100 events.
 
-**Constraints**: rule 19 (dual transport), rule 27 (no ambient server day on request paths), rule 29 (`browser.ts`
-Node-free), rule 10 (migration in both files), rule 17 (failing-first), rule 20 (reversal owner — none new, see
-Constitution Check), never run Electron on this Mac, never deploy / touch Fly / R2 / DNS (G5).
+**Constraints**: rules 10, 13, 14, 16–30 (CLAUDE.md); never run Electron on this Mac; never deploy or touch Fly/R2/DNS
+(G5); no web/phone behaviour change except the new pages (N1).
 
-**Scale/Scope**: 2 live shops today; one paired desktop per shop; outage days of tens to a few hundred operations.
+**Scale/Scope**: 2 live shops, 1–4 PCs per shop, outages of minutes to a day (tens to hundreds of events per PC).
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-checked after Phase 1 design — still passing, with the three documented
-exceptions (E1–E3) in Complexity Tracking.*
+*GATE: passes for everything except the parts that carry exceptions E1–E3 awaiting the owner's approval (Complexity
+Tracking). Per the constitution's Governance section, no task that implements E1–E3 may start before gate **G0** (owner
+approves O-new-7 / O-new-8 / E1) is recorded in this file. Gated: the device-key service and routes, the actor policy
+(who may be credited for an event), the web-only review routes/page/PCs panel and the desktop-only `offline:*`
+channels, the e2e helpers that drive them, and everything that calls them. Not gated: core library work that no
+transport reaches yet — event store, merge, replay engine (the actor is a plain parameter, like a service's `userId`),
+duplicates, review service, schema lifts, time/rate work, the snapshot builder. E4 is closed inside the task
+that adds the binding (the missing REST route is added first), so it never ships open. Re-checked after Phase 1 design.*
 
 | Principle | Status | How |
 | --- | --- | --- |
-| I. One core, two transports (rule 19) | PASS with exception E1 | Replay books through the SAME core services the web routes call (`SalesService.processSale`, `ExpenseService.addExpense`, `DebtService.addRepayment`). Frontend uses `useApi()` only; desktop-only and web-only functions are adapter functions whose other branch returns a clear "not available here" envelope (no raw `window.api`, no inline gate). Device channels are desktop-only and management routes are web-only by nature — E1. |
-| I. Payload once (rule 22) | PASS | The outbox stores the payload already validated by the shared core schema the IPC handler used; the replay route validates it again with the same schema object. No per-transport payload building. |
-| I. Where code runs (rule 27) | PASS with note | Each replayed op runs inside `runWithTenant(tenantId, fn, { clientDay, clientTzOffsetMinutes })` from the op itself and passes its instant as `transaction_time`. The lock's "90 s silent" compares server-stamped check-in times with the server clock — both server-side instants, no calendar day involved (documented in research R6). |
-| I. `browser.ts` Node-free (rule 29) | PASS | Only `offline/operations.ts`, `offline/lockState.ts` (pure) and `validators/offline.ts` (zod) are browser-reachable. Services, repositories using `crypto`, and `db/tenantSnapshot.ts` (fs) are exported from `index.ts` only. Guard: `browserEntryIsNodeFree.guard.test.ts`. |
-| II. Layer boundaries (rule 13) | PASS | All SQL in `OfflineDeviceRepository`, `OfflineReplayRepository`, `OfflineOutboxRepository`; snapshot file work in `db/tenantSnapshot.ts`; services orchestrate; routes/handlers validate, authorize, call. |
-| III. Contracts once (rules 14, 21, 23) | PASS | Schemas in `packages/core/src/validators/offline.ts`; adapter types `z.input<…>`; the recorder re-parses every recorded payload with the CORE schema named in the registry (`saleProcessSchema`, `createExpenseSchema`, `addRepaymentSchema`) — needed because `db:add-expense` validates with the hand-written desktop `AddExpenseSchema` (verified `dbHandlers.ts:114`); `sales:process` and `debt:add-repayment` already use the core objects, pinned by a `toBe` test. The lock predicate lives once in `offline/lockState.ts`. |
-| III. Envelope (rule 6) | PASS | Every new route/channel returns `{ success, data?, error?, code? }`, HTTP 200 on business failure — the global lock gate too (the web HTTP client throws on non-2xx, verified in `httpClient.ts`), so pages show the lock message like any refusal. |
-| IV. Money integrity (rules 16, 18, 20, 26) | PASS | No new money flow, transaction type, ledger row or sibling: replay calls existing flows, which keep their own legs, reversal owners and `is_auto` siblings. Proven by SC-001 parity test (replay vs. direct call nets equal per currency) and void-after-replay test. FEATURE_GUIDE §13 checklist walked in research R12. |
-| V. Data and security | PASS with exception E3 | `?` placeholders; every new SQL names `tenant_id`; device routes authenticate a hashed key and resolve the tenant from it; user routes `authenticateJWT` → `requireRole`; replay actor checked active + role in the device's tenant (E2). v210 in both files with `down()`; all tables have `id`, `created_at`, `updated_at`. |
-| VI. Testing | PASS | Every behaviour task is preceded by its failing test; web e2e 055/056 match rows by identity and assert deltas, and always revoke their device (shared DB). |
-| VII. Code quality | PASS | strict TS, module loggers, named exports, `api` via ref in effects, stable `useApi` mocks. |
+| I. One core, two transports (rule 19) | PASS with E1 | Replay calls the SAME core service each web route calls, through `packages/core/src/offline/bindings/*.ts` (one binding per offline channel, pinned by a parity test against the route's service call). Review page via `useApi()`; device channels are desktop-only and review routes web-only by nature (E1). |
+| I. Payload once (rule 22) | PASS | The event stores the payload the core schema parsed on the PC; the server parses it again with the same schema object. No per-transport payloads. |
+| I. Where code runs (rule 27) | PASS | Each event runs in `runWithTenant(tenantId, fn, { clientDay, clientTzOffsetMinutes, effectiveNow })`, all from the event (client-supplied, schema-validated); server clock only as fallback. Clock skew is measured from server instants. |
+| I. `browser.ts` Node-free (rule 29) | PASS | Browser-reachable: `offline/channelPolicy.ts` (pure table), `offline/idRange.ts` (pure math), `offline/reviewKinds.ts`, `validators/offline.ts`. Bindings, processor, snapshot builder, id capture: `index.ts` only. Guard: `browserEntryIsNodeFree.guard.test.ts`. |
+| II. Layer boundaries (rule 13) | PASS | SQL in `OfflineDeviceRepository`, `OfflineEventRepository`, `OfflineIdMapRepository`, `OfflineReviewRepository`, `OfflineSnapshotRepository`, `RowCaptureRepository`, `DuplicateFingerprintRepository`; services orchestrate; bindings call services only. |
+| III. Contracts once (rules 14, 21, 23, 24) | PASS once `pendingLift` is empty (guard T077) | 23 offline/checkpoint channels are lifted to core schemas (in US1 and Phase 6, before each channel's binding), each after a three-way key diff (schema / preload type / handler-forwarded fields). Policy table names the schema object; a `toBe` test pins IPC handler, REST route and binding to the same object. Id-position rules and the fingerprint are defined once. |
+| III. Envelope (rule 6) | PASS | All new routes/channels return `{ success, data?, error?, code? }`, HTTP 200 on business failure. |
+| IV. Money integrity (rules 11, 16, 18, 20, 26) | PASS | No new money flow, type, ledger or sibling: replay calls existing flows with their legs, client propagation, reversal owners and `is_auto` siblings. Replay-only switches (out-of-stock path, ticks dropped) choose between existing behaviours. SC-001 parity test per family; void-after-replay nets 0. §13 walked in research R12. |
+| V. Data and security | PASS with E2, E3 | `?` placeholders; every new SQL names `tenant_id`; device routes authenticate a hashed key; review routes `authenticateJWT` → `requireRole(["admin"])`; v210 in both files with `down()`; all tables have `id`, `created_at`, `updated_at`. |
+| VI. Testing | PASS | Failing-first test task before each behaviour task; web e2e 055/056 match by identity and assert deltas; payload names in tests come from the schemas. |
+| VII. Code quality | PASS | strict TS, module loggers, named exports, `api` via ref, stable `useApi` mocks. |
 
 ## Project Structure
 
@@ -75,13 +222,14 @@ exceptions (E1–E3) in Complexity Tracking.*
 
 ```text
 specs/306-offline-desktop-fallback/
-├── plan.md
-├── research.md          # R1–R14
-├── data-model.md        # v210 tables, desktop files, state machines
-├── quickstart.md        # how to prove each slice locally
+├── plan.md               # this file (architecture first)
+├── research.md           # R1–R16 decisions with rationale and alternatives
+├── data-model.md         # v210 tables, id layout, PC files, state machines
+├── quickstart.md         # how to prove each slice locally
 ├── contracts/
-│   ├── rest-offline.md  # /api/offline/* routes + global lock gate
-│   └── ipc-offline.md   # offline:* channels, recorded channels, adapter functions
+│   ├── rest-offline.md   # /api/offline/* device + review routes
+│   ├── ipc-offline.md    # offline:* channels, recorder contract, adapter functions
+│   └── channel-policy.md # 414 existing channels (183 write + 16 local listed, 215 reads counted); +8 offline:* in ipc-offline.md
 ├── checklists/requirements.md
 └── tasks.md
 ```
@@ -90,94 +238,78 @@ specs/306-offline-desktop-fallback/
 
 ```text
 packages/core/src/
-├── offline/operations.ts            # NEW pure registry: the 3 offline operations (name, schema, roles, ipcChannel)
-├── offline/lockState.ts             # NEW pure lock predicate (computeShopLock)
-├── offline/index.ts                 # NEW barrel (browser-safe parts only)
-├── validators/offline.ts            # NEW schemas: pair, heartbeat, goodbye, replay batch, review resolve
-├── validators/index.ts              # re-export
-├── repositories/OfflineDeviceRepository.ts   # NEW
-├── repositories/OfflineReplayRepository.ts   # NEW
-├── repositories/OfflineOutboxRepository.ts   # NEW (desktop side)
-├── services/OfflineDeviceService.ts          # NEW pair / verify / heartbeat / goodbye / lock / unlock / revoke
-├── services/OfflineReplayService.ts          # NEW batch / dedupe / dispatch / held / apply / dismiss / complete
-├── services/OfflineOutboxService.ts          # NEW desktop record / pending / mark results
-├── db/tenantSplit.ts                # REFACTOR: export narrowToTenant() used by both split and snapshot
-├── db/tenantSnapshot.ts             # NEW buildTenantSnapshot() + SNAPSHOT_STRIPPED_TABLES
-├── db/migrations/index.ts           # v210
-├── config/env.ts                    # OFFLINE_LOCK_STALE_MS (default 90000)
-├── constants/resetTables.ts         # classify the 3 new tables
-├── index.ts / browser.ts            # exports (browser.ts: offline/operations, lockState, validators only)
+├── offline/channelPolicy.ts       # NEW pure: channel → class, label, family, argNames, idPositions, roles, pendingLift
+├── offline/idRange.ts             # NEW pure: OFFLINE_ID_TABLES (append-only), encode/decode, isOfflineId
+├── offline/idPositions.ts         # NEW pure: walk a payload's id positions (keys, pairs, nested, JSON strings)
+├── offline/reviewKinds.ts         # NEW pure: review item kinds + plain labels
+├── offline/bindings/*.ts          # NEW per family: channel → service call (index.ts only)
+├── offline/ReplayEngine.ts        # NEW per-event transaction pipeline (index.ts only)
+├── services/OfflineDeviceService.ts, OfflineEventService.ts, OfflineMergeProcessor.ts,
+│   OfflineReviewService.ts, OfflineSnapshotService.ts, DuplicateDetector.ts   # NEW
+├── repositories/Offline{Device,Event,IdMap,Review,Snapshot,Outbox}Repository.ts,
+│   RowCaptureRepository.ts, DuplicateFingerprintRepository.ts                  # NEW
+├── db/tenantContext.ts            # + effectiveNow, effectiveRates options; utils/requestNow.ts, utils/effectiveRate.ts (server-only)
+├── db/tenantSplit.ts              # REFACTOR: export narrowToTenant() for snapshot reuse
+├── db/tenantSnapshot.ts           # NEW buildTenantSnapshot()
+├── db/migrations/index.ts         # v210
+├── validators/offline.ts + lifted schemas (validators/session.ts, client.ts, transaction.ts, …)
+├── repositories/* (time sweep)    # timestamps via requestNow() in offline families; id-order queries → time order
 electron-app/
-├── create_db.sql                    # v210 tables
-├── offline/pairingStore.ts          # NEW pairing.json + safeStorage
-├── offline/fallbackBoot.ts          # NEW pure boot decision (which file, tenant id, mode)
-├── offline/dbGuard.ts               # NEW query_only guard + withWritable()
-├── offline/offlineRecorder.ts       # NEW recordOffline(): write + outbox in one transaction
-├── offline/syncClient.ts            # NEW reachability probe, check-ins, goodbye, snapshot refresh, replay sender
-├── offline/tray.ts                  # NEW tray + auto-start (paired mode only)
-├── offline/updatePolicy.ts          # NEW per-mode updater policy (testable; no import.meta)
-├── offline/bootSequence.ts          # NEW boot steps per mode (extracted from main.ts)
-├── handlers/offlineHandlers.ts      # NEW offline:* IPC channels
-├── handlers/salesHandlers.ts        # sales:process → recordOffline in offline mode
-├── handlers/dbHandlers.ts           # db:add-expense → recordOffline
-├── handlers/debtHandlers.ts         # debt:add-repayment → recordOffline
-├── handlers/authHandlers.ts         # login/logout allowed to write locally (withWritable)
-├── licenseSync.ts                   # skipped in paired mode
-├── main.ts                          # boot selection, initFixedTenantContext(tenantId), goodbye hooks, tray
-├── preload.ts                       # window.api.offline.*
+├── create_db.sql                  # v210
+├── offline/pairingStore.ts, bootDecision.ts, workingCopy.ts (id-range seeding, resume), recorder.ts (ipcMain wrapper,
+│   write queue), writeGuard.ts, syncClient.ts, manifest.ts, updatePolicy.ts   # NEW (outbox SQL in core repo)
+├── handlers/offlineHandlers.ts    # NEW offline:* channels
+├── handlers/*.ts                  # validatePayload with lifted core schemas (23 channels); session:close actor fix
+├── main.ts                        # install recorder before register*Handlers(); boot by mode; tenant from copy
+├── preload.ts, schemas/index.ts   # offline bindings; re-export lifted schemas
 backend/src/
-├── middleware/deviceAuth.ts         # NEW authenticateDevice (X-LiraTek-Device-Key)
-├── middleware/requireShopUnlocked.ts# NEW global write gate (D2)
-├── middleware/rateLimit.ts          # verified device identity bucket
-├── api/offline.ts                   # NEW /api/offline/* routes
-├── server.ts                        # mount gate + router
+├── middleware/deviceAuth.ts       # NEW authenticateDevice
+├── api/offline.ts                 # NEW device + review routes; server.ts mount; rateLimit device bucket
+├── offline/processorTimer.ts      # NEW gathering pause + periodic sweep → OfflineMergeProcessor
 frontend/src/
-├── api/backendApi.ts                # dual-mode functions (see contracts/ipc-offline.md)
-├── api/ElectronApiAdapter.ts        # expose
-├── types/electron.d.ts              # window.api.offline types
-├── shared/components/OfflineLockBanner.tsx         # NEW (web: lock banner + admin Unlock)
-├── shared/components/layouts/MainLayout.tsx        # mount banner
-├── features/settings/pages/Settings/DesktopBackupPanel.tsx  # NEW (web: paired device, revoke)
-├── features/offline/pages/OfflineReview/index.tsx  # NEW (web: review list, Apply/Dismiss)
-├── features/offline/components/StandbyScreen.tsx   # NEW (desktop paired standby + pairing form)
-├── features/offline/components/OfflineModeBanner.tsx # NEW (desktop offline banner, Send)
-├── features/sales/pages/POS/components/CheckoutModal.tsx # RCP-OFFLINE receipt number
-├── app/App.tsx                      # route + standby gate
-packages/ui/src/api/types.ts         # ApiAdapter types
-frontend/tests/e2e-web/lira-web-055-offline-lock.spec.ts      # NEW
-frontend/tests/e2e-web/lira-web-056-offline-replay.spec.ts    # NEW
-frontend/tests/e2e-electron/lira-306-unpaired-desktop-unchanged.spec.ts  # NEW (CI only)
-frontend/playwright.web.config.ts    # OFFLINE_LOCK_STALE_MS for the e2e backend
-frontend/tests/e2e-web/global-setup.ts  # revoke leftover active devices
-docs/OPERATIONS.md                   # runbook section
-docs/release-notes/UNRELEASED.md     # release note
+├── api/backendApi.ts, ElectronApiAdapter.ts; packages/ui/src/api/types.ts
+├── features/offline/pages/OfflineReview/index.tsx              # NEW web review list
+├── features/settings/pages/Settings/PairedPcsPanel.tsx          # NEW
+├── features/offline/components/{StandbyScreen,OfflineBanner}.tsx # NEW (desktop)
+├── features/sales/... receipt lookup accepts offline receipt numbers (via core alias)
+frontend/tests/e2e-web/lira-web-055-offline-replay.spec.ts, lira-web-056-offline-review.spec.ts
+docs/OPERATIONS.md, docs/FEATURE_GUIDE.md (offline note), docs/release-notes/UNRELEASED.md
 ```
 
-**Structure Decision**: the existing monorepo layout; one new core folder `packages/core/src/offline/` for the pure,
-browser-safe parts, one new `electron-app/offline/` folder for desktop-only machinery. No new package.
+**Structure Decision**: existing monorepo; one new core folder `packages/core/src/offline/` and one new
+`electron-app/offline/` folder. No new package.
 
 ## Phases (maps to tasks.md)
 
-1. **Setup** — feature folder, env knob, e2e config.
-2. **Foundational** — v210 (both files), reset classification, validators, operation registry, lock predicate, three
-   repositories. Blocks everything.
-3. **US1 (P1) web write lock** — device pairing, device auth, check-in/goodbye, global gate, status/unlock/devices routes,
-   banner, Settings panel, web e2e 055. *Buildable + verifiable tonight.*
-4. **US2 (P1) replay** — replay service + route, period complete, review list routes + page, parity tests, web e2e 056.
-   *Buildable + verifiable tonight.*
-5. **US3 (P2) mirror** — snapshot builder + route + cache; desktop pairing store, boot decision, read-only guard, refresh
-   loop, standby screen. *Server half verifiable tonight; desktop half code + electron jest, desktop-visible behaviour
-   unverified until CI/Windows.*
-6. **US4 (P2) offline mode** — working copy, recorder, recorded channels, offline login, reconnect + send, receipt
-   number, tray/goodbye hooks, CI-only desktop regression spec. *Code + electron jest; desktop behaviour unverified.*
-7. **Polish** — OPERATIONS.md runbook, FEATURE_GUIDE note, release note, ticket, gates.
-8. **US5 (P3) owner-run / blocked on infrastructure** — push/deploy, Phase D, first real pairing, Windows drill, S1/S3
-   incremental mirror, desktop release discipline.
+1. **Setup** — env knobs, e2e config.
+2. **Foundational** — v210 (both files), reset/snapshot classification, pure policy/id-range/id-position modules with
+   their guards, `effectiveNow` context, validators. Blocks everything.
+0. **Gate G0 (owner)** — approve O-new-7, O-new-8 and E1 (recorded below). Blocks exactly the `[G0]` tasks: device
+   service + actor policy, device routes, review routes/page/PCs panel, desktop `offline:*` channels, sync/upload,
+   offline banner wiring, and web e2e 055/056.
+3. **US1 replay engine (P1)** — core: event store, merge processor, replay engine, id map, first bindings (sales,
+   clients, debts, expenses, refunds/voids) — *buildable + verifiable tonight with core jest*; device pairing/auth +
+   upload routes + web e2e 055 — *after G0*.
+4. **US2 merge + duplicates (P1)** — skew correction, duplicate detector, stock/ticks/customer outcomes, checkpoint
+   holds, dependants, remaining bindings family by family. *Buildable + verifiable tonight.*
+5. **US3 review list (P1)** — review service — *buildable tonight*; review routes, page, PCs panel and web e2e 056 —
+   *after G0* (E1).
+6. **Contract and time prep (money, core jest)** — lift the 23 schemas (three-way diff each), `requestNow()` sweep per
+   family, id-order queries. Parallel with 3–5 per family; a family's binding is done only after its prep.
+7. **US4 copies (P2)** — snapshot builder + route (verifiable); PC refresh + standby (electron jest, unverified).
+8. **US5 offline mode (P2)** — recorder, write guard, working copy + id seeding, outbox, sender, manifest, screens
+   (electron jest; desktop behaviour unverified until CI/Windows).
+9. **Polish** — OPERATIONS runbook, FEATURE_GUIDE note, release note, ticket, gates.
+10. **US6 owner-run (P3)** — push/deploy, desktop release, pairing, two-PC drill, Phase D, Litestream feed.
 
 ## Complexity Tracking
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 | --- | --- | --- |
-| **E1** — rule 19: `offline:*` IPC channels (pair, status, go-offline, send) have no REST mirror, and the web management routes (lock status/unlock, devices, review) have no IPC mirror | The device role exists only on a desktop (it owns the mirror, working copy and outbox); lock/unlock/review act on the server's tenant DB, which a desktop never holds | A REST mirror for device channels would have nothing to act on; an IPC mirror for review would act on a local copy that is discarded. Each such adapter function's other branch returns `{ success:false, error:"Available on the desktop app" / "Available on the web app" }`, so no component branches on transport. Precedent: the desktop-only licence panel. |
-| **E3** — constitution V ("REST routes run `authenticateJWT` then `requireRole`; write IPC handlers run `requireRole`"): the device routes (`/heartbeat`, `/goodbye`, `/snapshot`, `/replay`, `/period/complete`) authenticate with the device key only, and the pre-login IPC channels `offline:status`, `offline:pair`, `offline:unpair`, `offline:go-offline`, `offline:install-update` run before anyone is signed in on the PC; in standby/blocked the updater downloads automatically | During an outage, and on the standby screen, no user session exists on either side; the device key is the shop admin's delegated credential (issued only through an admin sign-in, revocable) | A JWT on the desktop would expire, be tied to one person and die with a password change mid-outage. Narrowed: device routes act only inside the key's own tenant and only on device-scoped data or through E2's checked actor; `offline:pair`/`offline:unpair` verify admin credentials (server-side / read-only local check), except `offline:unpair` in `blocked` mode, where the PC holds no shop data; `offline:go-offline` is allowed only when `canStartOffline` (server unreachable past the lock delay, copy ready), and nothing can be recorded until a user signs in. Taken under the overnight delegation and **flagged for the owner to confirm** with O23. |
-| **E2** — rule 19c: on the replay route the actor comes from the operation (the user who rang the sale offline), not from a JWT | During an outage no JWT can be obtained; the person who made the sale must be recorded as its actor | Recording the device or the pairing admin as actor would misattribute every offline sale (audit trail, "who took this payment"). Narrowed: the actor must exist in the device's own tenant, be active, and hold a role the operation allows; the device key itself is the authentication (plan §7.6). Taken on the owner's behalf under the overnight delegation (O23) and **flagged for the owner to confirm** before Phase 8. |
+| **E1** — rule 19: `offline:*` IPC channels have no REST twin; `/api/offline/review/*`, the review page and the PCs panel have no IPC twin (both halves gated by G0) | The device role exists only on a PC (copies, working copy, outbox); review acts on the server's tenant DB, which a PC never holds | A twin would have nothing to act on. Each adapter function's other branch returns `{ success:false, error:"Available on the desktop app" / "Available on the web app" }`, so no component branches on transport. |
+| **E2** — rule 19c: on replay the actor comes from the event, not a JWT | During an outage no JWT exists; the person who rang the sale must be its actor | Crediting the pairing admin misattributes every offline action. Narrowed: actor must belong to the device's shop and hold a role the channel allows (FR-023). **Owner to confirm (O-new-7).** |
+| **E3** — constitution V: device routes authenticate with the device key, not `authenticateJWT` | No user session during an outage or on the standby screen | A long-lived user JWT on the PC expires, is tied to one person and dies with a password change. Key issued only through admin sign-in, hashed, revocable, scoped to one shop. **Owner to confirm (O-new-8).** |
+| **E4** (closed before ship) — `maintenance:update-metadata` has no REST route today | Offline allowed under N2 | The task that adds its binding first adds the REST route + adapter function (same service, shared schema), so the binding never exists without the web twin. No exception remains at ship. |
+
+**Owner approvals (gate G0)** — _not yet given_ (2026-10-11). Record here: date, O-new-7 yes/no, O-new-8 yes/no, E1
+yes/no. Until then tasks marked `[G0]` in tasks.md do not start.
