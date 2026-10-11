@@ -50,6 +50,7 @@ export function CheckpointDrawerBody({
     saving,
     saveError,
     getExpectedValue,
+    usdTotal,
     handleAmountChange,
     handleResetToExpected,
   } = cp;
@@ -179,6 +180,7 @@ export function CheckpointDrawerBody({
                 getDisplayValue={(d, c) => drawerAmounts.getDisplayValue(d, c)}
                 onAmountChange={handleAmountChange}
                 getExpectedValue={getExpectedValue}
+                {...(usdTotal ? { usdTotal } : {})}
                 onResetToExpected={handleResetToExpected}
                 disabled={saving || isPartnerDrawerInactive}
                 focusRingColor="violet-500"

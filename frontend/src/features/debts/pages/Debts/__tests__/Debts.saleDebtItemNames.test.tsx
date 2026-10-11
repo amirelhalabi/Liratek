@@ -28,6 +28,7 @@ import Debts from "../index";
 const DEBT_LEDGER_TRANSACTION_ID = 55; // transactions.id stored on the debt row
 const RESOLVED_SALE_ID = 999; // sales.id the transaction actually points to
 
+const mockGetOpenDebtItems = jest.fn().mockResolvedValue([]);
 const mockGetDebtors = jest.fn();
 const mockGetClientDebtHistory = jest.fn();
 const mockGetTransactionById = jest.fn();
@@ -49,6 +50,8 @@ jest.mock("@liratek/ui", () => {
     useApi: () => ({
       getDebtors: mockGetDebtors,
       getClientDebtHistory: mockGetClientDebtHistory,
+      // LIRA-304 — open items (basket breakdown / repayment picker): none.
+      getOpenDebtItems: mockGetOpenDebtItems,
       getTransactionById: mockGetTransactionById,
       getSaleItems: mockGetSaleItems,
       getClientBalance: mockGetClientBalance,

@@ -492,9 +492,30 @@ export function useDrawerCheckpoint({
     isPartnerDrawerInactive ||
     (carrier ? carrierLines.length === 0 : drawerCurrencies.length === 0);
 
+  // LIRA-304 (spec FR-023) — information-only total in USD for a drawer that
+  // holds both dollars and lira (e.g. the OMT Cash Drawer after LBP was
+  // paid for a USD transfer). Converted at the page's sell rate; it never
+  // decides whether the drawer is balanced — that stays per currency.
+  const usdTotal = (() => {
+    if (carrier || !(sellRate > 0)) return null;
+    const codes = drawerCurrencies.map((c) => c.code);
+    if (!codes.includes("USD") || !codes.includes("LBP")) return null;
+    const expected = (code: string) => getExpectedValue(drawer, code);
+    const counted = (code: string) => drawerAmounts.amounts[drawer]?.[code] ?? 0;
+    const used = ["USD", "LBP"].filter(
+      (c) => Math.abs(expected(c)) > 0.004 || Math.abs(counted(c)) > 0.004,
+    );
+    if (used.length < 2) return null;
+    return {
+      expected: expected("USD") + expected("LBP") / sellRate,
+      counted: counted("USD") + counted("LBP") / sellRate,
+    };
+  })();
+
   return {
     drawer,
     drawerConfig,
+    usdTotal,
     partnerSystem,
     isPartnerDrawerInactive,
     currencies,

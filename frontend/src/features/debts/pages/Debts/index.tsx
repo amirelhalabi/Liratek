@@ -613,6 +613,29 @@ export default function Debts() {
     };
   }, [showRepaymentModal, repayMode, repayClientId]);
 
+  // LIRA-304 (spec US3) — open items of the selected client, so a basket
+  // line on the Purchases list can show what is still open on each of its
+  // items. Reloaded whenever the history reloads (after a repayment).
+  const [clientOpenItems, setClientOpenItems] = useState<OpenDebtItem[]>([]);
+  useEffect(() => {
+    if (repayClientId == null) {
+      setClientOpenItems([]);
+      return;
+    }
+    let cancelled = false;
+    apiRef.current
+      .getOpenDebtItems(repayClientId)
+      .then((items) => {
+        if (!cancelled) setClientOpenItems(items);
+      })
+      .catch(() => {
+        if (!cancelled) setClientOpenItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repayClientId, debtEntries]);
+
   // ONE computation of a repayment's figures (paid per currency, the debt
   // reduction, the rate) — used by the submit below AND the LIRA-304
   // "Goes to" preview, so the preview can never disagree with what is sent.
@@ -1920,6 +1943,47 @@ export default function Debts() {
                                         </button>
                                       )}
                                   </div>
+                                  {item.session_id &&
+                                    item.transaction_type === "Session Debt" &&
+                                    clientOpenItems.some(
+                                      (o) => o.sessionId === item.session_id,
+                                    ) && (
+                                      <div
+                                        data-testid={`basket-open-items-${item.id}`}
+                                        className="mt-0.5 pl-2 border-l border-indigo-500/30 text-[11px] leading-snug"
+                                      >
+                                        <div className="text-slate-500">
+                                          Still open:
+                                        </div>
+                                        {clientOpenItems
+                                          .filter(
+                                            (o) =>
+                                              o.sessionId === item.session_id,
+                                          )
+                                          .map((o) => (
+                                            <div
+                                              key={`${o.kind}-${o.id}`}
+                                              className="flex justify-between gap-2 max-w-[260px]"
+                                            >
+                                              <span className="truncate text-slate-300">
+                                                {o.label}
+                                              </span>
+                                              <span className="font-mono text-red-300 shrink-0">
+                                                {[
+                                                  o.openUsd > 0.004
+                                                    ? `$${o.openUsd.toFixed(2)}`
+                                                    : "",
+                                                  o.openLbp > 0.5
+                                                    ? `${Math.round(o.openLbp).toLocaleString()} LBP`
+                                                    : "",
+                                                ]
+                                                  .filter(Boolean)
+                                                  .join(" + ")}
+                                              </span>
+                                            </div>
+                                          ))}
+                                      </div>
+                                    )}
                                 </div>
                               </td>
                               <td className="px-3 py-2.5 text-slate-400 text-sm whitespace-nowrap">

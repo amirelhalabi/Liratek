@@ -83,6 +83,9 @@ interface DrawerCardProps {
    *  type's doc). The card's header shows the SUM of every row's credits —
    *  there is no separately-typed drawer amount any more. */
   carrierLines?: DrawerCardCarrierLineRow[];
+  /** LIRA-304 — information-only total in USD (expected vs counted) for a
+   *  drawer holding both currencies. Never affects the match status. */
+  usdTotal?: { expected: number; counted: number };
 }
 
 export function DrawerCard({
@@ -95,6 +98,7 @@ export function DrawerCard({
   getExpectedValue,
   onResetToExpected,
   carrierLines,
+  usdTotal,
 }: DrawerCardProps) {
   const config = DRAWER_CONFIGS[drawer];
 
@@ -344,6 +348,19 @@ export function DrawerCard({
           </div>
         )}
       </div>
+
+      {usdTotal && (
+        <div
+          data-testid="drawer-usd-total"
+          className="flex items-center justify-between text-xs text-slate-400 -mt-2 mb-3"
+        >
+          <span>Total ≈ (info only)</span>
+          <span className="font-mono">
+            expected {formatCurrencyAmount(usdTotal.expected, "USD")} · counted{" "}
+            {formatCurrencyAmount(usdTotal.counted, "USD")}
+          </span>
+        </div>
+      )}
 
       {/* Currency Inputs / Carrier-line rows */}
       <div className="space-y-4">

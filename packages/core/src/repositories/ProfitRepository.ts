@@ -49,7 +49,12 @@ import {
   SERVICE_DEBT_COVERAGE_TYPES,
   SESSION_DEBT_TYPE,
 } from "../constants/transactionTypes.js";
-import { coverableChargeSql, coverageOpenSql } from "./sessionDebtCoverage.js";
+import {
+  coverableChargeSql,
+  coverageOpenSql,
+  memberOpenSql,
+} from "./sessionDebtCoverage.js";
+import { getDatabase } from "../db/connection.js";
 import { COMMISSION_PROVIDERS_SQL_LIST } from "../constants/commissionProviders.js";
 import { REFUND_KEPT_CHANGE_META } from "../validators/transaction.js";
 import { MOBILE_SERVICE_PROVIDERS_SQL_LIST } from "../constants/mobileServiceProviders.js";
@@ -1037,7 +1042,38 @@ export function hasPartnerObligation(refTable: string, idExpr: string): string {
  * same all-or-nothing shape as the first arm. SALE members are excluded
  * here (no double hold). Openness/outstanding come from the shared
  * `sessionDebtCoverage.ts` fragments the repayment FIFO also reads.
+ *
+ * LIRA-304 (spec FR-015) — the hold is now PER ITEM: a basket member is
+ * pending while ITS OWN share is open (`memberOpenSql`: owed − covered −
+ * its refund credit), so paying one item releases that item's profit. A
+ * basket booked without member shares (no member with a share) keeps the
+ * old whole-basket rule. On a database without the v209 columns (or a
+ * hand-rolled test schema) the fragment falls back to the whole-basket rule
+ * entirely.
  */
+const memberShareSupport = new WeakMap<object, boolean>();
+function hasMemberShares(): boolean {
+  let db: Database.Database;
+  try {
+    db = getDatabase();
+  } catch {
+    return false;
+  }
+  const cached = memberShareSupport.get(db);
+  if (cached !== undefined) return cached;
+  let ok = false;
+  try {
+    const cols = db
+      .prepare(`PRAGMA table_info(customer_session_transactions)`)
+      .all() as Array<{ name: string }>;
+    ok = cols.some((c) => c.name === "owed_usd");
+  } catch {
+    ok = false;
+  }
+  memberShareSupport.set(db, ok);
+  return ok;
+}
+
 export function notDebtPending(txnIdExpr: string): string {
   const serviceTypes = SERVICE_DEBT_COVERAGE_TYPES.map((t) => `'${t}'`).join(
     ", ",
@@ -1060,7 +1096,17 @@ export function notDebtPending(txnIdExpr: string): string {
       AND cstp.transaction_type <> '${SESSION_ITEM_REFUND_LINK_TYPE}'
       AND (cstp.amount_usd > 0 OR cstp.amount_lbp > 0)
       AND ${coverableChargeSql("dls")}
-      AND ${coverageOpenSql("dls")}
+      AND ${
+        hasMemberShares()
+          ? `(${memberOpenSql("cstp")}
+              OR (${coverageOpenSql("dls")}
+                  AND NOT EXISTS (
+                    SELECT 1 FROM customer_session_transactions cstq
+                    WHERE cstq.session_id = cstp.session_id
+                      AND cstq.tenant_id = cstp.tenant_id
+                      AND (cstq.owed_usd > 0 OR cstq.owed_lbp > 0))))`
+          : coverageOpenSql("dls")
+      }
   ))`;
 }
 

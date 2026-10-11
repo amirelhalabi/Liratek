@@ -91,10 +91,10 @@ import { getSalesRepository } from "./SalesRepository.js";
 // CURRENT total balance (`getClientBalance`, a plain SUM(amount_usd)/
 // SUM(amount_lbp) across every debt_ledger row) is the one existing,
 // rule-14-correct way to know "how much of this account charge has ALREADY
-// been repaid" — 'Session Debt' rows never get FIFO `covered_*` coverage
-// (DebtRepository._coverServiceDebtsFIFO's whitelist excludes 'Session
-// Debt' by design), so re-deriving that from `covered_*` (the pre-fix
-// approach) always read the gross charge, repayment or not. Same safe
+// been repaid". (Correction, LIRA-304: 'Session Debt' rows DO receive
+// repayment coverage — since LIRA-258/G17, and per basket item since
+// LIRA-304 — but the item-refund math deliberately does not read
+// `covered_*`; it uses the client balance and its own prior-refund record.) Same safe
 // circular-import pattern as the `SalesRepository` import above: DebtRepository
 // imports `getTransactionRepository` at its own top level, and neither class
 // touches the other's import at module-evaluation time, only from inside a
@@ -2779,10 +2779,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // reversal that runs AFTER one or more `refundSessionBasketItem` calls
     // must cancel only what's STILL attributable to the account side, not
     // the ORIGINAL gross charge. `covered_usd`/`covered_lbp` is NOT that
-    // figure — FIFO repayment coverage never populates it for 'Session Debt'
-    // rows at all (see `_priorSessionItemRefundAccountAttributed`'s doc) —
-    // so the pre-fix `d.amount_usd - d.covered_usd` always read the gross
-    // charge whether or not the customer had repaid any of it.
+    // figure — it also holds the checkout pre-cover and repayment coverage
+    // (repayments DO cover 'Session Debt' rows since LIRA-258/G17, per item
+    // since LIRA-304; the comment here used to say they never did), so it
+    // cannot tell "repaid" apart from "attributed to an item refund".
     //
     // The fix is `cancel = max(0, grossCharge − Σ prior item refunds'
     // A_account)` per currency — nothing more. A client-balance CAP on top
@@ -3349,12 +3349,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
   /**
    * Finding #6 (HIGH) — "account first" ignores repayments. A basket's
-   * 'Session Debt' charge never gets `covered_usd`/`covered_lbp` from a real
-   * repayment (`DebtRepository`'s FIFO coverage sweep excludes 'Session
-   * Debt' by design — repayments net the CLIENT's total balance instead, via
-   * a separate negative 'Repayment' row), so the gross charge alone is the
-   * wrong "how much of this basket is still unpaid" figure once ANY of it
-   * has been repaid OR already reduced by a prior item refund.
+   * 'Session Debt' charge's own `covered_*` is not what this math reads
+   * (correction, LIRA-304: the row IS covered by repayments — since
+   * LIRA-258/G17, and per basket item since LIRA-304 — but this refund
+   * planning stays on the client balance and its own prior-refund record),
+   * so the gross charge alone is the wrong "how much of this basket is still
+   * unpaid" figure once ANY of it has been repaid OR already reduced by a
+   * prior item refund.
    *
    * `basketChargeRemaining[c] = grossCharge[c] − Σ prior item refunds'
    * A_account[c]` is the correct "still attributable to the account side"
@@ -4303,9 +4304,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     //
     // `basketChargeRemaining[c]` = the basket's GROSS 'Session Debt' charge
     // in currency c, minus every PRIOR item refund's own A_account[c] (never
-    // minus `covered_*`, which FIFO repayment coverage never populates for
-    // 'Session Debt' rows at all — finding #6's root cause). This is "how
-    // much of the basket's account-paid side is still unclaimed by an item".
+    // minus `covered_*`, which mixes in checkout pre-cover and repayment
+    // coverage — repayments DO cover 'Session Debt' rows since LIRA-258/G17,
+    // per item since LIRA-304). This is "how much of the basket's
+    // account-paid side is still unclaimed by an item".
     const sessionDebtRows = this.query<{
       id: number;
       client_id: number;

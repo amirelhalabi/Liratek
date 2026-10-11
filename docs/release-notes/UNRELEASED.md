@@ -85,6 +85,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🏠 Dashboard
 
+- Drawer count (checkpoint): a drawer that holds both dollars and lira now also shows its total in dollars, for information only. Each currency is still checked on its own.
+
 - The Pending Settlement banner on the Dashboard now also lists partners you still need to settle
   with.
 - After you sign in, admins now get one Checkpoint window that lists all your drawers together (General first), when checkpoints are turned on and at least one drawer has not been counted today. Count each drawer and press its own Save — each drawer is saved on its own and then shows as "Counted today", while the others stay open for counting. Drawers already counted today are marked and can be counted again. The window stays open until you close it, opens once per sign-in, and closing it or refreshing the page does not bring it back. The clipboard button on each drawer card on the Dashboard still opens that one drawer's Checkpoint as before.
@@ -238,6 +240,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - From now on, voiding or refunding a debt repayment puts back exactly what that repayment paid off — it no longer marks an unrelated earlier sale, or a sale paid in cash, as unpaid again.
 - Hold Money: when you return a hold in both dollars and lira, you can now hand back a little less in either currency (for example $50 + 950,000 LBP on a $50 + 1,000,000 LBP hold); the difference is kept as shop profit and the hold is closed. The return sheet shows how much is being kept before you confirm.
 - Settle Debt: the window now lists everything the customer owes — each separate visit, and each item inside a basket that was put on the account — and you can tick what the money is for. Ticked items are paid first; if you tick nothing, payment works as before.
+- Accounts page: a basket that was put on the account now shows, under its line, what is still open on each of its items.
+- Profits: an item sold on the account inside a customer basket now counts its profit as soon as that item is paid, instead of waiting until the whole basket is paid. From now on.
 - Settle Debt: money for an OMT or Whish transfer (on the system your shop runs on) now goes to the OMT/Whish cash drawer whether the customer bought it in one basket or in separate visits, and a "Goes to" line shows the split before you confirm. Only cash is moved there, also when paid in lira for a dollar transfer; wallet payments and the other system's transfers stay where they are. From now on.
 - The Cash Out window is now titled "Cash Out Credit" and its button says "Confirm Cash Out", so it no longer looks like a repayment.
 

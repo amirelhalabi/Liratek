@@ -28,6 +28,7 @@ import Debts from "../index";
 const REFUNDED_NOTE = "Refunded manual charge";
 const LIVE_NOTE = "Live manual charge";
 
+const mockGetOpenDebtItems = jest.fn().mockResolvedValue([]);
 const mockGetDebtors = jest.fn();
 const mockGetClientDebtHistory = jest.fn();
 const mockGetTransactionById = jest.fn();
@@ -49,6 +50,8 @@ jest.mock("@liratek/ui", () => {
     useApi: () => ({
       getDebtors: mockGetDebtors,
       getClientDebtHistory: mockGetClientDebtHistory,
+      // LIRA-304 — open items (basket breakdown / repayment picker): none.
+      getOpenDebtItems: mockGetOpenDebtItems,
       getTransactionById: mockGetTransactionById,
       getSaleItems: mockGetSaleItems,
       getClientBalance: mockGetClientBalance,

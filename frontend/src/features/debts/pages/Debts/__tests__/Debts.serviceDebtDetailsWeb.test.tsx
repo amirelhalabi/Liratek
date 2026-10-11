@@ -31,6 +31,8 @@ const FINANCIAL_SERVICE_ID = 4321; // financial_services.id it resolves to
 const mockApi = {
   getDebtors: jest.fn(),
   getClientDebtHistory: jest.fn(),
+  // LIRA-304 — open items (basket breakdown / repayment picker): none.
+  getOpenDebtItems: jest.fn().mockResolvedValue([]),
   getTransactionById: jest.fn(),
   getFinancialServiceById: jest.fn(),
   getPaymentsByTransaction: jest.fn(),
