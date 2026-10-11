@@ -63,20 +63,25 @@ describe("landing page header", () => {
     ["index.html", doc],
     ["ar.html", arDoc],
   ])(
-    "%s orders them: Sign in, Create your shop, then the language switch",
+    "%s orders them: Modules menu, Sign in, Create your shop, then the language switch",
     (_file, page) => {
+      // The Modules menu (features mega-menu) was added first in the header
+      // on purpose (e780888a, landing redesign); this test pinned the order
+      // from before it existed.
       const order = Array.from(
         page.querySelector("header .topnav")!.children,
       ).map((el) =>
-        el.matches('a[data-i18n="nav.login"]')
-          ? "signin"
-          : el.matches("a.nav-cta")
-            ? "create"
-            : el.id === "lang-toggle"
-              ? "lang"
-              : "other",
+        el.id === "features-menu-wrap"
+          ? "modules"
+          : el.matches('a[data-i18n="nav.login"]')
+            ? "signin"
+            : el.matches("a.nav-cta")
+              ? "create"
+              : el.id === "lang-toggle"
+                ? "lang"
+                : "other",
       );
-      expect(order).toEqual(["signin", "create", "lang"]);
+      expect(order).toEqual(["modules", "signin", "create", "lang"]);
     },
   );
 
