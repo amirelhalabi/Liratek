@@ -124,7 +124,7 @@ function isLitestreamTable(name: string): boolean {
  * user_invitations, password_reset_tokens, email_verification_tokens,
  * user_identities — carry `tenant_id` and are split like any other.)
  */
-const PLATFORM_ONLY_TABLES: readonly string[] = [
+export const PLATFORM_ONLY_TABLES: readonly string[] = [
   "signup_invitations",
   "email_outbox",
   "sso_handoff_tokens",
@@ -576,6 +576,94 @@ function vacuumFile(filePath: string): void {
   }
 }
 
+export interface NarrowToTenantOptions {
+  /** The connection the copy was made FROM. Read-only here: the legacy
+   * impersonator rewrite resolves platform users against it, because the
+   * copy's own `users` table has already lost them. */
+  sourceDb: Database.Database;
+  /** Split: `false` (subscriptions live in platform.db only). Offline
+   * snapshot (LIRA-306): `true`, the shop keeps its own row. */
+  keepOwnSubscriptionRow?: boolean;
+  /** Pre-discovered lists (the split discovers once against the source and
+   * reuses them per shop). Discovered from `db` when omitted. */
+  tenantScopedTables?: string[];
+  litestreamTables?: string[];
+  /** Label for `RewrittenLegacyImpersonatorRow.file`. */
+  label?: string;
+}
+
+export interface NarrowToTenantResult {
+  rewrittenLegacyImpersonatorRows: RewrittenLegacyImpersonatorRow[];
+}
+
+/**
+ * Narrows `db` — a fresh `VACUUM INTO` copy, NEVER a live database — to shop
+ * `tenantId`, in place, inside one transaction with `foreign_keys = OFF`.
+ * The ONE implementation shared by the Phase D split and the LIRA-306
+ * offline snapshot (rule 14):
+ *  - refuses (throws, nothing deleted) when the schema has a table the split
+ *    would also refuse (no `tenant_id` and not a known global, or an unsafe
+ *    name) — such a table would otherwise ride along unfiltered;
+ *  - deletes every other shop's rows (and `tenant_id IS NULL` rows) from
+ *    every tenant-scoped table, every other `tenants` row, the platform-only
+ *    tables, and `tenant_subscriptions` (all of it, or all but the shop's
+ *    own row with `keepOwnSubscriptionRow`);
+ *  - rewrites legacy pre-B-D3 impersonator audit rows, drops Litestream
+ *    bookkeeping tables.
+ * Known globals without `tenant_id` (`sync_queue`, `sync_errors`,
+ * `schema_migrations`) are left as they are — the caller decides. Does NOT
+ * touch `sqlite_sequence` and does NOT `VACUUM`.
+ */
+export function narrowToTenant(
+  db: Database.Database,
+  tenantId: number,
+  opts: NarrowToTenantOptions,
+): NarrowToTenantResult {
+  const { unsafeTableNames, unexpectedTablesWithoutTenantId } =
+    discoverUnsafeAndUnscopedTables(db);
+  if (unsafeTableNames.length > 0 || unexpectedTablesWithoutTenantId.length > 0) {
+    throw new Error(
+      `narrowToTenant: refusing — tables would be copied unfiltered: ${[
+        ...unexpectedTablesWithoutTenantId,
+        ...unsafeTableNames,
+      ].join(", ")}`,
+    );
+  }
+  const tenantScopedTables = opts.tenantScopedTables ?? discoverTenantScopedTables(db);
+  const litestreamTables = opts.litestreamTables ?? discoverLitestreamTables(db);
+  const label = opts.label ?? "";
+
+  let rewrittenLegacyImpersonatorRows: RewrittenLegacyImpersonatorRow[] = [];
+  db.pragma("foreign_keys = OFF");
+  db.transaction(() => {
+    for (const table of tenantScopedTables) {
+      if (SPECIAL_CASED_TABLES.has(table)) continue;
+      db.prepare(
+        `DELETE FROM ${quoteIdent(table)} WHERE tenant_id IS NULL OR tenant_id != ?`,
+      ).run(tenantId);
+    }
+    db.prepare(`DELETE FROM tenants WHERE id != ?`).run(tenantId);
+    if (opts.keepOwnSubscriptionRow) {
+      db.prepare(
+        `DELETE FROM tenant_subscriptions WHERE tenant_id IS NULL OR tenant_id != ?`,
+      ).run(tenantId);
+    } else {
+      db.exec(`DELETE FROM tenant_subscriptions`);
+    }
+    for (const table of PLATFORM_ONLY_TABLES) {
+      if (tableExistsIn(db, table)) {
+        db.exec(`DELETE FROM ${quoteIdent(table)}`);
+      }
+    }
+    // Rewrite legacy impersonator rows AFTER narrowing (only this
+    // tenant's own audit rows remain) and BEFORE dropping the Litestream
+    // tables / the caller running the FK check.
+    rewrittenLegacyImpersonatorRows = rewriteLegacyImpersonatorRows(db, opts.sourceDb, label);
+    dropTables(db, litestreamTables);
+  })();
+  return { rewrittenLegacyImpersonatorRows };
+}
+
 /**
  * Builds a shop database file at `destPath` from a `VACUUM INTO` snapshot of
  * `sourceDb`, narrowed to tenant `tenantId` per the algorithm above.
@@ -592,33 +680,12 @@ function buildTenantFile(
   const file = new Database(destPath);
   let rewrittenLegacyImpersonatorRows: RewrittenLegacyImpersonatorRow[] = [];
   try {
-    file.pragma("foreign_keys = OFF");
-    file.transaction(() => {
-      for (const table of tenantScopedTables) {
-        if (SPECIAL_CASED_TABLES.has(table)) continue;
-        file
-          .prepare(
-            `DELETE FROM ${quoteIdent(table)} WHERE tenant_id IS NULL OR tenant_id != ?`,
-          )
-          .run(tenantId);
-      }
-      file.prepare(`DELETE FROM tenants WHERE id != ?`).run(tenantId);
-      file.exec(`DELETE FROM tenant_subscriptions`);
-      for (const table of PLATFORM_ONLY_TABLES) {
-        if (tableExistsIn(file, table)) {
-          file.exec(`DELETE FROM ${quoteIdent(table)}`);
-        }
-      }
-      // Rewrite legacy impersonator rows AFTER narrowing (only this
-      // tenant's own audit rows remain) and BEFORE dropping the Litestream
-      // tables / this function's caller running the FK check.
-      rewrittenLegacyImpersonatorRows = rewriteLegacyImpersonatorRows(
-        file,
-        sourceDb,
-        destPath,
-      );
-      dropTables(file, litestreamTables);
-    })();
+    ({ rewrittenLegacyImpersonatorRows } = narrowToTenant(file, tenantId, {
+      sourceDb,
+      tenantScopedTables,
+      litestreamTables,
+      label: destPath,
+    }));
   } finally {
     file.close();
   }
