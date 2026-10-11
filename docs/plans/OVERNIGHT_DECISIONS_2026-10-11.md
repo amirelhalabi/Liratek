@@ -260,20 +260,30 @@ symlink with a real copy, so later core edits need the `cp` sync again.
 
 ## 3. Syria remittance (LIRA-305)
 
-Result: **designed, not built.** Ticket **LIRA-305**, as filed under G3. Spec Kit design ran (specify → plan → tasks →
-analyze, three independent passes) in `specs/305-syria-remittance/`.
+Result: **built and tested, not deployed** (2026-10-11, overnight). Ticket **LIRA-305**, filed under G3, designed with
+Spec Kit in `specs/305-syria-remittance/` (21 of 21 tasks done). The only change to the app is one Profits rule: a pay-out's
+commission now counts when what you owe the partner for sends cancels what the partner owes you, not only when the
+partner pays cash (Y6). The parent agent went ahead with Y6 without waiting for you (Y14). The rule saves nothing: it is
+worked out each time Profits opens. Removing it brings back today's figures, and no data needs fixing.
+
+Tested by running it, not by reading the code. The new guard test failed first on the old code (5, 3 and 3.8 instead of 8, 6
+and 5) and passes now. The web test failed first (pay-out commission +$0) and passes now (+$3). Every void puts the drawer, the
+partner's account and Profits back. Speed: about 1.1 s for the whole Profits read when the account is square, and 4.3 s
+when the partner owes. The limits were 3 s and 10 s. The desktop test is written. On this Mac it passed once in web mode;
+its first desktop run is on CI (G5). Nothing in the database changes: it is still v209. No screens or OMT/Whish code changed.
+**Profits for earlier days can go up** for partners you both send and pay out through.
 
 The big finding came first. **Both directions already exist and work:** SEND is Services → Via Partner, and RECEIVE is
 Services → Via Partner → Pay out. You chose that route on 2026-09-24 (notes #16) and confirmed it "as built, no change" on
-2026-09-25. The plan file from 2026-09-17 (a "Syria" tab on the OMT/Whish page) was never moved out of the to-do folder.
-That is why it looked unbuilt. It is not built and should not be.
+2026-09-25. The plan file from 2026-09-17 (a "Syria" tab on the OMT/Whish page) was never moved out of the to-do folder
+(it is now archived in `done_plans/`). That is why it looked unbuilt. It is not built and should not be.
 
 I checked the money with test runs, not by reading the code:
 - Booking, voiding and refunding a send or a pay-out puts the cash drawer, the partner's account and the profit back to
   zero, in dollars and in lira.
 - One real mistake was found. A pay-out's commission waits until the partner "pays". But when what you owe the partner
   for sends cancels what the partner owes you for pay-outs, the app never counted that as paying, so the pay-out
-  commission never showed on Profits. The fix is designed (Y6) and has 21 tasks ready for an agent.
+  commission never showed on Profits. The fix (Y6) is now built; see the Result above.
 
 Nothing in the database changes (still v209). The OMT/Whish screens are not touched.
 
@@ -281,20 +291,24 @@ Nothing in the database changes (still v209). The OMT/Whish screens are not touc
   *Choice:* keep it in Services, exactly as it works today.
   *Why:* you decided this three times (2026-08-10, 2026-09-24, 2026-09-25). The OMT/Whish route needs a database change and
   edits to delicate OMT/Whish money code. It would also give the shop two different ways to book the same transfer.
+  *Measured:* no OMT/Whish file changed (`git diff` over the OMT/Whish page, its test, the setup wizard and the drawer routing is empty); the old plan is archived in `done_plans/`.
   *Undo:* nothing to undo; the old plan is kept, marked "superseded", for the record.
 
 - **Y2 — Is a partner always required?**
   *Choice:* yes, as today. A pay-out without a partner is refused on both apps.
+  *Measured:* unchanged; the existing refusal tests still pass (`CustomServiceRepository.payout.test.ts`, lira-web-custom-service-payout "rejected without a Via-Partner mode", green over the web on 2026-10-11).
   *Undo:* not applicable.
 
 - **Y3 — Which cash drawer?**
   *Choice:* General. A send takes payment the normal way; a pay-out is paid in cash from General. Syria never touches the
   OMT or Whish cash drawers, as you asked. No new drawer.
+  *Measured:* send +$103 and pay-out −$97 on General, both apps' tests (lira-web-054 green; desktop twin green in web mode).
   *Undo:* not applicable.
 
 - **Y4 — Currency?**
   *Choice:* dollars and lira each stay on their own, with no conversion. Netting (Y6) only matches dollars with dollars
   and lira with lira.
+  *Measured:* a USD send never nets an LBP pay-out (LBP profit stays 0, USD 3); an LBP corridor gives 600,000 LBP and goes back to 300,000 after voiding the pay-out.
   *Undo:* not applicable.
 
 - **Y5 — How is commission taken, and when is it counted?**
@@ -304,6 +318,7 @@ Nothing in the database changes (still v209). The OMT/Whish screens are not touc
     It is counted when the partner pays, which is your rule from 2026-10-06 (D5) and replaces the earlier note "counted
     the same day".
   
+  *Measured:* the send's $3 counts at once (lira-web-054 step 1: +$3); a lone pay-out still counts $0 until paid, and $1.50 after the partner pays $50.
   *Undo:* not applicable.
 
 - **Y6 — Does netting count as the partner paying?**
@@ -321,7 +336,7 @@ Nothing in the database changes (still v209). The OMT/Whish screens are not touc
   
   It moves no money: no drawer, no balance and no saved record changes. Only the timing on Profits changes. It cannot
   count profit too early.
-  **This departs from part of your D5 rule (2026-10-06) — please confirm it first.** D5 said a pay-out's commission
+  **This departs from part of your D5 rule (2026-10-06) — please confirm it first.** → Decided by the parent agent: go ahead (Y14). It can be undone in one step. D5 said a pay-out's commission
   counts "when the partner pays, same rule as For Partner rows". The For Partner rule only counts cash, never netting,
   so in a two-way corridor the pay-out commission would never count at all. Y6 keeps "when the partner pays" and adds
   netting for Services pay-outs only; For Partner rows keep the cash-only rule (Y7). Because Profits works this out each
@@ -330,8 +345,10 @@ Nothing in the database changes (still v209). The OMT/Whish screens are not touc
   *What you will notice:* pay-out commissions that were stuck as "waiting for partner" appear on Profits, on their own
   day. That includes ones you entered before this change.
   *Undo:* remove one small piece of the Profits calculation. No data to fix.
-  *Measured:* the "today" figures above come from a test run on the real database layout. The "after" figures are the
-  targets of the new guard test (task T004), not yet run. Speed was measured on a prototype of the calculation, for a
+  *Measured:* the "today" figures above come from a test run on the real database layout. **After the change, measured
+  (guard test `ProfitRepository.syriaCorridorNetting.test.ts`, 28 of 28 passing):** the three rows give $8, $6 and $5 for the
+  whole corridor (it gave $5, $3 and $3.80 before). On the web the pay-out commission went from +$0 to +$3 (lira-web-054).
+  Earlier note on the design: speed was measured on a prototype of the calculation, for a
   partner with 300 sends and 300 pay-outs: about 1 second for the whole Profits read when the account is square, and about
   4 seconds when 150 pay-outs are still unpaid. My first version took 37 seconds; the review caught it and the design was changed before any
   code was written. A second review caught that undoing a cash entry would have left a commission stuck; that was fixed
@@ -341,30 +358,36 @@ Nothing in the database changes (still v209). The OMT/Whish screens are not touc
   *Choice:* no. It applies only to Services pay-outs. Everything else stays exactly as today.
   *Why:* it is the smallest change that fixes the corridor. Other partner work has its own rules, and nobody asked to
   change them.
+  *Measured:* For Partner rows unchanged: a For Partner service's $10 still waits (total $5, the same before and after); the full core suite passes (6,302 tests).
   *Undo:* not applicable.
 
 - **Y8 — One corridor (Syria) or several?**
   *Choice:* it already works for any corridor: any partner, same form (Turkey, Iraq…). Nothing is Syria-specific.
+  *Measured:* tests use any partner name; nothing in the code says Syria.
   *Undo:* not applicable.
 
 - **Y9 — "For Partner" or "Via Partner"?**
   *Choice:* Via Partner, for both directions. "For Partner" on the Services page keeps its own meaning: the partner uses
   your service and owes you the full price.
+  *Measured:* not applicable.
   *Undo:* not applicable.
 
 - **Y10 — Which "OMT or Whish only" places in the app must stay as they are?**
   *Choice:* all of them, untouched: the shop's main system, the setup wizard, the OMT/Whish cash drawer routing, the
   OMT/Whish page's provider list, the partner filter there, and the test that guards it.
   *Why:* Syria is a route the shop offers, not the shop's main system.
+  *Measured:* `git diff` over every listed place is empty (task T010).
   *Undo:* not applicable.
 
 - **Y11 — Undoing a send, a pay-out or a partner payment?**
   *Choice:* the existing void and refund already put everything back (measured: drawer, partner account and profit
   return to 0). Netting saves nothing, so there is nothing extra to undo. After a void, Profits recalculates on its own.
+  *Measured:* voiding the send gives $0, voiding the partner's settlement gives $3.20, refunding the pay-out gives $3, and voiding a cash entry or a wallet top-up leaves the figure where it was. The drawer and the partner's account come back each time, in USD and LBP.
   *Undo:* not applicable.
 
 - **Y12 — Can a pay-out go into a customer's session basket?**
   *Choice:* no, as today. A pay-out is recorded straight away.
+  *Measured:* unchanged (no basket code touched).
   *Undo:* not applicable.
 
 - **Y13 — Do "paper" entries on a partner's account count as you owing the partner?**
@@ -377,10 +400,191 @@ Nothing in the database changes (still v209). The OMT/Whish screens are not touc
   *Why:* the review found that, without this rule, one paper line "shop owes partner 500" would have counted every
   pay-out's commission at once with no money moving. That also breaks your earlier rule that paper entries are only
   notes and never count as payment.
+  *Measured:* a paper credit of $100 gives $0, the same credit with cash moved gives $3, and a paper credit with another type still gives $0. An old-style manual credit from before LIRA-066 gives $0.
   *Undo:* drop the exclusion; the Partners page balance itself is not affected either way.
+
+- **Y14 — Go ahead with Y6 before you confirm it?**
+  *Choice:* **yes.** The designer asked for your confirmation first (Y6). The parent agent decided to build it now.
+  *Why:* the rule saves nothing. It changes only how Profits reads what is already there. No drawer, no balance and no
+  saved record changes. A printed closing stays as it is. Closings do not store profit, though, so a past day's close
+  opened again shows the new figure. Without it, pay-out commissions in a two-way
+  corridor never show at all.
+  *What you will notice:* pay-out commissions for partners you both send and pay out through appear on Profits, on their
+  own day. Old payments and sends count too. **Profit shown for earlier days can go up** for those partners. The release
+  note says so plainly.
+  *Undo:* delete `partnerEffectiveCoveredSql` in `packages/core/src/constants/partnerObligation.ts` and point its two users
+  in the same file (`partnerCoverageRatioWhereSql`, `partnerUncoveredExistsWhereSql`) back at `covered_amount`. Every
+  figure goes back to what it was. There is no data to fix and no migration.
+
+- **Y15 — Seven older unit tests broke on the new rule. Change the code or the tests?**
+  *Choice:* the tests' cut-down tables. Seven older core tests build their own small copy of the partner and transaction
+  tables, and those copies leave out columns the real database has always had. The new rule reads those columns, so
+  these seven tests stopped with "no such column" before checking anything. Each test's table now has the missing
+  columns, written the way the real database has them. No expected value, test data or check was changed. LIRA-258 did
+  the same when its rule started reading more columns.
+  *Why:* the real database always has these columns. Writing the rule around missing columns would only help those tests.
+  *Undo:* not applicable. Taking the columns out again only breaks those seven tests.
+  *Measured:* before, 7 suites (36 tests) stopped with "no such column". After, the whole core suite passes: 644 suites,
+  6,302 tests.
 
 
 ## 4. Offline desktop fallback (LIRA-306)
+
+Result: **designed, not built.** Ticket **LIRA-306**. Spec Kit design (specify → plan → tasks → analyze) is in
+`specs/306-offline-desktop-fallback/`: 92 tasks. Three independent review passes were run. The first found 1 critical
+and 9 high problems, the second found 0 critical and 12 high, and all were fixed in the design. Pass 3 results are in the
+ticket. No code, no database change yet. The design adds one migration (v210, three new tables).
+
+**What it does, in short.** You pair the shop's PC as the backup till for your web shop. While the internet works, the PC
+keeps a copy of the shop's data, refreshed every 5 minutes, and shows "use the web app". If the internet drops, the
+cashier presses "Work offline" and can keep selling, recording expenses and taking debt repayments. While that happens,
+the web and phone apps pause saving, so nobody books the same money twice. When the internet comes back, the PC sends
+the work. The server books each item once, on the day it happened, with the same rules as a web sale. Anything it cannot
+book goes on a review list for you.
+
+**Two things I found that the September plan got wrong.**
+- A "book once" key already exists. The phone app added it (LIRA-289). It keeps replies for only 24 hours, though, so
+  offline work gets its own permanent record.
+- Receipts print `RCP-<sale number>` now, so an offline sale needs its own receipt number.
+
+**What can be built and tested tonight or by the next agent on this Mac.**
+- The web lock: pairing, check-ins, pausing web and phone saves, the admin Unlock, and the banner. Web test lira-web-055.
+- Sending offline work back: booked once, kept on its own day, the review list. Web test lira-web-056.
+- The server side of the data copy.
+
+The desktop parts (standby screen, offline mode, tray) can be written and unit-tested here. They cannot be seen working
+until CI or your Windows PC, because Electron never runs on this Mac.
+
+**Blocked on you or on infrastructure (G5), with a runbook in `docs/OPERATIONS.md` once built:**
+- push and deploy;
+- a desktop release, so paired PCs match the server's data version;
+- the first real pairing and an outage drill on the test shop's Windows PC;
+- hosting Phase D;
+- the faster "live copy" through Litestream/R2 (spikes S1 and S3, which need R2 credentials).
+
+- **O1 — Which actions work offline?**
+  *Choice:* only three: a POS sale, adding an expense, and taking a debt repayment. Everything else says "not available
+  while offline".
+  *Why:* this is what a shop needs during an outage, and each of the three already accepts "when it happened". Every
+  extra action adds money risk.
+  *Undo:* add more actions later, one by one, each with its own test.
+- **O2 — Can the cashier create a new customer or product, or refund, while offline?**
+  *Choice:* no. Offline sales use existing customers and products only. Refunds and voids wait for the internet.
+  *Why:* an item created offline gets a different number on the server. Handling that needs a translation table. Leaving
+  it out removes that risk completely.
+  *Undo:* build the translation table later.
+- **O3 — Where does the PC's copy come from?**
+  *Choice:* the server makes a copy of just your shop every 5 minutes, and the PC downloads it.
+  *Why:* it works on today's server without hosting Phase D and without R2 keys. A copy a few minutes old loses nothing,
+  because offline work is replayed on top of the server's current data, never copied over it.
+  *Undo:* switch to the Litestream live copy after spikes S1/S3 (owner-run).
+- **O4 — How does the PC prove who it is?**
+  *Choice:* its own key, created when an admin pairs it. The server stores only a scrambled form (hash) of the key.
+  *Why:* the licence key is a read-only check issued by you as super admin. Turning it into a "can book money" key would
+  widen it. A device key can be revoked by the shop admin.
+  *Undo:* revoke the device in Settings.
+- **O5 — How many backup PCs per shop?**
+  *Choice:* one. Pairing a second replaces the first, unless the first still has offline work. Then pairing needs an
+  explicit "replace", and that work goes to review.
+  *Undo:* not applicable.
+- **O6 — When is the web app paused?**
+  *Choice:* the PC checks in every 15 seconds. The web pauses if the PC has been silent for 90 seconds without saying
+  goodbye, or while it reports offline work. Looking at screens and signing in always work. An admin can press "Unlock —
+  the desktop isn't in use", and that is recorded.
+  *Why:* this is your D2.
+  *Risk:* a power cut at closing pauses after-hours phone sales until an admin unlocks on the web. Windows does not give
+  apps the normal "closing" signal on shutdown, so the goodbye is sent from the shutdown notice itself. The drill on your
+  PC will show whether that works.
+  *Undo:* make the 90 seconds longer (a server setting), or revoke the device.
+- **O7 — What if the server cannot check the pause state (a database hiccup)?**
+  *Choice:* the save goes through and is logged.
+  *Why:* stopping every paired shop from selling is worse. The review rule in O8 still catches clashes.
+  *Undo:* one line.
+- **O8 — When is offline work held for you to review instead of booked?**
+  *Choice:* when anything was saved on the web or phone app for that shop after the offline period began. That covers
+  an Unlock followed by a sale, and a PC that said goodbye last night and started offline this morning while the owner
+  sold from the phone. You get "Apply", "Apply all" and "Dismiss".
+  *Why:* the first design looked only at "an admin unlocked", and the review proved that it never triggered in a real
+  outage. Watching for actual web saves is exact.
+  *What you will notice:* a save made in the last few seconds before the internet cut (up to one 15-second check-in)
+  also sends that outage to review. That is expected and safe: press "Apply all".
+  *Undo:* not applicable.
+- **O9 — Where is the "booked once" record kept?**
+  *Choice:* a new permanent table. It is not the phone app's 24-hour one, and not the old unused `sync_queue`, which has
+  no shop column and copies rows.
+  *Undo:* drop the table (v210 down).
+- **O10 — Where do offline sales go on the PC?**
+  *Choice:* into a working copy. Each sale and its "to send" entry are saved together, both or neither. The downloaded
+  copy is never changed. Finished working copies are kept (the last 3).
+  *Why:* a crash can never leave a sale that the server will not hear about.
+- **O11 — What if the PC's app version differs from the server's?**
+  *Choice:* offline mode refuses to start, and the standby screen says "update this app". Paired PCs keep updating while
+  on standby.
+  *Why:* a mismatch could silently drop fields on money records.
+  *Undo:* not applicable. Ship a desktop release with every database change.
+- **O12 — When can the cashier press "Work offline"?**
+  *Choice:* after the server has been unreachable for 30 seconds longer than the web pause delay, so about 2 minutes. New
+  offline work is refused one minute after the internet is back, and the cashier is told to send.
+  *Why:* the web is then already paused when the PC starts, and the shop goes back to the web quickly (D1).
+- **O13 — What if the server refuses an offline item (out of stock, user switched off)?**
+  *Choice:* the item goes on the review list with the reason, and the rest carries on. A later item for the same
+  customer is held too, so a repayment is never booked against a sale you may dismiss.
+- **O14 — The PC's clock is wrong.**
+  *Choice:* up to 5 minutes fast: booked at the server's time, with a note. More than that: sent to review.
+  *Undo:* change the 5 minutes.
+- **O15 — Receipt number for an offline sale.**
+  *Choice:* `RCP-OFFLINE-` followed by 8 characters. The "Offline history" list shows which web sale number it became.
+- **O16 — What is in the PC's copy?**
+  *Choice:* only your shop's data, with sign-in codes, tokens, device keys, invitations, API keys and the licence key
+  removed. Users' password hashes stay, so cashiers can sign in offline. It is stored like today's desktop database, not
+  encrypted.
+  *Undo:* encryption is a follow-up.
+- **O17 — Server limits on requests.**
+  *Choice:* the PC's calls get their own allowance, so they never use up the shared allowance that sign-in pages rely on.
+- **O18 — Desktop-only shops.**
+  *Choice:* unchanged. A paired PC never opens the desktop shop's own database file.
+- **O19 — Shops without a paired PC.**
+  *Choice:* nothing changes for them.
+- **O20 — Not in this release.**
+  *Choice:* the check of 24 "newest by number" queries, and reprint numbering. With the pause in place, replayed sales are
+  the newest anyway.
+  *Undo:* follow-up ticket.
+- **O21 — Who can start offline mode?**
+  *Choice:* any active user of the shop, by signing in on the PC. The server checks the user again when the work arrives.
+- **O22 — The 90 seconds.**
+  *Choice:* a server setting, default 90. Tests use 3.
+- **O23 — Whose name goes on an offline sale? Please confirm.**
+  *Choice:* the cashier who rang it up on the PC, not a web sign-in. This is a narrow exception to the rule that the
+  person comes from the sign-in. The server checks that the user belongs to your shop, is active and is allowed to do
+  that action.
+  *Why:* otherwise every offline sale would be credited to the wrong person.
+  *Undo:* credit the pairing admin instead (one line).
+- **O24 — The PC's key stops working while it holds offline work** (reinstall, revoked).
+  *Choice:* an admin re-pairs from the offline PC. The waiting work is kept and sent with the new key. It goes to review
+  when the old PC had to be forcibly replaced, or when anything was saved on the web meanwhile. Otherwise it is booked
+  normally.
+  *Undo:* not applicable.
+- **O25 — How does the PC prove itself when nobody is signed in? Please confirm.**
+  *Choice:* the PC's own calls (check-in, goodbye, download the copy, send work) use its device key. The standby-screen
+  buttons (pair, unpair, work offline, restart to update) work before anyone signs in. On standby, updates download by
+  themselves and install only when someone presses "Restart to update", never by surprise. Pairing and unpairing still
+  ask for an admin's password, except unpairing a PC that holds no shop data. Nothing can be sold until a cashier
+  signs in.
+  *Why:* during an outage nobody can sign in to the server, so a normal sign-in cannot be required.
+  *Undo:* revoke the device. Requiring a sign-in for "Work offline" is a small change.
+- **O26 — Which day do the cash-drawer lines of offline work carry?**
+  *Choice:* the sale, its transaction row and its profit keep the day the sale happened. The detailed payment lines
+  behind the drawer are dated when the work is sent. Backdated sales already work this way today.
+  *Why:* dating those lines back would change the closing "since last count" list, the dashboard's cash collected and
+  Profits by payment method for every backdated entry you have already made. That is a separate money change, so I
+  filed it as a follow-up instead of slipping it in here.
+  *What you will notice:* after an outage that crossed midnight, the drawer detail lines for the offline sales show the
+  day they were sent. Sales, transactions and profit show the right day.
+  *Undo:* the follow-up ticket would date the lines from the sale time.
+- **Morning summary line for LIRA-306.**
+  Designed only. Two choices need your yes: O23 (whose name goes on an offline sale) and O25 (the PC's key replaces a
+  sign-in for its own calls). The web lock and the send-back can be built and tested on this Mac. Everything on the
+  shop PC needs CI or your Windows PC, and production steps wait for you.
 
 ## Morning summary
 

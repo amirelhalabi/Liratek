@@ -6633,16 +6633,41 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
-## LIRA-305: Syria remittance — send and receive through a partner — MEDIUM — IN PROGRESS (spec + plan + tasks done 2026-10-11 overnight; not built)
+## LIRA-306: Offline desktop fallback — web-first with a desktop Plan B — HIGH — IN PROGRESS (design phases running 2026-10-11 overnight; not built)
+
+| Field | Value |
+| --- | --- |
+| **Type** | Big feature (owner request 2026-10-11 overnight batch, item 4; decisions delegated) |
+| **Priority** | High |
+| **Status** | **IN PROGRESS** — Spec Kit design phases (specify → plan → tasks → analyze); implementation not started |
+| **Modules** | core (new offline module, v210), backend (device routes, write lock, replay), electron-app (paired mode, outbox), frontend (lock banner, review list, standby screen); docs |
+| **Plan** | `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (owner decisions D1–D5, 2026-09-27) |
+| **Spec** | `specs/306-offline-desktop-fallback/` |
+| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §4, O1… |
+
+### Summary
+
+When a web shop's internet drops, the cashier keeps selling on the desktop app on the same PC, from a recent copy of the
+shop's own data. While the desktop works offline, the shop's web app (and phone app) is read-only (D2). When the internet
+returns, the offline work is sent back as operations through the server's own services — the server numbers every new row
+(D4) — each with a one-time operation key so nothing is booked twice, keeping its original time and day.
+
+_Details, slices and what is blocked on the owner/infrastructure: filled in when the design phases finish._
+
+**What users will notice:** _to be finished at implement time._
+
+---
+
+## LIRA-305: Syria remittance — send and receive through a partner — MEDIUM — DONE (not deployed) 2026-10-11
 
 | Field | Value |
 | --- | --- |
 | **Type** | Feature finish + money fix (owner request 2026-10-11 overnight batch, item 3; decisions delegated) |
 | **Priority** | Medium |
-| **Status** | **IN PROGRESS** — design phases done (`/speckit-specify` → plan → tasks → analyze ×3, last fixes verified by running them); implementation not started |
+| **Status** | **DONE (not deployed)** 2026-10-11 — `/speckit-implement`, 21/21 tasks; local only, the push waits for the owner (G1) |
 | **Modules** | custom_services, partners, profits (core read rule only); docs |
 | **Spec** | `specs/305-syria-remittance/` (spec, plan, research R1–R9, data-model, contract, quickstart, tasks 21) |
-| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §3, Y1–Y13 |
+| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §3, Y1–Y15 (Y14: the parent agent went ahead with Y6; Y15: seven test fixtures got their missing real-schema columns) |
 
 ### Summary
 
@@ -6664,30 +6689,58 @@ the partner for SENDs never counts — so in a two-way corridor the RECEIVE comm
   same day, RECEIVE commission (arrived − paid out) counts when the partner pays (owner D5); **Y6 netting counts as
   paying** — the RECEIVE commission counts as the partner's account in that currency stops owing it, oldest first,
   nothing stored (**departs from part of D5**, which said "same rule as For Partner rows" = cash only; owner to confirm
-  first); Y7 only for Custom Services pay-outs, every other partner flow unchanged; Y8 already generic for other
+  first — **Y14: the parent agent proceeded; undo = delete `partnerEffectiveCoveredSql` and point its two users back at
+  `covered_amount`**); Y7 only for Custom Services pay-outs, every other partner flow unchanged; Y8 already generic for other
   corridors; Y9 Via Partner, not For Partner; Y10 none of the "OMT | WHISH" sites is widened; Y11 reversal = existing
   generic void/refund, netting re-derived on read; Y12 a pay-out never joins a customer basket; Y13 paper credit entries
   ("Cash moved" off) never count as the shop owing the partner.
 
 ### Acceptance criteria
 
-- [ ] Netted corridors count both commissions once the partner account is square (Q1 → $8, Q2 → $6, Q3 → $5), and a
+- [x] Netted corridors count both commissions once the partner account is square (Q1 → $8, Q2 → $6, Q3 → $5), and a
       RECEIVE the partner still owes counts $0 — `ProfitRepository.syriaCorridorNetting.test.ts`, red first.
-- [ ] A paper credit on the partner never releases a RECEIVE's commission; "oldest first" uses real time whatever the
+- [x] A paper credit on the partner never releases a RECEIVE's commission; "oldest first" uses real time whatever the
       stored text format; Profits by-module stays < 3 s (square) / < 10 s (partner owes) for a 750-row corridor; voiding any partner row (cash entry, wallet top-up) leaves the figure where it was.
-- [ ] Older RECEIVEs count first; USD and LBP never net; For Partner rows of every module keep today's timing.
-- [ ] Void/refund of a SEND, a RECEIVE or a partner settlement returns drawer, partner account and Profits to their
+- [x] Older RECEIVEs count first; USD and LBP never net; For Partner rows of every module keep today's timing.
+- [x] Void/refund of a SEND, a RECEIVE or a partner settlement returns drawer, partner account and Profits to their
       prior values per currency; nothing new is stored.
-- [ ] Web e2e `lira-web-054-syria-corridor` (red first, then green); desktop twin `lira-305-syria-corridor-netting`
+- [x] Web e2e `lira-web-054-syria-corridor` (red first, then green); desktop twin `lira-305-syria-corridor-netting`
       typechecks (CI first run).
-- [ ] No migration (v209), no IPC/REST/preload/adapter/schema/UI change; OMT/Whish figures unchanged.
-- [ ] Stale plan archived; FEATURE_GUIDE §8.4/§10/§13, COUNTERPARTY_LEDGERS §3/§6/§7, POSTING_MAP row + G16 updated.
-- [ ] Release note; all gates (core/backend/electron/frontend jest, typecheck, lint, build, tenant-scoping, bind-arity,
+- [x] No migration (v209), no IPC/REST/preload/adapter/schema/UI change; OMT/Whish figures unchanged.
+- [x] Stale plan archived; FEATURE_GUIDE §8.4/§10/§13, COUNTERPARTY_LEDGERS §3/§6/§7, POSTING_MAP row + G16 updated.
+- [x] Release note; all gates (core/backend/electron/frontend jest, typecheck, lint, build, tenant-scoping, bind-arity,
       transport-parity, schema-equivalence, release-notes check).
 
-**What users will notice:** _to be finished at implement time_ — draft: on the Profits page, the commission on a
-pay-out for a partner (for example a Syria transfer) now counts as the partner's account is paid down — by cash, or by
-what you owe that partner for transfers you sent. Profit shown for earlier days can go up.
+**What users will notice:** on the Profits page, the commission on money you pay out for a partner (Services → Via
+Partner → Pay out, for example a Syria transfer) now counts as the partner's account is paid down — by cash, or by what
+you owe that partner for transfers you sent through them. Pay-outs already recorded are included, so **profit shown for
+earlier days can go up** for partners you both send and pay out through (a past day's close opened again shows the new
+figure; a printed copy does not change). Manual partner
+entries with "Cash moved" off never count as the partner paying.
+
+### Result (2026-10-11)
+
+- **Code:** one read-time rule in `packages/core/src/constants/partnerObligation.ts` (`partnerEffectiveCoveredSql`,
+  `partnerNettingBalanceSql`, `partnerPayoutUncoveredSql`, `payoutNewerSumSql`), used by the two partner-coverage
+  fragments; one doc line in `ProfitRepository.ts`. No migration (v209), no IPC/REST/preload/adapter/schema/UI change
+  (`git diff` over every transport file is empty).
+- **Guard (rule 17, red first):** `ProfitRepository.syriaCorridorNetting.test.ts`, 28 cases. On the old code, 20 failed
+  with real figures (Q1 5 ≠ 8, Q2 3 ≠ 6, Q3 2 ≠ 3.2 and 3.8 ≠ 5, oldest-first 3 ≠ 6, LBP 300,000 ≠ 600,000, deferred
+  3 ≠ 0, perf 300 ≠ 390) or with the new functions missing; 8 regression nets were green (For Partner unchanged, currencies
+  never net, paper credits 0, cash-moved credit 3). After: **28/28**. The void/refund legs of (h1)–(h3), (q), (r) and (s) are
+  regression nets, not proven failing-first. Their setup step failed first.
+- **Speed:** by-module **1,063 ms** (square, 300+300; budget 3 s) and **4,341 ms** (partner owes, +150; budget 10 s). The
+  plan uses `idx_transactions_source`.
+- **Web e2e** `lira-web-054-syria-corridor`: red first (step 2 profit +0 ≠ +3), then **1 passed** (3.9 s). The existing
+  corridor specs `lira-web-custom-service-payout` (2), `lira-web-008-partners` (1) and `lira-custom-service-payout` in web
+  mode (2) gave **5 passed**. The desktop twin `lira-305-syria-corridor-netting` passed once in web mode (`E2E_WEB_SPECS`).
+- **Gates:** core jest 644 suites / 6,302 tests (13 s); backend 165 / 1,735 (9 s); electron 63 / 348 (14 s); frontend
+  513 of 514 suites, 3,145 passed / 2 failed / 1 skipped (50 s). The 2 failures are `landingSignIn.test.ts`, which reads only
+  `landing/index.html` / `ar.html`. Neither that test nor those files differ from HEAD, so the failure is already on HEAD. Also `yarn typecheck` (33 s),
+  `yarn lint` (0 errors, 23 s), `yarn build` (10 s), tenant-scoping 0 violations, bind-arity OK, transport-parity 0
+  violations, schema-equivalence zero diffs, release-notes check up to date.
+- **Unverified:** the desktop twin over real IPC (first run is CI, G5). Whether any real shop has pre-LIRA-066 paper
+  credits (research R9). Speed on a slower CI machine. The 4.3 s case has about 2.3× headroom.
 
 ---
 
