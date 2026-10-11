@@ -25,6 +25,7 @@ import type {
 import type {
   OfflineHistoryQuery,
   OfflineHistoryView,
+  OfflineReviewPreview,
   PairedDeviceView,
   ReviewActionResult,
   ReviewDismissInput,
@@ -3258,6 +3259,20 @@ export async function bookOfflineReviewItemAnyway(id: number): Promise<ReviewAct
   return ipcOrHttp<ReviewActionResult>(
     async () => ({ success: false, error: WEB_ONLY }),
     async () => requestJson<ReviewActionResult>(`/api/offline/review/${id}/book-anyway`, { method: "POST" }),
+  );
+}
+
+export async function getOfflineReviewPreview(id: number): Promise<{ success: boolean; data?: OfflineReviewPreview; error?: string }> {
+  return ipcOrHttp<{ success: boolean; data?: OfflineReviewPreview; error?: string }>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson(`/api/offline/review/${id}/preview`),
+  );
+}
+
+export async function renumberPairedPc(id: number): Promise<{ success: boolean; data?: { renumberRequested: true }; error?: string }> {
+  return ipcOrHttp<{ success: boolean; data?: { renumberRequested: true }; error?: string }>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson(`/api/offline/devices/${id}/renumber`, { method: "POST" }),
   );
 }
 

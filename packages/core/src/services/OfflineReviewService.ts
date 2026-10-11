@@ -46,6 +46,10 @@ import {
   type ReviewListQuery,
 } from "../validators/offline.js";
 import { offlineLogger } from "../utils/logger.js";
+import { runWithTenant } from "../db/tenantContext.js";
+import { checkpointExpectedFigures } from "../offline/bindings/checkpoints.js";
+import type { OfflineReviewPreview } from "../offline/views.js";
+import { dayAt } from "../offline/skew.js";
 import type { OfflineHistoryView, ReviewAction, ReviewActionResult, ReviewItemView } from "../offline/views.js";
 export type { OfflineHistoryView, ReviewAction, ReviewActionResult, ReviewItemView } from "../offline/views.js";
 
@@ -170,6 +174,35 @@ export class OfflineReviewService {
     return { success: true, data: { events } };
   }
 
+  /**
+   * What Apply would book, shown BEFORE the admin confirms (FR-032,
+   * O-new-27): for a drawer count taken offline, the PC's expected figure and
+   * the server's drawer as of the count's time, per drawer/currency — the
+   * same `checkpointExpectedFigures` Apply books with. Read-only.
+   */
+  preview(itemId: number): {
+    success: boolean;
+    data?: OfflineReviewPreview;
+    error?: string;
+    code?: string;
+  } {
+    const ctx = this.load(itemId);
+    if ("error" in ctx) return { success: false, code: ctx.error.code, error: ctx.error.error };
+    const { item, event } = ctx;
+    if (!event || item.kind !== "held_checkpoint" || event.channel !== "closing:create-checkpoint") {
+      return { success: true, data: { kind: "none" } };
+    }
+    const payload = parse<Record<string, unknown>>(event.payload_json, {});
+    if (!Array.isArray(payload.amounts)) return { success: true, data: { kind: "none" } };
+    const at = event.corrected_at ?? event.occurred_at;
+    const figures = runWithTenant(event.tenant_id, () => checkpointExpectedFigures(payload), {
+      effectiveNow: at,
+      clientDay: event.corrected_at ? dayAt(at, event.client_tz_offset_minutes) : event.client_day,
+      clientTzOffsetMinutes: event.client_tz_offset_minutes,
+    });
+    return { success: true, data: { kind: "drawer_count", figures } };
+  }
+
   // ── actions ──────────────────────────────────────────────────────────────
 
   async apply(itemId: number, adminUserId: number): Promise<ReviewActionResult> {
@@ -261,6 +294,8 @@ export class OfflineReviewService {
   // ── internals ────────────────────────────────────────────────────────────
 
   private actionsFor(item: OfflineReviewRow, details: Record<string, unknown>): ReviewAction[] {
+    // a PC's sequence conflict is resolved on Settings › Paired PCs (Renumber)
+    if (details.code === "SEQ_CONFLICT") return [];
     if (item.kind === "certain_duplicate") return ["reviewed", "book_anyway"];
     if (item.kind === "pc_data_mismatch") return ["reviewed"];
     if (OFFLINE_HOLDING_KINDS.includes(item.kind)) return details.noApply === true ? ["dismiss"] : ["apply", "dismiss"];

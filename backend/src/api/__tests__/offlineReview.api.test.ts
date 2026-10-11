@@ -125,6 +125,8 @@ describe("review routes — admin only", () => {
       ["post", "/api/offline/review/1/book-anyway"],
       ["get", "/api/offline/devices"],
       ["post", "/api/offline/devices/1/revoke"],
+      ["get", "/api/offline/review/1/preview"],
+      ["post", "/api/offline/devices/1/renumber"],
     ] as const) {
       const res = await staff(request(app)[method](url));
       expect([url, res.status]).toEqual([url, 403]);
@@ -174,5 +176,30 @@ describe("paired PCs", () => {
     expect(r.body).toEqual({ success: true, data: { revoked: true } });
     expect(db.prepare(`SELECT revoked_by FROM offline_devices WHERE id = ?`).get(deviceId)).toEqual({ revoked_by: 20 });
     expect((await admin(request(app).post(`/api/offline/devices/${deviceId}/revoke`))).body).toEqual({ success: true, data: { revoked: true } });
+  });
+});
+
+describe("FR-032 preview and O-new-29 renumber", () => {
+  it("GET /review/:id/preview answers in the envelope (no figures for a carrier-line reading)", async () => {
+    const id = storeHeldCheckpoint(10);
+    const res = await admin(request(app).get(`/api/offline/review/${id}/preview`));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, data: { kind: "none" } });
+  });
+
+  it("POST /devices/:id/renumber: refused without a conflict (HTTP 200); accepted with one", async () => {
+    const pc2 = core.runWithTenant(2, () =>
+      new core.OfflineDeviceRepository().insert({ deviceNo: 2, name: "Back PC", keyId: "aaaaaaaaaaa2", keyHash: "h", pairedBy: 20 }).id,
+    );
+    const no = await admin(request(app).post(`/api/offline/devices/${pc2}/renumber`));
+    expect(no.status).toBe(200);
+    expect(no.body).toMatchObject({ success: false, code: "NO_CONFLICT" });
+    core.runWithTenant(2, () =>
+      new core.OfflineReviewRepository().insert({ eventRowId: null, deviceId: pc2, kind: "refused", details: { code: "SEQ_CONFLICT", seq: 1, reason: "x" } }),
+    );
+    const list = await admin(request(app).get("/api/offline/devices"));
+    expect(list.body.data.devices.find((d: { id: number }) => d.id === pc2).seqConflict).toMatchObject({ seq: 1 });
+    const yes = await admin(request(app).post(`/api/offline/devices/${pc2}/renumber`));
+    expect(yes.body).toEqual({ success: true, data: { renumberRequested: true } });
   });
 });

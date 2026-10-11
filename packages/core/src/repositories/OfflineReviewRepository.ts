@@ -75,6 +75,41 @@ export class OfflineReviewRepository {
       .all(getCurrentTenantId(), eventRowId) as OfflineReviewRow[];
   }
 
+  /** O-new-29 — the PC's open sequence-conflict item (no event row). */
+  findOpenSeqConflict(deviceId: number): OfflineReviewRow | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT * FROM offline_review_items
+            WHERE tenant_id = ? AND device_id = ? AND state = 'open' AND event_row_id IS NULL
+              AND json_extract(details_json, '$.code') = 'SEQ_CONFLICT'
+            ORDER BY id LIMIT 1`,
+        )
+        .get(getCurrentTenantId(), deviceId) as OfflineReviewRow | undefined) ?? null
+    );
+  }
+
+  /** O-new-29 — a renumber the admin asked for that the PC has not done yet. */
+  findPendingRenumber(deviceId: number): OfflineReviewRow | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT * FROM offline_review_items
+            WHERE tenant_id = ? AND device_id = ? AND state = 'applied' AND event_row_id IS NULL
+              AND json_extract(details_json, '$.code') = 'SEQ_CONFLICT'
+              AND json_extract(details_json, '$.renumberPending') = 1
+            ORDER BY id LIMIT 1`,
+        )
+        .get(getCurrentTenantId(), deviceId) as OfflineReviewRow | undefined) ?? null
+    );
+  }
+
+  updateDetails(id: number, details: unknown): void {
+    this.db
+      .prepare(`UPDATE offline_review_items SET details_json = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`)
+      .run(JSON.stringify(details ?? {}), nowIso(), id, getCurrentTenantId());
+  }
+
   /** open → state; false when the item is not open (already resolved). */
   resolve(id: number, state: Exclude<OfflineReviewState, "open">, by: number): boolean {
     const now = nowIso();

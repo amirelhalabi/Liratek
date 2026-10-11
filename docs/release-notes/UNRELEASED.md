@@ -308,7 +308,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Web app: OMT and Whish transfers on the Services page now save both the sender's and the receiver's name and phone, like the desktop app. From now on.
 - Web app, Inventory: when you add a product with a barcode that another product already uses, the form now says "Duplicate Barcode Detected", suggests a free barcode, and offers a button to use it — like the desktop app.
 - Web app, admins: a new "Offline work" page in the side menu lists what a desktop PC did while the internet was down that could not be booked by itself — possible duplicates, drawer counts, items waiting on another item, refusals and notes (such as "stock count was off") — with Apply, Dismiss, Mark reviewed and Book anyway. It stays empty until a PC is paired for offline work.
-- Web app, Settings: a new "Paired PCs" tab shows each desktop PC paired for offline work (number, last seen, what it is doing, how much work it still has to send, version) and lets you unpair one.
+- Web app, Settings: a new "Paired PCs" tab shows each desktop PC paired for offline work (number, last seen, what it is doing, how much work it still has to send, version) and lets you unpair one. If a PC's numbering gets out of step, the tab says so and offers "Renumber unsent work".
+- Web app, Offline work: before you apply a drawer count taken offline, you see the PC's expected amount next to the server's (the drawer at the time of the count, including web sales the PC could not see); the server's amount is the one booked.
 
 ## 🧾 Expenses
 
@@ -342,6 +343,9 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 ## 🖥️ Desktop app
 
 - Desktop app, Settings: a new "This PC" tab lets an admin pair this PC for offline work. A paired PC keeps a copy of the shop and opens on a standby screen with "Open the web app"; when the internet is down, it can keep working and sends its work when the internet is back.
+- Offline work is booked on the day and at the time it was done, so once a PC sends late work, an earlier day's sales, profit and closing figures can change (a day that was already closed gets a note on the Offline work page). In a customer's running balance, offline work appears where it was received, not where it happened. A receipt number printed offline still finds the sale for reprints and warranty.
+- Desktop app: an expense with an empty description is now accepted, like on the web app.
+- Desktop app: OMT/Whish transfers, drawer counts and deleting a repair are now checked with the same rules as the web app — an entry the web app refuses is refused on the desktop too, with the same message.
 - Desktop app: My account is now in the desktop app too (the person icon next to your name at the top). It shows your account picture, username and role, plus your display options for this computer.
 - Desktop app: you can now change your own password in My account. Type your current password and the new one; other signed-in sessions of your account are signed out.
 - Windows desktop app: typing works straight away after closing a confirmation or top-up window.

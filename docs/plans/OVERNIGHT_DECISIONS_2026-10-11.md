@@ -697,6 +697,25 @@ it cannot book go on an "Offline work to review" page on the web app.
   online-only and keep the clock. *Consequence:* the automatic check "every offline-reachable save uses the work's own
   time" still lists those 14 online-only saves, so it stays red until you decide: sweep them too (harmless online) or
   mark them as online-only in the check. *Undo:* not applicable.
+- **O-impl-A2-8 — Supplier and partner saves that only happen online (decided by the parent).** *Choice:* they keep the
+  server's clock. The automatic "work's own time" check now lists them by name, with the online-only actions that
+  reach each:
+  - creating a supplier or a partner;
+  - recording a supplier debt;
+  - the two supplier settlements, with their commission and "settled" stamps;
+  - supplier cash flow and discounts.
+
+  A second check fails if any offline action ever reaches one of them. *Undo:* remove the list and switch them to the
+  work's own time.
+- **O-impl-A2-9 — A PC whose numbering got out of step.** *Choice:* built as the design describes. The server stops
+  that PC's sending, and Settings › Paired PCs shows why in plain words with a "Renumber unsent work" button. The PC
+  then renumbers its unsent work the next time it connects and sends again; nothing is booked twice. The state is kept
+  as a review item linked to the PC, so no database change was needed. It does not appear among the actions on the
+  Offline work page. *Undo:* a column on the PC row.
+- **O-impl-A2-10 — Showing both figures for a drawer count taken offline.** *Choice:* when you press Apply, the window
+  shows each drawer and currency with the PC's expected amount, the server's expected amount (the drawer at the time of
+  the count) and the counted amount. The server's amount is booked, worked out the same way the booking does.
+  *Undo:* not applicable.
 - *Follow-up for T115:* the backend test for the copy route should inject the build step; the service singleton cannot
   take the test database constructor.
 
@@ -730,6 +749,49 @@ O-new-4 confirmed (offline customer with an existing phone → linked to the exi
 confirmed (vouchers and catalog changes online-only). Other O-new items stand as decided.
 
 ## Morning summary
+
+### Where the four items ended (2026-10-11, afternoon)
+
+| # | Item | Result | Commits |
+|---|---|---|---|
+| 1 | Commission at settlement | Done, plan archived; no screen change | `3522ea72` |
+| 2 | LIRA-256 OMT statement types | Done; also fixed a double-subtraction in the old check | `f56b4b13` |
+| 3 | LIRA-305 Syria | Both directions already existed; fixed pay-out commission missing from Profits. **Y14 kept by the owner.** | `5e5cd0a1` |
+| 4 | LIRA-306 Offline fallback | **Redesigned live with the owner** (events model, N1–N9) and built: 147 of 152 tasks; the 5 left are the owner's (T148–T152) | `a72be1b9`, `b536c683`, `dd934951`, final commit |
+
+Found and fixed along the way: the Settle Debt window cut off its Confirm button on short screens (LIRA-304, live since the
+owner's push); three timing races in web tests; two new tests that reset the Profits password.
+
+**Pushed by the owner** up to `7af19972` (backend v84, deploy checker green, live smoke test of six money flows passed
+11:34 UTC). Everything after that is local: the offline phases 4–5 and 7–9.
+
+### What the owner still has to do (LIRA-306 Phase 10)
+
+1. Push the remaining commits (deploys the review page, Paired PCs panel, offline routes; no shop changes until a PC is paired).
+2. Desktop release (`yarn release`); the What's new image folder `1.34.0` must match the version.
+3. Windows test (Agent E's steps): pair from Settings → This PC; standby shows the copy age; unplug, wait 30 s, "Work
+   offline"; make a sale (receipt `RCP-<16 digits>`); reconnect ("Internet is back"); "Back to the web app" → sale on the web;
+   pull the power while offline → the same working copy reopens.
+4. Two-PC drill; hosting Phase D (also makes the copy builder fast at full scale — today it copies the whole shared file).
+
+### Unverified (say so before relying on it)
+
+- Desktop behaviour of everything in Phases 7–8: only electron jest ran; no real paired PC yet.
+- Copy-build time at production scale.
+- The online-only exemption guard covers the paths the fixtures exercise, not every branch.
+
+### Follow-ups found, not fixed (candidates for tickets)
+
+- `ClosingRepository.getLastCheckpointActuals` picks the latest checkpoint by row id: a drawer count applied late from the
+  review list becomes the next count's baseline.
+- A carrier-line balance reading applied late overwrites credits used after it.
+- `loto:checkpoint:create-scheduled` is not deduplicated (an empty duplicate is possible).
+- An applied loto checkpoint picks up tickets sold after its event.
+- Google-only users cannot sign in on an offline PC (sign-in links are stripped from the copy) — they need a password.
+- Frontend `landingSignIn.test.ts` fails 2 tests at HEAD (landing HTML), unrelated to tonight.
+- Commit `b536c683` also carried another session's six `specs/307-mobile-module-gating/*.md` files (docs only).
+
+### Earlier notes
 
 - **Web test failures (LIRA-094 group 4, LIRA-095 mixed-currency, LIRA-158 D17): test-only fixes. The app was not changed.**
   None of the three came from tonight's commits. All three failed only when the browser window was visible. Web runs

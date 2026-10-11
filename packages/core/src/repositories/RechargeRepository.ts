@@ -753,7 +753,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up from ${data.sourceDrawer}: +${amountLabel}`,
             data.userId,
             tenantId,
-            requestNow(), // LIRA-306 FR-021
+            // LIRA-306 FR-021: the event time on an offline replay.
+            requestNow(),
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -1026,7 +1027,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           note,
           createdBy,
           tenantId,
-          data.transaction_time ?? requestNow(), // LIRA-306 FR-021
+          // LIRA-306 FR-021: the event time on an offline replay.
+          data.transaction_time ?? requestNow(),
         );
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
@@ -1896,7 +1898,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           note,
           createdBy,
           tenantId,
-          data.transaction_time ?? requestNow(), // LIRA-306 FR-021
+          // LIRA-306 FR-021: the event time on an offline replay.
+          data.transaction_time ?? requestNow(),
         );
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
@@ -2168,7 +2171,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amountLabel}`,
             data.userId,
             tenantId,
-            requestNow(), // LIRA-306 FR-021
+            // LIRA-306 FR-021: the event time on an offline replay.
+            requestNow(),
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -2391,7 +2395,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `Cash Out to OMT: -${amountLabel} (OMT account credited ${creditedLabel}, incl. ${formatMoneyAmount(commission, currency)} commission)`,
             data.userId,
             tenantId,
-            requestNow(), // LIRA-306 FR-021
+            // LIRA-306 FR-021: the event time on an offline replay.
+            requestNow(),
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -2524,7 +2529,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up via partner: +${amountLabel}`,
             data.userId,
             tenantId,
-            requestNow(), // LIRA-306 FR-021
+            // LIRA-306 FR-021: the event time on an offline replay.
+            requestNow(),
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -2969,7 +2975,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `Whish App top-up from client: +${creditsLabel} credits, paid ${cashLabel} cash`,
             data.userId,
             tenantId,
-            requestNow(), // LIRA-306 FR-021
+            // LIRA-306 FR-021: the event time on an offline replay.
+            requestNow(),
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);

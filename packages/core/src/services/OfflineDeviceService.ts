@@ -83,11 +83,13 @@ export interface OfflineDeviceServiceDeps {
   devices?: OfflineDeviceRepository;
   events?: OfflineEventRepository;
   snapshots?: OfflineSnapshotRepository;
+  reviews?: OfflineReviewRepository;
   serverSchemaVersion?: () => number;
 }
 
 
 import type { PairedDeviceView } from "../offline/views.js";
+import { getOfflineReviewRepository, type OfflineReviewRepository } from "../repositories/OfflineReviewRepository.js";
 export type { PairedDeviceView } from "../offline/views.js";
 
 export class OfflineDeviceService {
@@ -96,6 +98,7 @@ export class OfflineDeviceService {
   private readonly devices: OfflineDeviceRepository;
   private readonly events: OfflineEventRepository;
   private readonly snapshots: OfflineSnapshotRepository;
+  private readonly reviews: OfflineReviewRepository;
   private readonly schemaVersion: () => number;
 
   constructor(deps: OfflineDeviceServiceDeps) {
@@ -104,6 +107,7 @@ export class OfflineDeviceService {
     this.devices = deps.devices ?? getOfflineDeviceRepository();
     this.events = deps.events ?? getOfflineEventRepository();
     this.snapshots = deps.snapshots ?? getOfflineSnapshotRepository();
+    this.reviews = deps.reviews ?? getOfflineReviewRepository();
     this.schemaVersion = deps.serverSchemaVersion ?? (() => MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0);
   }
 
@@ -200,8 +204,41 @@ export class OfflineDeviceService {
       pendingCount: d.last_pending_count,
       appVersion: d.last_app_version,
       revokedAt: d.revoked_at,
+      seqConflict: this.seqConflictOf(d.id),
+      renumberRequested: this.reviews.findPendingRenumber(d.id) !== null,
     }));
     return { success: true, data: { devices } };
+  }
+
+  private seqConflictOf(deviceId: number): PairedDeviceView["seqConflict"] {
+    const item = this.reviews.findOpenSeqConflict(deviceId);
+    if (!item) return null;
+    let d: { seq?: number | null; reason?: string } = {};
+    try {
+      d = JSON.parse(item.details_json) as typeof d;
+    } catch {
+      d = {};
+    }
+    return { itemId: item.id, seq: d.seq ?? null, reason: d.reason ?? "Sequence conflict", at: item.created_at };
+  }
+
+  /**
+   * "Renumber this PC's unsent work" (O-new-29, R6): the PC's next check-ins
+   * answer `renumberUnsent: true`; the PC renumbers every unsent event above
+   * the server's max sequence (keeping event ids) and sends again. The flag
+   * clears when an upload from that PC is stored without a conflict.
+   */
+  requestRenumber(deviceId: number, by: number): { success: boolean; data?: { renumberRequested: true }; error?: string; code?: string } {
+    if (!this.devices.findById(deviceId)) return { success: false, code: "NOT_FOUND", error: "PC not found" };
+    const item = this.reviews.findOpenSeqConflict(deviceId);
+    if (!item) {
+      if (this.reviews.findPendingRenumber(deviceId)) return { success: true, data: { renumberRequested: true } };
+      return { success: false, code: "NO_CONFLICT", error: "This PC has no numbering problem" };
+    }
+    const d = JSON.parse(item.details_json || "{}") as Record<string, unknown>;
+    this.reviews.updateDetails(item.id, { ...d, renumberPending: true });
+    this.reviews.resolve(item.id, "applied", by);
+    return { success: true, data: { renumberRequested: true } };
   }
 
   /** Revoke from Settings (FR-002); events already received are still processed. */
@@ -251,7 +288,7 @@ export class OfflineDeviceService {
         maxSeq: this.events.maxSeq(deviceId),
         maxOfflineIds,
         heldItems,
-        renumberUnsent: false,
+        renumberUnsent: this.reviews.findPendingRenumber(deviceId) !== null,
       },
     };
   }

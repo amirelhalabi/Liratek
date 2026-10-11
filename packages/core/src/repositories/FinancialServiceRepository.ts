@@ -1292,7 +1292,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             data.phoneNumber,
             "Auto-created from Binance debt",
             tenantId,
-            requestNow(), // LIRA-306 FR-021
+            // LIRA-306 FR-021: the event time on an offline replay.
+            requestNow(),
           );
         resolvedClientId = Number(insertResult.lastInsertRowid);
       }
@@ -2120,7 +2121,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         commissionModel,
         receiveFeeModel,
         tenantId,
-        data.transaction_time ?? requestNow(), // LIRA-306 FR-021
+        // LIRA-306 FR-021: the event time on an offline replay.
+        data.transaction_time ?? requestNow(),
       );
       const id = Number(result.lastInsertRowid);
 
@@ -2175,7 +2177,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 primaryPhone,
                 "Auto-created from OMT/WHISH service",
                 tenantId,
-                requestNow(), // LIRA-306 FR-021
+                // LIRA-306 FR-021: the event time on an offline replay.
+                requestNow(),
               );
             resolvedPrimaryClientId = Number(insertResult.lastInsertRowid);
           }
@@ -4022,7 +4025,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                       data.phoneNumber,
                       "Auto-created from service debt payment",
                       tenantId,
-                      requestNow(), // LIRA-306 FR-021
+                      // LIRA-306 FR-021: the event time on an offline replay.
+                      requestNow(),
                     );
                   resolvedClientId = Number(insertResult.lastInsertRowid);
                 }
@@ -4090,7 +4094,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                         data.phoneNumber,
                         "Auto-created from service debt payment",
                         tenantId,
-                        requestNow(), // LIRA-306 FR-021
+                        // LIRA-306 FR-021: the event time on an offline replay.
+                        requestNow(),
                       ).lastInsertRowid,
                   );
 

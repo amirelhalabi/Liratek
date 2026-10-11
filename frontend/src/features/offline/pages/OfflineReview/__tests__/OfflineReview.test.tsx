@@ -8,7 +8,7 @@
  * confirm first; staff see "admins only" and nothing is loaded.
  * `useApi` returns a stable module-level object (rule 25).
  */
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { reviewDismissSchema, type ReviewItemView } from "@liratek/core";
 import OfflineReview from "../index";
 
@@ -18,6 +18,7 @@ const mockApply = jest.fn();
 const mockDismiss = jest.fn();
 const mockReviewed = jest.fn();
 const mockBookAnyway = jest.fn();
+const mockPreview = jest.fn();
 const mockApi = {
   getOfflineReviewItems: mockGetItems,
   getOfflineHistory: mockGetHistory,
@@ -25,6 +26,7 @@ const mockApi = {
   dismissOfflineReviewItem: mockDismiss,
   markOfflineReviewItemReviewed: mockReviewed,
   bookOfflineReviewItemAnyway: mockBookAnyway,
+  getOfflineReviewPreview: mockPreview,
 };
 jest.mock("@liratek/ui", () => ({ useApi: () => mockApi }));
 
@@ -195,5 +197,33 @@ describe("OfflineReview page", () => {
     render(<OfflineReview />);
     expect(screen.getByText(/only for admins/i)).toBeTruthy();
     expect(mockGetItems).not.toHaveBeenCalled();
+  });
+
+  it("Apply on a drawer count shows the PC's and the server's figures side by side before confirming (FR-032)", async () => {
+    mockGetItems.mockResolvedValue({
+      success: true,
+      data: {
+        items: [item({ id: 9, kind: "held_checkpoint", label: "Drawer count or checkpoint taken offline — held", channel: "closing:create-checkpoint", channelLabel: "Drawer count", details: {} })],
+        groups: [{ kind: "held_checkpoint", label: "Drawer count or checkpoint taken offline — held", count: 1 }],
+      },
+    });
+    mockPreview.mockResolvedValue({
+      success: true,
+      data: { kind: "drawer_count", figures: [{ drawer_name: "General", currency_code: "USD", pc_expected: 100, server_expected: 130, physical: 95 }] },
+    });
+    render(<OfflineReview />);
+    fireEvent.click(await screen.findByRole("button", { name: "Apply item 9" }));
+    await waitFor(() => expect(mockPreview).toHaveBeenCalledWith(9));
+    const dialog = await screen.findByRole("dialog", { name: "Confirm" });
+    const row = await within(dialog).findByRole("row", { name: /General/ });
+    expect(row.textContent).toMatch(/USD/);
+    expect(row.textContent).toMatch(/100/);
+    expect(row.textContent).toMatch(/130/);
+    expect(row.textContent).toMatch(/95/);
+    expect(within(dialog).getByText(/PC expected/i)).toBeTruthy();
+    expect(within(dialog).getByText(/Server expected/i)).toBeTruthy();
+    expect(mockApply).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(mockApply).toHaveBeenCalledWith(9));
   });
 });

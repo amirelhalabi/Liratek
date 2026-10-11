@@ -17,6 +17,7 @@ import type {
 import type {
   OfflineHistoryQuery,
   OfflineHistoryView,
+  OfflineReviewPreview,
   PairedDeviceView,
   ReviewActionResult,
   ReviewDismissInput,
@@ -1757,6 +1758,8 @@ export type ApiAdapter = {
   bookOfflineReviewItemAnyway: (id: number) => Promise<ReviewActionResult>;
   getPairedPcs: () => Promise<{ success: boolean; data?: { devices: PairedDeviceView[] }; error?: string }>;
   revokePairedPc: (id: number) => Promise<{ success: boolean; data?: { revoked: true }; error?: string }>;
+  getOfflineReviewPreview: (id: number) => Promise<{ success: boolean; data?: OfflineReviewPreview; error?: string }>;
+  renumberPairedPc: (id: number) => Promise<{ success: boolean; data?: { renumberRequested: true }; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Suppliers

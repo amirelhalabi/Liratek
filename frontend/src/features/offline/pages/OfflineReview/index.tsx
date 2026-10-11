@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@liratek/ui";
 import type {
+  CheckpointExpectedFigure,
   OfflineHistoryView,
   ReviewAction,
   ReviewDismissInput,
@@ -73,6 +74,8 @@ export function OfflineReview() {
     id: number;
     action: ReviewAction;
   } | null>(null);
+  // FR-032 / O-new-27: a drawer count's PC vs server figures, shown before Apply
+  const [figures, setFigures] = useState<CheckpointExpectedFigure[] | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -128,14 +131,28 @@ export function OfflineReview() {
       } finally {
         setBusy(false);
         setPending(null);
+        setFigures(null);
       }
     },
     [load],
   );
 
-  const onAction = (id: number, action: ReviewAction) => {
-    if (NEEDS_CONFIRM.includes(action)) setPending({ id, action });
-    else void run(id, action);
+  const onAction = async (id: number, action: ReviewAction) => {
+    if (!NEEDS_CONFIRM.includes(action)) {
+      void run(id, action);
+      return;
+    }
+    setFigures(null);
+    const it = items.find((i) => i.id === id);
+    if (action === "apply" && it?.kind === "held_checkpoint") {
+      try {
+        const p = await apiRef.current.getOfflineReviewPreview(id);
+        if (p.success && p.data?.kind === "drawer_count") setFigures(p.data.figures);
+      } catch (err) {
+        logger.error("Failed to load the drawer-count preview:", err);
+      }
+    }
+    setPending({ id, action });
   };
 
   if (!isAdmin) {
@@ -190,6 +207,40 @@ export function OfflineReview() {
           <p className="text-sm text-amber-200">
             {CONFIRM_TEXT[pending.action]}
           </p>
+          {figures && figures.length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs text-amber-200/80">
+                The PC could not see the web app&apos;s and other PCs&apos;
+                sales. The server&apos;s figure (the drawer at the time of the
+                count) is the one that will be booked.
+              </p>
+              <table className="mt-1 w-full text-sm text-slate-200">
+                <thead>
+                  <tr className="text-left text-xs text-slate-400">
+                    <th className="py-1">Drawer</th>
+                    <th>Currency</th>
+                    <th>PC expected</th>
+                    <th>Server expected</th>
+                    <th>Counted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {figures.map((f) => (
+                    <tr
+                      key={`${f.drawer_name}-${f.currency_code}`}
+                      aria-label={`${f.drawer_name} ${f.currency_code}`}
+                    >
+                      <td className="py-1">{f.drawer_name}</td>
+                      <td>{f.currency_code}</td>
+                      <td>{f.pc_expected.toLocaleString()}</td>
+                      <td>{f.server_expected.toLocaleString()}</td>
+                      <td>{f.physical.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div className="mt-2 flex gap-2">
             <button
               type="button"
@@ -201,7 +252,10 @@ export function OfflineReview() {
             </button>
             <button
               type="button"
-              onClick={() => setPending(null)}
+              onClick={() => {
+                setPending(null);
+                setFigures(null);
+              }}
               className="px-3 py-1.5 rounded-lg bg-slate-700 text-white text-sm"
             >
               Cancel
@@ -257,7 +311,7 @@ export function OfflineReview() {
                             type="button"
                             disabled={busy}
                             aria-label={`${ACTION_LABEL[a]} item ${i.id}`}
-                            onClick={() => onAction(i.id, a)}
+                            onClick={() => void onAction(i.id, a)}
                             className="px-3 py-1 rounded-lg bg-slate-700 text-sm text-white hover:bg-slate-600"
                           >
                             {ACTION_LABEL[a]}

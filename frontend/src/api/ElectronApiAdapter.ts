@@ -510,6 +510,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   bookOfflineReviewItemAnyway = (id: number) => api.bookOfflineReviewItemAnyway(id);
   getPairedPcs = () => api.getPairedPcs();
   revokePairedPc = (id: number) => api.revokePairedPc(id);
+  getOfflineReviewPreview = (id: number) => api.getOfflineReviewPreview(id);
+  renumberPairedPc = (id: number) => api.renumberPairedPc(id);
   createCheckpoint = (data: CreateCheckpointPayload) =>
     api.createCheckpoint(data);
   getCheckpointTimeline = (filters?: {

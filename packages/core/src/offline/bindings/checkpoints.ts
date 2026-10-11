@@ -33,14 +33,25 @@ import type {
 import type { CarrierLineUpdateBalanceInput } from "../../validators/carrierLine.js";
 import type { BindingResult, OfflineBinding } from "./types.js";
 
-export interface CheckpointExpectedFigure {
-  drawer_name: string;
-  currency_code: string;
-  /** what the PC's copy expected when the count was taken */
-  pc_expected: number;
-  /** the server's drawer as of the count's time — what is booked */
-  server_expected: number;
-  physical: number;
+import type { CheckpointExpectedFigure } from "../views.js";
+export type { CheckpointExpectedFigure } from "../views.js";
+
+/**
+ * The PC's and the server's expected figures for a drawer count — ONE
+ * definition used by Apply (below) and by the review list's preview before
+ * Apply (`OfflineReviewService.preview`, FR-032). Read-only; call it inside
+ * the event's time context (`requestNow()` = the count's instant).
+ */
+export function checkpointExpectedFigures(payload: Record<string, unknown>): CheckpointExpectedFigure[] {
+  const p = payload as unknown as CreateCheckpointInput;
+  const asOf = getClosingService().getDrawerBalancesAsOf();
+  return p.amounts.map((a) => ({
+    drawer_name: a.drawer_name,
+    currency_code: a.currency_code,
+    pc_expected: a.expected_amount,
+    server_expected: asOf[a.drawer_name]?.[a.currency_code] ?? 0,
+    physical: a.physical_amount,
+  }));
 }
 
 const createCheckpoint: OfflineBinding = {
@@ -48,14 +59,7 @@ const createCheckpoint: OfflineBinding = {
   run: (payload, ctx) => {
     const p = payload as unknown as CreateCheckpointInput;
     const service = getClosingService();
-    const asOf = service.getDrawerBalancesAsOf();
-    const expected: CheckpointExpectedFigure[] = p.amounts.map((a) => ({
-      drawer_name: a.drawer_name,
-      currency_code: a.currency_code,
-      pc_expected: a.expected_amount,
-      server_expected: asOf[a.drawer_name]?.[a.currency_code] ?? 0,
-      physical: a.physical_amount,
-    }));
+    const expected = checkpointExpectedFigures(payload);
     const result = service.createCheckpoint({
       ...p,
       amounts: p.amounts.map((a, i) => ({ ...a, expected_amount: expected[i].server_expected })),

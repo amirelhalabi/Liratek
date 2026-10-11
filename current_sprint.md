@@ -6684,18 +6684,20 @@ stay mounted underneath, so a cart survives a short drop. Module check re-runs e
 Simulator: simulated outage → all 5 tabs, Home/Sell covered, Settings usable; request restored → content back within
 ~5 s with no tap. jest: 6 new cases seen failing first.
 
-## LIRA-306: Offline desktop fallback — web-first with a desktop Plan B — HIGH — IN PROGRESS (redesigned 2026-10-11 on owner decisions N1–N9; design only, not built)
+## LIRA-306: Offline desktop fallback — web-first with a desktop Plan B — HIGH — IN PROGRESS (built 2026-10-11; owner drill pending)
 
 | Field | Value |
 | --- | --- |
 | **Type** | Big feature (owner request 2026-10-11; redesigned the same day in a live conversation with the owner) |
 | **Priority** | High |
-| **Status** | **IN PROGRESS** — Spec Kit design (specify → plan → tasks → analyze) redone on the events model; implementation not started |
+| **Status** | **IN PROGRESS** — built on the events model (T001–T146); waiting for the owner's deploy, desktop release and two-PC drill (T148–T152) |
 | **Modules** | core (offline event store, id ranges, replay engine, duplicate detector, review list; v210), backend (device routes, event upload, review routes), electron-app (paired modes, IPC event recorder, working copy, sender), frontend (review list, devices panel, desktop standby/offline screens); docs |
 | **Plan** | `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (D1–D5, 2026-09-27) — D2 revoked by N1 |
 | **Spec** | `specs/306-offline-desktop-fallback/` (replaces the superseded lock-based design committed in a3698788) |
 | **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §4 (N1–N9 owner; O-new-1… agent) |
-| **What users will notice (so far)** | Web app, admins: an "Offline work" page (side menu) to review what a PC did offline, and a "Paired PCs" tab in Settings — both empty until a desktop PC is paired for offline work. |
+| **What users will notice** | Desktop app: Settings › This PC pairs a PC for offline work; a paired PC opens on a standby screen and can keep working when the internet is down, sending its work when it is back. Web app, admins: an "Offline work" page to review what PCs could not book by themselves (duplicates, drawer counts with both figures, refusals, notes) and a "Paired PCs" tab in Settings (unpair, renumber). Past days can change when a PC sends late work. |
+| **Built (2026-10-11)** | Spec Kit tasks T001–T146 done (`specs/306-offline-desktop-fallback/tasks.md`, evidence per task); migration v210; core replay engine, merge, duplicates, review list; backend device + review routes; desktop recorder, working copy, sender, standby/offline screens; web e2e lira-web-055/056 green. |
+| **Unverified / blocked** | Desktop behaviour runs only in electron jest — unverified until CI and the owner's Windows PCs. Owner steps T148–T152: deploy, desktop release with the same data version, pair two PCs, two-PC drill (runbook in `docs/OPERATIONS.md`). |
 
 **Owner answers 2026-10-11:** G0 approved (device key per PC; offline work credited to the real cashier); O-new-3, O-new-4, O-new-6/9 confirmed. See decisions log §4.
 

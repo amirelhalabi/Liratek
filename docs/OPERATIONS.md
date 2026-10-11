@@ -269,6 +269,63 @@ routes with the phone's bearer token).
   - Apple 4.8: username/password sign-in alongside any third-party sign-in. Confirm at the first review.
   - App versioning: `version` in `mobile/package.json`; bump the Android `versionCode` per release.
 
+## Offline desktop fallback (LIRA-306)
+
+**What runs where.** The web app and phones never pause. Each paired desktop PC keeps a copy of its shop
+(`GET /api/offline/snapshot`, rebuilt at most every 5 min per shop) and checks in every 30 s. With the server
+unreachable for 30 s the cashier can press "Work offline": every action is saved on the PC with an event. When the
+server is back, the PC uploads its events (`POST /api/offline/events`); the Fly backend merges all PCs in time order
+(`OfflineMergeProcessor`, a round 30 s after an upload plus a 60 s sweep) and books each one through the same core
+service the web route uses, at the time it happened. "Back to the web app" sends a cross-check (`/manifest`) and
+returns the PC to standby. Nothing here runs on the PC's Windows share or Google Drive.
+
+**Pairing, re-keying, unpairing.** An admin pairs a PC on the desktop: Settings › This PC (shop, username,
+password, PC name). Each PC gets a number that is never reused. Unpair from the web app: Settings › Paired PCs.
+Events it already sent are still booked. A lost or unpaired PC is re-paired on the same PC: it keeps its number and
+its unsent work. If Paired PCs shows "numbering is out of step" (the PC lost its saved state), press **Renumber
+unsent work**. The PC renumbers its unsent events on its next check-in and sends again; nothing is booked twice.
+
+**The review list.** Web app › Offline work (admins). What the server would not book by itself:
+- possible duplicates (Apply / Dismiss);
+- certain duplicates (Mark reviewed / Book anyway);
+- drawer counts and checkpoints (Apply shows the PC's and the server's expected figures first);
+- items waiting on another item;
+- refusals;
+- notes on booked work: stock count off, clock corrected, customer linked, day already closed, rate changed.
+
+**Server knobs (env, defaults):**
+
+| Variable | Default | What it sets |
+| --- | --- | --- |
+| `OFFLINE_MERGE_GATHER_MS` | `30000` | pause after an upload before merging |
+| `OFFLINE_SNAPSHOT_TTL_MS` | `300000` | how long a shop copy is reused |
+| `OFFLINE_SKEW_CORRECT_MS` | `120000` | PC clock error that gets corrected |
+| `OFFLINE_MAX_ATTEMPTS` | `5` | technical retries before an item goes to the review list |
+
+The web e2e run sets 0 / 1000 for the first two.
+
+**Desktop knobs:**
+
+| Variable | Default |
+| --- | --- |
+| `LIRATEK_OFFLINE_API_URL` | `https://api.liratek.shop` |
+| `LIRATEK_WEB_APP_URL_TEMPLATE` | `<slug>.liratek.shop` |
+
+**Release rule.** Every migration ships with a desktop release of the same data version: a PC whose version differs
+from the server's gets no copy and cannot go offline. Do not deploy a change to an offline form while Paired PCs
+shows unsent work. Work recorded with the old form that no longer fits goes to the review list.
+
+**Owner runbook (US6, not done by an agent):**
+1. Push `main` and confirm the `yarn api:deploy` verifier (migration v210 applied).
+2. Publish the desktop release with the same data version.
+3. Pair two PCs at the test shop (CornerTech) and confirm both show "Ready".
+4. Two-PC drill:
+   - Turn the network off on both PCs, then sell on both and on the phone.
+   - Plant one OMT transfer with the same reference on both PCs, and one drawer count.
+   - Reconnect PC 1, then PC 2.
+   - Time from reconnect to booked (SC-008).
+   - Check that Offline work shows exactly the planted items.
+
 ## Rollback
 
 The cutover was one DNS record, so is the rollback: point `api.liratek.shop`

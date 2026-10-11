@@ -1066,6 +1066,26 @@ Copy this into your task when building any flow that moves money:
     **This bug class is LIVE in shipped code** (`settleTransactions`, `recordSupplierCashflow`) —
     LIRA-193.
 
+### Offline replay (LIRA-306)
+
+Desktop PCs record write actions offline as events. The server replays each one later through the channel's
+binding (`packages/core/src/offline/bindings/`), at the time it happened. Any new or changed write channel must:
+
+1. **Classify the channel** in `offline/channelPolicy.ts` as `offline`, `checkpoint`, `online_only`, `read` or
+   `local`. An offline or checkpoint channel needs a core schema, a binding that calls the SAME service its REST
+   route calls, and a fixture (`offline/testHelpers/fixtures/`). `channelPolicy.complete` and `bindings.complete`
+   fail otherwise.
+2. **Keep ids id-named** (`id`, `*_id`, `*Id`, declared `{kind, id}` pairs). Offline ids are rewritten only in id
+   positions. A money field that looks like an id is never touched, and an id under another name is never rewritten.
+3. **Write every business timestamp through `requestNow()`**, or a time the user typed. Name `created_at` in
+   inserts instead of relying on the column default. Read rates through `getUsdLbpSellRate()` /
+   `getEffectiveRate()`. The `requestNow.guard` ratchet catches the server clock. A writer reached only by online-only
+   channels may stay on the clock if it is listed in `offline/testHelpers/onlineOnlyExempt.ts`, which
+   `onlineOnlyExemptions.guard` checks.
+4. **No write outside the service.** A handler-side write the binding would not repeat must be in
+   `MAP_EXCLUDED_TABLES` (`handlerBindingParity` checks it). Bindings await microtasks only: a replay never yields
+   to the event loop.
+
 ### Counterparty checklist
 
 Touching a client (`debt_ledger`), partner (`partner_ledger`), or supplier

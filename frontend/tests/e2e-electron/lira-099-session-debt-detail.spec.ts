@@ -218,10 +218,13 @@ test.describe("Session Debt — itemized basket detail on the Debts page", () =>
     await eyeButton.click();
 
     // Modal should show BOTH item labels — not just the aggregate debt amount.
-    await expect(appPage.getByText(ITEM_A_LABEL)).toBeVisible({
+    // `exact: true`: since LIRA-304 the Debts page's own item list also shows
+    // "Custom Service: <label>" behind the modal, so a substring match finds
+    // two elements (strict-mode violation). The modal renders the bare label.
+    await expect(appPage.getByText(ITEM_A_LABEL, { exact: true })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(appPage.getByText(ITEM_B_LABEL)).toBeVisible({
+    await expect(appPage.getByText(ITEM_B_LABEL, { exact: true })).toBeVisible({
       timeout: 5_000,
     });
   });

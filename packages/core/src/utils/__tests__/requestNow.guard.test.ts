@@ -22,6 +22,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { ONLINE_ONLY_EXEMPT } from "../../offline/testHelpers/onlineOnlyExempt";
 
 const SRC = path.resolve(__dirname, "../..");
 const REPO = path.join(SRC, "repositories");
@@ -79,17 +80,60 @@ const CONFIG_TABLES = new Set(["currencies"]);
 const ALLOWED_CLOCK_COLUMNS = new Set(["updated_at", "edited_at", "last_activity_at"]);
 
 /** Exact offences left per file (ratchet). Lowered by each family task. */
-const PENDING: Record<string, number> = {
-  // T083 swept addLedgerEntry (shared auto-sibling writer); A2 swept the
-  // offline-reached recordStockIntake + attachRecordedDebtToIntake. The 13
-  // left are ONLINE-ONLY writers (createSupplier ×2, recordDebt, settlements,
-  // commission allocation, settled_at, discounts, cashflow) — kept on the
-  // clock by decision (no offline action reaches them).
-  "SupplierRepository.ts": 13,
-  // A2 swept addLedgerEntry (for-partner sales, reached offline); the one
-  // left is createPartner (online-only).
-  "PartnerRepository.ts": 1,
-};
+const PENDING: Record<string, number> = {};
+
+/**
+ * O-impl-A2-8 (parent decision): writers reached ONLY by online-only
+ * channels keep the server clock and are exempted method by method — their
+ * bodies are left out of the scan. The list, with the channel(s) reaching
+ * each, is `offline/testHelpers/onlineOnlyExempt.ts`;
+ * `offline/__tests__/onlineOnlyExemptions.guard.test.ts` fails if a
+ * recordable channel's binding ever reaches one. Undo: delete the entry and
+ * sweep the method to requestNow().
+ */
+function stripExemptMethods(file: string, src: string): string {
+  let out = src;
+  for (const e of ONLINE_ONLY_EXEMPT[file] ?? []) {
+    const re = new RegExp(`^  (?:(?:private|public|protected|static|async)\\s+)*${e.method}\\s*[(<]`, "gm");
+    let done = false;
+    for (let m = re.exec(out); m && !done; m = re.exec(out)) {
+      // skip the signature's parentheses; a `;` before the body's `{` means
+      // a declaration (interface member), not the implementation
+      // A return type may itself contain braces (`): { id: number } {`), so
+      // the body's `{` is the first one at type-depth 0 that ends its line
+      // and does not open a type (preceded by `:`, `|`, `,`, `<`, `(`).
+      let i = m.index + m[0].length - 1;
+      let paren = 0;
+      let typeDepth = 0;
+      let isDecl = false;
+      for (; i < out.length; i++) {
+        const c = out[i];
+        if (c === "(") paren++;
+        else if (c === ")") paren--;
+        else if (paren > 0) continue;
+        else if (c === ";" && typeDepth === 0) {
+          isDecl = true;
+          break;
+        } else if (c === "{") {
+          const prev = out.slice(m.index, i).trimEnd().slice(-1);
+          if (typeDepth === 0 && /^[ \t]*\r?\n/.test(out.slice(i + 1)) && !":|,<(".includes(prev)) break;
+          typeDepth++;
+        } else if (c === "}") typeDepth--;
+      }
+      if (isDecl) continue;
+      let depth = 0;
+      let j = i;
+      for (; j < out.length; j++) {
+        if (out[j] === "{") depth++;
+        else if (out[j] === "}" && --depth === 0) break;
+      }
+      out = out.slice(0, m.index) + out.slice(j + 1);
+      done = true;
+    }
+    if (!done) throw new Error(`${file}: exempted method ${e.method} not found — update onlineOnlyExempt.ts`);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 
@@ -194,7 +238,7 @@ function resolveTableNames(src: string): string {
 }
 
 export function offencesOf(file: string, defaults = clockDefaultColumns()): string[] {
-  const src = resolveTableNames(stripComments(fs.readFileSync(path.join(REPO, file), "utf8")));
+  const src = resolveTableNames(stripExemptMethods(file, stripComments(fs.readFileSync(path.join(REPO, file), "utf8"))));
   const out: string[] = [];
   for (const u of src.match(/INTO __unresolved_\w+/g) ?? []) out.push(`dynamic INSERT target not resolvable: ${u}`);
   // BaseRepository.create() stamps created_at with datetime('now').
@@ -243,6 +287,15 @@ describe("requestNow guard (FR-021)", () => {
       .map(([f, n]) => `${f}: ${n} (pending ${PENDING[f] ?? 0})\n    ${detail[f].slice(0, 6).join("\n    ")}`);
     const stale = Object.keys(PENDING).filter((f) => !(f in actual)).map((f) => `${f}: now clean — remove it from PENDING`);
     expect([...report, ...stale]).toEqual([]);
+  });
+
+  it("the online-only exemptions strip ONLY their own methods (offline-reached writers are still scanned)", () => {
+    const sup = stripExemptMethods("SupplierRepository.ts", stripComments(fs.readFileSync(path.join(REPO, "SupplierRepository.ts"), "utf8")));
+    for (const kept of ["recordStockIntake(", "attachRecordedDebtToIntake(", "addLedgerEntry("]) expect(sup).toContain(kept);
+    for (const gone of ["createSupplier(", "settleAccount(", "recordSupplierCashflow("]) expect(sup).not.toMatch(new RegExp(`^  (?:private\\s+)?${gone.replace("(", "\\(")}`, "m"));
+    const par = stripExemptMethods("PartnerRepository.ts", stripComments(fs.readFileSync(path.join(REPO, "PartnerRepository.ts"), "utf8")));
+    expect(par).toContain("addLedgerEntry(");
+    expect(par).toContain("deactivate(");
   });
 
   it("no raw exchange_rates read outside getUsdLbpSellRate() / RateRepository (FR-021a)", () => {

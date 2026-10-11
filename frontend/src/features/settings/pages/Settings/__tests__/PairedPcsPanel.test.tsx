@@ -11,7 +11,8 @@ import PairedPcsPanel from "../PairedPcsPanel";
 
 const mockGetPairedPcs = jest.fn();
 const mockRevokePairedPc = jest.fn();
-const mockApi = { getPairedPcs: mockGetPairedPcs, revokePairedPc: mockRevokePairedPc };
+const mockRenumber = jest.fn();
+const mockApi = { getPairedPcs: mockGetPairedPcs, revokePairedPc: mockRevokePairedPc, renumberPairedPc: mockRenumber };
 jest.mock("@liratek/ui", () => ({ useApi: () => mockApi }));
 
 const pc = (over: Partial<PairedDeviceView>): PairedDeviceView => ({
@@ -24,6 +25,8 @@ const pc = (over: Partial<PairedDeviceView>): PairedDeviceView => ({
   pendingCount: 0,
   appVersion: "2.4.0",
   revokedAt: null,
+  seqConflict: null,
+  renumberRequested: false,
   ...over,
 });
 
@@ -56,5 +59,26 @@ describe("PairedPcsPanel", () => {
     await waitFor(() => expect(mockRevokePairedPc).toHaveBeenCalledWith(1));
     await waitFor(() => expect(mockGetPairedPcs).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("button", { name: "Unpair Old PC" })).toBeNull();
+  });
+
+  it("shows a PC's numbering conflict in plain words and offers Renumber (confirmed) (O-new-29)", async () => {
+    mockGetPairedPcs.mockResolvedValue({
+      success: true,
+      data: {
+        devices: [
+          pc({ id: 4, deviceNo: 4, name: "Till PC", seqConflict: { itemId: 1, seq: 3, reason: "This PC's numbering is out of step with the server.", at: "2026-10-11T09:00:00.000Z" } }),
+          pc({ id: 5, deviceNo: 5, name: "Side PC", renumberRequested: true }),
+        ],
+      },
+    });
+    mockRenumber.mockResolvedValue({ success: true, data: { renumberRequested: true } });
+    render(<PairedPcsPanel />);
+    expect(await screen.findByText(/numbering is out of step/)).toBeTruthy();
+    expect(screen.getByText("Side PC").closest("tr")!.textContent).toMatch(/Waiting for the PC to renumber/);
+    expect(screen.queryByRole("button", { name: "Renumber Side PC" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Renumber Till PC" }));
+    expect(mockRenumber).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(mockRenumber).toHaveBeenCalledWith(4));
   });
 });

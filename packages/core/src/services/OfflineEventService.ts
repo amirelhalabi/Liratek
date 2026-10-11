@@ -71,6 +71,10 @@ export interface OfflineEventServiceDeps {
   onStored?: (tenantDeviceId: number) => void;
 }
 
+/** Plain words for the Paired PCs panel (O-new-29). */
+export const SEQ_CONFLICT_REASON =
+  "This PC's numbering is out of step with the server (it lost its saved state). It has stopped sending; nothing was booked twice. Renumber its unsent work to let it continue.";
+
 /** sha256 over the content that must not change under one event id. */
 export function offlineEventHash(e: Pick<OfflineEvent, "payload" | "channel" | "actorUserId" | "occurredAt">): string {
   return createHash("sha256")
@@ -190,6 +194,31 @@ export class OfflineEventService {
           code: "SEQ_CONFLICT",
           error: `Sequence ${e.seq} of this PC was already received under another event id.`,
         });
+      }
+    }
+    if (conflicted) {
+      // O-new-29: ONE open item per PC, shown on Settings › Paired PCs
+      const first = rejected.find((r) => r.code === "SEQ_CONFLICT");
+      if (!this.reviews.findOpenSeqConflict(deviceId)) {
+        const seq = body.events.find((e) => e.eventId === first?.eventId)?.seq ?? null;
+        this.reviews.insert({
+          eventRowId: null,
+          deviceId,
+          kind: "refused",
+          details: {
+            code: "SEQ_CONFLICT",
+            seq,
+            eventId: first?.eventId ?? null,
+            reason: SEQ_CONFLICT_REASON,
+          },
+        });
+      }
+    } else if (stored > 0) {
+      // a clean upload after a renumber: the PC has done it
+      const pending = this.reviews.findPendingRenumber(deviceId);
+      if (pending) {
+        const d = JSON.parse(pending.details_json || "{}") as Record<string, unknown>;
+        this.reviews.updateDetails(pending.id, { ...d, renumberPending: false, renumberedAt: receivedAt });
       }
     }
     offlineLogger.info({ deviceId, received: body.events.length, stored, rejected: rejected.length }, "offline upload");

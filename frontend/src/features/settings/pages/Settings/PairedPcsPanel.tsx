@@ -31,7 +31,7 @@ export default function PairedPcsPanel() {
   apiRef.current = api;
   const [devices, setDevices] = useState<PairedDeviceView[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [confirm, setConfirm] = useState<{ id: number; action: "unpair" | "renumber" } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -49,22 +49,22 @@ export default function PairedPcsPanel() {
     void load();
   }, [load]);
 
-  const revoke = async (id: number) => {
+  const act = async (id: number, action: "unpair" | "renumber") => {
     setBusy(true);
     try {
-      const r = await apiRef.current.revokePairedPc(id);
+      const r = action === "unpair" ? await apiRef.current.revokePairedPc(id) : await apiRef.current.renumberPairedPc(id);
       await load();
-      setError(r.success ? null : (r.error ?? "Could not unpair the PC"));
+      setError(r.success ? null : (r.error ?? (action === "unpair" ? "Could not unpair the PC" : "Could not ask the PC to renumber")));
     } catch (err) {
-      logger.error("Failed to unpair PC:", err);
-      setError("Could not unpair the PC");
+      logger.error("Paired PC action failed:", err);
+      setError("The action failed");
     } finally {
       setBusy(false);
-      setConfirmId(null);
+      setConfirm(null);
     }
   };
 
-  const confirming = devices.find((d) => d.id === confirmId);
+  const confirming = devices.find((d) => d.id === confirm?.id);
 
   return (
     <div className="space-y-4">
@@ -81,21 +81,23 @@ export default function PairedPcsPanel() {
         </div>
       )}
 
-      {confirming && (
+      {confirming && confirm && (
         <div role="dialog" aria-label="Confirm" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
           <p className="text-sm text-amber-200">
-            Unpair {confirming.name}? It will need to be paired again by an admin. Work it already sent is still booked.
+            {confirm.action === "unpair"
+              ? `Unpair ${confirming.name}? It will need to be paired again by an admin. Work it already sent is still booked.`
+              : `Renumber the unsent work of ${confirming.name}? The next time it connects, it gives its waiting items new numbers after the last one the server has, and sends them again. Nothing is booked twice.`}
           </p>
           <div className="mt-2 flex gap-2">
             <button
               type="button"
               disabled={busy}
-              onClick={() => void revoke(confirming.id)}
+              onClick={() => void act(confirming.id, confirm.action)}
               className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-sm"
             >
               Confirm
             </button>
-            <button type="button" onClick={() => setConfirmId(null)} className="px-3 py-1.5 rounded-lg bg-slate-700 text-white text-sm">
+            <button type="button" onClick={() => setConfirm(null)} className="px-3 py-1.5 rounded-lg bg-slate-700 text-white text-sm">
               Cancel
             </button>
           </div>
@@ -128,15 +130,29 @@ export default function PairedPcsPanel() {
                 <td className="px-4 py-3 text-sm text-slate-300">{when(d.lastSeenAt)}</td>
                 <td className="px-4 py-3 text-sm text-slate-300">
                   {d.revokedAt ? "Unpaired" : (STATE_LABEL[d.state ?? ""] ?? "Not seen yet")}
+                  {d.seqConflict && <div className="mt-1 text-xs text-red-300">{d.seqConflict.reason}</div>}
+                  {d.renumberRequested && (
+                    <div className="mt-1 text-xs text-amber-300">Waiting for the PC to renumber its unsent work</div>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-300">{d.pendingCount} waiting</td>
                 <td className="px-4 py-3 text-sm text-slate-300">{d.appVersion ?? "—"}</td>
                 <td className="px-4 py-3 text-sm">
+                  {!d.revokedAt && d.seqConflict && (
+                    <button
+                      type="button"
+                      aria-label={`Renumber ${d.name}`}
+                      onClick={() => setConfirm({ id: d.id, action: "renumber" })}
+                      className="mr-2 px-3 py-1 rounded-lg bg-violet-700 text-white hover:bg-violet-600"
+                    >
+                      Renumber unsent work
+                    </button>
+                  )}
                   {!d.revokedAt && (
                     <button
                       type="button"
                       aria-label={`Unpair ${d.name}`}
-                      onClick={() => setConfirmId(d.id)}
+                      onClick={() => setConfirm({ id: d.id, action: "unpair" })}
                       className="px-3 py-1 rounded-lg bg-slate-700 text-white hover:bg-slate-600"
                     >
                       Unpair

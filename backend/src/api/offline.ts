@@ -17,8 +17,10 @@
  *   GET  /review                     open (or filtered) review items
  *   GET  /history                    processed events, server rows, receipt numbers
  *   POST /review/:id/apply | /dismiss | /reviewed | /book-anyway
- *   GET  /devices                    paired PCs (no key material)
+ *   GET  /review/:id/preview         what Apply would book (drawer count: PC vs server figures)
+ *   GET  /devices                    paired PCs (no key material, sequence conflict)
  *   POST /devices/:id/revoke
+ *   POST /devices/:id/renumber       the PC renumbers its unsent work (O-new-29)
  * The rules live in core (OfflineDeviceService, OfflineEventService,
  * OfflineReviewService); this file validates, authenticates and shapes the
  * IPC-identical envelope (HTTP 200 on business failure, rule 19c).
@@ -196,6 +198,26 @@ router.post("/devices/:id/revoke", ...admin, validateParams(reviewIdParamSchema)
   } catch (error) {
     logger.error({ error }, "offline device revoke failed");
     res.json({ success: false, error: "Could not unpair the PC" });
+  }
+});
+
+// O-new-29: tell the PC (next check-in) to renumber its unsent work.
+router.post("/devices/:id/renumber", ...admin, validateParams(reviewIdParamSchema), (req: AuthRequest, res) => {
+  try {
+    res.json(offlineDeviceService().requestRenumber(Number(req.params.id), actor(req)));
+  } catch (error) {
+    logger.error({ error }, "offline device renumber failed");
+    res.json({ success: false, error: "Could not ask the PC to renumber" });
+  }
+});
+
+// FR-032 / O-new-27: what Apply would book (drawer count: PC vs server figures).
+router.get("/review/:id/preview", ...admin, validateParams(reviewIdParamSchema), (req, res) => {
+  try {
+    res.json(getOfflineReviewService().preview(Number(req.params.id)));
+  } catch (error) {
+    logger.error({ error }, "offline review preview failed");
+    res.json({ success: false, error: "Could not prepare the preview" });
   }
 });
 
