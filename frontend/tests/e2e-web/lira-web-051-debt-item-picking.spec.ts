@@ -290,3 +290,96 @@ test("LIRA-308: ticks and amount stay in step in the real repayment modal", asyn
     ),
   ).toBe(false);
 });
+
+test("LIRA-308 owner answers: earlier balance as its own ticked line; unreturned change is account credit", async ({
+  page,
+}) => {
+  await loginAsAdmin(page);
+  const token = await page.evaluate(() => localStorage.getItem("liratek.jwt"));
+  const auth = { Authorization: `Bearer ${token}` };
+  const name = `L051c Earlier ${Date.now()}`;
+  const phone = `0379${Date.now().toString().slice(-6)}`;
+  const { client } = await seedBasketOnAccount(
+    page,
+    auth,
+    name,
+    phone,
+    "l051c",
+  );
+
+  // Answer 2: an opening balance with no item behind it (a paper entry —
+  // no cash moves) — $20 on top of the $110 basket.
+  const entry = await (
+    await page.request.post(`${BACKEND_URL}/api/debts/account-entry`, {
+      headers: auth,
+      data: {
+        direction: "debt",
+        clientId: client.id,
+        amountUSD: 20,
+        amountLBP: 0,
+        note: "L051c opening balance",
+        moveCash: false,
+      },
+    })
+  ).json();
+  expect(entry.success, JSON.stringify(entry)).toBeTruthy();
+  const open = await (
+    await page.request.get(
+      `${BACKEND_URL}/api/debts/clients/${client.id}/open-items`,
+      { headers: auth },
+    )
+  ).json();
+  const earlier = open.items.find(
+    (i: { kind: string }) => i.kind === "balance",
+  );
+  expect(earlier, JSON.stringify(open.items)).toBeTruthy();
+  expect(earlier.openUsd).toBeCloseTo(20, 2);
+
+  await page.goto("/#/debts");
+  await expect(page.locator("#root")).not.toContainText("Something went wrong");
+  await page.getByPlaceholder(/Search client/i).fill(name);
+  await page.locator("button").filter({ hasText: name }).first().click();
+  await page
+    .locator("button")
+    .filter({ hasText: /Settle Debt/i })
+    .first()
+    .click();
+  await expect(page.getByText("Process Repayment")).toBeVisible();
+
+  const earlierRow = page.getByTestId(`debt-item-balance-${earlier.id}`);
+  const amount = page.locator('[data-testid^="payment-amount-"]').first();
+  await expect(earlierRow).toContainText("Earlier balance (no items)");
+  await expect(earlierRow.locator("input")).toBeChecked();
+  // Everything ticked = the whole balance.
+  await expect(amount).toHaveValue("130");
+  await earlierRow.locator("input").uncheck();
+  await expect(amount).toHaveValue("110");
+  await earlierRow.locator("input").check();
+  await expect(amount).toHaveValue("130");
+
+  // Answer 1: $131 paid, nothing typed as returned → $1 account credit.
+  await amount.fill("131");
+  await expect(page.getByTestId("return-usd")).toHaveValue("");
+  await expect(page.getByTestId("repay-goes-to")).toContainText(
+    "Account credit$1",
+  );
+
+  const before = await drawerBalances(page, auth);
+  await page.getByRole("button", { name: /^Confirm Payment$/ }).click();
+  await expect(
+    page.locator('[role="alert"]', { hasText: /Repayment processed/i }).first(),
+  ).toBeVisible({ timeout: 15_000 });
+  const after = await drawerBalances(page, auth);
+  // All $131 stays in the shop: $101 to the OMT cash drawer, $30 in General.
+  expect(after.pcd - before.pcd).toBeCloseTo(101, 2);
+  expect(after.general - before.general).toBeCloseTo(30, 2);
+
+  const bal = await (
+    await page.request.get(
+      `${BACKEND_URL}/api/debts/clients/${client.id}/balance`,
+      { headers: auth },
+    )
+  ).json();
+  const data = bal.data ?? bal;
+  expect(data.balance_usd).toBeCloseTo(-1, 2);
+});

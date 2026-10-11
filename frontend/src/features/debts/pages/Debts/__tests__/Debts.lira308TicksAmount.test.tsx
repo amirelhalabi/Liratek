@@ -430,3 +430,87 @@ it("6 + 9 — no itemised debt, LBP overpay: LBP account credit, shown in Goes t
     ]),
   );
 });
+
+// ── LIRA-308 owner answers (2026-10-11, binding) ─────────────────────────
+
+it("answer 1 — $10 over, $4 typed as returned: $4 cash back, $6 account credit, nothing kept as profit", async () => {
+  await openSettle();
+  await waitFor(() => expect(amountValue()).toBe("135"));
+  typeAmount("145");
+  // The returned-amount field starts empty: nothing is handed back until
+  // the cashier types it.
+  const returned = (await screen.findByTestId(
+    "return-usd",
+  )) as HTMLInputElement;
+  expect(returned.value).toBe("");
+  await waitFor(() =>
+    expect(screen.getByTestId("repay-goes-to").textContent).toContain(
+      "Account credit$10",
+    ),
+  );
+  fireEvent.change(returned, { target: { value: "4" } });
+  await waitFor(() =>
+    expect(screen.getByTestId("repay-goes-to").textContent).toContain(
+      "Account credit$6",
+    ),
+  );
+  fireEvent.click(confirm());
+  await waitFor(() => expect(mockAddRepayment).toHaveBeenCalledTimes(1));
+  const p = sent();
+  expect(p.amountUSD).toBeCloseTo(135, 2);
+  expect(p.keptChangeUSD ?? 0).toBe(0);
+  expect(p.keptChangeLBP ?? 0).toBe(0);
+  expect(p.payments).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ method: "CASH", amount: 145 }),
+      expect.objectContaining({
+        method: "CASH",
+        currencyCode: "USD",
+        amount: 4,
+        direction: "OUT",
+      }),
+      expect.objectContaining({
+        method: "CUSTOMER_ACCOUNT",
+        currencyCode: "USD",
+        amount: 6,
+        direction: "OUT",
+      }),
+    ]),
+  );
+});
+
+// Characterization (passes on the pre-answer frontend: the page is generic
+// over item kinds; the new behaviour is the server's line and the core
+// order, both failing-first in core). Pins how the page uses the line.
+const EARLIER = {
+  kind: "balance",
+  id: 1,
+  rowId: 0,
+  createdAt: "",
+  openUsd: 30,
+  openLbp: 0,
+  routingCap: null,
+  label: "Earlier balance (no items)",
+  type: null,
+  sessionId: null,
+  isPrimary: false,
+  primaryDrawer: null,
+};
+
+it("answer 2 — the earlier-balance line is ticked on open (amount = whole balance) and paid as the oldest", async () => {
+  setDebt([EARLIER, LOTO], 50, 0);
+  await openSettle();
+  await waitFor(() => expect(box(EARLIER).checked).toBe(true));
+  expect(row(EARLIER).textContent).toContain("Earlier balance (no items)");
+  await waitFor(() => expect(amountValue()).toBe("50"));
+  typeAmount("40");
+  await waitFor(() =>
+    expect(row(LOTO).textContent).toContain("pays $10 · leaves $10"),
+  );
+  expect(row(EARLIER).textContent).toContain("pays $30 · leaves $0");
+  fireEvent.click(box(LOTO));
+  await waitFor(() => expect(amountValue()).toBe("30"));
+  fireEvent.click(confirm());
+  await waitFor(() => expect(mockAddRepayment).toHaveBeenCalledTimes(1));
+  expect(sent().targets).toEqual([{ kind: "balance", id: 1 }]);
+});

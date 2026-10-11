@@ -65,7 +65,7 @@ export const addRepaymentSchema = z
     targets: z
       .array(
         z.object({
-          kind: z.enum(["sale", "charge", "member"]),
+          kind: z.enum(["sale", "charge", "member", "balance"]),
           id: z.number().int().positive(),
           auto: z.boolean().optional(),
         }),

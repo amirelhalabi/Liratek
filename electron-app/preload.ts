@@ -373,7 +373,7 @@ contextBridge.exposeInMainWorld("api", {
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
       /** LIRA-304 — ticked debt items. */
       targets?: Array<{
-        kind: "sale" | "charge" | "member";
+        kind: "sale" | "charge" | "member" | "balance";
         id: number;
         auto?: boolean;
       }>;

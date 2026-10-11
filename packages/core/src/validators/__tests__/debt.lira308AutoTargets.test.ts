@@ -22,3 +22,23 @@ describe("addRepaymentSchema — LIRA-308 auto targets", () => {
     ]);
   });
 });
+
+// LIRA-308 owner answer 2 (2026-10-11) — the "Earlier balance (no items)"
+// line is sent as a `kind: "balance"` target. Rule 23: without the key in
+// the schema the tick would be refused on both transports.
+describe("addRepaymentSchema — LIRA-308 earlier-balance target", () => {
+  it("accepts a `balance` target (cashier's or auto)", () => {
+    const parsed = addRepaymentSchema.parse({
+      clientId: 7,
+      amountUSD: 40,
+      targets: [
+        { kind: "charge", id: 13 },
+        { kind: "balance", id: 1, auto: true },
+      ],
+    });
+    expect(parsed.targets).toEqual([
+      { kind: "charge", id: 13 },
+      { kind: "balance", id: 1, auto: true },
+    ]);
+  });
+});

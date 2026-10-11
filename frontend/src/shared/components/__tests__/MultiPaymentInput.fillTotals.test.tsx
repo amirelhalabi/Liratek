@@ -7,7 +7,8 @@
  *
  *  - `fillTotals`: what the amount fills to (defaults to `totals`);
  *  - `fillKey`: changing it resets the amount to `fillTotals` even after the
- *    cashier typed one (decision 2: a tick change always resets the amount);
+ *    cashier typed one (decision 2: a tick change always resets the amount),
+ *    keeping the cashier's lines (owner answer 3 — the last line absorbs);
  *  - `defaultReturnMethod`: an amount above the whole debt goes to the
  *    customer's account by default (decision 6), through the existing
  *    CUSTOMER_ACCOUNT change leg.
@@ -123,7 +124,11 @@ describe("MultiPaymentInput — fillTotals / fillKey (LIRA-308)", () => {
     expect(lastLines(onChange)[0].amount).toBe(80);
   });
 
-  it("a mixed fill opens one line per currency (decision 9)", () => {
+  // Owner answer 3 (2026-10-11) replaced "one line per currency": a tick
+  // change keeps the cashier's lines and the last one absorbs the
+  // difference — here the single USD line takes the LBP item at the rate.
+  // (Line-keeping cases: MultiPaymentInput.lira308OwnerAnswers.test.tsx.)
+  it("a mixed fill keeps the single line; it absorbs the LBP part at the rate (answer 3)", () => {
     const onChange = jest.fn<void, [PaymentLine[]]>();
     const { rerender } = render(
       element({ totals: usd(115), fillTotals: usd(50), fillKey: 1, onChange }),
@@ -143,10 +148,9 @@ describe("MultiPaymentInput — fillTotals / fillKey (LIRA-308)", () => {
       }),
     );
     const lines = lastLines(onChange);
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(1);
     expect(lines).toEqual([
-      expect.objectContaining({ currencyCode: "USD", amount: 14 }),
-      expect.objectContaining({ currencyCode: "LBP", amount: 900_000 }),
+      expect.objectContaining({ currencyCode: "USD", amount: 24 }),
     ]);
   });
 

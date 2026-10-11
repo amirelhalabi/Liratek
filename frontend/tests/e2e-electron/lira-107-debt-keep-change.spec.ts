@@ -2,6 +2,15 @@
  * E2E: LIRA-107 (T3, KC-2) — kept change on a debt repayment (automatic
  * since the owner decision of 2026-10-06 removed the "Keep change" button).
  *
+ * SUPERSEDED by LIRA-308 owner answer 1 (2026-10-11, binding): "if the
+ * customer pays 85, and we didn't set $1 in the returned amount, then $1 is
+ * account credit". A debt repayment no longer keeps change as profit: the
+ * change the cashier does not enter as returned becomes the customer's
+ * account credit. The test below now pins THAT rule (600,000 LBP debt paid
+ * 700,000, nothing returned → 100,000 LBP credit, full tender in the
+ * drawer, no kept-change profit). The original premise is kept below for
+ * history. Not run on the Mac (no Electron) — CI only.
+ *
  * The debts flow is the special case (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md):
  * an unreturned overpayment normally becomes EXTRA debt reduction / client
  * credit. When the cashier hands none of it back, the kept extra must instead:
@@ -99,7 +108,7 @@ async function keptChangeLbpProfit(page: Page): Promise<number> {
   );
 }
 
-test.describe("LIRA-107 — keep change on a debt repayment", () => {
+test.describe("LIRA-107 / LIRA-308 answer 1 — unreturned change on a debt repayment", () => {
   test.beforeEach(async ({ appPage }) => {
     dialogs = [];
     appPage.on("dialog", (d) => dialogs.push(d.message()));
@@ -108,14 +117,14 @@ test.describe("LIRA-107 — keep change on a debt repayment", () => {
     await ensureProfitsUnlocked(appPage);
   });
 
-  test("kept extra does not reduce the debt, stays in the drawer, and books as kept-change profit", async ({
+  test("unreturned change becomes the customer's account credit, stays in the drawer, and books no profit", async ({
     appPage,
   }) => {
     const ts = Date.now();
     const CLIENT = `L107 Keep ${ts}`;
     const DEBT_LBP = 600_000;
     const PAID_LBP = 700_000;
-    const KEPT_LBP = PAID_LBP - DEBT_LBP; // 100,000
+    const CREDIT_LBP = PAID_LBP - DEBT_LBP; // 100,000
 
     // Seed an LBP-only debt (same path as lira-105).
     const seeded = await appPage.evaluate(
@@ -167,19 +176,15 @@ test.describe("LIRA-107 — keep change on a debt repayment", () => {
     await expect(amount).toHaveValue("600,000");
     await amount.fill("700000");
 
-    // The overpay surfaces Return/Change. LIRA-308 (owner decision 6,
-    // 2026-10-11): on a repayment it defaults to the customer's account
-    // (credit) — switch it to Cash to keep the change instead. Seeded with
-    // the full change. Hand nothing back: empty both fields — the whole
-    // 100,000 is kept automatically (owner decision 2026-10-06 removed the
-    // "Keep change" button; repay mode wires onKeptChange).
-    await appPage.getByTestId("return-method").selectOption("CASH");
-    await appPage.getByTestId("return-usd").fill("");
-    await appPage.getByTestId("return-lbp").fill("");
-    await expect(appPage.getByText("Change kept (profit)")).toBeVisible();
-    await expect(appPage.getByTestId("keep-change-summary")).toContainText(
-      "100,000 LBP as profit.",
-    );
+    // The overpay surfaces Return/Change. LIRA-308 owner answer 1: the
+    // returned field starts empty; nothing typed there → the whole 100,000
+    // goes to the customer's account (in LBP — the tender's currency).
+    await expect(appPage.getByTestId("return-usd")).toHaveValue("");
+    await expect(appPage.getByTestId("return-lbp")).toHaveValue("");
+    await expect(
+      appPage.getByTestId("change-to-account-summary"),
+    ).toContainText("100,000 LBP");
+    await expect(appPage.getByTestId("keep-change-summary")).toHaveCount(0);
 
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
     await expect(
@@ -192,21 +197,21 @@ test.describe("LIRA-107 — keep change on a debt repayment", () => {
       "repayment raised an error dialog",
     ).toEqual([]);
 
-    // Debt: exactly settled — the kept 100,000 did NOT become client credit.
+    // Debt settled and the 100,000 became the customer's credit.
     const balance = await appPage.evaluate(async (id) => {
       const w = window as unknown as Api;
       const res = await w.api.debt.getClientBalance(id);
       return res.data ?? { balance_usd: NaN, balance_lbp: NaN };
     }, seeded.id);
-    expect(Math.abs(balance.balance_lbp)).toBeLessThan(1);
+    expect(balance.balance_lbp).toBeCloseTo(-CREDIT_LBP, 0);
     expect(Math.abs(balance.balance_usd)).toBeLessThan(0.01);
 
-    // Drawer: the FULL tender stays (kept change included).
+    // Drawer: the FULL tender stays (nothing handed back).
     const drawerAfter = await generalLbp(appPage);
     expect(drawerAfter - drawerBefore).toBeCloseTo(PAID_LBP, 0);
 
-    // Profits: the kept extra shows in the "Other / kept change" bucket.
+    // Profits: nothing is kept as profit on a repayment any more.
     const profitAfter = await keptChangeLbpProfit(appPage);
-    expect(profitAfter - profitBefore).toBeCloseTo(KEPT_LBP, 0);
+    expect(profitAfter - profitBefore).toBeCloseTo(0, 0);
   });
 });

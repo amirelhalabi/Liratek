@@ -25,6 +25,11 @@
  *    and basket members oldest first (unchanged: write-off and callers with
  *    no ticks). Strictly same currency, like today's FIFO: a USD
  *    reduction never pays an LBP item (the ledger is kept per currency).
+ *  - The "Earlier balance (no items)" line (`kind: "balance"`, LIRA-308
+ *    owner answer 2): the part of the balance no listed item accounts for.
+ *    Ticked (by the cashier or the amount) it is paid in the order above as
+ *    the OLDEST item; unticked it is never walked — it stays the implicit
+ *    remainder after every item, as before. It is never routed.
  *  - Routing: a ticked primary-system transfer's share goes to its drawer; a
  *    ticked item of any other kind does not; the value left after the
  *    ticked items goes to the drawer first ("OMT drawer first"), oldest
@@ -33,7 +38,7 @@
  *    transfer's own currency) and by the cash actually applied.
  */
 
-export type DebtItemKind = "sale" | "charge" | "member";
+export type DebtItemKind = "sale" | "charge" | "member" | "balance";
 
 /** Identifies one open debt item: a `sales.id`, a coverable `debt_ledger`
  *  row id, or a basket member's `customer_session_transactions.id`. */
@@ -60,6 +65,29 @@ export interface AllocationItem extends DebtItemRef {
   /** Present only on an open primary-system transfer: how much may still be
    *  routed to the primary cash drawer for it, per debt currency. */
   routingCap?: { usd: number; lbp: number } | null;
+}
+
+/** LIRA-308 owner answer 2 (2026-10-11) — the "Earlier balance (no
+ *  items)" line: the part of a client's balance no listed item accounts
+ *  for (manual / imported / opening debt). One per client, so its id is a
+ *  fixed 1. */
+export const EARLIER_BALANCE_REF: DebtItemRef = { kind: "balance", id: 1 };
+
+/** The earlier-balance line as an allocation item. Sorts as the OLDEST
+ *  item (empty `createdAt`); never routed (no cap); has no row to cover. */
+export function earlierBalanceItem(open: {
+  usd: number;
+  lbp: number;
+}): AllocationItem {
+  return {
+    kind: "balance",
+    id: EARLIER_BALANCE_REF.id,
+    rowId: 0,
+    createdAt: "",
+    openUsd: Math.max(0, open.usd),
+    openLbp: Math.max(0, open.lbp),
+    routingCap: null,
+  };
 }
 
 export interface AllocateRepaymentInput {
@@ -204,7 +232,12 @@ export function allocateRepayment(
 
   // ── Coverage, step 2: today's order — sales first (USD), then charges and
   //    basket members oldest first, per currency ────────────────────────
-  const rest = input.items.filter((it) => open.get(key(it))).sort(byAge);
+  //    The earlier-balance line (LIRA-308 answer 2) is paid only when
+  //    ticked; unticked it stays today's implicit remainder after every
+  //    item, so a no-target repayment or write-off is unchanged.
+  const rest = input.items
+    .filter((it) => it.kind !== "balance" && open.get(key(it)))
+    .sort(byAge);
   for (const it of rest.filter((i) => i.kind === "sale")) {
     if (budgetUsd <= EPS_SALE) break;
     const o = open.get(key(it))!;

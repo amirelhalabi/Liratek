@@ -80,7 +80,10 @@ it("lists basket items, separate visits and sales; flags primary transfers; skip
   const items = new DebtRepository().findOpenDebtItems(7);
   // Oldest first by each item's own debt row (the basket's row is stamped
   // at checkout time, after the seeded visits).
-  expect(items).toHaveLength(4);
+  // LIRA-308 owner answer 2 (2026-10-11): the hand-added debt is listed as
+  // its own "Earlier balance (no items)" line (kind "balance"), never as an
+  // item — so 4 items + that line.
+  expect(items).toHaveLength(5);
   const member = items.filter((i) => i.kind === "member");
   expect(member).toEqual([
     expect.objectContaining({
@@ -99,7 +102,13 @@ it("lists basket items, separate visits and sales; flags primary transfers; skip
   expect(items.find((i) => i.kind === "sale")).toEqual(
     expect.objectContaining({ openUsd: 14 }),
   );
-  expect(items.some((i) => i.openUsd === 30)).toBe(false); // Manual Debt
+  // Manual Debt: only as the earlier-balance line.
+  expect(items.filter((i) => i.openUsd === 30)).toEqual([
+    expect.objectContaining({
+      kind: "balance",
+      label: "Earlier balance (no items)",
+    }),
+  ]);
 });
 
 it("in a Whish shop the Whish transfer is the primary one", () => {

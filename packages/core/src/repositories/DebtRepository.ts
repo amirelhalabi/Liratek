@@ -21,6 +21,7 @@ import { getSettingsRepository } from "./SettingsRepository.js";
 import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import {
   allocateRepayment,
+  earlierBalanceItem,
   isCashDrawerItem,
   type AllocationItem,
   type CoverageTake,
@@ -52,6 +53,12 @@ import {
   usdEquivalent,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+
+/** LIRA-308 answer 2 — the label of the "Earlier balance" line and the
+ *  noise floor below which an uncovered balance is not shown as one. */
+const EARLIER_BALANCE_LABEL = "Earlier balance (no items)";
+const EARLIER_BALANCE_MIN_USD = 0.05;
+const EARLIER_BALANCE_MIN_LBP = 5000;
 
 /**
  * Exactly which rows a repayment's FIFO coverage landed on, recorded on the
@@ -138,7 +145,6 @@ export interface RepaymentPaymentLine {
   /** IN (customer pays, default) or OUT (shop returns change to customer). */
   direction?: "IN" | "OUT";
 }
-
 
 // =============================================================================
 // Entity Types
@@ -668,12 +674,22 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           baseSystem,
         }) === pcdDrawer;
       const openItems = this._loadAllocationItems(data.client_id, baseSystem);
+      // LIRA-308 answer 2 — the "Earlier balance (no items)" line, measured
+      // WITHOUT this repayment's own ledger row (already inserted above).
+      const balanceItem = this._earlierBalanceItem(
+        data.client_id,
+        openItems,
+        repaymentId,
+      );
+      if (balanceItem) openItems.push(balanceItem);
       this._assertTargetsOpen(data.targets ?? [], openItems);
       const routableCash = (ccy: string): number =>
         inLegs
           .filter(
             (l) =>
-              l.currencyCode === ccy && l.amount > 0 && isRoutableCash(l.method),
+              l.currencyCode === ccy &&
+              l.amount > 0 &&
+              isRoutableCash(l.method),
           )
           .reduce((sum, l) => sum + l.amount, 0);
       const allocation = allocateRepayment({
@@ -803,7 +819,14 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
                 legs: routedLegs,
               },
             }
-          : { routed: { provider: baseSystem, drawer: pcdDrawer, by_transfer: [], legs: [] } }),
+          : {
+              routed: {
+                provider: baseSystem,
+                drawer: pcdDrawer,
+                by_transfer: [],
+                legs: [],
+              },
+            }),
         ...(data.targets && data.targets.length > 0
           ? { targets: data.targets }
           : {}),
@@ -826,6 +849,20 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           // ticked items, in the same order (the discount walks on from
           // where the cash stopped — the same split as one combined walk).
           data.targets,
+          // LIRA-308 answer 2: what is left of the earlier balance after
+          // this repayment's cash (measured here, before its change-to-
+          // account credit row could blur it).
+          balanceItem
+            ? (() => {
+                const took = allocation.coverage.find(
+                  (c) => c.kind === "balance",
+                ) ?? { usd: 0, lbp: 0 };
+                return {
+                  usd: balanceItem.openUsd - took.usd,
+                  lbp: balanceItem.openLbp - took.lbp,
+                };
+              })()
+            : undefined,
         );
       }
 
@@ -854,6 +891,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     /** LIRA-308 decision 8 — the bundled repayment's targets; absent for a
      *  standalone write-off (today's order). */
     targets?: DebtItemRef[],
+    /** LIRA-308 answer 2 — the earlier balance still open after the bundled
+     *  repayment's cash; only read when `targets` tick it. */
+    balanceOpen?: { usd: number; lbp: number },
   ): number {
     const tenantId = getCurrentTenantId();
     const amountUsd = Math.abs(discount.amount_usd || 0);
@@ -923,6 +963,15 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     // COUNTERPARTY_DISCOUNT stays non-reversible.
     const baseSystem = getSettingsRepository().getShopBaseSystem();
     const openItems = this._loadAllocationItems(clientId, baseSystem);
+    if (balanceOpen) {
+      const b = earlierBalanceItem(balanceOpen);
+      if (
+        b.openUsd > COVERAGE_EPSILON_USD ||
+        b.openLbp > COVERAGE_EPSILON_LBP
+      ) {
+        openItems.push(b);
+      }
+    }
     const openTargets = (targets ?? []).filter((t) =>
       openItems.some((it) => it.kind === t.kind && it.id === t.id),
     );
@@ -1074,8 +1123,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const members = !hasMemberShares
       ? []
       : (this.db
-      .prepare(
-        `SELECT cst.id, dl.id AS row_id, dl.created_at, ${fsProvider} AS provider,
+          .prepare(
+            `SELECT cst.id, dl.id AS row_id, dl.created_at, ${fsProvider} AS provider,
                 ${memberOutstandingSql("cst", "usd")} AS open_usd,
                 ${memberOutstandingSql("cst", "lbp")} AS open_lbp,
                 ${memberOutstandingSql("cst", "usd")} + cst.covered_usd AS owed_usd,
@@ -1091,17 +1140,17 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
            AND cst.transaction_type <> 'session_item_refund'
            AND t.type <> 'SALE'
            AND ${memberOpenSql("cst")}`,
-      )
-      .all(clientId, tenantId) as Array<{
-      id: number;
-      row_id: number;
-      created_at: string;
-      provider: string | null;
-      open_usd: number;
-      open_lbp: number;
-      owed_usd: number;
-      owed_lbp: number;
-    }>);
+          )
+          .all(clientId, tenantId) as Array<{
+          id: number;
+          row_id: number;
+          created_at: string;
+          provider: string | null;
+          open_usd: number;
+          open_lbp: number;
+          owed_usd: number;
+          owed_lbp: number;
+        }>);
 
     // A basket row whose outstanding its members do not account for (a
     // basket booked without member shares) stays coverable as a whole.
@@ -1320,10 +1369,14 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const items = this._loadAllocationItems(clientId, baseSystem);
     const hasCst = this._hasTable("customer_session_transactions");
     const saleInfo = this.db.prepare(
-      `SELECT t.summary, t.type${hasCst ? `,
+      `SELECT t.summary, t.type${
+        hasCst
+          ? `,
               (SELECT cst.session_id FROM customer_session_transactions cst
                 WHERE cst.unified_transaction_id = t.id AND cst.tenant_id = t.tenant_id
-                LIMIT 1) AS session_id` : ", NULL AS session_id"}
+                LIMIT 1) AS session_id`
+          : ", NULL AS session_id"
+      }
        FROM transactions t
        WHERE t.source_table = 'sales' AND t.source_id = ? AND t.tenant_id = ?
          AND t.type = 'SALE'
@@ -1344,34 +1397,109 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
            WHERE cst.id = ? AND cst.tenant_id = ?`,
         )
       : null;
-    type Info = { summary: string | null; type: string | null; session_id: number | null };
-    return items
-      .map((it): OpenDebtItem => {
-        const info = (
-          it.kind === "sale"
-            ? saleInfo.get(it.id, tenantId)
-            : it.kind === "charge"
-              ? chargeInfo.get(it.id, tenantId)
-              : memberInfo?.get(it.id, tenantId)
-        ) as Info | undefined;
-        return {
-          ...it,
-          label: info?.summary ?? `${it.kind} #${it.id}`,
-          type: info?.type ?? null,
-          sessionId: info?.session_id ?? null,
-          isPrimary: isCashDrawerItem(it),
-          primaryDrawer: isCashDrawerItem(it)
-            ? primaryCashDrawerName(baseSystem)
-            : null,
-        };
-      })
-      .sort((a, b) =>
-        a.createdAt === b.createdAt
-          ? a.rowId - b.rowId || a.id - b.id
-          : a.createdAt < b.createdAt
-            ? -1
-            : 1,
-      );
+    type Info = {
+      summary: string | null;
+      type: string | null;
+      session_id: number | null;
+    };
+    // LIRA-308 answer 2 — the part of the balance no listed item accounts
+    // for, as its own line, so ticking everything = the whole balance. Only
+    // next to listed items: a client with nothing but such debt keeps the
+    // plain (no-picker) repayment.
+    const balanceItem =
+      items.length > 0 ? this._earlierBalanceItem(clientId, items) : null;
+    const balanceLine: OpenDebtItem[] = balanceItem
+      ? [
+          {
+            ...balanceItem,
+            label: EARLIER_BALANCE_LABEL,
+            type: null,
+            sessionId: null,
+            isPrimary: false,
+            primaryDrawer: null,
+          },
+        ]
+      : [];
+    return [
+      ...balanceLine,
+      ...items
+        .map((it): OpenDebtItem => {
+          const info = (
+            it.kind === "sale"
+              ? saleInfo.get(it.id, tenantId)
+              : it.kind === "charge"
+                ? chargeInfo.get(it.id, tenantId)
+                : memberInfo?.get(it.id, tenantId)
+          ) as Info | undefined;
+          return {
+            ...it,
+            label: info?.summary ?? `${it.kind} #${it.id}`,
+            type: info?.type ?? null,
+            sessionId: info?.session_id ?? null,
+            isPrimary: isCashDrawerItem(it),
+            primaryDrawer: isCashDrawerItem(it)
+              ? primaryCashDrawerName(baseSystem)
+              : null,
+          };
+        })
+        .sort((a, b) =>
+          a.createdAt === b.createdAt
+            ? a.rowId - b.rowId || a.id - b.id
+            : a.createdAt < b.createdAt
+              ? -1
+              : 1,
+        ),
+    ];
+  }
+
+  /**
+   * LIRA-308 answer 2 (2026-10-11) — the client's balance that no open item
+   * accounts for (manual / imported / opening debt), as the
+   * "Earlier balance (no items)" allocation item, or null when there is
+   * none. Ledger balance minus the items' open amounts, per currency; a
+   * shortfall in one currency (e.g. an LBP credit) is netted against the
+   * other at the sell rate. `excludeLedgerId` leaves out a row the caller
+   * has just inserted (addRepayment's own Repayment row), so the gap is the
+   * one the cashier saw. Below 5¢ / 5,000 LBP it is rounding noise, not a
+   * line.
+   */
+  private _earlierBalanceItem(
+    clientId: number,
+    items: AllocationItem[],
+    excludeLedgerId?: number,
+  ): AllocationItem | null {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_usd), 0) AS usd, COALESCE(SUM(amount_lbp), 0) AS lbp
+         FROM debt_ledger
+         WHERE client_id = ? AND tenant_id = ? AND id <> ?`,
+      )
+      .get(clientId, getCurrentTenantId(), excludeLedgerId ?? -1) as {
+      usd: number;
+      lbp: number;
+    };
+    let gapUsd = row.usd - items.reduce((s, it) => s + it.openUsd, 0);
+    let gapLbp = row.lbp - items.reduce((s, it) => s + it.openLbp, 0);
+    const rate = getUsdLbpSellRate(this.db) || 1;
+    if (gapUsd < 0 && gapLbp > 0) {
+      gapLbp = Math.max(0, gapLbp + gapUsd * rate);
+      gapUsd = 0;
+    } else if (gapLbp < 0 && gapUsd > 0) {
+      gapUsd = Math.max(0, gapUsd + gapLbp / rate);
+      gapLbp = 0;
+    }
+    gapUsd = Math.round(Math.max(0, gapUsd) * 100) / 100;
+    gapLbp = Math.round(Math.max(0, gapLbp));
+    if (
+      gapUsd <= EARLIER_BALANCE_MIN_USD &&
+      gapLbp <= EARLIER_BALANCE_MIN_LBP
+    ) {
+      return null;
+    }
+    return earlierBalanceItem({
+      usd: gapUsd > EARLIER_BALANCE_MIN_USD ? gapUsd : 0,
+      lbp: gapLbp > EARLIER_BALANCE_MIN_LBP ? gapLbp : 0,
+    });
   }
 
   /** LIRA-304 — refuse (before any write) a ticked item that is not one of
@@ -1416,6 +1544,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     );
     for (const t of takes) {
       if (t.usd <= 0 && t.lbp <= 0) continue;
+      // LIRA-308 answer 2 — the earlier-balance line has no row to cover:
+      // the repayment's own ledger row is the whole effect (and its void
+      // the reversal owner).
+      if (t.kind === "balance") continue;
       if (t.kind === "sale") {
         updSale.run(t.usd, t.id, tenantId);
         record.sales.push({ id: t.id, usd: t.usd });

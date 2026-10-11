@@ -207,7 +207,8 @@ one plain sentence for the cashier, followed by the technical detail in
 parentheses.
 
 **Where it applies today:** customer — POS, Maintenance, session checkout,
-Debts repayment, Custom Services, recharge/OMT sales; payout — OMT/Whish
+Custom Services (Debts repayment no longer keeps change: unreturned change is
+the customer's account credit — LIRA-308 owner answer 1, 2026-10-11), recharge/OMT sales; payout — OMT/Whish
 RECEIVE, Binance cash-out, app RECEIVE, credit buy-back, Whish top-up from a
 client, Debts credit cash-out, Hold Money pickup (one currency: capped as
 above; both currencies: kept per currency with NO cap — handed ≤ held in each
@@ -278,11 +279,29 @@ a For-Partner item contributes 0 to the basket's customer charge
   ledger due (MultiPaymentInput `fillTotals`, while `totals` stays the whole due so a bigger amount
   is a payment, not change); a tick change resets the amount (`fillKey`), typing never unticks;
   nothing ticked disables Confirm (only when items are listed — a Manual-Debt-only client has no
-  picker and stays payable). An amount above the whole due is change that defaults to the
-  customer's account (`defaultReturnMethod: "CUSTOMER_ACCOUNT"`): the existing OUT
-  CUSTOMER_ACCOUNT leg → `CREDIT_DEPOSIT` "Change returned" linked to the repayment, reversed by
-  its void/refund — no second credit path. Guards: `debtRepaymentAllocation.lira308.test.ts`,
-  `DebtRepository.lira308.test.ts`, `Debts.lira308TicksAmount.test.tsx`, lira-web-051.
+  picker and stays payable). **Owner answers 2026-10-11 (binding):**
+  (1) **Unreturned change is account credit, never profit.** An amount above the whole due is
+  change; the cashier types what is handed back (the return fields start EMPTY) and whatever is
+  NOT entered becomes the customer's account credit (MPI `unreturnedChangeTo: "CUSTOMER_ACCOUNT"`
+  → one more OUT CUSTOMER_ACCOUNT leg → `CREDIT_DEPOSIT` "Change returned" linked to the
+  repayment, reversed by its void/refund — no second credit path). Small rounding overpays
+  (an LBP note above a USD due) follow the same rule, in the tender's currency. Debt repayments
+  therefore no longer keep change as profit (§4.1's customer row no longer applies to the
+  Debts page; cash-out keeps its payout keep). (2) **Earlier balance line.** The part of the
+  balance no listed item accounts for (Manual / imported / opening debt) is listed as its own
+  line, `kind: "balance"` ("Earlier balance (no items)", `DebtRepository._earlierBalanceItem` =
+  ledger balance − Σ open items per currency, cross-netted at the sell rate, ignored below
+  5¢ / 5,000 LBP; only next to listed items). Ticked, the allocation pays it as the OLDEST
+  item (after cash-drawer items); it is never routed and has no row to cover (the repayment's
+  own ledger row is the whole effect, so its void/refund is the reversal owner — rule 20);
+  unticked it stays the implicit remainder after every item, so untargeted callers and
+  write-offs are unchanged. `addRepayment` measures it WITHOUT its own just-inserted Repayment
+  row; a bundled discount gets the remainder after the cash. (3) **Lines are kept on a tick
+  change**: only the total changes and the LAST payment line absorbs the difference (removed
+  if it would drop to ≤ 0, the previous line then absorbs; never below zero) — MPI `fillKey`.
+  Guards: `debtRepaymentAllocation.lira308.test.ts`, `debtRepaymentAllocation.lira308balance.test.ts`,
+  `DebtRepository.lira308.test.ts`, `DebtRepository.lira308balance.test.ts`,
+  `MultiPaymentInput.lira308OwnerAnswers.test.tsx`, `Debts.lira308TicksAmount.test.tsx`, lira-web-051.
 - Debts Excel import is idempotent — re-importing the same file books nothing (lira-080).
 - **Mixed per-currency balances** (lira-097): the client balance is the raw
   per-currency `debt_ledger` sum (`debt:client-balance`) — a client can hold a

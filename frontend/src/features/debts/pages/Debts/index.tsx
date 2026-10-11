@@ -2495,13 +2495,16 @@ export default function Debts() {
               currency: "USD",
               // LIRA-308 — the amount fills to the TICKED sum while `totals`
               // stays the whole debt: an amount between the two pays more
-              // items, only one above the whole debt is change — which goes
-              // to the customer's account by default (decision 6, the
-              // existing CUSTOMER_ACCOUNT change leg → "Change returned"
-              // credit, reversed with the repayment).
+              // items, only one above the whole debt is change. Owner
+              // answer 1 (2026-10-11): the cashier types what is handed
+              // back; whatever is NOT entered goes to the customer's account
+              // (the existing CUSTOMER_ACCOUNT change leg → "Change
+              // returned" credit, reversed with the repayment). Nothing is
+              // kept as profit on a repayment any more. A tick change keeps
+              // the cashier's payment lines (answer 3 — MPI `fillKey`).
               ...(repayMode === "repay"
                 ? {
-                    defaultReturnMethod: "CUSTOMER_ACCOUNT",
+                    unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const,
                     // Decision 9: an LBP overpay is LBP credit.
                     returnCurrencyFollowsTender: true,
                     hasClient: true,
@@ -2540,12 +2543,13 @@ export default function Debts() {
               ],
               exchangeRate: EXCHANGE_RATE,
               onExchangeRateChange: setRepayModalRate,
-              // Kept change: repay mode keeps an overpay as profit; cash-out
-              // keeps a small payout shortfall as profit (owner decision
-              // 2026-10-07) — single-currency credits only, since the server
-              // owes a payout in ONE currency and refuses kept on a mixed
-              // USD + LBP credit.
-              ...(repayMode === "repay" || creditUsd > 0 !== creditLbp > 0
+              // Kept change: cash-out keeps a small payout shortfall as
+              // profit (owner decision 2026-10-07) — single-currency credits
+              // only, since the server owes a payout in ONE currency and
+              // refuses kept on a mixed USD + LBP credit. A repayment no
+              // longer keeps change: what is not handed back is the
+              // customer's account credit (LIRA-308 owner answer 1).
+              ...(repayMode === "cashout" && creditUsd > 0 !== creditLbp > 0
                 ? { onKeptChange: setRepayKeptChange }
                 : {}),
             }}

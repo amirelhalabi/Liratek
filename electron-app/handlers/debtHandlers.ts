@@ -48,7 +48,7 @@ interface RepaymentData {
   // LIRA-304 — ticked debt items (addRepaymentSchema `targets`), forwarded
   // as-is; DebtRepository re-checks each one.
   targets?: Array<{
-    kind: "sale" | "charge" | "member";
+    kind: "sale" | "charge" | "member" | "balance";
     id: number;
     auto?: boolean;
   }>;

@@ -164,8 +164,12 @@ export interface MultiPaymentInputProps {
   fillTotals?: Money[];
   /** LIRA-308 decision 2 — changing this value re-fills the amount to
    *  `fillTotals`, even after the operator typed an amount (a tick change
-   *  always resets the amount). One line per non-zero currency, like
-   *  `initialLines`; methods are kept per currency. Ignored on mount. */
+   *  always resets the amount). Owner answer 3 (2026-10-11): the operator's
+   *  payment lines are KEPT — only the total changes, and the LAST line
+   *  absorbs the difference; a last line that would drop to zero or below
+   *  is removed and the one before it absorbs the rest (never below zero);
+   *  with no line left, one line (the first line's method and currency)
+   *  is created. Ignored on mount. */
   fillKey?: string | number;
   /** The change-return method selected when an overpay first appears
    *  (default "CASH"). LIRA-308 decision 6: the Debts repayment sheet
@@ -178,6 +182,15 @@ export interface MultiPaymentInputProps {
    *  becomes LBP credit, not a converted USD figure. Re-applied whenever the
    *  lines' currencies change; the cashier can still pick another. */
   returnCurrencyFollowsTender?: boolean;
+  /** LIRA-308 owner answer 1 (2026-10-11): "if the customer pays 85, and we
+   *  didn't set $1 in the returned amount, then $1 is account credit". When
+   *  set, the CASH return fields start EMPTY (the cashier types what is
+   *  actually handed back) and whatever change is NOT entered there becomes
+   *  one more change leg with this method (in the tender's currency under
+   *  `returnCurrencyFollowsTender`). Nothing is kept as profit
+   *  (`onKeptChange` never reports a keep), and an under-return is not a
+   *  mismatch. Customer payer only; requires `hasClient`. */
+  unreturnedChangeTo?: "CUSTOMER_ACCOUNT";
   /** Payment methods to display in dropdown */
   paymentMethods: PaymentMethod[];
   /** Available currencies */
@@ -377,6 +390,7 @@ export default function MultiPaymentInput({
   fillKey,
   defaultReturnMethod,
   returnCurrencyFollowsTender = false,
+  unreturnedChangeTo,
   clientId,
   fetchClientVouchers,
   onWaiveRemaining,
@@ -609,8 +623,10 @@ export default function MultiPaymentInput({
   const prefillAmountFor = (
     lineCurrency: string,
     excludeLineId?: string,
+    /** The lines to count instead of the current ones (LIRA-308 answer 3). */
+    linesOverride?: PaymentLine[],
   ): number => {
-    const otherPayments: Money[] = paymentLines
+    const otherPayments: Money[] = (linesOverride ?? paymentLines)
       .filter((l) => l.id !== excludeLineId)
       .map((l) => ({
         amount: Math.max(0, l.amount || 0),
@@ -720,8 +736,11 @@ export default function MultiPaymentInput({
   }, [returnCurrencyFollowsTender, tenderCurrencyKey]);
 
   // LIRA-308 decision 2 — a new `fillKey` re-fills the amount to
-  // `fillTotals`, overriding a typed amount: one line per non-zero currency
-  // (like `initialLines`), each keeping the method its currency's line had.
+  // `fillTotals`, overriding a typed amount. Owner answer 3 (2026-10-11):
+  // the lines the cashier set up are kept; the LAST line absorbs the
+  // difference (its remainder against the others, the same currency-aware
+  // prefill rule as a single line). A last line left with nothing is
+  // removed and the one before it absorbs the rest — never below zero.
   // A single line then stays in sync through the auto-sync effect above.
   const prevFillKeyRef = useRef(fillKey);
   useEffect(() => {
@@ -729,31 +748,31 @@ export default function MultiPaymentInput({
     prevFillKeyRef.current = fillKey;
     if (!fillTotals) return;
     singleAmountTouchedRef.current = false;
-    const methodFor = (ccy: string): string =>
-      paymentLines.find((l) => l.currencyCode === ccy)?.method ??
-      paymentLines[0]?.method ??
-      initialMethod ??
-      "CASH";
-    const owed = fillTotals.filter((t) => t.amount > 0);
-    const next: PaymentLine[] =
-      owed.length > 0
-        ? owed.map((t) => ({
-            id: crypto.randomUUID(),
-            method: methodFor(t.currency),
-            currencyCode: t.currency,
-            amount: t.amount,
-          }))
-        : [
-            {
-              id: paymentLines[0]?.id ?? crypto.randomUUID(),
-              method: paymentLines[0]?.method ?? initialMethod ?? "CASH",
-              currencyCode: paymentLines[0]?.currencyCode ?? currency,
-              amount: 0,
-            },
-          ];
-    setIsSplitMode(next.length > 1);
-    setPaymentLines(next);
-    onChange(next);
+    let work = [...paymentLines];
+    while (work.length > 0) {
+      const tail = work[work.length - 1];
+      const amount = prefillAmountFor(tail.currencyCode, tail.id, work);
+      if (amount > 1e-9) {
+        work = [...work.slice(0, -1), { ...tail, amount }];
+        break;
+      }
+      work = work.slice(0, -1);
+    }
+    if (work.length === 0) {
+      const first = paymentLines[0];
+      const currencyCode = first?.currencyCode ?? currency;
+      work = [
+        {
+          id: first?.id ?? crypto.randomUUID(),
+          method: first?.method ?? initialMethod ?? "CASH",
+          currencyCode,
+          amount: Math.max(0, prefillAmountFor(currencyCode, undefined, [])),
+        },
+      ];
+    }
+    setIsSplitMode(work.length > 1);
+    setPaymentLines(work);
+    onChange(work);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fillKey]);
 
@@ -1257,9 +1276,18 @@ export default function MultiPaymentInput({
   const isCashOnlyPayment =
     cashOnlyReturn || paymentMethods.every((pm) => pm.code === "CASH");
   const effectiveReturnMethod = isCashOnlyPayment ? "CASH" : returnMethod;
+  /** LIRA-308 answer 1 — change not entered as returned goes to the account. */
+  const creditUnreturned = !!unreturnedChangeTo && !isPayout && hasClient;
 
   /** The full suggested return the auto-init effect below seeds. */
   const seedFullSuggestedReturn = () => {
+    // LIRA-308 answer 1 — the cashier types what is handed back; the rest
+    // goes to the account, so nothing is pre-entered.
+    if (creditUnreturned) {
+      setReturnAmountUSD("");
+      setReturnAmountLBP("");
+      return;
+    }
     if (totalAmountCurrency === "USD") {
       if (smartSplitOverpay) {
         // Lebanon dual-currency drawer convention: hand back whole USD notes
@@ -1417,7 +1445,21 @@ export default function MultiPaymentInput({
   const hasReturnMismatch =
     returnMismatch > 0
       ? returnMismatch > matchTolerance + roundingOverAllowance
-      : -returnMismatch > matchTolerance;
+      : // LIRA-308 answer 1: an under-return is account credit, not a gap.
+        !creditUnreturned && -returnMismatch > matchTolerance;
+  // LIRA-308 answer 1 — what the cashier did not enter as returned, in the
+  // change currency (the tender's under `returnCurrencyFollowsTender`).
+  const unreturnedTarget =
+    creditUnreturned && isOverpaid && effectiveReturnMethod === "CASH"
+      ? Math.max(0, overpaidTarget - returnTotalInTargetCurrency)
+      : 0;
+  const unreturnedCreditAmount =
+    unreturnedTarget > matchTolerance
+      ? returnCurrency === "LBP"
+        ? Math.round(convertFromTarget(unreturnedTarget, "LBP"))
+        : Number(convertFromTarget(unreturnedTarget, returnCurrency).toFixed(2))
+      : 0;
+
   // Kept change is AUTOMATIC (LIRA-259 generalised — owner decision
   // 2026-10-06, "Remove the Keep change button. Always show 'Keeping X as
   // profit' when the returned amount does not match the change due."): a
@@ -1430,6 +1472,7 @@ export default function MultiPaymentInput({
   // `onKeptChange`: a consumer whose backend cannot book kept change does
   // not wire it, and keeps the red warning.
   const underReturnKept =
+    !creditUnreturned &&
     !!onKeptChange &&
     effectiveReturnMethod === "CASH" &&
     isOverpaid &&
@@ -1473,6 +1516,16 @@ export default function MultiPaymentInput({
           method: "CASH",
           currencyCode: "LBP",
           amount: parsedReturnLBP,
+          direction: "OUT",
+        });
+      }
+      // LIRA-308 answer 1 — the change NOT entered as returned is credited.
+      if (creditUnreturned && unreturnedCreditAmount > 0) {
+        legs.push({
+          id: `${returnLegIdRef.current}_credit`,
+          method: unreturnedChangeTo!,
+          currencyCode: returnCurrency,
+          amount: unreturnedCreditAmount,
           direction: "OUT",
         });
       }
@@ -2653,6 +2706,19 @@ export default function MultiPaymentInput({
                   .
                 </p>
               ))}
+            {/* LIRA-308 answer 1 — the change not handed back goes to the
+                customer's account. */}
+            {unreturnedCreditAmount > 0 && (
+              <p
+                data-testid="change-to-account-summary"
+                className="text-[11px] text-emerald-400"
+              >
+                {returnCurrency === "LBP"
+                  ? `${unreturnedCreditAmount.toLocaleString()} LBP`
+                  : `$${unreturnedCreditAmount.toFixed(2)}`}{" "}
+                not returned goes to the customer&apos;s account as credit.
+              </p>
+            )}
             {/* Fix-round finding #4 (2026-09-24): the two return fields
             never rewrite each other, so nothing else guarantees they still
             add up to the overpaid amount once the operator edits either one

@@ -312,3 +312,99 @@ describe("decision 6 — an amount above the whole debt becomes account credit (
     for (const v of Object.values(net)) expect(v).toBeCloseTo(0, 2);
   });
 });
+
+// LIRA-308 owner answer 1 (2026-10-11) — the payload the Debts page now
+// sends on an overpay: the change the cashier typed as returned (CASH OUT)
+// PLUS the rest as account credit (CUSTOMER_ACCOUNT OUT) on ONE repayment,
+// and an LBP rounding overpay on a USD due credited in LBP. Rule 20: void
+// and refund net the ledger and every drawer to zero, per currency.
+// Characterizations — the existing server path, written after the page
+// change (they passed on first run; not regression guards).
+describe("answer 1 — cash back + account credit on one repayment (characterization)", () => {
+  it.each(["void", "refund"] as const)(
+    "$115 for a $101 OMT send, $4 cash back, $10 credit → balance −$10; %s nets everything to zero",
+    (how) => {
+      const omt = seedTransferDebt(db, {
+        clientId: 7,
+        provider: "OMT",
+        usd: 101,
+      });
+      const ledgerBefore = balance();
+      const before = drawers(db);
+      const id = repay({
+        usd: 101,
+        legs: [
+          { method: "CASH", currencyCode: "USD", amount: 115 },
+          { method: "CASH", currencyCode: "USD", amount: 4, direction: "OUT" },
+          {
+            method: "CUSTOMER_ACCOUNT",
+            currencyCode: "USD",
+            amount: 10,
+            direction: "OUT",
+          },
+        ],
+        targets: [{ kind: "charge", id: omt.debtRowId }],
+      });
+      expect(balance().usd).toBeCloseTo(-10, 2);
+      expect(drawerDelta(before, drawers(db))).toEqual({
+        "General|USD": 10,
+        "OMT_System|USD": 101,
+      });
+      const txn = db
+        .prepare(
+          `SELECT id, profit_usd FROM transactions WHERE source_table = 'debt_ledger' AND source_id = ? AND type = 'DEBT_REPAYMENT'`,
+        )
+        .get(id) as { id: number; profit_usd: number };
+      expect(txn.profit_usd).toBe(0);
+      if (how === "void") getTransactionRepository().voidTransaction(txn.id, 1);
+      else getTransactionRepository().refundTransaction(txn.id, 1);
+      expect(balance().usd).toBeCloseTo(ledgerBefore.usd, 2);
+      expect(balance().lbp).toBeCloseTo(ledgerBefore.lbp, 0);
+      for (const v of Object.values(drawerDelta(before, drawers(db)))) {
+        expect(v).toBeCloseTo(0, 2);
+      }
+    },
+  );
+
+  it.each(["void", "refund"] as const)(
+    "a $10 charge paid with 900,000 LBP, 10,000 LBP credited → LBP credit only; %s nets to zero",
+    (how) => {
+      seedChargeDebt(db, {
+        clientId: 7,
+        debtType: "Loto Debt",
+        txnType: "LOTO",
+        usd: 10,
+      });
+      const ledgerBefore = balance();
+      const before = drawers(db);
+      const id = repay({
+        usd: 10,
+        legs: [
+          { method: "CASH", currencyCode: "LBP", amount: 900_000 },
+          {
+            method: "CUSTOMER_ACCOUNT",
+            currencyCode: "LBP",
+            amount: 10_000,
+            direction: "OUT",
+          },
+        ],
+      });
+      expect(balance().usd).toBeCloseTo(0, 2);
+      expect(balance().lbp).toBeCloseTo(-10_000, 0);
+      const txnId = (
+        db
+          .prepare(
+            `SELECT id FROM transactions WHERE source_table = 'debt_ledger' AND source_id = ? AND type = 'DEBT_REPAYMENT'`,
+          )
+          .get(id) as { id: number }
+      ).id;
+      if (how === "void") getTransactionRepository().voidTransaction(txnId, 1);
+      else getTransactionRepository().refundTransaction(txnId, 1);
+      expect(balance().usd).toBeCloseTo(ledgerBefore.usd, 2);
+      expect(balance().lbp).toBeCloseTo(ledgerBefore.lbp, 0);
+      for (const v of Object.values(drawerDelta(before, drawers(db)))) {
+        expect(v).toBeCloseTo(0, 0);
+      }
+    },
+  );
+});

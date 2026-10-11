@@ -6639,7 +6639,7 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
-## LIRA-308: Debt repayment — ticks and amount stay in step — HIGH — DONE, not committed (owner decisions 2026-10-11)
+## LIRA-308: Debt repayment — ticks and amount stay in step — HIGH — DONE, not committed (owner decisions + answers 2026-10-11)
 
 Follows LIRA-304 (`specs/304-debt-item-picking/`, shipped). Today the "Process Repayment" item picker is optional: the
 amount is the whole debt whatever is ticked, and Confirm works with nothing ticked.
@@ -6700,11 +6700,66 @@ LBP overpay is LBP credit — MPI `returnCurrencyFollowsTender`, test written af
 failing-first); the "Account credit" line also shows for a client with no listed items (failed first);
 refund AND void of an overpaid repayment net the ledger and every drawer to zero (characterization).
 
-**Open for the owner:** (a) a client with Manual/imported debt plus listed items now gets the items' sum,
-not the whole balance, as the amount (decision 1 read literally); (b) a tick change rebuilds the payment
-lines one per currency, so a second-method line (cash + Whish in USD) is replaced by one line; (c) an
-overpay now defaults to account credit instead of cash change, including small rounding overpays —
-keeping change means switching the change method to Cash first.
+**Open for the owner (asked 2026-10-11):** (a) a client with Manual/imported debt plus listed items
+got the items' sum, not the whole balance; (b) a tick change rebuilt the payment lines one per currency;
+(c) an overpay defaulted to account credit, and keeping change meant switching to Cash first.
+
+**Owner answers 2026-10-11 (binding):**
+1. Overpay: "if the customer pays 85, and we didn't set $1 in the returned amount, then $1 is account
+   credit" — no automatic cash-change line; change NOT entered as returned is account credit; what the
+   cashier enters is handed back. Small rounding overpays follow the same rule.
+2. Manual / imported / opening debt next to listed items: its own tickable line, "Earlier balance (no
+   items)", so all ticked on open = the whole balance.
+3. Ticking/unticking keeps the cashier's payment lines; only the total changes and the LAST line absorbs
+   the difference (removed/shrunk from the end if it would go to ≤ 0, never below zero).
+
+**What users will notice (answers):** on Settle Debt, the change box starts empty — type only what you hand
+back; the rest goes to the customer's account as credit (no more "kept as profit" on a debt payment). A
+hand-added or imported balance shows as its own "Earlier balance (no items)" line, ticked with the rest,
+so the amount filled in is the whole balance. Ticking or unticking keeps Cash + Whish (etc.) lines; only
+the last one changes.
+
+**Built for the answers (2026-10-11, not yet committed):**
+- Answer 1 — found: the first cut's `defaultReturnMethod: "CUSTOMER_ACCOUNT"` booked an untouched overpay
+  as credit correctly ("Goes to: Account credit $1"), but had no "returned" field; switching to Cash
+  seeded the whole change and an under-return became kept PROFIT. Now MPI opt-in `unreturnedChangeTo:
+  "CUSTOMER_ACCOUNT"`: cash return fields start empty, the un-entered rest is one more CUSTOMER_ACCOUNT
+  OUT leg (existing server path), no keep, under-return not a mismatch, a green "… not returned goes to
+  the customer's account as credit" line. Debts page uses it and no longer wires `onKeptChange` in
+  repay mode (cash-out keeps its payout keep). lira-107 desktop spec rewritten to the new rule (not run —
+  CI only).
+- Answer 2 — a UI-only line would have been wrong on the server (ticking only that line sent no targets,
+  so the cash paid listed items and "OMT drawer first" routed it into OMT_System). New target kind
+  `"balance"` end-to-end: core `earlierBalanceItem`/`EARLIER_BALANCE_REF`; allocation pays it ticked as the
+  oldest (after cash-drawer items), never routes it, and never walks it unticked (no-target order and
+  write-offs unchanged); `DebtRepository._earlierBalanceItem` (ledger − Σ items per currency, cross-netted,
+  ignored below 5¢ / 5,000 LBP), listed by `findOpenDebtItems` only next to real items, measured in
+  `addRepayment` without its own Repayment row, remainder passed to a bundled discount; `_applyCoverage`
+  skips it (the repayment's void owns it). Schema enum + preload / handler / `electron.d.ts` /
+  `DebtService` types (rule 23: schema, preload type and handler pass-through all carry `balance`; the
+  REST route parses the same schema).
+- Answer 3 — MPI `fillKey` now keeps the lines: last line = its remainder against the others; ≤ 0 →
+  removed and the previous line absorbs; none left → one line with the first line's method. Consequence:
+  an LBP-only fill after unticking a USD item is absorbed by the remaining USD line at the rate (open
+  for the owner: $14 + 890,000 LBP lines, untick the $14 sale → the LBP line goes, the USD line becomes
+  $10). An overpay at or below the 1¢ match tolerance makes no leg (not credited).
+
+**Verification (answers):** failing-first recorded before each fix — core allocation 1/6 failed (no-target
+walk paid the balance before the charge: 0 vs 20; the other 5 pass on the generic allocation —
+characterizations), DebtRepository 6/9 failed (no balance line; ticked balance refused as "no longer
+open"), schema 1/1 failed (`balance` not an enum option), MPI 6/9 failed (lines rebuilt; return field
+seeded "1.00"; no credit leg; USD 0.11 cash instead of 10,000 LBP credit), Debts page answer-1 test
+failed (no returned field); the page answer-2 test and the new lira-web-051 test were written with/after
+the code (not proven failing-first). Premise-changed tests updated with a comment citing the answer:
+`MultiPaymentInput.fillTotals` (mixed fill), `DebtRepository.openDebtItems` (manual debt now a balance
+line), lira-107. Added characterizations (passed first run, not guards): cash back + account credit
+on one repayment, and LBP rounding credit on a USD due — void and refund net ledger and drawers to 0.
+Gates: core jest 719 suites / 6823 passed (17 s), frontend 526 / 3217 (48 s), backend
+172 / 1772 (7 s; a first run had 2 unrelated suites fail and passed on rerun), electron 78 / 540 (17 s),
+`yarn typecheck` exit 0 (40 s; per workspace frontend 24 s, core 7 s, backend 7 s, ui 2 s, electron 2 s),
+`yarn lint` 0 errors (27 s), transport-parity / tenant-scoping / bind-arity clean, release-notes check
+OK; web e2e lira-web-051 3/3, lira-web-007/011/037 5/5, lira-web-055 1/1, lira-web-012 1/1 (passed on rerun after a
+browser-closed flake). Desktop e2e (lira-107, lira-304) not run — CI only.
 
 ## LIRA-307: phone app follows the shop's module switches (Settings → Modules) — IN PROGRESS (owner decisions 2026-10-11)
 
