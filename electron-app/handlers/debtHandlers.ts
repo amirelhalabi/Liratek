@@ -14,6 +14,7 @@ import {
   DebtCashOutSchema,
   DebtAccountEntrySchema,
   DebtAddCreditSchema,
+  DebtUpdateMetadataSchema,
   DebtUseCreditSchema,
   DebtWriteOffSchema,
   validatePayload,
@@ -220,13 +221,19 @@ export function registerDebtHandlers(): void {
     "debts:update-metadata",
     (
       event,
-      data: {
+      raw: {
         id: number;
         note?: string;
       },
     ) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
+
+      // LIRA-306 — the core schema POST /api/debts/update-metadata validates
+      // with (rule 23 diff: { id, note } on schema, preload and handler).
+      const v = validatePayload(DebtUpdateMetadataSchema, raw);
+      if (!v.ok) return { success: false, error: v.error };
+      const data = v.data;
 
       let editedBy = `user-${auth.userId}`;
       try {

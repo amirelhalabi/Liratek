@@ -9,6 +9,8 @@ import {
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-306 T093 — maintenance metadata edit payload (rule 21).
+import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 import type { SinceLastCountDrawer } from "@liratek/core";
 import type { UnitWarrantyDisplay } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
@@ -2801,6 +2803,26 @@ export async function deleteMaintenanceJob(id: number) {
     {
       method: "DELETE",
     },
+  );
+}
+
+// LIRA-306 T093 — edit a job's non-financial details (client name, device,
+// issue, note). Mirrors IPC "maintenance:update-metadata" and its new REST
+// twin POST /api/maintenance/update-metadata (rule 19); payload type derived
+// from the core schema (rule 21). A write: returns the envelope.
+export async function updateMaintenanceMetadata(
+  data: MaintenanceUpdateMetadataInput,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().maintenance.updateMetadata(data),
+    async () =>
+      requestJson<{ success: boolean; data?: unknown; error?: string }>(
+        `/api/maintenance/update-metadata`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
   );
 }
 

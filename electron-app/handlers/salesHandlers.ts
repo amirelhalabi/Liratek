@@ -17,6 +17,7 @@ import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import {
   SaleProcessSchema,
+  SaleDeleteDraftSchema,
   SaleUpdateMetadataSchema,
   SaleRefundSchema,
   SaleRefundItemSchema,
@@ -64,12 +65,16 @@ export function registerSalesHandlers(): void {
   // Delete Draft (LIRA-234: same roles as sales:process — any authenticated
   // session could previously cancel ANY draft, and a refused delete was
   // still audited as if it had succeeded).
-  ipcMain.handle("sales:delete-draft", (event, saleId: number) => {
+  ipcMain.handle("sales:delete-draft", (event, rawSaleId: unknown) => {
     const auth = requireRole(event.sender.id, ["admin", "staff"]);
     if (!auth.ok) return { success: false, error: auth.error };
-    if (!Number.isInteger(saleId) || saleId < 1) {
+    // LIRA-306: the SAME core schema DELETE /api/sales/drafts/:id uses
+    // (rule 23 lift; { saleId } on schema, preload and handler).
+    const v = validatePayload(SaleDeleteDraftSchema, { saleId: rawSaleId });
+    if (!v.ok) {
       return { success: false, error: "Invalid sale ID" };
     }
+    const saleId = v.data.saleId;
     salesLogger.debug({ saleId }, "Deleting draft");
     const result = salesService.deleteDraft(saleId);
     // Only audit a delete that actually committed (same pattern as

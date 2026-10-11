@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { localDayFormatSchema } from "./common.js";
 
 /**
  * Loto validation schemas — the write-path contracts for loto money flows.
@@ -299,4 +300,27 @@ export type LotoCheckpointCreatePayload = z.input<
 >;
 export type LotoCheckpointUpdatePayload = z.input<
   typeof lotoCheckpointUpdateSchema
+>;
+
+// LIRA-306 T103 (checkpoints family) — named payloads for the two positional
+// loto checkpoint channels that had no schema (rule 23 three-way diff:
+// preload `(id: number)` / `(checkpointDate?: string)`, handler and REST
+// route forward exactly that one value — nothing added, nothing dropped).
+/** `loto:checkpoint:delete(id)` / `DELETE /api/loto/checkpoints/:id`. */
+export const lotoCheckpointDeleteSchema = z.object({
+  id: z.number().int().positive(),
+});
+export type LotoCheckpointDeleteInput = z.input<
+  typeof lotoCheckpointDeleteSchema
+>;
+/**
+ * `loto:checkpoint:create-scheduled(checkpointDate?)` /
+ * `GET /api/loto/checkpoints/scheduled?date=`. The CLIENT's own day
+ * (`localDay()`); omitted → the service falls back to `clientDay()`.
+ */
+export const lotoCheckpointCreateScheduledSchema = z.object({
+  checkpointDate: localDayFormatSchema.optional(),
+});
+export type LotoCheckpointCreateScheduledInput = z.input<
+  typeof lotoCheckpointCreateScheduledSchema
 >;

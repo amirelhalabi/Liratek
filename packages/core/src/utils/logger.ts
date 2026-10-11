@@ -170,6 +170,8 @@ export const settingsLogger = logger.child({ module: "settings" });
 export const expenseLogger = logger.child({ module: "expense" });
 export const closingLogger = logger.child({ module: "closing" });
 export const syncLogger = logger.child({ module: "sync" });
+// LIRA-306 offline desktop fallback (uploads, merge rounds, replay).
+export const offlineLogger = logger.child({ module: "offline" });
 export const voucherLogger = logger.child({ module: "voucher" });
 // Control-plane: tenant provisioning + impersonation (plan §5, WP5/WP6).
 export const tenantLogger = logger.child({ module: "tenant" });

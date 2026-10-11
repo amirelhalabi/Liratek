@@ -6,6 +6,7 @@
  */
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 
 export type DefectiveItemStatus =
   | "HELD"
@@ -55,13 +56,14 @@ export class DefectiveItemRepository extends BaseRepository<DefectiveItemEntity>
       `INSERT INTO defective_items (
          tenant_id, product_id, unit_id, quantity, unit_cost_usd, warranty_claim_id,
          status, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, 'HELD', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, 'HELD', ?, CURRENT_TIMESTAMP)`,
       getCurrentTenantId(),
       data.productId,
       data.unitId,
       data.quantity,
       data.unitCostUsd,
       data.warrantyClaimId,
+      requestNow(),
     );
     return Number(result.lastInsertRowid);
   }
@@ -109,12 +111,13 @@ export class DefectiveItemRepository extends BaseRepository<DefectiveItemEntity>
     this.execute(
       `UPDATE defective_items
           SET status = ?, restock_batch_id = ?,
-              resolved_at = CASE WHEN ? = 'HELD' THEN NULL ELSE CURRENT_TIMESTAMP END,
+              resolved_at = CASE WHEN ? = 'HELD' THEN NULL ELSE ? END,
               updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND tenant_id = ?`,
       status,
       restockBatchId,
       status,
+      requestNow(),
       id,
       getCurrentTenantId(),
     );

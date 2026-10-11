@@ -10,6 +10,7 @@ import {
   getTransactionService,
   saleProcessSchema,
   saleIdParamSchema,
+  saleDeleteDraftSchema,
   saleUpdateMetadataSchema,
   // LIRA-231 — POS "Refund Sale"/"Refund item" operator-chosen return-method
   // override + refund-preview read, shared with the Electron IPC handlers
@@ -62,11 +63,16 @@ router.get("/drafts", (_req, res) => {
 // two-segment DELETE path is never at risk of an Express route-ordering
 // surprise, per CLAUDE.md's "static paths before /:id".
 router.delete("/drafts/:id", requireRole(["admin", "staff"]), (req, res) => {
-  const saleId = Number(req.params.id);
-  if (!Number.isFinite(saleId) || saleId < 1) {
+  // LIRA-306: the SAME core schema the IPC handler (and an offline PC's
+  // recorder) validates with (rule 23 lift).
+  const parsed = saleDeleteDraftSchema.safeParse({
+    saleId: Number(req.params.id),
+  });
+  if (!parsed.success) {
     res.json({ success: false, error: "Invalid sale ID" });
     return;
   }
+  const saleId = parsed.data.saleId;
   const service = getSalesService();
   const result = service.deleteDraft(saleId);
   if (result.success) {

@@ -51,6 +51,20 @@ export default function globalSetup(): void {
     db.prepare(
       "UPDATE users SET password_hash = ?, is_active = 1 WHERE username = 'admin'",
     ).run(hashPassword("admin123"));
+
+    // LIRA-306: PCs paired by earlier runs (lira-web-055/056) are unpaired so
+    // each run pairs its own. Rows stay (PC numbers are never reused); the
+    // table only exists once the backend has applied v210.
+    const hasDevices = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='offline_devices'",
+      )
+      .get();
+    if (hasDevices) {
+      db.prepare(
+        "UPDATE offline_devices SET revoked_at = ?, revoked_by = 1, updated_at = ? WHERE revoked_at IS NULL",
+      ).run(new Date().toISOString(), new Date().toISOString());
+    }
   } finally {
     db.close();
   }

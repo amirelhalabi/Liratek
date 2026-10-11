@@ -31,6 +31,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { allocateFifo, type FifoOpenRow } from "../utils/fifoCoverage.js";
 
 // =============================================================================
@@ -143,7 +144,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
           tenant_id, product_id, supplier_id, quantity, quantity_remaining,
           unit_cost_usd, books_debt, ledger_entry_id, transaction_id,
           is_opening, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
         tenantId,
         data.product_id,
         data.supplier_id,
@@ -155,6 +156,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
         data.transaction_id ?? null,
         data.is_opening ? 1 : 0,
         data.created_by,
+        requestNow(),
       );
       return result.lastInsertRowid as number;
     } catch (error) {
@@ -304,6 +306,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
 
     const tenantId = getCurrentTenantId();
     const openBatches = this.listOpenByProduct(productId);
+    const nowTs = requestNow();
     const openRows: FifoOpenRow[] = openBatches.map((b) => ({
       id: b.id,
       outstanding: b.quantity_remaining,
@@ -325,7 +328,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
       `INSERT INTO stock_batch_consumptions (
         tenant_id, batch_id, sale_item_id, custom_service_id, maintenance_part_id,
         product_id, quantity, unit_cost_usd, reason, is_restored, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)`,
     );
     // LIRA-296: `warranty_claim_id` (v206), named only when a claim owns
     // this consumption — same reason as `expense_id` above.
@@ -336,7 +339,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
             `INSERT INTO stock_batch_consumptions (
         tenant_id, batch_id, sale_item_id, custom_service_id, maintenance_part_id,
         product_id, quantity, unit_cost_usd, reason, is_restored, created_at, updated_at, warranty_claim_id
-      ) VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+      ) VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP, ?)`,
           )
         : null;
     const insertExpenseConsumption =
@@ -345,7 +348,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
             `INSERT INTO stock_batch_consumptions (
         tenant_id, batch_id, sale_item_id, custom_service_id, maintenance_part_id,
         product_id, quantity, unit_cost_usd, reason, is_restored, created_at, updated_at, expense_id
-      ) VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+      ) VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP, ?)`,
           )
         : null;
     const decrementBatch = this.db.prepare(
@@ -368,6 +371,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
           takeQty,
           batch.unit_cost_usd,
           opts.reason,
+          nowTs,
           warrantyClaimId,
         );
       } else if (insertExpenseConsumption) {
@@ -378,6 +382,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
           takeQty,
           batch.unit_cost_usd,
           opts.reason,
+          nowTs,
           expenseId,
         );
       } else {
@@ -391,6 +396,7 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
           takeQty,
           batch.unit_cost_usd,
           opts.reason,
+          nowTs,
         );
       }
 

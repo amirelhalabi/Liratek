@@ -15,6 +15,7 @@ import {
   getReportingService,
   voidCheckoutGroupSchema,
   refundLegsSchema,
+  transactionVoidSchema,
   refundUnitExtrasSchema,
   transactionTypeFiltersSchema,
   // LIRA-232 phase 2 (SESSION_ITEM_REFUND_PLAN.md §7) — session-basket
@@ -237,7 +238,14 @@ router.post(
   requireRole(["admin"]),
   async (req: AuthRequest, res) => {
     try {
-      const id = parseInt(req.params.id);
+      // LIRA-306 T041: the same named contract the IPC handler and the
+      // offline replay parse (core transactionVoidSchema).
+      const v = transactionVoidSchema.safeParse({ transactionId: Number(req.params.id) });
+      if (!v.success) {
+        res.json({ success: false, error: v.error.issues[0]?.message ?? "Invalid transaction id" });
+        return;
+      }
+      const id = v.data.transactionId;
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
       const reversalId = txnService.voidTransaction(id, userId);

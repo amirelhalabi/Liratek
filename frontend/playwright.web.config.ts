@@ -340,6 +340,10 @@ export default defineConfig({
         CLIENT_IP_HEADER: "",
         GOOGLE_CLIENT_ID: "",
         GOOGLE_CLIENT_SECRET: "",
+        // LIRA-306: book uploaded offline events at once (no 30 s gathering
+        // pause) and let a shop copy go stale after 1 s.
+        OFFLINE_MERGE_GATHER_MS: "0",
+        OFFLINE_SNAPSHOT_TTL_MS: "1000",
         LOG_LEVEL: "warn",
       },
     },

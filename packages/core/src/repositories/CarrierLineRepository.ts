@@ -23,6 +23,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { clientDay } from "../utils/requestDay.js";
 // LIRA-157 — the ONE carrier-line validity rule (grace window, stacking,
 // 365-day ceiling) that used to be private to this file. Moved out so the
@@ -541,7 +542,7 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
       const stmt = this.db.prepare(`
         INSERT INTO carrier_lines
           (tenant_id, carrier, phone_number, label, credits, validity_expires_at, notes, is_active, is_primary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
       `);
       const credits = data.credits ?? 0;
       const result = stmt.run(
@@ -553,6 +554,7 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
         data.validity_expires_at ?? null,
         data.notes ?? null,
         isPrimary,
+        requestNow(), // LIRA-306 FR-021
       );
       const newLineId = result.lastInsertRowid as number;
       if (credits !== 0) {
@@ -1418,7 +1420,9 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
           paid_by_method: LINE_USAGE_PAID_BY_METHOD,
           amount_usd: delta,
           amount_lbp: 0,
-          expense_date: new Date().toISOString(),
+          // LIRA-306 FR-021 / rule 27: the request's own day (the browser's
+          // on web, the event's in a replay), like every other expense_date.
+          expense_date: clientDay(),
           drawer_override: {
             drawer_name: CARRIER_DRAWER_NAMES[line.carrier],
             currency_code: "USD",

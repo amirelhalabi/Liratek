@@ -17,6 +17,7 @@ import {
 // canonical getter rather than re-reading system_settings a third time.
 import { getSettingsService } from "../services/SettingsService.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import {
   SYSTEM_SUPPLIER_PROVIDERS,
   seedSystemSuppliers,
@@ -1446,14 +1447,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           INSERT INTO supplier_ledger (
             supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto,
             transaction_id, source_ref_table, source_ref_id, tenant_id, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
           : this.db.prepare(`
           INSERT INTO supplier_ledger (
             supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto,
             transaction_id, tenant_id, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
+        // LIRA-306 FR-021: the shared ledger writer stamps the request's
+        // business time (the event's own instant inside an offline replay).
+        const createdAt = requestNow();
         const res = hasSourceRef
           ? stmt.run(
               data.supplier_id,
@@ -1467,6 +1471,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               data.source_ref_table ?? null,
               data.source_ref_id ?? null,
               tenantId,
+              createdAt,
             )
           : stmt.run(
               data.supplier_id,
@@ -1478,6 +1483,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               data.is_auto ? 1 : 0,
               data.transaction_id ?? null,
               tenantId,
+              createdAt,
             );
         const entryId = Number(res.lastInsertRowid);
 

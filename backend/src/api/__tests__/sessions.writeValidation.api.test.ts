@@ -61,7 +61,7 @@ const linkTransactionToSession = jest.fn(async (..._a: unknown[]) => ({
   success: true,
   linked: true,
 }));
-const addCartItem = jest.fn((..._a: unknown[]) => 11);
+const addCartItem = jest.fn((..._a: unknown[]) => ({ success: true, id: 11 }));
 
 jest.mock("@liratek/core", () => {
   const actual = jest.requireActual("@liratek/core") as Record<string, unknown>;
@@ -70,11 +70,12 @@ jest.mock("@liratek/core", () => {
     updateSession = updateSession;
     linkTransactionToSession = linkTransactionToSession;
     linkTransactionToActiveSession = jest.fn();
+    // LIRA-306 T081: the cart write moved behind the service (rule 13).
+    addCartItem = addCartItem;
   }
   return {
     ...actual,
     CustomerSessionService,
-    getCustomerSessionRepository: () => ({ addCartItem }),
   };
 });
 
@@ -184,7 +185,8 @@ describe("Sessions REST writes — shared core schemas", () => {
       .send({ ...CART, user_id: 999 });
 
     expect(res.body).toEqual({ success: true, id: 11 });
-    expect(addCartItem).toHaveBeenCalledWith(9, { ...CART, user_id: 42 });
+    // service(sessionId, line, JWT userId) — the body's user_id never reaches it
+    expect(addCartItem).toHaveBeenCalledWith(9, CART, 42);
   });
 
   it("POST /:id/cart refuses a line with no amount", async () => {

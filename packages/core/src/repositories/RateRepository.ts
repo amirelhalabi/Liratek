@@ -7,7 +7,11 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
-import { getCurrentTenantId } from "../db/tenantContext.js";
+import {
+  getContextEffectiveRates,
+  getCurrentTenantId,
+  type EffectiveRate,
+} from "../db/tenantContext.js";
 import type { CurrencyRate } from "../utils/currencyConverter.js";
 import type { SetRateData } from "../validators/rate.js";
 
@@ -28,6 +32,22 @@ export interface ExchangeRateEntity {
   updated_at: string;
 }
 
+/** A recorded (offline replay) rate presented as a table row. */
+function recordedEntity(
+  r: EffectiveRate,
+  row: ExchangeRateEntity | null | undefined,
+): ExchangeRateEntity {
+  return {
+    id: row?.id ?? 0,
+    to_code: r.to_code.toUpperCase(),
+    market_rate: r.market_rate,
+    buy_rate: r.buy_rate,
+    sell_rate: r.sell_rate,
+    is_stronger: r.is_stronger,
+    updated_at: row?.updated_at ?? "",
+  };
+}
+
 // =============================================================================
 // Rate Repository Class
 // =============================================================================
@@ -45,11 +65,21 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
    * Get all exchange rates
    */
   findAll(): ExchangeRateEntity[] {
-    return this.db
+    const rows = this.db
       .prepare(
         "SELECT id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at FROM exchange_rates WHERE tenant_id = ? ORDER BY to_code",
       )
       .all(getCurrentTenantId()) as ExchangeRateEntity[];
+    const recorded = getContextEffectiveRates();
+    if (!recorded) return rows;
+    // LIRA-306 (FR-021a): inside an offline replay the PC's recorded rates
+    // win over the configured rows, currency by currency.
+    const byCode = new Map(rows.map((r) => [r.to_code.toUpperCase(), r]));
+    for (const r of recorded) {
+      const code = r.to_code.toUpperCase();
+      byCode.set(code, recordedEntity(r, byCode.get(code)));
+    }
+    return [...byCode.values()].sort((a, b) => a.to_code.localeCompare(b.to_code));
   }
 
   /**
@@ -69,6 +99,10 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
    * Get rate for a specific currency code
    */
   findByCode(code: string): ExchangeRateEntity | null {
+    const recorded = getContextEffectiveRates()?.find(
+      (r) => r.to_code.toUpperCase() === code.toUpperCase(),
+    );
+    if (recorded) return recordedEntity(recorded, null);
     return (
       (this.db
         .prepare(

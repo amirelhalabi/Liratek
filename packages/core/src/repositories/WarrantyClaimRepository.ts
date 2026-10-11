@@ -5,6 +5,7 @@
  */
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 
 export type WarrantyClaimAction = "REPAIR" | "REPLACE" | "REFUND";
 export type WarrantyClaimStatus = "OPEN" | "DONE" | "VOIDED";
@@ -63,7 +64,7 @@ export class WarrantyClaimRepository extends BaseRepository<WarrantyClaimEntity>
       `INSERT INTO warranty_claims (
          tenant_id, sale_item_id, maintenance_id, unit_id, quantity, action, status,
          override_reason, notes, user_id, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       getCurrentTenantId(),
       data.saleItemId,
       data.maintenanceId,
@@ -73,6 +74,7 @@ export class WarrantyClaimRepository extends BaseRepository<WarrantyClaimEntity>
       data.overrideReason,
       data.notes,
       data.userId,
+      requestNow(),
     );
     return Number(result.lastInsertRowid);
   }
@@ -218,9 +220,10 @@ export class WarrantyClaimRepository extends BaseRepository<WarrantyClaimEntity>
 
   markVoided(id: number): void {
     this.execute(
-      `UPDATE warranty_claims SET status = 'VOIDED', voided_at = CURRENT_TIMESTAMP,
+      `UPDATE warranty_claims SET status = 'VOIDED', voided_at = ?,
               updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND tenant_id = ?`,
+      requestNow(),
       id,
       getCurrentTenantId(),
     );

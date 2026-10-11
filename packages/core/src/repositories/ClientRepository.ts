@@ -7,6 +7,7 @@
  * Note: The clients table doesn't have is_active column, so soft delete is not used.
  */
 
+import { requestNow } from "../utils/requestNow.js";
 import {
   BaseRepository,
   type FindOptions,
@@ -176,8 +177,8 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   createClient(data: CreateClientData, userId: number): { id: number } {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO ${this.tableName} (full_name, phone_number, notes, whatsapp_opt_in, tenant_id)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO ${this.tableName} (full_name, phone_number, notes, whatsapp_opt_in, tenant_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -186,6 +187,8 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         data.notes ?? null,
         data.whatsapp_opt_in ? 1 : 0,
         getCurrentTenantId(),
+        // LIRA-306 FR-021: the event time on an offline replay.
+        requestNow(),
       );
 
       const clientId = result.lastInsertRowid as number;

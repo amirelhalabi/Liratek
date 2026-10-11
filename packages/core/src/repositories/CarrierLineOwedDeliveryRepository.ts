@@ -39,6 +39,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 
 /**
  * Rule 14 — the ONE definition of "this transaction was voided or
@@ -161,7 +162,7 @@ export class CarrierLineOwedDeliveryRepository extends BaseRepository<CarrierLin
     const stmt = this.db.prepare(`
       INSERT INTO carrier_line_owed_deliveries
         (tenant_id, carrier_line_id, transaction_id, client_id, client_name, days_owed, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, CURRENT_TIMESTAMP)
     `);
     const result = stmt.run(
       getCurrentTenantId(),
@@ -170,6 +171,7 @@ export class CarrierLineOwedDeliveryRepository extends BaseRepository<CarrierLin
       data.client_id ?? null,
       data.client_name ?? null,
       data.days_owed,
+      requestNow(), // LIRA-306 FR-021
     );
     return this.getById(result.lastInsertRowid as number)!;
   }
@@ -193,10 +195,10 @@ export class CarrierLineOwedDeliveryRepository extends BaseRepository<CarrierLin
     this.db
       .prepare(
         `UPDATE carrier_line_owed_deliveries
-         SET status = 'SENT', sent_at = CURRENT_TIMESTAMP, sent_by = ?, updated_at = CURRENT_TIMESTAMP
+         SET status = 'SENT', sent_at = ?, sent_by = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND tenant_id = ?`,
       )
-      .run(userId, id, getCurrentTenantId());
+      .run(requestNow(), userId, id, getCurrentTenantId()); // LIRA-306 FR-021
 
     return this.getById(id);
   }

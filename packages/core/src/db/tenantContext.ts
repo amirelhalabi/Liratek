@@ -67,6 +67,34 @@ interface TenantStore {
    * can `??`/`===undefined`-fall back to `'localtime'` uniformly.
    */
   clientTzOffsetMinutes: number | null;
+  /**
+   * LIRA-306 — the instant an offline event happened (ISO, after clock
+   * correction), set only by the replay. `requestNow()` (utils/requestNow.ts,
+   * server-only) writes business timestamps with it instead of the server's
+   * clock (rule 27, FR-021). Null everywhere else.
+   */
+  effectiveNow: string | null;
+  /**
+   * LIRA-306 — the exchange rates recorded on the PC with the event (O-new-24,
+   * FR-021a). Read by `getUsdLbpSellRate()` and `RateRepository` before the
+   * table, so every money path converts at the recorded rate. Null
+   * everywhere else.
+   */
+  effectiveRates: readonly EffectiveRate[] | null;
+}
+
+/** One recorded exchange-rate row (the `exchange_rates` columns). */
+export interface EffectiveRate {
+  to_code: string;
+  market_rate: number;
+  buy_rate: number;
+  sell_rate: number;
+  is_stronger: 1 | -1;
+}
+
+function normalizeEffectiveNow(value: string | null | undefined): string | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+  return Number.isFinite(Date.parse(value)) ? value : null;
 }
 
 const tenantAls = new AsyncLocalStorage<TenantStore>();
@@ -153,6 +181,10 @@ export function runWithTenant<T>(
   options?: {
     clientDay?: string | null;
     clientTzOffsetMinutes?: number | string | null;
+    /** LIRA-306 replay only — see {@link TenantStore.effectiveNow}. */
+    effectiveNow?: string | null;
+    /** LIRA-306 replay only — see {@link TenantStore.effectiveRates}. */
+    effectiveRates?: readonly EffectiveRate[] | null;
   },
 ): T {
   return tenantAls.run(
@@ -163,6 +195,11 @@ export function runWithTenant<T>(
       clientTzOffsetMinutes: normalizeClientTzOffsetMinutes(
         options?.clientTzOffsetMinutes,
       ),
+      effectiveNow: normalizeEffectiveNow(options?.effectiveNow),
+      effectiveRates:
+        options?.effectiveRates && options.effectiveRates.length > 0
+          ? options.effectiveRates
+          : null,
     },
     fn,
   );
@@ -180,7 +217,14 @@ export function runWithTenant<T>(
  */
 export function runWithoutTenant<T>(fn: () => T): T {
   return tenantAls.run(
-    { tenantId: null, bypass: true, clientDay: null, clientTzOffsetMinutes: null },
+    {
+      tenantId: null,
+      bypass: true,
+      clientDay: null,
+      clientTzOffsetMinutes: null,
+      effectiveNow: null,
+      effectiveRates: null,
+    },
     fn,
   );
 }
@@ -254,6 +298,17 @@ export function getContextClientDay(): string | undefined {
  */
 export function getContextClientTzOffsetMinutes(): number | undefined {
   return tenantAls.getStore()?.clientTzOffsetMinutes ?? undefined;
+}
+
+/** LIRA-306 — the replay's effective instant (ISO), or undefined. Low-level:
+ *  write timestamps through `requestNow()` (utils/requestNow.ts). */
+export function getContextEffectiveNow(): string | undefined {
+  return tenantAls.getStore()?.effectiveNow ?? undefined;
+}
+
+/** LIRA-306 — the replay's recorded exchange rates, or undefined. */
+export function getContextEffectiveRates(): readonly EffectiveRate[] | undefined {
+  return tenantAls.getStore()?.effectiveRates ?? undefined;
 }
 
 /**

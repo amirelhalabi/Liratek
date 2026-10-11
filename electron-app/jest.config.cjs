@@ -58,7 +58,7 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: "node",
-  roots: ["<rootDir>/schemas", "<rootDir>/handlers"],
+  roots: ["<rootDir>/schemas", "<rootDir>/handlers", "<rootDir>/offline"],
   testRegex: "(/__tests__/.*|(\\.|/)(test|spec))\\.tsx?$",
   testPathIgnorePatterns: [
     "/node_modules/",

@@ -116,6 +116,8 @@ import type {
 import * as api from "./backendApi";
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-306 T093 — maintenance metadata edit payload (rule 21).
+import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
 // LIRA-297 item 3 — session / daily-closing / voucher-image / setup write
@@ -454,6 +456,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   deleteMaintenanceJob = (id: number) => api.deleteMaintenanceJob(id);
   getMaintenanceStatusHistory = (jobId: number) =>
     api.getMaintenanceStatusHistory(jobId);
+  updateMaintenanceMetadata = (data: MaintenanceUpdateMetadataInput) =>
+    api.updateMaintenanceMetadata(data);
 
   // ---------------------------------------------------------------------------
   // Currencies (CRUD)

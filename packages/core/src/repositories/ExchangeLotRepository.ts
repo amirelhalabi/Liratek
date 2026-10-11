@@ -25,6 +25,7 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { isLotTrackedCurrency, LOT_QTY_EPSILON } from "../constants/index.js";
 import { exchangeLogger } from "../utils/logger.js";
+import { requestNow } from "../utils/requestNow.js";
 
 // =============================================================================
 // Entity Types
@@ -296,7 +297,7 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
            tenant_id, currency_code, drawer_name, source_type, source_table,
            source_id, original_qty, remaining_qty, unit_cost_usd, acquired_at,
            is_voided, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)`,
       )
       .run(
         tenantId,
@@ -309,6 +310,7 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
         input.qty,
         input.unitCostUsd,
         input.acquiredAt,
+        requestNow(),
       );
 
     const lot = this.findById(Number(result.lastInsertRowid));
@@ -427,7 +429,7 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
              tenant_id, lot_id, basis_source, settled_by_table, settled_by_id,
              qty, unit_cost_usd, unit_proceeds_usd, profit_usd, is_refunded,
              created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)`,
         )
       : null;
     const decrementLot = params.write
@@ -463,6 +465,7 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
           lot.unit_cost_usd,
           unitProceeds,
           profit,
+          requestNow(),
         );
         id = Number(result.lastInsertRowid);
         decrementLot!.run(take, lot.id);
@@ -500,6 +503,7 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
           marketCost,
           unitProceeds,
           profit,
+          requestNow(),
         );
         id = Number(result.lastInsertRowid);
       }
@@ -587,14 +591,14 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
       `UPDATE exchange_lots SET remaining_qty = remaining_qty + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
     );
     const flagRefunded = this.db.prepare(
-      `UPDATE exchange_lot_settlements SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE exchange_lot_settlements SET is_refunded = 1, refunded_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
     );
 
     for (const settlement of activeSettlements) {
       if (settlement.lot_id !== null) {
         restoreLot.run(settlement.qty, settlement.lot_id);
       }
-      flagRefunded.run(settlement.id);
+      flagRefunded.run(requestNow(), settlement.id);
     }
 
     exchangeLogger.info(
@@ -911,10 +915,9 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
     return row.open_qty;
   }
 
+  /** LIRA-306 (FR-021): the request/event time, CURRENT_TIMESTAMP format. */
   private now(): string {
-    return (
-      this.db.prepare(`SELECT CURRENT_TIMESTAMP AS ts`).get() as { ts: string }
-    ).ts;
+    return requestNow();
   }
 
   // ---------------------------------------------------------------------------
@@ -971,7 +974,7 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
             `INSERT INTO exchange_position_adjustments (
                tenant_id, currency_code, qty, unit_cost_usd, note, created_by,
                created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
           )
           .run(
             tenantId,
@@ -980,6 +983,7 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
             input.unitCostUsd,
             input.note ?? null,
             input.createdBy,
+            requestNow(),
           );
         const adjustment = this.getAdjustmentById(
           Number(adjResult.lastInsertRowid),
@@ -1021,7 +1025,7 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
           `INSERT INTO exchange_position_adjustments (
              tenant_id, currency_code, qty, unit_cost_usd, note, created_by,
              created_at, updated_at
-           ) VALUES (?, ?, ?, NULL, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+           ) VALUES (?, ?, ?, NULL, ?, ?, ?, CURRENT_TIMESTAMP)`,
         )
         .run(
           tenantId,
@@ -1029,6 +1033,7 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
           input.qty,
           input.note ?? null,
           input.createdBy,
+          requestNow(),
         );
       const adjustment = this.getAdjustmentById(
         Number(adjResult.lastInsertRowid),

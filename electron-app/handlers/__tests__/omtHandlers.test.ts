@@ -119,8 +119,12 @@ describe("OMTHandlers", () => {
       const result = await handler({ sender: { id: 1 } }, transactionData);
 
       expect(requireRole).toHaveBeenCalledWith(1, ["admin", "staff"]);
+      // LIRA-306: validated by core createFinancialServiceSchema (the REST
+      // route's), whose `cashoutMethod` defaults to "CASH" — the
+      // repository's own default, so the booking is unchanged.
       expect(mockService.addTransaction).toHaveBeenCalledWith({
         ...transactionData,
+        cashoutMethod: "CASH",
         userId: 7,
       });
       expect(result).toEqual({ success: true, id: 1 });
@@ -138,8 +142,12 @@ describe("OMTHandlers", () => {
 
       const result = await handler({ sender: { id: 1 } }, transactionData);
 
+      // LIRA-306: validated by core createFinancialServiceSchema (the REST
+      // route's), whose `cashoutMethod` defaults to "CASH" — the
+      // repository's own default, so the booking is unchanged.
       expect(mockService.addTransaction).toHaveBeenCalledWith({
         ...transactionData,
+        cashoutMethod: "CASH",
         userId: 7,
       });
       expect(result).toEqual({ success: true, id: 1 });

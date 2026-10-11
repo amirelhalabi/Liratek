@@ -1,5 +1,6 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
@@ -105,7 +106,7 @@ export class WalletExchangeRepository extends BaseRepository<WalletExchangeEntit
         INSERT INTO wallet_exchanges (
           tenant_id, drawer_name, from_currency, to_currency,
           amount_in, amount_out, rate, note, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const result = insert.run(
         tenantId,
@@ -117,7 +118,7 @@ export class WalletExchangeRepository extends BaseRepository<WalletExchangeEntit
         data.rate,
         data.note ?? null,
         userId,
-        data.transaction_time ?? null,
+        data.transaction_time ?? requestNow(), // LIRA-306 FR-021
       );
       const id = Number(result.lastInsertRowid);
 

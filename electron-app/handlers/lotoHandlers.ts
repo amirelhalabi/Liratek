@@ -12,6 +12,8 @@ import {
   LotoFeeSchema,
   LotoCheckpointCreateSchema,
   LotoCheckpointUpdateSchema,
+  LotoCheckpointDeleteSchema,
+  LotoCheckpointCreateScheduledSchema,
   LotoCheckpointSettleSchema,
   LotoCheckpointsSettleBatchSchema,
   LotoTicketUpdateSchema,
@@ -645,8 +647,16 @@ export function registerLotoHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
+        // LIRA-306 T103 (rule 23) — named payload `{ checkpointDate? }`.
+        const v = validatePayload(LotoCheckpointCreateScheduledSchema, {
+          checkpointDate,
+        });
+        if (!v.ok) throw new Error(v.error);
+
         const service = getLotoServiceInstance();
-        const checkpoint = service.createScheduledCheckpoint(checkpointDate);
+        const checkpoint = service.createScheduledCheckpoint(
+          v.data.checkpointDate,
+        );
         audit(e.sender.id, {
           action: "create",
           entity_type: "loto_checkpoint",
@@ -673,8 +683,12 @@ export function registerLotoHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
+      // LIRA-306 T103 (rule 23) — named payload `{ id }`.
+      const v = validatePayload(LotoCheckpointDeleteSchema, { id });
+      if (!v.ok) throw new Error(v.error);
+
       const service = getLotoServiceInstance();
-      const deleted = service.deleteCheckpoint(id);
+      const deleted = service.deleteCheckpoint(v.data.id);
       if (!deleted) {
         return {
           success: false,

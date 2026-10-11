@@ -7,6 +7,7 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
@@ -49,8 +50,8 @@ export class LotoMonthlyFeeRepository {
     const tenantId = getCurrentTenantId();
     const stmt = this.db.prepare(`
       INSERT INTO loto_monthly_fees (
-        tenant_id, fee_amount, fee_month, fee_year, recorded_date, is_paid, paid_date, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        tenant_id, fee_amount, fee_month, fee_year, recorded_date, is_paid, paid_date, note, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -62,6 +63,8 @@ export class LotoMonthlyFeeRepository {
       data.is_paid ?? 0,
       data.paid_date || null,
       data.note || null,
+      // LIRA-306 (FR-021): the request/event time, not the SQL clock default
+      requestNow(),
     );
 
     return this.getMonthlyFeeById(result.lastInsertRowid as number)!;

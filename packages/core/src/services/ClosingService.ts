@@ -156,6 +156,16 @@ export class ClosingService {
   }
 
   /**
+   * Every drawer's balance as of an instant (default: the request's own
+   * time — now online, the event's instant inside an offline replay). The
+   * server's "expected" figure for a drawer count applied later (LIRA-306
+   * O-new-27); the review screen shows it next to the PC's figure.
+   */
+  getDrawerBalancesAsOf(at?: string): DynamicSystemExpectedBalances {
+    return this.repo.getDrawerBalancesAsOf(at);
+  }
+
+  /**
    * Get the closing report's daily stats snapshot (LIRA-219): activity
    * stats (sales/debt-payments/expenses) ALWAYS, plus GROSS profit for the
    * SAME day the Profits page would show — composed here, never

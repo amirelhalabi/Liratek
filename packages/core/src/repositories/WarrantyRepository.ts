@@ -15,6 +15,7 @@
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { parseReceiptNumber } from "../utils/receiptNumber.js";
+import { resolveReceiptSaleId } from "./receiptAlias.js";
 import { escapeLike, LIKE_ESCAPE_CLAUSE } from "../utils/sqlLike.js";
 import { localDayExpr } from "./reportingTimeFragments.js";
 
@@ -110,7 +111,10 @@ export class WarrantyRepository extends BaseRepository<BaseEntity> {
         tenantId,
         like,
       ];
-      const receiptId = parseReceiptNumber(q);
+      const parsedReceipt = parseReceiptNumber(q);
+      // LIRA-306 FR-040: RCP-<offline sale id> → the replayed server sale.
+      const receiptId =
+        parsedReceipt === null ? null : resolveReceiptSaleId(parsedReceipt);
       if (receiptId !== null) {
         textMatch.unshift("s.id = ?");
         textParams.unshift(receiptId);

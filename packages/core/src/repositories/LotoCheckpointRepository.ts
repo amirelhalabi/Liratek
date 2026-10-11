@@ -8,6 +8,8 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
+import { requestNowIso } from "../utils/requestNowIso.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
@@ -164,8 +166,8 @@ export class LotoCheckpointRepository {
       INSERT INTO loto_checkpoints (
         tenant_id, checkpoint_date, period_start, period_end,
         total_sales, total_commission, total_tickets, total_prizes,
-        total_cash_prizes, total_cash_prizes_count, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        total_cash_prizes, total_cash_prizes_count, note, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -180,6 +182,7 @@ export class LotoCheckpointRepository {
       data.total_cash_prizes ?? 0,
       data.total_cash_prizes_count ?? 0,
       data.note || null,
+      requestNow(), // LIRA-306 FR-021 — the event's time inside a replay
     );
 
     return this.getCheckpointById(result.lastInsertRowid as number)!;
@@ -297,7 +300,7 @@ export class LotoCheckpointRepository {
       WHERE id = ? AND tenant_id = ?
     `);
 
-    const settledDate = settledAt || new Date().toISOString();
+    const settledDate = settledAt || requestNowIso();
     stmt.run(settledDate, settlementId || null, id, getCurrentTenantId());
     return this.getCheckpointById(id);
   }
@@ -325,7 +328,7 @@ export class LotoCheckpointRepository {
   ): LotoCheckpoint {
     const tenantId = getCurrentTenantId();
     const settleInTxn = this.db.transaction(() => {
-      const settledDate = settledAt || new Date().toISOString();
+      const settledDate = settledAt || requestNowIso();
 
       // Read cash prizes from the checkpoint itself (authoritative source)
       const checkpoint = this.getCheckpointById(id);
@@ -386,8 +389,8 @@ export class LotoCheckpointRepository {
       const insertSettlement = this.db.prepare(`
         INSERT INTO loto_settlements (
           tenant_id, settlement_date, checkpoint_ids, total_sales, total_commission,
-          total_cash_prizes, net_settlement, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          total_cash_prizes, net_settlement, note, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const settlementNote = `Settled: sales=${totalSales}, commission=${totalCommission}, prizes=${totalCashPrizes}`;
@@ -402,6 +405,7 @@ export class LotoCheckpointRepository {
         totalCashPrizes,
         netSettlement,
         settlementNote,
+        requestNow(),
       );
 
       const settlementId = settlementResult.lastInsertRowid as number;
@@ -412,8 +416,8 @@ export class LotoCheckpointRepository {
       // is -netSettlement, so this row zeroes it. Do NOT negate.
       const insertLedger = this.db.prepare(`
         INSERT INTO supplier_ledger (
-          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       // G23: linked to its own LOTO_SETTLEMENT transaction (was NULL).
@@ -426,6 +430,7 @@ export class LotoCheckpointRepository {
         `Settlement for checkpoint #${id}: ${settlementNote}`,
         userId,
         txnId,
+        requestNow(),
       );
 
       // 4. NO separate commission drawer credit. The settlement payment leg is
@@ -521,7 +526,7 @@ export class LotoCheckpointRepository {
 
     const tenantId = getCurrentTenantId();
     const settleInTxn = this.db.transaction(() => {
-      const settledDate = settledAt || new Date().toISOString();
+      const settledDate = settledAt || requestNowIso();
 
       const totalCashPrizes = checkpointIds.reduce((sum, id) => {
         const cp = this.getCheckpointById(id);
@@ -572,8 +577,8 @@ export class LotoCheckpointRepository {
           `
         INSERT INTO loto_settlements (
           tenant_id, settlement_date, checkpoint_ids, total_sales, total_commission,
-          total_cash_prizes, net_settlement, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          total_cash_prizes, net_settlement, note, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
         )
         .run(
@@ -585,6 +590,7 @@ export class LotoCheckpointRepository {
           totalCashPrizes,
           netSettlement,
           `Batch settlement for checkpoints [${checkpointIds.join(", ")}]: sales=${totalSales}, commission=${totalCommission}`,
+          requestNow(),
         );
       const settlementId = settlementResult.lastInsertRowid as number;
 
@@ -595,8 +601,8 @@ export class LotoCheckpointRepository {
         .prepare(
           `
         INSERT INTO supplier_ledger (
-          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
         )
         .run(
@@ -608,6 +614,7 @@ export class LotoCheckpointRepository {
           `Batch settlement for checkpoints [${checkpointIds.join(", ")}]`,
           userId,
           txnId,
+          requestNow(),
         );
 
       // 4. NO separate commission drawer credit — same reasoning as

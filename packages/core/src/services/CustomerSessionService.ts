@@ -166,6 +166,59 @@ export class CustomerSessionService {
   }
 
   /**
+   * LIRA-306 T081 (rule 13) — persist one basket line. The ONE entry point
+   * both transports (`session:cart:add`, `POST /api/sessions/:id/cart`) and
+   * the offline replay call; `userId` is the signed-in user, never the body.
+   * Same envelope the transports built themselves before.
+   */
+  addCartItem(
+    sessionId: number,
+    item: {
+      item_id: string;
+      module: string;
+      label: string;
+      amount: number;
+      currency: string;
+      form_data: string;
+      ipc_channel: string;
+    },
+    userId: number | undefined,
+  ): { success: boolean; id?: number; error?: string } {
+    try {
+      const id = getCustomerSessionRepository().addCartItem(sessionId, {
+        ...item,
+        user_id: userId,
+      });
+      return { success: true, id };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Failed to add cart item" };
+    }
+  }
+
+  /** LIRA-306 T081 — remove one basket line by its frontend uuid. */
+  removeCartItem(
+    sessionId: number,
+    itemId: string,
+  ): { success: boolean; error?: string } {
+    try {
+      getCustomerSessionRepository().removeCartItem(sessionId, itemId);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Failed to remove cart item" };
+    }
+  }
+
+  /** LIRA-306 T081 — remove every basket line of a session. */
+  clearCart(sessionId: number): { success: boolean; error?: string } {
+    try {
+      getCustomerSessionRepository().clearCart(sessionId);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Failed to clear cart" };
+    }
+  }
+
+  /**
    * Close a customer session
    */
   async closeSession(

@@ -463,3 +463,7 @@ export * from "./validators/googleAuth.js";
 // The shop-address rule, so the Google sign-up form checks the slug with the
 // server's own predicate (rule 14). Pure (errors.js only).
 export { validateTenantSlug } from "./utils/tenantSlug.js";
+
+// LIRA-306 offline desktop fallback — pure modules only (id layout, channel
+// policy, review kinds). Server-only pieces stay in index.ts (rule 29).
+export * from "./offline/index.js";

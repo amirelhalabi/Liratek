@@ -599,6 +599,57 @@ it cannot book go on an "Offline work to review" page on the web app.
   else (the merge engine, duplicates, the review logic behind the page, money preparation, copy builder) can be built
   now. The review page itself, its routes and the PCs panel also wait (they are web-only, part of E1).
 
+### Decisions taken while building (implementation, LIRA-306)
+
+- **O-impl-1 — The PC outbox has no PC link column.**
+  *Question:* the design says the PC's outbox has "the same columns" as the server's event table, which links each event
+  to a paired PC. *Choice:* the outbox has no such link (on a PC the paired-PC table is empty, so the link would break
+  every save) and keeps its own delivery state (waiting / acked / done, the server's outcome, the last error).
+  *Why:* the PC is always the one PC. *Undo:* add the column in a later migration.
+- **O-impl-2 — Refunding an item on the web: one check or several?**
+  *Question:* the plan says to give the web refund route the single shared check the desktop and offline replay now use.
+  *Choice:* the web route keeps checking each part (return methods, returned phones, rate, change kept) on its own, with
+  the same shared pieces the single check is built from. *Why:* rebuilding it would change the exact error wording and
+  how an empty value is treated on the web, for no gain. *Undo:* switch the web route to the single check.
+- **O-impl-3 — Customer create/edit: desktop and web rules differ today.**
+  *Question:* the web refuses a phone number that is not 8–15 digits and wants "WhatsApp" as yes/no; the desktop accepts
+  any phone text and 0/1. Offline work needs one rule. *Choice:* offline work uses the DESKTOP rule (the PC records what
+  its own screen accepted); the web keeps its stricter rule. Nothing changes for anyone today. *Why:* making them equal
+  would change what one of the two apps accepts. *Undo:* a follow-up that picks one rule for both apps.
+- **O-impl-4 — Expenses on the desktop now follow the web's rules.** *Choice:* the desktop expense form is checked
+  with the same rules as the web: an empty description and a missing Lira amount (counted as 0) are now accepted on
+  the desktop too (a description left out entirely still fails, as it does on the web today). A field the desktop sent that nothing read ("expense type") is no longer passed on. *Why:* one rule for
+  both apps and for offline work. *Undo:* make the description required again in the shared rules (both apps).
+- **O-impl-5 — The server's processing kept failing in the real app but not in tests.**
+  *What happened:* running the web test showed every sent item stayed "waiting": the built app uses an older copy of the
+  library that checks forms, while the tests used the newer one, and the code that compares form versions only knew the
+  newer one. *Choice:* it now understands both, a test proves both give the same answer, and an unexpected error while
+  booking one item can no longer stop the rest (it is retried, then put on the review list). *Undo:* not applicable.
+- **O-impl-6 — Unpairing the test PC.** *Choice:* the web test does not unpair its PC at the end (the unpair button is
+  part of the review page, not built yet); the next test run unpairs every test PC before it starts. *Undo:* unpair in
+  the test once the route exists.
+- **O-impl-C-1 — Cancelling a voucher offline.** *Choice:* cancelling a voucher is online-only, like creating one
+  (your answer: vouchers online-only); O-new-6's text had kept cancelling offline. *Undo:* move it back to the offline
+  list and restore the counts (71 offline / 105 online-only).
+- **O-impl-C-2 — The "time of replayed work" check skips one settings table.** *Choice:* the automatic check that
+  every saved row carries the work's own time ignores the currencies setup table (a setting, not shop work); otherwise
+  about 29 old tests would need rewriting. *Undo:* include it and update those tests.
+- **Smaller choices while building (Agent C), for the record:** a held-money pickup is dated with the work's time, not a
+  typed time; adding or deleting a custom service still records no "who" on either app (unchanged); deleting a repair
+  now refuses a malformed number such as "7abc"; the desktop now refuses a broken drawer-count form exactly as the web
+  does. *Known and left as they are (follow-ups):* a late phone-line balance reading overwrites credit used after it; a
+  scheduled loto checkpoint is not de-duplicated; an applied loto checkpoint also counts tickets sold after its time;
+  the next drawer count starts from the most recently ENTERED count, so an offline count applied later becomes the base.
+- **O-impl-D-1 — A broken link inside a shop copy.** *Choice:* counted and logged, the copy is still served (not
+  fatal). *Why:* one stray row must not stop every PC from getting a copy. *Undo:* refuse the copy.
+- **O-impl-D-2 — Profits password in the copy.** *Choice:* kept. *Why:* otherwise the Profits page could not be
+  unlocked offline. *Undo:* strip it (Profits locked offline).
+- **O-impl-D-3 — Google sign-in links in the copy.** *Choice:* removed. *Consequence:* a user who only signs in with
+  Google cannot sign in offline (they need a password). *Undo:* keep the links (they are useless without internet).
+- **O-impl-D-4 — Copy cache.** *Choice:* one cached copy per shop (not per PC). *Undo:* key it by PC.
+- *Follow-up for T115:* the backend test for the copy route should inject the build step; the service singleton cannot
+  take the test database constructor.
+
 ### What can be built and tested on this Mac
 
 The server side: merging, id swapping, duplicates, the review logic, the copy builder — with core tests. The review

@@ -3,6 +3,7 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { closingLogger } from "../utils/logger.js";
 import { clientDay } from "../utils/requestDay.js";
+import { requestNow } from "../utils/requestNow.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { CHECKPOINT_ADJUSTMENT_METHOD } from "../constants/checkpointAdjustment.js";
@@ -25,6 +26,20 @@ import { activeExpense, dateRange, localDayExpr } from "./ProfitRepository.js";
 
 /** Sub-cent threshold below which a reconciliation delta is treated as zero. */
 const RECONCILE_EPSILON = 0.0001;
+
+/**
+ * The ONE definition of "a payments row that moved a drawer" (rule 14):
+ * customer-account legs and audit-only rows (G35, e.g. PM_FEE) never did.
+ * Shared by the full rebuild (`recalculateDrawerBalances`) and the as-of
+ * balance a checkpoint reconciles against (`getDrawerBalancesAsOf`).
+ */
+function drawerAffectingPayments(): { sql: string; params: string[] } {
+  const auditOnly = [...AUDIT_ONLY_PAYMENT_METHODS];
+  return {
+    sql: `method != 'CUSTOMER_ACCOUNT' AND method NOT IN (${auditOnly.map(() => "?").join(", ")})`,
+    params: auditOnly,
+  };
+}
 
 /**
  * `carrier_line_movements.reason` written by the checkpoint's per-line
@@ -266,6 +281,43 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   }
 
   /**
+   * Every drawer's balance AS OF an instant (LIRA-306 O-new-27): the live
+   * balance minus the drawer-affecting journal rows recorded after `at`.
+   * Subtracting from the live figure (rather than summing the journal from
+   * zero) keeps drawers whose opening balance was never journaled correct.
+   * `at` defaults to `requestNow()` — the current time online, so this is
+   * exactly the live balance there; the event's own instant inside an
+   * offline replay, so a drawer count taken at 23:50 and applied two days
+   * later is measured against the drawer as it stood at 23:50 (web and
+   * other PCs' sales before it included, everything after it excluded).
+   * Timestamps compare through julianday(): `payments.created_at` holds
+   * both `YYYY-MM-DD HH:MM:SS` and ISO `…Z` text.
+   */
+  getDrawerBalancesAsOf(at: string = requestNow()): DynamicSystemExpectedBalances {
+    const result = this.getSystemExpectedBalancesDynamic();
+    const moved = drawerAffectingPayments();
+    const later = this.db
+      .prepare(
+        `SELECT drawer_name, currency_code, SUM(amount) AS amount
+           FROM payments
+          WHERE tenant_id = ? AND ${moved.sql}
+            AND julianday(created_at) > julianday(?)
+          GROUP BY drawer_name, currency_code`,
+      )
+      .all(getCurrentTenantId(), ...moved.params, at) as {
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    }[];
+    for (const r of later) {
+      if (!result[r.drawer_name]) result[r.drawer_name] = {};
+      result[r.drawer_name][r.currency_code] =
+        (result[r.drawer_name][r.currency_code] ?? 0) - r.amount;
+    }
+    return result;
+  }
+
+  /**
    * Recalculate drawer_balances from the payments journal.
    * The payments table is an append-only log of every signed amount that
    * flowed through each drawer, so SUM(amount) per (drawer, currency) gives
@@ -287,8 +339,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       // G35 (LIRA-258): audit-only payments rows (e.g. PM_FEE) never moved a
       // drawer when written, so the rebuild must not count them either — the
       // same single definition the void path uses (_reversePayments).
-      const auditOnlyMethods = [...AUDIT_ONLY_PAYMENT_METHODS];
-      const auditOnlyPlaceholders = auditOnlyMethods.map(() => "?").join(", ");
+      const moved = drawerAffectingPayments();
       this.db
         .prepare(
           `UPDATE drawer_balances SET balance = 0, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?`,
@@ -299,15 +350,14 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           `INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
            SELECT ?, drawer_name, currency_code, SUM(amount)
            FROM payments
-           WHERE method != 'CUSTOMER_ACCOUNT'
-             AND method NOT IN (${auditOnlyPlaceholders})
+           WHERE ${moved.sql}
              AND tenant_id = ?
            GROUP BY drawer_name, currency_code
            ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
              balance = excluded.balance,
-             updated_at = CURRENT_TIMESTAMP`,
+             updated_at = ?`,
         )
-        .run(tenantId, ...auditOnlyMethods, tenantId);
+        .run(tenantId, ...moved.params, tenantId, requestNow());
       closingLogger.info("Drawer balances recalculated from payments journal");
       return { success: true };
     } catch (error) {
@@ -419,9 +469,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         INSERT INTO daily_closings (
           tenant_id, closing_date, drawer_name, opening_balance_usd, opening_balance_lbp,
           physical_usd, physical_lbp, physical_eur, system_expected_usd,
-          system_expected_lbp, variance_usd, notes, report_path, created_by
-        ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, ?)
+          system_expected_lbp, variance_usd, notes, report_path, created_by, created_at
+        ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, ?, ?)
       `);
+      // LIRA-306 FR-021: the checkpoint's own time (the event's inside a replay).
+      const now = requestNow();
       const result = stmt.run(
         tenantId,
         closingDate,
@@ -429,6 +481,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         data.notes || null,
         data.report_path || null,
         data.user_id,
+        now,
       );
 
       const upsertAmounts = this.db.prepare(`
@@ -452,7 +505,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         INSERT INTO daily_closing_carrier_lines
           (tenant_id, closing_id, carrier_line_id, expected_credits, counted_credits,
            expected_expires_at, counted_expires_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(closing_id, carrier_line_id) DO UPDATE SET
           expected_credits = excluded.expected_credits,
           counted_credits = excluded.counted_credits,
@@ -586,15 +639,26 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
             );
           }
 
-          // 2. Compute per-currency reconciliation deltas against live balances.
+          // 2. Compute per-currency reconciliation deltas against the drawer
+          //    AS OF the checkpoint's time (LIRA-306 O-new-27) — the live
+          //    balance online; the event's instant when an offline count is
+          //    applied later, so movements booked after the count survive.
+          //    A carrier drawer row whose count was superseded by its lines'
+          //    projected sum (live) stays on the live balance, keeping
+          //    drawer == Σ lines (§0.1).
+          const asOf = this.getDrawerBalancesAsOf(now);
           const adjustments = effectiveRows
             .map((r) => {
+              const lineDerived =
+                r.currency_code === "USD" && drawerToCarrier.has(r.drawer_name);
               const existing = getBalance.get(
                 r.drawer_name,
                 r.currency_code,
                 tenantId,
               ) as { balance: number } | undefined;
-              const current = existing?.balance ?? 0;
+              const current = lineDerived
+                ? (existing?.balance ?? 0)
+                : (asOf[r.drawer_name]?.[r.currency_code] ?? 0);
               return {
                 drawer_name: r.drawer_name,
                 currency_code: r.currency_code,
@@ -683,6 +747,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
               c.countedCredits,
               c.line.validity_expires_at,
               c.countedExpiry,
+              now,
             );
           }
 

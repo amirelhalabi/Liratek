@@ -175,6 +175,18 @@ export const saleIdParamSchema = z.object({
 export type SaleIdParamInput = z.infer<typeof saleIdParamSchema>;
 
 /**
+ * LIRA-306 (rule 23 lift) — `sales:delete-draft` (IPC, positional `saleId`)
+ * and `DELETE /api/sales/drafts/:id` (REST, `{ saleId: Number(param) }`)
+ * validate with this ONE schema; it is also what an offline PC records.
+ * Key diff: schema { saleId } = preload `deleteDraft(saleId)` = the handler's
+ * only forwarded value.
+ */
+export const saleDeleteDraftSchema = z.object({
+  saleId: z.number().int().positive(),
+});
+export type SaleDeleteDraftInput = z.infer<typeof saleDeleteDraftSchema>;
+
+/**
  * LIRA-296 SF-1 — `GET /api/sales/today` and `GET /api/dashboard/todays-sales`
  * take the day the POS "recent sales" list is showing (the IPC twin
  * `sales:get-todays-sales` always honoured it; REST ignored it). Omitted:

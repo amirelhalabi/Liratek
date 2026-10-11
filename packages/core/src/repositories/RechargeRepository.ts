@@ -9,6 +9,8 @@ import type Database from "better-sqlite3";
 import { BaseRepository } from "./BaseRepository.js";
 import { rechargeLogger } from "../utils/logger.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
+import { clientDay } from "../utils/requestDay.js";
 
 import {
   paymentMethodToDrawerName,
@@ -740,8 +742,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Record the top-up in recharges table
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
-             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id, created_at)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             data.provider,
@@ -751,6 +753,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up from ${data.sourceDrawer}: +${amountLabel}`,
             data.userId,
             tenantId,
+            requestNow(), // LIRA-306 FR-021
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -1006,7 +1009,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           INSERT INTO recharges (
             carrier, recharge_type, amount, cost, price, default_price_to_client, currency_code,
             paid_by, phone_number, client_id, client_name, note, created_by, tenant_id, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const rechargeResult = insertRecharge.run(
           data.provider,
@@ -1023,7 +1026,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           note,
           createdBy,
           tenantId,
-          data.transaction_time ?? null,
+          data.transaction_time ?? requestNow(), // LIRA-306 FR-021
         );
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
@@ -1528,7 +1531,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               paid_by_method: SMS_TRANSFER_EXPENSE_PAID_BY_METHOD,
               amount_usd: smsCostUsd,
               amount_lbp: 0,
-              expense_date: data.transaction_time ?? new Date().toISOString(),
+              // LIRA-306 FR-021 / rule 27: the request's own day (the browser's on
+              // web, the event's in a replay), like every other expense_date.
+              expense_date: data.transaction_time ?? data.client_day ?? clientDay(),
               transaction_time: data.transaction_time,
               drawer_override: {
                 drawer_name: providerDrawerName,
@@ -1877,7 +1882,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           INSERT INTO recharges (
             carrier, recharge_type, amount, cost, price, default_price_to_client, currency_code,
             paid_by, phone_number, client_id, client_name, note, created_by, tenant_id, created_at
-          ) VALUES (?, 'CREDIT_BUYBACK', ?, 0, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+          ) VALUES (?, 'CREDIT_BUYBACK', ?, 0, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const rechargeResult = insertRecharge.run(
           data.provider,
@@ -1891,7 +1896,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           note,
           createdBy,
           tenantId,
-          data.transaction_time ?? null,
+          data.transaction_time ?? requestNow(), // LIRA-306 FR-021
         );
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
@@ -2153,8 +2158,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Insert TOP_UP recharge record (no paid_by drawer — funded by supplier)
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
-             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'SUPPLIER', ?, ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id, created_at)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'SUPPLIER', ?, ?, ?, ?)`,
           )
           .run(
             data.provider,
@@ -2163,6 +2168,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amountLabel}`,
             data.userId,
             tenantId,
+            requestNow(), // LIRA-306 FR-021
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -2374,8 +2380,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // `topUpApp`'s convention of stamping the real source drawer there.
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
-             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id, created_at)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             data.provider,
@@ -2385,6 +2391,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `Cash Out to OMT: -${amountLabel} (OMT account credited ${creditedLabel}, incl. ${formatMoneyAmount(commission, currency)} commission)`,
             data.userId,
             tenantId,
+            requestNow(), // LIRA-306 FR-021
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -2508,8 +2515,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Insert TOP_UP recharge record (funded by partner)
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
-             VALUES ('WHISH_APP', 'TOP_UP', ?, 0, 0, ?, 'PARTNER', ?, ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id, created_at)
+             VALUES ('WHISH_APP', 'TOP_UP', ?, 0, 0, ?, 'PARTNER', ?, ?, ?, ?)`,
           )
           .run(
             amount,
@@ -2517,6 +2524,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up via partner: +${amountLabel}`,
             data.userId,
             tenantId,
+            requestNow(), // LIRA-306 FR-021
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -2950,8 +2958,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Record the top-up in recharges table
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
-             VALUES ('WHISH_APP', 'TOP_UP', ?, ?, ?, ?, 'CLIENT', ?, ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id, created_at)
+             VALUES ('WHISH_APP', 'TOP_UP', ?, ?, ?, ?, 'CLIENT', ?, ?, ?, ?)`,
           )
           .run(
             amount,
@@ -2961,6 +2969,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `Whish App top-up from client: +${creditsLabel} credits, paid ${cashLabel} cash`,
             data.userId,
             tenantId,
+            requestNow(), // LIRA-306 FR-021
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);

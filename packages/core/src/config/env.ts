@@ -153,6 +153,18 @@ const envSchema = z
     // How long an "invite a user to this shop" link works (LIRA-281).
     USER_INVITE_TTL_HOURS: z.coerce.number().int().positive().default(72),
 
+    // ── Offline desktop fallback (LIRA-306) ──────────────────────────
+    // Server-side processing of events uploaded by paired PCs.
+    // Gathering pause after an upload before a merge round starts, so PCs
+    // that reconnect together interleave (O-new-14). 0 in web e2e.
+    OFFLINE_MERGE_GATHER_MS: z.coerce.number().int().min(0).default(30000),
+    // How long a built shop copy is reused for every PC of the shop.
+    OFFLINE_SNAPSHOT_TTL_MS: z.coerce.number().int().min(0).default(300000),
+    // A PC clock error above this is corrected (O-new-15).
+    OFFLINE_SKEW_CORRECT_MS: z.coerce.number().int().min(0).default(120000),
+    // Technical retries of one event before it is refused to review.
+    OFFLINE_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+
     // Electron-specific (only needed when running electron app)
     ELECTRON_RENDERER_URL: z.string().url().optional(),
 
@@ -268,6 +280,16 @@ function parseEnv(): EnvConfig {
       process.env.PASSWORD_RESET_TTL_MINUTES,
     ),
     USER_INVITE_TTL_HOURS: emptyToUndefined(process.env.USER_INVITE_TTL_HOURS),
+    OFFLINE_MERGE_GATHER_MS: emptyToUndefined(
+      process.env.OFFLINE_MERGE_GATHER_MS,
+    ),
+    OFFLINE_SNAPSHOT_TTL_MS: emptyToUndefined(
+      process.env.OFFLINE_SNAPSHOT_TTL_MS,
+    ),
+    OFFLINE_SKEW_CORRECT_MS: emptyToUndefined(
+      process.env.OFFLINE_SKEW_CORRECT_MS,
+    ),
+    OFFLINE_MAX_ATTEMPTS: emptyToUndefined(process.env.OFFLINE_MAX_ATTEMPTS),
     ELECTRON_RENDERER_URL: process.env.ELECTRON_RENDERER_URL,
     DASHSCOPE_API_KEY: process.env.DASHSCOPE_API_KEY,
     QWEN_ASR_MODEL: process.env.QWEN_ASR_MODEL,
@@ -348,6 +370,52 @@ export const {
   QWEN_ASR_REGION,
   QWEN_ASR_LANGUAGE,
 } = env;
+
+// =============================================================================
+// Offline desktop fallback knobs (LIRA-306) — typed getters
+// =============================================================================
+
+/**
+ * Read one offline knob. The parsed `env` value is the default; a value set
+ * in `process.env` AFTER module load (tests, the e2e backend) still wins, so
+ * a getter never needs a process restart to see it. A malformed value falls
+ * back to the parsed one instead of throwing.
+ */
+function offlineKnob(
+  name:
+    | "OFFLINE_MERGE_GATHER_MS"
+    | "OFFLINE_SNAPSHOT_TTL_MS"
+    | "OFFLINE_SKEW_CORRECT_MS"
+    | "OFFLINE_MAX_ATTEMPTS",
+  min: number,
+): number {
+  const raw =
+    typeof process !== "undefined" && process.env
+      ? emptyToUndefined(process.env[name])
+      : undefined;
+  if (raw !== undefined) {
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= min) return n;
+  }
+  return env[name];
+}
+
+/** Pause after an upload before a merge round (ms). Default 30 000. */
+export function getOfflineMergeGatherMs(): number {
+  return offlineKnob("OFFLINE_MERGE_GATHER_MS", 0);
+}
+/** How long one built shop copy is reused (ms). Default 300 000. */
+export function getOfflineSnapshotTtlMs(): number {
+  return offlineKnob("OFFLINE_SNAPSHOT_TTL_MS", 0);
+}
+/** PC clock error above which event times are corrected (ms). Default 120 000. */
+export function getOfflineSkewCorrectMs(): number {
+  return offlineKnob("OFFLINE_SKEW_CORRECT_MS", 0);
+}
+/** Technical attempts before an event is refused to review. Default 5. */
+export function getOfflineMaxAttempts(): number {
+  return offlineKnob("OFFLINE_MAX_ATTEMPTS", 1);
+}
 
 /**
  * Validate that required environment variables are set for production

@@ -338,3 +338,23 @@ export type SessionItemRefundPayload = z.input<typeof sessionItemRefundSchema>;
 export type SessionItemRefundPreviewPayload = z.input<
   typeof sessionItemRefundPreviewSchema
 >;
+
+/**
+ * LIRA-306 T041 — `transactions:void` / `transactions:refund` take positional
+ * IPC arguments; the recorded (named) payload is parsed with these, built
+ * from the SAME component schemas both transports already validate each
+ * argument with (rule 14). `null` is "not given", as in the IPC handler.
+ */
+export const transactionVoidSchema = z.object({
+  transactionId: z.number().int().positive(),
+});
+export type TransactionVoidInput = z.input<typeof transactionVoidSchema>;
+
+export const transactionRefundSchema = z.object({
+  transactionId: z.number().int().positive(),
+  refundLegs: refundLegsSchema.nullish(),
+  refundUnitExtras: refundUnitExtrasSchema.nullish(),
+  exchangeRate: refundExchangeRateSchema,
+  keptChange: refundKeptChangeSchema.nullish(),
+});
+export type TransactionRefundInput = z.input<typeof transactionRefundSchema>;

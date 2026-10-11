@@ -747,3 +747,8 @@ export {
   getWarrantyService,
   resetWarrantyService,
 } from "./WarrantyService.js";
+
+// LIRA-306 offline desktop fallback.
+export * from "./OfflineEventService.js";
+export * from "./OfflineMergeProcessor.js";
+export * from "./OfflineDeviceService.js";

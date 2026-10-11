@@ -17,6 +17,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 
 // =============================================================================
 // Entity Types
@@ -226,7 +227,7 @@ export class CarrierLineMovementRepository extends BaseRepository<CarrierLineMov
     const stmt = this.db.prepare(`
       INSERT INTO carrier_line_movements
         (tenant_id, carrier_line_id, transaction_id, credits_delta, validity_days_delta, previous_validity_expires_at, days_owed_delta, previous_days_owed, reason, is_reversed, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
     `);
     const result = stmt.run(
       getCurrentTenantId(),
@@ -238,6 +239,7 @@ export class CarrierLineMovementRepository extends BaseRepository<CarrierLineMov
       data.days_owed_delta ?? 0,
       data.previous_days_owed ?? 0,
       data.reason,
+      requestNow(), // LIRA-306 FR-021
     );
     return this.getById(result.lastInsertRowid as number)!;
   }

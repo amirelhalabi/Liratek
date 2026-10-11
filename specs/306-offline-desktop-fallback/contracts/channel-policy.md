@@ -6,13 +6,13 @@ Source of truth at implement time: `packages/core/src/offline/channelPolicy.ts`,
 
 | Class | Count | Offline-mode behaviour |
 | --- | --- | --- |
-| `offline` | 71 | runs on the working copy; write + event in one transaction (R1) |
+| `offline` | 70 | runs on the working copy; write + event in one transaction (R1) |
 | `checkpoint` | 7 | runs on the working copy; event recorded; **held** on replay (N8) |
-| `online_only` | 105 | refused: `{ success:false, code:"OFFLINE_NOT_AVAILABLE", error:"Not available while offline — do this on the web app when the internet is back" }` |
+| `online_only` | 106 | refused: `{ success:false, code:"OFFLINE_NOT_AVAILABLE", error:"Not available while offline — do this on the web app when the internet is back" }` |
 | `local` | 24 (16 existing + 8 new `offline:*`, see `ipc-offline.md`) | runs; never recorded (sign-in bookkeeping, print, dialogs, voice, offline controls) |
 | `read` | 215 | runs under the write guard; any write it attempts is refused and logged (FR-036) |
 
-Changes vs the raw inventory: `voucher:create` → `online_only` (O-new-6). Classes for channels N2 does not name
+Changes vs the raw inventory: `voucher:create` → `online_only` (O-new-6); `voucher:cancel` → `online_only` too (O-impl-C-1, 2026-10-11 — counts now 70 offline / 106 online-only / 7 checkpoint = 77 recordable). Classes for channels N2 does not name
 (drawer top-up / cash-out / transfer, hold money, warranty claims, debt write-off, carrier-line usage, admin deletes,
 `*:update-metadata` edits) follow O-new-11 (offline-allowed: they are till actions on the shop's own money/records).
 Catalog channels (`inventory:create/update/delete-product`, batch edits, categories, product suppliers) are
@@ -24,7 +24,7 @@ channel can record events (rule 23); these 23 form the policy's `pendingLift` li
 channel regardless (R11).
 
 
-## `offline` (71)
+## `offline` (70)
 
 | Channel | Handler | Roles | Schema today | Ids | Time | Note |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -32,7 +32,7 @@ channel regardless (R11).
 | `carrier-lines:mark-owed-delivery-sent` | `handlers/carrierLineHandlers.ts:318` | [admin, staff] | MarkCarrierLineOwedDeliverySentSchema (core markCarrierLineOwedDeliverySentSchema) | deliveryId | no | Marks an owed credit delivery as sent (state transition on existing row deliveryId) |
 | `clients:create` | `handlers/clientHandlers.ts:40` | [admin, staff] | ClientCreateSchema (HAND-WRITTEN electron) | id | no | Client create |
 | `clients:update` | `handlers/clientHandlers.ts:67` | [admin, staff] | ClientCreateSchema (HAND-WRITTEN electron) | id | no | Client update (id) |
-| `custom-services:add` | `handlers/customServiceHandlers.ts:63` | [admin] | CustomServiceCreateSchema (HAND-WRITTEN electron) | client_id, partnerId, product_id | transaction_time — forwarded | Custom service sale |
+| `custom-services:add` | `handlers/customServiceHandlers.ts:63` | [admin] | core createCustomServiceSchema (lifted, T095) | client_id, partnerId, product_id | transaction_time — forwarded | Custom service sale |
 | `custom-services:delete` | `handlers/customServiceHandlers.ts:91` | [admin] | NONE | id (positional) | no | Admin delete of a custom-service row (void-like) |
 | `custom-services:update-metadata` | `handlers/customServiceHandlers.ts:110` | [admin, staff] | CustomServiceUpdateMetadataSchema (core customServiceUpdateMetadataSchema) | id | no | Edits note/client of existing row (id) |
 | `custom-services:advance-fulfillment` | `handlers/customServiceHandlers.ts:183` | [admin, staff] | CustomServiceUpdateFulfillmentSchema (core updateCustomServiceFulfillmentSchema) | id | no | State transition on existing row (id) |
@@ -64,8 +64,8 @@ channel regardless (R11).
 | `loto:cash-prize:create` | `handlers/lotoHandlers.ts:704` | [admin] | LotoCashPrizeSchema (core lotoCashPrizeSchema) | clientId | no | Cashier pays a prize (admin-only today) |
 | `loto:update-metadata` | `handlers/lotoHandlers.ts:855` | [admin, staff] | LotoUpdateMetadataSchema (core lotoUpdateMetadataSchema) | id | no | Edits existing ticket metadata (id); also triggers checkAndRecordMonthlyFee |
 | `maintenance:save` | `handlers/maintenanceHandlers.ts:23` | [admin, staff] | MaintenanceJobSchema (core saveMaintenanceJobSchema) | client_id, id, product_id | client_day, transaction_time — forwarded | Repair job create/update (id optional) |
-| `maintenance:delete` | `handlers/maintenanceHandlers.ts:82` | [admin] | NONE | id (positional) | no | Admin delete of job; NO validatePayload |
-| `maintenance:update-metadata` | `handlers/maintenanceHandlers.ts:99` | [admin, staff] | NONE | id | no | Edits existing job (id); NO validatePayload |
+| `maintenance:delete` | `handlers/maintenanceHandlers.ts:82` | [admin] | core maintenanceIdParamSchema (lifted, T093) | id (positional) | no | Admin delete of job; NO validatePayload |
+| `maintenance:update-metadata` | `handlers/maintenanceHandlers.ts:99` | [admin, staff] | core maintenanceUpdateMetadataSchema (lifted, T093) | id | no | Edits existing job (id); NO validatePayload |
 | `omt:add-transaction` | `handlers/omtHandlers.ts:32` | [admin, staff] | FinancialServiceSchema (HAND-WRITTEN electron) | clientId, mobileServiceItemId, partnerId, receiverClientId, senderClientId, userId | transaction_time — forwarded | OMT/Whish/financial transfer |
 | `financial:update-metadata` | `handlers/omtHandlers.ts:97` | [admin, staff] | FinancialUpdateMetadataSchema (core financialUpdateMetadataSchema) | id | no | Edits existing financial row (id) |
 | `financial:self-charge-telecom-item` | `handlers/omtHandlers.ts:172` | [admin, staff] | SelfChargeTelecomItemSchema (core selfChargeTelecomItemSchema) | carrierLineId, mobileServiceItemId | client_day, transaction_time — forwarded | Shop self-charges a telecom item onto own carrier line; handler calls REPOSITORY directly (no service) |
@@ -95,7 +95,6 @@ channel regardless (R11).
 | `transactions:void-session-basket` | `handlers/transactionHandlers.ts:270` | [admin] | SessionBasketReversalSchema (core sessionBasketReversalSchema) | sessionId | no | Void basket (sessionId) |
 | `transactions:refund-session-basket` | `handlers/transactionHandlers.ts:303` | [admin] | SessionBasketReversalSchema (core sessionBasketReversalSchema) | sessionId | no | Refund basket (sessionId) |
 | `transactions:refund-session-basket-item` | `handlers/transactionHandlers.ts:348` | [admin] | SessionItemRefundSchema (core sessionItemRefundSchema) | saleItemId, sessionId, transactionId, unit_id | clientDay | Refund basket item |
-| `voucher:cancel` | `handlers/voucherHandlers.ts:103` | [admin] | NONE | id (positional) | no | Admin void of voucher (id); NO validatePayload |
 | `wallet-exchange:create` | `handlers/walletExchangeHandlers.ts:47` | [admin, staff] | WalletExchangeSchema (core createWalletExchangeSchema) | none | transaction_time — forwarded | Wallet exchange |
 | `warranty:claim` | `handlers/warrantyHandlers.ts:63` | [admin, staff] | CreateWarrantyClaimSchema (core createWarrantyClaimSchema) | maintenance_id, replacement_unit_id, sale_item_id, unit_id | client_day | Warranty claim (owner '?'); may swap a replacement unit (stock) |
 | `warranty:void-claim` | `handlers/warrantyHandlers.ts:99` | [admin] | VoidWarrantyClaimSchema (core voidWarrantyClaimSchema) | claim_id | no | Admin void of claim (claim_id) |
@@ -112,7 +111,7 @@ channel regardless (R11).
 | `loto:checkpoint:create-scheduled` | `handlers/lotoHandlers.ts:641` | [admin] | NONE | none | checkpointDate (positional) | Auto/scheduled checkpoint (system-triggered?); NO validatePayload |
 | `loto:checkpoint:delete` | `handlers/lotoHandlers.ts:671` | [admin] | NONE | id (positional) | no | Deletes checkpoint (id); NO validatePayload |
 
-## `online_only` (105)
+## `online_only` (106)
 
 | Channel | Handler | Roles | Schema today | Ids | Time | Note |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -213,6 +212,7 @@ channel regardless (R11).
 | `updater:check` | `handlers/updaterHandlers.ts:202` | [admin] | NONE | none | no | Updater |
 | `updater:download` | `handlers/updaterHandlers.ts:245` | [admin] | NONE | none | no | Updater |
 | `updater:quit-and-install` | `handlers/updaterHandlers.ts:283` | [admin] | NONE | none | no | Updater |
+| `voucher:cancel` | `handlers/voucherHandlers.ts:103` | [admin] | NONE | id (positional) | no | Admin void of voucher (id) — moved to online_only (O-impl-C-1: vouchers are online-only, owner O-new-6 confirmation) |
 | `voucher:create` | `handlers/voucherHandlers.ts:26` | [admin, staff] | VoucherCreateSchema (core voucherCreateSchema) | clientId | no | O-new-6: offline code would not match the server-made code |
 | `voucher-images:set` | `handlers/voucherImageHandlers.ts:22` | [admin] | SetVoucherImageSchema (core setVoucherImageSchema) | none | no | Config |
 | `voucher-images:delete` | `handlers/voucherImageHandlers.ts:49` | [admin] | NONE | id (positional) | no | Config |

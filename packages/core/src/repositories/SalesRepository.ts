@@ -5,6 +5,7 @@
  * Extends BaseRepository for standard CRUD operations.
  */
 
+import { requestNow } from "../utils/requestNow.js";
 import type Database from "better-sqlite3";
 import { BaseRepository } from "./BaseRepository.js";
 import {
@@ -535,13 +536,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               finalClientId = existing.id;
             } else {
               const createClient = db.prepare(`
-                INSERT INTO clients (full_name, phone_number, whatsapp_opt_in, tenant_id)
-                VALUES (?, ?, 0, ?)
+                INSERT INTO clients (full_name, phone_number, whatsapp_opt_in, tenant_id, created_at)
+                VALUES (?, ?, 0, ?, ?)
               `);
               const clientResult = createClient.run(
                 sale.client_name,
                 sale.client_phone || null,
                 tenantId,
+                requestNow(),
               );
               finalClientId = clientResult.lastInsertRowid as number;
             }
@@ -713,7 +715,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               client_id, total_amount_usd, discount_usd, final_amount_usd,
               paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot,
               drawer_name, status, note, created_at, updated_at, tenant_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
 
           const saleResult = saleStmt.run(
@@ -730,8 +732,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.drawer_name || "General",
             status,
             sale.note || null,
-            saleTimeOverride,
-            saleTimeOverride,
+            // LIRA-306 FR-021: a typed time wins; else the event time on an
+            // offline replay; else now (same text format as CURRENT_TIMESTAMP).
+            saleTimeOverride ?? requestNow(),
+            saleTimeOverride ?? requestNow(),
             tenantId,
           );
           saleId = saleResult.lastInsertRowid as number;
@@ -1611,8 +1615,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         INSERT INTO ${this.tableName} (
           client_id, total_amount_usd, discount_usd, final_amount_usd,
           paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot,
-          drawer_name, status, note, updated_at, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+          drawer_name, status, note, updated_at, tenant_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
       `);
 
       const result = stmt.run(
@@ -1629,6 +1633,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         data.status,
         data.note,
         getCurrentTenantId(),
+        // LIRA-306 FR-021: the event time on an offline replay (else now).
+        requestNow(),
       );
 
       return result.lastInsertRowid as number;
@@ -2403,8 +2409,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     const insertReversal =
       changeCredits.length > 0
         ? db.prepare(`
-      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id)
-      VALUES (?, 'Refund Reversal', ?, ?, ?, 'Store credit cancelled by item refund', ?, ?)
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, created_at)
+      VALUES (?, 'Refund Reversal', ?, ?, ?, 'Store credit cancelled by item refund', ?, ?, ?)
     `)
         : null;
     for (const credit of changeCredits) {
@@ -2418,6 +2424,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         params.refundTxnId,
         params.userId,
         tenantId,
+        // LIRA-306 FR-021: the event time on an offline replay.
+        requestNow(),
       );
       creditReversalIds.push(Number(res.lastInsertRowid));
     }
@@ -2821,8 +2829,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           amount_lbp: number | null;
         }[];
         const insertCredit = db.prepare(`
-          INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id)
-          VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, 'Store credit restored by undo refund', ?, ?)
+          INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, created_at)
+          VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, 'Store credit restored by undo refund', ?, ?, ?)
         `);
         for (const r of creditRows) {
           if (!creditReversalIds.has(r.id)) continue;
@@ -2833,12 +2841,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             undoTxnId,
             params.userId,
             tenantId,
+            // LIRA-306 FR-021: the event time on an offline replay.
+            requestNow(),
           );
         }
       }
       const insertRecharge = db.prepare(`
-        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id)
-        VALUES (?, 'Sale Debt', ?, ?, 'Debt re-charged by undo refund', ?, ?)
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id, created_at)
+        VALUES (?, 'Sale Debt', ?, ?, 'Debt re-charged by undo refund', ?, ?, ?)
       `);
       for (const r of reversalRows) {
         insertRecharge.run(
@@ -2847,6 +2857,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           undoTxnId,
           params.userId,
           tenantId,
+          // LIRA-306 FR-021: the event time on an offline replay.
+          requestNow(),
         );
       }
 
@@ -3101,8 +3113,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       }[];
 
       const insertReversal = db.prepare(`
-        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id)
-        VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by item refund', ?, ?)
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id, created_at)
+        VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by item refund', ?, ?, ?)
       `);
 
       for (const debt of debts) {
@@ -3112,6 +3124,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           params.refundTxnId,
           params.userId,
           tenantId,
+          // LIRA-306 FR-021: the event time on an offline replay.
+          requestNow(),
         );
       }
     }

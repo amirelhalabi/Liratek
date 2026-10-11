@@ -14413,6 +14413,187 @@ CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created ON idempotency_keys(crea
         }
       }
     },
+  },  {
+    version: 210,
+    name: "offline_events_model",
+    description:
+      "LIRA-306: offline desktop fallback (events redesign). Server side: " +
+      "offline_devices (paired PCs, hashed device key, PC number, merge " +
+      "cursor), offline_snapshots (shop copies served to PCs), offline_events " +
+      "(uploaded events and their outcome), offline_id_map (PC row id -> " +
+      "server row id), offline_review_items (the web review list). PC side " +
+      "(inside a working copy; empty on the server): offline_outbox, " +
+      "offline_outbox_created, offline_copy_meta.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS offline_devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    device_no INTEGER NOT NULL CHECK (device_no BETWEEN 1 AND 9006),
+    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
+    key_id TEXT NOT NULL UNIQUE,
+    key_hash TEXT NOT NULL,
+    paired_by INTEGER NOT NULL,
+    paired_at TEXT NOT NULL,
+    revoked_at TEXT,
+    revoked_by INTEGER,
+    last_seen_at TEXT,
+    last_state TEXT CHECK (last_state IN ('standby', 'blocked', 'offline', 'finishing')),
+    last_pending_count INTEGER NOT NULL DEFAULT 0 CHECK (last_pending_count >= 0),
+    last_app_version TEXT,
+    last_schema_version INTEGER,
+    last_skew_ms INTEGER,
+    last_online_skew_ms INTEGER,
+    next_expected_seq INTEGER NOT NULL DEFAULT 1 CHECK (next_expected_seq >= 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_offline_devices_no ON offline_devices(tenant_id, device_no);
+
+CREATE TABLE IF NOT EXISTS offline_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    copy_id TEXT NOT NULL UNIQUE,
+    device_id INTEGER REFERENCES offline_devices(id),
+    schema_version INTEGER NOT NULL,
+    built_at TEXT NOT NULL,
+    high_water_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_offline_snapshots_built ON offline_snapshots(tenant_id, built_at);
+
+CREATE TABLE IF NOT EXISTS offline_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    device_id INTEGER NOT NULL REFERENCES offline_devices(id),
+    event_id TEXT NOT NULL,
+    device_seq INTEGER NOT NULL CHECK (device_seq >= 1),
+    channel TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    actor_user_id INTEGER NOT NULL,
+    occurred_at TEXT NOT NULL,
+    corrected_at TEXT,
+    client_day TEXT NOT NULL,
+    client_tz_offset_minutes INTEGER NOT NULL CHECK (client_tz_offset_minutes BETWEEN -720 AND 840),
+    copy_id TEXT NOT NULL,
+    app_version TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    schema_shape_json TEXT NOT NULL,
+    rates_json TEXT NOT NULL,
+    created_json TEXT NOT NULL,
+    depends_on_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('received', 'booked', 'skipped', 'held', 'refused', 'applied', 'dismissed')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    result_json TEXT,
+    error TEXT,
+    processed_at TEXT,
+    resolved_by INTEGER,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_offline_events_event ON offline_events(tenant_id, event_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_offline_events_seq ON offline_events(tenant_id, device_id, device_seq);
+CREATE INDEX IF NOT EXISTS idx_offline_events_status ON offline_events(tenant_id, status);
+
+CREATE TABLE IF NOT EXISTS offline_id_map (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    offline_id INTEGER NOT NULL CHECK (offline_id >= 1000000000000),
+    device_id INTEGER NOT NULL REFERENCES offline_devices(id),
+    table_name TEXT NOT NULL,
+    server_id INTEGER NOT NULL CHECK (server_id < 1000000000000),
+    event_id TEXT NOT NULL,
+    link_kind TEXT NOT NULL CHECK (link_kind IN ('created', 'linked_existing')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_offline_id_map_offline ON offline_id_map(tenant_id, offline_id);
+CREATE INDEX IF NOT EXISTS idx_offline_id_map_server ON offline_id_map(tenant_id, table_name, server_id);
+
+CREATE TABLE IF NOT EXISTS offline_review_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    event_row_id INTEGER REFERENCES offline_events(id),
+    device_id INTEGER NOT NULL REFERENCES offline_devices(id),
+    kind TEXT NOT NULL CHECK (kind IN ('possible_duplicate', 'certain_duplicate', 'held_checkpoint', 'waiting', 'refused', 'stock_count_off', 'ticks_dropped', 'customer_linked', 'clock_corrected', 'closed_day_changed', 'came_out_differently', 'user_switched_off', 'pc_data_mismatch', 'rate_changed')),
+    state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'applied', 'dismissed', 'reviewed')),
+    details_json TEXT NOT NULL,
+    resolved_by INTEGER,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_offline_review_items_state ON offline_review_items(tenant_id, state, kind);
+CREATE INDEX IF NOT EXISTS idx_offline_review_items_event ON offline_review_items(tenant_id, event_row_id);
+
+CREATE TABLE IF NOT EXISTS offline_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL,
+    device_seq INTEGER NOT NULL CHECK (device_seq >= 1),
+    channel TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    actor_user_id INTEGER NOT NULL,
+    occurred_at TEXT NOT NULL,
+    client_day TEXT NOT NULL,
+    client_tz_offset_minutes INTEGER NOT NULL CHECK (client_tz_offset_minutes BETWEEN -720 AND 840),
+    copy_id TEXT NOT NULL,
+    app_version TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    schema_shape_json TEXT NOT NULL,
+    rates_json TEXT NOT NULL,
+    created_json TEXT NOT NULL,
+    depends_on_json TEXT NOT NULL,
+    delivery TEXT NOT NULL DEFAULT 'waiting' CHECK (delivery IN ('waiting', 'acked', 'done')),
+    server_status TEXT CHECK (server_status IS NULL OR server_status IN ('received', 'booked', 'skipped', 'held', 'refused', 'applied', 'dismissed')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_offline_outbox_event ON offline_outbox(tenant_id, event_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_offline_outbox_seq ON offline_outbox(tenant_id, device_seq);
+CREATE INDEX IF NOT EXISTS idx_offline_outbox_delivery ON offline_outbox(tenant_id, delivery);
+
+CREATE TABLE IF NOT EXISTS offline_outbox_created (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    offline_id INTEGER NOT NULL UNIQUE,
+    table_name TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS offline_copy_meta (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    copy_id TEXT NOT NULL,
+    built_at TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    high_water_json TEXT NOT NULL,
+    device_no INTEGER,
+    opened_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);`);
+    },
+    down(db: Database.Database) {
+      db.exec(`
+        DROP TABLE IF EXISTS offline_copy_meta;
+        DROP TABLE IF EXISTS offline_outbox_created;
+        DROP TABLE IF EXISTS offline_outbox;
+        DROP TABLE IF EXISTS offline_review_items;
+        DROP TABLE IF EXISTS offline_id_map;
+        DROP TABLE IF EXISTS offline_events;
+        DROP TABLE IF EXISTS offline_snapshots;
+        DROP TABLE IF EXISTS offline_devices;
+      `);
+    },
   },
 ];
 

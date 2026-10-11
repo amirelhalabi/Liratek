@@ -73,6 +73,8 @@ import {
   WALLET_PROVIDERS_SQL_LIST,
 } from "../constants/walletProviders.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
+import { requestNowIso } from "../utils/requestNowIso.js";
 import { BusinessRuleError } from "../utils/errors.js";
 // LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
 // module (no other repository import), so importing it directly here never
@@ -1282,14 +1284,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       } else {
         const insertResult = this.db
           .prepare(
-            `INSERT INTO clients (full_name, phone_number, notes, tenant_id)
-             VALUES (?, ?, ?, ?)`,
+            `INSERT INTO clients (full_name, phone_number, notes, tenant_id, created_at)
+             VALUES (?, ?, ?, ?, ?)`,
           )
           .run(
             data.clientName,
             data.phoneNumber,
             "Auto-created from Binance debt",
             tenantId,
+            requestNow(), // LIRA-306 FR-021
           );
         resolvedClientId = Number(insertResult.lastInsertRowid);
       }
@@ -1838,7 +1841,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const isThroughSecondary =
         isThroughPartner && skipSecondarySupplierLedger;
       const isSettled = isPendingSettlement && !isThroughSecondary ? 0 : 1;
-      const settledAt = isSettled ? new Date().toISOString() : null;
+      const settledAt = isSettled ? requestNowIso() : null; // LIRA-306 FR-021
 
       // 1. Insert the financial_services row
       // Resolve the stored whish_fee: user-entered or auto-looked-up (classic
@@ -2072,7 +2075,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           item_key, note, is_settled, settled_at,
           payment_method_fee, payment_method_fee_rate, commission_model,
           receive_fee_model, tenant_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -2117,7 +2120,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         commissionModel,
         receiveFeeModel,
         tenantId,
-        data.transaction_time ?? null,
+        data.transaction_time ?? requestNow(), // LIRA-306 FR-021
       );
       const id = Number(result.lastInsertRowid);
 
@@ -2164,14 +2167,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // Auto-create client with phone
             const insertResult = this.db
               .prepare(
-                `INSERT INTO clients (full_name, phone_number, notes, tenant_id)
-                        VALUES (?, ?, ?, ?)`,
+                `INSERT INTO clients (full_name, phone_number, notes, tenant_id, created_at)
+                        VALUES (?, ?, ?, ?, ?)`,
               )
               .run(
                 primaryName,
                 primaryPhone,
                 "Auto-created from OMT/WHISH service",
                 tenantId,
+                requestNow(), // LIRA-306 FR-021
               );
             resolvedPrimaryClientId = Number(insertResult.lastInsertRowid);
           }
@@ -4010,14 +4014,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   // Auto-create client — use the DB directly to get lastInsertRowid
                   const insertResult = this.db
                     .prepare(
-                      `INSERT INTO clients (full_name, phone_number, notes, tenant_id)
-                       VALUES (?, ?, ?, ?)`,
+                      `INSERT INTO clients (full_name, phone_number, notes, tenant_id, created_at)
+                       VALUES (?, ?, ?, ?, ?)`,
                     )
                     .run(
                       data.clientName,
                       data.phoneNumber,
                       "Auto-created from service debt payment",
                       tenantId,
+                      requestNow(), // LIRA-306 FR-021
                     );
                   resolvedClientId = Number(insertResult.lastInsertRowid);
                 }
@@ -4077,14 +4082,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 : Number(
                     this.db
                       .prepare(
-                        `INSERT INTO clients (full_name, phone_number, notes, tenant_id)
-                         VALUES (?, ?, ?, ?)`,
+                        `INSERT INTO clients (full_name, phone_number, notes, tenant_id, created_at)
+                         VALUES (?, ?, ?, ?, ?)`,
                       )
                       .run(
                         data.clientName,
                         data.phoneNumber,
                         "Auto-created from service debt payment",
                         tenantId,
+                        requestNow(), // LIRA-306 FR-021
                       ).lastInsertRowid,
                   );
 

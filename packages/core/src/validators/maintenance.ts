@@ -129,6 +129,36 @@ export const getMaintenanceStatusHistorySchema = z.object({
   id: positiveIntegerSchema,
 });
 
+/**
+ * LIRA-306 (rule 23 lift) — `maintenance:delete(id)` / `DELETE
+ * /api/maintenance/jobs/:id`. Coerced: the REST id is a URL param string; the
+ * IPC handler passes a number. Named `{ id }` = the channel's argNames.
+ */
+export const maintenanceIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+export type MaintenanceIdParamInput = z.input<typeof maintenanceIdParamSchema>;
+
+/**
+ * LIRA-306 (rule 23 lift) — `maintenance:update-metadata` /
+ * `POST /api/maintenance/update-metadata`. Keys = the preload binding's
+ * `data` type = the four fields the handler forwards to
+ * `MaintenanceService.updateMaintenanceMetadata` (+ `id`); nothing dropped.
+ * Length caps only — the handler validated nothing before, so no `min(1)`
+ * that would refuse an edit the desktop books today.
+ */
+export const maintenanceUpdateMetadataSchema = z.object({
+  id: z.number().int().positive(),
+  client_name: z.string().max(255).optional(),
+  device_name: z.string().max(255).optional(),
+  issue_description: z.string().max(1000).optional(),
+  note: z.string().max(1000).optional(),
+});
+/** Adapter payload type (rule 21). Type-only, reachable from `browser.ts`. */
+export type MaintenanceUpdateMetadataInput = z.input<
+  typeof maintenanceUpdateMetadataSchema
+>;
+
 export type SaveMaintenanceJobInput = z.infer<typeof saveMaintenanceJobSchema>;
 /** What a caller SENDS to `maintenance:save` / `POST /api/maintenance/jobs`
  *  (pre-parse, so defaulted keys are optional) — the adapter payload type

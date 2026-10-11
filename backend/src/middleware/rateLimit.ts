@@ -91,7 +91,20 @@ export const RATE_LIMIT_MESSAGE =
 const RATE_LIMIT_IDENTITY = "rateLimitIdentity";
 
 /** The verified per-user bucket key for this request, or null (anonymous). */
+/**
+ * LIRA-306: a paired PC with a VERIFIED device key gets its own bucket
+ * (`device:<tenant>:<keyId>`); a malformed or wrong key stays anonymous.
+ * Registered by `deviceAuth.ts` at load (no import from here, so this
+ * module's own dependencies stay as they were).
+ */
+let deviceIdentity: ((req: Request) => string | null) | null = null;
+export function registerDeviceRateLimitIdentity(fn: (req: Request) => string | null): void {
+  deviceIdentity = fn;
+}
+
 function verifiedIdentityKey(req: Request): string | null {
+  const device = deviceIdentity ? deviceIdentity(req) : null;
+  if (device) return device;
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer ")) return null;
   const payload = verifyJwt(header.substring(7));

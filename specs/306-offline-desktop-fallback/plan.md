@@ -311,5 +311,7 @@ docs/OPERATIONS.md, docs/FEATURE_GUIDE.md (offline note), docs/release-notes/UNR
 | **E3** — constitution V: device routes authenticate with the device key, not `authenticateJWT` | No user session during an outage or on the standby screen | A long-lived user JWT on the PC expires, is tied to one person and dies with a password change. Key issued only through admin sign-in, hashed, revocable, scoped to one shop. **Owner to confirm (O-new-8).** |
 | **E4** (closed before ship) — `maintenance:update-metadata` has no REST route today | Offline allowed under N2 | The task that adds its binding first adds the REST route + adapter function (same service, shared schema), so the binding never exists without the web twin. No exception remains at ship. |
 
-**Owner approvals (gate G0)** — _not yet given_ (2026-10-11). Record here: date, O-new-7 yes/no, O-new-8 yes/no, E1
-yes/no. Until then tasks marked `[G0]` in tasks.md do not start.
+**Owner approvals (gate G0)** — **given 2026-10-11** (owner, live; recorded in
+`docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §4 "Owner answers, 2026-10-11"): **O-new-7 yes** (offline work credited to
+the cashier who did it, checked active + allowed role), **O-new-8 yes** (per-PC admin-issued, revocable device key),
+**E1 yes** (desktop-only `offline:*` channels, web-only review routes/page/PCs panel). Tasks marked `[G0]` may start.

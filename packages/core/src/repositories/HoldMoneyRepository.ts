@@ -19,6 +19,7 @@ import { customServiceLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
@@ -243,7 +244,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         const insertHold = this.db.prepare(`
           INSERT INTO hold_money (
             client_name, phone_number, client_id, usd_amount, lbp_amount, status, notes, created_by, tenant_id, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'held', ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+          ) VALUES (?, ?, ?, ?, ?, 'held', ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `);
         const holdResult = insertHold.run(
           clientName,
@@ -254,7 +255,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           data.notes ?? null,
           createdBy,
           tenantId,
-          data.transaction_time ?? null,
+          data.transaction_time ?? requestNow(),
         );
         const holdId = Number(holdResult.lastInsertRowid);
 
@@ -540,9 +541,9 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           .prepare(
             `INSERT INTO hold_money_pickups (
                tenant_id, hold_money_id, transaction_id, usd_amount, lbp_amount, created_by, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
           )
-          .run(tenantId, hold.id, txnId, portionUsd, portionLbp, collectedBy);
+          .run(tenantId, hold.id, txnId, portionUsd, portionLbp, collectedBy, requestNow());
         const pickupId = Number(pickupResult.lastInsertRowid);
 
         // 4. Flip status to 'collected' only once NOTHING remains in either
@@ -553,10 +554,10 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           this.db
             .prepare(
               `UPDATE hold_money
-               SET status = 'collected', collected_by = ?, collected_at = COALESCE(?, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+               SET status = 'collected', collected_by = ?, collected_at = ?, updated_at = CURRENT_TIMESTAMP
                WHERE id = ? AND tenant_id = ?`,
             )
-            .run(collectedBy, data.transaction_time ?? null, hold.id, tenantId);
+            .run(collectedBy, data.transaction_time ?? requestNow(), hold.id, tenantId);
         }
 
         // 5. Service History row — paid_by derived from the REAL legs
@@ -572,7 +573,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
             `INSERT INTO custom_services (
                description, cost_usd, cost_lbp, price_usd, price_lbp,
                paid_by, status, client_id, client_name, phone_number, note, category, created_by, tenant_id, created_at
-             ) VALUES (?, 0, 0, 0, 0, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+             ) VALUES (?, 0, 0, 0, 0, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             historyDesc,
@@ -584,6 +585,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
             HOLD_MONEY_CATEGORY,
             collectedBy,
             tenantId,
+            requestNow(),
           );
 
         return txnId;
@@ -740,10 +742,10 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         this.db
           .prepare(
             `UPDATE hold_money_pickups
-             SET is_voided = 1, voided_by = ?, voided_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+             SET is_voided = 1, voided_by = ?, voided_at = ?, updated_at = CURRENT_TIMESTAMP
              WHERE id = ? AND tenant_id = ?`,
           )
-          .run(voidedBy, pickup.id, tenantId);
+          .run(voidedBy, requestNow(), pickup.id, tenantId);
 
         // The derived remaining balance just went back up — reopen the hold
         // if it had reached 'collected'.

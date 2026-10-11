@@ -130,6 +130,12 @@ export const RESET_KEEP_TABLES: readonly string[] = [
   "loto_settings",
   "mobile_service_items",
   "modules",
+  // LIRA-306 v210 — paired PCs, the copies served to them and the audit of
+  // every event they sent: a reset must not unpair PCs or erase what was
+  // replayed (data-model.md › Classification lists).
+  "offline_devices",
+  "offline_events",
+  "offline_snapshots",
   "partners",
   "password_reset_tokens",
   "payment_methods",
@@ -236,6 +242,14 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "maintenance",
   "maintenance_parts",
   "maintenance_status_history",
+  // LIRA-306 v210 — the id map and review items point at business rows a
+  // reset deletes (and whose ids may be reused); the PC-side outbox tables
+  // are working-copy bookkeeping.
+  "offline_copy_meta",
+  "offline_id_map",
+  "offline_outbox",
+  "offline_outbox_created",
+  "offline_review_items",
   "partner_ledger",
   "payments",
   "product_stock_batches",

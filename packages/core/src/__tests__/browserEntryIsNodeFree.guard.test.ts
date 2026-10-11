@@ -173,4 +173,29 @@ describe("browser entry point is free of Node built-ins", () => {
       true,
     );
   });
+
+  // LIRA-306 T015/T016 — the replay's "effective now" and "effective rates"
+  // readers live in tenant context (node:async_hooks): server-only modules.
+  // A browser-reachable import of either would also defeat their purpose
+  // (the browser has its own clock and rates). The pure lot-rate helper the
+  // frontend uses stays as it is.
+  it("never reaches the server-only replay readers (requestNow, effectiveRate)", () => {
+    const seen = new Set<string>();
+    const walk = (file: string): void => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      for (const spec of valueImportSpecifiers(
+        fs.readFileSync(file, "utf-8"),
+      )) {
+        if (!spec.startsWith(".")) continue;
+        const next = resolveLocal(file, spec);
+        if (next) walk(next);
+      }
+    };
+    walk(ENTRY);
+    const rel = [...seen].map((f) => path.relative(SRC, f).replace(/\\/g, "/"));
+    expect(rel.filter((f) => /utils\/(requestNow|effectiveRate)\.ts$/.test(f))).toEqual([]);
+    expect(fs.existsSync(path.join(SRC, "utils", "requestNow.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(SRC, "utils", "effectiveRate.ts"))).toBe(true);
+  });
 });

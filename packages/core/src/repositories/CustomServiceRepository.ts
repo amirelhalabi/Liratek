@@ -31,6 +31,7 @@ import {
   partitionLegs,
 } from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import { requestNow } from "../utils/requestNow.js";
 import { resolveKeptChange } from "./keptChange.js";
 import type { CreateCustomServiceInput } from "../validators/customService.js";
 import {
@@ -391,7 +392,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           INSERT INTO custom_services (
             tenant_id, description, cost_usd, cost_lbp, price_usd, price_lbp,
             paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, product_id, partner_mode, fulfillment_status, direction
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, ?), ?, ?, ?, ?)
         `);
         const serviceResult = insertService.run(
           tenantId,
@@ -416,6 +417,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           data.category ?? null,
           createdBy,
           data.transaction_time ?? null,
+          // LIRA-306 (FR-021): no typed time → the request/event time
+          requestNow(),
           // Fix-round I5: a payout never consumes inventory — ignore a
           // stray `product_id` rather than letting it silently decrement
           // stock for an operation that isn't a sale (see the guarded stock
@@ -1269,12 +1272,10 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
    * design, the same separation `updateMetadata` above already draws
    * between "is this allowed" and "write it".
    *
-   * Stamps `fulfilled_at` to the SQL clock (`CURRENT_TIMESTAMP` — never a
-   * JS `new Date()` inside logic) exactly when the status being written is
-   * the terminal one (`DELIVERED`), and clears it to NULL for every other
-   * status — mirrors every other timestamp column in this repository
-   * (`edited_at`, `refunded_at`), which all use the database's own clock,
-   * not the application's.
+   * Stamps `fulfilled_at` to the request/event time (`requestNow()` —
+   * LIRA-306 FR-021: a replayed step happened at the event's time, not when
+   * the PC reconnected) exactly when the status being written is the
+   * terminal one (`DELIVERED`), and clears it to NULL for every other status.
    *
    * Moves NO money and touches NO drawer/ledger — fulfilment is tracked on
    * its own column, entirely independent of payment (see the module doc
@@ -1289,10 +1290,10 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
       .prepare(
         `UPDATE custom_services
          SET fulfillment_status = ?,
-             fulfilled_at = CASE WHEN ? = ? THEN CURRENT_TIMESTAMP ELSE NULL END
+             fulfilled_at = CASE WHEN ? = ? THEN ? ELSE NULL END
          WHERE id = ? AND tenant_id = ?`,
       )
-      .run(status, status, TERMINAL_FULFILLMENT_STATUS, id, tenantId);
+      .run(status, status, TERMINAL_FULFILLMENT_STATUS, requestNow(), id, tenantId);
     return this.findById(id);
   }
 

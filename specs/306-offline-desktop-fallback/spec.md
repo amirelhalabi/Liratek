@@ -544,8 +544,11 @@ a faster copy feed through Litestream, and hosting Phase D.
 - Assumption (unverified): building a copy takes well under a second at today's size (measured by a task).
 - Assumption (unverified): the replayed services produce the same number of rows per table as on the PC for the same
   payload and code version in normal cases; differences are caught (FR-020), not prevented.
-- Assumption (unverified): no offline-allowed service sends a message to the outside world (WhatsApp, SMS) as part of
-  its write; a task checks and suppresses any during replay.
+- Checked 2026-10-11 (T109): no offline-allowed service sends a message to the outside world as part of its write.
+  The only outbound calls in `packages/core/src` are `WhatsAppService` (reached only from `whatsapp:send-test` /
+  `whatsapp:send-message`, both online-only) and `GoogleAuthService` (sign-in); no offline family's service or
+  repository reaches either, and nothing sends SMS (the "SMS" in recharge is the `SMS_Transfer_Fee` expense, a ledger
+  row). Nothing needed suppressing under `isOfflineReplay()`; a new outbound call in an offline family must add it.
 - The desktop app and server run the same code version during an outage in the normal case; a desktop release ships
   with every database change (operations rule).
 - Phones and the web app are unchanged except the new review page and the PCs panel.

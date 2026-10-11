@@ -67,3 +67,5 @@ export * from "./mobileAuth.js";
 export * from "./currency.js";
 export * from "./paymentMethod.js";
 export * from "./drawerTopUp.js";
+// LIRA-306: offline desktop fallback (pairing, events, manifest, review).
+export * from "./offline.js";

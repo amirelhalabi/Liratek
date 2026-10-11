@@ -12,6 +12,7 @@ import {
 } from "./BaseRepository.js";
 import { DatabaseError, ValidationError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { getStockAdjustmentRepository } from "./StockAdjustmentRepository.js";
 import { getProductSupplierRepository } from "./ProductSupplierRepository.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
@@ -797,7 +798,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           INSERT INTO ${this.tableName} (
             barcode, name, category, category_id, cost_price_usd, selling_price_usd,
             stock_quantity, min_stock_level, image_url, item_type, supplier, warranty_months, created_at, tenant_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         const result = stmt.run(
@@ -813,6 +814,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           data.item_type ?? "Product",
           data.supplier ?? null,
           data.warranty_months ?? null,
+          requestNow(),
           tenantId,
         );
 

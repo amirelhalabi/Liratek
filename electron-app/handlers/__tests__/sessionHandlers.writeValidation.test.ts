@@ -36,10 +36,9 @@ jest.mock("@liratek/core", () => {
       updateSession: (...a: unknown[]) => mockUpdate(...a),
       linkTransactionToSession: (...a: unknown[]) => mockLink(...a),
       linkTransactionToActiveSession: (...a: unknown[]) => mockLinkActive(...a),
-    })),
-    getCustomerSessionRepository: () => ({
+      // LIRA-306 T081: the cart write moved behind the service (rule 13).
       addCartItem: (...a: unknown[]) => mockAddCartItem(...a),
-    }),
+    })),
     getUserRepository: () => ({
       findByIdSafe: () => ({ username: "cashier1" }),
     }),
@@ -94,7 +93,7 @@ describe("session IPC writes — shared core schemas", () => {
     mockUpdate.mockResolvedValue({ success: true });
     mockLink.mockResolvedValue({ success: true, linked: true });
     mockLinkActive.mockResolvedValue({ success: true, linked: true });
-    mockAddCartItem.mockReturnValue(11);
+    mockAddCartItem.mockReturnValue({ success: true, id: 11 });
   });
 
   it("fixtures cover every schema key", () => {
@@ -164,6 +163,7 @@ describe("session IPC writes — shared core schemas", () => {
       user_id: 999,
     });
     expect(res).toEqual({ success: true, id: 11 });
-    expect(mockAddCartItem).toHaveBeenCalledWith(9, { ...CART, user_id: 42 });
+    // service(sessionId, line, signed-in userId) — the body's user_id never reaches it
+    expect(mockAddCartItem).toHaveBeenCalledWith(9, CART, 42);
   });
 });

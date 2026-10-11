@@ -1,5 +1,6 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
@@ -154,7 +155,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       // 1. Insert into drawer_topups
       const insertTopUp = this.db.prepare(`
         INSERT INTO drawer_topups (tenant_id, amount_usd, amount_lbp, notes, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const result = insertTopUp.run(
         tenantId,
@@ -162,7 +163,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         data.amount_lbp,
         data.notes ?? null,
         userId,
-        txTime ?? null,
+        txTime ?? requestNow(),
       );
       const topUpId = Number(result.lastInsertRowid);
 
@@ -465,7 +466,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       // 1. Insert into drawer_topups with source_drawer
       const insertTopUp = this.db.prepare(`
         INSERT INTO drawer_topups (tenant_id, amount_usd, amount_lbp, notes, source_drawer, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const result = insertTopUp.run(
         tenantId,
@@ -474,7 +475,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         data.notes ?? null,
         data.source_drawer,
         userId,
-        txTime ?? null,
+        txTime ?? requestNow(),
       );
       const topUpId = Number(result.lastInsertRowid);
 
@@ -633,7 +634,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       // 1. Insert into drawer_transfers
       const insertTransfer = this.db.prepare(`
         INSERT INTO drawer_transfers (tenant_id, from_drawer, to_drawer, amount_usd, amount_lbp, notes, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const result = insertTransfer.run(
         tenantId,
@@ -643,7 +644,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         data.amountLbp,
         data.notes ?? null,
         data.createdBy,
-        data.transactionTime ?? null,
+        data.transactionTime ?? requestNow(),
       );
       const transferId = Number(result.lastInsertRowid);
 

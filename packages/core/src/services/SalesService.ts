@@ -27,6 +27,7 @@ import {
   type KeptChange,
 } from "../repositories/index.js";
 import { salesLogger } from "../utils/logger.js";
+import { resolveReceiptSaleId } from "../repositories/receiptAlias.js";
 import { getSettingsService } from "./SettingsService.js";
 import { getProfitService, type ProfitService } from "./ProfitService.js";
 import { clientDay } from "../utils/requestDay.js";
@@ -163,7 +164,9 @@ export class SalesService {
       // Enriched with the display customer (linked client, or the walk-in
       // name from the unified transaction) so Sale Detail + reprint show the
       // real customer, not always "Walk-in Customer" (RCP-1).
-      return this.salesRepo.getSaleWithCustomer(saleId);
+      // LIRA-306 FR-040: a reprint of RCP-<offline sale id> finds the
+      // replayed server sale (receipt alias, one resolver — rule 14).
+      return this.salesRepo.getSaleWithCustomer(resolveReceiptSaleId(saleId));
     } catch (error) {
       salesLogger.error({ error, saleId }, "Failed to get sale");
       throw error;
@@ -175,7 +178,8 @@ export class SalesService {
    */
   getSaleItems(saleId: number) {
     try {
-      return this.salesRepo.getSaleItems(saleId);
+      // LIRA-306 FR-040: same receipt alias as getSale (the reprint loads both).
+      return this.salesRepo.getSaleItems(resolveReceiptSaleId(saleId));
     } catch (error) {
       salesLogger.error({ error, saleId }, "Failed to get sale items");
       return [];

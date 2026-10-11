@@ -26,6 +26,7 @@ import {
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import { requestNow } from "../utils/requestNow.js";
 import { getRateRepository } from "./RateRepository.js";
 import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 import { isLotTrackedCurrency } from "../constants/exchangeLotPolicy.js";
@@ -315,7 +316,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             ?, ?, ?, ?, ?,
             ?, ?, ?,
             ?, ?, ?,
-            ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)
+            ?, ?, ?, ?, ?
           )`,
         )
         .run(
@@ -337,7 +338,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           data.clientName ?? null,
           note,
           tenantId,
-          data.transaction_time ?? null,
+          // LIRA-306 (FR-021): a typed time wins, else the request/event time.
+          data.transaction_time ?? requestNow(),
         );
 
       const id = Number(result.lastInsertRowid);

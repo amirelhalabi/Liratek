@@ -5,6 +5,7 @@
  * Uses BaseRepository for common functionality.
  */
 
+import { requestNow } from "../utils/requestNow.js";
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import {
@@ -41,6 +42,7 @@ import {
   memberOutstandingSql,
 } from "./sessionDebtCoverage.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import { getEffectiveRate } from "../utils/effectiveRate.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
@@ -274,18 +276,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * Falls back to 89500 if no rate found (logs warning instead of throwing).
    */
   private getExchangeRate(fromCode = "USD", toCode = "LBP"): number {
-    const rateResult = this.db
-      .prepare(
-        `SELECT market_rate, buy_rate, sell_rate, is_stronger FROM exchange_rates WHERE to_code = ? AND tenant_id = ? LIMIT 1`,
-      )
-      .get(toCode, getCurrentTenantId()) as
-      | {
-          market_rate: number;
-          buy_rate: number;
-          sell_rate: number;
-          is_stronger: number;
-        }
-      | undefined;
+    // LIRA-306 (FR-021a): one getter — the replay's recorded rate, else the
+    // configured row (no raw exchange_rates read here any more).
+    const rateResult = getEffectiveRate(toCode);
 
     if (!rateResult) {
       console.warn(
@@ -445,7 +438,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       // 1. Insert debt ledger entry
       const stmt = this.db.prepare(`
         INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-        VALUES (?, 'Repayment', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        VALUES (?, 'Repayment', ?, ?, ?, ?, ?, ?)
       `);
 
       // Store as negative values to signify a reduction in debt
@@ -456,7 +449,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         data.note || null,
         data.created_by,
         tenantId,
-        data.transaction_time ?? null,
+        // LIRA-306 FR-021: the event time on an offline replay.
+        data.transaction_time ?? requestNow(),
       );
 
       const repaymentId = Number(result.lastInsertRowid);
@@ -859,7 +853,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
     const stmt = this.db.prepare(`
       INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-      VALUES (?, 'Debt Discount', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      VALUES (?, 'Debt Discount', ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       clientId,
@@ -868,7 +862,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       discount.reason || null,
       createdBy,
       tenantId,
-      transactionTime ?? null,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      transactionTime ?? requestNow(),
     );
     const ledgerId = Number(result.lastInsertRowid);
 
@@ -1506,7 +1501,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   }): { id: number } {
     const stmt = this.db.prepare(`
       INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, session_id, tenant_id, created_at)
-      VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       data.clientId,
@@ -1517,7 +1512,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       data.createdBy,
       data.sessionId ?? null,
       getCurrentTenantId(),
-      data.transactionTime ?? null,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      data.transactionTime ?? requestNow(),
     );
     return { id: Number(result.lastInsertRowid) };
   }
@@ -1535,7 +1531,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   }): { id: number } {
     const stmt = this.db.prepare(`
       INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-      VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       data.clientId,
@@ -1544,7 +1540,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       data.note || null,
       data.createdBy,
       getCurrentTenantId(),
-      data.transactionTime ?? null,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      data.transactionTime ?? requestNow(),
     );
     return { id: Number(result.lastInsertRowid) };
   }
@@ -1671,7 +1668,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       const stmt = this.db.prepare(`
         INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-        VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, ?, ?)
       `);
       const result = stmt.run(
         data.client_id,
@@ -1680,7 +1677,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         data.note || "Credit cash out",
         data.created_by,
         tenantId,
-        data.transaction_time ?? null,
+        // LIRA-306 FR-021: the event time on an offline replay.
+        data.transaction_time ?? requestNow(),
       );
       const ledgerId = Number(result.lastInsertRowid);
 
@@ -1838,7 +1836,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     return this.transaction(() => {
       const stmt = this.db.prepare(`
         INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const result = stmt.run(
         data.client_id,
@@ -1848,7 +1846,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         data.note || defaultNote,
         data.created_by,
         tenantId,
-        data.transaction_time ?? null,
+        // LIRA-306 FR-021: the event time on an offline replay.
+        data.transaction_time ?? requestNow(),
       );
       const ledgerId = Number(result.lastInsertRowid);
 
@@ -2058,7 +2057,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     // SQLite-format string the SUBSTR+REPLACE is a no-op.
     const stmt = this.db.prepare(`
       INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(REPLACE(SUBSTR(?, 1, 19), 'T', ' '), CURRENT_TIMESTAMP))
+      VALUES (?, ?, ?, ?, ?, ?, ?, REPLACE(SUBSTR(?, 1, 19), 'T', ' '))
     `);
     const result = stmt.run(
       data.client_id,
@@ -2068,7 +2067,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       data.note,
       data.created_by,
       getCurrentTenantId(),
-      data.created_at ?? null,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      data.created_at ?? requestNow(),
     );
     return Number(result.lastInsertRowid);
   }

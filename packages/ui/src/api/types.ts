@@ -7,6 +7,8 @@
 
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-306 T093 — maintenance metadata edit payload (rule 21).
+import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 // LIRA-297 item 3 — product create/update and item-cost write payloads,
 // derived from the core schemas (rule 21).
 import type {
@@ -1591,6 +1593,12 @@ export type ApiAdapter = {
   getMaintenanceStatusHistory: (
     jobId: number,
   ) => Promise<MaintenanceStatusHistoryRow[]>;
+  /** LIRA-306 T093 — edit a job's non-financial details (client name,
+   *  device, issue, note); IPC maintenance:update-metadata / REST
+   *  POST /api/maintenance/update-metadata. A write: the envelope. */
+  updateMaintenanceMetadata: (
+    data: MaintenanceUpdateMetadataInput,
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Currencies (CRUD)

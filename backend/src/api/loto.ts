@@ -35,6 +35,8 @@ import {
   lotoFeeSchema,
   lotoCheckpointCreateSchema,
   lotoCheckpointUpdateSchema,
+  lotoCheckpointDeleteSchema,
+  lotoCheckpointCreateScheduledSchema,
   lotoCheckpointSettleSchema,
   lotoCheckpointsSettleBatchSchema,
   lotoUpdateMetadataSchema,
@@ -44,6 +46,8 @@ import {
   type LotoFeeInput,
   type LotoCheckpointCreateInput,
   type LotoCheckpointUpdateInput,
+  type LotoCheckpointDeleteInput,
+  type LotoCheckpointCreateScheduledInput,
   type LotoCheckpointSettleInput,
   type LotoCheckpointsSettleBatchInput,
   type LotoUpdateMetadataInput,
@@ -149,6 +153,11 @@ const checkpointCreateSchema =
 // against (every field in LotoCheckpointUpdate must stay covered here).
 const checkpointUpdateSchema =
   lotoCheckpointUpdateSchema as unknown as SafeParseable<LotoCheckpointUpdateInput>;
+// LIRA-306 T103 (rule 23) — named payloads shared with the IPC handlers.
+const checkpointDeleteSchema =
+  lotoCheckpointDeleteSchema as unknown as SafeParseable<LotoCheckpointDeleteInput>;
+const checkpointCreateScheduledSchema =
+  lotoCheckpointCreateScheduledSchema as unknown as SafeParseable<LotoCheckpointCreateScheduledInput>;
 const checkpointSettleSchema =
   lotoCheckpointSettleSchema as unknown as SafeParseable<LotoCheckpointSettleInput>;
 const checkpointsSettleBatchSchema =
@@ -473,8 +482,16 @@ router.get("/checkpoints/total-commission-unssettled", (_req, res) => {
 // A create exposed over GET — mirrors the adapter's existing contract.
 router.get("/checkpoints/scheduled", (req, res) => {
   try {
-    const date = (req.query as { date?: string }).date;
-    const checkpoint = getLotoService().createScheduledCheckpoint(date);
+    const v = parse(checkpointCreateScheduledSchema, {
+      checkpointDate: (req.query as { date?: string }).date,
+    });
+    if (!v.ok) {
+      res.json({ success: false, error: v.error });
+      return;
+    }
+    const checkpoint = getLotoService().createScheduledCheckpoint(
+      v.data.checkpointDate,
+    );
     res.json({ success: true, checkpoint });
   } catch (error) {
     fail(res, error, "Failed to create scheduled checkpoint");
@@ -655,7 +672,12 @@ router.delete("/checkpoints/:id", (req, res) => {
       res.json({ success: false, error: "Invalid id" });
       return;
     }
-    const deleted = getLotoService().deleteCheckpoint(id);
+    const v = parse(checkpointDeleteSchema, { id });
+    if (!v.ok) {
+      res.json({ success: false, error: v.error });
+      return;
+    }
+    const deleted = getLotoService().deleteCheckpoint(v.data.id);
     if (!deleted) {
       res.json({
         success: false,

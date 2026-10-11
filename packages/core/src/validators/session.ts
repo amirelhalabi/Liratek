@@ -128,6 +128,31 @@ export const sessionCartAddSchema = z.object({
 export type SessionCartAddInput = z.input<typeof sessionCartAddSchema>;
 
 /**
+ * LIRA-306 (rule 23 lifts) — a session addressed by id alone:
+ * `session:close`, `session:delete`, `session:cart:clear` (IPC, positional
+ * `sessionId`) and their REST twins (`POST /api/sessions/:id/close`,
+ * `DELETE /api/sessions/:id`, `DELETE /api/sessions/:id/cart`). One schema,
+ * not three copies (rule 14). `session:close` carries NO actor field: the
+ * closer is always the signed-in user (JWT / session / offline event actor),
+ * never a name the renderer sends.
+ */
+export const sessionIdPayloadSchema = z.object({
+  sessionId: z.number().int().positive(),
+});
+export type SessionIdPayloadInput = z.input<typeof sessionIdPayloadSchema>;
+
+/**
+ * LIRA-306 (rule 23 lift) — remove one basket line (`session:cart:remove` /
+ * `DELETE /api/sessions/:id/cart/:itemId`). `itemId` is the frontend's
+ * cart-line uuid (`session_cart_items.item_id`, TEXT), not a row id.
+ */
+export const sessionCartRemoveSchema = z.object({
+  sessionId: z.number().int().positive(),
+  itemId: z.string().min(1),
+});
+export type SessionCartRemoveInput = z.input<typeof sessionCartRemoveSchema>;
+
+/**
  * Link an already-booked transaction to a session
  * (`session:linkTransaction` / `POST /api/sessions/link-transaction`).
  * No `.default(0)` anywhere (rule 22): an absent profit is resolved by the

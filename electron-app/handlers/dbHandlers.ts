@@ -15,16 +15,19 @@ import {
   logger,
   getUserRepository,
   canIncludeProfit,
+  type CreateExpenseData,
 } from "@liratek/core";
 import { requireRole, hasProfitsUnlock } from "../session.js";
 import { audit } from "./auditHelper.js";
 import {
   AddExpenseSchema,
   CreateStockExpenseSchema,
+  ExpenseIdParamSchema,
   ExpenseUpdateMetadataSchema,
   DailyStatsSnapshotQuerySchema,
   SinceLastCountQuerySchema,
   UpdateDailyClosingIpcSchema,
+  CreateCheckpointSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -122,7 +125,12 @@ export function registerDatabaseHandlers(): void {
         },
         "Adding expense",
       );
-      const result = expenseService.addExpense(validatedData, auth.userId);
+      // LIRA-306 T041: the same parsed payload POST /api/expenses passes to
+      // the same service (and the offline replay binding too).
+      const result = expenseService.addExpense(
+        validatedData as CreateExpenseData,
+        auth.userId,
+      );
       audit(e.sender.id, {
         action: "create",
         entity_type: "expense",
@@ -170,9 +178,15 @@ export function registerDatabaseHandlers(): void {
   });
 
   // Delete Expense
-  ipcMain.handle("db:delete-expense", (e, id: number) => {
+  ipcMain.handle("db:delete-expense", (e, rawId: unknown) => {
     const auth = requireRole(e.sender.id, ["admin"]);
     if (!auth.ok) return { success: false, error: auth.error };
+
+    // LIRA-306 — the same core schema DELETE /api/expenses/:id validates
+    // with (rule 19b/23: { id } is the only key on all three sides).
+    const v = validatePayload(ExpenseIdParamSchema, { id: rawId });
+    if (!v.ok) return { success: false, error: v.error };
+    const id = v.data.id;
 
     const result = expenseService.deleteExpense(id, auth.userId);
     audit(e.sender.id, {
@@ -418,9 +432,14 @@ export function registerDatabaseHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
 
+        // LIRA-306 T103 (rule 23) — the REST twin's core schema; it drops
+        // only the ignored `user_id` (the actor is the session's user).
+        const validation = validatePayload(CreateCheckpointSchema, data);
+        if (!validation.ok) return { success: false, error: validation.error };
+
         const closingService = getClosingService();
         const result = closingService.createCheckpoint({
-          ...data,
+          ...validation.data,
           user_id: auth.userId,
         });
         if (result.success) {

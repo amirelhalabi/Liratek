@@ -175,6 +175,8 @@ import whatsappRoutes from "./api/whatsapp.js";
 // "Contracts"). Mounted up front so each feature edits only its own file.
 import userInvitationsRoutes from "./api/userInvitations.js";
 import userEmailRoutes from "./api/userEmail.js";
+import offlineRoutes from "./api/offline.js";
+import { startOfflineProcessorTimer } from "./offline/processorTimer.js";
 import passwordResetRoutes from "./api/passwordReset.js";
 import googleAuthRoutes from "./api/googleAuth.js";
 import signinCodeRoutes from "./api/signinCode.js";
@@ -259,6 +261,8 @@ app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/user-invitations", userInvitationsRoutes);
 app.use("/api/user-email", userEmailRoutes);
 app.use("/api/password-reset", passwordResetRoutes);
+// LIRA-306 offline desktop fallback: PC device-key routes (review routes: US3).
+app.use("/api/offline", offlineRoutes);
 
 // Initialize WebSocket server for voice transcription
 initVoiceWebSocketServer(httpServer);
@@ -335,6 +339,10 @@ httpServer.listen(PORT, HOST, () => {
   // have been expired for 7 days (platform + every tenant file). Hourly,
   // first run ~30s after boot -- see authCleanupSweep.ts.
   startAuthCleanupSweep();
+
+  // LIRA-306: merge rounds for events uploaded by paired PCs (gathering
+  // pause after an upload + a 60 s restart-safe sweep) -- processorTimer.ts.
+  startOfflineProcessorTimer();
 
   // LIRA-288: once, a minute after boot, compare the www sign-in directory
   // with every shop's records and WARN on drift (never fixes, never blocks)

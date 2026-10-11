@@ -7,10 +7,8 @@ import {
   PositiveIdSchema,
   VoidCheckoutGroupSchema,
   SessionBasketReversalSchema,
-  RefundLegsSchema,
-  RefundUnitExtrasSchema,
-  RefundExchangeRateSchema,
-  RefundKeptChangeSchema,
+  TransactionVoidSchema,
+  TransactionRefundSchema,
   SessionItemRefundSchema,
   SessionItemRefundPreviewSchema,
   validatePayload,
@@ -103,10 +101,12 @@ export function registerTransactionHandlers(): void {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
-      const idV = validatePayload(PositiveIdSchema, id);
+      // LIRA-306 T041: one core schema for the named payload (recorded and
+      // replayed offline with the same object).
+      const idV = validatePayload(TransactionVoidSchema, { transactionId: id });
       if (!idV.ok) return { success: false, error: idV.error };
       const userId = auth.userId ?? 1;
-      const reversalId = txnService.voidTransaction(idV.data, userId);
+      const reversalId = txnService.voidTransaction(idV.data.transactionId, userId);
       audit(e.sender.id, {
         action: "void",
         entity_type: "transaction",
@@ -149,52 +149,29 @@ export function registerTransactionHandlers(): void {
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
-        const idV = validatePayload(PositiveIdSchema, id);
-        if (!idV.ok) return { success: false, error: idV.error };
-
-        let legs: ReturnType<typeof RefundLegsSchema.parse> | undefined;
-        if (refundLegs !== undefined && refundLegs !== null) {
-          const legsV = validatePayload(RefundLegsSchema, refundLegs);
-          if (!legsV.ok) return { success: false, error: legsV.error };
-          legs = legsV.data;
-        }
-
-        let unitExtras:
-          | ReturnType<typeof RefundUnitExtrasSchema.parse>
-          | undefined;
-        if (refundUnitExtras !== undefined && refundUnitExtras !== null) {
-          const extrasV = validatePayload(
-            RefundUnitExtrasSchema,
-            refundUnitExtras,
-          );
-          if (!extrasV.ok) return { success: false, error: extrasV.error };
-          unitExtras = extrasV.data;
-        }
-
-        // LIRA-236 — same "validate only when present" discipline as
-        // refundLegs/refundUnitExtras above.
-        let rate: ReturnType<typeof RefundExchangeRateSchema.parse> | undefined;
-        if (exchangeRate !== undefined && exchangeRate !== null) {
-          const rateV = validatePayload(RefundExchangeRateSchema, exchangeRate);
-          if (!rateV.ok) return { success: false, error: rateV.error };
-          rate = rateV.data;
-        }
-
-        // Owner decision 2026-10-07 — refund kept change, same "validate
-        // only when present" discipline; the repository checks the claim
-        // (`resolveKeptChange`), this only shapes it.
-        let kept: { usd?: number; lbp?: number } | undefined;
-        if (keptChange !== undefined && keptChange !== null) {
-          const keptV = validatePayload(RefundKeptChangeSchema, keptChange);
-          if (!keptV.ok) return { success: false, error: keptV.error };
-          kept = {
-            usd: keptV.data.kept_change_usd,
-            lbp: keptV.data.kept_change_lbp,
-          };
-        }
+        // LIRA-306 T041: the five positional arguments are ONE named payload
+        // parsed by core's transactionRefundSchema — built from the same
+        // component schemas used here before; null still means "not given".
+        const v = validatePayload(TransactionRefundSchema, {
+          transactionId: id,
+          refundLegs,
+          refundUnitExtras,
+          exchangeRate,
+          keptChange,
+        });
+        if (!v.ok) return { success: false, error: v.error };
+        const legs = v.data.refundLegs ?? undefined;
+        const unitExtras = v.data.refundUnitExtras ?? undefined;
+        const rate = v.data.exchangeRate ?? undefined;
+        const kept: { usd?: number; lbp?: number } | undefined = v.data.keptChange
+          ? {
+              usd: v.data.keptChange.kept_change_usd,
+              lbp: v.data.keptChange.kept_change_lbp,
+            }
+          : undefined;
 
         const userId = auth.userId ?? 1;
-        const refundId = txnService.refundTransaction(idV.data, userId, {
+        const refundId = txnService.refundTransaction(v.data.transactionId, userId, {
           refundLegs: legs,
           refundUnitExtras: unitExtras,
           exchangeRate: rate,

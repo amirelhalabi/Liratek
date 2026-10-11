@@ -967,3 +967,12 @@ export type {
   IdempotencyEntity,
   IdempotencyScope,
 } from "./IdempotencyRepository.js";
+
+// LIRA-306 offline desktop fallback (server event store + PC outbox).
+export * from "./OfflineDeviceRepository.js";
+export * from "./OfflineEventRepository.js";
+export * from "./OfflineIdMapRepository.js";
+export * from "./OfflineReviewRepository.js";
+export * from "./OfflineSnapshotRepository.js";
+export * from "./OfflineOutboxRepository.js";
+export * from "./RowCaptureRepository.js";

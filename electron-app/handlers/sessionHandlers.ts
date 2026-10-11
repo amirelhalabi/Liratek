@@ -14,6 +14,8 @@ import {
   UpdateSessionSchema,
   SessionCartAddSchema,
   LinkSessionTransactionSchema,
+  SessionIdPayloadSchema,
+  SessionCartRemoveSchema,
 } from "../schemas/index.js";
 import { audit } from "./auditHelper.js";
 
@@ -32,8 +34,11 @@ export function registerSessionHandlers() {
     const data = validation.data;
 
     // Look up username server-side instead of trusting frontend
+    // LIRA-306 T081: the operator is the signed-in user only — same rule as
+    // POST /api/sessions/start (JWT username, else "unknown"); a
+    // renderer-sent `started_by` is never used as the actor.
     const user = getUserRepository().findByIdSafe(auth.userId);
-    const started_by = user?.username || data.started_by || "unknown";
+    const started_by = user?.username || "unknown";
 
     // Client auto-registration (name+phone) happens inside
     // CustomerSessionService.startSession so the web backend route gets the
@@ -95,10 +100,20 @@ export function registerSessionHandlers() {
   // Close session
   ipcMain.handle(
     "session:close",
-    async (event, sessionId: number, closedBy: string) => {
+    async (event, rawSessionId: unknown) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
-      const result = sessionService.closeSession(sessionId, closedBy);
+      // LIRA-306 T081: core schema (rule 23 lift) + the closer is the
+      // signed-in user, like POST /api/sessions/:id/close (JWT username) —
+      // the renderer's second `closedBy` argument is no longer read.
+      const v = validatePayload(SessionIdPayloadSchema, {
+        sessionId: rawSessionId,
+      });
+      if (!v.ok) return { success: false, error: v.error };
+      const sessionId = v.data.sessionId;
+      const closedBy =
+        getUserRepository().findByIdSafe(auth.userId)?.username || "unknown";
+      const result = await sessionService.closeSession(sessionId, closedBy);
       audit(event.sender.id, {
         action: "update",
         entity_type: "customer_session",
@@ -110,9 +125,14 @@ export function registerSessionHandlers() {
   );
 
   // Delete session permanently
-  ipcMain.handle("session:delete", async (event, sessionId: number) => {
+  ipcMain.handle("session:delete", async (event, rawSessionId: unknown) => {
     const auth = requireRole(event.sender.id, ["admin", "staff"]);
     if (!auth.ok) return { success: false, error: auth.error };
+    const v = validatePayload(SessionIdPayloadSchema, {
+      sessionId: rawSessionId,
+    });
+    if (!v.ok) return { success: false, error: v.error };
+    const sessionId = v.data.sessionId;
     const result = await sessionService.deleteSession(sessionId);
     if (result.success) {
       audit(event.sender.id, {
@@ -252,12 +272,13 @@ export function registerSessionHandlers() {
         if (!auth.ok) return { success: false, error: auth.error };
         const validation = validatePayload(SessionCartAddSchema, raw);
         if (!validation.ok) return { success: false, error: validation.error };
-        const repo = getCustomerSessionRepository();
-        const id = repo.addCartItem(sessionId, {
-          ...validation.data,
-          user_id: auth.userId,
-        });
-        return { success: true, id };
+        // LIRA-306 T081 (rule 13): the service method REST and the offline
+        // replay call; same envelope (pinned by sessionHandlers.cartPin).
+        return sessionService.addCartItem(
+          sessionId,
+          validation.data,
+          auth.userId,
+        );
       } catch (err: any) {
         return {
           success: false,
@@ -282,13 +303,16 @@ export function registerSessionHandlers() {
 
   ipcMain.handle(
     "session:cart:remove",
-    async (event, sessionId: number, itemId: string) => {
+    async (event, rawSessionId: unknown, rawItemId: unknown) => {
       try {
         const auth = requireRole(event.sender.id, ["admin", "staff"]);
         if (!auth.ok) return { success: false, error: auth.error };
-        const repo = getCustomerSessionRepository();
-        repo.removeCartItem(sessionId, itemId);
-        return { success: true };
+        const v = validatePayload(SessionCartRemoveSchema, {
+          sessionId: rawSessionId,
+          itemId: rawItemId,
+        });
+        if (!v.ok) return { success: false, error: v.error };
+        return sessionService.removeCartItem(v.data.sessionId, v.data.itemId);
       } catch (err: any) {
         return {
           success: false,
@@ -298,13 +322,15 @@ export function registerSessionHandlers() {
     },
   );
 
-  ipcMain.handle("session:cart:clear", async (event, sessionId: number) => {
+  ipcMain.handle("session:cart:clear", async (event, rawSessionId: unknown) => {
     try {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
-      const repo = getCustomerSessionRepository();
-      repo.clearCart(sessionId);
-      return { success: true };
+      const v = validatePayload(SessionIdPayloadSchema, {
+        sessionId: rawSessionId,
+      });
+      if (!v.ok) return { success: false, error: v.error };
+      return sessionService.clearCart(v.data.sessionId);
     } catch (err: any) {
       return { success: false, error: err?.message || "Failed to clear cart" };
     }

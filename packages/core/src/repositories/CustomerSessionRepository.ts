@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 // LIRA-237 wave 2 — see reportingTimeFragments.ts's own doc comment: a leaf
 // module (no other repository import), so importing it directly here never
 // risks a require cycle.
@@ -88,7 +89,7 @@ export class CustomerSessionRepository {
   createSession(data: CreateCustomerSessionData): number {
     const insert = this.db.prepare(`
       INSERT INTO ${this.tableName} (tenant_id, customer_name, customer_phone, customer_notes, user_id, started_by, started_at, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 1)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     `);
 
     const result = insert.run(
@@ -98,6 +99,7 @@ export class CustomerSessionRepository {
       data.customer_notes ?? null,
       data.user_id ?? null,
       data.started_by,
+      requestNow(), // LIRA-306 FR-021
     );
 
     return result.lastInsertRowid as number;
@@ -192,10 +194,10 @@ export class CustomerSessionRepository {
   closeSession(sessionId: number, closedBy: string): void {
     const update = this.db.prepare(`
       UPDATE ${this.tableName}
-      SET is_active = 0, closed_at = datetime('now'), closed_by = ?
+      SET is_active = 0, closed_at = ?, closed_by = ?
       WHERE id = ? AND tenant_id = ?
     `);
-    update.run(closedBy, sessionId, getCurrentTenantId());
+    update.run(requestNow(), closedBy, sessionId, getCurrentTenantId()); // LIRA-306 FR-021
   }
 
   /**
@@ -292,7 +294,7 @@ export class CustomerSessionRepository {
   ): void {
     const insert = this.db.prepare(`
       INSERT INTO ${this.transactionsTableName} (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     insert.run(
       getCurrentTenantId(),
@@ -304,6 +306,7 @@ export class CustomerSessionRepository {
       amountLbp,
       profitUsd,
       profitLbp,
+      requestNow(), // LIRA-306 FR-021
     );
   }
 
@@ -595,8 +598,8 @@ export class CustomerSessionRepository {
       }
     }
     const stmt = this.db.prepare(`
-      INSERT INTO ${this.cartTableName} (tenant_id, session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ${this.cartTableName} (tenant_id, session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       getCurrentTenantId(),
@@ -609,6 +612,7 @@ export class CustomerSessionRepository {
       item.form_data,
       item.ipc_channel,
       item.user_id ?? null,
+      requestNow(), // LIRA-306 FR-021
     );
     return result.lastInsertRowid as number;
   }
@@ -674,11 +678,12 @@ export class CustomerSessionRepository {
       closedBy: string;
     },
   ): void {
+    const now = requestNow();
     this.db
       .prepare(
         `
         UPDATE ${this.tableName}
-        SET checkout_at = datetime('now'),
+        SET checkout_at = ?,
             checkout_total = ?,
             checkout_currency = ?,
             checkout_total_usd = ?,
@@ -686,18 +691,20 @@ export class CustomerSessionRepository {
             checkout_profit_usd = ?,
             checkout_profit_lbp = ?,
             is_active = 0,
-            closed_at = datetime('now'),
+            closed_at = ?,
             closed_by = ?
         WHERE id = ? AND tenant_id = ?
       `,
       )
       .run(
+        now, // LIRA-306 FR-021
         data.legacyTotal,
         data.legacyCurrency,
         data.totalUsd,
         data.totalLbp,
         data.profitUsd,
         data.profitLbp,
+        now,
         data.closedBy,
         sessionId,
         getCurrentTenantId(),

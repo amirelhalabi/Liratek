@@ -1,3 +1,4 @@
+import { requestNow } from "../utils/requestNow.js";
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
@@ -238,7 +239,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         const result = this.db
           .prepare(
             `INSERT INTO expenses (tenant_id, description, category, paid_by_method, amount_usd, amount_lbp, expense_date, item_source, item_id, item_quantity, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             tenantId,
@@ -251,7 +252,8 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
             data.stock_item.source,
             data.stock_item.item_id,
             data.stock_item.quantity,
-            data.transaction_time ?? null,
+            // LIRA-306 FR-021: the event time on an offline replay.
+            data.transaction_time ?? requestNow(),
           );
         return this._bookExpense(
           Number(result.lastInsertRowid),
@@ -273,11 +275,11 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       const stmt = hasSourceRef
         ? this.db.prepare(`
         INSERT INTO expenses (tenant_id, description, category, paid_by_method, amount_usd, amount_lbp, expense_date, source_ref_table, source_ref_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
         : this.db.prepare(`
         INSERT INTO expenses (tenant_id, description, category, paid_by_method, amount_usd, amount_lbp, expense_date, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const result = hasSourceRef
         ? stmt.run(
@@ -290,7 +292,8 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
             data.expense_date,
             data.source_ref_table ?? null,
             data.source_ref_id ?? null,
-            data.transaction_time ?? null,
+            // LIRA-306 FR-021: the event time on an offline replay.
+            data.transaction_time ?? requestNow(),
           )
         : stmt.run(
             tenantId,
@@ -300,7 +303,8 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
             data.amount_usd,
             data.amount_lbp,
             data.expense_date,
-            data.transaction_time ?? null,
+            // LIRA-306 FR-021: the event time on an offline replay.
+            data.transaction_time ?? requestNow(),
           );
       return this._bookExpense(
         Number(result.lastInsertRowid),

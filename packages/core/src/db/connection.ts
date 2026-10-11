@@ -3,6 +3,8 @@
  * Supports both local and network database paths
  */
 import Database from "better-sqlite3";
+import { OFFLINE_ID_FLOOR } from "../offline/idRange.js";
+import { assertNotBlockedByReplay } from "./replayGuard.js";
 
 let db: Database.Database | null = null;
 let databasePath: string | null = null;
@@ -32,6 +34,10 @@ export function setDatabaseResolver(
 }
 
 export function getDatabase(): Database.Database {
+  // LIRA-306: while an offline replay transaction is open, statements from
+  // any other async context are refused (REPLAY_IN_PROGRESS). Before the
+  // test hook so tests exercise it too; a null check when no replay runs.
+  assertNotBlockedByReplay();
   // Test hook: allow injecting a mock DB without calling initDatabase()
   const testDb = (globalThis as any).__LIRATEK_TEST_DB__ as
     | Database.Database
@@ -73,4 +79,30 @@ export function getDatabasePath(): string | null {
 export function isNetworkDatabase(): boolean {
   if (!databasePath) return false;
   return databasePath.startsWith("\\\\") || databasePath.startsWith("//");
+}
+
+/**
+ * LIRA-306 (FR-012, R3) — server ids must stay below the offline id range
+ * (10¹²): a server row id at or above it could be read as a PC's offline id
+ * and rewritten. The WEB SERVER calls this explicitly at startup, after
+ * migrations (backend/src/database/connection.ts); desktop never does — a
+ * PC's working copy legitimately holds ids ≥ 10¹². Throws, naming the
+ * tables, so the process refuses to start.
+ */
+export function assertServerIdsBelowOfflineRange(database: Database.Database): void {
+  let rows: Array<{ name: string; seq: number }> = [];
+  try {
+    rows = database
+      .prepare(`SELECT name, seq FROM sqlite_sequence WHERE seq >= ?`)
+      .all(OFFLINE_ID_FLOOR) as Array<{ name: string; seq: number }>;
+  } catch {
+    return; // no AUTOINCREMENT table yet → no sqlite_sequence
+  }
+  if (rows.length > 0) {
+    throw new Error(
+      `Server ids reached the offline id range (≥ ${OFFLINE_ID_FLOOR}): ` +
+        rows.map((r) => `${r.name}=${r.seq}`).join(", ") +
+        ". Refusing to start — offline replay would mistake these rows for PC rows.",
+    );
+  }
 }

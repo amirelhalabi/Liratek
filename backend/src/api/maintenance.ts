@@ -5,6 +5,8 @@ import {
   MaintenanceService,
   saveMaintenanceJobSchema,
   getMaintenanceJobsSchema,
+  maintenanceIdParamSchema,
+  maintenanceUpdateMetadataSchema,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
@@ -77,11 +79,14 @@ router.delete(
   requireRole(["admin"]),
   async (req, res): Promise<void> => {
     try {
-      const id = parseInt(req.params.id, 10);
-      if (isNaN(id)) {
+      // LIRA-306 (rule 23): the shared core schema the IPC handler and the
+      // offline replay use; a bad id keeps the HTTP 200 envelope.
+      const parsed = maintenanceIdParamSchema.safeParse({ id: req.params.id });
+      if (!parsed.success) {
         res.status(200).json({ success: false, error: "Invalid job ID" });
         return;
       }
+      const id = parsed.data.id;
 
       const result = maintenanceService.deleteJob(id);
 
@@ -105,6 +110,61 @@ router.delete(
     } catch (error) {
       logger.error({ error }, "Delete maintenance job error");
       res.status(200).json({ success: false, error: "Failed to delete job" });
+    }
+  },
+);
+
+// POST /api/maintenance/update-metadata - edit a job's non-financial details
+// (client name, device, issue, note). REST twin of the IPC channel
+// "maintenance:update-metadata" (LIRA-306 T093 — it had none): same roles
+// (admin + staff), the shared core schema, the SAME service method;
+// `editedBy` is the JWT's username, never the body. IPC-identical envelope,
+// HTTP 200 even on a refusal (rule 19c).
+router.post(
+  "/update-metadata",
+  requireRole(["admin", "staff"]),
+  validateRequest(maintenanceUpdateMetadataSchema),
+  (req, res): void => {
+    try {
+      const result = maintenanceService.updateMaintenanceMetadata(
+        req.body.id,
+        {
+          client_name: req.body.client_name,
+          device_name: req.body.device_name,
+          issue_description: req.body.issue_description,
+          note: req.body.note,
+        },
+        req.user!.username,
+      );
+
+      if (
+        result.success &&
+        result.oldValues &&
+        Object.keys(result.oldValues).length > 0
+      ) {
+        // Mirrors maintenanceHandlers.ts's maintenance:update-metadata audit.
+        auditRest(req, {
+          action: "edit_metadata",
+          entity_type: "maintenance_job",
+          entity_id: String(req.body.id),
+          summary: `Edited maintenance job #${req.body.id} metadata`,
+          old_values: result.oldValues,
+          new_values: req.body,
+        });
+      }
+
+      res
+        .status(200)
+        .json(
+          result.success
+            ? { success: true, data: result.entity }
+            : { success: false, error: result.error },
+        );
+    } catch (error) {
+      logger.error({ error }, "Update maintenance metadata error");
+      res
+        .status(200)
+        .json({ success: false, error: "Failed to update job details" });
     }
   },
 );

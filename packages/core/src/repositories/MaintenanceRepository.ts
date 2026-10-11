@@ -1,5 +1,6 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
@@ -400,7 +401,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         discount_usd, final_amount_usd, final_amount_lbp, currency,
         paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at,
         parts_cost_usd, parts_price_usd
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       tenantId,
@@ -422,7 +423,8 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       status,
       job.paid_by ?? "CASH",
       job.note ?? null,
-      job.transaction_time ?? null,
+      // LIRA-306 (FR-021): a typed backdate wins, else the request/event time.
+      job.transaction_time ?? requestNow(),
       job.parts_cost_usd ?? 0,
       job.parts_price_usd ?? 0,
     );
@@ -1107,9 +1109,17 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       .prepare(
         `INSERT INTO maintenance_status_history
            (tenant_id, maintenance_id, from_status, to_status, changed_by, note, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       )
-      .run(tenantId, jobId, fromStatus, toStatus, userId ?? null, note ?? null);
+      .run(
+        tenantId,
+        jobId,
+        fromStatus,
+        toStatus,
+        userId ?? null,
+        note ?? null,
+        requestNow(),
+      );
   }
 
   /**
@@ -1300,7 +1310,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
             `INSERT INTO maintenance_parts
                (tenant_id, maintenance_id, product_id, product_name, quantity,
                 unit_cost_usd, unit_price_usd, stock_restored, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)`,
           )
           .run(
             tenantId,
@@ -1310,6 +1320,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
             input.quantity,
             product?.cost_price_usd ?? 0,
             input.unit_price_usd ?? product?.selling_price_usd ?? 0,
+            requestNow(),
           );
         const partId = Number(insertResult.lastInsertRowid);
 
@@ -1445,9 +1456,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
 
     const result = this.db
       .prepare(
-        `INSERT INTO clients (tenant_id, full_name, phone_number, whatsapp_opt_in) VALUES (?, ?, ?, 0)`,
+        `INSERT INTO clients (tenant_id, full_name, phone_number, whatsapp_opt_in, created_at) VALUES (?, ?, ?, 0, ?)`,
       )
-      .run(tenantId, fullName, typed);
+      .run(tenantId, fullName, typed, requestNow());
     return Number(result.lastInsertRowid);
   }
 

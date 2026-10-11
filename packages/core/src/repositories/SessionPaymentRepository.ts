@@ -22,6 +22,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import { getSettingsRepository } from "./SettingsRepository.js";
 import type { BaseSystem } from "../utils/payments.js";
@@ -187,11 +188,12 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
    * ._coverServiceDebtsFIFO), which releases the basket items' profit.
    */
   insertBasketDebt(input: InsertBasketDebtInput): void {
+    const now = requestNow();
     this.db
       .prepare(
         `INSERT INTO debt_ledger (
-          client_id, transaction_type, amount_usd, amount_lbp, covered_usd, covered_lbp, transaction_id, note, created_by, due_date, session_id, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, datetime('now', '+30 days'), ?, ?)`,
+          client_id, transaction_type, amount_usd, amount_lbp, covered_usd, covered_lbp, transaction_id, note, created_by, due_date, session_id, tenant_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, datetime(?, '+30 days'), ?, ?, ?)`,
       )
       .run(
         input.clientId,
@@ -202,8 +204,10 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
         input.coveredLbp ?? 0,
         `Session #${input.sessionId} basket`,
         input.userId,
+        now, // due date = business time + 30 days (LIRA-306 FR-021)
         input.sessionId,
         getCurrentTenantId(),
+        now,
       );
   }
 

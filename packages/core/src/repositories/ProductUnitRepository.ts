@@ -23,6 +23,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { inventoryLogger } from "../utils/logger.js";
 import { escapeLike, LIKE_ESCAPE_CLAUSE } from "../utils/sqlLike.js";
 
@@ -343,14 +344,15 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
       const insertStmt = this.db.prepare(
         `INSERT INTO product_units (
            tenant_id, product_id, imei, status, created_at, updated_at
-         ) VALUES (?, ?, ?, 'IN_STOCK', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         ) VALUES (?, ?, ?, 'IN_STOCK', ?, CURRENT_TIMESTAMP)`,
       );
 
       const insertedIds: number[] = [];
+      const nowTs = requestNow();
       for (const imei of trimmed) {
         this.assertImeiNotActive(tenantId, imei);
         try {
-          const result = insertStmt.run(tenantId, productId, imei);
+          const result = insertStmt.run(tenantId, productId, imei, nowTs);
           insertedIds.push(Number(result.lastInsertRowid));
         } catch (error) {
           const code = (error as { code?: string })?.code;

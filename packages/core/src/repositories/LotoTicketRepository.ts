@@ -23,6 +23,7 @@ import {
   partitionLegs,
 } from "../utils/payments.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import { requestNow } from "../utils/requestNow.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
@@ -116,10 +117,11 @@ export function resolveLotoSupplierId(
   if (existing) return existing.id;
   const created = db
     .prepare(
-      `INSERT INTO suppliers (tenant_id, name, provider, is_active, is_system)
-       VALUES (?, ?, ?, 1, 1)`,
+      `INSERT INTO suppliers (tenant_id, name, provider, is_active, is_system, created_at)
+       VALUES (?, ?, ?, 1, 1, ?)`,
     )
-    .run(tenantId, "Loto Liban", "LOTO");
+    // LIRA-306 (FR-021): auto-created by the event that first needs it
+    .run(tenantId, "Loto Liban", "LOTO", requestNow());
   return Number(created.lastInsertRowid);
 }
 
@@ -303,7 +305,7 @@ export class LotoTicketRepository {
           tenant_id, ticket_number, sale_amount, commission_rate, commission_amount,
           is_winner, prize_amount, sale_date, payment_method, currency, note,
           client_id, client_name, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(${localDayExpr("?")}, ?), ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(${localDayExpr("?")}, ?), ?, ?, ?, ?, ?, COALESCE(?, ?))
       `);
 
       const result = stmt.run(
@@ -322,6 +324,8 @@ export class LotoTicketRepository {
         data.clientId ?? null,
         data.clientName ?? null,
         data.transaction_time ?? null,
+        // LIRA-306 (FR-021): no typed time → the request/event time
+        requestNow(),
       );
 
       const ticketId = result.lastInsertRowid as number;

@@ -1,5 +1,8 @@
 import type Database from "better-sqlite3";
-import { getCurrentTenantId } from "../db/tenantContext.js";
+import {
+  getContextEffectiveRates,
+  getCurrentTenantId,
+} from "../db/tenantContext.js";
 
 /** Fallback USD→LBP rate when no row/table is available (e.g. test harnesses). */
 export const FALLBACK_USD_LBP_RATE = 89500;
@@ -65,6 +68,11 @@ export function getUsdLbpSellRate(
   db: Database.Database,
   toCode = "LBP",
 ): number {
+  // LIRA-306 (FR-021a): an offline replay converts at the rate the PC had.
+  const recorded = getContextEffectiveRates()?.find(
+    (r) => r.to_code.toUpperCase() === toCode.toUpperCase(),
+  );
+  if (recorded) return recorded.sell_rate;
   try {
     const row = exchangeRatesHasTenantColumn(db)
       ? (db

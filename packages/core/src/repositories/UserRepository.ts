@@ -195,6 +195,19 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
+   * LIRA-306 (O-new-7) — a user of THIS shop by id, switched off or not:
+   * replayed offline work is credited to whoever did it, even if they have
+   * been switched off since (booked with a note). Tenant-scoped.
+   */
+  findByIdInShopAnyStatus(id: number): UserEntity | null {
+    return this.queryOne<UserEntity>(
+      `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`,
+      id,
+      getCurrentTenantId(),
+    );
+  }
+
+  /**
    * Find a user by id across ALL tenants (global).
    *
    * Auth-path only: session validation resolves the session's user BEFORE

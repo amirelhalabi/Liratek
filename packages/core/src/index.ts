@@ -211,3 +211,32 @@ export * from "./constants/drawerModules.js";
 // the frontend's audit display can label a checkpoint leg's drawer from the
 // SAME definition ClosingRepository posts it with (rule 14).
 export * from "./constants/checkpointAdjustment.js";
+
+// LIRA-306 offline desktop fallback — pure modules (also in browser.ts).
+export * from "./offline/index.js";
+// LIRA-306 — server-only replay readers (tenant context; never in browser.ts).
+export * from "./utils/requestNow.js";
+export * from "./utils/effectiveRate.js";
+// LIRA-306 — server-only replay pieces (never in browser.ts, rule 29).
+export * from "./db/replayGuard.js";
+export * from "./offline/ReplayEngine.js";
+export * from "./offline/bindings/index.js";
+// LIRA-306 US4 (Agent D) — shop copy builder + its cache service (server-only).
+export {
+  buildTenantSnapshot,
+  SNAPSHOT_STRIPPED_TABLES,
+  SNAPSHOT_KEPT_TABLES,
+  SNAPSHOT_GLOBAL_TABLES_ALLOWED,
+  SNAPSHOT_NULLED_COLUMNS,
+  SNAPSHOT_KEPT_COLUMNS,
+  SNAPSHOT_SECRET_SETTING_PATTERN,
+  SNAPSHOT_KEPT_SETTING_KEYS,
+  type TenantSnapshot,
+  type BuildTenantSnapshotOptions,
+} from "./db/tenantSnapshot.js";
+export {
+  OfflineSnapshotService,
+  getOfflineSnapshotService,
+  resetOfflineSnapshotService,
+  type OfflineSnapshotServiceDeps,
+} from "./services/OfflineSnapshotService.js";

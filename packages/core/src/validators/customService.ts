@@ -287,3 +287,19 @@ export type UpdateCustomServiceWorkStatusPayload = z.input<
 export type CustomServiceUpdateMetadataPayload = z.input<
   typeof customServiceUpdateMetadataSchema
 >;
+
+/**
+ * LIRA-306 (rule 23 lift) — `custom-services:delete`'s positional `id` as a
+ * named object, shared by the IPC handler (`{ id }`), the REST route
+ * (`DELETE /api/custom-services/:id` → `validateParams`, hence `z.coerce`:
+ * a path param is a string) and offline recording (channelPolicy argNames).
+ * Three-way diff: the IPC handler took a bare `id: number` with no schema,
+ * the preload binding sends `(id: number)`, the route read `Number(req.params.id)`
+ * — one key, `id`, on all three; nothing added or dropped.
+ */
+export const customServiceIdParamSchema = z.object({
+  id: z.coerce.number<number>().int().positive(),
+});
+export type CustomServiceIdParamInput = z.input<
+  typeof customServiceIdParamSchema
+>;

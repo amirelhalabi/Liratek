@@ -104,3 +104,21 @@ export type UpdateClientPayload = Omit<
   "whatsapp_opt_in"
 > & { whatsapp_opt_in?: boolean | 0 | 1 };
 export type ImportClientDebtsPayload = z.input<typeof importClientDebtsSchema>;
+
+/**
+ * LIRA-306 T041 — the desktop `clients:create` / `clients:update` contract,
+ * lifted VERBATIM from electron-app/schemas (`ClientCreateSchema`) so the IPC
+ * handlers, the offline recorder and the replay binding share ONE object
+ * (rules 14, 23). It deliberately keeps the desktop's own rules — any
+ * non-blank phone text, `whatsapp_opt_in` as boolean or 0/1, `notes` null —
+ * because the web route's stricter `createClientSchema` would change what
+ * the desktop accepts today (O-impl-3).
+ */
+export const clientWriteSchema = z.object({
+  id: z.number().int().positive().optional(),
+  full_name: z.string().min(1, "Full name is required"),
+  phone_number: z.string().min(1, "Phone number is required"),
+  notes: z.string().optional().nullable(),
+  whatsapp_opt_in: z.union([z.boolean(), z.literal(0), z.literal(1)]),
+});
+export type ClientWriteInput = z.input<typeof clientWriteSchema>;

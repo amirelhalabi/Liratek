@@ -10,6 +10,8 @@ import {
 import {
   MaintenanceJobSchema,
   GetMaintenanceStatusHistorySchema,
+  MaintenanceIdParamSchema,
+  MaintenanceUpdateMetadataSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -79,11 +81,16 @@ export function registerMaintenanceHandlers(): void {
   });
 
   // Delete / Cancel
-  ipcMain.handle("maintenance:delete", (e, id: number) => {
+  ipcMain.handle("maintenance:delete", (e, rawId: number) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
+    // LIRA-306 (rule 23): the positional id, named as the offline recorder
+    // names it, through the shared core schema (same as the REST route).
+    const v = validatePayload(MaintenanceIdParamSchema, { id: rawId });
+    if (!v.ok) return { success: false, error: v.error };
+    const id = v.data.id;
     maintenanceLogger.info({ jobId: id }, "Deleting maintenance job");
     const result = service.deleteJob(id);
     audit(e.sender.id, {
@@ -100,7 +107,7 @@ export function registerMaintenanceHandlers(): void {
     "maintenance:update-metadata",
     (
       e,
-      data: {
+      raw: {
         id: number;
         client_name?: string;
         device_name?: string;
@@ -110,6 +117,11 @@ export function registerMaintenanceHandlers(): void {
     ) => {
       const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
+      // LIRA-306 (rule 23): shared core schema — keys = preload type = the
+      // four fields forwarded below (+ id); nothing is stripped.
+      const v = validatePayload(MaintenanceUpdateMetadataSchema, raw);
+      if (!v.ok) return { success: false, error: v.error };
+      const data = v.data;
 
       let editedBy = `user-${auth.userId}`;
       try {

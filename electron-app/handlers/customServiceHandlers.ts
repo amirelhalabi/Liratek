@@ -26,6 +26,7 @@ import type {
 } from "@liratek/core";
 import {
   CustomServiceCreateSchema,
+  CustomServiceIdParamSchema,
   CustomServiceUpdateFulfillmentSchema,
   CustomServiceUpdateWorkStatusSchema,
   CustomServiceUpdateMetadataSchema,
@@ -90,9 +91,15 @@ export function registerCustomServiceHandlers(): void {
   // Delete custom service (admin only)
   ipcMain.handle(
     "custom-services:delete",
-    (event: IpcMainInvokeEvent, id: number) => {
+    (event: IpcMainInvokeEvent, rawId: number) => {
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
+
+      // LIRA-306 rule 23 lift — the positional id validated as the named
+      // `{ id }` the REST route and offline recording use.
+      const v = validatePayload(CustomServiceIdParamSchema, { id: rawId });
+      if (!v.ok) return { success: false, error: v.error };
+      const id = v.data.id;
 
       customServiceLogger.info({ id }, "Deleting custom service");
       const result = service.deleteService(id);

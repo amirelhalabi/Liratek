@@ -364,6 +364,39 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
       `INSERT INTO idempotency_keys (tenant_id, user_id, route, idem_key, response_json, created_at, updated_at)
        VALUES (?, ?, 'POST /api/services/transactions', 'fixture-key-0001', '{}', '2026-01-01', '2026-01-01')`,
     ).run(tenantId, userId);
+    // LIRA-306 v210 — offline rows: devices/events (KEEP) and the five
+    // tables a reset wipes (id map, review items, PC outbox tables).
+    const T = "2026-01-01";
+    const deviceId = Number(
+      db
+        .prepare(
+          `INSERT INTO offline_devices (tenant_id, device_no, name, key_id, key_hash, paired_by, paired_at, created_at, updated_at)
+           VALUES (?, 1, 'PC', ?, 'h', ?, ?, ?, ?)`,
+        )
+        .run(tenantId, `k${tenantId}aaaaaaaaaaa`.slice(0, 12), userId, T, T, T).lastInsertRowid,
+    );
+    db.prepare(
+      `INSERT INTO offline_id_map (tenant_id, offline_id, device_id, table_name, server_id, event_id, link_kind, created_at, updated_at)
+       VALUES (?, ?, ?, 'clients', ?, 'e', 'created', ?, ?)`,
+    ).run(tenantId, 1_004_000_000_000 + tenantId, deviceId, clientId, T, T);
+    db.prepare(
+      `INSERT INTO offline_review_items (tenant_id, event_row_id, device_id, kind, details_json, created_at, updated_at)
+       VALUES (?, NULL, ?, 'pc_data_mismatch', '{}', ?, ?)`,
+    ).run(tenantId, deviceId, T, T);
+    db.prepare(
+      `INSERT INTO offline_outbox (tenant_id, event_id, device_seq, channel, payload_json, payload_hash, actor_user_id,
+         occurred_at, client_day, client_tz_offset_minutes, copy_id, app_version, schema_version, schema_shape_json,
+         rates_json, created_json, depends_on_json, created_at, updated_at)
+       VALUES (?, ?, 1, 'sales:process', '{}', 'h', ?, ?, '2026-01-01', 180, 'c', '1', 210, '{}', '{}', '{}', '[]', ?, ?)`,
+    ).run(tenantId, `ev-${tenantId}`, userId, T, T, T);
+    db.prepare(
+      `INSERT INTO offline_outbox_created (tenant_id, offline_id, table_name, event_id, created_at, updated_at)
+       VALUES (?, ?, 'clients', 'e', ?, ?)`,
+    ).run(tenantId, 1_004_000_000_000 + tenantId, T, T);
+    db.prepare(
+      `INSERT INTO offline_copy_meta (tenant_id, copy_id, built_at, schema_version, high_water_json, created_at, updated_at)
+       VALUES (?, 'c', ?, 210, '{}', ?, ?)`,
+    ).run(tenantId, T, T, T);
   });
   run();
 }

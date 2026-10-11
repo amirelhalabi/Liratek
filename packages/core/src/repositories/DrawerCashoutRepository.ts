@@ -1,5 +1,6 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
@@ -110,7 +111,7 @@ export class DrawerCashoutRepository extends BaseRepository<DrawerCashoutEntity>
       // 2. Insert into drawer_cashouts
       const insertCashout = this.db.prepare(`
         INSERT INTO drawer_cashouts (tenant_id, amount_usd, amount_lbp, notes, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const result = insertCashout.run(
         tenantId,
@@ -118,7 +119,7 @@ export class DrawerCashoutRepository extends BaseRepository<DrawerCashoutEntity>
         data.amount_lbp,
         data.notes,
         userId,
-        txTime ?? null,
+        txTime ?? requestNow(),
       );
       const cashoutId = Number(result.lastInsertRowid);
 

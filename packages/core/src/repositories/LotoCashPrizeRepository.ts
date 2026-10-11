@@ -7,6 +7,7 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -86,8 +87,8 @@ export class LotoCashPrizeRepository {
       // 1. Insert the cash prize record
       const stmt = this.db.prepare(`
         INSERT INTO loto_cash_prizes (
-          tenant_id, ticket_number, prize_amount, prize_date
-        ) VALUES (?, ?, ?, ?)
+          tenant_id, ticket_number, prize_amount, prize_date, created_at
+        ) VALUES (?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -95,6 +96,8 @@ export class LotoCashPrizeRepository {
         data.ticket_number || null,
         data.prize_amount,
         data.prize_date,
+        // LIRA-306 (FR-021): the request/event time, not the SQL clock default
+        requestNow(),
       );
 
       const prizeId = result.lastInsertRowid as number;
@@ -221,7 +224,10 @@ export class LotoCashPrizeRepository {
       WHERE id = ? AND tenant_id = ?
     `);
 
-    const date = reimbursedDate || new Date().toISOString();
+    // LIRA-306 (FR-021): the request time, kept in the ISO shape this column
+    // has always stored (it is shown verbatim in the void-refusal message).
+    const date =
+      reimbursedDate || `${requestNow().replace(" ", "T")}.000Z`;
     stmt.run(date, settlementId || null, id, getCurrentTenantId());
     return this.getCashPrizeById(id);
   }

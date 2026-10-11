@@ -7,6 +7,7 @@ import {
   applySqlCipherKey,
   initDatabase as initCoreDatabase,
   runMigrations,
+  assertServerIdsBelowOfflineRange,
   runWithoutTenant,
   getUserRepository,
   hashPassword,
@@ -212,7 +213,11 @@ function installTenantDbRouting(): void {
   tenantPool = new TenantDatabasePool({
     dir: TENANT_DATABASES_DIR,
     openDatabase: openTenantDatabase,
-    migrate: (db: Database.Database) => runMigrations(db),
+    migrate: (db: Database.Database) => {
+      runMigrations(db);
+      // LIRA-306: each shop file's ids must stay below the offline range.
+      assertServerIdsBelowOfflineRange(db);
+    },
   });
 
   setDatabaseResolver(buildTenantDbResolver(tenantPool, getDatabase));
@@ -349,6 +354,9 @@ export function getDatabase(): Database.Database {
       dbLogger.error({ error }, "Database migrations failed");
       throw error;
     }
+
+    // LIRA-306: server ids must stay below the offline id range (10^12).
+    assertServerIdsBelowOfflineRange(dbInstance);
 
     // Super admin bootstrap (WP2): env-driven, web-only. Throws (killing
     // startup loudly) on a misconfigured credential rather than silently

@@ -45,6 +45,7 @@ import {
   type CounterpartyFlow,
 } from "../validators/counterparty.js";
 import { isDrawerAffectingMethod } from "../utils/payments.js";
+import { requestNow } from "../utils/requestNow.js";
 import { TENDER_RATE_BAND_PCT } from "../constants/tenderRateBand.js";
 
 // Re-exported for every existing caller/test that imports the band constant
@@ -452,7 +453,7 @@ export function insertPaymentRow(
     `INSERT INTO payments (
        transaction_id, session_id, method, drawer_name, currency_code,
        amount, note, created_by, tenant_id, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.transactionId ?? null,
     input.sessionId ?? null,
@@ -463,7 +464,8 @@ export function insertPaymentRow(
     input.note ?? null,
     input.createdBy ?? null,
     input.tenantId,
-    input.createdAt ?? null,
+    // LIRA-306 FR-021: the event time on an offline replay (else now).
+    input.createdAt ?? requestNow(),
   );
 }
 
@@ -543,11 +545,14 @@ export function bookClientDebtCharge(
   db: Database.Database,
   input: BookClientDebtChargeInput,
 ): void {
+  // LIRA-306 (FR-021): the charge (and its 30-day due date) dates from the
+  // event's own time on replay; otherwise from now, exactly as before.
+  const now = requestNow();
   db.prepare(
     `INSERT INTO debt_ledger (
        client_id, transaction_type, amount_usd, amount_lbp,
-       transaction_id, note, created_by, tenant_id, due_date
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+       transaction_id, note, created_by, tenant_id, due_date, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime(?, '+30 days'), ?)`,
   ).run(
     input.clientId,
     input.transactionType,
@@ -557,6 +562,8 @@ export function bookClientDebtCharge(
     input.note ?? null,
     input.createdBy ?? null,
     input.tenantId,
+    now,
+    now,
   );
 }
 

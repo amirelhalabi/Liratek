@@ -6,8 +6,19 @@
  */
 
 import { z } from "zod";
+// LIRA-306 T041 lifts (see the ClientCreateSchema / AddExpenseSchema /
+// TransactionVoidSchema notes below).
 import {
-  FULFILLMENT_STATUSES,
+  clientWriteSchema as coreClientWriteSchema,
+  createExpenseSchema as coreCreateExpenseSchema,
+  transactionVoidSchema as coreTransactionVoidSchema,
+  transactionRefundSchema as coreTransactionRefundSchema,
+  type ClientWriteInput,
+  type CreateExpenseInput,
+  type TransactionVoidInput,
+  type TransactionRefundInput,
+} from "@liratek/core";
+import {
   saleProcessSchema,
   lotoSellSchema,
   lotoCashPrizeSchema,
@@ -297,11 +308,6 @@ import {
   type DailyStatsSnapshotQuery,
   // LIRA-289 — closing:get-since-last-count, shared with the REST route.
   sinceLastCountQuerySchema,
-  // D1 (OWNER_NOTES_2026-09-21.md §2b) — the OMT-RECEIVE-never-takes-a-fee
-  // rejection message, shared (rule 14) with FinancialServiceRepository's own
-  // guard via packages/core/src/validators/financial.ts. Reused below so this
-  // LOCAL duplicate schema's blanket D1 refine speaks with the same voice.
-  OMT_RECEIVE_NO_FEE_MESSAGE,
 } from "@liratek/core";
 // LIRA-297 item 3 — session / daily-closing / voucher-image write contracts
 // (re-exported below the Customer Sessions checkout block).
@@ -489,37 +495,12 @@ export const ChangeOwnPasswordSchema =
 // Expenses
 // =============================================================================
 
-export const AddExpenseSchema = z.object({
-  description: z.string().min(1, "Description is required"),
-  category: z.string().min(1, "Category is required"),
-  expense_type: z.string().optional(),
-  paid_by_method: z.string().optional(),
-  amount_usd: z.number().nonnegative(),
-  amount_lbp: z.number().nonnegative(),
-  expense_date: z.string().min(8),
-  // G41: literal mirror of core's `transactionTimeSchema`
-  // (validators/common.ts) — without this key Zod stripped a backdated
-  // manual expense's time on desktop (rule 23). Same literal-mirror pattern
-  // as FinancialServiceSchema's transaction_time (LIRA-165).
-  transaction_time: z.string().datetime().optional(),
-  // Owner decision 2026-10-07 (payer = "shop") — literal mirror of core's
-  // createExpenseSchema keys (rule 23: without them Zod strips the cash
-  // lines and the vendor's change back on desktop, silently). The amounts
-  // above are the BILL; the server derives the stored cost from these lines.
-  payments: z
-    .array(
-      z.object({
-        method: z.string().min(1),
-        currencyCode: z.string().min(1),
-        amount: z.number().positive(),
-        direction: z.enum(["IN", "OUT"]).optional(),
-      }),
-    )
-    .optional(),
-  kept_change_usd: z.number().nonnegative().optional(),
-  kept_change_lbp: z.number().nonnegative().optional(),
-  tender_exchange_rate: z.number().positive().optional(),
-});
+// LIRA-306 T041 — the desktop now validates with core's `createExpenseSchema`
+// (what POST /api/expenses already uses, and what preload.ts already types
+// the payload as). Diff: `expense_type` was read nowhere; an empty description
+// and a missing amount_lbp (→ 0) are now accepted as on the web (O-impl-4).
+export const AddExpenseSchema =
+  coreCreateExpenseSchema as unknown as z.ZodSchema<CreateExpenseInput>;
 
 // LIRA-262 — core's schema, cast across the zod-major mismatch (core: zod 4,
 // this workspace: zod 3; the runtime API used is identical). The output type
@@ -649,311 +630,13 @@ export const UpdateRechargeMetadataSchema =
 // Financial Services (OMT / WHISH / BOB / iPick / Katsh / Binance)
 // =============================================================================
 
-const FinancialPaymentLegSchema = z.object({
-  method: z.string().min(1),
-  currencyCode: z.string().min(1),
-  amount: z.number(),
-  voucherCode: z.string().optional(),
-  direction: z.enum(["IN", "OUT"]).optional(),
-});
-
-// FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 3 (migration v154):
-// `provider` stopped being a closed 9-value enum at the DB layer (the CHECK
-// is now a composite FK against the tenant-scoped `service_providers` config
-// table) and at the shared core schema
-// (`packages/core/src/validators/financial.ts`'s `providerCodeSchema`) — this
-// LOCAL field mirrors that same shape/rationale rather than importing the
-// core schema directly: `packages/core` validators are zod v4
-// (packages/core/package.json), this file's workspace is zod v3
-// (root package.json), and embedding a v4 field schema inside a v3
-// `z.object()` does not type-check the way the whole-schema
-// `as unknown as z.ZodSchema<T>` cast (used elsewhere in this file, e.g.
-// `SaleProcessSchema`) bridges — that trick works at the top level of an
-// exported schema, not for splicing one version's field schema into
-// another's object shape. Keep this regex/length pair in sync with
-// `providerCodeSchema` if either changes (same pre-existing rule-14 debt as
-// every other field this schema already duplicates from the core one — see
-// the comments throughout this schema).
-const localProviderCodeSchema = z
-  .string()
-  .min(1, "Provider is required")
-  .max(50, "Provider code must be 50 characters or fewer")
-  .regex(
-    /^[A-Za-z0-9_]+$/,
-    "Provider code may only contain letters, numbers, and underscores",
-  );
-
-export const FinancialServiceSchema = z
-  .object({
-    provider: localProviderCodeSchema,
-    serviceType: z.enum(["SEND", "RECEIVE", "BILL"]),
-    amount: z.number().nonnegative(),
-    currency: z.string().optional(),
-    commission: z.number().nonnegative().optional().default(0),
-    cost: z.number().nonnegative().optional(),
-    price: z.number().nonnegative().optional(),
-    paidByMethod: z.string().optional(),
-    payments: z.array(FinancialPaymentLegSchema).optional(),
-    // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.2/§1.4, Phase A — LOCAL duplicate
-    // of the core createFinancialServiceSchema field (rule-14 debt, same trap
-    // as kept_change_usd/checkoutTotal below): fee-on-top RECEIVE only, the
-    // customer's provider fee collected via operator-chosen legs (split
-    // allowed, any method incl. CUSTOMER_ACCOUNT) instead of the legacy
-    // implicit single leg. No `direction`/`voucherCode` — narrower than
-    // FinancialPaymentLegSchema above (a fee leg is always customer-paid IN,
-    // never change, and GIFT_CARD redemption isn't wired here).
-    //
-    // §6bis finding 6 (2026-08-06 adversarial review, Phase A2 fix package):
-    // this comment used to claim "the repository is the enforcement layer for
-    // the desktop path" as the reason the core schema's four feePayments
-    // `.refine()`s were not mirrored here. That claim was WRONG — findings
-    // 1/2/4/5 are exactly the repository silently discarding feePayments on
-    // several paths (FOR-partner RECEIVE, THROUGH-partner, zero/omitted fee,
-    // deferPayment) instead of hard-rejecting. Phase A2 fixed
-    // FinancialServiceRepository.createTransaction to be the real, authoritative
-    // guard (placed right after `resolvedProviderFee` resolves, before the
-    // FOR-partner dispatch) AND mirrored all four refines onto THIS schema
-    // (chained via `.refine()` after the closing `})` below) as a second,
-    // earlier layer. Repository is authoritative; this schema is
-    // defense-in-depth that rejects at the IPC door with the same message
-    // instead of deep inside the repository. Keep both layers in sync if the
-    // rule ever changes — fields (and now refines) must exist in BOTH schema
-    // files or the desktop path silently strips/under-validates it (rule 14).
-    feePayments: z
-      .array(
-        z.object({
-          method: z.string().min(1),
-          currencyCode: z.string().min(1),
-          amount: z.number().positive(),
-        }),
-      )
-      .optional(),
-    clientId: z.number().optional(),
-    clientName: z.string().optional(),
-    referenceNumber: z.string().optional(),
-    phoneNumber: z.string().optional(),
-    senderName: z.string().optional(),
-    senderPhone: z.string().optional(),
-    receiverName: z.string().optional(),
-    receiverPhone: z.string().optional(),
-    senderClientId: z.number().optional(),
-    receiverClientId: z.number().optional(),
-    omtServiceType: z.string().optional(),
-    omtFee: z.number().optional(),
-    whishFee: z.number().optional(),
-    profitRate: z.number().optional(),
-    payFee: z.boolean().optional(),
-    itemKey: z.string().optional(),
-    itemCategory: z.string().optional(),
-    note: z.string().optional(),
-    includingFees: z.boolean().optional(),
-    paymentMethodFee: z.number().optional(),
-    paymentMethodFeeRate: z.number().optional(),
-    returnedCreditsUsd: z.number().optional(),
-    // LIRA-090 (v140) Only-Days fields — all three optional; their absence is the
-    // "this is a normal (non Only-Days) financial service" signal and preserves
-    // byte-identical behaviour for every pre-ticket caller. Zod strips unknown
-    // keys by default, so these MUST be declared here or the computed credit-return
-    // feature is dead code over IPC (B2 blocker). Matched verbatim against
-    // `CreateFinancialServiceData` in FinancialServiceRepository.ts:
-    //   mobileServiceItemId  — the catalog item id; its presence drives the computed
-    //     returned-credit default and the primary carrier-line movement (spec §5.1/§8).
-    //   returnedCreditsUsd   — operator override; 0 is a meaningful value ("no credit
-    //     returned this time") so z.number() without .nonnegative() guard is correct;
-    //     the field ABOVE is now also plain .number() to match (it was .nonnegative()
-    //     before — 0 override was inadvertently accepted, but the intent is preserved).
-    //   telecomCreditReturns — walk-in aggregated cart: per-line override array
-    //     (spec §6 bug 2 groundwork). One entry per Only-Days line in the cart.
-    mobileServiceItemId: z.number().int().positive().optional(),
-    telecomCreditReturns: z
-      .array(
-        z.object({
-          itemCategory: z.string().optional(),
-          mobileServiceItemId: z.number().int().positive().optional(),
-          returnedCreditsUsd: z.number().optional(),
-        }),
-      )
-      .optional(),
-    partnerId: z.number().optional(),
-    partnerMode: z.enum(["THROUGH", "FOR"]).optional(),
-    cashoutMethod: z.string().optional(),
-    // T3 keep-change (KC-4) — LOCAL duplicate of core createFinancialServiceSchema
-    // (rule-14 debt): fields must exist in BOTH. Kept (not returned) change per currency → added
-    // to the transaction's profit stamp (tender-native amounts).
-    kept_change_usd: z.number().nonnegative().optional(),
-    kept_change_lbp: z.number().nonnegative().optional(),
-    // LIRA-165 — was a hand-copied, unvalidated `z.string().optional()`.
-    // Mirrors core's `transactionTimeSchema` (validators/common.ts:
-    // `z.string().datetime().optional()`) so a garbage string is refused on
-    // both transports (rule 14's intent). NOT a cast-bridge re-export of
-    // that schema object, unlike the other core-schema reuses in this file:
-    // embedding an ALREADY-BUILT zod-4 schema as a FIELD inside this
-    // workspace's zod-3 `z.object({...})` dies at runtime with
-    // `_parse is not a function` the moment any sibling refine touches the
-    // object (the same cross-major trap `MobileServiceItemSeedSchema`'s own
-    // comment above documents for arrays — "cast the finished validator,
-    // never a part of one"). A one-line literal is the correct mirror here;
-    // keep it in sync with validators/common.ts if that definition changes.
-    transaction_time: z.string().datetime().optional(),
-    // Batch member whose customer payment is booked by another transaction in the
-    // same checkout (session basket, or the legs-carrying first bill of a
-    // multi-bill payment): skips the customer-inflow and change-leg blocks while
-    // still booking cost outflow + supplier commission.
-    deferPayment: z.boolean().optional(),
-    // Payment-Legs Integrity plan (Wave 8) — LOCAL duplicate of the core
-    // createFinancialServiceSchema field (rule-14 debt, same trap as
-    // kept_change_usd/lbp above): the bills/catalog cart's CARRIER transaction
-    // (the one that carries `payments`) may attach the full checkout total
-    // here so the repository reconciles legs against the WHOLE cart rather
-    // than this one unit's `price`. Fields must exist in BOTH or the desktop
-    // path silently strips it.
-    checkoutTotal: z
-      .object({
-        usd: z.number().min(0),
-        lbp: z.number().min(0),
-      })
-      .optional(),
-    // Payment-Legs Integrity plan (Wave 9) — LOCAL duplicate of the core
-    // createFinancialServiceSchema field (rule-14 debt, same trap as
-    // checkoutTotal above): the USD→LBP rate MultiPaymentInput actually
-    // converted the customer's tender at (may be the buy rate, per the
-    // owner's 2026-07-06 MPI-buy-rate decision), used to reconcile legs
-    // instead of the stamped rate-of-record. Fields must exist in BOTH or the
-    // desktop path silently strips it.
-    tender_exchange_rate: z.number().positive().optional(),
-    // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — LOCAL duplicate of the core
-    // createFinancialServiceSchema field (rule-14 debt, same trap as
-    // checkoutTotal/deferPayment above): identifies which multi-unit split
-    // checkout this unit belongs to, sent with EVERY unit (carrier and
-    // siblings alike) by KatshForm/FinancialForm. Fields must exist in BOTH or
-    // the desktop path silently strips them.
-    split_group: z.string().uuid().optional(),
-    split_role: z.enum(["carrier", "sibling"]).optional(),
-    split_units: z.number().int().min(2).optional(),
-    // Acting user id; the handler overrides this with the authenticated user,
-    // but allowing it through keeps validatePayload from stripping a supplied one.
-    userId: z.number().int().optional(),
-  })
-  .refine(
-    (data) => {
-      // D1 (OWNER_NOTES_2026-09-21.md §2b, owner decision 2026-09-25) —
-      // LOCAL mirror of the core createFinancialServiceSchema's own D1
-      // refine (rule 14/19b: keep in sync with
-      // packages/core/src/validators/financial.ts). Kept FIRST in this
-      // chain, same reasoning as the core copy: an OMT/OMT_APP RECEIVE with
-      // a fee also matches the partner/zero-fee refines below, and
-      // validatePayload surfaces every issue joined together, but this one
-      // is the correct diagnosis and must not be crowded out. OMT_APP's fee
-      // travels in `commission` (not `omtFee`), so it ALSO rejects a nonzero
-      // `commission` — OMT's own `commission` is auto-derived bookkeeping
-      // and stays allowed.
-      const isOmtSystemReceive =
-        data.provider === "OMT" && data.serviceType === "RECEIVE";
-      const isOmtAppReceive =
-        data.provider === "OMT_APP" && data.serviceType === "RECEIVE";
-      if (!isOmtSystemReceive && !isOmtAppReceive) {
-        return true;
-      }
-      const hasFeeCollectionShape =
-        data.includingFees === true ||
-        (data.feePayments && data.feePayments.length > 0);
-      const hasAppWalletFee =
-        isOmtAppReceive && Math.abs(data.commission ?? 0) > 0;
-      if (hasFeeCollectionShape || hasAppWalletFee) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message: OMT_RECEIVE_NO_FEE_MESSAGE,
-      path: ["feePayments"],
-    },
-  )
-  .refine(
-    (data) => {
-      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.4: feePayments is fee-on-top
-      // RECEIVE only. `includingFees: true` nets the fee out of the payout
-      // instead — there is nothing left for a separate fee leg to collect.
-      if (
-        data.feePayments &&
-        data.feePayments.length > 0 &&
-        data.includingFees === true
-      ) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message:
-        "feePayments is only valid when includingFees is false (fee-on-top RECEIVE) — a fee-included transaction nets the fee out of the payout instead of collecting it separately",
-      path: ["feePayments"],
-    },
-  )
-  .refine(
-    (data) => {
-      if (
-        data.feePayments &&
-        data.feePayments.length > 0 &&
-        data.serviceType !== "RECEIVE"
-      ) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message: "feePayments is only valid on serviceType RECEIVE",
-      path: ["feePayments"],
-    },
-  )
-  .refine(
-    (data) => {
-      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §6bis finding 1: a partner
-      // transaction (FOR or THROUGH) has no walk-in fee to collect — FOR
-      // never reads feePayments at all (PFT-3b dispatch), THROUGH suppresses
-      // the fee leg via skipSystemDrawer — both used to silently drop the
-      // field. Reject either mode up front.
-      if (data.feePayments && data.feePayments.length > 0 && data.partnerId) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message:
-        "feePayments cannot be used on a partner transaction — the partner handles the fee",
-      path: ["feePayments"],
-    },
-  )
-  .refine(
-    (data) => {
-      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §6bis finding 2: the resolved
-      // provider fee must actually be > 0 — legs against a zero/omitted fee
-      // used to be silently dropped by the repository's inner gate
-      // (`receiveFeeAmt > 0`) with no reconcile and no booking.
-      // §10.2: BINANCE has no `omtFee`/`whishFee` field of its own — its
-      // customer-facing fee travels in `commission` (verified against the
-      // live frontend contract, `CryptoForm.tsx`'s `commission: fee`, which
-      // never populates omtFee/whishFee for Binance). Mirrors the identical
-      // BINANCE branch on the core validator (packages/core/src/validators/
-      // financial.ts) and the repository's `feePresenceSource`
-      // (`FinancialServiceRepository.ts`) — one fee resolution, kept in sync
-      // across the rule-14 duplicate (this file) and its consumers.
-      if (
-        data.feePayments &&
-        data.feePayments.length > 0 &&
-        (data.omtFee ?? 0) <= 0 &&
-        (data.whishFee ?? 0) <= 0 &&
-        !(data.provider === "BINANCE" && (data.commission ?? 0) > 0)
-      ) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message:
-        "feePayments requires a non-zero omtFee/whishFee/commission — there is no fee to collect",
-      path: ["feePayments"],
-    },
-  );
+// FinancialServiceSchema — LIRA-306 (rule 23 lift): the hand-written desktop
+// copy that lived here (a duplicate of core `createFinancialServiceSchema`,
+// with its own copies of the leg/provider fields and of every refine) is
+// gone; `omt:add-transaction` now validates with the SAME core schema
+// POST /api/services/transactions uses. Re-exported in the LIRA-306 Phase 6
+// (Agent B) block at the end of this file. Key diff in
+// packages/core/src/offline/bindings/__tests__/financial.test.ts.
 
 // Self-charge (LIRA-090 §5.2 / Phase 5 of the carrier-lines-validity plan):
 // shared by the IPC handler (`financial:self-charge-telecom-item`) and the
@@ -1135,100 +818,15 @@ export const MobileServiceItemSeedSchema =
 // Custom Services
 // =============================================================================
 
-export const CustomServiceCreateSchema = z
-  .object({
-    description: z.string().min(1, "Description is required"),
-    cost_usd: z.coerce.number().nonnegative().default(0),
-    cost_lbp: z.coerce.number().nonnegative().default(0),
-    price_usd: z.coerce.number().nonnegative().default(0),
-    price_lbp: z.coerce.number().nonnegative().default(0),
-    paid_by: z.string().min(1).default("CASH"),
-    status: z.enum(["pending", "completed"]).optional().default("completed"),
-    client_id: z.coerce.number().int().positive().optional(),
-    client_name: z.string().optional(),
-    phone_number: z.string().optional(),
-    note: z.string().optional(),
-    category: z.string().optional(),
-    voucher_code: z.string().optional(),
-    payments: z
-      .array(
-        z.object({
-          method: z.string().min(1),
-          currency_code: z.string().min(1),
-          amount: z.number(),
-          voucher_code: z.string().optional(),
-          direction: z.enum(["IN", "OUT"]).optional(),
-        }),
-      )
-      .optional(),
-    // T3 keep-change (KC-3) — LOCAL duplicate of the core schema (rule-14
-    // debt, same trap as DebtRepaymentSchema): fields must exist in BOTH or the
-    // desktop path silently strips them.
-    kept_change_usd: z.number().nonnegative().optional(),
-    kept_change_lbp: z.number().nonnegative().optional(),
-    // POSTING_MAP G42 — LOCAL duplicate of the core field (same rule-14 trap):
-    // the rate the payment sheet converted at. Without it desktop reconciled
-    // the payment lines at the server's fallback rate, not the till's.
-    exchange_rate: z.coerce.number().positive().optional(),
-    transaction_time: z.string().optional(),
-    // Insurance fulfilment tracking — mirrors the core schema field; without it
-    // the desktop path silently stripped "ORDERED" (rule 23, 2026-10-07).
-    fulfillment_status: z.enum(FULFILLMENT_STATUSES).optional(),
-    // LIRA-081 — LOCAL duplicate of the core createCustomServiceSchema field
-    // (rule-14 debt, same trap documented elsewhere in this file): fields must
-    // exist in BOTH or the desktop path silently strips them.
-    partnerId: z.number().int().positive().optional(),
-    // LIRA-154: widened to include "VIA" (partner performs the service; we owe
-    // the partner the cost). Kept in sync with the core createCustomServiceSchema
-    // enum — same rule-14 local-duplicate trap noted above.
-    partnerMode: z.enum(["FOR", "VIA"]).optional(),
-    // OWNER_NOTES_REMAINING_BUILD.md #16 (migration v185) — LOCAL duplicate of
-    // the core createCustomServiceSchema field (same rule-14 trap): "OUT" is a
-    // payout (Via-Partner only), see CustomServiceRepository's `isPayout`
-    // block. Omitting this here would silently strip `direction` on the
-    // desktop path and every submission would fall back to "IN". No
-    // `.default("IN")` — matches the core schema's own reasoning (kept
-    // truly optional so its inferred output type stays optional too).
-    direction: z.enum(["IN", "OUT"]).optional(),
-    // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — LOCAL duplicate of the
-    // core createCustomServiceSchema field (same rule-14 trap): an
-    // inventory-backed service must decrement stock like a POS sale; omitting
-    // this here would silently strip product_id on the desktop path and the
-    // repository would never learn a product was involved.
-    product_id: z.coerce.number().int().positive().optional(),
-  })
-  // OWNER_NOTES_REMAINING_BUILD.md #16 (fix-round I2) — these two refines
-  // used to exist ONLY on the core `createCustomServiceSchema`, which REST
-  // validates against. Desktop validated with this LOCAL duplicate schema,
-  // which had the `direction` key but neither refine, so a direction:"OUT"
-  // submission with no partnerMode "VIA" (or with price/cost missing) sailed
-  // through IPC validation and reached `CustomServiceRepository.createService`
-  // unchecked — the repository's own defense-in-depth guards now reject it
-  // too, but the edge (rule 19) should reject it identically on both
-  // transports, not just on REST. Verbatim copies of the core schema's two
-  // refines (same rule-14 local-duplicate trap every other field in this
-  // schema already carries a comment for).
-  .refine((data) => data.direction !== "OUT" || data.partnerMode === "VIA", {
-    message:
-      "direction 'OUT' (pay out) is only valid for a Via-Partner custom service",
-    path: ["direction"],
-  })
-  .refine(
-    (data) =>
-      data.direction !== "OUT" ||
-      ((data.price_usd > 0 || data.price_lbp > 0) &&
-        (data.cost_usd > 0 || data.cost_lbp > 0)),
-    {
-      message:
-        "A payout needs both the amount that arrived (price) and the amount paid out (cost)",
-      path: ["cost_usd"],
-    },
-  );
+// `CustomServiceCreateSchema` is the core `createCustomServiceSchema` (LIRA-306
+// rule 23 lift) — re-exported in the Agent C custom-services/loto block at
+// the END of this file. The hand-written local duplicate it replaced carried
+// the same key set but neither the core refines nor its length caps.
 
 // LIRA-155 — advance an existing custom service's fulfilment status
 // (ORDERED -> ISSUED -> RECEIVED -> DELIVERED). Lifted from
 // packages/core/src/validators/customService.ts (rule 14) rather than
-// hand-duplicated like CustomServiceCreateSchema above — this is a brand
+// hand-duplicated (as CustomServiceCreateSchema once was) — this is a brand
 // new schema with no pre-existing local copy, so casting the shared
 // definition (same pattern as HoldMoneyCreateSchema) is the correct choice,
 // not the trap. The cast bridges the zod-major mismatch between this
@@ -1360,17 +958,9 @@ export const DebtCashOutSchema =
 export const DebtAccountEntrySchema =
   debtAccountEntrySchema as unknown as z.ZodSchema<DebtAccountEntryInput>;
 
-export const DebtAddCreditSchema = z
-  .object({
-    clientId: z.number().int().positive(),
-    amountUsd: z.number().nonnegative().default(0),
-    amountLbp: z.number().nonnegative().default(0),
-    note: z.string().max(500).optional(),
-    transactionTime: z.string().optional(),
-  })
-  .refine((data) => data.amountUsd > 0 || data.amountLbp > 0, {
-    message: "At least one amount (USD or LBP) must be greater than 0",
-  });
+// DebtAddCreditSchema — LIRA-306: lifted to core `addCreditSchema` (the
+// schema POST /api/debts/credit validates with); re-exported in the
+// LIRA-306 Phase 6 (Agent B) block at the end of this file.
 
 // CQ-9 (rule 14): lifted to packages/core/src/validators/debt.ts so the IPC
 // handler (debt:use-credit) and the new REST route (POST
@@ -1392,13 +982,12 @@ export const DebtWriteOffSchema =
 // Clients
 // =============================================================================
 
-export const ClientCreateSchema = z.object({
-  id: z.number().int().positive().optional(),
-  full_name: z.string().min(1, "Full name is required"),
-  phone_number: z.string().min(1, "Phone number is required"),
-  notes: z.string().optional().nullable(),
-  whatsapp_opt_in: z.union([z.boolean(), z.literal(0), z.literal(1)]),
-});
+// LIRA-306 T041 — lifted VERBATIM to core's `clientWriteSchema` (rule 23
+// three-way diff in packages/core/src/validators/__tests__/offlineLift.us1.test.ts)
+// so this handler, the offline recorder and the replay binding share one
+// object. Same zod-major cast bridge as the schemas above.
+export const ClientCreateSchema =
+  coreClientWriteSchema as unknown as z.ZodSchema<ClientWriteInput>;
 
 // =============================================================================
 // Suppliers
@@ -1680,3 +1269,155 @@ export const CustomServiceUpdateMetadataSchema =
   customServiceUpdateMetadataSchema as unknown as z.ZodSchema<CustomServiceUpdateMetadataInput>;
 export const LotoUpdateMetadataSchema =
   lotoUpdateMetadataSchema as unknown as z.ZodSchema<LotoUpdateMetadataInput>;
+
+// LIRA-306 — offline desktop fallback contracts (pairing, events, manifest),
+// defined once in packages/core/src/validators/offline.ts (rule 14). Same
+// zod-major cast bridge as above. Used by the desktop sync client/recorder.
+import {
+  pairDeviceSchema as corePairDeviceSchema,
+  checkinSchema as coreCheckinSchema,
+  offlineEventSchema as coreOfflineEventSchema,
+  uploadEventsSchema as coreUploadEventsSchema,
+  manifestSchema as coreManifestSchema,
+  type PairDeviceInput,
+  type CheckinInput,
+  type OfflineEventInput,
+  type UploadEventsInput,
+  type ManifestInput,
+} from "@liratek/core";
+export const PairDeviceSchema =
+  corePairDeviceSchema as unknown as z.ZodSchema<PairDeviceInput>;
+export const CheckinSchema =
+  coreCheckinSchema as unknown as z.ZodSchema<CheckinInput>;
+export const OfflineEventSchema =
+  coreOfflineEventSchema as unknown as z.ZodSchema<OfflineEventInput>;
+export const UploadEventsSchema =
+  coreUploadEventsSchema as unknown as z.ZodSchema<UploadEventsInput>;
+export const ManifestSchema =
+  coreManifestSchema as unknown as z.ZodSchema<ManifestInput>;
+
+// LIRA-306 T041 — named payloads for the positional transactions:void /
+// transactions:refund channels (core validators/transaction.ts).
+export const TransactionVoidSchema =
+  coreTransactionVoidSchema as unknown as z.ZodSchema<{ transactionId: number }, z.ZodTypeDef, TransactionVoidInput>;
+export const TransactionRefundSchema =
+  coreTransactionRefundSchema as unknown as z.ZodSchema<
+    {
+      transactionId: number;
+      refundLegs?: z.infer<typeof RefundLegsSchema> | null;
+      refundUnitExtras?: z.infer<typeof RefundUnitExtrasSchema> | null;
+      exchangeRate?: number;
+      keptChange?: z.infer<typeof RefundKeptChangeSchema> | null;
+    },
+    z.ZodTypeDef,
+    TransactionRefundInput
+  >;
+
+// LIRA-306 Phase 6 (Agent B families) — schemas lifted to core for offline
+// recording (rule 23 three-way key diffs in the family tests). Same zod-major
+// cast bridge as above. One contiguous block — append here.
+import {
+  expenseIdParamSchema as coreExpenseIdParamSchema,
+  type ExpenseIdParamInput,
+  addCreditSchema as coreAddCreditSchema,
+  type AddCreditInput,
+  debtUpdateMetadataSchema as coreDebtUpdateMetadataSchema,
+  type DebtUpdateMetadataInput,
+  createFinancialServiceSchema as coreCreateFinancialServiceSchema,
+  type CreateFinancialServiceInput,
+  saleDeleteDraftSchema as coreSaleDeleteDraftSchema,
+  type SaleDeleteDraftInput,
+  sessionIdPayloadSchema as coreSessionIdPayloadSchema,
+  type SessionIdPayloadInput,
+  sessionCartRemoveSchema as coreSessionCartRemoveSchema,
+  type SessionCartRemoveInput,
+} from "@liratek/core";
+export const ExpenseIdParamSchema =
+  coreExpenseIdParamSchema as unknown as z.ZodSchema<ExpenseIdParamInput>;
+export const DebtAddCreditSchema =
+  coreAddCreditSchema as unknown as z.ZodSchema<AddCreditInput>;
+export const DebtUpdateMetadataSchema =
+  coreDebtUpdateMetadataSchema as unknown as z.ZodSchema<DebtUpdateMetadataInput>;
+export const FinancialServiceSchema =
+  coreCreateFinancialServiceSchema as unknown as z.ZodSchema<CreateFinancialServiceInput>;
+export const SaleDeleteDraftSchema =
+  coreSaleDeleteDraftSchema as unknown as z.ZodSchema<SaleDeleteDraftInput>;
+export const SessionIdPayloadSchema =
+  coreSessionIdPayloadSchema as unknown as z.ZodSchema<SessionIdPayloadInput>;
+export const SessionCartRemoveSchema =
+  coreSessionCartRemoveSchema as unknown as z.ZodSchema<SessionCartRemoveInput>;
+// END LIRA-306 Phase 6 (Agent B)
+
+// LIRA-306 Phase 6 (Agent C — maintenance family, T093) — rule 23 lifts for
+// maintenance:delete / maintenance:update-metadata (core
+// validators/maintenance.ts). Same zod-major cast bridge as above.
+import {
+  maintenanceIdParamSchema as coreMaintenanceIdParamSchema,
+  maintenanceUpdateMetadataSchema as coreMaintenanceUpdateMetadataSchema,
+  type MaintenanceUpdateMetadataInput,
+} from "@liratek/core";
+// output `{ id: number }` (the core input type is `unknown`: z.coerce)
+export const MaintenanceIdParamSchema =
+  coreMaintenanceIdParamSchema as unknown as z.ZodSchema<{ id: number }>;
+export const MaintenanceUpdateMetadataSchema =
+  coreMaintenanceUpdateMetadataSchema as unknown as z.ZodSchema<MaintenanceUpdateMetadataInput>;
+// END LIRA-306 Phase 6 (Agent C — maintenance)
+
+// LIRA-306 Phase 6 (Agent C — custom-services + loto families, T095/T097) —
+// rule 23 lifts (core validators/customService.ts). Same zod-major cast
+// bridge as above. Three-way diff for custom-services:add: core
+// createCustomServiceSchema has every key the old local copy had (none
+// dropped); desktop newly gets the core refines (a cost or price > 0,
+// CUSTOMER_ACCOUNT needs a client, GIFT_CARD needs a voucher, no
+// CUSTOMER_ACCOUNT on a for-partner service), the length caps, an optional
+// description and an ISO `transaction_time` — exactly what REST already
+// enforced.
+import {
+  createCustomServiceSchema as coreCreateCustomServiceSchema,
+  type CreateCustomServiceInput as CoreCreateCustomServiceInput,
+  customServiceIdParamSchema as coreCustomServiceIdParamSchema,
+  type CustomServiceIdParamInput,
+} from "@liratek/core";
+export const CustomServiceCreateSchema =
+  coreCreateCustomServiceSchema as unknown as z.ZodSchema<CoreCreateCustomServiceInput>;
+export const CustomServiceIdParamSchema =
+  coreCustomServiceIdParamSchema as unknown as z.ZodSchema<
+    { id: number },
+    z.ZodTypeDef,
+    CustomServiceIdParamInput
+  >;
+// END LIRA-306 Phase 6 (Agent C — custom-services + loto)
+
+// LIRA-306 Phase 6 (Agent C — checkpoints family, T103) — rule 23 lifts.
+// closing:create-checkpoint: core createCheckpointSchema (the REST twin's);
+// three-way diff vs preload/handler: only `user_id` is dropped, which the
+// handler already ignored (actor = session user). loto:checkpoint:delete /
+// create-scheduled: named payloads `{ id }` / `{ checkpointDate? }`.
+import {
+  createCheckpointSchema as coreCreateCheckpointSchema,
+  type CreateCheckpointPayload,
+  type CreateCheckpointInput,
+  lotoCheckpointDeleteSchema as coreLotoCheckpointDeleteSchema,
+  type LotoCheckpointDeleteInput,
+  lotoCheckpointCreateScheduledSchema as coreLotoCheckpointCreateScheduledSchema,
+  type LotoCheckpointCreateScheduledInput,
+} from "@liratek/core";
+export const CreateCheckpointSchema =
+  coreCreateCheckpointSchema as unknown as z.ZodSchema<
+    CreateCheckpointInput,
+    z.ZodTypeDef,
+    CreateCheckpointPayload
+  >;
+export const LotoCheckpointDeleteSchema =
+  coreLotoCheckpointDeleteSchema as unknown as z.ZodSchema<
+    { id: number },
+    z.ZodTypeDef,
+    LotoCheckpointDeleteInput
+  >;
+export const LotoCheckpointCreateScheduledSchema =
+  coreLotoCheckpointCreateScheduledSchema as unknown as z.ZodSchema<
+    { checkpointDate?: string },
+    z.ZodTypeDef,
+    LotoCheckpointCreateScheduledInput
+  >;
+// END LIRA-306 Phase 6 (Agent C — checkpoints)

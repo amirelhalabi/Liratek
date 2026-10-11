@@ -179,10 +179,16 @@ export function registerOMTHandlers(): void {
         const v = validatePayload(SelfChargeTelecomItemSchema, data);
         if (!v.ok) return { success: false, error: v.error };
 
-        const result = getFinancialServiceRepository().selfChargeTelecomItem({
+        // LIRA-306 T083 (rule 13): the SAME service method POST
+        // /api/services/self-charge (and the offline replay) calls — no more
+        // direct repository call from the transport. Same envelope
+        // ({ success: true, data } / { success: false, error }), pinned by
+        // __tests__/omtHandlers.selfChargePin.test.ts.
+        const result = financialService.selfChargeTelecomItem({
           ...v.data,
           userId: auth.userId,
         });
+        if (!result.success) return result;
         audit(event.sender.id, {
           action: "create",
           entity_type: "financial_transaction",
@@ -192,7 +198,7 @@ export function registerOMTHandlers(): void {
             carrierLineId: data.carrierLineId,
           },
         });
-        return { success: true, data: result };
+        return result;
       } catch (error) {
         financialLogger.error(
           { error },

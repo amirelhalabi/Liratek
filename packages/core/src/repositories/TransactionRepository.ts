@@ -45,6 +45,7 @@ import { partnerObligationHeadRowSql } from "../constants/partnerObligation.js";
 import { isAuditOnlyPaymentMethod } from "../constants/auditOnlyPaymentMethods.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
+import { requestNow } from "../utils/requestNow.js";
 import {
   BusinessRuleError,
   DatabaseError,
@@ -1310,7 +1311,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         (type, source_table, source_id, user_id, amount_usd, amount_lbp,
          profit_usd, profit_lbp,
          exchange_rate, client_id, client_name, client_phone, summary, metadata_json, device_id, created_at, tenant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       data.type,
       data.source_table,
       data.source_id,
@@ -1326,7 +1327,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       data.summary ?? null,
       metadataStr,
       data.device_id ?? null,
-      data.transaction_time ?? null,
+      // LIRA-306 FR-021: a typed time wins; else the event time on an
+      // offline replay; else now (same text format as CURRENT_TIMESTAMP).
+      data.transaction_time ?? requestNow(),
       getCurrentTenantId(),
     );
 
@@ -5388,8 +5391,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         `INSERT INTO transactions
           (type, status, source_table, source_id, user_id,
            amount_usd, amount_lbp, exchange_rate,
-           client_id, reverses_id, summary, metadata_json, device_id, tenant_id)
-         VALUES (?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           client_id, reverses_id, summary, metadata_json, device_id, tenant_id, created_at)
+         VALUES (?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         original.type,
         original.source_table,
         original.source_id,
@@ -5403,6 +5406,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         original.metadata_json,
         original.device_id,
         tenantId,
+        // LIRA-306 FR-021: this row used to rely on the created_at default
+        requestNow(),
       );
 
       const reversalId = result.lastInsertRowid as number;
@@ -5937,8 +5942,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       `INSERT INTO transactions
         (type, status, source_table, source_id, user_id,
          amount_usd, amount_lbp, exchange_rate, profit_usd, profit_lbp,
-         client_id, reverses_id, summary, metadata_json, device_id, tenant_id)
-       VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         client_id, reverses_id, summary, metadata_json, device_id, tenant_id, created_at)
+       VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       original.source_table,
       original.source_id,
       userId,
@@ -5953,6 +5958,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       metadataStr,
       original.device_id,
       tenantId,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      requestNow(),
     );
     return result.lastInsertRowid as number;
   }
@@ -6422,7 +6429,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // all are tenant-scoped tables (see scripts/check-tenant-scoping.mjs's
     // __UNRESOLVED__ fail-closed flag on this dynamic-table-name statement).
     this.execute(
-      `UPDATE ${sourceTable} SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
+      `UPDATE ${sourceTable} SET is_refunded = 1, refunded_at = ? WHERE id = ? AND tenant_id = ?`,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      requestNow(),
       sourceId,
       getCurrentTenantId(),
     );
@@ -7222,8 +7231,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // own new id.
     this.execute(
       `INSERT INTO debt_ledger
-        (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id)
-       VALUES (?, 'Repayment Reversal', ?, ?, ?, ?, ?, ?)`,
+        (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, created_at)
+       VALUES (?, 'Repayment Reversal', ?, ?, ?, ?, ?, ?, ?)`,
       ledger.client_id,
       budgetUsd,
       budgetLbp,
@@ -7231,6 +7240,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       "Repayment reversed by refund/void",
       userId,
       tenantId,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      requestNow(),
     );
 
     // 2. Unwind the FIFO coverage this repayment applied. When the
@@ -8073,8 +8084,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     const insertReversal = this.db.prepare(`
       INSERT INTO debt_ledger (
-        client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id
-      ) VALUES (?, 'Refund Reversal', ?, ?, ?, 'Debt cancelled by refund/void', ?, ?)
+        client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, created_at
+      ) VALUES (?, 'Refund Reversal', ?, ?, ?, 'Debt cancelled by refund/void', ?, ?, ?)
     `);
 
     for (const d of debts) {
@@ -8085,6 +8096,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         originalTxnId,
         userId,
         tenantId,
+        // LIRA-306 FR-021: the event time on an offline replay.
+        requestNow(),
       );
     }
 
@@ -8173,7 +8186,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       INSERT INTO partner_ledger (
         partner_id, transaction_type, reference_table, reference_id,
         amount, currency, direction, notes, user_id, tenant_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const verb = reason === "void" ? "voided" : "refunded";
@@ -8189,6 +8202,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         `Reversal of ${verb} txn #${original.id}`,
         userId,
         tenantId,
+        // LIRA-306 FR-021: the event time on an offline replay.
+        requestNow(),
       );
     }
   }
@@ -8280,7 +8295,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       INSERT INTO partner_ledger (
         partner_id, transaction_type, reference_table, reference_id,
         amount, currency, direction, notes, user_id, tenant_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     // 1. Reverse the settlement/payment's own ledger row.
@@ -8295,6 +8310,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       `Reversal of settlement/payment txn #${original.id}`,
       userId,
       tenantId,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      requestNow(),
     );
 
     let coverageBudget = Math.abs(entry.amount);
@@ -8324,6 +8341,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         `Reversal of bundled discount for settlement/payment txn #${original.id}`,
         userId,
         tenantId,
+        // LIRA-306 FR-021: the event time on an offline replay.
+        requestNow(),
       );
       coverageBudget += Math.abs(discountEntry.amount);
 
@@ -8566,8 +8585,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // row `original.source_id` names; re-touching it here is a harmless
     // idempotent no-op (`is_refunded = 0` guard).
     this.execute(
-      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = ?
        WHERE id IN (${idPlaceholders}) AND tenant_id = ? AND is_refunded = 0`,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      requestNow(),
       ...settlementLedgerIds,
       tenantId,
     );
@@ -9059,8 +9080,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     // 1. Soft-void the link-mode TOP_UP row this ticket sale created.
     this.execute(
-      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = ?
         WHERE transaction_id = ? AND entry_type = 'TOP_UP' AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      requestNow(),
       original.id,
       tenantId,
     );
@@ -9191,8 +9214,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     // 1. Soft-void the link-mode CASH_PRIZE row this prize created.
     this.execute(
-      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = ?
         WHERE transaction_id = ? AND entry_type = 'CASH_PRIZE' AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      requestNow(),
       original.id,
       tenantId,
     );
@@ -9210,8 +9235,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
     this.execute(
       `UPDATE loto_cash_prizes
-          SET voided = 1, voided_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+          SET voided = 1, voided_at = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND tenant_id = ?`,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      requestNow(),
       original.source_id,
       tenantId,
     );
@@ -9282,8 +9309,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     if (!hasTable) return;
     const tenantId = getCurrentTenantId();
     this.execute(
-      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = ?
         WHERE transaction_id = ? AND entry_type = 'TOP_UP' AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
+      // LIRA-306 FR-021: the event time on an offline replay.
+      requestNow(),
       original.id,
       tenantId,
     );

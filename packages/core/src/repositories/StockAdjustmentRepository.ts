@@ -12,6 +12,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { requestNow } from "../utils/requestNow.js";
 
 // =============================================================================
 // Types
@@ -82,7 +83,7 @@ export class StockAdjustmentRepository extends BaseRepository<StockAdjustmentEnt
     const stmt = this.db.prepare(`
       INSERT INTO stock_adjustments
         (tenant_id, product_id, delta, old_quantity, new_quantity, reason, user_id, unit_cost_usd, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `);
     const result = stmt.run(
       getCurrentTenantId(),
@@ -95,6 +96,7 @@ export class StockAdjustmentRepository extends BaseRepository<StockAdjustmentEnt
       // `?? null` is required, not defensive: the field is optional on input
       // and better-sqlite3 rejects `undefined` as a bind value outright.
       data.unit_cost_usd ?? null,
+      requestNow(),
     );
     return this.findByIdOrFail(Number(result.lastInsertRowid));
   }

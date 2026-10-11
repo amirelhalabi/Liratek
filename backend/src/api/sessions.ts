@@ -22,6 +22,8 @@ import {
   updateSessionSchema,
   sessionCartAddSchema,
   linkSessionTransactionSchema,
+  sessionIdPayloadSchema,
+  sessionCartRemoveSchema,
   type SessionCheckoutInput,
   type CheckoutRequest,
   type StartSessionInput,
@@ -70,6 +72,13 @@ function errMessage(err: unknown): string {
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
   return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** LIRA-306 (rule 23 lift): the path id through the SAME core schema the
+ *  IPC handlers (and an offline PC's recorder) use — `{ sessionId }`. */
+function sessionIdOf(raw: string): number | null {
+  const parsed = sessionIdPayloadSchema.safeParse({ sessionId: parseId(raw) });
+  return parsed.success ? parsed.data.sessionId : null;
 }
 
 // ── Static read paths (before /:id) ───────────────────────────────────────
@@ -305,11 +314,11 @@ router.post(
         return;
       }
       const userId = (req as AuthRequest).user?.userId;
-      const newId = getCustomerSessionRepository().addCartItem(id, {
-        ...(req.body as SessionCartAddInput),
-        user_id: userId,
-      });
-      res.json({ success: true, id: newId });
+      // LIRA-306 T081 (rule 13): the service method IPC and the offline
+      // replay call; same envelope (pinned by sessionsCart.pin.api.test).
+      res.json(
+        sessionService.addCartItem(id, req.body as SessionCartAddInput, userId),
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }
@@ -319,13 +328,12 @@ router.post(
 // DELETE /api/sessions/:id/cart — clear the whole cart
 router.delete("/:id/cart", writeGate, (req: Request, res: Response) => {
   try {
-    const id = parseId(req.params.id);
+    const id = sessionIdOf(req.params.id);
     if (id == null) {
       res.json({ success: false, error: "Invalid session ID" });
       return;
     }
-    getCustomerSessionRepository().clearCart(id);
-    res.json({ success: true });
+    res.json(sessionService.clearCart(id));
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -334,13 +342,17 @@ router.delete("/:id/cart", writeGate, (req: Request, res: Response) => {
 // DELETE /api/sessions/:id/cart/:itemId — remove one cart line
 router.delete("/:id/cart/:itemId", writeGate, (req: Request, res: Response) => {
   try {
-    const id = parseId(req.params.id);
-    if (id == null) {
+    const parsed = sessionCartRemoveSchema.safeParse({
+      sessionId: parseId(req.params.id),
+      itemId: req.params.itemId,
+    });
+    if (!parsed.success) {
       res.json({ success: false, error: "Invalid session ID" });
       return;
     }
-    getCustomerSessionRepository().removeCartItem(id, req.params.itemId);
-    res.json({ success: true });
+    res.json(
+      sessionService.removeCartItem(parsed.data.sessionId, parsed.data.itemId),
+    );
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -392,7 +404,7 @@ router.put(
 // POST /api/sessions/:id/close
 router.post("/:id/close", writeGate, async (req: Request, res: Response) => {
   try {
-    const id = parseId(req.params.id);
+    const id = sessionIdOf(req.params.id);
     if (id == null) {
       res.json({ success: false, error: "Invalid session ID" });
       return;
@@ -418,7 +430,7 @@ router.post("/:id/close", writeGate, async (req: Request, res: Response) => {
 // DELETE /api/sessions/:id
 router.delete("/:id", writeGate, async (req: Request, res: Response) => {
   try {
-    const id = parseId(req.params.id);
+    const id = sessionIdOf(req.params.id);
     if (id == null) {
       res.json({ success: false, error: "Invalid session ID" });
       return;

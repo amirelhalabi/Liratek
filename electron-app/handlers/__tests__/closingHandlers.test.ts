@@ -277,7 +277,7 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
 
       await handler(
         { sender: { id: 1 } },
-        { user_id: 0, drawer_name: "AGGREGATED", amounts: [] },
+        { user_id: 0, drawer_name: "AGGREGATED", amounts: [{ drawer_name: "General", currency_code: "USD", expected_amount: 10, physical_amount: 10 }] },
       );
 
       expect(mockClosingService.createCheckpoint).toHaveBeenCalledWith(
@@ -294,7 +294,7 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
 
       const result = await handler(
         { sender: { id: 1 } },
-        { user_id: 1, drawer_name: "General", amounts: [] },
+        { user_id: 1, drawer_name: "General", amounts: [{ drawer_name: "General", currency_code: "USD", expected_amount: 10, physical_amount: 10 }] },
       );
 
       expect(result).toEqual({ success: false, error: "Amounts required" });
@@ -309,10 +309,22 @@ describe("Closing Handlers (registerDatabaseHandlers' CLOSING section)", () => {
 
       const result = await handler(
         { sender: { id: 1 } },
-        { user_id: 1, drawer_name: "General", amounts: [] },
+        { user_id: 1, drawer_name: "General", amounts: [{ drawer_name: "General", currency_code: "USD", expected_amount: 10, physical_amount: 10 }] },
       );
 
       expect(result).toEqual({ success: false, error: "DB locked" });
+    });
+
+    it("LIRA-306 T103: validates with the REST twin's core schema — refused before the service (not proven failing-first)", async () => {
+      const handler = handlers.get("closing:create-checkpoint")!;
+
+      const result = await handler(
+        { sender: { id: 1 } },
+        { drawer_name: "General", amounts: [] },
+      );
+
+      expect(result).toEqual(expect.objectContaining({ success: false }));
+      expect(mockClosingService.createCheckpoint).not.toHaveBeenCalled();
     });
   });
 

@@ -15,6 +15,7 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getDebtRepository } from "./DebtRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { clientDay } from "../utils/requestDay.js";
+import { requestNow } from "../utils/requestNow.js";
 
 // =============================================================================
 // Entity Types
@@ -185,7 +186,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       INSERT INTO vouchers (
         code, client_id, client_name, client_phone, amount, currency_code,
         expiry_date, status, note, created_by, tenant_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
     const result = stmt.run(
       data.code,
@@ -198,6 +199,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       data.note,
       data.created_by,
       getCurrentTenantId(),
+      requestNow(),
     );
     return this.findByIdOrFail(Number(result.lastInsertRowid));
   }
@@ -221,8 +223,10 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
         .get(code, getCurrentTenantId());
       if (!exists) return code;
     }
-    // Extremely unlikely fallback — append a timestamp fragment
-    return `GIFT-${block()}-${Date.now().toString(36).toUpperCase().slice(-4)}`;
+    // Extremely unlikely fallback — append a timestamp fragment (the
+    // request's time, LIRA-306 FR-021 — never the machine clock)
+    const stamp = Date.parse(requestNow().replace(" ", "T") + "Z");
+    return `GIFT-${block()}-${stamp.toString(36).toUpperCase().slice(-4)}`;
   }
 
   /**
@@ -233,10 +237,10 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     const result = this.db
       .prepare(
         `UPDATE vouchers
-         SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, cancelled_by = ?, updated_at = CURRENT_TIMESTAMP
+         SET status = 'cancelled', cancelled_at = ?, cancelled_by = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND status = 'pending' AND tenant_id = ?`,
       )
-      .run(cancelledBy, id, getCurrentTenantId());
+      .run(requestNow(), cancelledBy, id, getCurrentTenantId());
     if (result.changes === 0) return null;
     return this.findById(id);
   }
@@ -290,11 +294,11 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     this.db
       .prepare(
         `UPDATE vouchers
-         SET status = 'redeemed', redeemed_at = CURRENT_TIMESTAMP, redeemed_by = ?,
+         SET status = 'redeemed', redeemed_at = ?, redeemed_by = ?,
              redeemed_in_transaction = ?, redeemed_transaction_id = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND tenant_id = ?`,
       )
-      .run(userId, context, transactionId, voucher.id, getCurrentTenantId());
+      .run(requestNow(), userId, context, transactionId, voucher.id, getCurrentTenantId());
 
     return this.findByIdOrFail(voucher.id);
   }

@@ -1,12 +1,13 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { validateRequest } from "../middleware/validation.js";
+import { validateRequest, validateParams } from "../middleware/validation.js";
 import {
   getCustomServiceService,
   createCustomServiceSchema,
   updateCustomServiceFulfillmentSchema,
   updateCustomServiceWorkStatusSchema,
   customServiceUpdateMetadataSchema,
+  customServiceIdParamSchema,
   isWorkStatus,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
@@ -115,10 +116,7 @@ router.post(
   (req, res): void => {
     try {
       const service = getCustomServiceService();
-      const result = service.setWorkStatus(
-        req.body.id,
-        req.body.work_status,
-      );
+      const result = service.setWorkStatus(req.body.id, req.body.work_status);
 
       if (!result.success) {
         // Rule 19(c) envelope parity — see /fulfillment above.
@@ -272,33 +270,41 @@ router.post(
 // DELETE /api/custom-services/:id - Delete service
 // Matches customServiceHandlers.ts's "custom-services:delete" IPC gate
 // (admin only) — rule 19(c): requireRole must match the desktop handler.
-router.delete("/:id", requireRole(["admin"]), (req, res): void => {
-  try {
-    const id = Number(req.params.id);
-    const service = getCustomServiceService();
-    const result = service.deleteService(id);
+// LIRA-306 rule 23 lift: the id is validated by the SAME core schema the IPC
+// handler and offline recording use (a bad id answers HTTP 200 +
+// { success:false } — validateParams' rule-19c envelope).
+router.delete(
+  "/:id",
+  requireRole(["admin"]),
+  validateParams(customServiceIdParamSchema),
+  (req, res): void => {
+    try {
+      const id = req.params.id as unknown as number;
+      const service = getCustomServiceService();
+      const result = service.deleteService(id);
 
-    if (!result.success) {
-      // Rule 19(c) envelope parity - see the POST route above.
+      if (!result.success) {
+        // Rule 19(c) envelope parity - see the POST route above.
+        res.json(result);
+        return;
+      }
+
+      // Mirrors customServiceHandlers.ts's custom-services:delete audit.
+      auditRest(req, {
+        action: "delete",
+        entity_type: "custom_service",
+        entity_id: String(id),
+        summary: `Deleted custom service #${id}`,
+      });
+
       res.json(result);
-      return;
+    } catch (error) {
+      logger.error({ error }, "Delete custom service error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to delete custom service" });
     }
-
-    // Mirrors customServiceHandlers.ts's custom-services:delete audit.
-    auditRest(req, {
-      action: "delete",
-      entity_type: "custom_service",
-      entity_id: String(id),
-      summary: `Deleted custom service #${id}`,
-    });
-
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Delete custom service error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to delete custom service" });
-  }
-});
+  },
+);
 
 export default router;
