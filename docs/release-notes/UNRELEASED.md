@@ -44,8 +44,9 @@ Every user, staff included, now has a My account page from the top bar: see your
 ### Change your own password and email
 Change your password from My account with your current one; your other devices are signed out. On the web app you can also change your email; it only changes once you open the confirmation link we send.
 
-### Your Google photo at the top (web app)
-If you sign in with Google, your Google photo now shows as your account picture, from your next Google sign-in.
+### Know where the cash goes
+When a customer pays off their debt, tick what the money is for: an item from a basket or from an earlier visit. Money for an OMT or Whish transfer goes to the transfer cash drawer, and a "Goes to" line shows the split before you confirm, on the debt payment and at the customer basket checkout.
+![Paying off a debt with the OMT transfer ticked](whats-new/1.34.0/debt-picker.png)
 
 ### Receipts show your header
 The receipt header you typed in Settings now prints at the top of sale and repair receipts.
@@ -246,6 +247,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - The Cash Out window is now titled "Cash Out Credit" and its button says "Confirm Cash Out", so it no longer looks like a repayment.
 
 ## 🌐 Web app
+
+- If you sign in with Google, your Google photo now shows as your account picture, from your next Google sign-in.
 
 - Web app: the recent sales list on the POS page now shows the day you pick — before, it always showed today's sales.
 - Web app: pages and pop-ups no longer get cut off at the bottom when the screen is enlarged. To make things bigger or smaller, use your browser's zoom (Ctrl + / Ctrl −, or ⌘ + / ⌘ − on a Mac); the size option in My account is now only in the desktop app.
