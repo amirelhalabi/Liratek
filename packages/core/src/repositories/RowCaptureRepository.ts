@@ -53,6 +53,15 @@ export class RowCaptureRepository {
     return out;
   }
 
+  /** Products whose stock count is below zero (the "stock count was off"
+   *  probe around a replayed booking, FR-028). */
+  negativeStock(): Map<number, { name: string; stock: number }> {
+    const rows = this.db
+      .prepare(`SELECT id, name, stock_quantity FROM products WHERE tenant_id = ? AND stock_quantity < 0`)
+      .all(getCurrentTenantId()) as Array<{ id: number; name: string; stock_quantity: number }>;
+    return new Map(rows.map((r) => [r.id, { name: r.name, stock: r.stock_quantity }]));
+  }
+
   /** Highest id per table (copy high-water marks, R15). */
   highWaterMarks(): SequenceSnapshot {
     return this.snapshotSequences();

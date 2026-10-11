@@ -4,6 +4,7 @@
  * Business logic layer for custom service operations.
  */
 
+import { isOfflineReplay } from "../db/replayGuard.js";
 import {
   CustomServiceRepository,
   getCustomServiceRepository,
@@ -66,7 +67,9 @@ export class CustomServiceService {
     // POS reads (SalesService.processSale) gates whether an inventory-backed
     // service's stock decrement is a hard guard or an unguarded (may go
     // negative) write; mirrors that call site exactly.
+    // LIRA-306 FR-028: a replayed offline booking always takes this path.
     const allowOutOfStock =
+      isOfflineReplay() ||
       getSettingsService().getSettingValue("allow_out_of_stock_sales")
         ?.value === "1";
     return this.repo.createService(data, undefined, { allowOutOfStock });

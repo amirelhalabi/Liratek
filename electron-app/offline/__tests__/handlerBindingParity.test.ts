@@ -39,8 +39,18 @@ jest.mock("electron", () => {
   };
   return {
     ipcMain,
-    app: { getPath: jest.fn(() => "/tmp"), getVersion: jest.fn(() => "0.0.0"), isPackaged: false, on: jest.fn(), relaunch: jest.fn(), exit: jest.fn() },
-    BrowserWindow: { getAllWindows: jest.fn(() => []), fromWebContents: jest.fn() },
+    app: {
+      getPath: jest.fn(() => "/tmp"),
+      getVersion: jest.fn(() => "0.0.0"),
+      isPackaged: false,
+      on: jest.fn(),
+      relaunch: jest.fn(),
+      exit: jest.fn(),
+    },
+    BrowserWindow: {
+      getAllWindows: jest.fn(() => []),
+      fromWebContents: jest.fn(),
+    },
     dialog: { showOpenDialog: jest.fn(), showSaveDialog: jest.fn() },
     shell: { openExternal: jest.fn() },
     net: { request: jest.fn() },
@@ -48,7 +58,9 @@ jest.mock("electron", () => {
   };
 });
 jest.mock("../../main.js", () => ({ getDb: jest.fn() }));
-jest.mock("../../services/ReportService.js", () => ({ ReportService: jest.fn() }));
+jest.mock("../../services/ReportService.js", () => ({
+  ReportService: jest.fn(),
+}));
 jest.mock("../../session", () => ({
   requireRole: jest.fn(() => ({ ok: true, userId: 1, role: "admin" })),
   requireAdminRole: jest.fn(() => ({ ok: true, userId: 1, role: "admin" })),
@@ -58,7 +70,15 @@ jest.mock("../../session", () => ({
 jest.mock("../../handlers/auditHelper", () => ({ audit: jest.fn() }));
 
 import * as core from "@liratek/core";
-import { CHANNEL_POLICY, MAP_EXCLUDED_TABLES, getOfflineBinding, initFixedTenantContext, recordedSchema, runWithTenant, type OfflineBinding } from "@liratek/core";
+import {
+  CHANNEL_POLICY,
+  MAP_EXCLUDED_TABLES,
+  getOfflineBinding,
+  initFixedTenantContext,
+  recordedSchema,
+  runWithTenant,
+  type OfflineBinding,
+} from "@liratek/core";
 import { loadAllFixtures } from "../../../packages/core/src/offline/testHelpers/bindingFixtures";
 // Agent B family bindings — imported directly until they are registered in
 // the registry (bindings/index.ts); afterwards the registry returns the same
@@ -71,9 +91,19 @@ import { DEBTS_REST_BINDINGS } from "../../../packages/core/src/offline/bindings
 import { EXPENSES_REST_BINDINGS } from "../../../packages/core/src/offline/bindings/expensesRest";
 
 const EXTRA = new Map<string, OfflineBinding>(
-  [SALES_REST_BINDINGS, SESSIONS_BINDINGS, FINANCIAL_BINDINGS, RECHARGE_BINDINGS, DEBTS_REST_BINDINGS, EXPENSES_REST_BINDINGS].flat().map((b) => [b.channel, b]),
+  [
+    SALES_REST_BINDINGS,
+    SESSIONS_BINDINGS,
+    FINANCIAL_BINDINGS,
+    RECHARGE_BINDINGS,
+    DEBTS_REST_BINDINGS,
+    EXPENSES_REST_BINDINGS,
+  ]
+    .flat()
+    .map((b) => [b.channel, b]),
 );
-const bindingFor = (ch: string): OfflineBinding | undefined => getOfflineBinding(ch) ?? EXTRA.get(ch);
+const bindingFor = (ch: string): OfflineBinding | undefined =>
+  getOfflineBinding(ch) ?? EXTRA.get(ch);
 
 const HANDLERS_DIR = path.join(__dirname, "../../handlers");
 const UNPARSEABLE = new Set(["setupHandlers.ts", "updaterHandlers.ts"]);
@@ -88,22 +118,43 @@ let calls: Call[] = [];
 /** Spy + stub every prototype method of every exported `*Service` class. */
 function spyServices(): void {
   for (const [name, value] of Object.entries(core)) {
-    if (typeof value !== "function" || !/Service$/.test(name) || !value.prototype) continue;
+    if (
+      typeof value !== "function" ||
+      !/Service$/.test(name) ||
+      !value.prototype
+    )
+      continue;
     const proto = value.prototype as Record<string, unknown>;
     for (const m of Object.getOwnPropertyNames(proto)) {
       if (m === "constructor") continue;
       const desc = Object.getOwnPropertyDescriptor(proto, m);
       if (!desc || typeof desc.value !== "function") continue;
-      jest.spyOn(proto as never, m as never).mockImplementation(((...args: unknown[]) => {
-        calls.push({ method: `${name}.${m}`, args: JSON.parse(JSON.stringify(args)) as unknown[] });
-        return { success: true, id: 1, sessionId: 1, entity: { id: 1 }, data: { id: 1, claim: { id: 1, action: "repair" } }, oldValues: {}, itemCount: 0 };
+      jest.spyOn(proto as never, m as never).mockImplementation(((
+        ...args: unknown[]
+      ) => {
+        calls.push({
+          method: `${name}.${m}`,
+          args: JSON.parse(JSON.stringify(args)) as unknown[],
+        });
+        return {
+          success: true,
+          id: 1,
+          sessionId: 1,
+          entity: { id: 1 },
+          data: { id: 1, claim: { id: 1, action: "repair" } },
+          oldValues: {},
+          itemCount: 0,
+        };
       }) as never);
     }
   }
 }
 
 /** The handler's positional IPC arguments for a named payload (inverse of namedPayload). */
-function positional(channel: string, payload: Record<string, unknown>): unknown[] {
+function positional(
+  channel: string,
+  payload: Record<string, unknown>,
+): unknown[] {
   const e = CHANNEL_POLICY.find((p) => p.channel === channel)!;
   if (!e.argNames) return [payload];
   const args: unknown[] = e.argNames.map((n) => payload[n]);
@@ -122,10 +173,15 @@ beforeAll(() => {
   db.exec(fs.readFileSync(path.join(__dirname, "../../create_db.sql"), "utf8"));
   (globalThis as G).__LIRATEK_TEST_DB__ = db;
   initFixedTenantContext(1);
-  for (const f of fs.readdirSync(HANDLERS_DIR).filter((x) => x.endsWith(".ts") && !UNPARSEABLE.has(x)).sort()) {
+  for (const f of fs
+    .readdirSync(HANDLERS_DIR)
+    .filter((x) => x.endsWith(".ts") && !UNPARSEABLE.has(x))
+    .sort()) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require(path.join(HANDLERS_DIR, f)) as Record<string, unknown>;
-    for (const [n, fn] of Object.entries(mod)) if (/^register\w*Handlers$/.test(n) && typeof fn === "function") (fn as () => unknown)();
+    for (const [n, fn] of Object.entries(mod))
+      if (/^register\w*Handlers$/.test(n) && typeof fn === "function")
+        (fn as () => unknown)();
   }
   spyServices();
 });
@@ -136,7 +192,11 @@ afterAll(() => {
 });
 
 const fixtures = Object.values(loadAllFixtures()).flat();
-const RECORDABLE = CHANNEL_POLICY.filter((e) => e.cls === "offline" || e.cls === "checkpoint").map((e) => e.channel).sort();
+const RECORDABLE = CHANNEL_POLICY.filter(
+  (e) => e.cls === "offline" || e.cls === "checkpoint",
+)
+  .map((e) => e.channel)
+  .sort();
 const firstFixture = (ch: string) => fixtures.find((f) => f.channel === ch);
 /**
  * Channels whose binding deliberately differs from the IPC handler — only the
@@ -147,44 +207,75 @@ const INTENTIONAL: Record<string, string> = {
     "FR-032 / N8: Apply recomputes the expected amounts on the server at the event's time (ClosingService.getDrawerBalancesAsOf) instead of booking the PC's figures",
 };
 
-const CASES = RECORDABLE.filter((ch) => bindingFor(ch) && firstFixture(ch)).map((ch) => [ch] as [string]);
+const CASES = RECORDABLE.filter((ch) => bindingFor(ch) && firstFixture(ch)).map(
+  (ch) => [ch] as [string],
+);
 
 describe("IPC handler ↔ offline binding parity (T110)", () => {
   it("covers the bound channels (never vacuous)", () => {
     expect(CASES.length).toBeGreaterThanOrEqual(36);
   });
 
-  it.each(CASES)("%s — same service call(s), equal arguments", async (channel) => {
-    const payload = firstFixture(channel)!.payload;
-    const handler = handlers.get(channel);
-    expect(handler).toBeDefined();
+  it.each(CASES)(
+    "%s — same service call(s), equal arguments",
+    async (channel) => {
+      const payload = firstFixture(channel)!.payload;
+      const handler = handlers.get(channel);
+      expect(handler).toBeDefined();
 
-    calls = [];
-    await handler!({ sender: { id: 1 } }, ...positional(channel, payload));
-    const viaIpc = calls;
+      calls = [];
+      await handler!({ sender: { id: 1 } }, ...positional(channel, payload));
+      const viaIpc = calls;
 
-    calls = [];
-    const parsed = recordedSchema(channel)!.parse(payload) as Record<string, unknown>;
-    await runWithTenant(1, () => bindingFor(channel)!.run(parsed, { tenantId: 1, actorUserId: 1, eventId: "parity", deviceId: 1 }));
-    const viaBinding = calls;
+      calls = [];
+      const parsed = recordedSchema(channel)!.parse(payload) as Record<
+        string,
+        unknown
+      >;
+      await runWithTenant(1, () =>
+        bindingFor(channel)!.run(parsed, {
+          tenantId: 1,
+          actorUserId: 1,
+          eventId: "parity",
+          deviceId: 1,
+        }),
+      );
+      const viaBinding = calls;
 
-    expect(viaBinding.length).toBeGreaterThan(0);
-    if (INTENTIONAL[channel]) {
-      expect(viaBinding[viaBinding.length - 1].method).toBe(viaIpc[viaIpc.length - 1]?.method);
-      return;
-    }
-    expect(viaBinding).toEqual(viaIpc);
-  });
+      expect(viaBinding.length).toBeGreaterThan(0);
+      if (INTENTIONAL[channel]) {
+        expect(viaBinding[viaBinding.length - 1].method).toBe(
+          viaIpc[viaIpc.length - 1]?.method,
+        );
+        return;
+      }
+      expect(viaBinding).toEqual(viaIpc);
+    },
+  );
 
   it("control: the comparison sees a drift (a different actor changes the recorded call)", async () => {
     const payload = firstFixture("sales:update-metadata")!.payload;
     calls = [];
-    await handlers.get("sales:update-metadata")!({ sender: { id: 1 } }, payload);
+    await handlers.get("sales:update-metadata")!(
+      { sender: { id: 1 } },
+      payload,
+    );
     const viaIpc = calls;
     calls = [];
-    const parsed = recordedSchema("sales:update-metadata")!.parse(payload) as Record<string, unknown>;
-    db.exec(`INSERT OR IGNORE INTO users (id, tenant_id, username, password_hash, role, is_active) VALUES (2, 1, 'cashier', '', 'staff', 1)`);
-    await runWithTenant(1, () => bindingFor("sales:update-metadata")!.run(parsed, { tenantId: 1, actorUserId: 2, eventId: "control", deviceId: 1 }));
+    const parsed = recordedSchema("sales:update-metadata")!.parse(
+      payload,
+    ) as Record<string, unknown>;
+    db.exec(
+      `INSERT OR IGNORE INTO users (id, tenant_id, username, password_hash, role, is_active) VALUES (2, 1, 'cashier', '', 'staff', 1)`,
+    );
+    await runWithTenant(1, () =>
+      bindingFor("sales:update-metadata")!.run(parsed, {
+        tenantId: 1,
+        actorUserId: 2,
+        eventId: "control",
+        deviceId: 1,
+      }),
+    );
     expect(calls).not.toEqual(viaIpc);
     expect(calls[0].method).toBe(viaIpc[0].method);
   });

@@ -10,6 +10,8 @@ import {
   Menu,
   dialog,
   webContents,
+  safeStorage,
+  shell,
 } from "electron";
 import { startLicenseSync } from "./licenseSync.js";
 import * as licenseHandlers from "./handlers/licenseHandlers.js";
@@ -25,7 +27,15 @@ import {
   initFixedTenantContext,
   logger,
 } from "@liratek/core";
-import { purgeExpiredSessions } from "./session.js";
+import { purgeExpiredSessions, getSession } from "./session.js";
+// LIRA-306 — offline desktop fallback (paired PCs: standby / offline / finishing).
+import {
+  prepareOfflineBoot,
+  openPairedDatabase,
+  installOfflineRecorder,
+  startOfflineRuntime,
+  type OfflineBoot,
+} from "./offline/bootstrap.js";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import * as fs from "fs";
@@ -60,6 +70,16 @@ const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 let db: Database.Database;
+// LIRA-306: decided once at boot; a mode change relaunches the app.
+let offlineBoot: OfflineBoot;
+
+/** Relaunch after the current IPC reply has been sent. */
+function relaunchApp(): void {
+  setTimeout(() => {
+    app.relaunch();
+    app.exit(0);
+  }, 300);
+}
 
 // ── Global error handlers ──────────────────────────────────────────────────
 // Catch any unhandled error in the main process before it silently crashes.
@@ -227,17 +247,53 @@ app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
   }
 
+  // LIRA-306: which mode this PC boots into. Never paired → standalone
+  // (today's app, every step below unchanged).
+  offlineBoot = prepareOfflineBoot({
+    userData: app.getPath("userData"),
+    safeStorage,
+    DatabaseCtor: Database,
+  });
+  const steps = offlineBoot.decision.steps;
+
   // Initialize database and services
   initializeBackend();
 
+  // LIRA-306: the recorder wraps ipcMain.handle BEFORE any handler registers
+  // (standalone: every call passes through untouched).
+  const offlineParts = installOfflineRecorder(offlineBoot, ipcMain, {
+    db: () => getDb(),
+    actorOf: (senderId) => getSession(senderId)?.userId ?? null,
+    appVersion: app.getVersion(),
+  });
+
   // Register IPC handlers
   await registerHandlers();
+
+  const updater = await import("./handlers/updaterHandlers.js");
+  startOfflineRuntime(offlineBoot, offlineParts, {
+    db: () => db ?? null,
+    closeDb: () => {
+      try {
+        db?.close();
+      } catch {
+        // already closed
+      }
+    },
+    DatabaseCtor: Database,
+    relaunch: relaunchApp,
+    openExternal: (url) => shell.openExternal(url),
+    installUpdate: () => updater.installDownloadedUpdate(),
+    autoDownloadUpdate: () => updater.autoDownloadForStandby(),
+    appVersion: app.getVersion(),
+  });
 
   // Licence sync: once now, then every few hours. Fire-and-forget --
   // it fails open on every error path, so nothing here can stop the app
   // from starting or a shop from selling. Skipped under the e2e harness,
   // where an outbound call would be a network dependency in a test.
-  if (process.env.NODE_ENV !== "test") {
+  // LIRA-306: skipped on a paired PC (the server owns the shop's licence).
+  if (process.env.NODE_ENV !== "test" && steps.licenseSync) {
     startLicenseSync();
   }
 
@@ -247,30 +303,34 @@ app.whenReady().then(async () => {
   // (wal_checkpoint(TRUNCATE) + copyFileSync of the whole DB) — a once-per-run
   // event-loop stall right in the window where the e2e debugger-connection
   // drop was observed. Manual backups via IPC still work (handlers register).
-  if (process.env.NODE_ENV !== "test") {
+  // LIRA-306: never on a paired PC (its copies are the server's).
+  if (process.env.NODE_ENV !== "test" && steps.hourlyBackup) {
     startHourlyBackup();
   }
 
   createWindow();
 
   // Auto-check for updates in background (packaged builds only, setting-gated)
-  try {
-    const { autoCheckForUpdates } =
-      await import("./handlers/updaterHandlers.js");
-    autoCheckForUpdates((key: string) => {
-      try {
-        const row = db
-          .prepare(
-            "SELECT value FROM system_settings WHERE key_name = ? LIMIT 1",
-          )
-          .get(key) as { value?: string } | undefined;
-        return row?.value;
-      } catch {
-        return undefined;
-      }
-    });
-  } catch {
-    // Non-fatal: auto-check is a convenience feature
+  // LIRA-306: paired PCs follow updatePolicy instead (startOfflineRuntime).
+  if (steps.autoUpdateCheck) {
+    try {
+      const { autoCheckForUpdates } =
+        await import("./handlers/updaterHandlers.js");
+      autoCheckForUpdates((key: string) => {
+        try {
+          const row = db
+            .prepare(
+              "SELECT value FROM system_settings WHERE key_name = ? LIMIT 1",
+            )
+            .get(key) as { value?: string } | undefined;
+          return row?.value;
+        } catch {
+          return undefined;
+        }
+      });
+    } catch {
+      // Non-fatal: auto-check is a convenience feature
+    }
   }
 
   app.on("activate", () => {
@@ -461,6 +521,27 @@ function initializeDatabase() {
 function initializeBackend() {
   logger.info("Initializing backend services...");
 
+  // LIRA-306: a paired PC opens ONLY its own copy / working copy (never the
+  // standalone file or a db-path.txt share), runs no migrations, seeds
+  // nothing, and takes the shop id from the copy — never the fixed 1.
+  if (offlineBoot.decision.mode !== "standalone") {
+    const paired = openPairedDatabase(offlineBoot, Database);
+    if (paired) {
+      db = paired;
+      initCoreDatabase(paired, offlineBoot.decision.dbFile ?? undefined);
+    }
+    initFixedTenantContext(offlineBoot.decision.tenantId);
+    logger.info(
+      {
+        mode: offlineBoot.decision.mode,
+        tenantId: offlineBoot.decision.tenantId,
+        hasDb: !!paired,
+      },
+      "Paired PC backend initialized",
+    );
+    return;
+  }
+
   // Initialize database
   initializeDatabase();
 
@@ -580,6 +661,7 @@ async function registerHandlers() {
     const warrantyHandlers = await import("./handlers/warrantyHandlers.js");
     const databaseResetHandlers =
       await import("./handlers/databaseResetHandlers.js");
+    const offlineHandlers = await import("./handlers/offlineHandlers.js");
 
     // Register all handlers
     authHandlers.registerAuthHandlers();
@@ -627,6 +709,7 @@ async function registerHandlers() {
     warrantyHandlers.registerWarrantyHandlers();
     licenseHandlers.registerLicenseHandlers();
     databaseResetHandlers.registerDatabaseResetHandlers();
+    offlineHandlers.registerOfflineHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {
@@ -640,7 +723,10 @@ async function registerHandlers() {
     logger.info("All IPC handlers registered");
 
     // Check and record Loto monthly fee if it's the first Monday
-    lotoHandlers.checkLotoMonthlyFee();
+    // LIRA-306: not on a paired PC — it would write a row no event explains.
+    if (offlineBoot.decision.steps.lotoMonthlyFee) {
+      lotoHandlers.checkLotoMonthlyFee();
+    }
 
     // Start periodic session cleanup
     startSessionCleanup();
@@ -659,13 +745,20 @@ function startSessionCleanup() {
 
   const cleanupSessions = () => {
     try {
-      const sessionRepo = getSessionRepository();
+      // LIRA-306: a paired PC's copy is read-only outside recorded windows —
+      // only the in-memory purge runs there.
+      const dbCleanup = offlineBoot.decision.steps.sessionDbCleanup;
+      const sessionRepo = dbCleanup ? getSessionRepository() : null;
 
       // Delete expired sessions (past expires_at)
-      const expiredCount = sessionRepo.deleteExpiredSessions();
+      const expiredCount = sessionRepo
+        ? sessionRepo.deleteExpiredSessions()
+        : 0;
 
       // Delete inactive short sessions (30+ min of inactivity)
-      const inactiveCount = sessionRepo.deleteInactiveSessions();
+      const inactiveCount = sessionRepo
+        ? sessionRepo.deleteInactiveSessions()
+        : 0;
 
       // Purge idle in-memory IPC sessions and tell the affected renderers,
       // so they can silently re-restore (rememberMe) or return to login.

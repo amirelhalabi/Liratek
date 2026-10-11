@@ -1766,14 +1766,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         const stmt = this.db.prepare(`
             INSERT INTO supplier_ledger (
               supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto, tenant_id, created_at
-            ) VALUES (?, 'STOCK_INTAKE', ?, 0, ?, ?, 0, ?, CURRENT_TIMESTAMP)
+            ) VALUES (?, 'STOCK_INTAKE', ?, 0, ?, ?, 0, ?, ?)
           `);
+        // LIRA-306 FR-021: reached offline (inventory:receive-stock) — the
+        // event's own time on replay, the request time otherwise.
         const res = stmt.run(
           data.supplier_id,
           amountUsd,
           note,
           data.created_by,
           tenantId,
+          requestNow(),
         );
         const ledgerEntryId = Number(res.lastInsertRowid);
 
@@ -1982,11 +1985,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       );
     }
 
+    // LIRA-306 FR-021: reached offline (receive-stock attached to a recorded
+    // debt) — the event's own time on replay.
     this.db
       .prepare(
-        `UPDATE supplier_ledger SET attached_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
+        `UPDATE supplier_ledger SET attached_at = ? WHERE id = ? AND tenant_id = ?`,
       )
-      .run(data.ledger_entry_id, tenantId);
+      .run(requestNow(), data.ledger_entry_id, tenantId);
 
     return { transactionId: row.transaction_id };
   }

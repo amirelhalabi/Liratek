@@ -30,6 +30,7 @@ import {
   Gift,
   Pin,
   ShieldCheck,
+  CloudOff,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -39,6 +40,7 @@ import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { useSidebarFavorites } from "@/shared/hooks/useSidebarFavorites";
 import { isRechargeModuleKey } from "@liratek/core";
+import { isElectron } from "@/api/backendApi";
 
 // Map Lucide icon names (stored in DB) to actual icon components
 const iconMap: Record<string, LucideIcon> = {
@@ -301,6 +303,30 @@ export default function Sidebar({
             {!isCollapsed && (
               <span className="opacity-100 transition-opacity duration-200">
                 Checkpoint Timeline
+              </span>
+            )}
+          </NavLink>
+        )}
+
+        {/* LIRA-306 US3 — offline work to review: web app, admins (E1). */}
+        {isAdmin && !isElectron() && (
+          <NavLink
+            to="/offline-review"
+            className={({ isActive }) =>
+              clsx(
+                "flex items-center gap-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
+                isActive
+                  ? "bg-violet-600 text-white"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-white",
+                isCollapsed ? "justify-center px-1" : "px-3",
+              )
+            }
+            title={isCollapsed ? "Offline work" : undefined}
+          >
+            <CloudOff size={20} className="min-w-[20px]" />
+            {!isCollapsed && (
+              <span className="opacity-100 transition-opacity duration-200">
+                Offline work
               </span>
             )}
           </NavLink>

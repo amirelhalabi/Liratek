@@ -303,6 +303,9 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         tenantId,
       );
 
+      // LIRA-306 (FR-021): created_at = a typed time when given, else the
+      // request/event time (requestNow) — comment kept out of the .run()
+      // argument list so check-bind-arity counts the arguments correctly.
       const result = this.db
         .prepare(
           `INSERT INTO exchange_transactions (
@@ -338,7 +341,6 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           data.clientName ?? null,
           note,
           tenantId,
-          // LIRA-306 (FR-021): a typed time wins, else the request/event time.
           data.transaction_time ?? requestNow(),
         );
 

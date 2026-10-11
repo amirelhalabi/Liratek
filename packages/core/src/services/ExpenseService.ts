@@ -1,3 +1,4 @@
+import { isOfflineReplay } from "../db/replayGuard.js";
 import {
   ExpenseRepository,
   ExpenseEntity,
@@ -58,7 +59,11 @@ export class ExpenseService {
     try {
       assertTransactionTime(data.transaction_time);
 
-      const id = this.repo.createStockExpense(data, userId);
+      // LIRA-306 FR-028: a replayed offline stock use is booked even when
+      // the count says the shelf is empty (the count was off).
+      const id = this.repo.createStockExpense(data, userId, {
+        allowOutOfStock: isOfflineReplay(),
+      });
 
       expenseLogger.info(
         {

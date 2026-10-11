@@ -1,3 +1,4 @@
+import { isOfflineReplay } from "../db/replayGuard.js";
 import {
   MAINTENANCE_ALREADY_PAID_ERROR,
   MaintenanceRepository,
@@ -320,7 +321,8 @@ export class MaintenanceService {
           // comparison consistent. Do not reorder this — a later "tidy up"
           // would reintroduce the bug.
           this.repo.syncParts(params.id, params.parts, {
-            allowOutOfStock: params.allowOutOfStock,
+            // LIRA-306 FR-028: a replayed offline repair always may use parts
+            allowOutOfStock: params.allowOutOfStock || isOfflineReplay(),
           });
 
           const jobAfterParts = this.repo.findById(params.id);
@@ -390,7 +392,8 @@ export class MaintenanceService {
           if (jobPhone) this.repo.setJobClientPhone(newId, jobPhone);
 
           this.repo.syncParts(newId, params.parts, {
-            allowOutOfStock: params.allowOutOfStock,
+            // LIRA-306 FR-028: a replayed offline repair always may use parts
+            allowOutOfStock: params.allowOutOfStock || isOfflineReplay(),
           });
 
           const jobAfterParts = this.repo.findById(newId);

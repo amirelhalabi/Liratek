@@ -651,7 +651,11 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
    * `_markSourceRefunded` (expense soft-void) and `restoreExpenseStock`
    * (inventory).
    */
-  createStockExpense(data: CreateStockExpenseData, userId: number): number {
+  createStockExpense(
+    data: CreateStockExpenseData,
+    userId: number,
+    opts?: { allowOutOfStock?: boolean },
+  ): number {
     const tenantId = getCurrentTenantId();
     const transactionType = STOCK_EXPENSE_TRANSACTION_TYPES[data.source];
     const description = data.description?.trim();
@@ -689,12 +693,21 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
           }
         }
 
-        const taken = this.db
-          .prepare(
-            `UPDATE products SET stock_quantity = stock_quantity - ?
-             WHERE id = ? AND tenant_id = ? AND stock_quantity >= ?`,
-          )
-          .run(data.quantity, product.id, tenantId, data.quantity);
+        // LIRA-306 FR-028 — `allowOutOfStock` (offline replay only) takes
+        // the unguarded decrement, like POS's opt-in: stock may go negative.
+        const taken = opts?.allowOutOfStock
+          ? this.db
+              .prepare(
+                `UPDATE products SET stock_quantity = stock_quantity - ?
+                 WHERE id = ? AND tenant_id = ?`,
+              )
+              .run(data.quantity, product.id, tenantId)
+          : this.db
+              .prepare(
+                `UPDATE products SET stock_quantity = stock_quantity - ?
+                 WHERE id = ? AND tenant_id = ? AND stock_quantity >= ?`,
+              )
+              .run(data.quantity, product.id, tenantId, data.quantity);
         if (taken.changes === 0) {
           throw new BusinessRuleError(
             `Not enough stock for "${product.name}" (${product.stock_quantity ?? 0} available)`,

@@ -26,3 +26,15 @@ it("shows nothing when there are no warnings", () => {
   expect(spy).not.toHaveBeenCalled();
   spy.mockRestore();
 });
+
+// LIRA-306 T137 (FR-013, O-new-2): an offline PC's oversell comes back as a
+// sale warning from core (SalesRepository stockAdvisory) and reaches the
+// cashier through this same path — no POS-specific branch. Pins the contract;
+// not a failing-first guard (the path already existed).
+it("shows the offline stock advisory", () => {
+  const spy = jest.spyOn(appEvents, "emit");
+  const msg = 'Stock count says 0 for "Charger" — sale recorded. The count will be checked when this PC is back online.';
+  emitSaleWarnings({ success: true, warnings: [msg] });
+  expect(spy).toHaveBeenCalledWith("notification:show", msg, "warning");
+  spy.mockRestore();
+});

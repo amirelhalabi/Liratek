@@ -6695,6 +6695,7 @@ Simulator: simulated outage → all 5 tabs, Home/Sell covered, Settings usable; 
 | **Plan** | `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (D1–D5, 2026-09-27) — D2 revoked by N1 |
 | **Spec** | `specs/306-offline-desktop-fallback/` (replaces the superseded lock-based design committed in a3698788) |
 | **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §4 (N1–N9 owner; O-new-1… agent) |
+| **What users will notice (so far)** | Web app, admins: an "Offline work" page (side menu) to review what a PC did offline, and a "Paired PCs" tab in Settings — both empty until a desktop PC is paired for offline work. |
 
 **Owner answers 2026-10-11:** G0 approved (device key per PC; offline work credited to the real cashier); O-new-3, O-new-4, O-new-6/9 confirmed. See decisions log §4.
 

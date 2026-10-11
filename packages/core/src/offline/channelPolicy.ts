@@ -512,7 +512,8 @@ const READ: readonly string[] = [
 ];
 
 /** Classified ahead of registration (T122/T136 register them). */
-export const PLANNED_CHANNELS: readonly string[] = ["offline:status", "offline:pair", "offline:unpair", "offline:go-offline", "offline:back-to-web", "offline:send-now", "offline:open-web-app", "offline:install-update"];
+/** Classified ahead of registration — empty since T136 registered the last offline:* channels. */
+export const PLANNED_CHANNELS: readonly string[] = [];
 
 /** Recordable channels with no shared core schema yet (rule 23 lifts) — 23 at design time, 18 after the US1 lifts (T041). Must be empty before release (T077). */
 export const PENDING_LIFT: readonly string[] = [

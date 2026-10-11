@@ -2475,8 +2475,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     this.execute(
       `INSERT INTO customer_session_transactions
-         (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp)
-       VALUES (?, ?, 'session_item_refund', ?, ?, ?, ?, ?, ?)`,
+         (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, created_at)
+       VALUES (?, ?, 'session_item_refund', ?, ?, ?, ?, ?, ?, ?)`,
       tenantId,
       sessionId,
       saleId,
@@ -2485,6 +2485,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       0,
       -totalProfit,
       0,
+      requestNow(),
     );
 
     return refundTxnId;
@@ -2846,8 +2847,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     const insertReversal = this.db.prepare(
       `INSERT INTO debt_ledger (
-        client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id, note, created_by, tenant_id
-      ) VALUES (?, 'Refund Reversal', ?, ?, NULL, ?, 'Debt cancelled by session basket void/refund', ?, ?)`,
+        client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id, note, created_by, tenant_id, created_at
+      ) VALUES (?, 'Refund Reversal', ?, ?, NULL, ?, 'Debt cancelled by session basket void/refund', ?, ?, ?)`,
     );
 
     // The invariant, now applied per row: cancel exactly what's still
@@ -2884,6 +2885,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         sessionId,
         userId,
         tenantId,
+        requestNow(),
       );
     }
     for (const d of creditDepositRows) {
@@ -2894,6 +2896,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         sessionId,
         userId,
         tenantId,
+        requestNow(),
       );
     }
   }
@@ -4894,8 +4897,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // and the Debts basket view (SESSION_ITEM_REFUND_PLAN.md §5).
       this.execute(
         `INSERT INTO customer_session_transactions
-           (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp)
-         VALUES (?, ?, 'session_item_refund', ?, ?, ?, ?, ?, ?)`,
+           (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, created_at)
+         VALUES (?, ?, 'session_item_refund', ?, ?, ?, ?, ?, ?, ?)`,
         tenantId,
         sessionId,
         original.source_id,
@@ -4907,6 +4910,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           ? -lines.reduce((sum, l) => sum + l.profitUsd, 0)
           : -original.profit_usd) + keptUsd,
         (isSaleMember ? 0 : -original.profit_lbp) + keptLbp,
+        requestNow(),
       );
 
       // ACCOUNT FIRST — finding #10: credited to `debtClientId` (the client
@@ -4915,8 +4919,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       if (accountReductionUsd > 0.0001 || accountReductionLbp > 0.0001) {
         this.execute(
           `INSERT INTO debt_ledger (
-             client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id, note, created_by, tenant_id
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id, note, created_by, tenant_id, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           debtClientId,
           SESSION_ITEM_REFUND_CREDIT_TYPE,
           -accountReductionUsd,
@@ -4926,6 +4930,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           `Session #${sessionId} basket item refund — account reduced`,
           userId,
           tenantId,
+          requestNow(),
         );
       }
 
@@ -5245,8 +5250,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       for (const row of creditRows) {
         this.execute(
           `INSERT INTO debt_ledger (
-             client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id, note, created_by, tenant_id
-           ) VALUES (?, 'Session Debt', ?, ?, ?, ?, ?, ?, ?)`,
+             client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id, note, created_by, tenant_id, created_at
+           ) VALUES (?, 'Session Debt', ?, ?, ?, ?, ?, ?, ?, ?)`,
           row.client_id,
           -row.amount_usd,
           -row.amount_lbp,
@@ -5255,6 +5260,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           `Debt re-charged by undo refund #${params.refundTransactionId}`,
           params.userId,
           tenantId,
+          requestNow(),
         );
       }
 

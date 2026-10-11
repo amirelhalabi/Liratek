@@ -41,6 +41,21 @@ export function isOfflineReplay(): boolean {
   return activeToken !== null && replayAls.getStore() === activeToken;
 }
 
+// LIRA-306 (FR-013, O-new-2) — the OTHER offline stock switch: set once at
+// boot by the desktop when it runs in offline mode on its working copy. The
+// copy's stock count may be minutes old, so a sale of an item it shows as out
+// of stock is recorded with a warning (the server later books it and flags
+// "stock count was off"). Never set on the server or a standalone desktop.
+let pcOfflineMode = false;
+
+export function setPcOfflineMode(on: boolean): void {
+  pcOfflineMode = on;
+}
+
+export function isPcOfflineMode(): boolean {
+  return pcOfflineMode;
+}
+
 /**
  * Run `fn` as THE replay window: one at a time per process; statements from
  * other async contexts are refused until it settles.

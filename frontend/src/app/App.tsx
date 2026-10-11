@@ -80,6 +80,10 @@ const SetupWizard = lazyWithReload(
 const AuditPage = lazyWithReload(
   () => import("@/features/audit/pages/AuditPage"),
 );
+// LIRA-306 US3 — offline work to review (web app, admins).
+const OfflineReview = lazyWithReload(
+  () => import("@/features/offline/pages/OfflineReview"),
+);
 const CustomerSessions = lazyWithReload(
   () => import("@/features/sessions/pages/CustomerSessions"),
 );
@@ -100,6 +104,7 @@ import { SuperAdminLayout } from "@/features/admin/components/SuperAdminLayout";
 import HomeGrid from "@/shared/components/layouts/HomeGrid";
 import "@/index.css";
 import { ApiProvider } from "@liratek/ui";
+import { OfflineGate } from "@/features/offline/components/OfflineGate";
 import { backendApiAdapter } from "@/api/adapter";
 import { FeatureFlagProvider } from "@/contexts/FeatureFlagContext";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
@@ -413,6 +418,14 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/offline-review"
+          element={
+            <AdminRoute>
+              <OfflineReview />
+            </AdminRoute>
+          }
+        />
+        <Route
           path="/audit"
           element={
             <ProtectedRoute>
@@ -496,10 +509,14 @@ function App() {
         <ThemeProvider>
           {/* HashRouter is recommended for Electron to avoid path issues in production */}
           <ApiProvider adapter={backendApiAdapter}>
-            <HashRouter>
-              <ActiveModuleProvider>
-                <AuthProvider>
-                  {/* ModuleProvider and FeatureFlagProvider sit BELOW
+            {/* LIRA-306: a paired desktop on standby shows only its standby
+              screen; offline it shows a banner over the app. Web and
+              never-paired desktops render the app unchanged. */}
+            <OfflineGate>
+              <HashRouter>
+                <ActiveModuleProvider>
+                  <AuthProvider>
+                    {/* ModuleProvider and FeatureFlagProvider sit BELOW
                     AuthProvider for the same reason CurrencyProvider does
                     (see its comment below): both fetch JWT-gated REST
                     endpoints, so mounting them above AuthProvider meant a
@@ -509,30 +526,31 @@ function App() {
                     Timeline, one drawer card of ten — that a reload fixed.
                     They ALSO need to be here for their auth gate to work at
                     all: useAuth() throws outside AuthProvider. */}
-                  <ModuleProvider>
-                    <FeatureFlagProvider>
-                      {/* Mounted below AuthProvider so the currency load runs
+                    <ModuleProvider>
+                      <FeatureFlagProvider>
+                        {/* Mounted below AuthProvider so the currency load runs
                         with an authenticated session — in web mode
                         GET /api/currencies is JWT-gated, so a boot-time fetch
                         (before login) 401ed, left `currencies` empty, and every
                         amount rendered with its CODE instead of its SYMBOL
                         ("300.00 EUR" instead of "€300.00"). Re-runs when the
                         user logs in (see the auth gate inside CurrencyContext). */}
-                      <CurrencyProvider>
-                        <SessionProvider>
-                          {/* Mounted below AuthProvider so the catalog seed/load
+                        <CurrencyProvider>
+                          <SessionProvider>
+                            {/* Mounted below AuthProvider so the catalog seed/load
                             runs with an authenticated session (seeding requires
                             admin/staff role) and re-runs when the user logs in. */}
-                          <MobileServiceItemsProvider>
-                            <AppRoutes />
-                          </MobileServiceItemsProvider>
-                        </SessionProvider>
-                      </CurrencyProvider>
-                    </FeatureFlagProvider>
-                  </ModuleProvider>
-                </AuthProvider>
-              </ActiveModuleProvider>
-            </HashRouter>
+                            <MobileServiceItemsProvider>
+                              <AppRoutes />
+                            </MobileServiceItemsProvider>
+                          </SessionProvider>
+                        </CurrencyProvider>
+                      </FeatureFlagProvider>
+                    </ModuleProvider>
+                  </AuthProvider>
+                </ActiveModuleProvider>
+              </HashRouter>
+            </OfflineGate>
           </ApiProvider>
         </ThemeProvider>
       </QueryClientProvider>

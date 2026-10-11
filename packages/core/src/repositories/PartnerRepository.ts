@@ -5,6 +5,7 @@
  * Uses BaseRepository for common functionality.
  */
 
+import { requestNow } from "../utils/requestNow.js";
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
@@ -368,8 +369,10 @@ export class PartnerRepository extends BaseRepository<Partner> {
           partner_id, transaction_type, reference_table, reference_id,
           amount, currency, direction, notes, user_id, settlement_method,
           tenant_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
+      // LIRA-306 FR-021: a given time wins (CQ-7 backdating), else the
+      // request/event time — for-partner sales are reached offline.
       const result = stmt.run(
         data.partner_id,
         data.transaction_type ?? null,
@@ -382,7 +385,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
         data.user_id ?? null,
         data.settlement_method ?? null,
         tenantId,
-        data.created_at ?? null,
+        data.created_at ?? requestNow(),
       );
       const id = Number(result.lastInsertRowid);
 

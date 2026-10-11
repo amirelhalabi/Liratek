@@ -74,6 +74,8 @@ describe("SalesService", () => {
       // 'allow_out_of_stock_sales' setting (unset here → false).
       expect(mockRepo.processSale).toHaveBeenCalledWith(saleRequest, 1, {
         allowOutOfStock: false,
+        // LIRA-306 FR-013: the stock advisory is for an OFFLINE PC only.
+        stockAdvisory: false,
       });
       expect(result).toEqual({ success: true, id: 123 });
     });

@@ -190,6 +190,47 @@ export async function autoCheckForUpdates(
   }
 }
 
+/**
+ * LIRA-306 (updatePolicy): a paired PC on standby checks AND downloads
+ * updates automatically; it installs only when someone presses the button
+ * on the standby screen (`installDownloadedUpdate`). Never on quit.
+ */
+export async function autoDownloadForStandby(): Promise<void> {
+  if (!app.isPackaged) return;
+  try {
+    const { autoUpdater } = esmRequire("electron-updater");
+    ensureUpdateToken();
+    wireAutoUpdaterEvents();
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.disableWebInstaller = true;
+    autoUpdater.disableDifferentialDownload = true;
+    await autoUpdater.checkForUpdates();
+  } catch {
+    // the standby screen still works without updates
+  }
+}
+
+/** LIRA-306 — standby screen "Install update" (no signed-in user on standby). */
+export async function installDownloadedUpdate(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  if (!app.isPackaged)
+    return { success: false, error: "Updater is disabled in dev mode" };
+  try {
+    const { autoUpdater } = esmRequire("electron-updater");
+    ensureUpdateToken();
+    autoUpdater.quitAndInstall();
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 export function registerUpdaterHandlers(): void {
   ipcMain.handle("updater:get-status", () => {
     return {

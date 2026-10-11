@@ -17,6 +17,10 @@ import CarrierLinesManager from "./CarrierLinesManager";
 import ProfitsPasswordPanel from "./ProfitsPasswordPanel";
 import ResetDataPanel from "./ResetDataPanel";
 import SignedInDevices from "./SignedInDevices";
+// LIRA-306 US3: paired PCs for offline work (web app).
+import PairedPcsPanel from "./PairedPcsPanel";
+// LIRA-306: pair THIS desktop PC for offline work (desktop app).
+import { PairThisPcCard } from "@/features/offline/components/PairThisPcCard";
 // LIRA-280: Connect Google, on the tab about how this user signs in.
 import GoogleAccountPanel from "./GoogleAccountPanel";
 
@@ -28,6 +32,8 @@ type TabKey =
   | "currencies"
   | "users"
   | "devices"
+  | "paired-pcs"
+  | "this-pc"
   | "diagnostics"
   | "integrations"
   | "mobile-services"
@@ -47,6 +53,8 @@ const TAB_KEYS: readonly TabKey[] = [
   "currencies",
   "users",
   "devices",
+  "paired-pcs",
+  "this-pc",
   "diagnostics",
   "integrations",
   "mobile-services",
@@ -80,9 +88,17 @@ const DESKTOP_ONLY_TABS: readonly TabKey[] = [
   "diagnostics",
   "license",
   "devices",
+  // LIRA-306 — pair THIS PC for offline work: only a desktop holds a copy.
+  "this-pc",
 ];
 
+/** Tabs that act on the server's shop data, which a desktop PC does not
+ *  hold (LIRA-306, constitution E1):
+ *    - "paired-pcs" — the PCs paired for offline work, and Unpair. */
+const WEB_ONLY_TABS: readonly TabKey[] = ["paired-pcs"];
+
 function isTabAvailable(key: TabKey): boolean {
+  if (WEB_ONLY_TABS.includes(key)) return !isElectron();
   return isElectron() || !DESKTOP_ONLY_TABS.includes(key);
 }
 
@@ -117,6 +133,8 @@ export default function Settings() {
     { key: "currencies", label: "Currencies & Rates" },
     { key: "users", label: "Users" },
     { key: "devices", label: "Signed-in Devices" },
+    { key: "paired-pcs", label: "Paired PCs" },
+    { key: "this-pc", label: "This PC" },
     { key: "profits", label: "Profits Password" },
     { key: "integrations", label: "Integrations" },
     { key: "mobile-services", label: "Mobile Services" },
@@ -161,6 +179,12 @@ export default function Settings() {
               <GoogleAccountPanel />
               <SignedInDevices />
             </>
+          )}
+          {active === "paired-pcs" && isTabAvailable("paired-pcs") && (
+            <PairedPcsPanel />
+          )}
+          {active === "this-pc" && isTabAvailable("this-pc") && (
+            <PairThisPcCard />
           )}
           {active === "profits" && <ProfitsPasswordPanel />}
           {active === "integrations" && <IntegrationsConfig />}

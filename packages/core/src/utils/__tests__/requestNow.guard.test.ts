@@ -80,9 +80,15 @@ const ALLOWED_CLOCK_COLUMNS = new Set(["updated_at", "edited_at", "last_activity
 
 /** Exact offences left per file (ratchet). Lowered by each family task. */
 const PENDING: Record<string, number> = {
-  "TransactionRepository.ts": 5, // T037 createTransaction; T043 void/refund/reversal writers
-  "SupplierRepository.ts": 15, // T083 swept addLedgerEntry (shared auto-sibling writer)
-  "PartnerRepository.ts": 2,
+  // T083 swept addLedgerEntry (shared auto-sibling writer); A2 swept the
+  // offline-reached recordStockIntake + attachRecordedDebtToIntake. The 13
+  // left are ONLINE-ONLY writers (createSupplier ×2, recordDebt, settlements,
+  // commission allocation, settled_at, discounts, cashflow) — kept on the
+  // clock by decision (no offline action reaches them).
+  "SupplierRepository.ts": 13,
+  // A2 swept addLedgerEntry (for-partner sales, reached offline); the one
+  // left is createPartner (online-only).
+  "PartnerRepository.ts": 1,
 };
 
 // ---------------------------------------------------------------------------

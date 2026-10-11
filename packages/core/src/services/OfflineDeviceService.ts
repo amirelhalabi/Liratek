@@ -86,6 +86,10 @@ export interface OfflineDeviceServiceDeps {
   serverSchemaVersion?: () => number;
 }
 
+
+import type { PairedDeviceView } from "../offline/views.js";
+export type { PairedDeviceView } from "../offline/views.js";
+
 export class OfflineDeviceService {
   private readonly mobileAuth: OfflineDeviceServiceDeps["mobileAuth"];
   private readonly auth: OfflineDeviceServiceDeps["auth"];
@@ -182,6 +186,30 @@ export class OfflineDeviceService {
   /** Inside the shop's context. */
   revoke(deviceId: number, by: number): boolean {
     return this.devices.revoke(deviceId, by);
+  }
+
+  /** Settings › paired PCs (FR-002) — inside the shop's context. Never the key. */
+  listDevices(): { success: true; data: { devices: PairedDeviceView[] } } {
+    const devices = this.devices.list().map((d) => ({
+      id: d.id,
+      deviceNo: d.device_no,
+      name: d.name,
+      pairedAt: d.paired_at,
+      lastSeenAt: d.last_seen_at,
+      state: d.last_state,
+      pendingCount: d.last_pending_count,
+      appVersion: d.last_app_version,
+      revokedAt: d.revoked_at,
+    }));
+    return { success: true, data: { devices } };
+  }
+
+  /** Revoke from Settings (FR-002); events already received are still processed. */
+  revokeDevice(deviceId: number, by: number): { success: boolean; data?: { revoked: true }; error?: string; code?: string } {
+    const row = this.devices.findById(deviceId);
+    if (!row) return { success: false, code: "NOT_FOUND", error: "PC not found" };
+    if (!row.revoked_at) this.devices.revoke(deviceId, by);
+    return { success: true, data: { revoked: true } };
   }
 
   /** Inside the shop's context (FR-004). */

@@ -221,6 +221,10 @@ export * from "./utils/effectiveRate.js";
 export * from "./db/replayGuard.js";
 export * from "./offline/ReplayEngine.js";
 export * from "./offline/bindings/index.js";
+// LIRA-306 US2/US3 (Agent A2) — clock correction, duplicates, review list (server-only).
+export * from "./offline/skew.js";
+export * from "./services/DuplicateDetector.js";
+export * from "./services/OfflineReviewService.js";
 // LIRA-306 US4 (Agent D) — shop copy builder + its cache service (server-only).
 export {
   buildTenantSnapshot,

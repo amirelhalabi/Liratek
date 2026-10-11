@@ -1387,6 +1387,21 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     }
     return result;
   }
+
+  /**
+   * LIRA-306 FR-033 — drawer counts / closings of `day` recorded AFTER `at`
+   * (SQLite UTC text): a late offline booking at `at` changes a day that was
+   * already counted. `excludeIds` = rows the booking itself just created.
+   */
+  findClosingsRecordedAfter(day: string, at: string, excludeIds: readonly number[] = []): number[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM daily_closings WHERE tenant_id = ? AND closing_date = ? AND created_at > ? ORDER BY id`,
+      )
+      .all(getCurrentTenantId(), day, at) as Array<{ id: number }>;
+    const skip = new Set(excludeIds);
+    return rows.map((r) => r.id).filter((id) => !skip.has(id));
+  }
 }
 
 // Singleton instance

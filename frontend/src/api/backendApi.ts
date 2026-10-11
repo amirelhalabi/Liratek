@@ -15,6 +15,22 @@ import type { SinceLastCountDrawer } from "@liratek/core";
 import type { UnitWarrantyDisplay } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
+// LIRA-306 — offline desktop fallback controls (desktop-only, E1; rule 21).
+import type {
+  DesktopPairInput,
+  DesktopUnpairInput,
+  OfflineStatusView,
+} from "@liratek/core";
+// LIRA-306 — offline work review + paired PCs (web-only, E1; rule 21).
+import type {
+  OfflineHistoryQuery,
+  OfflineHistoryView,
+  PairedDeviceView,
+  ReviewActionResult,
+  ReviewDismissInput,
+  ReviewItemView,
+  ReviewListQuery,
+} from "@liratek/core";
 // LIRA-297 item 3 — session / daily-closing / voucher-image / setup write
 // payloads, derived from the core schemas (rule 21).
 import type {
@@ -3083,6 +3099,179 @@ export async function completeSetup(payload: CompleteSetupInput) {
       success: false,
       error: "Setup is only available in the desktop app.",
     }),
+  );
+}
+
+// ── LIRA-306 offline desktop fallback (desktop-only, constitution E1) ──────
+// The PC's own copy, working copy and outbox exist only on a desktop, so the
+// web branch is a clear refusal (never a route) — still routed through
+// ipcOrHttp so no component branches on transport (rule 19/22).
+export type OfflineEnvelope = {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  code?: string;
+};
+const DESKTOP_ONLY = "Available on the desktop app";
+
+export async function getOfflineStatus(): Promise<{
+  success: boolean;
+  data?: OfflineStatusView;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().offline.status(),
+    async () => ({ success: false, error: DESKTOP_ONLY }),
+  );
+}
+
+export async function pairThisPc(payload: DesktopPairInput): Promise<{
+  success: boolean;
+  data?: { deviceNo: number; shopName: string };
+  error?: string;
+  code?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().offline.pair(payload),
+    async () => ({ success: false, error: DESKTOP_ONLY }),
+  );
+}
+
+export async function unpairThisPc(
+  payload: DesktopUnpairInput,
+): Promise<OfflineEnvelope> {
+  return ipcOrHttp(
+    async () => getElectronApi().offline.unpair(payload),
+    async () => ({ success: false, error: DESKTOP_ONLY }),
+  );
+}
+
+export async function goOffline(): Promise<OfflineEnvelope> {
+  return ipcOrHttp(
+    async () => getElectronApi().offline.goOffline(),
+    async () => ({ success: false, error: DESKTOP_ONLY }),
+  );
+}
+
+export async function backToWeb(): Promise<OfflineEnvelope> {
+  return ipcOrHttp(
+    async () => getElectronApi().offline.backToWeb(),
+    async () => ({ success: false, error: DESKTOP_ONLY }),
+  );
+}
+
+export async function sendOfflineNow(): Promise<{
+  success: boolean;
+  data?: { sent: number; waiting: number };
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().offline.sendNow(),
+    async () => ({ success: false, error: DESKTOP_ONLY }),
+  );
+}
+
+export async function openWebApp(): Promise<OfflineEnvelope> {
+  return ipcOrHttp(
+    async () => getElectronApi().offline.openWebApp(),
+    async () => ({ success: false, error: DESKTOP_ONLY }),
+  );
+}
+
+export async function installOfflineUpdate(): Promise<OfflineEnvelope> {
+  return ipcOrHttp(
+    async () => getElectronApi().offline.installUpdate(),
+    async () => ({ success: false, error: DESKTOP_ONLY }),
+  );
+}
+
+// ── LIRA-306 offline work review + paired PCs (web-only, constitution E1) ──
+// Review acts on the server's shop data, which a PC never holds, so the
+// desktop branch is a clear refusal — still routed through ipcOrHttp so no
+// component branches on transport (rule 19/22). Payload/query types come
+// from the core schemas (rule 21).
+const WEB_ONLY = "Available on the web app";
+
+function offlineQs(q: Record<string, unknown>): string {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(q)) {
+    if (typeof v === "string" || typeof v === "number") {
+      if (v !== "") qs.set(k, String(v));
+    }
+  }
+  const text = qs.toString();
+  return text ? `?${text}` : "";
+}
+
+export async function getOfflineReviewItems(query: ReviewListQuery = {}): Promise<{
+  success: boolean;
+  data?: { items: ReviewItemView[]; groups: Array<{ kind: string; label: string; count: number }> };
+  error?: string;
+}> {
+  return ipcOrHttp<{
+  success: boolean;
+  data?: { items: ReviewItemView[]; groups: Array<{ kind: string; label: string; count: number }> };
+  error?: string;
+}>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson(`/api/offline/review${offlineQs(query)}`),
+  );
+}
+
+export async function getOfflineHistory(query: OfflineHistoryQuery = {}): Promise<{
+  success: boolean;
+  data?: { events: OfflineHistoryView[] };
+  error?: string;
+}> {
+  return ipcOrHttp<{
+  success: boolean;
+  data?: { events: OfflineHistoryView[] };
+  error?: string;
+}>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson(`/api/offline/history${offlineQs(query)}`),
+  );
+}
+
+export async function applyOfflineReviewItem(id: number): Promise<ReviewActionResult> {
+  return ipcOrHttp<ReviewActionResult>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson<ReviewActionResult>(`/api/offline/review/${id}/apply`, { method: "POST" }),
+  );
+}
+
+export async function dismissOfflineReviewItem(id: number, payload: ReviewDismissInput = {}): Promise<ReviewActionResult> {
+  return ipcOrHttp<ReviewActionResult>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson<ReviewActionResult>(`/api/offline/review/${id}/dismiss`, { method: "POST", body: payload }),
+  );
+}
+
+export async function markOfflineReviewItemReviewed(id: number): Promise<ReviewActionResult> {
+  return ipcOrHttp<ReviewActionResult>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson<ReviewActionResult>(`/api/offline/review/${id}/reviewed`, { method: "POST" }),
+  );
+}
+
+export async function bookOfflineReviewItemAnyway(id: number): Promise<ReviewActionResult> {
+  return ipcOrHttp<ReviewActionResult>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson<ReviewActionResult>(`/api/offline/review/${id}/book-anyway`, { method: "POST" }),
+  );
+}
+
+export async function getPairedPcs(): Promise<{ success: boolean; data?: { devices: PairedDeviceView[] }; error?: string }> {
+  return ipcOrHttp<{ success: boolean; data?: { devices: PairedDeviceView[] }; error?: string }>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson(`/api/offline/devices`),
+  );
+}
+
+export async function revokePairedPc(id: number): Promise<{ success: boolean; data?: { revoked: true }; error?: string }> {
+  return ipcOrHttp<{ success: boolean; data?: { revoked: true }; error?: string }>(
+    async () => ({ success: false, error: WEB_ONLY }),
+    async () => requestJson(`/api/offline/devices/${id}/revoke`, { method: "POST" }),
   );
 }
 

@@ -14,3 +14,4 @@ export * from "./idPositions.js";
 export * from "./schemaShape.js";
 export * from "./tables.js";
 export * from "./canonicalJson.js";
+export * from "./views.js";

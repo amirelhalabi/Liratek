@@ -439,7 +439,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   processSale(
     sale: SaleRequest,
     userId: number,
-    opts?: { allowOutOfStock?: boolean },
+    opts?: { allowOutOfStock?: boolean; stockAdvisory?: boolean },
   ): {
     success: boolean;
     id?: number;
@@ -456,6 +456,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // When the shop allows out-of-stock sales, stock is decremented blindly
     // (may go negative); otherwise the guarded decrement blocks overselling.
     const allowOutOfStock = opts?.allowOutOfStock ?? false;
+    // LIRA-306 FR-013: an offline PC warns when its (possibly stale) count
+    // did not cover the sale; the sale itself is recorded.
+    const stockAdvisory = opts?.stockAdvisory ?? false;
 
     try {
       const processTransaction = db.transaction(() => {
@@ -1069,6 +1072,20 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               // Shop opted into out-of-stock sales: decrement blindly (stock may
               // go negative; the shortfall is surfaced in the Negative-Stock
               // report for reconciliation).
+              if (stockAdvisory) {
+                const before = db
+                  .prepare(
+                    `SELECT name, stock_quantity FROM products WHERE id = ? AND tenant_id = ?`,
+                  )
+                  .get(item.product_id, tenantId) as
+                  | { name?: string; stock_quantity?: number }
+                  | undefined;
+                if (before && (before.stock_quantity ?? 0) < item.quantity) {
+                  warnings.push(
+                    `Stock count says ${before.stock_quantity ?? 0} for "${before.name ?? `product #${item.product_id}`}" — sale recorded. The count will be checked when this PC is back online.`,
+                  );
+                }
+              }
               stockStmt.run(item.quantity, item.product_id, tenantId);
             } else {
               // Guarded conditional write: the `stock_quantity >= ?` clause plus

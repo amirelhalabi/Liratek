@@ -647,6 +647,56 @@ it cannot book go on an "Offline work to review" page on the web app.
 - **O-impl-D-3 — Google sign-in links in the copy.** *Choice:* removed. *Consequence:* a user who only signs in with
   Google cannot sign in offline (they need a password). *Undo:* keep the links (they are useless without internet).
 - **O-impl-D-4 — Copy cache.** *Choice:* one cached copy per shop (not per PC). *Undo:* key it by PC.
+- **O-impl-B-1 — OMT/Whish on the desktop now uses the web's form rules.** *Choice:* the desktop transfer form is
+  checked with the same (stricter) shared rules as the web. *Undo:* restore the desktop's own rules.
+- **O-impl-B-2 — Who closes a customer basket.** *Choice:* closing a basket records the signed-in person (or, for offline
+  work, the person who did it); the "closed by" the desktop screen still sends is ignored. *Undo:* read it again.
+- **O-impl-B-3 — Date of the automatic line-usage / SMS-fee expense.** *Choice:* the shop's day of the work, instead of an
+  exact time. *Undo:* write the exact time again.
+- **O-impl-B-4 — Test numbering for offline items.** *Choice:* test fixtures use offline numbers from 501 up so they never
+  collide with other tests. *Undo:* not applicable (tests only).
+- **O-impl-E-1 — Version check on the shop copy.** *Choice:* the PC asks for a copy with its data version; any
+  difference is refused ("versions differ"); the copy is sent as raw compressed bytes. *Undo:* send it with a
+  compression header.
+- **O-impl-E-2 — What a paired PC shows when it is not working offline.** *Choice:* only the standby screen (above the
+  sign-in); every other screen answers "this PC is on standby". *Undo:* allow read-only screens.
+- **O-impl-E-3 — Where the PC keeps its key.** *Choice:* pairing is refused if Windows cannot encrypt the key; the key is
+  never stored in plain text. *Undo:* not advised.
+- **O-impl-E-4 — Sign-in records on an offline PC.** *Choice:* written through the same offline queue as other work; those
+  tables are not part of the end-of-outage cross-check. *Undo:* a separate step per sign-in action.
+- **O-impl-E-5 — Numbers typed as text.** *Choice:* a number written as text outside an id field (phones, barcodes) is
+  not refused. *Undo:* refuse it.
+- **O-impl-E-6 — The offline "stock says 0" warning.** *Choice:* shown through the sale's own warnings; the POS screen is
+  unchanged. *Undo:* a separate POS banner.
+- **O-impl-E-7 — The sender.** *Choice:* the part that sends offline work lives in its own file. *Undo:* not applicable.
+- **O-impl-E-8 — Server addresses.** *Choice:* the PC talks to api.liratek.shop and opens <shop>.liratek.shop for "Open the
+  web app"; both can be changed by a setting. *Undo:* change the defaults.
+- **O-impl-A2-1 — Duplicate check when the server does not know the PC's copy.** *Choice:* if a PC's work names a
+  copy the server has no record of, the duplicate check compares it with everything booked within 24 hours of it
+  (still never with that PC's own work), instead of "everything booked since the copy was made". *Why:* without the
+  copy there is no "since"; skipping the check would let a real duplicate through. *Undo:* skip the check then.
+- **O-impl-A2-2 — Dismissing a possible duplicate links only the sale or transfer itself.** *Question:* the task list
+  said the waiting items behind a dismissed duplicate should be relinked "where the counts agree"; the design's
+  stricter rule (O-new-28) says only the sale or transfer itself is linked. *Choice:* the stricter rule: later work on
+  the sale itself goes ahead on the existing sale; later work on one of its lines waits on the review list. *Why:* the
+  two sales may list their items in a different order. *Undo:* relink lines too when the counts agree.
+- **O-impl-A2-3 — A PC that lost its numbering.** *Choice:* when one item of an upload clashes with what the server
+  already has under that number, the rest of that upload is not stored either (that PC's queue stops; other PCs carry
+  on). *Why:* the PC's later items may depend on the one that clashed. *Undo:* store the rest.
+- **O-impl-A2-4 — When the "PC clock was wrong" note is made.** *Choice:* when the PC sends its work (the only moment
+  the server can measure that PC's clock for that work). The note stays even if the item is later refused. *Undo:*
+  not applicable.
+- **O-impl-A2-5 — "Ticked items were already paid" is recognised by the refusal's wording.** *Choice:* the repayment
+  check has no error code, so the offline retry recognises its message; a test pins the wording. *Undo:* add a code
+  to the repayment check and match on it.
+- **O-impl-A2-6 — Where the new web pages live.** *Choice:* "Offline work" in the side menu (admins, web app only) and a
+  "Paired PCs" tab in Settings (web app only). *Undo:* move them.
+- **O-impl-A2-7 — Supplier and partner time on offline work.** *Choice:* receiving stock from a supplier (and attaching
+  it to a recorded supplier debt) and the partner's share of a for-partner sale are now dated at the time the work was
+  done offline. Creating suppliers/partners, recording a supplier debt, settlements, discounts and commission stay
+  online-only and keep the clock. *Consequence:* the automatic check "every offline-reachable save uses the work's own
+  time" still lists those 14 online-only saves, so it stays red until you decide: sweep them too (harmless online) or
+  mark them as online-only in the check. *Undo:* not applicable.
 - *Follow-up for T115:* the backend test for the copy route should inject the build step; the service singleton cannot
   take the test database constructor.
 

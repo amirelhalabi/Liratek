@@ -23,12 +23,15 @@ import {
   type OfflineSnapshotRepository,
 } from "../repositories/OfflineSnapshotRepository.js";
 import { getOfflineSnapshotTtlMs } from "../config/env.js";
+import { MIGRATIONS } from "../db/migrations/index.js";
 import { dbLogger } from "../utils/logger.js";
 
 export interface OfflineSnapshotServiceDeps {
   build?: (opts: BuildTenantSnapshotOptions) => TenantSnapshot;
   /** Epoch ms. */
   now?: () => number;
+  /** Default: the last entry of MIGRATIONS (same rule as the device/event services). */
+  serverSchemaVersion?: () => number;
 }
 
 interface CacheEntry {
@@ -40,6 +43,7 @@ export class OfflineSnapshotService {
   private readonly cache = new Map<number, CacheEntry>();
   private readonly build: (opts: BuildTenantSnapshotOptions) => TenantSnapshot;
   private readonly now: () => number;
+  private readonly serverSchemaVersion: () => number;
 
   constructor(
     private readonly repo: OfflineSnapshotRepository,
@@ -47,6 +51,8 @@ export class OfflineSnapshotService {
   ) {
     this.build = deps.build ?? buildTenantSnapshot;
     this.now = deps.now ?? Date.now;
+    this.serverSchemaVersion =
+      deps.serverSchemaVersion ?? (() => MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0);
   }
 
   /**
@@ -75,6 +81,33 @@ export class OfflineSnapshotService {
       "offline snapshot served (fresh build)",
     );
     return snapshot;
+  }
+
+  /**
+   * The route's entry point (T116): a PC whose data version differs from the
+   * server's in EITHER direction gets VERSION_MISMATCH and nothing is built
+   * or recorded (FR-007 — a copy of another version could not be opened by
+   * that app, and its events would not fit).
+   */
+  serve(opts: {
+    deviceId: number | null;
+    pcSchemaVersion: number;
+  }):
+    | { success: true; snapshot: TenantSnapshot }
+    | { success: false; code: "VERSION_MISMATCH"; error: string; serverSchemaVersion: number } {
+    const server = this.serverSchemaVersion();
+    if (opts.pcSchemaVersion !== server) {
+      return {
+        success: false,
+        code: "VERSION_MISMATCH",
+        error:
+          opts.pcSchemaVersion < server
+            ? "This PC's app is older than the server — install the update first"
+            : "This PC's app is newer than the server — wait for the server update",
+        serverSchemaVersion: server,
+      };
+    }
+    return { success: true, snapshot: this.getSnapshot({ deviceId: opts.deviceId }) };
   }
 
   /** Drops the cached copy of one shop (or all). */

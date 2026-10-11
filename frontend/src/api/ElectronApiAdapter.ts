@@ -8,6 +8,13 @@
 
 import type { ApiAdapter } from "@liratek/ui";
 import type {
+  // LIRA-306 — offline desktop fallback (desktop-only, E1; rule 21).
+  DesktopPairInput,
+  DesktopUnpairInput,
+  // LIRA-306 — offline work review (web-only, E1; rule 21).
+  OfflineHistoryQuery,
+  ReviewDismissInput,
+  ReviewListQuery,
   ProductListFilters,
   CreateUserInput,
   SupplierAccountLinkInput,
@@ -485,6 +492,24 @@ export class ElectronApiAdapter implements ApiAdapter {
   updateDailyClosing = (id: number, data: UpdateDailyClosingInput) =>
     api.updateDailyClosing(id, data);
   completeSetup = (data: CompleteSetupInput) => api.completeSetup(data);
+  // LIRA-306 — offline desktop fallback (desktop-only, E1).
+  getOfflineStatus = () => api.getOfflineStatus();
+  pairThisPc = (data: DesktopPairInput) => api.pairThisPc(data);
+  unpairThisPc = (data: DesktopUnpairInput) => api.unpairThisPc(data);
+  goOffline = () => api.goOffline();
+  backToWeb = () => api.backToWeb();
+  sendOfflineNow = () => api.sendOfflineNow();
+  openWebApp = () => api.openWebApp();
+  installOfflineUpdate = () => api.installOfflineUpdate();
+  // LIRA-306 — offline work review + paired PCs (web-only, E1).
+  getOfflineReviewItems = (query?: ReviewListQuery) => api.getOfflineReviewItems(query);
+  getOfflineHistory = (query?: OfflineHistoryQuery) => api.getOfflineHistory(query);
+  applyOfflineReviewItem = (id: number) => api.applyOfflineReviewItem(id);
+  dismissOfflineReviewItem = (id: number, data?: ReviewDismissInput) => api.dismissOfflineReviewItem(id, data);
+  markOfflineReviewItemReviewed = (id: number) => api.markOfflineReviewItemReviewed(id);
+  bookOfflineReviewItemAnyway = (id: number) => api.bookOfflineReviewItemAnyway(id);
+  getPairedPcs = () => api.getPairedPcs();
+  revokePairedPc = (id: number) => api.revokePairedPc(id);
   createCheckpoint = (data: CreateCheckpointPayload) =>
     api.createCheckpoint(data);
   getCheckpointTimeline = (filters?: {

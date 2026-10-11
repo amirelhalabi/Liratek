@@ -81,6 +81,53 @@ export const uploadEventsSchema = z.object({
 });
 export type UploadEventsInput = z.input<typeof uploadEventsSchema>;
 
+/** GET /api/offline/snapshot?schemaVersion=n — the PC names its data version
+ *  (O-impl-E-1); any difference from the server's is VERSION_MISMATCH (FR-007). */
+export const snapshotQuerySchema = z.object({
+  schemaVersion: z.coerce.number().int().min(0),
+});
+export type SnapshotQuery = z.input<typeof snapshotQuerySchema>;
+
+/** Desktop `offline:pair` (IPC only, E1): what the admin types on the PC. The
+ *  PC's own `deviceNo` for a re-key comes from `pairing.json`, never the form
+ *  (FR-001a); `serverUrl` overrides the built-in API address (tests, staging). */
+export const desktopPairSchema = z.object({
+  serverUrl: z.string().url().max(200).optional(),
+  shop: z.string().trim().min(1).max(100),
+  username: z.string().trim().min(1).max(100),
+  password: z.string().min(1).max(500),
+  deviceName: z.string().trim().min(1).max(80),
+});
+export type DesktopPairInput = z.input<typeof desktopPairSchema>;
+
+/** Desktop `offline:unpair` — admin password, unless the PC holds no shop data. */
+export const desktopUnpairSchema = z.object({
+  username: z.string().trim().min(1).max(100).optional(),
+  password: z.string().min(1).max(500).optional(),
+});
+export type DesktopUnpairInput = z.input<typeof desktopUnpairSchema>;
+
+/** Desktop `offline:status` data (contracts/ipc-offline.md) — the standby
+ *  screen and the offline banner read it. */
+export type OfflinePcMode = "standalone" | "standby" | "blocked" | "offline" | "finishing";
+export interface OfflineStatusView {
+  mode: OfflinePcMode;
+  paired: boolean;
+  deviceNo?: number | null;
+  shopName?: string | null;
+  copyAgeSeconds?: number | null;
+  copyAgeWarning?: boolean;
+  ready?: boolean;
+  notReadyReason?: string | null;
+  serverReachable?: boolean;
+  unreachableSeconds?: number;
+  canGoOffline?: boolean;
+  pendingCount?: number;
+  lastError?: string | null;
+  /** this PC's offline items the server holds for review (spec edge case) */
+  heldItems?: Array<{ eventId: string; label: string; amount: number | null }>;
+}
+
 /** GET /api/offline/events/status?fromSeq=n */
 export const eventsStatusQuerySchema = z.object({
   fromSeq: z.coerce.number().int().min(0).optional().transform((v) => v ?? 0),

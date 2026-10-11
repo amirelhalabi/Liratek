@@ -7,6 +7,22 @@
 
 // LIRA-263 — maintenance save payload derived from the core schema (rule 21).
 import type { SaveMaintenanceJobPayload } from "@liratek/core";
+// LIRA-306 — offline desktop fallback controls (desktop-only, E1; rule 21).
+import type {
+  DesktopPairInput,
+  DesktopUnpairInput,
+  OfflineStatusView,
+} from "@liratek/core";
+// LIRA-306 — offline work review + paired PCs (web-only, E1; rule 21).
+import type {
+  OfflineHistoryQuery,
+  OfflineHistoryView,
+  PairedDeviceView,
+  ReviewActionResult,
+  ReviewDismissInput,
+  ReviewItemView,
+  ReviewListQuery,
+} from "@liratek/core";
 // LIRA-306 T093 — maintenance metadata edit payload (rule 21).
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 // LIRA-297 item 3 — product create/update and item-cost write payloads,
@@ -1028,6 +1044,14 @@ export type LotoApi = {
   settings: LotoSettingsApi;
 };
 
+/** LIRA-306 — reply of the desktop offline controls. */
+export type OfflineControlEnvelope = {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  code?: string;
+};
+
 export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   // Auth
@@ -1686,6 +1710,53 @@ export type ApiAdapter = {
   completeSetup: (
     payload: CompleteSetupInput,
   ) => Promise<{ success: boolean; adminUserId?: number; error?: string }>;
+
+  // ---------------------------------------------------------------------------
+  // LIRA-306 offline desktop fallback (desktop-only, E1). The web branch of
+  // each answers { success:false, error:"Available on the desktop app" }.
+  // ---------------------------------------------------------------------------
+  getOfflineStatus: () => Promise<{
+    success: boolean;
+    data?: OfflineStatusView;
+    error?: string;
+  }>;
+  pairThisPc: (payload: DesktopPairInput) => Promise<{
+    success: boolean;
+    data?: { deviceNo: number; shopName: string };
+    error?: string;
+    code?: string;
+  }>;
+  unpairThisPc: (payload: DesktopUnpairInput) => Promise<OfflineControlEnvelope>;
+  goOffline: () => Promise<OfflineControlEnvelope>;
+  backToWeb: () => Promise<OfflineControlEnvelope>;
+  sendOfflineNow: () => Promise<{
+    success: boolean;
+    data?: { sent: number; waiting: number };
+    error?: string;
+  }>;
+  openWebApp: () => Promise<OfflineControlEnvelope>;
+  installOfflineUpdate: () => Promise<OfflineControlEnvelope>;
+
+  // ---------------------------------------------------------------------------
+  // LIRA-306 offline work review + paired PCs (web-only, E1). The desktop
+  // branch of each answers { success:false, error:"Available on the web app" }.
+  // ---------------------------------------------------------------------------
+  getOfflineReviewItems: (query?: ReviewListQuery) => Promise<{
+    success: boolean;
+    data?: { items: ReviewItemView[]; groups: Array<{ kind: string; label: string; count: number }> };
+    error?: string;
+  }>;
+  getOfflineHistory: (query?: OfflineHistoryQuery) => Promise<{
+    success: boolean;
+    data?: { events: OfflineHistoryView[] };
+    error?: string;
+  }>;
+  applyOfflineReviewItem: (id: number) => Promise<ReviewActionResult>;
+  dismissOfflineReviewItem: (id: number, payload?: ReviewDismissInput) => Promise<ReviewActionResult>;
+  markOfflineReviewItemReviewed: (id: number) => Promise<ReviewActionResult>;
+  bookOfflineReviewItemAnyway: (id: number) => Promise<ReviewActionResult>;
+  getPairedPcs: () => Promise<{ success: boolean; data?: { devices: PairedDeviceView[] }; error?: string }>;
+  revokePairedPc: (id: number) => Promise<{ success: boolean; data?: { revoked: true }; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Suppliers

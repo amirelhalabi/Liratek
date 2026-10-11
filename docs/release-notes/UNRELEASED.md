@@ -307,6 +307,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Web app: selling more than one iPick or Katsh item (or bill) in one checkout no longer adds the extra items' price to the cash drawer (or to the customer's account) a second time — the drawer now shows only what the customer actually paid. From now on; earlier multi-item checkouts on the web app may have left the drawer too high.
 - Web app: OMT and Whish transfers on the Services page now save both the sender's and the receiver's name and phone, like the desktop app. From now on.
 - Web app, Inventory: when you add a product with a barcode that another product already uses, the form now says "Duplicate Barcode Detected", suggests a free barcode, and offers a button to use it — like the desktop app.
+- Web app, admins: a new "Offline work" page in the side menu lists what a desktop PC did while the internet was down that could not be booked by itself — possible duplicates, drawer counts, items waiting on another item, refusals and notes (such as "stock count was off") — with Apply, Dismiss, Mark reviewed and Book anyway. It stays empty until a PC is paired for offline work.
+- Web app, Settings: a new "Paired PCs" tab shows each desktop PC paired for offline work (number, last seen, what it is doing, how much work it still has to send, version) and lets you unpair one.
 
 ## 🧾 Expenses
 
@@ -339,6 +341,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🖥️ Desktop app
 
+- Desktop app, Settings: a new "This PC" tab lets an admin pair this PC for offline work. A paired PC keeps a copy of the shop and opens on a standby screen with "Open the web app"; when the internet is down, it can keep working and sends its work when the internet is back.
 - Desktop app: My account is now in the desktop app too (the person icon next to your name at the top). It shows your account picture, username and role, plus your display options for this computer.
 - Desktop app: you can now change your own password in My account. Type your current password and the new one; other signed-in sessions of your account are signed out.
 - Windows desktop app: typing works straight away after closing a confirmation or top-up window.

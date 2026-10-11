@@ -315,4 +315,52 @@ describe("SalesRepository — stock oversell guard", () => {
     expect(res.success).toBe(true);
     expect(stock()).toBe(-1);
   });
+
+  // LIRA-306 T137 (FR-013, O-new-2): on an OFFLINE PC the count may be wrong,
+  // so the sale is recorded and the cashier is told — through the sale's own
+  // `warnings` (the POS already shows them), never a second message path.
+  it("stockAdvisory: an oversell is recorded AND carries a 'stock count says' warning", () => {
+    const res = repo.processSale(
+      {
+        client_id: null,
+        items: [{ product_id: 1, quantity: 2, price: 10 }],
+        total_amount: 20,
+        discount: 0,
+        final_amount: 20,
+        payment_usd: 20,
+        payment_lbp: 0,
+        exchange_rate: 90_000,
+      },
+      1,
+      { allowOutOfStock: true, stockAdvisory: true },
+    );
+    expect(res.success).toBe(true);
+    expect(stock()).toBe(-1);
+    expect(res.warnings).toEqual([
+      'Stock count says 1 for "Charger" — sale recorded. The count will be checked when this PC is back online.',
+    ]);
+  });
+
+  it("stockAdvisory: no warning when the stock covered the sale", () => {
+    const res = sellOneChargerWith({ allowOutOfStock: true, stockAdvisory: true });
+    expect(res.success).toBe(true);
+    expect(res.warnings).toBeUndefined();
+  });
+
+  function sellOneChargerWith(opts: { allowOutOfStock?: boolean; stockAdvisory?: boolean }) {
+    return repo.processSale(
+      {
+        client_id: null,
+        items: [{ product_id: 1, quantity: 1, price: 10 }],
+        total_amount: 10,
+        discount: 0,
+        final_amount: 10,
+        payment_usd: 10,
+        payment_lbp: 0,
+        exchange_rate: 90_000,
+      },
+      1,
+      opts,
+    );
+  }
 });

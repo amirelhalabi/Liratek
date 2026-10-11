@@ -126,6 +126,57 @@ export class OfflineOutboxRepository {
       .run(status, error, done ? 1 : 0, FINAL.includes(status) ? 1 : 0, nowIso(), eventId, getCurrentTenantId());
   }
 
+  /** Lowest sequence not yet final on the server (status polling start), or null. */
+  oldestOpenSeq(): number | null {
+    const r = this.db
+      .prepare(
+        `SELECT MIN(device_seq) AS m FROM offline_outbox WHERE tenant_id = ? AND delivery = 'acked'
+           AND (server_status IS NULL OR server_status = 'received')`,
+      )
+      .get(getCurrentTenantId()) as { m: number | null };
+    return r.m;
+  }
+
+  /** Events the server has not finished processing (no outcome yet / still `received`). */
+  unsettledCount(): number {
+    const r = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM offline_outbox WHERE tenant_id = ?
+           AND (delivery = 'waiting' OR server_status IS NULL OR server_status = 'received')`,
+      )
+      .get(getCurrentTenantId()) as { n: number };
+    return r.n;
+  }
+
+  /**
+   * The server's "renumber unsent work" recovery (O-new-29): every WAITING
+   * event gets a new sequence from `startSeq`, in its old order; event ids
+   * are kept. Two steps (park above the range, then assign) so the unique
+   * (tenant_id, device_seq) index never collides. Returns the last sequence
+   * used (or startSeq - 1 when nothing waits). Run inside one transaction.
+   */
+  renumberWaiting(startSeq: number): number {
+    const tenantId = getCurrentTenantId();
+    const waiting = this.db
+      .prepare(`SELECT id FROM offline_outbox WHERE tenant_id = ? AND delivery = 'waiting' ORDER BY device_seq`)
+      .all(tenantId) as Array<{ id: number }>;
+    if (waiting.length === 0) return startSeq - 1;
+    const now = nowIso();
+    const parkBase =
+      Math.max(
+        startSeq + waiting.length,
+        (this.db
+          .prepare(`SELECT COALESCE(MAX(device_seq), 0) AS m FROM offline_outbox WHERE tenant_id = ?`)
+          .get(tenantId) as { m: number }).m,
+      ) + 1;
+    const set = this.db.prepare(`UPDATE offline_outbox SET device_seq = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`);
+    this.db.transaction(() => {
+      waiting.forEach((w, i) => set.run(parkBase + i, now, w.id, tenantId));
+      waiting.forEach((w, i) => set.run(startSeq + i, now, w.id, tenantId));
+    })();
+    return startSeq + waiting.length - 1;
+  }
+
   insertCreated(rows: ReadonlyArray<{ offlineId: number; tableName: string }>, eventId: string): void {
     const now = nowIso();
     const stmt = this.db.prepare(

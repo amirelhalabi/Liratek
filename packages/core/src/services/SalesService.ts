@@ -11,6 +11,7 @@
  * - Chart data generation
  */
 
+import { isOfflineReplay, isPcOfflineMode } from "../db/replayGuard.js";
 import {
   SalesRepository,
   getSalesRepository,
@@ -100,11 +101,19 @@ export class SalesService {
         }
       }
 
+      // LIRA-306 FR-028: a replayed offline sale always takes the
+      // out-of-stock path (the money moved; the count was off) — web unchanged.
+      // FR-013 / O-new-2: on an OFFLINE PC the copy's count may be stale —
+      // the sale is recorded and the cashier warned (stockAdvisory).
+      const pcOffline = isPcOfflineMode();
       const allowOutOfStock =
+        isOfflineReplay() ||
+        pcOffline ||
         getSettingsService().getSettingValue("allow_out_of_stock_sales")
           ?.value === "1";
       const result = this.salesRepo.processSale(sale, userId, {
         allowOutOfStock,
+        stockAdvisory: pcOffline,
       });
 
       if (result.success && result.id) {

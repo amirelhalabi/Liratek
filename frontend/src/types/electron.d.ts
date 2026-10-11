@@ -3,6 +3,10 @@
 // (rule 21). `browser.ts` re-exports `DailyStatsSnapshot` as a type-only
 // export (rule 29), which is all a `.d.ts` needs.
 import type {
+  // LIRA-306 — offline desktop fallback (desktop-only channels, E1).
+  OfflineStatusView,
+  DesktopPairInput,
+  DesktopUnpairInput,
   // LIRA-256 — OMT statement covered commission types (core schema input).
   OmtCoveredTypesInput,
   UnitWarrantyDisplay,
@@ -48,6 +52,9 @@ import type {
   DefectiveItemView,
   WarrantyEnvelope,
 } from "@liratek/core";
+
+/** LIRA-306 — the plain envelope the offline:* channels reply with. */
+type OfflineEnvelope = { success: boolean; data?: unknown; error?: string; code?: string };
 // LIRA-297 item 3 — session / daily-closing / voucher-image / setup payloads
 // (core schema inputs, rule 21). Must match preload.ts's bindings.
 import type {
@@ -3674,6 +3681,26 @@ export interface ElectronAPI {
       data?: { checked: boolean; detail: string };
       error?: string;
     }>;
+  };
+
+  /**
+   * LIRA-306 offline desktop fallback (desktop-only, E1). Reach these through
+   * `useApi()` (getOfflineStatus, pairThisPc, …), never directly.
+   */
+  offline: {
+    status: () => Promise<{ success: boolean; data?: OfflineStatusView; error?: string }>;
+    pair: (payload: DesktopPairInput) => Promise<{
+      success: boolean;
+      data?: { deviceNo: number; shopName: string };
+      error?: string;
+      code?: string;
+    }>;
+    unpair: (payload: DesktopUnpairInput) => Promise<OfflineEnvelope>;
+    goOffline: () => Promise<OfflineEnvelope>;
+    backToWeb: () => Promise<OfflineEnvelope>;
+    sendNow: () => Promise<{ success: boolean; data?: { sent: number; waiting: number }; error?: string }>;
+    openWebApp: () => Promise<OfflineEnvelope>;
+    installUpdate: () => Promise<OfflineEnvelope>;
   };
 
   carrierLines: {

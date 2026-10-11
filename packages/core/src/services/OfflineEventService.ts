@@ -29,7 +29,20 @@ import {
   getOfflineReviewRepository,
   type OfflineReviewRepository,
 } from "../repositories/OfflineReviewRepository.js";
-import { uploadEventsSchema, type UploadEventsInput, type OfflineEvent } from "../validators/offline.js";
+import {
+  getOfflineSnapshotRepository,
+  type OfflineSnapshotRepository,
+} from "../repositories/OfflineSnapshotRepository.js";
+import { correctEventTime } from "../offline/skew.js";
+import { getOfflineSkewCorrectMs } from "../config/env.js";
+import {
+  manifestSchema,
+  uploadEventsSchema,
+  type ManifestInput,
+  type UploadEventsInput,
+  type OfflineEvent,
+} from "../validators/offline.js";
+import { isOfflineId } from "../offline/idRange.js";
 import { offlineLogger } from "../utils/logger.js";
 
 export interface UploadResult {
@@ -51,6 +64,7 @@ export interface OfflineEventServiceDeps {
   devices?: OfflineDeviceRepository;
   events?: OfflineEventRepository;
   reviews?: OfflineReviewRepository;
+  snapshots?: OfflineSnapshotRepository;
   /** The data version this server runs (default: the last migration). */
   serverSchemaVersion?: () => number;
   /** Called after an upload stored something (starts the gathering pause). */
@@ -74,6 +88,7 @@ export class OfflineEventService {
   private readonly devices: OfflineDeviceRepository;
   private readonly events: OfflineEventRepository;
   private readonly reviews: OfflineReviewRepository;
+  private readonly snapshots: OfflineSnapshotRepository;
   private readonly schemaVersion: () => number;
   private readonly onStored?: (deviceId: number) => void;
 
@@ -81,6 +96,7 @@ export class OfflineEventService {
     this.devices = deps.devices ?? getOfflineDeviceRepository();
     this.events = deps.events ?? getOfflineEventRepository();
     this.reviews = deps.reviews ?? getOfflineReviewRepository();
+    this.snapshots = deps.snapshots ?? getOfflineSnapshotRepository();
     this.schemaVersion = deps.serverSchemaVersion ?? (() => MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0);
     this.onStored = deps.onStored;
   }
@@ -99,14 +115,44 @@ export class OfflineEventService {
         error: `This PC runs a newer data version (${body.schemaVersion}) than the server (${serverVersion}). Its work stays on the PC until the server is updated.`,
       };
     }
-    const skewMs = Date.now() - Date.parse(body.pcClock);
-    this.devices.recordUploadSeen(deviceId, Number.isFinite(skewMs) ? skewMs : 0);
+    const receivedAt = new Date().toISOString();
+    const rawSkew = Date.parse(receivedAt) - Date.parse(body.pcClock);
+    const skewMs = Number.isFinite(rawSkew) ? rawSkew : 0;
+    const onlineSkewMs = this.devices.findById(deviceId)?.last_online_skew_ms ?? null;
+    this.devices.recordUploadSeen(deviceId, skewMs);
 
     const acked: string[] = [];
     const rejected: Array<{ eventId: string; code: string; error: string }> = [];
     let stored = 0;
+    let conflicted = false;
+    const copyBuilt = new Map<string, string | null>();
     for (const e of body.events) {
-      const row = this.toRow(deviceId, e, body.appVersion, body.schemaVersion);
+      if (conflicted) {
+        // A sequence conflict means the PC lost its state: nothing after it
+        // in this upload is stored, so only THIS PC's queue stops (R6).
+        rejected.push({
+          eventId: e.eventId,
+          code: "SEQ_CONFLICT",
+          error: "An earlier item of this upload conflicts with what the server already has — sending stopped.",
+        });
+        continue;
+      }
+      if (!copyBuilt.has(e.copyId)) copyBuilt.set(e.copyId, this.snapshots.findByCopyId(e.copyId)?.built_at ?? null);
+      // Clock correction (FR-022): measured on THIS upload — the only moment
+      // the right skew exists.
+      const skew = correctEventTime({
+        occurredAt: e.occurredAt,
+        uploadSkewMs: skewMs,
+        onlineSkewMs,
+        receivedAt,
+        copyBuiltAt: copyBuilt.get(e.copyId) ?? null,
+        previousOccurredAt: this.events.findBySeq(deviceId, e.seq - 1)?.occurred_at ?? null,
+        toleranceMs: getOfflineSkewCorrectMs(),
+      });
+      const row = {
+        ...this.toRow(deviceId, e, body.appVersion, body.schemaVersion),
+        correctedAt: skew.correctedAt !== e.occurredAt ? skew.correctedAt : null,
+      };
       const cls = classOf(e.channel);
       const refusal =
         cls === "unclassified"
@@ -117,6 +163,9 @@ export class OfflineEventService {
       const r = this.events.insertReceived(row, refusal);
       if (r.outcome === "inserted") {
         stored += 1;
+        if (skew.note && r.row && !refusal) {
+          this.reviews.insert({ eventRowId: r.row.id, deviceId, kind: "clock_corrected", details: skew.note });
+        }
         if (refusal && r.row) {
           this.reviews.insert({
             eventRowId: r.row.id,
@@ -135,6 +184,7 @@ export class OfflineEventService {
           error: "This event id was already received with different content.",
         });
       } else {
+        conflicted = true;
         rejected.push({
           eventId: e.eventId,
           code: "SEQ_CONFLICT",
@@ -145,6 +195,58 @@ export class OfflineEventService {
     offlineLogger.info({ deviceId, received: body.events.length, stored, rejected: rejected.length }, "offline upload");
     if (stored > 0) this.onStored?.(deviceId);
     return { success: true, data: { acked, rejected } };
+  }
+
+  /**
+   * N5 cross-check (FR-035, FR-036): every row in the PC's range that its
+   * working copy holds must be explained by an event it sent (`created`).
+   * Rows created then deleted offline are absent from the manifest and fine.
+   * Any unexplained row, or any write a read screen made, adds ONE
+   * `pc_data_mismatch` review item listing tables, ids and read writes.
+   */
+  compareManifest(
+    deviceId: number,
+    input: ManifestInput,
+  ): {
+    success: boolean;
+    data?: { matched: boolean; unexplained: Array<{ table: string; ids: number[] }> };
+    error?: string;
+    code?: string;
+  } {
+    const parsed = manifestSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid manifest", code: "VALIDATION_ERROR" };
+    }
+    const explained = new Set<number>();
+    for (const json of this.events.createdJsonForDevice(deviceId)) {
+      try {
+        const created = JSON.parse(json) as Record<string, unknown>;
+        for (const ids of Object.values(created)) {
+          if (Array.isArray(ids)) for (const id of ids) if (typeof id === "number") explained.add(id);
+        }
+      } catch {
+        /* a malformed stored record explains nothing */
+      }
+    }
+    const unexplained = Object.keys(parsed.data.tables)
+      .sort()
+      .map((table) => ({
+        table,
+        ids: parsed.data.tables[table].filter((id) => isOfflineId(id) && !explained.has(id)).sort((a, b) => a - b),
+      }))
+      .filter((t) => t.ids.length > 0);
+    const readWrites = parsed.data.readWrites.filter((w) => w.changes > 0);
+    const matched = unexplained.length === 0 && readWrites.length === 0;
+    if (!matched) {
+      this.reviews.insert({
+        eventRowId: null,
+        deviceId,
+        kind: "pc_data_mismatch",
+        details: { copyId: parsed.data.copyId, unexplained, readWrites },
+      });
+      offlineLogger.warn({ deviceId, unexplained: unexplained.length, readWrites: readWrites.length }, "offline manifest mismatch");
+    }
+    return { success: true, data: { matched, unexplained } };
   }
 
   statusSince(deviceId: number, fromSeq: number): { success: true; data: { outcomes: EventOutcomeView[] } } {

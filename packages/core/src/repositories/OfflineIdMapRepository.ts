@@ -58,6 +58,16 @@ export class OfflineIdMapRepository {
     );
   }
 
+  /** Map rows an event wrote (created or linked). */
+  listForEvent(eventId: string): OfflineIdMapRow[] {
+    return this.db
+      .prepare(
+        `SELECT id, offline_id, device_id, table_name, server_id, event_id, link_kind
+           FROM offline_id_map WHERE event_id = ? AND tenant_id = ? ORDER BY id`,
+      )
+      .all(eventId, getCurrentTenantId()) as OfflineIdMapRow[];
+  }
+
   /** Highest offline id this PC has had mapped, per table (check-in seeding). */
   maxOfflineIdsByTable(deviceId: number): Record<string, number> {
     const rows = this.db

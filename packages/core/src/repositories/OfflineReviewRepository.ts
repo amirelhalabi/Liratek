@@ -29,6 +29,11 @@ export class OfflineReviewRepository {
     return getDatabase();
   }
 
+  /** One atomic step for a review action (state check + writes). */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
   insert(i: { eventRowId: number | null; deviceId: number; kind: OfflineReviewKind; details: unknown }): number {
     const now = nowIso();
     const r = this.db
@@ -61,6 +66,12 @@ export class OfflineReviewRepository {
   listForEvent(eventRowId: number): OfflineReviewRow[] {
     return this.db
       .prepare(`SELECT * FROM offline_review_items WHERE tenant_id = ? AND event_row_id = ? ORDER BY id`)
+      .all(getCurrentTenantId(), eventRowId) as OfflineReviewRow[];
+  }
+
+  openForEvent(eventRowId: number): OfflineReviewRow[] {
+    return this.db
+      .prepare(`SELECT * FROM offline_review_items WHERE tenant_id = ? AND event_row_id = ? AND state = 'open' ORDER BY id`)
       .all(getCurrentTenantId(), eventRowId) as OfflineReviewRow[];
   }
 

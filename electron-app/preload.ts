@@ -61,6 +61,10 @@ import type {
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
+// LIRA-306 — desktop-only offline controls (E1); payloads from the core schemas (rule 21).
+import type { DesktopPairInput, DesktopUnpairInput } from "@liratek/core" with {
+  "resolution-mode": "import",
+};
 
 console.log("[PRELOAD] Starting preload script...");
 
@@ -2073,6 +2077,21 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("setup:joinExistingShop", payload),
     browseForDatabase: () => ipcRenderer.invoke("setup:browseForDatabase"),
     relaunch: () => ipcRenderer.invoke("setup:relaunch"),
+  },
+
+  // LIRA-306 — offline desktop fallback (desktop-only, E1). All run before
+  // sign-in except backToWeb / sendNow. Envelope replies.
+  offline: {
+    status: () => ipcRenderer.invoke("offline:status"),
+    pair: (payload: DesktopPairInput) =>
+      ipcRenderer.invoke("offline:pair", payload),
+    unpair: (payload: DesktopUnpairInput) =>
+      ipcRenderer.invoke("offline:unpair", payload),
+    goOffline: () => ipcRenderer.invoke("offline:go-offline"),
+    backToWeb: () => ipcRenderer.invoke("offline:back-to-web"),
+    sendNow: () => ipcRenderer.invoke("offline:send-now"),
+    openWebApp: () => ipcRenderer.invoke("offline:open-web-app"),
+    installUpdate: () => ipcRenderer.invoke("offline:install-update"),
   },
 
   // Display / Zoom

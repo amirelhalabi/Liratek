@@ -975,4 +975,5 @@ export * from "./OfflineIdMapRepository.js";
 export * from "./OfflineReviewRepository.js";
 export * from "./OfflineSnapshotRepository.js";
 export * from "./OfflineOutboxRepository.js";
+export * from "./DuplicateFingerprintRepository.js";
 export * from "./RowCaptureRepository.js";

@@ -59,6 +59,8 @@ export interface NewOfflineEventRow {
   ratesJson: string;
   createdJson: string;
   dependsOnJson: string;
+  /** after PC clock correction (skew.ts), when it differs from occurredAt */
+  correctedAt?: string | null;
 }
 
 export type InsertEventOutcome = "inserted" | "duplicate" | "reused" | "seq_conflict";
@@ -85,13 +87,13 @@ export class OfflineEventRepository {
     const res = this.db
       .prepare(
         `INSERT INTO offline_events (tenant_id, device_id, event_id, device_seq, channel, payload_json, payload_hash,
-           actor_user_id, occurred_at, client_day, client_tz_offset_minutes, copy_id, app_version, schema_version,
+           actor_user_id, occurred_at, corrected_at, client_day, client_tz_offset_minutes, copy_id, app_version, schema_version,
            schema_shape_json, rates_json, created_json, depends_on_json, status, error, processed_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         tenantId, e.deviceId, e.eventId, e.seq, e.channel, e.payloadJson, e.payloadHash, e.actorUserId,
-        e.occurredAt, e.clientDay, e.clientTzOffsetMinutes, e.copyId, e.appVersion, e.schemaVersion,
+        e.occurredAt, e.correctedAt ?? null, e.clientDay, e.clientTzOffsetMinutes, e.copyId, e.appVersion, e.schemaVersion,
         e.schemaShapeJson, e.ratesJson, e.createdJson, e.dependsOnJson, as?.status ?? "received",
         as?.error ?? null, as ? now : null, now, now,
       );
@@ -138,6 +140,57 @@ export class OfflineEventRepository {
           ORDER BY device_seq LIMIT ?`,
       )
       .all(getCurrentTenantId(), deviceId, fromSeq, limit) as OfflineEventRow[];
+  }
+
+  /** HELD events that list any of `eventIds` among their dependencies,
+   *  in each PC's own order (released by the review service, FR-034). */
+  listHeldDependingOn(eventIds: readonly string[]): OfflineEventRow[] {
+    if (eventIds.length === 0) return [];
+    const marks = eventIds.map(() => "?").join(", ");
+    return this.db
+      .prepare(
+        `SELECT e.* FROM offline_events e
+          WHERE e.tenant_id = ? AND e.status = 'held'
+            AND EXISTS (SELECT 1 FROM json_each(e.depends_on_json) d WHERE d.value IN (${marks}))
+          ORDER BY e.device_id, e.device_seq`,
+      )
+      .all(getCurrentTenantId(), ...eventIds) as OfflineEventRow[];
+  }
+
+  /** Processed events for the review page's history (newest first). */
+  listHistory(f: { deviceId?: number; from?: string; to?: string; status?: OfflineEventStatus; limit?: number }): OfflineEventRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM offline_events
+          WHERE tenant_id = ? AND status != 'received'
+            AND (? IS NULL OR device_id = ?)
+            AND (? IS NULL OR client_day >= ?)
+            AND (? IS NULL OR client_day <= ?)
+            AND (? IS NULL OR status = ?)
+          ORDER BY COALESCE(corrected_at, occurred_at) DESC, id DESC
+          LIMIT ?`,
+      )
+      .all(
+        getCurrentTenantId(),
+        f.deviceId ?? null,
+        f.deviceId ?? null,
+        f.from ?? null,
+        f.from ?? null,
+        f.to ?? null,
+        f.to ?? null,
+        f.status ?? null,
+        f.status ?? null,
+        f.limit ?? 500,
+      ) as OfflineEventRow[];
+  }
+
+  /** Every `created_json` this PC's stored events carry (N5 cross-check). */
+  createdJsonForDevice(deviceId: number): string[] {
+    return (
+      this.db
+        .prepare(`SELECT created_json FROM offline_events WHERE tenant_id = ? AND device_id = ? ORDER BY device_seq`)
+        .all(getCurrentTenantId(), deviceId) as Array<{ created_json: string }>
+    ).map((r) => r.created_json);
   }
 
   maxSeq(deviceId: number): number {
@@ -203,6 +256,24 @@ export class OfflineEventRepository {
       )
       .run(error, nowIso(), id, getCurrentTenantId());
     return this.findById(id)?.attempts ?? 0;
+  }
+
+  /** A new refusal / hold reason without changing the status (Apply refused again). */
+  setError(id: number, error: string): void {
+    this.db
+      .prepare(`UPDATE offline_events SET error = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`)
+      .run(error, nowIso(), id, getCurrentTenantId());
+  }
+
+  /** Status only (review actions: dismissed, skipped kept, …). */
+  setStatus(id: number, status: OfflineEventStatus, by: number | null): void {
+    const now = nowIso();
+    this.db
+      .prepare(
+        `UPDATE offline_events SET status = ?, resolved_by = COALESCE(?, resolved_by), resolved_at = CASE WHEN ? IS NULL THEN resolved_at ELSE ? END, updated_at = ?
+          WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(status, by, by, now, now, id, getCurrentTenantId());
   }
 
   markResolved(id: number, by: number): void {
