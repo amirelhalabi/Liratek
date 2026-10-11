@@ -6696,7 +6696,7 @@ Simulator: simulated outage → all 5 tabs, Home/Sell covered, Settings usable; 
 | --- | --- |
 | **Type** | Big feature (owner request 2026-10-11; redesigned the same day in a live conversation with the owner) |
 | **Priority** | High |
-| **Status** | **IN PROGRESS** — built on the events model (T001–T146); waiting for the owner's deploy, desktop release and two-PC drill (T148–T152) |
+| **Status** | **IN PROGRESS** — built on the events model (T001–T146); deployed to the web 2026-10-11 (v85); waiting for the desktop release, Windows test and two-PC drill (T149–T152) |
 | **Modules** | core (offline event store, id ranges, replay engine, duplicate detector, review list; v210), backend (device routes, event upload, review routes), electron-app (paired modes, IPC event recorder, working copy, sender), frontend (review list, devices panel, desktop standby/offline screens); docs |
 | **Plan** | `docs/plans/todo_plans/OFFLINE_DESKTOP_FALLBACK_PLAN.md` (D1–D5, 2026-09-27) — D2 revoked by N1 |
 | **Spec** | `specs/306-offline-desktop-fallback/` (replaces the superseded lock-based design committed in a3698788) |
@@ -6782,7 +6782,7 @@ Settings. An earlier day's totals can change when a PC sends late work. The web 
 
 ### What's left — owner steps (tasks T148–T152)
 
-1. **Push** `dd934951` and `69ea67ab` (review page, Paired PCs panel, offline routes; nothing changes for shops until a PC is paired). Confirm `yarn api:verify`.
+1. ~~**Push**~~ **Done 2026-10-11:** the owner pushed through `69ea67ab`; backend v85 live 12:41 UTC, `yarn api:verify` all checks passed (migrations applied, one machine). Nothing changes for shops until a PC is paired.
 2. **Desktop release** (`yarn release`) with the same data version; the What's new image folder `1.34.0` must match the version.
 3. **First real-PC test (Windows):** Settings → This PC → pair; standby shows the copy age within ~5 min; unplug, wait 30 s,
    "Work offline"; make a sale (receipt `RCP-<16 digits>`); reconnect ("Internet is back"); "Back to the web app" → the sale

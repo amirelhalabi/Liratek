@@ -380,7 +380,8 @@ route calls per currency, schema `toBe`;
 
 - [X] T147 [US6] Owner: gate G0 — approve or reject O-new-7, O-new-8 and E1; record in plan.md Complexity Tracking. (Can and should happen first; listed here because only the owner can do it.)
   - **Done:** owner approved G0 on 2026-10-11 (O-new-7, O-new-8, E1 — live); recorded in plan.md › Complexity Tracking and the decisions file §4 'Owner answers'.
-- [ ] T148 [US6] Owner: push to `main` (deploys web + API, runs v210) and confirm the `yarn api:deploy` verifier.
+- [X] T148 [US6] Owner: push to `main` (deploys web + API, runs v210) and confirm the `yarn api:deploy` verifier.
+  - **Done:** owner pushed 2026-10-11 (v84 with v210, then v85 at 12:41 UTC); `yarn api:verify` all checks passed both times.
 - [ ] T149 [US6] Owner: publish a desktop release with the same data version.
 - [ ] T150 [US6] Owner: pair two PCs at the test shop; confirm standby "ready" on both.
 - [ ] T151 [US6] Owner: two-PC outage drill per `docs/OPERATIONS.md` (network off on both, sell on both and on the phone, plant one OMT duplicate and one drawer count, reconnect PC 1 then PC 2); record SC-008 timings; the review list shows exactly the planted items.

@@ -763,11 +763,11 @@ Found and fixed along the way: the Settle Debt window cut off its Confirm button
 owner's push); three timing races in web tests; two new tests that reset the Profits password.
 
 **Pushed by the owner** up to `7af19972` (backend v84, deploy checker green, live smoke test of six money flows passed
-11:34 UTC). Everything after that is local: the offline phases 4–5 and 7–9.
+11:34 UTC). Then pushed again through `69ea67ab` (v85, 12:41 UTC, verifier green) — the offline phases 4–5 and 7–9 are on the web.
 
 ### What the owner still has to do (LIRA-306 Phase 10)
 
-1. Push the remaining commits (deploys the review page, Paired PCs panel, offline routes; no shop changes until a PC is paired).
+1. ~~Push~~ done: owner pushed through `69ea67ab`; backend v85 live, verifier green.
 2. Desktop release (`yarn release`); the What's new image folder `1.34.0` must match the version.
 3. Windows test (Agent E's steps): pair from Settings → This PC; standby shows the copy age; unplug, wait 30 s, "Work
    offline"; make a sale (receipt `RCP-<16 digits>`); reconnect ("Internet is back"); "Back to the web app" → sale on the web;
