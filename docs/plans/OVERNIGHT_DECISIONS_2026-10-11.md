@@ -260,6 +260,141 @@ symlink with a real copy, so later core edits need the `cp` sync again.
 
 ## 3. Syria remittance (LIRA-305)
 
+Result: **designed, not built.** Ticket **LIRA-305**, as filed under G3. Spec Kit design ran (specify → plan → tasks →
+analyze, three independent passes) in `specs/305-syria-remittance/`.
+
+The big finding came first. **Both directions already exist and work:** SEND is Services → Via Partner, and RECEIVE is
+Services → Via Partner → Pay out. You chose that route on 2026-09-24 (notes #16) and confirmed it "as built, no change" on
+2026-09-25. The plan file from 2026-09-17 (a "Syria" tab on the OMT/Whish page) was never moved out of the to-do folder.
+That is why it looked unbuilt. It is not built and should not be.
+
+I checked the money with test runs, not by reading the code:
+- Booking, voiding and refunding a send or a pay-out puts the cash drawer, the partner's account and the profit back to
+  zero, in dollars and in lira.
+- One real mistake was found. A pay-out's commission waits until the partner "pays". But when what you owe the partner
+  for sends cancels what the partner owes you for pay-outs, the app never counted that as paying, so the pay-out
+  commission never showed on Profits. The fix is designed (Y6) and has 21 tasks ready for an agent.
+
+Nothing in the database changes (still v209). The OMT/Whish screens are not touched.
+
+- **Y1 — Build a "Syria" provider on the OMT/Whish page, or keep Syria in Services (Via Partner)?**
+  *Choice:* keep it in Services, exactly as it works today.
+  *Why:* you decided this three times (2026-08-10, 2026-09-24, 2026-09-25). The OMT/Whish route needs a database change and
+  edits to delicate OMT/Whish money code. It would also give the shop two different ways to book the same transfer.
+  *Undo:* nothing to undo; the old plan is kept, marked "superseded", for the record.
+
+- **Y2 — Is a partner always required?**
+  *Choice:* yes, as today. A pay-out without a partner is refused on both apps.
+  *Undo:* not applicable.
+
+- **Y3 — Which cash drawer?**
+  *Choice:* General. A send takes payment the normal way; a pay-out is paid in cash from General. Syria never touches the
+  OMT or Whish cash drawers, as you asked. No new drawer.
+  *Undo:* not applicable.
+
+- **Y4 — Currency?**
+  *Choice:* dollars and lira each stay on their own, with no conversion. Netting (Y6) only matches dollars with dollars
+  and lira with lira.
+  *Undo:* not applicable.
+
+- **Y5 — How is commission taken, and when is it counted?**
+  *Choice:* as today.
+  - On a send: price minus cost, counted the same day, because the customer has already paid you.
+  - On a pay-out: what arrived minus what you paid out (for example $100 arrived, the customer gets $97, $3 commission).
+    It is counted when the partner pays, which is your rule from 2026-10-06 (D5) and replaces the earlier note "counted
+    the same day".
+  
+  *Undo:* not applicable.
+
+- **Y6 — Does netting count as the partner paying?**
+  *Choice:* **yes.** A pay-out's commission counts as the partner's account, in that currency, stops owing that money.
+  It does not matter whether the partner paid you in cash or what you owe them for sends cancelled it. If the partner
+  still owes part of it, the newest pay-outs wait and the oldest count first. Nothing extra is saved; Profits works it
+  out each time it opens.
+  *Why:* without it, the commission on pay-outs is never counted in a normal two-way corridor. Measured today:
+  
+  | What happened | Partner's account at the end | Pay-out commission counted | After the fix |
+  | --- | --- | --- | --- |
+  | Sends of 150 and pay-outs of 100; you paid the 50 difference | square | $0 of $3 | $3 |
+  | Sends of 100 and pay-outs of 100; nothing to pay | square | $0 of $3 | $3 |
+  | Sends of 40 and pay-outs of 100; the partner paid the 60 difference | square | $1.80 of $3 | $3 |
+  
+  It moves no money: no drawer, no balance and no saved record changes. Only the timing on Profits changes. It cannot
+  count profit too early.
+  **This departs from part of your D5 rule (2026-10-06) — please confirm it first.** D5 said a pay-out's commission
+  counts "when the partner pays, same rule as For Partner rows". The For Partner rule only counts cash, never netting,
+  so in a two-way corridor the pay-out commission would never count at all. Y6 keeps "when the partner pays" and adds
+  netting for Services pay-outs only; For Partner rows keep the cash-only rule (Y7). Because Profits works this out each
+  time, profit for earlier days goes up too; closings already printed do not change. If you already paid the partner cash for the sends,
+  a later pay-out still waits, because the partner really owes you.
+  *What you will notice:* pay-out commissions that were stuck as "waiting for partner" appear on Profits, on their own
+  day. That includes ones you entered before this change.
+  *Undo:* remove one small piece of the Profits calculation. No data to fix.
+  *Measured:* the "today" figures above come from a test run on the real database layout. The "after" figures are the
+  targets of the new guard test (task T004), not yet run. Speed was measured on a prototype of the calculation, for a
+  partner with 300 sends and 300 pay-outs: about 1 second for the whole Profits read when the account is square, and about
+  4 seconds when 150 pay-outs are still unpaid. My first version took 37 seconds; the review caught it and the design was changed before any
+  code was written. A second review caught that undoing a cash entry would have left a commission stuck; that was fixed
+  in the design too.
+
+- **Y7 — Should netting also release profit on other partner work (For Partner sales, recharges, Loto…)?**
+  *Choice:* no. It applies only to Services pay-outs. Everything else stays exactly as today.
+  *Why:* it is the smallest change that fixes the corridor. Other partner work has its own rules, and nobody asked to
+  change them.
+  *Undo:* not applicable.
+
+- **Y8 — One corridor (Syria) or several?**
+  *Choice:* it already works for any corridor: any partner, same form (Turkey, Iraq…). Nothing is Syria-specific.
+  *Undo:* not applicable.
+
+- **Y9 — "For Partner" or "Via Partner"?**
+  *Choice:* Via Partner, for both directions. "For Partner" on the Services page keeps its own meaning: the partner uses
+  your service and owes you the full price.
+  *Undo:* not applicable.
+
+- **Y10 — Which "OMT or Whish only" places in the app must stay as they are?**
+  *Choice:* all of them, untouched: the shop's main system, the setup wizard, the OMT/Whish cash drawer routing, the
+  OMT/Whish page's provider list, the partner filter there, and the test that guards it.
+  *Why:* Syria is a route the shop offers, not the shop's main system.
+  *Undo:* not applicable.
+
+- **Y11 — Undoing a send, a pay-out or a partner payment?**
+  *Choice:* the existing void and refund already put everything back (measured: drawer, partner account and profit
+  return to 0). Netting saves nothing, so there is nothing extra to undo. After a void, Profits recalculates on its own.
+  *Undo:* not applicable.
+
+- **Y12 — Can a pay-out go into a customer's session basket?**
+  *Choice:* no, as today. A pay-out is recorded straight away.
+  *Undo:* not applicable.
+
+- **Y13 — Do "paper" entries on a partner's account count as you owing the partner?**
+  These are manual entries with "Cash moved" switched off, for example an opening balance.
+  *Choice:* no. A manual credit entered with "Cash moved" switched off is left out. Everything else on the partner's
+  account counts: sends and other partner jobs, settlements, discounts, entries where cash moved, wallet top-ups from the
+  partner, and the voids of any of these.
+  
+  A paper credit never releases a pay-out's commission. A paper debit ("the partner owes us") still keeps it waiting.
+  *Why:* the review found that, without this rule, one paper line "shop owes partner 500" would have counted every
+  pay-out's commission at once with no money moving. That also breaks your earlier rule that paper entries are only
+  notes and never count as payment.
+  *Undo:* drop the exclusion; the Partners page balance itself is not affected either way.
+
+
 ## 4. Offline desktop fallback (LIRA-306)
 
 ## Morning summary
+
+- **Web test failures (LIRA-094 group 4, LIRA-095 mixed-currency, LIRA-158 D17): test-only fixes. The app was not changed.**
+  None of the three came from tonight's commits. All three failed only when the browser window was visible. Web runs
+  show the window by default, and that makes the steps run slower, so timing problems in the tests showed up. With the
+  window hidden, all three passed on the same code.
+  The fixes are all in the test files:
+  - 094: the test waited for an input that the Whish App form also has, so it typed into the outgoing form. It now
+    waits for a button that only the OMT App page has.
+  - 095 (and 123 S7): the test switched the payment back to Cash before the app's automatic switch to Customer Account
+    had finished. It now waits for that switch first.
+  - 158: the test picked the payment method after typing the commission. It now picks the method first.
+  - Two new web tests (052/053) were replacing the Profits password on every run, which made later tests fail to
+    unlock. They now leave an existing password alone.
+  - Not fixed (rare in practice): if the payment method is changed within a few milliseconds of the total changing,
+    the payment window can keep the old amount. No person can click that fast. Written up so it isn't forgotten.

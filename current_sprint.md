@@ -6633,6 +6633,64 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
+## LIRA-305: Syria remittance — send and receive through a partner — MEDIUM — IN PROGRESS (spec + plan + tasks done 2026-10-11 overnight; not built)
+
+| Field | Value |
+| --- | --- |
+| **Type** | Feature finish + money fix (owner request 2026-10-11 overnight batch, item 3; decisions delegated) |
+| **Priority** | Medium |
+| **Status** | **IN PROGRESS** — design phases done (`/speckit-specify` → plan → tasks → analyze ×3, last fixes verified by running them); implementation not started |
+| **Modules** | custom_services, partners, profits (core read rule only); docs |
+| **Spec** | `specs/305-syria-remittance/` (spec, plan, research R1–R9, data-model, contract, quickstart, tasks 21) |
+| **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §3, Y1–Y13 |
+
+### Summary
+
+A remittance corridor with Syria through the partner "7welet souria", both directions: SEND (customer hands over cash, the
+shop owes the partner) and RECEIVE (the shop pays the customer, the partner owes the shop), commission on both, desktop and
+web. **Both directions already exist** — Custom Services → Via Partner (SEND) and Via Partner + Pay out (RECEIVE), owner
+notes #16 "Route A", `9ed8d90f` / v185, owner "as built — no change" 2026-09-25. The old plan
+`SYRIA_REMITTANCE_PLAN.md` (a Syria provider on the OMT/Whish page, "Route B") is superseded and is not built.
+
+Measured on the real schema: booking, void and refund of both directions net drawer, partner account and profit to 0 in
+USD and LBP. **One real gap:** a RECEIVE's commission waits for the partner to pay, but netting against what the shop owes
+the partner for SENDs never counts — so in a two-way corridor the RECEIVE commission is never counted (Q1 shop pays the
+50 difference: $0 of $3; Q2 nothing to pay: $0; Q3 partner pays the 60 difference: $1.80 of $3).
+
+### Owner decisions taken overnight (summary — full text in OVERNIGHT_DECISIONS §3)
+
+- Y1 keep Syria in Custom Services (Route A), no OMT/Whish-page provider; Y2 partner always required; Y3 General drawer,
+  cash only on a pay-out, never the OMT/Whish cash drawers; Y4 USD and LBP each on its own; Y5 SEND commission counts the
+  same day, RECEIVE commission (arrived − paid out) counts when the partner pays (owner D5); **Y6 netting counts as
+  paying** — the RECEIVE commission counts as the partner's account in that currency stops owing it, oldest first,
+  nothing stored (**departs from part of D5**, which said "same rule as For Partner rows" = cash only; owner to confirm
+  first); Y7 only for Custom Services pay-outs, every other partner flow unchanged; Y8 already generic for other
+  corridors; Y9 Via Partner, not For Partner; Y10 none of the "OMT | WHISH" sites is widened; Y11 reversal = existing
+  generic void/refund, netting re-derived on read; Y12 a pay-out never joins a customer basket; Y13 paper credit entries
+  ("Cash moved" off) never count as the shop owing the partner.
+
+### Acceptance criteria
+
+- [ ] Netted corridors count both commissions once the partner account is square (Q1 → $8, Q2 → $6, Q3 → $5), and a
+      RECEIVE the partner still owes counts $0 — `ProfitRepository.syriaCorridorNetting.test.ts`, red first.
+- [ ] A paper credit on the partner never releases a RECEIVE's commission; "oldest first" uses real time whatever the
+      stored text format; Profits by-module stays < 3 s (square) / < 10 s (partner owes) for a 750-row corridor; voiding any partner row (cash entry, wallet top-up) leaves the figure where it was.
+- [ ] Older RECEIVEs count first; USD and LBP never net; For Partner rows of every module keep today's timing.
+- [ ] Void/refund of a SEND, a RECEIVE or a partner settlement returns drawer, partner account and Profits to their
+      prior values per currency; nothing new is stored.
+- [ ] Web e2e `lira-web-054-syria-corridor` (red first, then green); desktop twin `lira-305-syria-corridor-netting`
+      typechecks (CI first run).
+- [ ] No migration (v209), no IPC/REST/preload/adapter/schema/UI change; OMT/Whish figures unchanged.
+- [ ] Stale plan archived; FEATURE_GUIDE §8.4/§10/§13, COUNTERPARTY_LEDGERS §3/§6/§7, POSTING_MAP row + G16 updated.
+- [ ] Release note; all gates (core/backend/electron/frontend jest, typecheck, lint, build, tenant-scoping, bind-arity,
+      transport-parity, schema-equivalence, release-notes check).
+
+**What users will notice:** _to be finished at implement time_ — draft: on the Profits page, the commission on a
+pay-out for a partner (for example a Syria transfer) now counts as the partner's account is paid down — by cash, or by
+what you owe that partner for transfers you sent. Profit shown for earlier days can go up.
+
+---
+
 ## LIRA-304: debt repayment — pick the items being paid, and the same primary-system drawer routing for baskets and separate visits — SPEC (owner decisions 2026-10-10)
 
 - **Problem (seen live on the test shop 2026-10-10):** a customer session basket put on account becomes ONE "Session Debt" row; separate visits become one row per item. On repayment, only separate-visit OMT/Whish debts move their share into the OMT/Whish cash drawer; a basket puts everything in General. The move also ignores the shop's primary system (an OMT shop would move a Whish debt into the unused Whish cash drawer). Repayments are always applied oldest-first; the cashier cannot say what the money is for.
