@@ -1,5 +1,6 @@
 import { Stack } from "expo-router";
 
+import { ConnectionGate } from "@/components/ConnectionGate";
 import { useModuleGates } from "@/data/useModuleGates";
 import { useTheme } from "@/theme/ThemeProvider";
 import { debtsTabVisible } from "@/utils/moduleGates";
@@ -15,16 +16,18 @@ export default function DebtsLayout() {
   // While the tab is hidden, drop its pages so a half-filled repayment is not kept (LIRA-307).
   if (!debtsTabVisible(gates)) return null;
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: t.card },
-        headerTintColor: t.text,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: "transparent" },
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: "Customer debts" }} />
-      <Stack.Screen name="[id]" options={{ title: "Client" }} />
-    </Stack>
+    <ConnectionGate>
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: t.card },
+          headerTintColor: t.text,
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      >
+        <Stack.Screen name="index" options={{ title: "Customer debts" }} />
+        <Stack.Screen name="[id]" options={{ title: "Client" }} />
+      </Stack>
+    </ConnectionGate>
   );
 }

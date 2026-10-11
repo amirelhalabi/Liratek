@@ -1,4 +1,5 @@
 import {
+  contentAccess,
   debtsTabVisible,
   gateFrom,
   parseEnabledModuleKeys,
@@ -48,8 +49,8 @@ describe("module gates — Sell tab (LIRA-307 US1)", () => {
     expect(SALE_MODULE).toBe("ipec_katch");
   });
 
-  it("hidden until the list is verified", () => {
-    expect(sellTabVisible(gateFrom(undefined))).toBe(false);
+  it("shown until the list is known (no connection hides nothing; content is gated instead)", () => {
+    expect(sellTabVisible(gateFrom(undefined))).toBe(true);
   });
 
   it("hidden when iPick/Katsh is off", () => {
@@ -62,8 +63,8 @@ describe("module gates — Sell tab (LIRA-307 US1)", () => {
 });
 
 describe("module gates — Debts tab (LIRA-307 US2)", () => {
-  it("hidden until the list is verified", () => {
-    expect(debtsTabVisible(gateFrom(undefined))).toBe(false);
+  it("shown until the list is known", () => {
+    expect(debtsTabVisible(gateFrom(undefined))).toBe(true);
   });
 
   it("hidden when Accounts is off", () => {
@@ -95,5 +96,25 @@ describe("module gates — Home drawer lines (LIRA-307 US3)", () => {
   it("Whish/OMT App drawers follow OMT/Whish (core DRAWER_MODULE_OWNER), not iPick/Katsh", () => {
     expect(visibleDrawers(["Whish_App", "OMT_App"], gateFrom(new Set(["omt_whish"])))).toEqual(["Whish_App", "OMT_App"]);
     expect(visibleDrawers(["Whish_App", "OMT_App"], gateFrom(new Set(["ipec_katch"])))).toEqual([]);
+  });
+});
+
+describe("module gates — tab content needs a connection (LIRA-307 revision)", () => {
+  it("checking: no list yet and no failure yet", () => {
+    expect(contentAccess({ hasList: false, errorCode: null })).toBe("checking");
+  });
+
+  it("offline: the last check found no connection, even with a list from earlier", () => {
+    expect(contentAccess({ hasList: false, errorCode: "NO_CONNECTION" })).toBe("offline");
+    expect(contentAccess({ hasList: true, errorCode: "NO_CONNECTION" })).toBe("offline");
+  });
+
+  it("unavailable: connected but the check failed and nothing is known", () => {
+    expect(contentAccess({ hasList: false, errorCode: "HTTP_500" })).toBe("unavailable");
+  });
+
+  it("ok: list known and the last check did not lose the connection", () => {
+    expect(contentAccess({ hasList: true, errorCode: null })).toBe("ok");
+    expect(contentAccess({ hasList: true, errorCode: "HTTP_500" })).toBe("ok");
   });
 });

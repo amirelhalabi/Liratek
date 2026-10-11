@@ -1,5 +1,6 @@
 import { Stack } from "expo-router";
 
+import { ConnectionGate } from "@/components/ConnectionGate";
 import { useModuleGates } from "@/data/useModuleGates";
 import { useTheme } from "@/theme/ThemeProvider";
 import { sellTabVisible } from "@/utils/moduleGates";
@@ -15,17 +16,19 @@ export default function SellLayout() {
   // While the tab is hidden, drop its pages so a half-filled sale is not kept (LIRA-307).
   if (!sellTabVisible(gates)) return null;
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: t.card },
-        headerTintColor: t.text,
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: "transparent" },
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: "Sell" }} />
-      <Stack.Screen name="[provider]" options={{ title: "Record a sale" }} />
-      <Stack.Screen name="catalog/[provider]" options={{ title: "Catalog" }} />
-    </Stack>
+    <ConnectionGate>
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: t.card },
+          headerTintColor: t.text,
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      >
+        <Stack.Screen name="index" options={{ title: "Sell" }} />
+        <Stack.Screen name="[provider]" options={{ title: "Record a sale" }} />
+        <Stack.Screen name="catalog/[provider]" options={{ title: "Catalog" }} />
+      </Stack>
+    </ConnectionGate>
   );
 }

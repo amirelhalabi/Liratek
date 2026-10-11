@@ -5,8 +5,9 @@ import { isDrawerVisible } from "@liratek/core/constants/drawerModules";
  * the same switches as the web's Settings → Modules, read from
  * GET /api/modules/enabled. Pure, so the rules are unit-tested without React.
  *
- * Fail closed (owner decision D3): until the list has been fetched in this
- * run of the app, nothing gated is enabled.
+ * Only a switch turned off on the web hides a tab (owner decision 2026-10-11):
+ * a missing connection hides nothing. Until the list is known every tab
+ * shows, but tab content needs a connection (`contentAccess`).
  */
 
 /**
@@ -48,14 +49,14 @@ export function gateFrom(keys: ReadonlySet<string> | undefined): GateState {
   return { verified: true, isEnabled: (key) => keys.has(key) };
 }
 
-/** The Sell tab: all its sales follow iPick/Katsh, so it hides when that is off (owner decision D2). */
+/** The Sell tab: all its sales follow iPick/Katsh, so it hides once that is known to be off (owner decision D2). */
 export function sellTabVisible(gate: GateState): boolean {
-  return gate.isEnabled(SALE_MODULE);
+  return !gate.verified || gate.isEnabled(SALE_MODULE);
 }
 
 /** The Debts tab follows Accounts (`debts`), as the web's Accounts entry does. */
 export function debtsTabVisible(gate: GateState): boolean {
-  return gate.isEnabled(DEBTS_MODULE);
+  return !gate.verified || gate.isEnabled(DEBTS_MODULE);
 }
 
 /**
@@ -64,4 +65,18 @@ export function debtsTabVisible(gate: GateState): boolean {
  */
 export function visibleDrawers(drawers: readonly string[], gate: GateState): string[] {
   return drawers.filter((d) => isDrawerVisible(d, gate.isEnabled));
+}
+
+/**
+ * Whether a tab may show its content. It needs a connection: "offline" when
+ * the last module check could not reach the server (even if the switches are
+ * known from earlier), "checking" before the first answer, "unavailable" when
+ * the server answered with an error and nothing is known yet.
+ */
+export type ContentAccess = "ok" | "checking" | "offline" | "unavailable";
+
+export function contentAccess(check: { hasList: boolean; errorCode: string | null }): ContentAccess {
+  if (check.errorCode === "NO_CONNECTION") return "offline";
+  if (!check.hasList) return check.errorCode ? "unavailable" : "checking";
+  return "ok";
 }

@@ -6644,14 +6644,17 @@ switches: Sell, Debts and every Home drawer line always showed.
 - **D1:** copy the web exactly — all four phone sales (Whish App, OMT App, Katsh, iPick) follow the `ipec_katch`
   ("iPick/Katsh") switch, as the web Recharge tabs do.
 - **D2:** when no sale is on, hide the Sell tab.
-- **D3:** fail closed — gated parts show only after the phone has fetched the module list from the server in this run
-  of the app. No connection = gated parts hidden; nothing is cached between runs.
+- **D3 (revised the same day):** no connection hides nothing — only a switch turned off on the web hides a tab, and
+  the phone must be connected to know it. Before the first check all tabs show; once checked, switched-off tabs stay
+  hidden even offline. While disconnected, Home/Sell/Debts/Activity show "No internet connection — Please connect to
+  the internet to see this page" (Try again + automatic retry every 5 s); Settings always works.
 
 **Out of scope (noted):** server-side refusal of switched-off modules (the web does not do it either); the Whish/OMT
 App sales follow `ipec_katch` while their drawers follow `omt_whish` — same mismatch as the web.
 
 **What users will notice:** on the phone app, the Sell and Debts tabs and the Home drawer lines now follow Settings →
-Modules, like the web app; with no connection they stay hidden until the phone can check.
+Modules, like the web app. With no internet, every page except Settings shows "Please connect to the internet" and
+comes back by itself once connected.
 
 **Built 2026-10-11 (not yet committed):** `mobile/src/utils/moduleGates.ts` (pure rules; Home drawers reuse core's
 `isDrawerVisible`), `api/modules.ts` (GET `/api/modules/enabled`), `data/useModuleGates.ts` (in-memory query,
@@ -6673,6 +6676,13 @@ half-filled cart). No query persister exists in the app (checked), so nothing is
 - Not run: scenario 10 (sign in to a second shop — no second shop login); Android (no emulator on this Mac);
   web Dashboard not compared side by side (same core `isDrawerVisible` function).
 - Release note: none — the phone app is not released yet (LIRA-302 "not yet released").
+
+**Revision 2026-10-11 (D3 revised):** tabs hide only when the switch is known to be off (`sellTabVisible` /
+`debtsTabVisible` true while unverified); new `contentAccess()` + `components/ConnectionGate.tsx` cover each tab's
+pages (Home, Sell, Debts, Activity) with the connect message while the module check fails with `NO_CONNECTION` — pages
+stay mounted underneath, so a cart survives a short drop. Module check re-runs every 30 s, every 5 s while failing.
+Simulator: simulated outage → all 5 tabs, Home/Sell covered, Settings usable; request restored → content back within
+~5 s with no tap. jest: 6 new cases seen failing first.
 
 ## LIRA-306: Offline desktop fallback — web-first with a desktop Plan B — HIGH — IN PROGRESS (redesigned 2026-10-11 on owner decisions N1–N9; design only, not built)
 

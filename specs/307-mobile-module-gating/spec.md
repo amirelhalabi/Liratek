@@ -26,10 +26,11 @@ system modules and are always on.
   the Whish App / OMT App sales should follow `omt_whish` instead is a separate question for both apps, not this
   ticket.)
 - **D2 — Hide the Sell tab when no sale is on.** A switched-off module has no entry point, as on the web.
-- **D3 — Fail closed. Gated until verified.** The phone shows a gated part only after it has fetched the shop's
-  module list from the server during this run of the app. With no connection, gated parts never appear; a cached
-  list from an earlier run does not count. "If the tenant has some modules off, then he will be able to access them
-  offline. I don't want that."
+- **D3 (revised 2026-10-11, replaces "fail closed"):** a missing connection hides nothing. Only a switch turned off
+  on the web hides a tab, and to know that the phone must be connected. Before the first successful check every tab
+  shows; once checked, switched-off tabs stay hidden even if the connection drops. Tab content needs a connection:
+  while the phone cannot reach the server, Home, Sell, Debts and Activity show "No internet connection — Please
+  connect to the internet to see this page" with a Try again button (and retry every 5 s). Settings always works.
 
 ## User Scenarios & Testing _(mandatory)_
 
