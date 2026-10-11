@@ -540,10 +540,10 @@ export function useSupplierLedgerEntryMutation(
  * supplier (admin-only on both transports).
  *
  * `supplier_owed` per row is `SUPPLIER_OWED_EXPR`, gated per row on
- * `commission_model` (primary-cash-drawer model, 2026-07-30; superseded the
- * 2026-07-29 float model's fee-only design — FEATURE_GUIDE.md §8): a LEGACY
- * row is fee-only (`|fee| − |commission|`, already net of the shop's cut),
- * a NEW-MODEL row is GROSS (commission settles separately). Either way,
+ * `commission_model` (FEATURE_GUIDE.md §8.1): a LEGACY row (0) is read
+ * netted — principal + fee − commission, already net of the shop's cut — and
+ * a NEW-MODEL row (1) is GROSS — principal + fee, with the commission entered
+ * at settlement (LUMP or RATE × count) and booked then. Either way,
  * `amount_usd`/`amount_lbp` sent here is simply the SUM of the outstanding
  * `supplier_owed` across the selection — see Suppliers/index.tsx's
  * `settleNetPayUsd` for exactly where the legacy-vs-new-model split in that

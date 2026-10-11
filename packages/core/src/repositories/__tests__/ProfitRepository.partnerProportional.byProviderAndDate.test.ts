@@ -896,9 +896,15 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
   });
 
   describe("Group 7 (site #19, standalone) — getRealizedCommissionTotals, weighted by partnerCoverageRatio('financial_services','fs.id')", () => {
+    // Real COMMISSION_PROVIDERS codes (2026-10-11, COMMISSION_AT_SETTLEMENT
+    // Phase 3 LIRA-108 residual / owner decision D11): getRealizedCommissionTotals
+    // now restricts to the known commission provider set, same as Group 1's
+    // LO-V2 rename above. The original labels ("R0"/"R50"/"R100"/"WalkIn")
+    // never modelled provider identity — only partner-coverage weighting,
+    // which is what these cases still verify.
     it("0% partner coverage recognises zero commission and zero count", () => {
       const fsId = seedFs(db, {
-        provider: "R0",
+        provider: "OMT",
         amount: 100,
         createdAt: "2026-07-10 12:00:00",
       });
@@ -923,7 +929,7 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
 
     it("50% partner coverage recognises half the commission and counts the row once", () => {
       const fsId = seedFs(db, {
-        provider: "R50",
+        provider: "WHISH",
         amount: 100,
         createdAt: "2026-07-10 12:00:00",
       });
@@ -948,7 +954,7 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
 
     it("100% partner coverage recognises the full commission and counts the row once", () => {
       const fsId = seedFs(db, {
-        provider: "R100",
+        provider: "OMT_APP",
         amount: 100,
         createdAt: "2026-07-10 12:00:00",
       });
@@ -973,7 +979,7 @@ describe("ProfitRepository — partner-proportional recognition (Lane C, owner d
 
     it("a NEVER-partner row (no FOR_% partner_ledger row at all) recognises its full commission unchanged — partnerCoverageRatio's COALESCE(...,1.0) default must not regress the overwhelming majority (non-partner) case", () => {
       const fsId = seedFs(db, {
-        provider: "WalkIn",
+        provider: "WHISH_APP",
         amount: 100,
         createdAt: "2026-07-10 12:00:00",
       });

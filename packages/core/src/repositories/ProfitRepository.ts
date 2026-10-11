@@ -7517,10 +7517,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * alongside the new gate — with model-1 rows excluded by
    * `embeddedCommission`, it goes back to being a plain "this legacy row
    * actually earned a commission" filter instead of doubling as a model
-   * discriminator. The `provider IN (COMMISSION_PROVIDERS)` filter is still
-   * deliberately NOT adopted from the sibling — narrowing by provider
-   * remains a separate owner-facing semantics question, not part of either
-   * the LIRA-108 gate closure or this fix.
+   * discriminator.
+   *
+   * Provider set (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 3 LIRA-108
+   * residual, closed 2026-10-11 under owner decision D11): restricted to
+   * `provider IN (COMMISSION_PROVIDERS)`, the SAME set its sibling
+   * {@link getFinancialSettledByCurrency} uses. "Commission" means money a
+   * supplier grants the shop; an iPick/Katsh/BOB cost/price row also stores
+   * its card MARGIN in `fs.commission` (born model 0, settled), and that
+   * margin's one home is Mobile Services ({@link getMobileServicesByCurrency}).
+   * Before this filter the method summed those margins as commission too.
+   * No screen reads this method any more (LIRA-185 lead 6 moved the
+   * By-Payment row to getFinancialSettledByCurrency), so the change moved no
+   * displayed figure — it removes the last divergent definition of
+   * "realized commission" (rule 14). Guard:
+   * `ProfitRepository.commissionProviderSet.test.ts`.
    *
    * LPAY-6 / LPAY-R3-3 (round-2 then round-3 review, OWNER_NOTES_2026-09-21.md
    * §6.5 PA-3.5 review): this bucketed on `fs.currency != 'LBP'`, not
@@ -7585,6 +7596,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
         WHERE fs.is_settled = 1
           AND fs.commission > 0
+          AND fs.provider IN (${COMMISSION_PROVIDERS})
           AND ${embeddedCommission("fs", this._hasCommissionModelColumn())}
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}

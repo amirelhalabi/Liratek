@@ -892,7 +892,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
     it("the stored commission and the stamped profit are the SAME number", () => {
       // They are two copies of one figure; a fix that moved only the stamp
       // would leave the financial_services row telling a different story to
-      // getRealizedCommissionTotals.
+      // any reader of the `commission` column.
       const { result } = sellCart77OnlyDays();
       const { profit_lbp } = stampedProfit(result.id as number);
       expect(storedCommission(result.id as number)).toBeCloseTo(profit_lbp, 2);

@@ -1330,7 +1330,7 @@ export default function SuppliersPage() {
 
   // Owed per row = supplier_owed, computed by the repository's single
   // SUPPLIER_OWED_EXPR, gated per row on `commission_model` (D3): a LEGACY
-  // row (0) is read FEE-ONLY (|fee| − |commission|) exactly as it was
+  // row (0) is read NETTED (principal + fee − commission) exactly as it was
   // written pre-cutover, so its owed figure already nets out the shop's
   // commission — see `settleNetPayUsd` below for where that legacy-vs-
   // new-model split actually happens (primary-cash-drawer model, 2026-07-30:
@@ -1448,8 +1448,8 @@ export default function SuppliersPage() {
     settleUnitCountInput,
     settleCommissionLbpInput,
   ]);
-  // Fee-only supplier_owed already nets out the shop's commission for a
-  // LEGACY batch — pay exactly that. For a NEW-MODEL batch the commission is
+  // A LEGACY batch's supplier_owed is already netted of the shop's
+  // commission — pay exactly that. For a NEW-MODEL batch the commission is
   // entered here, so net pay = gross owed − entered commission (clamped at
   // 0 — a bills-only batch has 0 gross owed and settles for $0 cash, only
   // the commission credit moves, per the plan's "bills settlement note").

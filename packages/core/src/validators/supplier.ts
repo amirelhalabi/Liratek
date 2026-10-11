@@ -71,10 +71,10 @@ export const supplierSettleSchema = z.object({
   // `commission_model` (never trusted from the client), so this field's
   // meaning depends on what SupplierRepository.settleTransactions resolves
   // it to be:
-  //   LEGACY batches (commission_model = 0, embedded — pre-existing OMT/
-  //     WHISH float model, owner-confirmed 2026-07-29): INFORMATIONAL/AUDIT
-  //     ONLY — the gross supplier_owed figure already excludes the shop's
-  //     commission, so this drives NO drawer/ledger movement (see
+  //   LEGACY batches (commission_model = 0, rows written before the
+  //     commission-at-settlement cutover): INFORMATIONAL/AUDIT ONLY — those
+  //     rows' supplier_owed was booked netted (principal + fee − commission),
+  //     so this drives NO drawer/ledger movement (see
   //     SupplierRepository.SettleTransactionsData doc comment).
   //   NEW-MODEL batches (commission_model = 1, at-settlement — D1-D9):
   //     MONEY-BEARING — booked as a real `SUPPLIER_PAYS_US` supplier_ledger
@@ -114,8 +114,9 @@ export const supplierSettleSchema = z.object({
   // provider-drawer top-up is the ONLY commission-collection path those
   // shapes have ever had, and this field cannot change that.
   commission_collection_mode: z.enum(["TOP_UP", "OTHER_PAYMENT"]).optional(),
-  // Deprecated — no longer used to move money (OMT_System/Whish_System is
-  // the provider float, never a real cash drawer). Kept optional so older
+  // Deprecated — no longer used to move money (net pay moves only through
+  // `payments[]`; a CASH leg for the primary provider resolves to the
+  // Primary Cash Drawer, OMT_System/Whish_System). Kept optional so older
   // callers that still send it don't fail validation; ignored by the
   // repository. Real cash now moves EXCLUSIVELY through `payments[]`.
   drawer_name: z.string().optional(),

@@ -375,6 +375,13 @@ wallets (`OMT_App`, `Whish_App`, `Binance`), plus the **primary cash drawer (PCD
 
 </details>
 
+**Commission never moves a drawer at transaction time** (COMMISSION_AT_SETTLEMENT_PLAN.md D9). Supplier
+commission (OMT/WHISH transfers, Katsh bills) is entered at settlement (§8.1) and
+reaches the books as a supplier-ledger credit or, for a bills-only batch, as the
+provider's own drawer top-up. No form or repository adds a "commission" drawer leg at
+transaction time — the PCD already holds the gross cash, and an extra leg re-creates
+the Loto 2× mint.
+
 ---
 
 ## 8. Supplier ledger
@@ -705,6 +712,24 @@ booked once, at load time. Do not "fix" that.
 - The 7 profit channels double as a profit **oracle** for 12 unrelated money specs. Those
   must call `ensureProfitsUnlocked()` first — and per-IPC-read rather than once per test
   if the spec also visits /profits, because the gate's unmount revokes the unlock.
+- **Commission at settlement** (LIRA-095 + LIRA-089, `COMMISSION_AT_SETTLEMENT_PLAN.md`,
+  model in `COUNTERPARTY_LEDGERS.md` §4.1). The operator enters the supplier's commission
+  when settling a batch on the Suppliers page — **LUMP** (one total) or **RATE** × count
+  (e.g. 20,000 LBP × Katsh bills), preselected per supplier — and it is split across the
+  settled rows in proportion to what each owed (`settlement_commission_allocations`,
+  largest remainder, adds up exactly). Profits and Closing count it on the **settlement
+  day**. Rows from before the cutover (`commission_model = 0`) keep the old commission
+  already embedded in the row, read by `embeddedCommission`; nothing was restated.
+  While a new-model row waits, Profits shows a COUNT ("N awaiting settlement"), never a
+  dollar estimate.
+- **"Commission" means supplier-paid only** (owner decision D11). Every REALIZED Profits
+  commission figure filters on `COMMISSION_PROVIDERS` (OMT, WHISH, OMT_APP, WHISH_APP, BINANCE)
+  or comes from settlement commission. An iPick/Katsh/BOB card margin (price − cost) is
+  **Mobile Services profit**, even though the row also stores it in
+  `financial_services.commission` — each figure has exactly one home
+  (`ProfitRepository.commissionProviderSet.test.ts`). The PENDING commission queries have no
+  provider filter; they only ever hold OMT/WHISH rows and commission-eligible bills because
+  only those are born unsettled (`pendingSettlementSql`).
 - Discounts reduce profit; per-item refund of a discounted sale nets to exactly 0.
 - USD and LBP profits are tracked **separately** per module (an LBP maintenance job
   books `profit_lbp`; summing only `profit_usd` loses it).
@@ -957,7 +982,10 @@ Copy this into your task when building any flow that moves money:
    (partner-routed) system → partner ledger, never supplier ledger.
 9. **Void path** (§9): reversible or gated? If reversible, prove drawer + ledger +
    profit all restore, including any supplier sibling.
-10. **Profits** (§10): stamp per-currency profit; refunds must net it to zero.
+10. **Profits** (§10): stamp per-currency profit; refunds must net it to zero. A
+    supplier-paid commission is NOT stamped at transaction time on a new-model row — it is
+    entered at settlement (§8.1, §10); a card margin goes to Mobile Services, never to
+    "Commission".
 11. **Sessions** (§11): add a basket branch (defer, formData client, payout rules) or
     document why not.
 12. **Audit viewer**: label, visibility (hidden types), cash-only filter behavior.

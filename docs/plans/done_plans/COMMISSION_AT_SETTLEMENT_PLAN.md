@@ -1,34 +1,18 @@
 # COMMISSION AT SETTLEMENT — unified redesign (LIRA-095 + LIRA-089)
 
-**Status:** **Phases 0-2 SHIPPED · Phase 3 SHIPPED except its LIRA-108-residual bullet · Phase 4
-open.** Phase 0+1 2026-08-08 (`1d498ff`) — migration v150, shared machinery, bills slice,
-dual-transport. Phase 2 (D1 gross flip + the OMT/WHISH `commission_model` stamp, in lockstep as the
-box below demanded) shipped in `43948a35`. Phase 3 (profits/closing repoint) shipped across
-LIRA-158/159/160-163 in **four** commits — `8c453764`, `8a868fe3`, `7d595c24`, `b5619433`.
+**Status:** **ALL PHASES SHIPPED (closed 2026-10-11).** Phase 0+1 2026-08-08 (`1d498ff`) —
+migration v150, shared machinery, bills slice, dual-transport. Phase 2 (D1 gross flip + the
+OMT/WHISH `commission_model` stamp, in lockstep) shipped in `43948a35`. Phase 3 (profits/closing
+repoint) shipped across LIRA-158/159/160-163 in four commits — `8c453764`, `8a868fe3`, `7d595c24`,
+`b5619433` — and its LIRA-108 residual bullet was closed on 2026-10-11 (see §4 Phase 3). Phase 4
+(proof + docs) closed the same night. Decisions taken on the owner's behalf are recorded as
+C1-C6 in `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §1.
 
-> **⚠ Correction, 2026-09-23 — Phase 3 is NOT fully shipped, and the 2026-09-22 header overstated
-> it.** That pass flipped the header to "Phases 0-3 SHIPPED" on evidence that proves Phase 3's
-> *first* bullet (the UNION repoint) and its third (the closing screen). Its **fourth bullet** —
-> *"Resolve the LIRA-108 residuals here: provider set of the Commission row; fs.commission vs
-> stamped t.profit source split; USDT bucketing"* — is **not** shown closed, and for the
-> provider-set half the code says outright that it is still open:
->
-> ```
-> ProfitRepository.ts:2605-2608  (doc comment on getRealizedCommissionTotals)
->   "The `provider IN (COMMISSION_PROVIDERS)` filter is still deliberately NOT adopted
->    from the sibling — narrowing by provider remains a separate owner-facing semantics
->    question, not part of either the LIRA-108 gate closure or this fix."
-> ```
->
-> So the residual bullet is carried into **§4 remaining work** below rather than marked done. The
-> other two halves of that bullet (the `fs.commission`-vs-stamped-`t.profit` source split and USDT
-> bucketing) were **not independently re-verified** in this pass — treat them as *unverified*, not
-> as closed.
-
-**What remains:** (a) **Phase 3's LIRA-108 residual bullet** — at minimum the provider-set question,
-which needs an owner answer before code, and a re-check of the other two halves; (b) **Phase 4** —
-the `docs/COUNTERPARTY_LEDGERS.md` rewrite for the gross / at-settlement model, which was never done.
-Verified against source 2026-09-22, re-verified and corrected 2026-09-23; see §4.
+> **History of the header.** On 2026-09-22 it said "Phases 0-3 SHIPPED" on evidence that proved
+> only Phase 3's first and third bullets; 2026-09-23 corrected it and carried the LIRA-108
+> residual (provider set of the Commission row; `fs.commission` vs stamped `t.profit` source
+> split; USDT bucketing) and Phase 4 forward as open. Both were closed on 2026-10-11 with the
+> evidence listed under §4.
 
 > ### ⚠ Phase 2's landing condition — SHIPPED `43948a35`, kept as the design record
 >
@@ -198,7 +182,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 - FOR-partner allocated shares still gate on `notPartnerPending` per row (two independent gates:
   supplier settled ≠ partner settled) — the allocations table makes this possible (D6).
 
-### Phase 3 — Profits/reporting repoint 🟡 SHIPPED **except the LIRA-108 residual bullet** (LIRA-158/159/160-163)
+### Phase 3 — Profits/reporting repoint ✅ SHIPPED (LIRA-158/159/160-163; LIRA-108 residual closed 2026-10-11)
 
 - UNION old-model (fs.commission WHERE commission_model=0) + new-model (allocations) in ONE named
   fragment each for: `getRealizedCommissionTotals`, `getPendingCommissionTotals` (+ByProvider),
@@ -208,18 +192,55 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
   show — commission unknown until entered).
 - Closing screen (LIRA-110 folds in here): daily commission becomes settlement-day cash-basis for
   new-model rows — **document the semantics change; owner sign-off** (§6).
-- ⚠ **STILL OPEN — resolve the LIRA-108 residuals here:** provider set of the Commission row;
-  `fs.commission` vs stamped `t.profit` source split; USDT bucketing. **The provider-set half is
-  confirmed open in source** — `ProfitRepository.getRealizedCommissionTotals`'s doc comment
-  (`ProfitRepository.ts:2605-2608`) states that `provider IN (COMMISSION_PROVIDERS)` is
-  *"deliberately NOT adopted from the sibling — narrowing by provider remains a separate
-  owner-facing semantics question"*. That makes it an **owner decision first, code second**: should
-  the Profits Commission row count every provider, or only the `COMMISSION_PROVIDERS` set its
-  sibling query uses? The other two halves were **not re-verified** on 2026-09-23 — unverified, not
-  closed.
-- Extend the profit-recognition guard to the new allocation queries + ClosingRepository.
+- ✅ **LIRA-108 residuals — closed 2026-10-11** (decisions C1-C3 in
+  `OVERNIGHT_DECISIONS_2026-10-11.md` §1):
+  - *Provider set of the Commission row* — the user-visible Commission rows were already limited
+    to `COMMISSION_PROVIDERS`: since LIRA-185 lead 6 the By-Payment-Method "Commission (Settled)"
+    row reads `getFinancialSettledByCurrency`, the same query as the Overview card, which carries
+    `provider IN (COMMISSION_PROVIDERS)`. `getRealizedCommissionTotals` — the last unfiltered copy
+    — had **no production caller left** (verified by grep; `FinancialRepository.getMonthlyPL` was
+    deleted). It now carries the same filter (D11: card margins are Mobile Services profit).
+    Measured on the real schema + real writer
+    (`ProfitRepository.commissionProviderSet.test.ts`): an iPick (margin 2.00) and a BOB (margin
+    3.00) cost/price sale plus a legacy OMT row (1.50) — before the fix the method returned
+    **6.50**, after it **1.50**; Mobile Services carries the 5.00, the Overview bucket and the
+    By-Payment row carry 1.50 both before and after. Failing-first recorded (rule 17). No screen
+    changed. The pending-commission queries were left unfiltered (only OMT/WHISH and eligible
+    BILL rows can ever be `is_settled = 0`, since before v150).
+  - *`fs.commission` vs stamped `t.profit`* — closed by LIRA-185 lead 6: both Commission
+    surfaces read one query (stamp-based). Proof by execution: `ProfitAudit.financial_services`
+    (lead 6 case) passes.
+  - *USDT bucketing* — closed by LIRA-268 (`fsReportingCurrency`, USDT reports as USD, plus the
+    unstamped Binance fee). Proof by execution: `ProfitService.binanceProfitVisible` passes.
+  - Closing: `ClosingRepository` holds no profit/commission SQL since LIRA-219 —
+    `ClosingService.getDailyStatsSnapshot` composes `ProfitService.getSummary`, so Closing and
+    Profits agree by construction.
+- ✅ **Profit-recognition guard extended** — already done under LIRA-158 Phase 5 / D17:
+  `profitRecognition.guard.test.ts` scans `ProfitRepository.ts` AND `ClosingRepository.ts`,
+  and the allocation-reading units are gated (`allocationNotDebtPending`, `partnerCoverageRatio`)
+  or documented exclusions. The only other readers of `settlement_commission_allocations` are
+  not profit sums (the settle INSERT, the void DELETE, a display-only JOIN in
+  `FinancialServiceRepository.getAllByProvider`). Guard passes (2026-10-11).
 
-### Phase 4 — proof + docs
+### Phase 4 — proof + docs ✅ SHIPPED 2026-10-11
+
+- ✅ e2e, both transports: bills (Katsh, RATE mode) create → settle → void was already covered by
+  lira-web-021 / lira-089. The OMT half was not — **lira-web-052** (REST, run green locally:
+  1 passed, 4.1 s; coverage of shipped behaviour, not failing-first) and its desktop twin **lira-095-omt-commission-settlement-void** (IPC, CI only)
+  prove an OMT SEND owes the gross amount, settles with a LUMP commission, and voiding returns
+  ledger, Primary Cash Drawer and Profits commission to their baselines.
+- ✅ Docs: `docs/COUNTERPARTY_LEDGERS.md` — new §4.1 "Commission at settlement", `SUPPLIER_PAYS_US`
+  and `SETTLEMENT` rows rewritten (settlement is reversible; the per-bill credit is legacy only),
+  §6 recognition table updated. `docs/FEATURE_GUIDE.md` — §7 "commission never moves a drawer at
+  transaction time", §10 commission-at-settlement + "Commission means supplier-paid only", §13
+  item 10.
+- ✅ Stale "fee-only" / float-model comments corrected in `FinancialService.ts`,
+  `useSuppliers.ts`, `Suppliers/index.tsx`, `validators/supplier.ts`. (`SupplierRepository`'s
+  `SettleTransactionsData` comment was already current; historical, dated comments in
+  `TransactionRepository`/`transactionTypes.ts` were left as history.)
+
+Original Phase 4 scope:
+
 
 - Full e2e both transports for the whole flow; FEATURE_GUIDE §7/§13 + COUNTERPARTY_LEDGERS.md
   updated; stale "fee-only"/"informational commission" comments purged

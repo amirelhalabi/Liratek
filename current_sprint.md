@@ -1526,6 +1526,14 @@ attention:
   model — no discrepancy found, so no guard test was needed (rule 17 only requires one when a bug is found).**
 - No release note (rule 30): no user-visible behavior changed — comments, dead code, and verification only.
 - **Owner question**: none — no removal or behavior question required a stop.
+- **Follow-up 2026-10-11 (COMMISSION_AT_SETTLEMENT_PLAN Phase 4, overnight):** the frontend half
+  of the stale-comment item is done — `useSuppliers.ts` (settle-mutation doc) and
+  `Suppliers/index.tsx` (owed-per-row and `settleNetPayUsd` comments) no longer call a legacy row
+  "fee-only"; they say legacy rows are read netted (principal + fee − commission) and new-model rows
+  gross, commission entered at settlement. Same fix in `FinancialService.ts` (FIFO `supplier_owed`
+  comment, unsettled-query doc) and `validators/supplier.ts`. Comments only. `packages/ui/src/api/types.ts`
+  / `backendApi.ts` insufficient-funds JSDoc was not part of this pass and stays open.
+  **What users will notice:** nothing — comments and docs only.
 
 ---
 

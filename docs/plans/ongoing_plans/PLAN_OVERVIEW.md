@@ -11,7 +11,9 @@
 > repository method, the REST route, the component, the spec file. **No status line was taken at
 > face value.** Where a plan's header disagreed with the code, the code won.
 >
-> **Last updated 2026-10-10** — audit refresh: `OWNER_NOTES_2026-09-21` references cleared (closed
+> **Last updated 2026-10-11** — `COMMISSION_AT_SETTLEMENT_PLAN.md` closed and archived (its
+> LIRA-108 residual and Phase 4 finished overnight; decisions C1-C6 in
+> `OVERNIGHT_DECISIONS_2026-10-11.md`). Previous update 2026-10-10 — audit refresh: `OWNER_NOTES_2026-09-21` references cleared (closed
 > 2026-10-02), six finished plans archived, §2d rebuilt from the real open owner questions, and the
 > web-parity / transport-parity rows brought up to LIRA-297.
 
@@ -24,7 +26,7 @@ The 2026-09-16 sweep checked 26 plans and found **11 of them finished and filed 
 out of `todo_plans` (which means "nothing built yet") into `ongoing_plans`.
 
 **The sweep left a real board of 17 plans** — much smaller than the folders used to suggest.
-**Now 16** — counted from the folders on 2026-10-10: **12 ongoing + 4 todo** (plus this file).
+**Now 15** — counted from the folders on 2026-10-11: **11 ongoing + 4 todo** (plus this file).
 `OWNER_NOTES_2026-09-21.md`, `OWNER_NOTES_REMAINING_BUILD.md` and
 `LIRA-219_CLOSING_PROFIT_PARITY.md` all shipped in `9ed8d90f` (2026-09-25) and were archived
 2026-10-02 (`340a9446`) — all 29 owner notes done or owner-decided. **Archived 2026-10-10:**
@@ -83,11 +85,10 @@ the eleven archived plans were completed by a commit landing *days after* that p
 **Size** is the remaining work only, not the original plan. **Money** means the remaining work
 writes transactions, payments, drawers, ledgers or profit.
 
-### `ongoing_plans/` — started, unfinished (12)
+### `ongoing_plans/` — started, unfinished (11)
 
 | Plan | What's actually left | Size | Money |
 | --- | --- | --- | --- |
-| `COMMISSION_AT_SETTLEMENT_PLAN.md` | **One doc edit + one owner question.** Phase 2 shipped (`43948a35`); Phase 3 shipped in FOUR commits (`8c453764`, `8a868fe3`, `7d595c24`, `b5619433`) **except its LIRA-108-residual bullet** — `ProfitRepository.ts:2605-2608` still says the `provider IN (COMMISSION_PROVIDERS)` narrowing is *"deliberately NOT adopted … a separate owner-facing semantics question"*. Phase 4 is the `docs/COUNTERPARTY_LEDGERS.md` rewrite for the gross/at-settlement model, never done. Header corrected 2026-09-22, re-corrected 2026-09-23 | Small | no |
 | `TOPUP_CASHFLOW_DIRECTION_AUDIT.md` | 1 finding. Primary scope fixed (`7b076724`); the self-declared "bonus finding" is open — `EXCHANGE` is hardcoded `direction: "both"` (`transactionPresentation.ts:80`), ignoring the for-partner variant | Small | no (badges) |
 | `BALANCE_PAGES_UX_AUDIT.md` | 3 of 7 convergence items, all cosmetic. Critical colour bugs fixed (`d40fd6e5`, shared `balanceColor.ts`). Open: unify money formatters, Partners reversal-row marker, "Refunded" vs "VOIDED" wording | Small | no |
 | `PARTNER_DISBURSEMENT_MATRIX.md` | **No code — one unanswered question.** All 3 money-risk findings fixed (`2e9e822a`, `43c7450e`). The audit flagged an assumption that was never put to you: on a FOR-partner **RECEIVE**, does the shop hand the customer cash (drawer goes down) or does the partner pay? (§2d) | Question only | yes |
@@ -123,7 +124,7 @@ comments — not tracked as a plan.
 
 ### 2a. Tidy-ups — one day total, closes 3 plans outright
 
-1. `COMMISSION_AT_SETTLEMENT` — Phase 4: rewrite `docs/COUNTERPARTY_LEDGERS.md` for the gross model (Small).
+1. ~~`COMMISSION_AT_SETTLEMENT`~~ — done 2026-10-11, plan archived.
 2. `BALANCE_PAGES_UX_AUDIT` — 3 cosmetic convergence items (Small).
 3. `TOPUP_CASHFLOW_DIRECTION_AUDIT` — the EXCHANGE for-partner badge (Small).
 4. `NEXT_STEPS_AFTER_FLY_MIGRATION` — the `DATABASE_KEY` canary (Small).
@@ -146,12 +147,12 @@ comments — not tracked as a plan.
 | **Mobile app** | `MOBILE_APP_PLAN` (LIRA-289) | The selling point the owner chose; a real customer asked for it. Its first slice (local-date reports) fixes desktop and web too |
 | **Infrastructure** | `PRODUCTION_DATABASE_AND_HOSTING` → `OFFLINE_DESKTOP_FALLBACK` | Phase D (the switch) is the last step of the split; it unblocks the offline-desktop plan |
 
-### 2d. Blocked on you — seven questions, no code possible until answered
+### 2d. Blocked on you — six questions, no code possible until answered
 
 | # | Question | Plan |
 | --- | --- | --- |
 | 1 | On a FOR-partner **RECEIVE**, do we hand the customer cash (drawer goes down), or does the partner pay? | `PARTNER_DISBURSEMENT_MATRIX` |
-| 2 | Profits "Commission" row (LIRA-108 residual): only OMT/Whish/Katsh (`COMMISSION_PROVIDERS`), or every provider? | `COMMISSION_AT_SETTLEMENT` |
+| ~~2~~ | ~~Profits "Commission" row provider set~~ — decided 2026-10-11 under owner decision D11 (supplier-paid only, `COMMISSION_PROVIDERS`); see `OVERNIGHT_DECISIONS_2026-10-11.md` C1 | ~~`COMMISSION_AT_SETTLEMENT`~~ |
 | 3 | D1: price per shop, per machine, or per seat? | `SUBSCRIPTION_MANAGEMENT` + `DESKTOP_LICENSING` |
 | 4 | D5: one corridor or several — or archive the plan as superseded (Syria pay-out already built as owner note #16 Route A, v185)? | `SYRIA_REMITTANCE` |
 | 5 | §3.2: should new self-serve shops wait for your approval (`pending` status)? | `OPEN_PUBLIC_SIGNUP` |
@@ -194,10 +195,9 @@ points there and keeps its original text only as history.
 `OWNER_NOTES_2026-09-21.md` used to outrank this list; it closed on 2026-10-02 (`340a9446`) and no
 longer does.
 
-1. **Answer the seven questions in §2d.** Minutes of your time; unblocks five plans and LIRA-265.
+1. **Answer the six questions in §2d.** Minutes of your time; unblocks five plans and LIRA-265.
 2. **Do the §2a tidy-ups** — one commit, clears three plans off the board entirely. Note
-   `COMMISSION_AT_SETTLEMENT` is not purely a doc edit: its Phase 3 LIRA-108 residual needs your
-   answer on the Commission row's provider set (§2d #2) before the doc can honestly say "shipped".
+   (`COMMISSION_AT_SETTLEMENT` is done — closed 2026-10-11.)
 3. **Finish `MOBILE_APP_PLAN` (LIRA-289, in progress)** — APK release, phone UI tests, store
    readiness.
 4. **Then pick one large track from §2c** and finish it rather than starting several.
@@ -216,12 +216,12 @@ plan was the parent of a live one.
 ### 6a. Supplier money & commission
 
 What survives of what was the deepest dependency chain in the codebase. The chain itself is now
-walked end to end — only a docs edit, some dead code and one deferred ticket remain.
+walked end to end — commission at settlement closed 2026-10-11; only some dead code and one deferred ticket remain.
 
 ```mermaid
 graph TD
   PCD["✅ PRIMARY_CASH_DRAWER<br/>archived 2026-10-10"]
-  CAS["🔶 COMMISSION_AT_SETTLEMENT<br/>one docs edit"]
+  CAS["✅ COMMISSION_AT_SETTLEMENT<br/>archived 2026-10-11"]
   OMT["✅ OMT_OPEN_CREDIT_ACCOUNT<br/>archived 2026-09-21"]
   PDM["🔶 PARTNER_DISBURSEMENT_MATRIX<br/>one open question"]
   SYR["⬜ SYRIA_REMITTANCE<br/>payout by capability, not identity"]
@@ -308,7 +308,7 @@ satisfied.
 | Plan | Blocked by | Unlocks |
 | --- | --- | --- |
 | ~~`PRIMARY_CASH_DRAWER_PLAN`~~ *(archived 2026-10-10)* | – | `COMMISSION_AT_SETTLEMENT` ✅, `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
-| `COMMISSION_AT_SETTLEMENT_PLAN` | `PRIMARY_CASH_DRAWER` ✅ | `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
+| ~~`COMMISSION_AT_SETTLEMENT_PLAN`~~ *(archived 2026-10-11)* | `PRIMARY_CASH_DRAWER` ✅ | `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
 | ~~`OMT_OPEN_CREDIT_ACCOUNT_PLAN`~~ *(archived 2026-09-21)* | `PRIMARY_CASH_DRAWER` ✅, `COMMISSION_AT_SETTLEMENT` ✅ | – |
 | `PARTNER_DISBURSEMENT_MATRIX` | – | – |
 | `SYRIA_REMITTANCE_PLAN` | – *(owner decision D5, not a code dependency)* | – |
@@ -344,11 +344,10 @@ satisfied.
 
 ## Appendix — confidence
 
-Every row was checked against source. Three carry caveats:
+Every row was checked against source. Two carry caveats:
 
 | Plan | Confidence | Why |
 | --- | --- | --- |
 | `WEB_PARITY_ROADMAP` | **Medium** | "117 of 118 desktop specs in web mode" comes from LIRA-297's own progress notes and commits (`37015d45`, `8c2d4e9c`); the shared-spec list was not re-counted file by file on 2026-10-10 |
 | `SPRINT_INVENTORY_2026-08-12` | **Medium** | Proven dated, but its **18** line items (19 before LIRA-110 was struck 2026-09-22) were not each re-verified against HEAD |
-| `COMMISSION_AT_SETTLEMENT_PLAN` | **Medium** | Phases 0-2 and three of Phase 3's five bullets are source-verified; Phase 3's LIRA-108 residual is confirmed OPEN for the provider-set half and **unverified** for the other two halves |
 | All others | **High** | Named artifact located in source, or a clean negative grep for a specific unambiguous symbol |

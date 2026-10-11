@@ -209,7 +209,11 @@ export class FinancialService {
 
   /**
    * Get all unsettled transactions for a given provider (e.g. "OMT", "WHISH").
-   * These are RECEIVE rows where commission > 0 and is_settled = 0.
+   * "Unsettled" is the ONE pending-supplier-settlement predicate
+   * (`pendingSettlementSql`, COMMISSION_AT_SETTLEMENT_PLAN.md D2): new-model
+   * (`commission_model = 1`) OMT/WHISH SEND/RECEIVE rows and commission-
+   * eligible BILLs, plus legacy (`commission_model = 0`) OMT/WHISH rows with
+   * a commission — not yet settled and not voided/refunded.
    */
   getUnsettledByProvider(provider: string): FinancialServiceEntity[] {
     try {
@@ -286,10 +290,14 @@ export class FinancialService {
         // cost-flow row (`supplier_debt_booked = 1`) and 0 for a post-C5 one
         // (LIRA-122 — the debt already lives in the TOP_UP entry booked at
         // top-up time, so nothing is owed on the sale row itself), and for
-        // OMT/WHISH the FEE SPLIT ONLY (|fee| − |commission|), same for SEND
-        // and RECEIVE. The principal is NOT owed — it moved through the
-        // system float at transaction time (float model, owner-confirmed
-        // 2026-07-29). When `owed === 0` below, the row is treated as
+        // for OMT/WHISH the GROSS amount owed the provider, read per row
+        // with the formula that wrote it (commission at settlement,
+        // COMMISSION_AT_SETTLEMENT_PLAN.md D1/D3): a new-model row
+        // (`commission_model = 1`) owes SEND `x + f` / RECEIVE `−x` (or
+        // `−(x − f)` for a row written before the receive-fee cutover) — the
+        // shop's commission is entered separately at settlement; a legacy row
+        // (`commission_model = 0`) keeps the netted `x + f − c` /
+        // `−(x − f + c)`. When `owed === 0` below, the row is treated as
         // already "paid" (nothing outstanding) — the Suppliers page then
         // renders it as "—" (see the `settlement_id == null` guard there),
         // the same "nothing owed" treatment wallet-provider rows already get.
