@@ -31,7 +31,7 @@ import { getCatalog, getRates, type CatalogRow } from "@/api/catalog";
 import { newIdempotencyKey, recordServiceSale } from "@/api/sales";
 import { ClientPicker, useClientPicker } from "@/components/ClientPicker";
 import { ErrorBanner } from "@/components/ErrorBanner";
-import { FloatingSearch, useTabBarCollapse } from "@/components/FloatingSearch";
+import { FloatingSearch } from "@/components/FloatingSearch";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { RefreshNotice } from "@/components/RefreshNotice";
 import { Segmented } from "@/components/Segmented";
@@ -78,7 +78,6 @@ function messageFor(code: string): string {
  */
 export default function CatalogSaleScreen() {
   const t = useTheme();
-  const tabBar = useTabBarCollapse();
   const slug = useShopSlug();
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ provider: string }>();
@@ -247,8 +246,6 @@ export default function CatalogSaleScreen() {
           <ActivityIndicator color={t.accent} style={{ marginTop: spacing.xl }} />
         ) : (
           <SectionList
-            onScroll={tabBar.onScroll}
-            scrollEventThrottle={tabBar.scrollEventThrottle}
             sections={sections}
             keyExtractor={(r) => String(r.id)}
             contentContainerStyle={styles.list}
@@ -301,7 +298,7 @@ export default function CatalogSaleScreen() {
         ) : null}
         {/* Hidden while the cart bar is up, where the button would sit. */}
         {itemCount === 0 || search ? (
-          <FloatingSearch collapsed={tabBar.collapsed} value={search} onChangeText={setSearch} placeholder={`Search ${provider} items`} />
+          <FloatingSearch value={search} onChangeText={setSearch} placeholder={`Search ${provider} items`} />
         ) : null}
       </View>
     );

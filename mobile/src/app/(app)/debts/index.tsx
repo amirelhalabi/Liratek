@@ -14,7 +14,7 @@ import {
 
 import { getDebtors } from "@/api/debts";
 import { RefreshNotice } from "@/components/RefreshNotice";
-import { FloatingSearch, useTabBarCollapse } from "@/components/FloatingSearch";
+import { FloatingSearch } from "@/components/FloatingSearch";
 import { queryKeys } from "@/data/queryKeys";
 import { usePullRefresh } from "@/data/usePullRefresh";
 import { useRefreshOnFocus } from "@/data/useRefreshOnFocus";
@@ -26,7 +26,6 @@ import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 /** Clients who owe the shop (spec Story 4 #3). Tap one to see the balance and record a repayment. */
 export default function DebtsScreen() {
   const t = useTheme();
-  const tabBar = useTabBarCollapse();
   const slug = useShopSlug();
   const [query, setQuery] = useState("");
   const debtorsQuery = useQuery({
@@ -47,8 +46,6 @@ export default function DebtsScreen() {
   return (
     <View style={styles.flex}>
       <ScrollView
-        onScroll={tabBar.onScroll}
-        scrollEventThrottle={tabBar.scrollEventThrottle}
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -108,7 +105,6 @@ export default function DebtsScreen() {
         ))}
       </ScrollView>
       <FloatingSearch
-        collapsed={tabBar.collapsed}
         value={query}
         onChangeText={setQuery}
         placeholder="Name or phone"

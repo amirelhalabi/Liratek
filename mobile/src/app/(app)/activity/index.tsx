@@ -23,7 +23,7 @@ import { useRecentTransactions } from "@/data/useRecentTransactions";
 import { useTheme, useThemePreference } from "@/theme/ThemeProvider";
 import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 import { CashArrow } from "@/components/CashArrow";
-import { FloatingSearch, useTabBarCollapse } from "@/components/FloatingSearch";
+import { FloatingSearch } from "@/components/FloatingSearch";
 import {
   formatAmounts,
   isInactiveTxn,
@@ -59,7 +59,6 @@ function groupByDay(
  */
 export default function ActivityScreen() {
   const t = useTheme();
-  const tabBar = useTabBarCollapse();
   const [search, setSearch] = useState("");
   const term = useDebounced(search, 300);
   const recent = useRecentTransactions(term);
@@ -76,8 +75,6 @@ export default function ActivityScreen() {
   return (
     <View style={styles.flex}>
       <ScrollView
-        onScroll={tabBar.onScroll}
-        scrollEventThrottle={tabBar.scrollEventThrottle}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.body}
         refreshControl={
@@ -236,7 +233,6 @@ export default function ActivityScreen() {
         )}
       </ScrollView>
       <FloatingSearch
-        collapsed={tabBar.collapsed}
         value={search}
         onChangeText={setSearch}
         placeholder="Search client, phone, item, cashier"

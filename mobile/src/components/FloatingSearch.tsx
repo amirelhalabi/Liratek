@@ -1,6 +1,6 @@
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import { Search, X } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Keyboard,
   LayoutAnimation,
@@ -9,53 +9,19 @@ import {
   StyleSheet,
   TextInput,
   View,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
 
+import { useDockState } from "@/native/tabBarState";
 import { useTheme, useThemePreference } from "@/theme/ThemeProvider";
 import { spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 
 const GLASS = isLiquidGlassAvailable();
 
-/**
- * Bottom offset of the search button while the iOS 26 tab bar is minimized:
- * the button's centre lines up with the single collapsed tab button
- * (measured on iPhone 17, centre ~54pt above the screen edge).
- */
-const COLLAPSED_BOTTOM = 27;
-
-/** Scroll distance (pt) in one direction before we call it a direction change. */
-const SCROLL_THRESHOLD = 8;
-
-/**
- * Mirrors the tab bar's `minimizeBehavior="onScrollDown"`: the system tab bar
- * shrinks to one button when the list scrolls down and comes back on scroll up
- * or at the top. The native bar does not report that state, so we follow the
- * same scroll signal. Pass `onScroll` to the list and `collapsed` to
- * FloatingSearch. Only iOS 26 minimizes the bar; elsewhere it never collapses.
- */
-export function useTabBarCollapse() {
-  const [collapsed, setCollapsed] = useState(false);
-  const last = useRef(0);
-  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (!GLASS) return;
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    const y = contentOffset.y;
-    // Rubber-band past either end is not a direction change.
-    if (y + layoutMeasurement.height > contentSize.height) return;
-    const next = y <= 0 ? false : y - last.current > SCROLL_THRESHOLD ? true : last.current - y > SCROLL_THRESHOLD ? false : null;
-    if (next === null) return;
-    last.current = y;
-    setCollapsed((prev) => {
-      if (prev !== next) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      return next;
-    });
-  }, []);
-  return { collapsed, onScroll, scrollEventThrottle: 16 };
-}
+const FAB_SIZE = 54;
+/** Minimized tab button's centre above the screen edge on iPhone 17, until the native bar reports it. */
+const FALLBACK_CENTER = 52;
 
 /**
  * Glass on iOS 26 (Liquid Glass); a solid themed surface elsewhere (older
@@ -81,21 +47,21 @@ function Glass({ style, children }: { style: StyleProp<ViewStyle>; children: Rea
  * type. Closing it clears the search and brings the button back.
  *
  * Place it as the LAST child of a `flex: 1` container that wraps the list.
- * Pass `collapsed` from useTabBarCollapse so the button drops to the level of
- * the minimized tab bar together with it.
+ * When iOS 26 minimizes the tab bar to a single button, the search button
+ * drops to sit level with it, and rises again when the bar expands — driven
+ * by the bar's real state, not by guessing from scrolling.
  */
 export function FloatingSearch({
   value,
   onChangeText,
   placeholder,
-  collapsed = false,
 }: {
   value: string;
   onChangeText: (v: string) => void;
   placeholder: string;
-  collapsed?: boolean;
 }) {
   const t = useTheme();
+  const dock = useDockState();
   const [open, setOpen] = useState(false);
   const [keyboard, setKeyboard] = useState(0);
   const input = useRef<TextInput>(null);
@@ -127,11 +93,17 @@ export function FloatingSearch({
     Keyboard.dismiss();
   }
 
-  // On the keyboard when it is up; beside the minimized tab bar while it is
-  // collapsed (button only: the open field is full width and would cover the
-  // tab button); otherwise just above the floating tab bar.
+  const minimized = dock.minimized && !open;
+
+  // On the keyboard when it is up; level with the minimized tab bar's button
+  // (centres aligned; the open field stays up, it is full width and would
+  // cover that button); otherwise just above the floating tab bar.
   const bottom =
-    keyboard > 0 ? keyboard + spacing.sm : collapsed && !open ? COLLAPSED_BOTTOM : TAB_BAR_CLEARANCE - spacing.sm;
+    keyboard > 0
+      ? keyboard + spacing.sm
+      : minimized
+        ? (dock.centerFromBottom || FALLBACK_CENTER) - FAB_SIZE / 2
+        : TAB_BAR_CLEARANCE - spacing.sm;
 
   if (!open) {
     return (
@@ -180,7 +152,7 @@ export function FloatingSearch({
 
 const styles = StyleSheet.create({
   fabWrap: { position: "absolute", right: spacing.lg },
-  fab: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  fab: { width: FAB_SIZE, height: FAB_SIZE, borderRadius: FAB_SIZE / 2, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   dot: { position: "absolute", top: 12, right: 12, width: 8, height: 8, borderRadius: 4 },
   bar: { position: "absolute", left: spacing.lg, right: spacing.lg, flexDirection: "row", alignItems: "center", gap: spacing.sm },
   field: {
