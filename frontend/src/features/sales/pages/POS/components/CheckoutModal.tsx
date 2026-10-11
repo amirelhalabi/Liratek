@@ -600,6 +600,10 @@ export default function CheckoutModal({
         getApiErrorMessage(error, "Failed to complete the sale."),
         "error",
       );
+    } finally {
+      // A refused sale ({success:false}) is handled by the caller, which
+      // shows its own toast and returns normally with the modal still open —
+      // resetting only in `catch` left the buttons stuck on "Processing...".
       setIsLoading(false);
     }
   };
@@ -617,6 +621,7 @@ export default function CheckoutModal({
         getApiErrorMessage(error, "Failed to save the draft."),
         "error",
       );
+    } finally {
       setIsLoading(false);
     }
   };

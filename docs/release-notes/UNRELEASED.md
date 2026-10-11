@@ -234,6 +234,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Payment form: the Paid amount no longer turns red when change is due or kept. Red now only means something needs fixing, such as an underpayment or handing back too much change.
 - When a payment doesn't match the total, the message now starts with a plain explanation ("The payment doesn't add up to the total." or "The payment is more than the total.") instead of technical text — on Loto, Exchange, OMT/Whish fees, Hold Money, supplier payments and other screens.
 - At checkout, the screen now shows which drawer each payment goes into (for example Cash → General) instead of always saying Drawer B. The same applies when taking payment for a repair in Maintenance.
+- POS and Maintenance checkout: when a sale is refused (for example an item with no stock left), the Complete Sale and Save Draft buttons now come back so you can fix the basket. Before, they stayed stuck on "Processing..." and you had to close the window.
 - POS and Maintenance checkout now convert Lira at the same rate as every other screen — a $10 item asks 890,000 LBP at a rate of 89,000. From now on, a POS cart added to a session is saved at the same rate it is paid at. Earlier sales keep their rate.
 
 ## 💳 Debts
