@@ -80,21 +80,31 @@ describe("Profits 'Commission' provider set — D11 (one home per figure)", () =
   let F: string;
   let T: string;
 
-  /** Legacy (pre-cutover) OMT row, settled, 1.50 commission — the control. */
+  /**
+   * Legacy (pre-cutover) OMT row, settled, 1.50 commission — the control.
+   *
+   * `created_at` is seeded as UTC (`datetime('now')`) because that is how
+   * every real writer stores it (`requestNow()` / `CURRENT_TIMESTAMP`), and
+   * `dateRange` shifts the stored value to the operator's local day before
+   * comparing. Seeding `datetime('now','localtime')` double-shifted it: after
+   * 21:00 Beirut (UTC+3; the test script pins TZ=Asia/Beirut) the row read
+   * as tomorrow and fell outside today's window, so this file failed every
+   * evening only.
+   */
   function seedLegacyOmtSettled(): void {
     const fsId = db
       .prepare(
         `INSERT INTO financial_services
            (tenant_id, provider, service_type, amount, currency, commission,
             cost, price, is_settled, commission_model, created_at)
-         VALUES (1, 'OMT', 'SEND', 100, 'USD', 1.5, 0, 0, 1, 0, datetime('now','localtime'))`,
+         VALUES (1, 'OMT', 'SEND', 100, 'USD', 1.5, 0, 0, 1, 0, datetime('now'))`,
       )
       .run().lastInsertRowid as number;
     db.prepare(
       `INSERT INTO transactions
          (tenant_id, type, status, source_table, source_id, user_id,
           amount_usd, profit_usd, created_at)
-       VALUES (1, 'FINANCIAL_SERVICE', 'ACTIVE', 'financial_services', ?, 1, 100, 1.5, datetime('now','localtime'))`,
+       VALUES (1, 'FINANCIAL_SERVICE', 'ACTIVE', 'financial_services', ?, 1, 100, 1.5, datetime('now'))`,
     ).run(fsId);
   }
 
