@@ -46,6 +46,29 @@ const mockGetUnsettledTransactions = jest.fn();
 const mockSettleTransactions = jest.fn();
 const mockAppEventsEmit = jest.fn();
 
+const mockApi = {
+  getSuppliers: mockGetSuppliers,
+  getSupplierBalances: mockGetSupplierBalances,
+  // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — the page now always
+  // fetches this too; none of this file's cases exercise an account
+  // parent, so a static empty array (no account on this tenant) keeps
+  // every existing assertion byte-for-byte unaffected.
+  getSupplierAccountBalances: jest.fn().mockResolvedValue([]),
+  getSupplierProductBalances: mockGetSupplierProductBalances,
+  // The page always mounts useProductStockValueQuery; without this key its
+  // queryFn threw "is not a function" on every render of every case.
+  getSupplierProductStockValue: jest.fn().mockResolvedValue([]),
+  getSupplierLedger: mockGetSupplierLedger,
+  getSupplierProductItems: mockGetSupplierProductItems,
+  getAllSupplierTransactions: mockGetAllSupplierTransactions,
+  getUnsettledTransactions: mockGetUnsettledTransactions,
+  settleTransactions: mockSettleTransactions,
+  recordSupplierCashflow: jest.fn(),
+  addSupplierLedgerEntry: jest.fn(),
+  getSupplierPurchases: jest.fn(),
+  createSupplierPurchase: jest.fn(),
+};
+
 // Same mock pattern as Suppliers.commissionAtSettlement.test.tsx — spread the
 // REAL @liratek/ui module (jest.requireActual) so the shared balance-colour
 // helpers (BALANCE_EPS/balanceBucket/balanceTextColor) this page also imports
@@ -55,25 +78,9 @@ jest.mock("@liratek/ui", () => {
   const actual = jest.requireActual("@liratek/ui");
   return {
     ...actual,
-    useApi: () => ({
-      getSuppliers: mockGetSuppliers,
-      getSupplierBalances: mockGetSupplierBalances,
-      // OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-188) — the page now always
-      // fetches this too; none of this file's cases exercise an account
-      // parent, so a static empty array (no account on this tenant) keeps
-      // every existing assertion byte-for-byte unaffected.
-      getSupplierAccountBalances: jest.fn().mockResolvedValue([]),
-      getSupplierProductBalances: mockGetSupplierProductBalances,
-      getSupplierLedger: mockGetSupplierLedger,
-      getSupplierProductItems: mockGetSupplierProductItems,
-      getAllSupplierTransactions: mockGetAllSupplierTransactions,
-      getUnsettledTransactions: mockGetUnsettledTransactions,
-      settleTransactions: mockSettleTransactions,
-      recordSupplierCashflow: jest.fn(),
-      addSupplierLedgerEntry: jest.fn(),
-      getSupplierPurchases: jest.fn(),
-      createSupplierPurchase: jest.fn(),
-    }),
+    // Rule 25 — return ONE module-level object, never a fresh literal per
+    // call: production's useApi() is identity-stable, so the mock must be too.
+    useApi: () => mockApi,
     appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
     CounterpartySettleModal: ({
       title,
@@ -237,8 +244,18 @@ function renderPage() {
   );
 }
 
+// CI run 38142644755 timed out here once, on this file's FIRST case, with the
+// supplier list still empty ("No suppliers found."). Not reproduced locally
+// (2 full coverage runs, a cold-cache 3-worker run under CPU stress, 5+
+// file runs). Measured locally: the first case in the file takes ~90-190 ms
+// to render and ~60-90 ms more for the list to appear; later cases take
+// 2-4 ms + 6-10 ms. No render loop (useApi call count settles). So the
+// default 1000 ms leaves little room for that one-off warm-up on a slower
+// shared runner. Widened for this list wait only.
 async function selectKatsh() {
-  fireEvent.click((await screen.findAllByText("Katsh"))[0]);
+  fireEvent.click(
+    (await screen.findAllByText("Katsh", {}, { timeout: 5000 }))[0],
+  );
 }
 
 describe("Suppliers page — bills-only settlement commission display (read-only enrichment)", () => {
