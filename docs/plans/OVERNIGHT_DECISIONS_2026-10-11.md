@@ -622,6 +622,12 @@ seen working until CI or your Windows PC.
   checks, review logic and money preparation can be built and tested on this Mac; the review page and PC routes wait
   for your yes; the PC parts need CI or your Windows PC.
 
+**Owner answers, 2026-10-11 (live):** G0 approved — O-new-7 (offline work credited to the cashier who did it, checked
+active + allowed role) and O-new-8 (each PC proves itself with its own admin-issued, revocable device key), and E1.
+O-new-3 confirmed (ticked debt already paid online → booked against oldest open debts, leftover as credit, with a note).
+O-new-4 confirmed (offline customer with an existing phone → linked to the existing customer). O-new-6 / O-new-9
+confirmed (vouchers and catalog changes online-only). Other O-new items stand as decided.
+
 ## Morning summary
 
 - **Web test failures (LIRA-094 group 4, LIRA-095 mixed-currency, LIRA-158 D17): test-only fixes. The app was not changed.**

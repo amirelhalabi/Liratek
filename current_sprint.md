@@ -6645,6 +6645,8 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 | **Spec** | `specs/306-offline-desktop-fallback/` (replaces the superseded lock-based design committed in a3698788) |
 | **Decisions** | `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §4 (N1–N9 owner; O-new-1… agent) |
 
+**Owner answers 2026-10-11:** G0 approved (device key per PC; offline work credited to the real cashier); O-new-3, O-new-4, O-new-6/9 confirmed. See decisions log §4.
+
 ### Summary
 
 Every desktop PC of a web shop keeps a fresh local copy of the shop's online data (about every 5 minutes). When the
