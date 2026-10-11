@@ -6234,6 +6234,12 @@ those transfers and the others wait in the list until a statement includes them.
 transfers waiting will also see the expected figure change, because those transfers' commission is no longer taken off
 twice.
 
+
+### Follow-ups
+
+- [ ] Confirm with OMT that their balance SMS equals the gross minus the included types' commission (the owner's LIRA-255 model; not confirmed with OMT).
+- [ ] When an uncovered pre-cutover transfer is waiting, the statement panel can show a negative "− Unsettled commission" figure (correct but reads oddly) — consider wording.
+
 ---
 
 ## LIRA-257: web shops are created without the system suppliers (OMT, Whish, iPick, Katsh, app wallets, Loto) — HIGH — DONE (not deployed)
@@ -6768,8 +6774,34 @@ stock that went negative, drawer counts taken offline and anything the server co
    recorder, working copy, sender, screens.
 4. Owner-run (G5): push/deploy, desktop release, pairing real PCs, outage drill with two PCs, Phase D, Litestream feed.
 
-**What users will notice:** _filled in at implement time — draft in the spec (release note lines: offline mode on the
-desktop app, the review list on the web app, and that past days' totals can change when a PC sends late work)._
+**What users will notice:** on the desktop app, an admin can pair a PC under Settings → This PC; a paired PC keeps a
+copy of the shop and, when the internet or the shop network is down, lets cashiers keep working ("Work offline"). When
+the internet is back, the PC sends its work and it is booked on the day and time it was done. On the web app, admins get
+an "Offline work" page (possible duplicates, drawer counts, anything that needs a decision) and a "Paired PCs" tab in
+Settings. An earlier day's totals can change when a PC sends late work. The web app is never locked while a PC is offline.
+
+### What's left — owner steps (tasks T148–T152)
+
+1. **Push** `dd934951` and `69ea67ab` (review page, Paired PCs panel, offline routes; nothing changes for shops until a PC is paired). Confirm `yarn api:verify`.
+2. **Desktop release** (`yarn release`) with the same data version; the What's new image folder `1.34.0` must match the version.
+3. **First real-PC test (Windows):** Settings → This PC → pair; standby shows the copy age within ~5 min; unplug, wait 30 s,
+   "Work offline"; make a sale (receipt `RCP-<16 digits>`); reconnect ("Internet is back"); "Back to the web app" → the sale
+   is on the web; pull the power while offline → the same working copy reopens.
+4. **Two-PC drill** per `docs/OPERATIONS.md` (network off on both, sell on both and on the phone, plant one OMT duplicate and one drawer count, reconnect PC 1 then PC 2).
+5. **Later:** hosting Phase D (also makes the copy builder fast at full scale — today it copies the whole shared file on
+   every build); Litestream-based incremental copy (spikes S1/S3, needs R2 credentials).
+
+### Follow-ups found during the build (not ticketed yet)
+
+- [ ] Drawer counts: `ClosingRepository.getLastCheckpointActuals` (~:344) picks the latest checkpoint by row id, so a count applied late from the review list becomes the next count's baseline. Should pick by business time.
+- [ ] MTC/Alfa: a carrier-line balance reading applied late overwrites credits used after it.
+- [ ] Loto: `loto:checkpoint:create-scheduled` is not deduplicated (an empty duplicate is possible); an applied loto checkpoint picks up tickets sold after its event.
+- [ ] Sign-in: Google-only users cannot sign in on an offline PC (sign-in links are stripped from the copy) — they need a password. Decide: tell users, or ship a hashed link.
+- [ ] Copy builder at production scale: measure once Phase D is live (33 ms on a one-shop dev copy).
+- [ ] Online-only exemption guard (`onlineOnlyExemptions.guard.test.ts`) covers the paths the fixtures exercise, not every branch — extend if a new offline channel reaches supplier/partner writers.
+- [ ] Desktop: custom-service add/delete still record no actor on either transport (pre-existing).
+- [ ] Frontend `landingSignIn.test.ts` fails 2 tests at HEAD (landing HTML) — unrelated, needs its own look.
+- [ ] Not verified anywhere yet: every desktop behaviour of phases 7–8 (only electron jest ran). The owner steps above are the first real run.
 
 ---
 

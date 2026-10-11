@@ -386,6 +386,15 @@ route calls per currency, schema `toBe`;
 - [ ] T151 [US6] Owner: two-PC outage drill per `docs/OPERATIONS.md` (network off on both, sell on both and on the phone, plant one OMT duplicate and one drawer count, reconnect PC 1 then PC 2); record SC-008 timings; the review list shows exactly the planted items.
 - [ ] T152 [US6] Owner (optional, later): hosting Phase D; Litestream-based incremental copy (spikes S1/S3, needs R2 credentials).
 
+
+## Follow-ups (found during the build; outside this ticket's scope)
+
+Tracked in `current_sprint.md` › LIRA-306 › Follow-ups and the decisions file's Morning summary:
+late-applied drawer count becomes the next baseline (`getLastCheckpointActuals` by id); late carrier-line reading
+overwrites later credits; loto scheduled checkpoint not deduplicated and late loto checkpoint picks up later tickets;
+Google-only users cannot sign in offline; copy-builder timing at production scale; online-only exemption guard covers
+fixture paths only; desktop behaviour of phases 7–8 unverified until T150–T151.
+
 ---
 
 ## Dependencies & execution order

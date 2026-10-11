@@ -1,5 +1,11 @@
 # Offline Desktop Fallback — Web-First with a Desktop Plan B
 
+> **⚠ Superseded 2026-10-11.** The owner redesigned this live (decisions N1–N9): the web app is never locked, every
+> cashier action works offline, each PC works on its own local copy, and offline work is sent back as events and replayed
+> through the website's own code. The design and the build live in `specs/306-offline-desktop-fallback/` (ticket
+> LIRA-306): 147 of 152 tasks built; what's left is the owner's steps (push, desktop release, Windows test, two-PC drill,
+> Phase D) — see `current_sprint.md` › LIRA-306 › "What's left" and "Follow-ups". §2 D2 below (web read-only) is revoked.
+
 > **Status**: TODO — planned 2026-09-27. **Step 1 is almost done (2026-09-28):** the hosting
 > plan's per-tenant split (Phases A–C) is shipped and deployed; only its Phase D (the production
 > switch, runbook § 12.4) remains, owner-scheduled. Nothing of this plan's own work is built yet.
