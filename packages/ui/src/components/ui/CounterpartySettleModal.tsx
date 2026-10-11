@@ -207,7 +207,10 @@ export function CounterpartySettleModal({
       data-testid="counterparty-settle-modal"
     >
       <div
-        className={`bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full shadow-2xl overflow-hidden ${panelClassName}`}
+        // Capped at the viewport and scrollable: a tall body (the Debts
+        // item picker + "Goes to" preview, LIRA-304) otherwise pushed the
+        // Confirm button below a short screen with no way to reach it.
+        className={`bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full shadow-2xl max-h-[calc(100vh-2rem)] overflow-y-auto ${panelClassName}`}
         role="presentation"
         onMouseDown={(e) => e.stopPropagation()}
       >
