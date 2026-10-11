@@ -53,7 +53,7 @@ function createSchema(d: Database.Database): void {
     -- link item-refund / undo partner rows back to their sale
     -- (constants/partnerObligation.ts). Production schema always has it.
     CREATE TABLE transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, /* LIRA-305: read by the partner-netting fragments; production always has it */ type TEXT, tenant_id INTEGER DEFAULT 1,
       source_table TEXT,
       source_id INTEGER
     );

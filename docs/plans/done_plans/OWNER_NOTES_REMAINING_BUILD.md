@@ -780,7 +780,7 @@ Both routes: commission and profit stamping per D2/D3, client_id propagation (ru
 
 ### Evidence
 
-- docs/plans/todo_plans/SYRIA_REMITTANCE_PLAN.md:249-262 — D1-D6 as written. D1: always a partner, or walk-in? D2: RECEIVE commission deducted from payout, or on top? D3: profit deferred until the partner settles, or immediate? D4: General, or its own drawer? D5: one corridor or several (written recommendation: build it generic)? D6: this plan reverses the 'Syria in Custom Services' position, still want it?
+- docs/plans/done_plans/SYRIA_REMITTANCE_PLAN.md (archived 2026-10-11, LIRA-305):249-262 — D1-D6 as written. D1: always a partner, or walk-in? D2: RECEIVE commission deducted from payout, or on top? D3: profit deferred until the partner settles, or immediate? D4: General, or its own drawer? D5: one corridor or several (written recommendation: build it generic)? D6: this plan reverses the 'Syria in Custom Services' position, still want it?
 - docs/plans/done_plans/OWNER_NOTES_2026-09-21.md:430, :517, :526, :641, :719 — every entry says 'blocked on D1-D6'. No owner answer recorded. Owner's verbatim note is at :1154
 - current_sprint.md:689 — 2026-08-10 decision log: 'Syria partners are served through Custom Services'
 - frontend/src/features/services/pages/Services/index.tsx:42 and :182 — provider list closed to OMT/WHISH

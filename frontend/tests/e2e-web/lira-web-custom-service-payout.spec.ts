@@ -1,5 +1,5 @@
 /**
- * NOT RUN — the owner runs the e2e suite later (fix-round I4).
+ * Last run green over REST: 2026-10-11 (LIRA-305).
  *
  * lira-web — OWNER_NOTES_REMAINING_BUILD.md #16 Custom Services "Pay out"
  * (Route A, the Syria transfer OUT, migration v185, fix-round I4), driven
@@ -9,7 +9,7 @@
  * "Pay out" is `partner_mode: 'VIA'` with `direction: 'OUT'` instead of the
  * default 'IN' — not a third partner mode. Owner's own worked example: $100
  * arrives via the partner, the recipient gets $97 cash, $3 is profit
- * (commission), same day.
+ * (commission) — the commission is stamped at once and counted when the partner's account covers it (cash or netting — LIRA-258 D5, LIRA-305 Y6).
  *   - price_usd = what the PARTNER now owes the shop (THROUGH_CUSTOM_SERVICE
  *     partner_ledger DEBIT).
  *   - cost_usd  = what physically leaves the General drawer to the

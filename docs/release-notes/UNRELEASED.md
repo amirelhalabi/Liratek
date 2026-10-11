@@ -148,10 +148,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 ## 📊 Profits page
 
 - Profits: a new "Warranty cost" line (By Module, plus an Overview card) shows what honouring warranties cost the shop — replacements, refunded faulty items and warranty repair parts — on the day of each claim. Past sales are never changed, and a voided claim leaves it at zero.
-- A payout you make for a partner (for example a transfer you hand out on a partner's behalf) now
-  counts its profit only as the partner pays you back, the same way "for partner" sales already
-  do. This also applies to earlier payouts, but partner payments you recorded before this update
-  do not count toward them.
+- On the Profits page, the commission on money you pay out for a partner (Services → Via Partner → Pay out, for example a Syria transfer) now counts once the partner's account in that currency covers it — by cash the partner paid you, or by what you owe that partner for transfers you sent through them. Until then it waits, and if the partner still owes part, the newest pay-outs wait first. This includes pay-outs, payments and transfers you recorded before this update, so the profit shown for earlier days can change — it goes up for partners you both send and pay out through. A day's close opened again shows the new figure; a printed copy does not change. Manual partner entries made with "Cash moved" off never count as the partner paying.
 - Profits: items in a customer basket put on the customer's account now count as profit only once
   the customer pays for them, same as outside a basket. From now on only.
 - Binance transfers now show on the Profits page: the fee and any change you kept count in Overview, By Module, By Date, By Cashier and By Client, including past days. Binance amounts are counted as US dollars and now also count in revenue.

@@ -1,5 +1,5 @@
 /**
- * NOT RUN — proven at the end-of-batch gate.
+ * Last run green: 2026-10-11 (LIRA-305, full core suite).
  *
  * CustomServiceRepository — OWNER_NOTES_REMAINING_BUILD.md #16 "Pay out"
  * tests (Route A, migration v185, Syria transfer OUT).
@@ -7,7 +7,7 @@
  * "Pay out" is NOT a third partner mode — it is `partner_mode: 'VIA'` with
  * `direction: 'OUT'` instead of the default 'IN'. Owner example: $100
  * arrives via the partner, the customer/recipient gets $97 cash, $3 is
- * profit (commission), same day.
+ * profit (commission) — the commission is stamped at once and counted when the partner's account covers it (cash or netting — LIRA-258 D5, LIRA-305 Y6).
  *   - price_usd/price_lbp = what the PARTNER now owes the shop (booked as a
  *     THROUGH_CUSTOM_SERVICE partner_ledger DEBIT — "partner owes us").
  *   - cost_usd/cost_lbp = what physically leaves the General drawer to the
@@ -255,7 +255,7 @@ describe("CustomServiceRepository.createService() — payout (OWNER_NOTES_REMAIN
     db.close();
   });
 
-  it("owner example: $100 arrives, customer gets $97, $3 profit — booked same day", () => {
+  it("owner example: $100 arrives, customer gets $97, $3 profit — stamped at once, counted when the partner's account covers it", () => {
     const partnerId = seedPartner(db);
 
     const result = repo.createService(
@@ -308,7 +308,8 @@ describe("CustomServiceRepository.createService() — payout (OWNER_NOTES_REMAIN
     });
     expect(entries[0].amount).toBeCloseTo(100, 2);
 
-    // Commission ($3) is profit, stamped on create — same day, no deferral.
+    // Commission ($3) is profit, stamped on create; counted when the partner's
+    // account covers it (cash or netting — LIRA-258 D5, LIRA-305 Y6).
     const txn = db
       .prepare("SELECT * FROM transactions WHERE type = 'CUSTOM_SERVICE'")
       .get() as any;

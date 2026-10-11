@@ -91,7 +91,7 @@ function createSchema(d: Database.Database): void {
       profit_lbp REAL DEFAULT 0
     );
     CREATE TABLE partner_ledger (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, /* LIRA-305: read by the partner-netting fragments; production always has it */ partner_id INTEGER, tenant_id INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       reference_table TEXT,
       reference_id INTEGER,
       transaction_type TEXT,

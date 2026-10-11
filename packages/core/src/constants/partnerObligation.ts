@@ -17,7 +17,10 @@
  *  2. LIRA-258 / owner decision D5 (2026-10-06, "count it when the partner
  *     pays"): a Via-Partner PAYOUT's `THROUGH_CUSTOM_SERVICE` DEBIT — the
  *     partner owes the shop the price (CustomServiceRepository.createService,
- *     `isPayout` branch).
+ *     `isPayout` branch). A Pay out also counts NETTING as paying — LIRA-305,
+ *     owner decisions Y6/Y13/Y14: netting counts as paying; paper credits
+ *     never do. See {@link partnerEffectiveCoveredSql}. FOR rows stay
+ *     cash-only (Y7).
  *
  * Deliberately NOT members:
  *  - A Via-Partner IN service's `THROUGH_CUSTOM_SERVICE` CREDIT: the customer
@@ -39,6 +42,9 @@
  * the call site. Returns a parenthesized boolean SQL expression with no
  * bind parameters. Not stamped anywhere: coverage is re-read on every query,
  * so a settlement void corrects recognition on the next read (rule 20).
+ * Netting (LIRA-305) is read-time too — nothing is written for it, so a void
+ * or refund of a SEND, a RECEIVE or a settlement re-derives it on the next
+ * read; rule 20 needs no new reversal owner.
  */
 export function partnerObligationRowSql(alias: string): string {
   return `(${alias}.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
@@ -166,10 +172,177 @@ export function partnerObligationCoverableSql(alias: string): string {
           AND plh_earlier.id < ${alias}.id)))`;
 }
 
+/*
+ * LIRA-305 — PARTNER NETTING for a Custom Services Pay out (owner decisions
+ * Y6 / Y13 / Y14, `docs/plans/OVERNIGHT_DECISIONS_2026-10-11.md` §3).
+ *
+ * In a two-way corridor (SEND = Via Partner, the shop owes the partner the
+ * cost; RECEIVE = Via Partner + Pay out, the partner owes the shop what
+ * arrived) the two sides cancel on the partner's account without any cash
+ * changing hands. Cash coverage alone (`covered_amount`, stamped by
+ * `PartnerRepository.applySettlementCoverage`) never sees that, so a Pay
+ * out's commission would wait forever. The rule, read-time only:
+ *
+ *  - N = the partner's netting balance in the head's currency
+ *    ({@link partnerNettingBalanceSql}): Σ DEBIT − Σ CREDIT, leaving out paper
+ *    credits only. N > 0 means the partner still owes the shop N.
+ *  - Of the Pay out money still not cash-covered ({@link partnerPayoutUncoveredSql}),
+ *    the NEWEST Pay outs are held first, up to N; the oldest count first —
+ *    the same FIFO every other coverage path uses. "Newer" is
+ *    `julianday(created_at)` then `id`, never text order: two formats are
+ *    stored (ISO `…T…Z` from a transaction_time, `YYYY-MM-DD HH:MM:SS` from
+ *    CURRENT_TIMESTAMP).
+ *  - effective covered(h) = coverable(h) − held(h). Every other head keeps
+ *    MIN(covered_amount, coverable) — FOR rows of every module are unchanged.
+ *
+ * Nothing is stored. `covered_amount` keeps meaning "cash covered"; netting
+ * must never be written into it (`applySettlementCoverage` and
+ * `TransactionRepository._unwindPartnerSettlementCoverage` stay on raw
+ * stamps). Undo (Y14): delete `partnerEffectiveCoveredSql` and point the two
+ * consumers below back at `covered_amount`; no data to migrate.
+ *
+ * Reserved inner aliases — callers must not pass these as `alias`: `plb`,
+ * `plb_tx`, `plb_tx2`, `ph`, `pg`, `g`, plus the existing `plg`, `plg_tx`,
+ * `plh_earlier`, `plh_prev`, `plo_first`.
+ *
+ * Tenant scoping: every new sub-query filters `tenant_id = <alias>.tenant_id`
+ * (`check-tenant-scoping` does not scan `constants/`; the guard is
+ * `ProfitRepository.syriaCorridorNetting.test.ts` case (n)).
+ */
+
+/**
+ * The partner's NETTING balance for `alias`'s partner / currency / tenant —
+ * the ONE definition (rule 14). Equal to `PartnerRepository.getBalance`
+ * minus paper credits only:
+ *  1. a CREDIT that sources a `PARTNER_ADJUSTMENT` transaction (a manual
+ *     entry with "Cash moved" off — `PartnerRepository.recordAdjustmentTransaction`;
+ *     non-reversible, so such rows never have reversals), and
+ *  2. a LEGACY manual CREDIT from before LIRA-066: no reference, not a
+ *     SETTLEMENT/DISCOUNT, and no `PARTNER_PAYMENT`/`PARTNER_SETTLEMENT` link
+ *     (it has no transactions row at all and cannot be voided).
+ * Every other row — obligations, settlements, discounts, cash-moved entries,
+ * `WHISH_TOPUP`, and every reversal row — counts. Credit TYPES are
+ * deliberately not whitelisted: a reversal never carries its own
+ * `PARTNER_ADJUSTMENT` link, so it always counts exactly like its original,
+ * which keeps every void symmetric (a type whitelist left commission stuck
+ * after voiding a cash-moved entry or a top-up).
+ *
+ * The unary `+` on `+plb_tx.tenant_id` / `+plb_tx2.tenant_id` is REQUIRED:
+ * it stops SQLite from choosing `idx_transactions_tenant_id` (a scan of the
+ * whole tenant's transactions per CREDIT row — measured 14.7 s / 56 s on the
+ * guard's perf fixtures) and keeps `idx_transactions_source` (≈1 s / 4 s).
+ * Guarded by case (t) of the netting test.
+ */
+export function partnerNettingBalanceSql(alias: string): string {
+  return `(SELECT COALESCE(SUM(CASE
+      WHEN plb.direction = 'DEBIT' THEN plb.amount
+      WHEN EXISTS (
+        SELECT 1 FROM transactions plb_tx
+        WHERE plb_tx.type = 'PARTNER_ADJUSTMENT'
+          AND plb_tx.source_table = 'partner_ledger'
+          AND plb_tx.source_id = plb.id
+          AND +plb_tx.tenant_id = plb.tenant_id) THEN 0
+      WHEN plb.reference_table IS NULL
+        AND COALESCE(plb.transaction_type, '') NOT IN ('SETTLEMENT', 'DISCOUNT')
+        AND NOT EXISTS (
+          SELECT 1 FROM transactions plb_tx2
+          WHERE plb_tx2.type IN ('PARTNER_PAYMENT', 'PARTNER_SETTLEMENT')
+            AND plb_tx2.source_table = 'partner_ledger'
+            AND plb_tx2.source_id = plb.id
+            AND +plb_tx2.tenant_id = plb.tenant_id) THEN 0
+      ELSE -plb.amount END), 0)
+    FROM partner_ledger plb
+    WHERE plb.partner_id = ${alias}.partner_id
+      AND plb.currency = ${alias}.currency
+      AND plb.tenant_id = ${alias}.tenant_id)`;
+}
+
+/**
+ * @internal Exported only so the netting test (case o) can pin it to
+ * `partnerObligationCoverableSql` − MIN(covered, coverable) (rule 14).
+ *
+ * Pay out head `alias`'s amount still not cash-covered: MAX(0, MIN(amount,
+ * group net) − covered_amount), where the group is the head's own
+ * same-type/currency/reference rows (DEBIT +, CREDIT −), filtered by
+ * partner and tenant too so `idx_partner_ledger_partner_id` is used.
+ */
+export function partnerPayoutUncoveredSql(alias: string): string {
+  return `MAX(0.0, MIN(${alias}.amount,
+    (SELECT COALESCE(SUM(CASE WHEN ph.direction = 'DEBIT' THEN ph.amount ELSE -ph.amount END), 0)
+       FROM partner_ledger ph
+      WHERE ph.partner_id = ${alias}.partner_id
+        AND ph.tenant_id = ${alias}.tenant_id
+        AND ph.currency = ${alias}.currency
+        AND ph.transaction_type = ${alias}.transaction_type
+        AND ph.reference_table = ${alias}.reference_table
+        AND ph.reference_id = ${alias}.reference_id))
+    - ${alias}.covered_amount)`;
+}
+
+/**
+ * @internal Exported only so the netting test (case o) can pin it.
+ *
+ * Σ uncovered of the Pay out groups on `alias`'s partner / currency / tenant
+ * whose head is NEWER than `alias` (julianday(created_at), then id). One
+ * grouped pass over the partner's `THROUGH_CUSTOM_SERVICE` rows: a group
+ * whose first row (lowest id) is a DEBIT is a Pay out (the same "first row
+ * decides" rule as `partnerObligationRowSql`). `head_jd` reads the DEBIT
+ * row's time only (a Pay out group has exactly one DEBIT, its head), so a
+ * reversal written in the other text format is never taken for the head.
+ */
+export function payoutNewerSumSql(alias: string): string {
+  return `(SELECT COALESCE(SUM(g.unc), 0) FROM (
+      SELECT pg.reference_id,
+             MIN(pg.id) AS head_id,
+             MIN(CASE WHEN pg.direction = 'DEBIT' THEN julianday(pg.created_at) END) AS head_jd,
+             MAX(0.0, MIN(SUM(CASE WHEN pg.direction = 'DEBIT' THEN pg.amount ELSE 0 END),
+                          SUM(CASE WHEN pg.direction = 'DEBIT' THEN pg.amount ELSE -pg.amount END))
+                      - SUM(pg.covered_amount)) AS unc
+        FROM partner_ledger pg
+       WHERE pg.partner_id = ${alias}.partner_id
+         AND pg.currency = ${alias}.currency
+         AND pg.tenant_id = ${alias}.tenant_id
+         AND pg.transaction_type = 'THROUGH_CUSTOM_SERVICE'
+         AND pg.reference_table = 'custom_services'
+       GROUP BY pg.reference_id
+      HAVING MIN(CASE WHEN pg.direction = 'DEBIT' THEN pg.id END) = MIN(pg.id)
+    ) g
+    WHERE g.head_jd > julianday(${alias}.created_at)
+       OR (g.head_jd = julianday(${alias}.created_at) AND g.head_id > ${alias}.id))`;
+}
+
+/**
+ * The amount of obligation head `alias` that counts as PAID — the value both
+ * profit consumers use in place of the raw `covered_amount` (LIRA-305).
+ * Scalar in [0, coverable(alias)]; meaningful only for rows passing
+ * {@link partnerObligationHeadRowSql}.
+ *  - A Custom Services Pay out head (`THROUGH_CUSTOM_SERVICE` DEBIT — by
+ *    construction a Pay out, since the IN-reversal DEBIT is excluded by
+ *    `partnerObligationRowSql`): coverable minus the part still held by
+ *    netting. The first two arms are cheap guards (already cash-covered;
+ *    the partner owes nothing) that return the same value the ELSE arm would
+ *    — they only skip the grouped newer-sum.
+ *  - Any other head: MIN(covered_amount, coverable) — unchanged.
+ */
+export function partnerEffectiveCoveredSql(alias: string): string {
+  const coverable = partnerObligationCoverableSql(alias);
+  const unc = partnerPayoutUncoveredSql(alias);
+  const n = partnerNettingBalanceSql(alias);
+  return `(CASE
+    WHEN ${alias}.transaction_type = 'THROUGH_CUSTOM_SERVICE' AND ${alias}.direction = 'DEBIT' THEN (CASE
+      WHEN ${unc} <= 0.005 THEN ${coverable}
+      WHEN ${n} <= 0.005 THEN ${coverable}
+      ELSE ${coverable} - MAX(0.0, MIN(${unc}, ${n} - ${payoutNewerSumSql(alias)}))
+    END)
+    ELSE MIN(${alias}.covered_amount, ${coverable})
+  END)`;
+}
+
 /**
  * Settlement-coverage ratio over the heads selected by `refWhere` (a SQL
- * condition on alias `plr`): Σ covered / Σ coverable, each head's covered
- * amount capped at its coverable amount, clamped to [0, 1]. 1.0 when there
+ * condition on alias `plr`): Σ effective covered / Σ coverable, each head's
+ * effective covered amount ({@link partnerEffectiveCoveredSql} — cash, plus
+ * netting for a Pay out) capped at its coverable amount, clamped to [0, 1]. 1.0 when there
  * is no head or nothing is left to cover (net 0 — nothing to wait for).
  */
 export function partnerCoverageRatioWhereSql(refWhere: string): string {
@@ -177,10 +350,10 @@ export function partnerCoverageRatioWhereSql(refWhere: string): string {
     (
       SELECT CASE WHEN SUM(plr_cov.coverable) > 0.005
         THEN MAX(0.0, MIN(1.0,
-          SUM(MIN(plr_cov.covered_amount, plr_cov.coverable)) / SUM(plr_cov.coverable)))
+          SUM(MIN(plr_cov.effective, plr_cov.coverable)) / SUM(plr_cov.coverable)))
         ELSE 1.0 END
       FROM (
-        SELECT plr.covered_amount AS covered_amount,
+        SELECT ${partnerEffectiveCoveredSql("plr")} AS effective,
                ${partnerObligationCoverableSql("plr")} AS coverable
         FROM partner_ledger plr
         WHERE ${refWhere}
@@ -201,6 +374,6 @@ export function partnerUncoveredExistsWhereSql(refWhere: string): string {
     SELECT 1 FROM partner_ledger plp
     WHERE ${refWhere}
       AND ${partnerObligationHeadRowSql("plp")}
-      AND plp.covered_amount < ${partnerObligationCoverableSql("plp")} - 0.005
+      AND ${partnerEffectiveCoveredSql("plp")} < ${partnerObligationCoverableSql("plp")} - 0.005
   )`;
 }

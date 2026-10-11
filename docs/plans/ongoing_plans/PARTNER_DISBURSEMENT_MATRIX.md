@@ -1,5 +1,10 @@
 # Partner Disbursement Matrix — owner's rule vs. shipped code
 
+> **Status note (2026-10-11, LIRA-305):** the "hwelet souria / 7welet souria" gap named below is **closed** by Route A
+> (Custom Services → Via Partner, plus Pay out for the RECEIVE direction, v185) and LIRA-305 (the Pay out's commission now
+> counts when netting squares the partner's account). The Syria partner never goes through the OMT/Whish page, so the
+> derivation-rule hazard in Part C does not apply to it. The audit body below is a dated record and is not rewritten.
+
 **Status:** Read-only audit. No source file touched. Grounded at HEAD `1f73780` (2026-08-10).
 **Owner's rule (verbatim, 2026-08-10):**
 

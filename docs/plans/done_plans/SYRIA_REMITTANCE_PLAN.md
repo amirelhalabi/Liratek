@@ -1,9 +1,8 @@
 # Syria Remittance — a custom transfer provider that can pay OUT
 
-> ⛔ **SUPERSEDED — do not build (2026-10-11, LIRA-305).** The owner chose Route A instead (Custom Services →
-> Via Partner, plus "Pay out" for RECEIVE; owner notes #16, 2026-09-24), shipped in `9ed8d90f` / migration v185 and
-> confirmed "as built — no change" on 2026-09-25. LIRA-305 (`specs/305-syria-remittance/`) adds only the partner-netting
-> rule and the end-to-end proof. This file is kept as a record and moves to `done_plans/` in LIRA-305 task T002.
+> ⛔ **Superseded — not built.** The owner chose Route A (Custom Services → Via Partner, Pay out) on 2026-09-24 (owner
+> notes #16), shipped in `9ed8d90f` / v185, confirmed 'as built — no change' 2026-09-25. LIRA-305
+> (`specs/305-syria-remittance/`) added the netting rule and the end-to-end proof.
 
 > **Status**: planned, nothing built. **Written**: 2026-09-17, after the owner asked
 > how to record a Syria transfer in both directions.

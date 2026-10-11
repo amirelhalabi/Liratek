@@ -173,6 +173,20 @@ the final shape's full-path numbers are further down (pass 3):
 See `tasks.md` → "Analyze record" (pass 1: 1 CRITICAL, 2 HIGH, 8 MEDIUM, 6 LOW — all CRITICAL/HIGH fixed here and in
 tasks; pass 2 result recorded there too).
 
+### Baseline (T001, 2026-10-11, before any LIRA-305 source change)
+
+- Regression nets (core jest): `ProfitRepository.viaPartnerCustomServiceDeferral`, `CustomServiceRepository.payout`,
+  `CustomServiceRepository.viaPartner`, the four `ProfitRepository.partnerProportional*`, `partnerLedgerTypes.guard`,
+  `browserEntryIsNodeFree.guard` → **9 suites, 71 tests passed**, jest time 1.09 s (1.6 s wall; warm cache — 71 real
+  test results reported, so the assertions executed).
+- Last migration: **v209** (`packages/core/src/db/migrations/index.ts:14369`).
+- Channels confirmed by grep in `electron-app/handlers/`: `custom-services:add`, `custom-services:delete`,
+  `transactions:void`, `transactions:refund`, `partners:settle`, `partners:get-balance`, `partners:get-ledger`,
+  `profits:by-module`, `profits:unlock`. REST confirmed: `POST /api/custom-services` (`customServices.ts:230`),
+  `DELETE /api/custom-services/:id` (:275), `POST /api/transactions/:id/void` (`transactions.ts:234`),
+  `POST /api/partners/settle` (`partners.ts:190`), `GET /api/partners/:id/balance` (:59),
+  `GET /api/profits/by-module` (`profits.ts:175`).
+
 ## R9 — Known limits left as they are (out of scope, recorded)
 
 - **Mixed-currency rows** (pre-existing, analyze L2): `partnerCoverageRatioWhereSql` weighs one source row's USD and LBP

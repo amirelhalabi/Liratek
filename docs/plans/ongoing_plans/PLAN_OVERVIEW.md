@@ -11,7 +11,10 @@
 > repository method, the REST route, the component, the spec file. **No status line was taken at
 > face value.** Where a plan's header disagreed with the code, the code won.
 >
-> **Last updated 2026-10-11** — `COMMISSION_AT_SETTLEMENT_PLAN.md` closed and archived (its
+> **Last updated 2026-10-11** — `SYRIA_REMITTANCE_PLAN.md` archived as superseded (not built: the owner's Route A —
+> Custom Services → Via Partner + Pay out, v185 — is the corridor; LIRA-305 added the partner-netting profit rule and the
+> end-to-end proof; decisions Y1–Y14 in `OVERNIGHT_DECISIONS_2026-10-11.md` §3). Earlier the same day:
+> `COMMISSION_AT_SETTLEMENT_PLAN.md` closed and archived (its
 > LIRA-108 residual and Phase 4 finished overnight; decisions C1-C6 in
 > `OVERNIGHT_DECISIONS_2026-10-11.md`). Previous update 2026-10-10 — audit refresh: `OWNER_NOTES_2026-09-21` references cleared (closed
 > 2026-10-02), six finished plans archived, §2d rebuilt from the real open owner questions, and the
@@ -26,7 +29,7 @@ The 2026-09-16 sweep checked 26 plans and found **11 of them finished and filed 
 out of `todo_plans` (which means "nothing built yet") into `ongoing_plans`.
 
 **The sweep left a real board of 17 plans** — much smaller than the folders used to suggest.
-**Now 15** — counted from the folders on 2026-10-11: **11 ongoing + 4 todo** (plus this file).
+**Now 14** — counted from the folders on 2026-10-11: **11 ongoing + 3 todo** (plus this file).
 `OWNER_NOTES_2026-09-21.md`, `OWNER_NOTES_REMAINING_BUILD.md` and
 `LIRA-219_CLOSING_PROFIT_PARITY.md` all shipped in `9ed8d90f` (2026-09-25) and were archived
 2026-10-02 (`340a9446`) — all 29 owner notes done or owner-decided. **Archived 2026-10-10:**
@@ -101,11 +104,10 @@ writes transactions, payments, drawers, ledgers or profit.
 | `MOBILE_APP_PLAN.md` 🆕 | **LIRA-289, first phone version built 2026-10-10 (39/62 tasks).** Expo SDK 55 app (`mobile/`), with sign-in by shop address, live balances, Whish/OMT App transfers on account or into a wallet, customer debts and wallet repayments, and the since-last-count view. Server: mobile login, Idempotency-Key (v208), since-last-count on both transports. Shared with web: the wallet-transfer builder, local-date reports and the count panel. Left: APK release to cornertech, phone UI tests, store readiness. Deferred: Google, Binance and vouchers | Medium | yes (posts through existing money routes, money-tested) |
 | `WEB_PARITY_ROADMAP.md` 📖 | **Living tracker — never archive.** Phase 3 is essentially done: **117 of 118 desktop specs run in web mode** (LIRA-297, `37015d45` + follow-ups); only `lira-085` stays desktop-only (the setup wizard is Electron-only). Its own Phase 3 count ("7 of 87 specs") is stale, and two §9 items are already fixed but still listed | Small | yes |
 
-### `todo_plans/` — genuinely not started (4)
+### `todo_plans/` — genuinely not started (3)
 
 | Plan | What's there | Size | Money |
 | --- | --- | --- | --- |
-| `SYRIA_REMITTANCE_PLAN.md` | **Possibly superseded.** A Syria pay-out was already built as `OWNER_NOTES_2026-09-21` #16 Route A (a "Pay out" direction on Custom Services → Via Partner, migration v185, `9ed8d90f`). The plan's generic custom-transfer-provider build is only worth doing if the answer to its **D5** is "several corridors" — otherwise archive it (§2d) | Medium, or none | yes |
 | `OFFLINE_DESKTOP_FALLBACK_PLAN.md` | Everything of its own: desktop as an outage fallback for web shops, with the web read-only during the outage and offline work synced back (owner decisions recorded, its §2). Its step 1 is the per-tenant split, which waits only on `PRODUCTION_DATABASE_AND_HOSTING` Phase D | Large | yes |
 | `OPEN_PUBLIC_SIGNUP_PLAN.md` | LIRA-267 covers Turnstile and the verified contact email (§3.1, §3.3). Turnstile is built (LIRA-267) but not configured in production (owner decision 2026-10-07); `SIGNUP_INVITE_CODE` is removed (sign-up is by emailed invite link only). Still open: `pending` tenant status (CHECK still `active/suspended/archived`), verified contact email, URL invite-code prefill. The signup page it gates already shipped. **The only plan whose header is honest about being untouched** | Large | no |
 | `SPRINT_INVENTORY_2026-08-12.md` 🗑️ | **Stale artifact — to drop** (not deleted here; owner's call). A stale snapshot, not a build plan. Its counts are no longer trustworthy and a **second** ticket file now exists that it never knew about (`docs/tickets/CURRENT_SPRINT.md`). Its §3 inventory is **18** open line items as of 2026-09-22 (LIRA-110 struck — closed by LIRA-158 + LIRA-160). Re-run it or drop it | Re-run | no |
@@ -117,6 +119,9 @@ for the commits), alongside the earlier `WARRANTY_ANY_ITEM_PLAN.md` (LIRA-296) a
 `LIRA-196_TENANT_DAY_BOUNDARY.md`. **Optional leftover** from `POSTING_INTEGRITY_PLAN.md`: Phase 5
 posting rules for 18 transaction types (`postingRules.ts` `todo-phase5`) and the G31 stale
 comments — not tracked as a plan.
+
+**Archived 2026-10-11:** `COMMISSION_AT_SETTLEMENT_PLAN.md` and `SYRIA_REMITTANCE_PLAN.md` (superseded, not
+built — LIRA-305).
 
 ---
 
@@ -147,14 +152,14 @@ comments — not tracked as a plan.
 | **Mobile app** | `MOBILE_APP_PLAN` (LIRA-289) | The selling point the owner chose; a real customer asked for it. Its first slice (local-date reports) fixes desktop and web too |
 | **Infrastructure** | `PRODUCTION_DATABASE_AND_HOSTING` → `OFFLINE_DESKTOP_FALLBACK` | Phase D (the switch) is the last step of the split; it unblocks the offline-desktop plan |
 
-### 2d. Blocked on you — six questions, no code possible until answered
+### 2d. Blocked on you — five questions, no code possible until answered
 
 | # | Question | Plan |
 | --- | --- | --- |
 | 1 | On a FOR-partner **RECEIVE**, do we hand the customer cash (drawer goes down), or does the partner pay? | `PARTNER_DISBURSEMENT_MATRIX` |
 | ~~2~~ | ~~Profits "Commission" row provider set~~ — decided 2026-10-11 under owner decision D11 (supplier-paid only, `COMMISSION_PROVIDERS`); see `OVERNIGHT_DECISIONS_2026-10-11.md` C1 | ~~`COMMISSION_AT_SETTLEMENT`~~ |
 | 3 | D1: price per shop, per machine, or per seat? | `SUBSCRIPTION_MANAGEMENT` + `DESKTOP_LICENSING` |
-| 4 | D5: one corridor or several — or archive the plan as superseded (Syria pay-out already built as owner note #16 Route A, v185)? | `SYRIA_REMITTANCE` |
+| ~~4~~ | ~~D5: one corridor or several~~ — decided 2026-10-11 (Y1, Y8): Route A already serves any corridor; plan archived as superseded, LIRA-305 | ~~`SYRIA_REMITTANCE`~~ |
 | 5 | §3.2: should new self-serve shops wait for your approval (`pending` status)? | `OPEN_PUBLIC_SIGNUP` |
 | 6 | LIRA-265: the missing Whish App catalog item list | `current_sprint.md` |
 | 7 | Phase D: the cutover window | `PRODUCTION_DATABASE_AND_HOSTING` |
@@ -195,7 +200,7 @@ points there and keeps its original text only as history.
 `OWNER_NOTES_2026-09-21.md` used to outrank this list; it closed on 2026-10-02 (`340a9446`) and no
 longer does.
 
-1. **Answer the six questions in §2d.** Minutes of your time; unblocks five plans and LIRA-265.
+1. **Answer the five questions in §2d.** Minutes of your time; unblocks five plans and LIRA-265.
 2. **Do the §2a tidy-ups** — one commit, clears three plans off the board entirely. Note
    (`COMMISSION_AT_SETTLEMENT` is done — closed 2026-10-11.)
 3. **Finish `MOBILE_APP_PLAN` (LIRA-289, in progress)** — APK release, phone UI tests, store
@@ -224,7 +229,7 @@ graph TD
   CAS["✅ COMMISSION_AT_SETTLEMENT<br/>archived 2026-10-11"]
   OMT["✅ OMT_OPEN_CREDIT_ACCOUNT<br/>archived 2026-09-21"]
   PDM["🔶 PARTNER_DISBURSEMENT_MATRIX<br/>one open question"]
-  SYR["⬜ SYRIA_REMITTANCE<br/>payout by capability, not identity"]
+  SYR["✅ SYRIA_REMITTANCE<br/>superseded by Route A, archived 2026-10-11 (LIRA-305)"]
 
   PCD -->|"grossOwedDelta<br/>unlocked the gross flip"| CAS
   PCD -->|"PCD + drawer model"| OMT
@@ -237,9 +242,9 @@ graph TD
 **Reading it:** `PRIMARY_CASH_DRAWER` was the keystone — its `grossOwedDelta`/`resolveServiceCashDrawer`
 made the commission gross-flip possible, which made the OMT open-credit account possible. Nothing
 here blocks anything now. Total remaining across the first four: one doc rewrite and two questions
-for you (§2d #1, #2). **`SYRIA_REMITTANCE` is the only possible build work left in this cluster**,
-and only if §2d #4 says "several corridors" — a Syria pay-out already shipped as owner note #16
-(v185).
+for you (§2d #1, #2). `SYRIA_REMITTANCE` was archived 2026-10-11 as superseded: the corridor is owner note #16 Route A
+(v185) and works for any partner; LIRA-305 added the partner-netting profit rule. No build work is
+left in this cluster.
 
 ### 6b. Tenancy, hosting & commercialisation
 
@@ -311,7 +316,7 @@ satisfied.
 | ~~`COMMISSION_AT_SETTLEMENT_PLAN`~~ *(archived 2026-10-11)* | `PRIMARY_CASH_DRAWER` ✅ | `OMT_OPEN_CREDIT_ACCOUNT` ✅ |
 | ~~`OMT_OPEN_CREDIT_ACCOUNT_PLAN`~~ *(archived 2026-09-21)* | `PRIMARY_CASH_DRAWER` ✅, `COMMISSION_AT_SETTLEMENT` ✅ | – |
 | `PARTNER_DISBURSEMENT_MATRIX` | – | – |
-| `SYRIA_REMITTANCE_PLAN` | – *(owner decision D5, not a code dependency)* | – |
+| ~~`SYRIA_REMITTANCE_PLAN`~~ *(archived 2026-10-11, superseded — LIRA-305)* | – | – |
 | ~~`MULTI_TENANT_IMPLEMENTATION_PLAN`~~ *(archived 2026-10-10)* | – | `PRODUCTION_DATABASE` ✅, `SUBSCRIPTION_MANAGEMENT` ✅, `WEB_PARITY_ROADMAP` ✅ |
 | `PRODUCTION_DATABASE_AND_HOSTING_PLAN` | `MULTI_TENANT` ✅ | `OFFLINE_DESKTOP_FALLBACK` |
 | `NEXT_STEPS_AFTER_FLY_MIGRATION` | – | – *(per-tenant split item now points at `PRODUCTION_DATABASE_AND_HOSTING`, §4)* |

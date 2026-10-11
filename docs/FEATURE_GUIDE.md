@@ -384,7 +384,7 @@ the Loto 2× mint.
 
 ---
 
-## 8. Supplier ledger
+## 8. Supplier and partner ledgers
 
 Balance = **SUM of ledger rows**; **> 0 = shop owes supplier** ("You owe", red).
 
@@ -607,6 +607,31 @@ stamps a commission and an unfixable mistake would leave phantom earnings.
 Wallet SEND/RECEIVE still book **no** supplier ledger row ("Fix B") — correct, because the debt is
 booked once, at load time. Do not "fix" that.
 
+### 8.4 Remittance corridor (Syria) — Custom Services → Via Partner
+
+A money-transfer corridor through a partner (the owner's "7welet souria" for Syria, but nothing is Syria-specific — any
+partner, any corridor) is booked in **Custom Services**, not on the OMT/Whish page (owner notes #16 Route A, v185;
+LIRA-305 decisions Y1–Y14). The old "Syria provider on the OMT/Whish page" plan is archived as superseded.
+
+| Direction | How it is booked | Cash drawer | Partner row | Commission |
+| --- | --- | --- | --- | --- |
+| SEND | Services → **Via Partner** → partner; Cost = what the partner delivers, Price = what the customer pays | General **+price** (any normal payment method) | `THROUGH_CUSTOM_SERVICE` **CREDIT** of the cost (shop owes partner; not an obligation) | price − cost, counted **at once** |
+| RECEIVE | Services → **Via Partner** → **Pay out**; Arrived = what the partner sent, Paid out = what the customer gets | General **−paid out**, cash only | `THROUGH_CUSTOM_SERVICE` **DEBIT** of the arrived amount (partner owes shop; an obligation head since LIRA-258 D5) | arrived − paid out, stamped at once, **counted when the partner's account covers it** |
+
+- A partner is always required (both apps refuse a Pay out without one).
+- General only — never the OMT/Whish cash drawers, no new drawer.
+- USD and LBP each stand alone; nothing is converted, and netting only matches a currency with itself.
+- A Pay out never joins a session basket (it is recorded straight away).
+- **Netting counts as the partner paying (LIRA-305, Y6/Y13/Y14).** A Pay out's commission counts once the partner's
+  account in that currency no longer owes that money — by a cash settlement **or** by what the shop owes the same partner
+  for SENDs. If the partner still owes part of it, the newest Pay outs wait and the oldest count first. Paper credits
+  (manual entries with "Cash moved" off) never count. Read-time only (`partnerEffectiveCoveredSql`,
+  `constants/partnerObligation.ts`) — nothing is stored, so voids re-derive on the next read, and past days' figures
+  can rise. Measured before → after: SEND 150/155 + Pay out 100/97, shop settles 50 → 5 → **8**; SEND 100/103 +
+  Pay out 100/97 → 3 → **6**; SEND 40/42 + Pay out 100/97, partner settles 60 → 3.8 → **5**. For Partner rows keep
+  the cash-only rule (Y7). Guard: `ProfitRepository.syriaCorridorNetting.test.ts`; REST: lira-web-054; desktop:
+  lira-305-syria-corridor-netting.
+
 ## 9. Void / refund
 
 - Journal pattern: void writes a same-type reversal row (`reverses_id` set, negated
@@ -765,6 +790,9 @@ booked once, at load time. Do not "fix" that.
   (REFUND and REPLACE × every outcome, both currencies), lira-web-049. The warranty report's net
   equals minus the Profits "Warranty cost" line for the same days (same rows, same bound —
   `WarrantyService.report.test.ts`).
+- **Partner netting (LIRA-305):** a Custom Services Pay out's commission is released by cash coverage **or** netting
+  against what the shop owes the same partner — `partnerEffectiveCoveredSql` (`constants/partnerObligation.ts`), used
+  by both partner-coverage fragments, so every Profits view agrees. See §8.4.
 
 ---
 
@@ -992,7 +1020,9 @@ Copy this into your task when building any flow that moves money:
 10. **Profits** (§10): stamp per-currency profit; refunds must net it to zero. A
     supplier-paid commission is NOT stamped at transaction time on a new-model row — it is
     entered at settlement (§8.1, §10); a card margin goes to Mobile Services, never to
-    "Commission".
+    "Commission". A partner obligation's profit counts cash coverage — and, for a Custom
+    Services Pay out only, netting against what the shop owes the same partner (one
+    fragment, `constants/partnerObligation.ts`).
 11. **Sessions** (§11): add a basket branch (defer, formData client, payout rules) or
     document why not.
 12. **Audit viewer**: label, visibility (hidden types), cash-only filter behavior.

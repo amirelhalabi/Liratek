@@ -897,6 +897,11 @@ function saleNetRevenueNotFullyPaid(
  * wait for. Definition: constants/partnerObligation.ts
  * (`partnerObligationHeadRowSql`, `partnerObligationCoverableSql`,
  * `partnerCoverageRatioWhereSql`, `partnerUncoveredExistsWhereSql`).
+ *
+ * LIRA-305 (owner decisions Y6/Y13/Y14): both of those now judge each head on
+ * `partnerEffectiveCoveredSql` — cash coverage, plus, for a Custom Services
+ * Pay out only, netting against what the shop owes the same partner. Read-time
+ * only; nothing stored.
  */
 export function notPartnerPending(refTable: string, idExpr: string): string {
   // LIRA-258 / G36: judged on the NET obligation after reversals

@@ -1,5 +1,5 @@
 /**
- * NOT RUN — the owner runs the e2e suite later (fix-round I4).
+ * Last run green over REST: 2026-10-11 (LIRA-305).
  *
  * E2E (desktop/IPC): OWNER_NOTES_REMAINING_BUILD.md #16 — Custom Services
  * "Pay out" (Route A, the Syria transfer OUT, migration v185, fix-round I4).
@@ -7,14 +7,14 @@
  * "Pay out" is NOT a third partner mode — it is `partner_mode: 'VIA'` with
  * `direction: 'OUT'` instead of the default 'IN'. Owner's own worked
  * example: $100 arrives via the partner, the recipient gets $97 cash, $3 is
- * profit (commission), booked the same day.
+ * profit (commission) — the commission is stamped at once and counted when the partner's account covers it (cash or netting — LIRA-258 D5, LIRA-305 Y6).
  *   - price_usd = what the PARTNER now owes the shop (THROUGH_CUSTOM_SERVICE
  *     partner_ledger DEBIT — "partner owes us").
  *   - cost_usd  = what physically leaves the General drawer to the
  *     recipient, CASH only — the owner was explicit that Syria never
  *     touches the Whish system drawer (rule 16: an OUT leg through the
  *     shared end-of-transaction loop, never a second posting site).
- *   - profit_usd stays price − cost (the commission), realized same day.
+ *   - profit_usd stays price − cost (the commission), stamped at once, counted when the partner's account covers it.
  *
  * Drives the same IPC surface the frontend calls (`window.api.customServices.*`)
  * rather than the page DOM — same pattern as lira-119-partner-for-financial-
