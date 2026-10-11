@@ -10,6 +10,7 @@ const ALL = (shop: string) => [
   queryKeys.clientBalance(shop, 7),
   queryKeys.catalog(shop),
   queryKeys.rates(shop),
+  queryKeys.modules(shop),
 ];
 
 describe("query keys (LIRA-300)", () => {

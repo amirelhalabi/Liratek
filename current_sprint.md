@@ -6633,6 +6633,47 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
+## LIRA-307: phone app follows the shop's module switches (Settings → Modules) — IN PROGRESS (owner decisions 2026-10-11)
+
+Spec, plan and tasks: `specs/307-mobile-module-gating/`.
+
+The web hides a switched-off module's entry points (home grid, sidebar, Dashboard drawer cards). The phone ignored the
+switches: Sell, Debts and every Home drawer line always showed.
+
+**Owner decisions 2026-10-11:**
+- **D1:** copy the web exactly — all four phone sales (Whish App, OMT App, Katsh, iPick) follow the `ipec_katch`
+  ("iPick/Katsh") switch, as the web Recharge tabs do.
+- **D2:** when no sale is on, hide the Sell tab.
+- **D3:** fail closed — gated parts show only after the phone has fetched the module list from the server in this run
+  of the app. No connection = gated parts hidden; nothing is cached between runs.
+
+**Out of scope (noted):** server-side refusal of switched-off modules (the web does not do it either); the Whish/OMT
+App sales follow `ipec_katch` while their drawers follow `omt_whish` — same mismatch as the web.
+
+**What users will notice:** on the phone app, the Sell and Debts tabs and the Home drawer lines now follow Settings →
+Modules, like the web app; with no connection they stay hidden until the phone can check.
+
+**Built 2026-10-11 (not yet committed):** `mobile/src/utils/moduleGates.ts` (pure rules; Home drawers reuse core's
+`isDrawerVisible`), `api/modules.ts` (GET `/api/modules/enabled`), `data/useModuleGates.ts` (in-memory query,
+`staleTime: 0`), tab `hidden` + move-to-Home in `app/(app)/_layout.tsx`, Sell/Debts stacks unmount while hidden (drops a
+half-filled cart). No query persister exists in the app (checked), so nothing is cached between runs.
+
+**Verification:**
+- jest: 37/37 (18 new in `moduleGates.test.ts`, each group seen failing first — "Cannot find module" / "is not a
+  function"); `tsc` clean over 62 `mobile/src` files.
+- iOS simulator against the live `test` shop (switches flipped through the admin API, then restored — before/after
+  lists identical): scenarios 1, 2, 3, 4 and 5 pass; 8 passes (phone on the Katsh cart → Home when iPick/Katsh goes
+  off; cart empty after it comes back on); cold start shows Home/Activity/Settings for ~1 s until the list loads.
+- Offline (6, 7, 9): simulated by pointing only the module request at an unreachable host (same `NO_CONNECTION` path;
+  the Mac has no sudo to block the host, and turning Wi-Fi off would also cut Metro). Cold start → only Home, Activity,
+  Settings and no owned drawers; request restored + foreground → everything back; verified then failing → kept.
+  Temporary edit removed.
+- Found and fixed: an empty "Since the last count" card when every drawer is hidden (now hidden too; not re-run on
+  the simulator).
+- Not run: scenario 10 (sign in to a second shop — no second shop login); Android (no emulator on this Mac);
+  web Dashboard not compared side by side (same core `isDrawerVisible` function).
+- Release note: none — the phone app is not released yet (LIRA-302 "not yet released").
+
 ## LIRA-306: Offline desktop fallback — web-first with a desktop Plan B — HIGH — IN PROGRESS (redesigned 2026-10-11 on owner decisions N1–N9; design only, not built)
 
 | Field | Value |

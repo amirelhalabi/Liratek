@@ -9,9 +9,11 @@ import { usePullRefresh } from "@/data/usePullRefresh";
 import { useRefreshOnFocus } from "@/data/useRefreshOnFocus";
 import { useShopSlug } from "@/data/useShop";
 import { unwrap } from "@/data/unwrap";
+import { useModuleGates } from "@/data/useModuleGates";
 import { useTheme } from "@/theme/ThemeProvider";
 import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 import { drawerAmounts, drawerLabel, txnTime } from "@/utils/format";
+import { visibleDrawers } from "@/utils/moduleGates";
 
 // Wallet and voucher drawers the phone sales move (LIRA-289 research R4), shown first.
 const WALLET_DRAWERS = ["Whish_App", "OMT_App", "Binance", "Katsh", "iPick"];
@@ -42,8 +44,13 @@ export default function Home() {
     enabled: !!slug,
   });
 
+  // Drawers of switched-off modules are hidden, as on the web Dashboard (LIRA-307).
+  const gates = useModuleGates();
+
   useRefreshOnFocus([balances, sinceCount]);
-  const pull = usePullRefresh([balances.refetch, sinceCount.refetch]);
+  const pull = usePullRefresh([balances.refetch, sinceCount.refetch, gates.refetch]);
+  const drawers = balances.data ? visibleDrawers(sortedDrawers(balances.data), gates) : [];
+  const counted = sinceCount.data?.filter((d) => visibleDrawers([d.drawer], gates).length > 0);
 
   return (
     <View style={styles.flex}>
@@ -60,10 +67,10 @@ export default function Home() {
           </View>
           {balances.data === undefined ? (
             balances.isPending ? <ActivityIndicator color={t.accent} /> : null
-          ) : sortedDrawers(balances.data).length === 0 ? (
+          ) : drawers.length === 0 ? (
             <Text style={{ color: t.textMuted }}>No drawers yet.</Text>
           ) : (
-            sortedDrawers(balances.data).map((d) => (
+            drawers.map((d) => (
               <View key={d} style={[styles.line, { borderTopColor: t.border }]}>
                 <Text style={[styles.lineLabel, { color: WALLET_DRAWERS.includes(d) ? t.text : t.textSoft }]}>{drawerLabel(d)}</Text>
                 <Text style={[styles.lineValue, { color: t.text }]}>{drawerAmounts(balances.data[d] ?? {})}</Text>
@@ -73,13 +80,13 @@ export default function Home() {
         </View>
 
         {/* Optional extra: if it cannot load, the section simply stays hidden. */}
-        {sinceCount.data ? (
+        {counted && counted.length > 0 ? (
           <View style={[styles.card, { backgroundColor: t.card, borderColor: t.border }]}>
             <View style={styles.cardHead}>
               <ClipboardCheck size={18} color={t.accent} />
               <Text style={[styles.sectionTitle, { color: t.text }]}>Since the last count</Text>
             </View>
-            {sinceCount.data.map((d) => (
+            {counted.map((d) => (
               <View key={d.drawer} style={[styles.line, { borderTopColor: t.border }]}>
                 <View style={styles.flex}>
                   <Text style={[styles.lineLabel, { color: t.text }]}>{drawerLabel(d.drawer)}</Text>

@@ -14,4 +14,6 @@ export const queryKeys = {
   // LIRA-302: the Katsh / iPick catalog and the day's rates.
   catalog: (shop: string) => [shop, "catalog"] as const,
   rates: (shop: string) => [shop, "rates"] as const,
+  // LIRA-307: the shop's enabled modules (Settings → Modules). Memory only, never persisted.
+  modules: (shop: string) => [shop, "modules"] as const,
 };
