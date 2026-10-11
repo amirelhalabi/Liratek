@@ -2059,6 +2059,9 @@ export interface ElectronAPI {
       /** LIRA-256 — OMT commission types this settlement's statement covers
        *  (absent = all types). Rule 12: mirrors the core settle schema. */
       covered_omt_service_types?: OmtCoveredTypesInput;
+      /** LIRA-310 — Waive (supplier settle discount, ≤ $5 / 450,000 LBP).
+       *  Rule 12/23: mirrors the core settle schema's `discount`. */
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
     // payment across the account parent (OMT) + its children (OMT App,
@@ -2092,6 +2095,9 @@ export interface ElectronAPI {
       /** LIRA-256 — OMT commission types this settlement's statement covers
        *  (absent = all types). Rule 12: mirrors the core settle schema. */
       covered_omt_service_types?: OmtCoveredTypesInput;
+      /** LIRA-310 — Waive (supplier settle discount, ≤ $5 / 450,000 LBP).
+       *  Rule 12/23: mirrors the core settle schema's `discount`. */
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     recordCashflow: (data: {
       supplier_id: number;

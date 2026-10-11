@@ -1,7 +1,7 @@
 /**
  * Refund kept change (owner decision 2026-10-07): a refund of $20.12 where
  * the cashier hands back $20 lets the shop keep the $0.12 as profit — capped
- * below $1 / 100,000 LBP, in the refund's own currency, from cash or wallet
+ * at $5 / 450,000 LBP inclusive (LIRA-310), in the refund's own currency, from cash or wallet
  * (drawer) money only — never a customer account or gift card. It is NOT
  * a partial refund: the item side (stock, REFUND amount, debt) is the full
  * refund; only the cash handed back is short, and the shortfall lands in the
@@ -398,13 +398,15 @@ describe("refund kept change — whole-transaction refund (Transactions page)", 
       );
     });
 
-    it("cap: $1.00 short is not a small leftover", () => {
-      const { id } = cashSale(21, 10, "USD");
+    // LIRA-310 owner decision 2026-10-11: cap moved from $1 (strictly
+    // under) to $5 (inclusive).
+    it("cap: $6.00 short is not a small leftover", () => {
+      const { id } = cashSale(26, 10, "USD");
       expectRefused(
         id,
         {
           refundLegs: [{ method: "CASH", currencyCode: "USD", amount: 20 }],
-          keptChange: { usd: 1 },
+          keptChange: { usd: 6 },
         },
         /must be a small leftover/,
       );
@@ -679,5 +681,45 @@ describe("refund kept change — session basket item refund", () => {
     ).toThrow(/payment legs do not reconcile/);
     expectPostings(before, snapshotLedgers(db), {});
     expect(refundCount()).toBe(refunds);
+  });
+});
+
+// LIRA-310 owner decision 2026-10-11: the refund (payout) keep cap is
+// SHORTFALL_MAX ($5 / 450,000 LBP), "up to and including".
+describe("LIRA-310 — whole-transaction refund keep cap is $5 / 450,000 LBP, inclusive", () => {
+  const refund = (
+    id: number,
+    currency: "USD" | "LBP",
+    handed: number,
+    kept: number,
+  ) =>
+    getTransactionRepository().refundTransaction(id, USER_ID, {
+      refundLegs: [{ method: "CASH", currencyCode: currency, amount: handed }],
+      keptChange: currency === "USD" ? { usd: kept } : { lbp: kept },
+    });
+
+  it("$4.50 kept is accepted", () => {
+    const { id } = cashSale(24.5, 10, "USD");
+    expect(refund(id, "USD", 20, 4.5)).toBeGreaterThan(0);
+  });
+  it("$5.00 kept (exactly the cap) is accepted", () => {
+    const { id } = cashSale(25, 10, "USD");
+    expect(refund(id, "USD", 20, 5)).toBeGreaterThan(0);
+  });
+  it("$5.01 kept is refused, nothing written", () => {
+    const { id } = cashSale(25.01, 10, "USD");
+    const before = snapshotLedgers(db);
+    expect(() => refund(id, "USD", 20, 5.01)).toThrow(/must be a small leftover/);
+    expectPostings(before, snapshotLedgers(db), {});
+  });
+  it("450,000 LBP kept (exactly the cap) is accepted", () => {
+    const { id } = cashSale(1_800_000, 10, "LBP");
+    expect(refund(id, "LBP", 1_350_000, 450_000)).toBeGreaterThan(0);
+  });
+  it("450,001 LBP kept is refused, nothing written", () => {
+    const { id } = cashSale(1_800_001, 10, "LBP");
+    const before = snapshotLedgers(db);
+    expect(() => refund(id, "LBP", 1_350_000, 450_001)).toThrow(/must be a small leftover/);
+    expectPostings(before, snapshotLedgers(db), {});
   });
 });

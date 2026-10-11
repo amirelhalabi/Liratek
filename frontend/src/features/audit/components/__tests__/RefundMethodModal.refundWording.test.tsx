@@ -9,8 +9,8 @@
  * refund:
  *   - the summary line reads "Hand back", never "Paid";
  *   - when kept change is allowed, the subtitle says the refund may be a
- *     little short (less than the server's own cap, PAYOUT_KEEP_CHANGE_MAX,
- *     in the refund's currency) and the rest is kept as profit;
+ *     little short (up to the server's own cap, SHORTFALL_MAX — $5 /
+ *     450,000 LBP inclusive since LIRA-310 — in the refund's currency) and the rest is kept as profit;
  *   - "Keeping $0.25 as profit." shows exactly ONCE (the payment form's
  *     payout mode already renders it — no duplicate line).
  * Validation behaviour is unchanged (the existing keptChange suite pins it).
@@ -60,7 +60,9 @@ describe("RefundMethodModal — refund wording", () => {
   it("with kept change allowed: subtitle explains the short refund and the kept profit", () => {
     renderModal([cashIn(4.25)], true);
     const subtitle = screen.getByTestId("refund-subtitle");
-    expect(subtitle).toHaveTextContent(/less than \$1/);
+    // LIRA-310 owner decision 2026-10-11: the cap is $5 / 450,000 LBP,
+    // up to and including (was "less than $1 / 100,000 LBP").
+    expect(subtitle).toHaveTextContent(/up to \$5\b/);
     expect(subtitle).toHaveTextContent(/kept as profit/);
     expect(subtitle).not.toHaveTextContent(/must match what the customer/);
   });
@@ -68,7 +70,7 @@ describe("RefundMethodModal — refund wording", () => {
   it("an LBP refund states the LBP limit", () => {
     renderModal([cashIn(400_000, "LBP")], true);
     expect(screen.getByTestId("refund-subtitle")).toHaveTextContent(
-      /less than 100,000 LBP/,
+      /up to 450,000 LBP/, // LIRA-310 owner decision 2026-10-11
     );
   });
 

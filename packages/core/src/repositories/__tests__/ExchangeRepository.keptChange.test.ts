@@ -22,7 +22,7 @@
  *   - an OVERPAID payout (lines > owed) is still rejected and never booked as
  *     profit, with or without kept;
  *   - kept is rejected on FOR-partner exchanges, without payout legs, above the
- *     small-leftover cap, in the non-payout currency, or when the lines already
+ *     small-leftover cap ($5 / 450,000 LBP inclusive, LIRA-310), in the non-payout currency, or when the lines already
  *     cover what is owed;
  *   - refund (plain swap-back REFUND) nets drawers, Exchange profit AND the
  *     kept line to 0, per currency (rule 20).
@@ -342,14 +342,16 @@ describe("Exchange payout keep-change — rejections (never book a loss or a sho
     });
   });
 
-  it("kept at or above the small-leftover cap is rejected ($1 / 100,000 LBP)", () => {
+  // LIRA-310 owner decision 2026-10-11: cap moved from $1 / 100,000 LBP
+  // (strictly under) to $5 / 450,000 LBP (inclusive).
+  it("kept above the small-leftover cap is rejected ($5 / 450,000 LBP)", () => {
     t(() => {
       seedRate();
       expect(() =>
         new ExchangeRepository().createTransaction({
           ...OWNER_TX,
-          payments: [{ method: "CASH", currencyCode: "USD", amount: 100.12 }],
-          kept_change_usd: 1,
+          payments: [{ method: "CASH", currencyCode: "USD", amount: 95.12 }],
+          kept_change_usd: 6,
         }),
       ).toThrow(/leftover/i);
       expectNothingWritten();
@@ -492,14 +494,17 @@ describe("Exchange payout keep-change — characterization (shared-helper move)"
     });
   });
 
-  it("LBP kept at the 100,000 LBP cap is refused", () => {
+  // LIRA-310 owner decision 2026-10-11: cap moved from 100,000 LBP to
+  // 450,000 LBP (inclusive) — 500,000 kept is above it.
+  it("LBP kept above the 450,000 LBP cap is refused", () => {
     t(() => {
       seedRate();
       expect(() =>
         new ExchangeRepository().createTransaction({
           ...LBP_PAYOUT,
           amountOut: 9_000_000,
-          kept_change_lbp: 100_000,
+          payments: [{ method: "CASH", currencyCode: "LBP", amount: 8_500_000 }],
+          kept_change_lbp: 500_000,
         }),
       ).toThrow(/leftover/i);
       expectNothingWritten();
@@ -595,6 +600,66 @@ describe("Exchange payout keep-change — kept larger than the real shortfall", 
       ).toThrow(/more than the amount left unpaid/);
       expect(count("exchange_transactions")).toBe(0);
       expect(count("transactions")).toBe(0);
+    });
+  });
+});
+
+// LIRA-310 owner decision 2026-10-11: the payout keep cap is SHORTFALL_MAX
+// ($5 / 450,000 LBP), "up to and including". Boundary cases written before
+// the server comparison changed from `>= cap` to the inclusive helper.
+describe("LIRA-310 — Exchange payout keep cap is $5 / 450,000 LBP, inclusive", () => {
+  beforeEach(fresh);
+
+  const usd = (handed: number, kept: number) =>
+    new ExchangeRepository().createTransaction({
+      ...OWNER_TX,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: handed }],
+      kept_change_usd: kept,
+    });
+  const lbp = (handed: number, kept: number) =>
+    new ExchangeRepository().createTransaction({
+      fromCurrency: "USD",
+      toCurrency: "LBP",
+      amountIn: 100,
+      amountOut: 8_999_000,
+      leg1Rate: 89_990,
+      leg1MarketRate: 89_500,
+      leg1ProfitUsd: 0,
+      totalProfitUsd: 0,
+      payments: [{ method: "CASH", currencyCode: "LBP", amount: handed }],
+      kept_change_lbp: kept,
+    });
+
+  it("$4.50 kept is accepted", () => {
+    t(() => {
+      seedRate();
+      expect(usd(96.62, 4.5).id).toBeGreaterThan(0);
+    });
+  });
+  it("$5.00 kept (exactly the cap) is accepted", () => {
+    t(() => {
+      seedRate();
+      expect(usd(96.12, 5).id).toBeGreaterThan(0);
+    });
+  });
+  it("$5.01 kept is refused, nothing written", () => {
+    t(() => {
+      seedRate();
+      expect(() => usd(96.11, 5.01)).toThrow(/leftover/i);
+      expect(count("exchange_transactions")).toBe(0);
+    });
+  });
+  it("450,000 LBP kept (exactly the cap) is accepted", () => {
+    t(() => {
+      seedRate();
+      expect(lbp(8_549_000, 450_000).id).toBeGreaterThan(0);
+    });
+  });
+  it("450,001 LBP kept is refused, nothing written", () => {
+    t(() => {
+      seedRate();
+      expect(() => lbp(8_548_999, 450_001)).toThrow(/leftover/i);
+      expect(count("exchange_transactions")).toBe(0);
     });
   });
 });

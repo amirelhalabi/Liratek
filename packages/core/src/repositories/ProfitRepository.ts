@@ -1348,7 +1348,23 @@ export function lotoKeptChangeLbp(
   ticketAlias: string,
   txnAlias: string,
 ): string {
-  return `(COALESCE(${txnAlias}.profit_lbp, 0) - COALESCE(${ticketAlias}.commission_amount, 0))`;
+  // LIRA-310: a ticket discount lowers the stamp too (`profit_lbp =
+  // commission + kept − discount`), so it is added back here — otherwise
+  // the Loto page would read every discount as NEGATIVE kept change.
+  // Consequence: the doc comment's "commission + kept change = the Profits
+  // loto figure" holds only for tickets WITHOUT a discount; with one, the
+  // Profits figure is lower by the discount (the Loto page has no discount
+  // card yet — open item, reported with LIRA-310).
+  return `(COALESCE(${txnAlias}.profit_lbp, 0) - COALESCE(${ticketAlias}.commission_amount, 0) + ${lotoDiscountLbp(txnAlias)})`;
+}
+
+/**
+ * LIRA-310 — the ONE read of a loto ticket's discount (rule 14), stamped by
+ * `LotoTicketRepository.createTicket` as `metadata_json.discount_lbp`. LBP
+ * only: a loto discount is refused in USD. 0 for every ticket without one.
+ */
+export function lotoDiscountLbp(txnAlias: string): string {
+  return `COALESCE(CAST(json_extract(${txnAlias}.metadata_json, '$.discount_lbp') AS REAL), 0)`;
 }
 
 /** @see lotoKeptChangeLbp — the USD side of a loto ticket's kept change. */
@@ -1951,6 +1967,19 @@ export function reattributedSettlementCommission(
  * today, not three; this comment previously kept describing the pre-merge
  * state.
  */
+/**
+ * LIRA-310 — the session basket's standalone profit-only siblings: the
+ * KEPT_CHANGE row (+kept) and its mirror WAIVED_SHORTFALL (−waived). ONE
+ * SQL list (rule 14) for {@link keptChangeSource}'s two branches, so a
+ * waive nets inside the same "Other / kept change" money the Profits page
+ * already sums everywhere (overview, By Module, By Date, By Cashier, By
+ * Client, day close) — and its basket REFUND row nets with it. It is NOT a
+ * kept-change EVENT: {@link keptChangeCountEligible} and
+ * {@link keptChangeRecognizedCount} deliberately keep listing KEPT_CHANGE
+ * alone.
+ */
+const SESSION_PROFIT_ONLY_SIBLING_TYPES_SQL = `('KEPT_CHANGE', 'WAIVED_SHORTFALL')`;
+
 export function keptChangeSource(alias: string): string {
   // LIRA-201c: a standalone KEPT_CHANGE row's own REFUND row (basket
   // reversal, `refundSessionBasket`) carries `source_table = 'customer_sessions'`
@@ -1972,12 +2001,12 @@ export function keptChangeSource(alias: string): string {
   return `((${alias}.source_table = 'debt_ledger' AND ${alias}.type IN ('DEBT_REPAYMENT', 'REFUND'))
                      OR (${alias}.source_table = 'debt_ledger' AND ${alias}.type = 'CREDIT_CASH_OUT'
                          AND (${alias}.profit_usd != 0 OR ${alias}.profit_lbp != 0))
-                     OR ${alias}.type = 'KEPT_CHANGE'
+                     OR ${alias}.type IN ${SESSION_PROFIT_ONLY_SIBLING_TYPES_SQL}
                      OR (${alias}.type = 'REFUND'
                          AND EXISTS (
                            SELECT 1 FROM transactions kcorig
                            WHERE kcorig.id = ${alias}.reverses_id
-                             AND kcorig.type = 'KEPT_CHANGE'
+                             AND kcorig.type IN ${SESSION_PROFIT_ONLY_SIBLING_TYPES_SQL}
                              AND kcorig.tenant_id = ${alias}.tenant_id
                          )))`;
 }
@@ -4248,10 +4277,14 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * (COUNTERPARTY_DISCOUNT rows across all three ledgers: debt/supplier/
    * partner). amount_usd/amount_lbp on these rows are always 0 (no cash
    * moved) — profit_usd/profit_lbp carry the SIGNED discount (forgiven =
-   * negative, received = positive). COUNTERPARTY_DISCOUNT is
-   * NON_REVERSIBLE_TRANSACTION_TYPES (no void/refund row ever exists to net
-   * against), so a plain ACTIVE-status sum is complete — unlike
-   * getDebtRepaymentProfit, there's no REFUND counterpart to sum in.
+   * negative, received = positive). COUNTERPARTY_DISCOUNT is in
+   * NON_REVERSIBLE_TRANSACTION_TYPES (it is never voided/refunded on its
+   * own). When its PARENT is reversed — a partner settlement (LIRA-085), a
+   * supplier payment (owner decision 2026-10-07) or a supplier settlement's
+   * Waive (LIRA-310) — the parent's reversal writes a NEW ACTIVE
+   * COUNTERPARTY_DISCOUNT row with the negated profit (`reverses_id` → the
+   * original, which stays ACTIVE). So a plain ACTIVE-status sum is complete:
+   * both rows are summed and net to 0.
    */
   getCounterpartyDiscountTotals(
     fromDt: string,

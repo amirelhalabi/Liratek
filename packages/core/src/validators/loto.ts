@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { localDayFormatSchema } from "./common.js";
+import { isWithinShortfallMax, SHORTFALL_MAX } from "./exchange.js";
 
 /**
  * Loto validation schemas — the write-path contracts for loto money flows.
@@ -50,6 +51,12 @@ export const lotoSellSchema = z
     // returned) change per currency → added to the transaction's profit stamp.
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
+    // LIRA-310: the ticket discount (the Loto page's Discount / Waive) — a
+    // CLAIM the repository verifies against the real gap; it lowers the
+    // shop's commission profit only (face value and what LOTO is owed are
+    // unchanged). Capped at the commission, in the ticket's currency.
+    discount_usd: z.number().min(0).optional(),
+    discount_lbp: z.number().min(0).optional(),
     clientId: z.number().int().positive().nullable().optional(),
     clientName: z.string().optional(),
     // PFT-4 (Partner FOR-Transactions): the unpaid remainder routes to
@@ -89,6 +96,19 @@ export const lotoSellSchema = z
       message:
         "payments cannot include a Customer Account leg on a for-partner loto ticket — there is no customer owing, the partner owes",
       path: ["payments"],
+    },
+  )
+  .refine(
+    (data) =>
+      data.partnerMode !== "FOR" ||
+      !((data.discount_usd ?? 0) > 0 || (data.discount_lbp ?? 0) > 0),
+    {
+      // LIRA-310: a partner ticket books the FULL face value to the
+      // partner — there is no counter payment to be short of, so no
+      // discount (mirrors the repository's refusal, rule 19 edge half).
+      message:
+        "A discount isn't allowed on a partner ticket. (partnerMode FOR books the full amount to the partner)",
+      path: ["discount_lbp"],
     },
   );
 
@@ -195,6 +215,20 @@ export const lotoCheckpointUpdateSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+/**
+ * LIRA-310 — the Waive on a LOTO checkpoint settlement: LBP only, capped at
+ * `SHORTFALL_MAX.LBP` (up to and including 450,000). The "< |net|" check
+ * lives in the repository, because the net depends on the checkpoint's own
+ * cash-prize total. Refined on the field so both settle schemas stay plain
+ * ZodObjects.
+ */
+const settlementDiscountLbpSchema = z
+  .number()
+  .min(0)
+  .refine((v) => isWithinShortfallMax(v, "LBP"), {
+    message: `The waived amount is more than ${SHORTFALL_MAX.LBP.toLocaleString("en-US")} LBP.`,
+  });
+
 export const lotoCheckpointSettleSchema = z.object({
   id: z.number().int().positive(),
   totalSales: z.number().nonnegative(),
@@ -208,6 +242,9 @@ export const lotoCheckpointSettleSchema = z.object({
   // reconciles the legs against the net settlement at this rate when
   // present — same contract as `lotoSellSchema.tender_exchange_rate`.
   tender_exchange_rate: z.number().positive().optional(),
+  // LIRA-310 — Waive: settle for |net| − discount_lbp; the gap posts as a
+  // LOTO supplier DISCOUNT (shop pays → received, LOTO pays → forgiven).
+  discount_lbp: settlementDiscountLbpSchema.optional(),
 });
 
 export const lotoCheckpointsSettleBatchSchema = z
@@ -237,6 +274,9 @@ export const lotoCheckpointsSettleBatchSchema = z
     payments: z.array(checkpointPaymentSchema).optional(),
     // See lotoCheckpointSettleSchema.tender_exchange_rate.
     tender_exchange_rate: z.number().positive().optional(),
+    // LIRA-310 — see lotoCheckpointSettleSchema.discount_lbp (applies to the
+    // batch's combined net).
+    discount_lbp: settlementDiscountLbpSchema.optional(),
   })
   .refine((d) => !(d.payment && d.payments), {
     message: "Send either payment or payments, not both",

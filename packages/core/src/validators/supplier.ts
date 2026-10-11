@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { counterpartyDiscountInputSchema } from "./counterparty.js";
+import { isWithinShortfallMax, SHORTFALL_MAX } from "./exchange.js";
 import { OMT_COVERED_TYPE_VALUES } from "../utils/omtCoveredTypes.js";
 
 /**
@@ -74,6 +75,33 @@ const supplierPaymentLegSchema = z.object({
   direction: z.enum(["IN", "OUT"]).optional(),
 });
 
+/**
+ * LIRA-310 — the Waive on a supplier settlement (batch or account): the
+ * counterparty discount shape, capped PER CURRENCY at `SHORTFALL_MAX`
+ * (up to and including $5 / 450,000 LBP). Refined on the FIELD, never on
+ * the parent object, so the settle schemas stay plain ZodObjects (`.shape`
+ * is read by the backend suppliers API test). The repository re-checks the
+ * cap and every money rule (trust boundary).
+ */
+const settlementDiscountSchema = counterpartyDiscountInputSchema.superRefine(
+  (d, ctx) => {
+    if (!isWithinShortfallMax(d.amount_usd, "USD")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `The waived amount is more than $${SHORTFALL_MAX.USD}.`,
+        path: ["amount_usd"],
+      });
+    }
+    if (!isWithinShortfallMax(d.amount_lbp, "LBP")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `The waived amount is more than ${SHORTFALL_MAX.LBP.toLocaleString("en-US")} LBP.`,
+        path: ["amount_lbp"],
+      });
+    }
+  },
+);
+
 export const supplierSettleSchema = z.object({
   supplier_id: z.number().int().positive(),
   financial_service_ids: z.array(z.number().int().positive()).min(1),
@@ -145,6 +173,9 @@ export const supplierSettleSchema = z.object({
   // settlement's metadata for the record. Absent = all types = unchanged
   // behaviour (S3).
   covered_omt_service_types: omtCoveredTypesSchema.optional(),
+  // LIRA-310 — Waive: the supplier accepted `amount − discount`. The legs
+  // pay that; the gap posts as a bundled supplier DISCOUNT (received).
+  discount: settlementDiscountSchema.optional(),
 });
 
 /** Pay a supplier / record a supplier paying us, via payment-method legs. */
@@ -225,6 +256,9 @@ export const supplierSettleAccountSchema = z.object({
   // settlement's metadata for the record. Absent = all types = unchanged
   // behaviour (S3).
   covered_omt_service_types: omtCoveredTypesSchema.optional(),
+  // LIRA-310 — Waive: settle the selected rows for less than they net to
+  // (PAY → received, COLLECT → forgiven). Refused with a surplus.
+  discount: settlementDiscountSchema.optional(),
 });
 
 // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set or clear a supplier's

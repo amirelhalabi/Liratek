@@ -738,7 +738,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    * CHECK is the shared `resolveKeptChange` (payer "payout", rule 14) — the
    * same one every other payout uses: partner refused, payout lines
    * required, drawer methods only, USD/LBP payout currency, kept in that
-   * currency only, under `PAYOUT_KEEP_CHANGE_MAX`, the lines must be
+   * currency only, within `PAYOUT_KEEP_CHANGE_MAX` ($5 / 450,000 LBP, inclusive), the lines must be
    * short of what is owed, paid = owed − kept, and kept never more than the
    * real shortfall. It runs only when a kept amount is claimed — with none,
    * the split-payout reconcile in createTransaction is the whole check (as

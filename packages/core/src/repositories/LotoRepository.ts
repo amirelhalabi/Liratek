@@ -239,6 +239,9 @@ export class LotoRepository {
     settledAt: string | undefined,
     userId: number,
     payments?: Array<{ method: string; currency_code: string; amount: number }>,
+    tenderExchangeRate?: number,
+    /** LIRA-310 — Waive (LBP); see LotoCheckpointRepository. */
+    discountLbp?: number,
   ): LotoCheckpoint {
     return this.checkpoints.settleCheckpoint(
       id,
@@ -249,6 +252,8 @@ export class LotoRepository {
       settledAt,
       userId,
       payments,
+      tenderExchangeRate,
+      discountLbp,
     );
   }
   getTotalSalesFromUnsettledCheckpoints(): number {

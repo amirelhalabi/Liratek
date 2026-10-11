@@ -121,7 +121,7 @@ export const holdMoneyCollectSchema = z.object({
   // cashier hands out less than the portion the leftover stays with the
   // shop as profit. A CLAIM only — the repository verifies it and never
   // books it unchecked:
-  //  - ONE-currency pickup: capped below PAYOUT_KEEP_CHANGE_MAX in the
+  //  - ONE-currency pickup: capped at PAYOUT_KEEP_CHANGE_MAX ($5 / 450,000 LBP, inclusive) in the
   //    pickup's own currency, verified by `resolveKeptChange` (payer
   //    "payout").
   //  - TWO-currency pickup (USD and LBP both returned): per currency, NO cap

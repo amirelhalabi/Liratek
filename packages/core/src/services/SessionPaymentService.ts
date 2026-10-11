@@ -59,6 +59,7 @@ import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import { closingLogger } from "../utils/logger.js";
 import { resolveKeptChange } from "../repositories/keptChange.js";
 import type { KeptChange } from "../repositories/moneyPosting.js";
+import { SHORTFALL_MAX } from "../validators/exchange.js";
 import { basketHasNothingToCollect } from "../utils/sessionNothingToCollect.js";
 import { splitBasketCashOmtFirst } from "../utils/sessionCashSplit.js";
 
@@ -140,6 +141,14 @@ export interface RecordBasketPaymentInput {
    * amount comes back as `keptUsd`/`keptLbp` on the result. Omitted = none.
    */
   keptChange?: KeptChange | null;
+  /**
+   * LIRA-310 — the client's Waive claim (the gap the shop accepts not to
+   * collect). Checked with the kept change, by the same helper, before any
+   * write: it must equal the basket's real gap and sit at or under
+   * `SHORTFALL_MAX`. The verified amount comes back as `waivedUsd`/
+   * `waivedLbp`; the caller books it (WAIVED_SHORTFALL). Omitted = none.
+   */
+  waived?: KeptChange | null;
   // (No FOR-partner flag: owner decision 2026-10-07 — a basket holding a
   // FOR-partner item may keep change; the item's own partner posting is
   // unaffected and kept change stays drawer-funded via resolveKeptChange.)
@@ -188,6 +197,10 @@ export interface RecordBasketPaymentResult {
    *  none was claimed). The caller books THESE, never the raw claim. */
   keptUsd: number;
   keptLbp: number;
+  /** LIRA-310 — the waive verified by `resolveBasketKeptChange` (0 when
+   *  none was claimed). The caller books THESE, never the raw claim. */
+  waivedUsd: number;
+  waivedLbp: number;
 }
 
 // =============================================================================
@@ -227,13 +240,16 @@ export function resolveBasketKeptChange(input: {
     "chargeTotalUsd" | "chargeTotalLbp" | "payoutTotalUsd" | "payoutTotalLbp"
   >;
   claimedKept: KeptChange | null | undefined;
+  /** LIRA-310 — the Waive claim; verified as a customer reduction capped at
+   *  `SHORTFALL_MAX` (refused together with kept change or change legs). */
+  claimedWaived?: KeptChange | null;
   exchangeRate: number;
-}): { keptUsd: number; keptLbp: number } {
+}): { keptUsd: number; keptLbp: number; waivedUsd: number; waivedLbp: number } {
   const { usd, lbp, inLegs, changeLegs } = basketNetCharge(
     input.legs,
     input.ctx,
   );
-  const { keptUsd, keptLbp } = resolveKeptChange({
+  const { keptUsd, keptLbp, reductionUsd, reductionLbp } = resolveKeptChange({
     payer: "customer",
     context: SESSION_KEPT_CONTEXT,
     exchangeRate: input.exchangeRate,
@@ -245,8 +261,20 @@ export function resolveBasketKeptChange(input: {
     expected: { usd, lbp },
     inLegs,
     outLegs: changeLegs,
+    ...(hasKeptChangeClaim(input.claimedWaived)
+      ? {
+          claimedReduction: input.claimedWaived,
+          reductionCap: { usd: SHORTFALL_MAX.USD, lbp: SHORTFALL_MAX.LBP },
+          reductionLabel: "waived amount",
+        }
+      : {}),
   });
-  return { keptUsd, keptLbp };
+  return {
+    keptUsd,
+    keptLbp,
+    waivedUsd: reductionUsd,
+    waivedLbp: reductionLbp,
+  };
 }
 
 /**
@@ -502,6 +530,8 @@ export class SessionPaymentService {
       giftCardLbp: 0,
       keptUsd: 0,
       keptLbp: 0,
+      waivedUsd: 0,
+      waivedLbp: 0,
     };
 
     let debtUsd = 0;
@@ -522,15 +552,20 @@ export class SessionPaymentService {
     // G42: check the kept-change claim against the server-derived net charge
     // BEFORE the first leg/drawer/voucher write (a throw rolls back the
     // whole checkout).
-    if (hasKeptChangeClaim(input.keptChange)) {
+    // LIRA-310: a Waive claim is checked by the same call (kept and waived
+    // together is refused there).
+    if (hasKeptChangeClaim(input.keptChange) || hasKeptChangeClaim(input.waived)) {
       const kept = resolveBasketKeptChange({
         legs,
         ctx: cashSplitCtx,
         claimedKept: input.keptChange,
+        claimedWaived: input.waived ?? null,
         exchangeRate: rate,
       });
       result.keptUsd = kept.keptUsd;
       result.keptLbp = kept.keptLbp;
+      result.waivedUsd = kept.waivedUsd;
+      result.waivedLbp = kept.waivedLbp;
     }
 
     // LIRA-270: when the basket has nothing left to collect (a cash payout

@@ -25,6 +25,8 @@ INSERT INTO customer_sessions (id, tenant_id, customer_name, customer_phone, cus
 INSERT INTO customer_sessions (id, tenant_id, customer_name, customer_phone, customer_notes, user_id, started_at, closed_at, started_by, closed_by, is_active, checkout_at, checkout_total, checkout_currency, checkout_total_usd, checkout_total_lbp, checkout_profit_usd, checkout_profit_lbp) VALUES (4004, 1, 'Fixture Basket D', NULL, NULL, 1, '2026-10-09 10:00:00', '2026-10-09 10:00:00', 'admin', 'admin', 0, '2026-10-09 10:00:00', 20, 'USD', 20, 0, 0, 0);
 INSERT INTO customer_sessions (id, tenant_id, customer_name, customer_phone, customer_notes, user_id, started_at, closed_at, started_by, closed_by, is_active, checkout_at, checkout_total, checkout_currency, checkout_total_usd, checkout_total_lbp, checkout_profit_usd, checkout_profit_lbp) VALUES (4005, 1, 'Fixture Basket E', NULL, NULL, 1, '2026-10-09 10:00:00', '2026-10-09 10:00:00', 'admin', 'admin', 0, '2026-10-09 10:00:00', 20, 'USD', 20, 0, 0, 0);
 INSERT INTO customer_sessions (id, tenant_id, customer_name, customer_phone, customer_notes, user_id, started_at, closed_at, started_by, closed_by, is_active, checkout_at, checkout_total, checkout_currency, checkout_total_usd, checkout_total_lbp, checkout_profit_usd, checkout_profit_lbp) VALUES (4006, 1, 'Fixture Basket F', NULL, NULL, 1, '2026-10-09 10:00:00', NULL, 'admin', NULL, 1, NULL, NULL, 'USD', 0, 0, 0, 0);
+INSERT INTO customer_sessions (id, tenant_id, customer_name, customer_phone, customer_notes, user_id, started_at, closed_at, started_by, closed_by, is_active, checkout_at, checkout_total, checkout_currency, checkout_total_usd, checkout_total_lbp, checkout_profit_usd, checkout_profit_lbp) VALUES (4007, 1, 'Fixture Basket G', NULL, NULL, 1, '2026-10-09 10:00:00', NULL, 'admin', NULL, 1, NULL, NULL, 'USD', 0, 0, 0, 0);
+INSERT INTO session_cart_items (id, tenant_id, session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id, created_at) VALUES (4003, 1, 4007, 'fx-line-3', 'custom_service', 'Fixture service', 20, 'USD', '{"description":"Fixture service","price_usd":20,"cost_usd":5}', 'custom-services:add', 1, '2026-10-09 10:00:00');
 INSERT INTO customer_session_transactions (id, tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, paid_exchange_rate, created_at, owed_usd, owed_lbp, covered_usd, covered_lbp, updated_at) VALUES (4001, 1, 4003, 'custom_service', 4001, 4001, 20, 0, 0, 0, 1, '2026-10-09 10:00:00', 0, 0, 0, 0, NULL);
 INSERT INTO customer_session_transactions (id, tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, paid_exchange_rate, created_at, owed_usd, owed_lbp, covered_usd, covered_lbp, updated_at) VALUES (4002, 1, 4004, 'custom_service', 4002, 4002, 20, 0, 0, 0, 1, '2026-10-09 10:00:00', 0, 0, 0, 0, NULL);
 INSERT INTO customer_session_transactions (id, tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, paid_exchange_rate, created_at, owed_usd, owed_lbp, covered_usd, covered_lbp, updated_at) VALUES (4003, 1, 4005, 'custom_service', 4003, 4003, 20, 0, 0, 0, 1, '2026-10-09 10:00:00', 0, 0, 0, 0, NULL);
@@ -62,6 +64,18 @@ export const FIXTURES: readonly BindingFixture[] = [
       userId: 1,
       cartItems: [{ id: "fx-line-2", module: "custom_service", label: "Fixture service", amount: 20, currency: "USD", ipcChannel: "custom-services:add", formData: { description: "Fixture service", price_usd: 20, cost_usd: 5 } }],
       payments: [{ method: "CASH", currency_code: "USD", amount: 20, direction: "IN" }],
+    },
+  },
+  {
+    // LIRA-310: Waive — $17 paid on a $20 basket, $3 waived (WAIVED_SHORTFALL)
+    channel: "session:checkout",
+    payload: {
+      sessionId: 4007,
+      userId: 1,
+      exchangeRate: 90000,
+      cartItems: [{ id: "fx-line-3", module: "custom_service", label: "Fixture service", amount: 20, currency: "USD", ipcChannel: "custom-services:add", formData: { description: "Fixture service", price_usd: 20, cost_usd: 5 } }],
+      payments: [{ method: "CASH", currency_code: "USD", amount: 17, direction: "IN" }],
+      waived_usd: 3,
     },
   },
   { channel: "session:close", payload: { sessionId: 4001 } },

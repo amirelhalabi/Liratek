@@ -257,6 +257,9 @@ export const TRANSACTION_PRESENTATION: Record<
   // T3: a profit-only row, amount 0 — the tender is booked by the basket's
   // own payment legs, so this row moves no cash of its own.
   KEPT_CHANGE: { label: TRANSACTION_TYPE_LABELS.KEPT_CHANGE, color: "text-slate-300", direction: TRANSACTION_CASH_DIRECTION.KEPT_CHANGE},
+  // LIRA-310 — the basket Waive: the KEPT_CHANGE mirror (profit −waived,
+  // amount 0), so no cash badge either.
+  WAIVED_SHORTFALL: { label: TRANSACTION_TYPE_LABELS.WAIVED_SHORTFALL, color: "text-slate-300", direction: TRANSACTION_CASH_DIRECTION.WAIVED_SHORTFALL },
   // LIRA-296 — the cost of honouring a warranty (or a recovery offsetting
   // it): profit-only, no payment legs, no drawer — so no cash badge.
   WARRANTY_COST: {

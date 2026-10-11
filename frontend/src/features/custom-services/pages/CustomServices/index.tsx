@@ -155,6 +155,9 @@ export default function CustomServices() {
     usd: number;
     lbp: number;
   } | null>(null);
+  // LIRA-310 US5: the payment sheet's discount (typed, or added by its
+  // built-in Waive), in the active currency. Lowers the price actually sent.
+  const [csDiscount, setCsDiscount] = useState(0);
 
   // LIRA-081 (PFT-R) / LIRA-154: partner involvement is now a 3-way mode,
   // not a boolean —
@@ -341,9 +344,32 @@ export default function CustomServices() {
     setPaymentLines([]);
     setReturnLegs([]);
     setKeptChange(null);
+    setCsDiscount(0);
   }, [awaitingSellingPrice]);
-  const profitUsd = priceUsdVal - costUsdVal + (sentKeptChange?.usd ?? 0);
-  const profitLbp = priceLbpVal - costLbpVal + (sentKeptChange?.lbp ?? 0);
+  // LIRA-310 US5 — the discount is real: capped at the margin (price − cost)
+  // in the active currency, so a service is never sold below its cost, and
+  // only where the payment sheet that reports it is shown (never FOR or a
+  // payout — a stale value from before the toggle never rides along). The
+  // price SENT is price − discount: the server reconciles the payment legs
+  // against it (CustomServiceRepository) and books profit = price − cost.
+  const maxCsDiscount =
+    currency === "USD"
+      ? Math.max(0, priceUsdVal - costUsdVal)
+      : Math.max(0, priceLbpVal - costLbpVal);
+  const appliedCsDiscount =
+    !isForPartner && !isPayout && !awaitingSellingPrice
+      ? Math.min(Math.max(0, csDiscount), maxCsDiscount)
+      : 0;
+  const chargedPriceUsd =
+    currency === "USD"
+      ? Math.round((priceUsdVal - appliedCsDiscount) * 100) / 100
+      : priceUsdVal;
+  const chargedPriceLbp =
+    currency === "LBP"
+      ? Math.round(priceLbpVal - appliedCsDiscount)
+      : priceLbpVal;
+  const profitUsd = chargedPriceUsd - costUsdVal + (sentKeptChange?.usd ?? 0);
+  const profitLbp = chargedPriceLbp - costLbpVal + (sentKeptChange?.lbp ?? 0);
 
   // ─── Submit ───
   const handleSubmit = async () => {
@@ -447,8 +473,9 @@ export default function CustomServices() {
         description: description.trim(),
         cost_usd: costUsdVal,
         cost_lbp: costLbpVal,
-        price_usd: priceUsdVal,
-        price_lbp: priceLbpVal,
+        // LIRA-310 US5: the price after the payment sheet's discount.
+        price_usd: chargedPriceUsd,
+        price_lbp: chargedPriceLbp,
         paid_by: primaryMethod,
         ...(exchangeRateForPayload !== undefined
           ? { exchange_rate: exchangeRateForPayload }
@@ -543,10 +570,11 @@ export default function CustomServices() {
       if (activeSession && !isForPartner && !isPayout) {
         // Never the cost — a basket line always has a selling price here
         // (awaitingSellingPrice is checked above).
+        // LIRA-310 US5: the charged (after-discount) price, as in `payload`.
         const amountLabel =
-          priceUsdVal > 0
-            ? `$${priceUsdVal.toFixed(2)}`
-            : `${priceLbpVal.toLocaleString()} LBP`;
+          chargedPriceUsd > 0
+            ? `$${chargedPriceUsd.toFixed(2)}`
+            : `${chargedPriceLbp.toLocaleString()} LBP`;
         const label = `Service: ${description.trim().substring(0, 40)} - ${amountLabel}`;
 
         addToSessionCart({
@@ -555,7 +583,7 @@ export default function CustomServices() {
           // Single-currency model: pair amount with the active toggle currency
           // (an LBP service used to book amount 0 here — USD fields are
           // cleared when the toggle is on LBP).
-          amount: currency === "USD" ? priceUsdVal : priceLbpVal,
+          amount: currency === "USD" ? chargedPriceUsd : chargedPriceLbp,
           currency,
           // Must be the REAL handler channel — the session-checkout replayer
           // invokes it verbatim ("customService:create" was a dead channel
@@ -1409,6 +1437,12 @@ export default function CustomServices() {
                           totalAmountCurrency={currency}
                           onChange={setPaymentLines}
                           onReturnChange={setReturnLegs}
+                          // LIRA-310 US5: the discount is booked — the page
+                          // sends price − discount. Capped at the margin, so
+                          // the built-in Waive (which adds the gap to this
+                          // discount) never sells below cost.
+                          onDiscountChange={setCsDiscount}
+                          maxDiscount={maxCsDiscount}
                           // The walk-in customer pays the shop: change they
                           // leave behind is shop profit (checked server-side
                           // by resolveKeptChange). Payout and FOR never render

@@ -58,6 +58,8 @@ export const TRANSACTION_CASH_DIRECTION: Record<
   CREDIT_CASH_IN: "in",
   DEBT_CASH_OUT: "out",
   KEPT_CHANGE: null,
+  // LIRA-310: profit-only, no money moves (the KEPT_CHANGE mirror).
+  WAIVED_SHORTFALL: null,
   WARRANTY_COST: null,
   SUPPLIER_PAYMENT: "dynamic",
   SUPPLIER_SETTLEMENT: "dynamic",

@@ -279,7 +279,7 @@ export class SupplierService {
   // D8 (owner decision, SUPPLIER_STOCK_INTAKE_PLAN.md): writeOffSupplierDebt
   // (standalone write-off with no cashflow attached) was REMOVED. The
   // bundled Pay-form discount (recordSupplierCashflow's PAY-direction
-  // branch → _postSupplierDiscount) is the only supported forgive-a-payable
+  // branch → postSupplierBundledDiscount) is the only supported forgive-a-payable
   // path now. See BUILD_CONTRACT.md handoffs for every caller that still
   // references the removed method.
 }

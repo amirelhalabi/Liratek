@@ -141,8 +141,19 @@ describe("RefundMethodModal — refund kept change", () => {
     );
   });
 
-  it("$1 or more short is not kept change — stays blocked", () => {
-    renderModal([cashIn(21)], true);
+  // LIRA-310 owner decision 2026-10-11: the cap moved from "under $1" to
+  // "up to and including $5" — $5 short is kept, more than $5 is blocked.
+  it("exactly $5 short is kept change — confirms", () => {
+    renderModal([cashIn(25)], true);
+    fireEvent.change(screen.getByTestId(/payment-amount-/), {
+      target: { value: "20" },
+    });
+    expect(screen.queryByTestId("refund-validation-error")).not.toBeInTheDocument();
+    expect(confirmButton()).toBeEnabled();
+  });
+
+  it("more than $5 short is not kept change — stays blocked", () => {
+    renderModal([cashIn(26)], true);
     fireEvent.change(screen.getByTestId(/payment-amount-/), {
       target: { value: "20" },
     });

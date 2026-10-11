@@ -8,6 +8,7 @@ import {
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
+import { useWaivedShortfall } from "@/shared/hooks/useWaivedShortfall";
 import type {
   LotoCheckpointSettlePayload,
   LotoCheckpointsSettleBatchPayload,
@@ -84,6 +85,15 @@ export function SettlementVerification({
   const [isProcessing, setIsProcessing] = useState(false);
   const [settlementSuccess, setSettlementSuccess] = useState(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  // LIRA-310 — Waive on the settlement: the payment input's Remaining-row
+  // Waive stores the gap (LBP — the settlement total is LBP). It belongs to
+  // THIS payment: dropped when the lines change or the dialog reloads.
+  const [waiveResetKey, setWaiveResetKey] = useState(0);
+  const {
+    waived,
+    onWaiveRemaining,
+    clear: clearWaive,
+  } = useWaivedShortfall(paymentLines, String(waiveResetKey));
 
   useEffect(() => {
     if (showDialog) {
@@ -93,6 +103,7 @@ export function SettlementVerification({
 
   async function loadSettlementData() {
     try {
+      setWaiveResetKey((k) => k + 1);
       setIsLoading(true);
       setError(null);
 
@@ -220,6 +231,10 @@ export function SettlementVerification({
       // on LOTO_SETTLEMENT. Omitted if not positive (schema would refuse).
       const usedRate = paymentRate ?? exchangeRate;
       const tenderRate = usedRate > 0 ? { tender_exchange_rate: usedRate } : {};
+      // LIRA-310 — the waived gap (LBP), only when something was waived.
+      // Built once, shared by both settle calls below (rule 22).
+      const waiveFields =
+        waived.lbp > 0 ? { discount_lbp: waived.lbp } : {};
 
       // If there's unchecked activity but no checkpoints, create a checkpoint first
       if (unsettledCheckpoints.length === 0 && uncheckedActivity) {
@@ -241,6 +256,7 @@ export function SettlementVerification({
           totalPrizes: newCheckpoint.total_prizes,
           payments: paymentsPayload,
           ...tenderRate,
+          ...waiveFields,
         };
         const settleResult = await api.loto.checkpoint.settle(settlePayload);
         if (!settleResult.success) {
@@ -259,6 +275,7 @@ export function SettlementVerification({
           totalCommission: totals.totalCommission,
           payments: paymentsPayload,
           ...tenderRate,
+          ...waiveFields,
         };
         const result = await api.loto.checkpoint.settleBatch(batchPayload);
         if (!result.success) {
@@ -362,6 +379,26 @@ export function SettlementVerification({
   }
 
   const totals = calculateTotals();
+  // LIRA-310 — the payment owes |net| − waived (LBP). Underpaid gate (was
+  // missing): when legs are entered, paid + waived must reach |net| within
+  // the payment input's own LBP match tolerance (100 LBP — the same figure
+  // that decides whether its Remaining row shows). Settling with NO legs
+  // stays allowed (no payment recorded — the existing contract the
+  // repository keeps, see assertSettlementLegsReconcile).
+  const settleNetAbs = Math.abs(totals.net);
+  const payTarget = Math.max(0, settleNetAbs - waived.lbp);
+  const usedRateForGate = paymentRate ?? exchangeRate;
+  const paidLbp = paymentLines.reduce(
+    (sum, p) =>
+      sum +
+      (p.currencyCode === "LBP"
+        ? Math.abs(p.amount)
+        : Math.abs(p.amount) * usedRateForGate),
+    0,
+  );
+  const hasPaymentLegs = paymentLines.some((p) => p.amount > 0);
+  const settleUnderpaid =
+    hasPaymentLegs && paidLbp + waived.lbp < settleNetAbs - 100;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -691,7 +728,9 @@ export function SettlementVerification({
                       : "How you pay LOTO:"}
                   </p>
                   <MultiPaymentInput
-                    totals={[{ amount: Math.abs(totals.net), currency: "LBP" }]}
+                    // LIRA-310 — once waived, the total drops by the waived
+                    // gap so Remaining reaches 0 (the lines are kept).
+                    totals={[{ amount: payTarget, currency: "LBP" }]}
                     totalAmountCurrency="LBP"
                     currency="LBP"
                     onChange={setPaymentLines}
@@ -704,7 +743,37 @@ export function SettlementVerification({
                     ]}
                     exchangeRate={exchangeRate}
                     onExchangeRateChange={setPaymentRate}
+                    // The shop pays LOTO when the net is negative.
+                    payer={totals.net < 0 ? "shop" : "customer"}
+                    onWaiveRemaining={onWaiveRemaining}
                   />
+                  {waived.lbp > 0 && (
+                    <div
+                      className="mt-2 flex items-center justify-between text-xs text-amber-300"
+                      data-testid="loto-settle-waived"
+                    >
+                      <span>
+                        Waived {waived.lbp.toLocaleString()} LBP —{" "}
+                        {totals.net < 0 ? "LOTO accepts less" : "LOTO pays less"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={clearWaive}
+                        className="underline text-slate-300 hover:text-white"
+                      >
+                        Undo
+                      </button>
+                    </div>
+                  )}
+                  {settleUnderpaid && (
+                    <p
+                      className="mt-2 text-amber-400 text-xs"
+                      data-testid="loto-settle-underpaid"
+                    >
+                      The entered payment doesn't cover the settlement —
+                      enter the full amount or tap Waive for a small gap.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -721,6 +790,7 @@ export function SettlementVerification({
                   onClick={handleSettle}
                   disabled={
                     isProcessing ||
+                    settleUnderpaid ||
                     (unsettledCheckpoints.length === 0 && !uncheckedActivity)
                   }
                   className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white rounded-lg transition-colors flex items-center justify-center gap-2"

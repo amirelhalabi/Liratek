@@ -503,6 +503,8 @@ export function registerLotoHandlers(): void {
         auth.userId,
         v.data.payments,
         v.data.tender_exchange_rate,
+        // LIRA-310 — Waive (LBP).
+        v.data.discount_lbp,
       );
       audit(e.sender.id, {
         action: "settle",
@@ -545,6 +547,8 @@ export function registerLotoHandlers(): void {
         // LIRA-258: split legs (`payments`) or the legacy single `payment`.
         v.data.payments ?? v.data.payment,
         v.data.tender_exchange_rate,
+        // LIRA-310 — Waive (LBP) on the batch's combined net.
+        v.data.discount_lbp,
       );
       audit(e.sender.id, {
         action: "settle",

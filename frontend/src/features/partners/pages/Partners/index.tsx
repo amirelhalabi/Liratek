@@ -650,6 +650,21 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               ],
               exchangeRate,
               onExchangeRateChange: setPaymentRate,
+              // LIRA-310 — Waive puts the gap into the bundled discount
+              // below. MultiPaymentInput is fed the balance minus the
+              // (capped) discount, so discount + gap is exactly the room
+              // left after the settlement — capSettlementDiscount never
+              // clips it.
+              onWaiveRemaining: (amount: number) => {
+                const next = parsedDiscount + amount;
+                setDiscountAmount(
+                  String(
+                    currency === "LBP"
+                      ? Math.round(next)
+                      : Math.round(next * 100) / 100,
+                  ),
+                );
+              },
             }
       }
       discountSlot={

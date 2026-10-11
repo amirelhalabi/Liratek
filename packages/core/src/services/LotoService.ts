@@ -55,6 +55,10 @@ export interface SellTicketData {
   /** T3 keep-change: kept change per currency → profit stamp. */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /** LIRA-310: the ticket discount claim (Discount / Waive) — verified by
+   *  the repository; lowers profit only. */
+  discount_usd?: number;
+  discount_lbp?: number;
   ticket_number?: string;
   sale_amount: number;
   commission_rate?: number;
@@ -183,6 +187,8 @@ export class LotoService {
         tender_exchange_rate: data.tender_exchange_rate,
         kept_change_usd: data.kept_change_usd,
         kept_change_lbp: data.kept_change_lbp,
+        discount_usd: data.discount_usd,
+        discount_lbp: data.discount_lbp,
         partnerId: data.partnerId,
         partnerMode: data.partnerMode,
       };
@@ -829,6 +835,8 @@ export class LotoService {
     /** The till's conversion rate for cross-currency legs (LIRA-258 G23 —
      *  the legs must reconcile to the net settlement at this rate). */
     tenderExchangeRate?: number,
+    /** LIRA-310 — Waive (LBP): see the repository. */
+    discountLbp?: number,
   ): LotoCheckpoint {
     try {
       const checkpoint = this.checkpointRepo.settleCheckpoint(
@@ -841,6 +849,7 @@ export class LotoService {
         userId,
         payments,
         tenderExchangeRate,
+        discountLbp,
       );
       lotoLogger.info(
         `Loto checkpoint ${id} settled: sales=${totalSales}, commission=${totalCommission}, cash_prizes=${totalCashPrizes}`,
@@ -877,6 +886,8 @@ export class LotoService {
         }>,
     /** See settleCheckpoint's `tenderExchangeRate`. */
     tenderExchangeRate?: number,
+    /** LIRA-310 — Waive (LBP) on the batch's combined net. */
+    discountLbp?: number,
   ): LotoCheckpoint[] {
     try {
       const checkpoints = this.checkpointRepo.settleCheckpoints(
@@ -887,6 +898,7 @@ export class LotoService {
         userId,
         payment,
         tenderExchangeRate,
+        discountLbp,
       );
       lotoLogger.info(
         `Loto batch settlement: ${checkpointIds.length} checkpoint(s) settled, sales=${totalSales}, commission=${totalCommission}`,

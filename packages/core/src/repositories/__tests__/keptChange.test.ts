@@ -47,6 +47,9 @@ describe("resolveKeptChange — customer pays the shop", () => {
       notReturnedLbp: 0,
       costUsd: 0,
       costLbp: 0,
+      // LIRA-310: the result gained the customer reduction (always 0 here).
+      reductionUsd: 0,
+      reductionLbp: 0,
     });
   });
 
@@ -241,66 +244,107 @@ describe("resolveKeptChange — payout (shop hands money to a customer)", () => 
     expect(() => resolveKeptChange(atServerRate)).toThrow();
   });
 
-  it("cap boundary: $0.99 kept is accepted", () => {
+  // Cap pins moved from $1 / 100,000 LBP (strictly under) to $5 / 450,000
+  // LBP (up to and including) — LIRA-310 owner decision 2026-10-11.
+  it("cap boundary: $4.99 kept is accepted", () => {
     expect(
       resolveKeptChange({
         ...base,
         payer: "payout",
-        owed: 100.99,
+        owed: 104.99,
         owedCurrency: "USD",
         payoutLegs: [leg("USD", 100)],
-        claimedKept: { usd: 0.99 },
+        claimedKept: { usd: 4.99 },
       }).keptUsd,
-    ).toBe(0.99);
+    ).toBe(4.99);
   });
 
-  it("refusal: kept exactly at the $1 cap is rejected", () => {
+  it("refusal: kept above the $5 cap is rejected", () => {
     expect(() =>
       resolveKeptChange({
         ...base,
         payer: "payout",
-        owed: 101,
+        owed: 106,
         owedCurrency: "USD",
         payoutLegs: [leg("USD", 100)],
-        claimedKept: { usd: 1 },
+        claimedKept: { usd: 6 },
       }),
-    ).toThrow(/under \$1/);
+    ).toThrow(/at most \$5/);
   });
 
-  it("refusal: kept above the cap is rejected", () => {
+  it("refusal: kept well above the cap is rejected", () => {
     expect(() =>
       resolveKeptChange({
         ...base,
         payer: "payout",
-        owed: 151.5,
+        owed: 157.5,
         owedCurrency: "USD",
         payoutLegs: [leg("USD", 150)],
-        claimedKept: { usd: 1.5 },
+        claimedKept: { usd: 7.5 },
       }),
-    ).toThrow(/under \$1/);
+    ).toThrow(/at most \$5/);
   });
 
-  it("LBP cap boundary: 99,999 accepted, 100,000 rejected", () => {
+  it("LBP cap boundary: 449,999 accepted, 500,000 rejected", () => {
     expect(
       resolveKeptChange({
         ...base,
         payer: "payout",
-        owed: 1_099_999,
+        owed: 1_449_999,
         owedCurrency: "LBP",
         payoutLegs: [leg("LBP", 1_000_000)],
-        claimedKept: { lbp: 99_999 },
+        claimedKept: { lbp: 449_999 },
       }).keptLbp,
-    ).toBe(99_999);
+    ).toBe(449_999);
     expect(() =>
       resolveKeptChange({
         ...base,
         payer: "payout",
-        owed: 1_100_000,
+        owed: 1_500_000,
         owedCurrency: "LBP",
         payoutLegs: [leg("LBP", 1_000_000)],
-        claimedKept: { lbp: 100_000 },
+        claimedKept: { lbp: 500_000 },
       }),
-    ).toThrow(/under 100,000 LBP/);
+    ).toThrow(/at most 450,000 LBP/);
+  });
+
+  // LIRA-310 owner decision 2026-10-11: the payout cap is SHORTFALL_MAX
+  // ($5 / 450,000 LBP), "up to and including".
+  describe("LIRA-310 cap boundary — $5 / 450,000 LBP, inclusive", () => {
+    const usdPayout = (kept: number) =>
+      resolveKeptChange({
+        ...base,
+        payer: "payout",
+        owed: 100 + kept,
+        owedCurrency: "USD",
+        payoutLegs: [leg("USD", 100)],
+        claimedKept: { usd: kept },
+      });
+    const lbpPayout = (kept: number) =>
+      resolveKeptChange({
+        ...base,
+        payer: "payout",
+        owed: 1_000_000 + kept,
+        owedCurrency: "LBP",
+        payoutLegs: [leg("LBP", 1_000_000)],
+        claimedKept: { lbp: kept },
+      });
+
+    it("$4.50 kept is accepted", () => {
+      expect(usdPayout(4.5).keptUsd).toBe(4.5);
+    });
+    it("$5.00 kept (exactly the cap) is accepted", () => {
+      expect(usdPayout(5).keptUsd).toBe(5);
+    });
+    it("$5.01 kept is refused", () => {
+      expect(() => usdPayout(5.01)).toThrow(/small leftover/);
+    });
+    it("450,000 LBP kept (exactly the cap) is accepted", () => {
+      expect(lbpPayout(450_000).keptLbp).toBe(450_000);
+    });
+    it("450,001 LBP kept is refused", () => {
+      expect(() => lbpPayout(450_001)).toThrow(/small leftover/);
+    });
   });
 
   it("refusal: kept in the other currency than the payout", () => {
@@ -423,6 +467,9 @@ describe("resolveKeptChange — shop pays an outsider (expenses)", () => {
       notReturnedLbp: 0,
       costUsd: 8,
       costLbp: 0,
+      // LIRA-310: the result gained the customer reduction (always 0 here).
+      reductionUsd: 0,
+      reductionLbp: 0,
     });
   });
 
@@ -806,8 +853,9 @@ describe("resolveKeptChange — refusals open with a plain sentence", () => {
     ],
     [
       "payout cap",
-      { ...base, payer: "payout", owed: 10, owedCurrency: "USD", payoutLegs: [leg("USD", 8)], claimedKept: { usd: 2 } },
-      /^You can only keep less than \$1 of change on a payout\./,
+      // LIRA-310 owner decision 2026-10-11: cap is $5, inclusive.
+      { ...base, payer: "payout", owed: 16, owedCurrency: "USD", payoutLegs: [leg("USD", 10)], claimedKept: { usd: 6 } },
+      /^You can only keep up to \$5 of change on a payout\./,
       /small leftover/,
     ],
     [

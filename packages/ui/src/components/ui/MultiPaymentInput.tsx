@@ -14,7 +14,7 @@ import {
 import {
   TENDER_RATE_BAND_PCT,
   tenderRateDeviationPct,
-  PAYOUT_KEEP_CHANGE_MAX,
+  isWithinShortfallMax,
 } from "@liratek/core";
 
 /**
@@ -227,14 +227,26 @@ export interface MultiPaymentInputProps {
    *  instead of a manual code field. The selected voucher's value is deposited to
    *  the account on redemption; the leg amount stays the charged portion. */
   fetchClientVouchers?: (clientId: number) => Promise<VoucherOption[]>;
-  /** When provided, shows a "Waive" button next to the Remaining (Debt)
-   *  warning whenever the shortfall (converted to USD if needed) is below
-   *  waiveRemainingThreshold. Clicking calls back with the shortfall amount
-   *  (in totalAmountCurrency) — this component has no opinion on what
-   *  "waiving" means upstream (e.g. the caller may fold it into a discount). */
-  onWaiveRemaining?: (amount: number) => void;
-  /** USD-equivalent threshold below which the waive button appears. Default 1. */
+  /** LIRA-310 — the Waive button. It lives in the Remaining row, so it only
+   *  ever shows when Remaining does (owner: "Waive follows Remaining"), never
+   *  on a payout, and only for a shortfall up to and including the
+   *  threshold. When provided, clicking calls back with the shortfall
+   *  ROUNDED to totalAmountCurrency's precision, plus the per-currency
+   *  remainder (for pages whose discount is kept per currency, e.g. Debts) —
+   *  this component has no opinion on what "waiving" means upstream (a
+   *  discount, a lower bill, a waived amount sent to the server). When NOT
+   *  provided, the built-in Waive adds the gap to this component's own
+   *  discount — only when that discount is shown, lowers the total, is
+   *  booked by the page (`onDiscountChange`) and stays within `maxDiscount`. */
+  onWaiveRemaining?: (amount: number, remainingByCurrency: Money[]) => void;
+  /** Largest shortfall Waive closes, in totalAmountCurrency, inclusive.
+   *  Default: the shared cap `SHORTFALL_MAX` ($5 / 450,000 LBP); a total in
+   *  any other currency gets no Waive. */
   waiveRemainingThreshold?: number;
+  /** Room left in the page's own discount (totalAmountCurrency) for the
+   *  external Waive: hidden when the shortfall would not fit, so a waive can
+   *  never push a discount past its ceiling (owner decision 3). */
+  waiveRemainingMax?: number;
   /** When true and totalAmountCurrency is "USD", auto-seed the CASH return
    *  fields as integer USD notes + LBP remainder (the dual-currency
    *  cash-drawer convention) instead of a single lump sum in one currency.
@@ -314,11 +326,12 @@ export interface MultiPaymentInputProps {
    *  money the customer PAYS the shop. "payout": the lines are cash the shop
    *  HANDS OUT (the Exchange payout sheet). In payout mode "keep change"
    *  flips direction (owner decision 2026-10-06, D9 refined): when the lines
-   *  are SHORT of the total by a small leftover (under
-   *  `PAYOUT_KEEP_CHANGE_MAX` in the total's currency — $1 / 100,000 LBP),
+   *  are SHORT of the total by a small leftover (up to
+   *  `PAYOUT_KEEP_CHANGE_MAX` in the total's currency — $5 / 450,000 LBP,
+   *  inclusive),
    *  the leftover is kept AUTOMATICALLY (no button — owner decision
    *  2026-10-06) and `onKeptChange` reports it (e.g. $101.12 owed, $101
-   *  handed over → kept $0.12). At/over the cap it stays "Remaining to pay
+   *  handed over → kept $0.12). Over the cap it stays "Remaining to pay
    *  out". The overpay Return/Change block never renders in payout mode —
    *  paying out more than owed is a mistake to fix, never change to return
    *  or profit to keep — and no OUT legs are ever emitted. Still OPT-IN via
@@ -394,7 +407,8 @@ export default function MultiPaymentInput({
   clientId,
   fetchClientVouchers,
   onWaiveRemaining,
-  waiveRemainingThreshold = 1,
+  waiveRemainingThreshold,
+  waiveRemainingMax,
   smartSplitOverpay = false,
   cashOnlyReturn = false,
   autoDebtRemainder = false,
@@ -1205,31 +1219,23 @@ export default function MultiPaymentInput({
   const isOverpaid = !isPayout && overpaidTarget > matchTolerance;
 
   // --- Waive-remaining derivation ---
-  // Shortfall in totalAmountCurrency, converted to USD-equivalent purely for
-  // the threshold check (so waiveRemainingThreshold means "$1" regardless of
-  // whether the job is USD- or LBP-denominated).
+  // Shortfall in totalAmountCurrency — compared in that currency, never
+  // converted (LIRA-310: the cap is $5 for a USD total and 450,000 LBP for
+  // an LBP total).
   const remainingShortfall = Math.max(0, effectiveTotalInTarget - totalPaid);
-  const remainingShortfallUsd = convertSafe(
-    remainingShortfall,
-    totalAmountCurrency,
-    "USD",
-  );
   // --- Payout keep-change (direction="payout", owner decision 2026-10-06) ---
   // The shortfall IS the kept amount: the shop hands out the round figure
-  // and keeps the leftover cents as profit. Only below the shared core cap
-  // (PAYOUT_KEEP_CHANGE_MAX — the SAME limit the server enforces), in the
-  // total's own currency, and only for USD/LBP totals. AUTOMATIC (owner
-  // decision 2026-10-06 — the "Keep change" button is gone): any shortfall
-  // under the cap is kept, with the green note below saying so.
-  const payoutKeepCap =
-    totalAmountCurrency === "USD" || totalAmountCurrency === "LBP"
-      ? PAYOUT_KEEP_CHANGE_MAX[totalAmountCurrency]
-      : 0;
+  // and keeps the leftover as profit. Up to and including the shared core
+  // cap (`isWithinShortfallMax` — the SAME predicate the server enforces;
+  // $5 / 450,000 LBP since LIRA-310), in the total's own currency, and only
+  // for USD/LBP totals. AUTOMATIC (owner decision 2026-10-06 — the "Keep
+  // change" button is gone): any shortfall within the cap is kept, with the
+  // green note below saying so.
   const payoutKeepActive =
     isPayout &&
     !!onKeptChange &&
     remainingShortfall > matchTolerance &&
-    remainingShortfall < payoutKeepCap;
+    isWithinShortfallMax(remainingShortfall, totalAmountCurrency);
   const payoutKeptRounded = payoutKeepActive
     ? totalAmountCurrency === "LBP"
       ? Math.round(remainingShortfall)
@@ -1266,10 +1272,82 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payoutKeptKey]);
 
-  const showWaiveButton =
-    !!onWaiveRemaining &&
+  // LIRA-310 — Waive. Rendered inside the Remaining row, so it inherits
+  // every one of that row's visibility rules ("Waive follows Remaining").
+  const waiveThreshold = waiveRemainingThreshold ?? 0;
+  /** Round a shortfall to totalAmountCurrency's precision (LBP whole, else
+   *  cents) — what the cashier sees and what a page books. */
+  const roundToTarget = (v: number): number =>
+    totalAmountCurrency === "LBP" ? Math.round(v) : Math.round(v * 100) / 100;
+  // The cap check uses the cap's own rounding tolerance (the shared core
+  // one), not the looser leg-matching tolerance — 450,001 LBP is over.
+  const waiveEligible =
+    !isPayout &&
     remainingShortfall > matchTolerance &&
-    remainingShortfallUsd < waiveRemainingThreshold;
+    (waiveRemainingThreshold === undefined
+      ? isWithinShortfallMax(remainingShortfall, totalAmountCurrency)
+      : remainingShortfall <= waiveThreshold);
+  // Built-in path: no page handler → the gap goes into THIS component's own
+  // discount, only where that discount is shown, lowers the total and is
+  // booked by the page, and only when it still fits `maxDiscount`.
+  const builtInWaive =
+    !onWaiveRemaining &&
+    discountVisible &&
+    discountLowersTotal &&
+    !!onDiscountChange &&
+    (maxDiscount === undefined ||
+      clampedDiscount + remainingShortfall <= maxDiscount + matchTolerance);
+  const externalWaive =
+    !!onWaiveRemaining &&
+    (waiveRemainingMax === undefined ||
+      remainingShortfall <= waiveRemainingMax + matchTolerance);
+  const showWaiveButton = waiveEligible && (externalWaive || builtInWaive);
+
+  const handleWaive = () => {
+    if (onWaiveRemaining) {
+      const { remaining } = allocatePayments(
+        {
+          totals: effectiveTotals,
+          payments: paymentLines.map((l) => ({
+            amount: Math.max(0, l.amount || 0),
+            currency: l.currencyCode,
+          })),
+          rates: internalRates,
+          side,
+        },
+        { round: false },
+      );
+      onWaiveRemaining(
+        roundToTarget(remainingShortfall),
+        remaining
+          .filter((m) => m.amount > 0)
+          .map((m) => ({
+            currency: m.currency,
+            amount:
+              m.currency === "LBP"
+                ? Math.round(m.amount)
+                : Math.round(m.amount * 100) / 100,
+          })),
+      );
+      return;
+    }
+    // Built-in: new discount = what is already applied + the gap, in the
+    // discount's own currency, rounded UP so Remaining reaches 0 without
+    // crossing into change (a USD discount against an LBP total keeps 4 dp —
+    // one cent is ~900 LBP, far above the 100 LBP match tolerance).
+    const target = convertSafe(
+      clampedDiscount + remainingShortfall,
+      totalAmountCurrency,
+      discountCurrency,
+    );
+    const roundedUp =
+      discountCurrency === "LBP"
+        ? Math.ceil(target - 1e-9)
+        : totalAmountCurrency === "LBP"
+          ? Math.ceil(target * 10_000 - 1e-9) / 10_000
+          : Math.ceil(target * 100 - 1e-9) / 100;
+    setDiscountRaw(String(roundedUp));
+  };
   // When the shop only has cash as a payment method, the change is obviously cash —
   // show a simple currency toggle. Any non-cash method available surfaces the full
   // method picker regardless of what the customer selected.
@@ -2545,7 +2623,7 @@ export default function MultiPaymentInput({
                 <button
                   type="button"
                   data-testid="waive-remaining"
-                  onClick={() => onWaiveRemaining?.(remainingShortfall)}
+                  onClick={handleWaive}
                   className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
                   title="Waive the remaining shortfall (adds it to the discount)"
                 >

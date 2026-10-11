@@ -4686,6 +4686,31 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const tenantId = getCurrentTenantId();
     const { sessionId, transactionId, userId } = input;
 
+    // LIRA-310 (rule 20): a basket closed with a Waive holds a
+    // WAIVED_SHORTFALL sibling (−waived profit) that belongs to the WHOLE
+    // basket, not to one item. Refunding a single item hands back its full
+    // price — money the customer never paid — while the sibling stays.
+    // Only the whole-basket void/refund sweeps it, so refuse before any
+    // write.
+    const waivedMember = this.queryOne<{ id: number }>(
+      `SELECT t.id FROM customer_session_transactions cst
+         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+        WHERE cst.session_id = ? AND cst.tenant_id = ?
+          AND t.type = ? AND t.status = 'ACTIVE'
+        LIMIT 1`,
+      sessionId,
+      tenantId,
+      TRANSACTION_TYPES.WAIVED_SHORTFALL,
+    );
+    if (waivedMember) {
+      throw new DatabaseError(
+        "This basket was checked out with an amount waived, so one item can't be refunded on its own — refund the whole basket instead. (session item refund: WAIVED_SHORTFALL member #" +
+          waivedMember.id +
+          " is swept only by the whole-basket void/refund)",
+        { entityId: transactionId },
+      );
+    }
+
     const plan = this._planSessionItemRefund(input);
     const {
       original,
@@ -5565,7 +5590,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
       // 7a. Owner decision 2026-10-07, rule 20 — remove the payment's
       // bundled discount (ledger soft-void, profit negated, its FIFO
-      // coverage given back). No-op without a linked discount.
+      // coverage given back). LIRA-310: also a SUPPLIER_SETTLEMENT's Waive
+      // (no coverage to give back). No-op without a linked discount.
       this._reverseSupplierBundledDiscount(original, userId);
 
       return reversalId;
@@ -6535,13 +6561,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
   /**
    * The bundled 'DISCOUNT' supplier_ledger row a manual supplier payment
-   * (`SupplierRepository.recordSupplierCashflow` PAY + discount) wrote,
-   * found ONLY through the link that payment stamps at create time
-   * (`source_ref_table='supplier_ledger'`, `source_ref_id=<payment's ledger
-   * row>`, `is_auto=0`). A discount written before that link existed has no
-   * way back to its payment and is never guessed at — it stays booked after
-   * the payment's void (correct it with a supplier adjustment). Not-yet-
-   * reversed rows only (idempotent). Null for every other transaction.
+   * (`SupplierRepository.recordSupplierCashflow` PAY + discount) — or, since
+   * LIRA-310, a supplier settlement's Waive (`settleTransactions` /
+   * `settleAccount`) — wrote, found ONLY through the link the parent stamps
+   * at create time (`source_ref_table='supplier_ledger'`, `source_ref_id=
+   * <the parent's own ledger row>`, `is_auto=0`). For a settlement that row
+   * is `original.source_id` too: the batch SETTLEMENT row, or the account
+   * settlement's anchor row (the DISCOUNT is posted on the anchor member).
+   * A discount written before that link existed has no way back to its
+   * parent and is never guessed at — it stays booked after the void
+   * (correct it with a supplier adjustment). Not-yet-reversed rows only
+   * (idempotent). Null for every other transaction.
    */
   private _linkedSupplierDiscount(original: TransactionEntity): {
     id: number;
@@ -6550,7 +6580,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     settlement_id: number | null;
   } | null {
     if (
-      original.type !== "SUPPLIER_PAYMENT" ||
+      (original.type !== "SUPPLIER_PAYMENT" &&
+        original.type !== "SUPPLIER_SETTLEMENT") ||
       original.source_table !== "supplier_ledger" ||
       original.source_id == null ||
       !this._supplierLedgerHasSourceRefColumns()
@@ -6580,12 +6611,21 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   /** Up-front guard (before any write): a bundled discount already swept
    *  into a supplier settlement cannot be unwound by the payment's void —
    *  same "blocking beats corrupting" reasoning as
-   *  `_assertSupplierSiblingsVoidable`. */
+   *  `_assertSupplierSiblingsVoidable`. LIRA-310: a settlement's OWN Waive
+   *  is self-stamped with that settlement's ledger row
+   *  (`settlement_id = original.source_id`), so it is never "someone
+   *  else's" settlement — the settlement's void owns it and may remove it. */
   private _assertSupplierBundledDiscountVoidable(
     original: TransactionEntity,
   ): void {
     const discount = this._linkedSupplierDiscount(original);
-    if (discount?.settlement_id != null) {
+    if (
+      discount?.settlement_id != null &&
+      !(
+        original.type === "SUPPLIER_SETTLEMENT" &&
+        discount.settlement_id === original.source_id
+      )
+    ) {
       throw new DatabaseError(
         `Cannot void/refund — its bundled supplier discount has already been included in settlement #${discount.settlement_id}; correct the supplier balance with a manual adjustment instead.`,
         { entityId: original.id },
@@ -6619,9 +6659,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     this._negateCounterpartyDiscountProfit(
       "supplier_ledger",
       discount.id,
-      `Discount reversed by supplier payment void/refund #${original.id}`,
+      original.type === "SUPPLIER_SETTLEMENT"
+        ? `Waived discount reversed by supplier settlement void/refund #${original.id}`
+        : `Discount reversed by supplier payment void/refund #${original.id}`,
       userId,
     );
+    // LIRA-310 — a settlement's Waive never applied FIFO purchase coverage
+    // (`applyPurchaseCoverage: false`), so there is none to give back.
+    if (original.type === "SUPPLIER_SETTLEMENT") return;
     const supplier = this.queryOne<{ supplier_id: number }>(
       `SELECT supplier_id FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
       discount.id,

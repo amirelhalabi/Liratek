@@ -514,7 +514,8 @@ describe("MultiPaymentInput", () => {
       expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
     });
 
-    it("renders a Waive button when the shortfall is below the $1 threshold and calls back with the shortfall", () => {
+    // LIRA-310: the callback also receives the per-currency remainder.
+    it("renders a Waive button for a small shortfall and calls back with the shortfall", () => {
       const onWaiveRemaining = jest.fn();
       render(
         <MultiPaymentInput
@@ -541,10 +542,12 @@ describe("MultiPaymentInput", () => {
       const waiveBtn = screen.getByTestId("waive-remaining");
       expect(waiveBtn).toBeInTheDocument();
       fireEvent.click(waiveBtn);
-      expect(onWaiveRemaining).toHaveBeenCalledWith(0.5);
+      expect(onWaiveRemaining).toHaveBeenCalledWith(0.5, [
+        { currency: "USD", amount: 0.5 },
+      ]);
     });
 
-    it("does not render a Waive button when the shortfall is at or above the $1 threshold", () => {
+    it("does not render a Waive button when the shortfall is over the $5 cap", () => {
       const onWaiveRemaining = jest.fn();
       render(
         <MultiPaymentInput

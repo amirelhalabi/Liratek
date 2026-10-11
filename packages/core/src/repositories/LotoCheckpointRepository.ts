@@ -24,6 +24,11 @@ import {
   reconcileLegs,
 } from "./moneyPosting.js";
 import { resolveLotoSupplierId } from "./LotoTicketRepository.js";
+import { getSupplierRepository } from "./SupplierRepository.js";
+import {
+  isWithinShortfallMax,
+  SHORTFALL_MAX,
+} from "../validators/exchange.js";
 
 /** A settlement payment leg as both settle entry points receive it. Signed:
  *  positive = LOTO pays the shop (money in), negative = the shop pays LOTO. */
@@ -47,6 +52,50 @@ interface SettlementLeg {
  * No legs at all is still accepted (settling without recording a payment —
  * existing callers and the e2e settle helper rely on it).
  */
+/**
+ * LIRA-310 — the Waive on a LOTO settlement (`discount_lbp`): LOTO let the
+ * shop pay less (net < 0 → "received") or the shop let LOTO pay less
+ * (net > 0 → "forgiven"). Checked before any write: up to and including
+ * `SHORTFALL_MAX.LBP`, and strictly less than the whole net (a settlement
+ * still moves some cash). Returns the cash part of the net — the figure the
+ * legs reconcile to AND the SETTLEMENT row books (FEATURE_GUIDE §13 item
+ * 15: one figure for both): `net − sign(net) × waive`.
+ */
+function resolveSettlementWaive(
+  netSettlement: number,
+  discountLbp: number | undefined,
+  legs: SettlementLeg[],
+  context: string,
+): { waive: number; cashNet: number } {
+  const waive = Math.abs(discountLbp ?? 0);
+  if (waive === 0) return { waive: 0, cashNet: netSettlement };
+  // A settlement may be recorded with no legs (no payment recorded), but a
+  // waive is "paid X, the gap is waived" — with no legs there is nothing to
+  // reconcile `|net| − waive` against, so it is refused.
+  if (!legs.some((l) => l.amount !== 0)) {
+    throw new Error(
+      `Waive needs the payment that was actually made. ` +
+        `(${context}: discount_lbp ${waive} sent with no payment legs)`,
+    );
+  }
+  if (!isWithinShortfallMax(waive, "LBP")) {
+    throw new Error(
+      `The waived amount is more than ${SHORTFALL_MAX.LBP.toLocaleString("en-US")} LBP. ` +
+        `(${context}: discount_lbp ${waive} is above SHORTFALL_MAX)`,
+    );
+  }
+  if (waive >= Math.abs(netSettlement) - 0.5) {
+    throw new Error(
+      `The waived amount must be less than the settlement — pay at least part of it. ` +
+        `(${context}: discount_lbp ${waive} vs net ${netSettlement})`,
+    );
+  }
+  return {
+    waive,
+    cashNet: netSettlement - Math.sign(netSettlement) * waive,
+  };
+}
+
 function assertSettlementLegsReconcile(
   legs: SettlementLeg[],
   netSettlement: number,
@@ -325,6 +374,9 @@ export class LotoCheckpointRepository {
     /** The rate the till converted cross-currency legs at (reconciliation
      *  compares at it when present — see `reconcileLegs`). */
     tenderExchangeRate?: number,
+    /** LIRA-310 — Waive (LBP): settle for |net| − discountLbp; the gap
+     *  posts as a LOTO supplier DISCOUNT. */
+    discountLbp?: number,
   ): LotoCheckpoint {
     const tenantId = getCurrentTenantId();
     const settleInTxn = this.db.transaction(() => {
@@ -344,10 +396,19 @@ export class LotoCheckpointRepository {
       const supplierPaysShop = totalCommission + totalCashPrizes;
       const netSettlement = supplierPaysShop - shopPaysSupplier;
 
+      // LIRA-310 — the waive (before any write); `cashNet` is what the legs
+      // pay and the SETTLEMENT row books.
+      const { waive, cashNet } = resolveSettlementWaive(
+        netSettlement,
+        discountLbp,
+        payments ?? [],
+        `Loto settlement #${id}`,
+      );
+
       // G23: legs must be the net settlement (before any write).
       assertSettlementLegsReconcile(
         payments ?? [],
-        netSettlement,
+        cashNet,
         getUsdLbpSellRate(this.db),
         tenderExchangeRate,
         `Loto settlement #${id}`,
@@ -371,7 +432,8 @@ export class LotoCheckpointRepository {
         source_id: id,
         user_id: userId,
         amount_usd: 0,
-        amount_lbp: netSettlement,
+        // LIRA-310: the cash actually moved (net − waive).
+        amount_lbp: cashNet,
         ...cashierRateStamp(tenderExchangeRate),
         summary: `Loto settlement for checkpoint #${id}`,
         metadata_json: {
@@ -382,6 +444,7 @@ export class LotoCheckpointRepository {
           shop_pays_supplier: shopPaysSupplier,
           supplier_pays_shop: supplierPaysShop,
           net_settlement: netSettlement,
+          ...(waive > 0 ? { discount_lbp: waive } : {}),
         },
       });
 
@@ -421,17 +484,30 @@ export class LotoCheckpointRepository {
       `);
 
       // G23: linked to its own LOTO_SETTLEMENT transaction (was NULL).
-      insertLedger.run(
-        tenantId,
-        supplierId,
-        "SETTLEMENT",
-        0,
-        netSettlement,
-        `Settlement for checkpoint #${id}: ${settlementNote}`,
-        userId,
-        txnId,
-        requestNow(),
+      // LIRA-310: books the cash actually moved; the waive is its own row.
+      const settlementLedgerId = Number(
+        insertLedger.run(
+          tenantId,
+          supplierId,
+          "SETTLEMENT",
+          0,
+          cashNet,
+          `Settlement for checkpoint #${id}: ${settlementNote}`,
+          userId,
+          txnId,
+          requestNow(),
+        ).lastInsertRowid,
       );
+      if (waive > 0) {
+        this._postSettlementWaive(
+          supplierId,
+          netSettlement,
+          waive,
+          settlementLedgerId,
+          txnId,
+          userId,
+        );
+      }
 
       // 4. NO separate commission drawer credit. The settlement payment leg is
       // the NET amount (commission − sales, negative when the shop pays), i.e.
@@ -514,6 +590,9 @@ export class LotoCheckpointRepository {
       | SettlementLeg[],
     /** See settleCheckpoint's `tenderExchangeRate`. */
     tenderExchangeRate?: number,
+    /** LIRA-310 — see settleCheckpoint's `discountLbp` (applies to the
+     *  batch's combined net). */
+    discountLbp?: number,
   ): LotoCheckpoint[] {
     if (checkpointIds.length === 0)
       throw new Error("No checkpoint IDs provided");
@@ -538,10 +617,18 @@ export class LotoCheckpointRepository {
 
       const netSettlement = totalCommission + totalCashPrizes - totalSales;
 
+      // LIRA-310 — the waive (before any write).
+      const { waive, cashNet } = resolveSettlementWaive(
+        netSettlement,
+        discountLbp,
+        legs,
+        "Loto batch settlement",
+      );
+
       // G23: the payment must be the net settlement (before any write).
       assertSettlementLegsReconcile(
         legs,
-        netSettlement,
+        cashNet,
         getUsdLbpSellRate(this.db),
         tenderExchangeRate,
         "Loto batch settlement",
@@ -559,7 +646,8 @@ export class LotoCheckpointRepository {
         source_id: checkpointIds[checkpointIds.length - 1],
         user_id: userId,
         amount_usd: 0,
-        amount_lbp: netSettlement,
+        // LIRA-310: the cash actually moved (net − waive).
+        amount_lbp: cashNet,
         ...cashierRateStamp(tenderExchangeRate),
         summary: `Loto batch settlement for ${checkpointIds.length} checkpoint(s)`,
         metadata_json: {
@@ -568,6 +656,7 @@ export class LotoCheckpointRepository {
           total_commission: totalCommission,
           total_cash_prizes: totalCashPrizes,
           net_settlement: netSettlement,
+          ...(waive > 0 ? { discount_lbp: waive } : {}),
         },
       });
 
@@ -597,25 +686,38 @@ export class LotoCheckpointRepository {
       // 3. Supplier ledger entry
       // Sign intentionally standard-oriented (see settleCheckpoint): the
       // flipped ticket/prize rows sum to -netSettlement, so this zeroes them.
-      this.db
-        .prepare(
-          `
+      // LIRA-310: books the cash actually moved; the waive is its own row.
+      const settlementLedgerId = Number(
+        this.db
+          .prepare(
+            `
         INSERT INTO supplier_ledger (
           tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-        )
-        .run(
-          tenantId,
+          )
+          .run(
+            tenantId,
+            supplierId,
+            "SETTLEMENT",
+            0,
+            cashNet,
+            `Batch settlement for checkpoints [${checkpointIds.join(", ")}]`,
+            userId,
+            txnId,
+            requestNow(),
+          ).lastInsertRowid,
+      );
+      if (waive > 0) {
+        this._postSettlementWaive(
           supplierId,
-          "SETTLEMENT",
-          0,
           netSettlement,
-          `Batch settlement for checkpoints [${checkpointIds.join(", ")}]`,
-          userId,
+          waive,
+          settlementLedgerId,
           txnId,
-          requestNow(),
+          userId,
         );
+      }
 
       // 4. NO separate commission drawer credit — same reasoning as
       // settleCheckpoint: the payment leg below is already the net
@@ -668,6 +770,36 @@ export class LotoCheckpointRepository {
     });
 
     return settleInTxn();
+  }
+
+  /**
+   * LIRA-310 — post a settlement's waived gap through the ONE shared
+   * supplier discount writer (`SupplierRepository.postSupplierBundledDiscount`,
+   * rule 14): net < 0 (the shop pays LOTO) → "received" (ledger −x, profit
+   * +x); net > 0 (LOTO pays the shop) → "forgiven" (ledger +x, profit −x).
+   * Linked to the SETTLEMENT ledger row. LOTO_SETTLEMENT is non-reversible,
+   * so the discount stays with it (correction = an opposite supplier
+   * adjustment, FEATURE_GUIDE §9).
+   */
+  private _postSettlementWaive(
+    supplierId: number,
+    netSettlement: number,
+    waive: number,
+    settlementLedgerId: number,
+    settlementTxnId: number,
+    userId: number,
+  ): void {
+    getSupplierRepository().postSupplierBundledDiscount(
+      supplierId,
+      { amount_usd: 0, amount_lbp: waive, reason: "Waived at Loto settlement" },
+      {
+        direction: netSettlement < 0 ? "received" : "forgiven",
+        parentLedgerId: settlementLedgerId,
+        createdBy: userId,
+        applyPurchaseCoverage: false,
+        transactionMetadata: { settlement_transaction_id: settlementTxnId },
+      },
+    );
   }
 
   getTotalSalesFromUnsettledCheckpoints(): number {

@@ -35,7 +35,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { DataTable } from "@liratek/ui";
-import { type PaymentLine } from "@liratek/ui";
+import { type Money, type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
@@ -2511,6 +2511,42 @@ export default function Debts() {
                     ...(repayFillTotals
                       ? { fillTotals: repayFillTotals, fillKey: repayFillKey }
                       : {}),
+                    // LIRA-310 — Waive: each currency's part of what is
+                    // left goes into the matching "Discount / Forgive" box
+                    // (USD to cents, LBP whole), on top of what is typed.
+                    // The MPI discount stays hidden (one scalar cannot hold
+                    // a mixed USD + LBP debt), so the page takes the waive.
+                    onWaiveRemaining: (
+                      _amount: number,
+                      remainingByCurrency: Money[],
+                    ) => {
+                      const usd =
+                        remainingByCurrency.find((m) => m.currency === "USD")
+                          ?.amount ?? 0;
+                      const lbp =
+                        remainingByCurrency.find((m) => m.currency === "LBP")
+                          ?.amount ?? 0;
+                      if (usd > 0) {
+                        setRepayDiscountUsd((prev) =>
+                          (
+                            Math.round(
+                              ((parseFloat(prev.replace(/,/g, "")) || 0) +
+                                usd) *
+                                100,
+                            ) / 100
+                          ).toFixed(2),
+                        );
+                      }
+                      if (lbp > 0) {
+                        setRepayDiscountLbp((prev) =>
+                          String(
+                            Math.round(
+                              (parseFloat(prev.replace(/,/g, "")) || 0) + lbp,
+                            ),
+                          ),
+                        );
+                      }
+                    },
                   }
                 : {}),
               // Who pays (FEATURE_GUIDE §4.1): a repayment is the customer

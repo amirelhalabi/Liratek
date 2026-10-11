@@ -30,9 +30,9 @@ import {
   bookClientDebtCharge,
   assertPartnerIdRequired,
   assertNoCounterPayment,
-  reconcileLegs,
   expectedTotalIn,
 } from "./moneyPosting.js";
+import { resolveKeptChange } from "./keptChange.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
 
@@ -169,6 +169,13 @@ export interface LotoTicketCreate {
    *  added to the transaction's profit stamp (tender-native amounts). */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /** LIRA-310: the ticket discount claim (the Loto page's Discount /
+   *  Waive), in the ticket's currency. Verified by `resolveKeptChange`
+   *  (customer reduction) against the real gap, capped at the commission;
+   *  lowers the profit stamp only — face value and the LOTO TOP_UP are
+   *  unchanged. Refused on a deferred (session-cart) or partner ticket. */
+  discount_usd?: number;
+  discount_lbp?: number;
   clientId?: number | null;
   clientName?: string | null;
   /**
@@ -255,6 +262,43 @@ export class LotoTicketRepository {
       const isForPartner = !data.deferPayment && data.partnerMode === "FOR";
       const legs = data.payments ?? [];
       const { inLegs, outLegs } = partitionLegs(legs);
+      // LIRA-310: the discount claim — shape refusals before anything else
+      // (the amount itself is checked by resolveKeptChange below).
+      const ticketCurrency = data.currency || "LBP";
+      const discountUsd = data.discount_usd ?? 0;
+      const discountLbp = data.discount_lbp ?? 0;
+      const claimsDiscount = discountUsd > 0 || discountLbp > 0;
+      if (claimsDiscount) {
+        if (data.deferPayment) {
+          throw new Error(
+            "A discount can't be given on a ticket inside a customer basket. (Loto ticket: use Waive at the basket checkout instead — the basket owns the payment)",
+          );
+        }
+        if (data.partnerMode === "FOR") {
+          throw new Error(
+            "A discount isn't allowed on a partner ticket. (Loto ticket: partnerMode FOR books the full amount to the partner)",
+          );
+        }
+        // A loto ticket is LBP-native (amount_lbp = face value, the
+        // commission sits in profit_lbp), so its discount is LBP only: a USD
+        // discount would be indistinguishable from USD kept change in the
+        // Profits readers (lotoKeptChangeUsd IS the USD profit stamp).
+        if (ticketCurrency !== "LBP" || discountUsd > 0) {
+          throw new Error(
+            `A Loto discount can only be given in LBP. (Loto ticket: currency ${ticketCurrency}, discount_usd ${discountUsd}, discount_lbp ${discountLbp})`,
+          );
+        }
+        if (legs.length === 0) {
+          throw new Error(
+            "There is no payment to apply the discount to. (Loto ticket: a discount needs the payment lines)",
+          );
+        }
+      }
+      // Verified kept change / discount (filled in step 0 below).
+      let keptUsd = 0;
+      let keptLbp = 0;
+      let verifiedDiscountUsd = 0;
+      let verifiedDiscountLbp = 0;
       if (isForPartner) {
         assertPartnerIdRequired(data.partnerId);
         // A partner ticket takes no counter payment at all — ANY leg (IN or
@@ -274,23 +318,60 @@ export class LotoTicketRepository {
           undefined,
           "loto ticket",
         );
+        // Unchanged pre-LIRA-310 behaviour: the claim is stamped as sent.
+        keptUsd = data.kept_change_usd ?? 0;
+        keptLbp = data.kept_change_lbp ?? 0;
       } else if (!data.deferPayment && legs.length > 0) {
         assertLotoLegsPostable(inLegs, outLegs, data.clientId);
         // Same contract and tolerance as RechargeRepository: the customer's
         // legs (IN − change − kept change) must cover the ticket's face
         // value, converted at the till's own tender rate when supplied.
-        reconcileLegs({
+        // LIRA-310 (R4): through the ONE kept-change helper, which also runs
+        // the kept-change excess/funding checks Loto never had and verifies
+        // a discount claim (IN = face value − discount, the claim equal to
+        // the real gap, at most the commission).
+        const exchangeRate = data.exchange_rate ?? getUsdLbpSellRate(this.db);
+        const capRate =
+          data.tender_exchange_rate && data.tender_exchange_rate > 0
+            ? data.tender_exchange_rate
+            : exchangeRate;
+        const resolved = resolveKeptChange({
+          payer: "customer",
+          context: "Loto ticket",
+          expected: expectedTotalIn(data.sale_amount, ticketCurrency),
           inLegs,
           outLegs,
-          keptChange: { usd: data.kept_change_usd, lbp: data.kept_change_lbp },
-          expectedTotals: expectedTotalIn(
-            data.sale_amount,
-            data.currency || "LBP",
-          ),
-          exchangeRate: data.exchange_rate ?? getUsdLbpSellRate(this.db),
-          tenderExchangeRate: data.tender_exchange_rate,
-          context: "Loto ticket",
+          claimedKept: { usd: data.kept_change_usd, lbp: data.kept_change_lbp },
+          exchangeRate,
+          ...(data.tender_exchange_rate !== undefined
+            ? { tenderExchangeRate: data.tender_exchange_rate }
+            : {}),
+          isForPartner,
+          ...(claimsDiscount
+            ? {
+                claimedReduction: { usd: discountUsd, lbp: discountLbp },
+                // The commission (LBP; a USD discount was refused above).
+                reductionCap: {
+                  usd: data.commission_amount / capRate,
+                  lbp: data.commission_amount,
+                },
+                reductionLabel: "discount",
+                reductionCapText: "the shop's commission on this ticket",
+                // A typed discount may come with change (500,000 handed,
+                // 20,000 off, 20,000 back) — unlike a basket Waive.
+                reductionAllowsChange: true,
+              }
+            : {}),
         });
+        keptUsd = resolved.keptUsd;
+        keptLbp = resolved.keptLbp;
+        verifiedDiscountUsd = resolved.reductionUsd;
+        verifiedDiscountLbp = resolved.reductionLbp;
+      } else {
+        // Deferred (session basket) or no legs: kept change is not checked
+        // here (the basket checks its own); book the claim as before.
+        keptUsd = data.kept_change_usd ?? 0;
+        keptLbp = data.kept_change_lbp ?? 0;
       }
 
       // 1. Insert the ticket record
@@ -352,9 +433,10 @@ export class LotoTicketRepository {
         user_id: data.userId,
         amount_usd: 0, // Loto is LBP only for now
         amount_lbp: data.sale_amount,
-        // Commission plus kept change (T3 KC-3, tender-native per currency).
-        profit_usd: data.kept_change_usd ?? 0,
-        profit_lbp: data.commission_amount + (data.kept_change_lbp ?? 0),
+        // Commission plus kept change (T3 KC-3, tender-native per currency),
+        // minus the verified discount (LIRA-310 — profit only).
+        profit_usd: keptUsd - verifiedDiscountUsd,
+        profit_lbp: data.commission_amount + keptLbp - verifiedDiscountLbp,
         // Session sales inject the operator rate; a direct sale stamps the
         // rate its payment input converted at (`tender_exchange_rate`, owner
         // decision 2026-10-07: the row saves the rate the cashier actually
@@ -373,6 +455,9 @@ export class LotoTicketRepository {
           commission_amount: data.commission_amount,
           commission_rate: data.commission_rate ?? 0.0445,
           payment_method: paymentMethod,
+          // LIRA-310: read back by lotoKeptChangeLbp/Usd so a discount is
+          // never mistaken for negative kept change.
+          ...(verifiedDiscountLbp > 0 ? { discount_lbp: verifiedDiscountLbp } : {}),
         },
         transaction_time: data.transaction_time,
       });

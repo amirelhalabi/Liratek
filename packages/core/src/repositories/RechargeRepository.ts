@@ -1832,8 +1832,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
       // Payout kept change (owner decisions 2026-10-07, FEATURE_GUIDE §4.1):
       // the shop hands out a round figure a little short of `payoutAmount`
-      // and keeps the leftover (under PAYOUT_KEEP_CHANGE_MAX, payout
-      // currency only). Verified here — never trusted from the client — and
+      // and keeps the leftover (within PAYOUT_KEEP_CHANGE_MAX, $5 / 450,000
+      // LBP inclusive, payout currency only). Verified here — never trusted from the client — and
       // then: the legs reconcile against owed − kept (postPayoutLegs), and
       // the kept amount is ADDED to the profit stamp below, per currency.
       // Profit stays `credits − owed` + kept: it is never re-derived from

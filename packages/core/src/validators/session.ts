@@ -57,6 +57,12 @@ export const sessionCheckoutSchema = z
     // KEPT_CHANGE profit row (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-4).
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
+    // LIRA-310: the Waive claim — the gap the shop accepts not to collect.
+    // Verified server-side against the basket's own net charge (must equal
+    // the real gap, at most $5 / 450,000 LBP) and booked as a
+    // WAIVED_SHORTFALL profit-only sibling row (−waived).
+    waived_usd: z.number().min(0).optional(),
+    waived_lbp: z.number().min(0).optional(),
     userId: z.number().int(),
   })
   .passthrough();

@@ -283,6 +283,7 @@ export function SessionCheckoutModal({
       setItemDiscounts({});
       setRateEdited(false);
       setKeptChange(null);
+      setWaived(null);
       setCheckoutSuccess(null);
       setPayoutMethodOverride({});
       setChosenFirstMethod(null);
@@ -350,6 +351,25 @@ export function SessionCheckoutModal({
     usd: number;
     lbp: number;
   } | null>(null);
+  // LIRA-310 Waive: the gap the shop accepts not to collect, per currency,
+  // exactly as the payment input reported it (its own allocation — never
+  // re-derived here). Comes off the totals the input must cover; sent as
+  // waived_usd/waived_lbp and verified by the server against the real gap.
+  const [waived, setWaived] = useState<{ usd: number; lbp: number } | null>(
+    null,
+  );
+  const handleWaiveRemaining = (
+    _amount: number,
+    byCurrency: Array<{ currency: string; amount: number }>,
+  ) => {
+    const pick = (c: string) =>
+      byCurrency
+        .filter((m) => m.currency === c)
+        .reduce((sum, m) => sum + Math.max(0, m.amount), 0);
+    const usd = Math.round(pick("USD") * 100) / 100;
+    const lbp = Math.round(pick("LBP"));
+    setWaived(usd > 0 || lbp > 0 ? { usd, lbp } : null);
+  };
 
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F — operator override of the
   // per-currency payout method (undefined = "follow the derived default", see
@@ -603,6 +623,7 @@ export function SessionCheckoutModal({
       setPaymentLines((prev) => (prev.length === 0 ? prev : NO_LINES));
       setReturnLines((prev) => (prev.length === 0 ? prev : NO_LINES));
       setKeptChange(null);
+      setWaived(null);
     }
   }, [hasChargeToCollect]);
 
@@ -829,8 +850,24 @@ export function SessionCheckoutModal({
   // shop's primary cash drawer is allowed to go negative on a payout by
   // design (FEATURE_GUIDE §7) — there is no balance check anywhere for this
   // (PRIMARY_CASH_DRAWER_PLAN open item 6e, still open on purpose).
+  // LIRA-310: a waive covers its part of the total (USD-equivalent at the
+  // operator rate, the same rate the server checks it at).
+  const waivedUSD = waived
+    ? waived.usd + (exchangeRate > 0 ? waived.lbp / exchangeRate : 0)
+    : 0;
   const isPaymentValid =
-    combinedTotalUSD <= 0 || paidUSD >= combinedTotalUSD - combinedTolerance;
+    combinedTotalUSD <= 0 ||
+    paidUSD + waivedUSD >= combinedTotalUSD - combinedTolerance;
+
+  // LIRA-310: a waive is only good for the gap it was taken on. When the
+  // payment (or the basket) changes so the gap no longer equals the waived
+  // amount, drop it — a stale claim would be refused by the server, and the
+  // full total is due again.
+  useEffect(() => {
+    if (!waived) return;
+    const gap = combinedTotalUSD - paidUSD;
+    if (Math.abs(gap - waivedUSD) > combinedTolerance) setWaived(null);
+  }, [waived, waivedUSD, combinedTotalUSD, paidUSD, combinedTolerance]);
 
   if (!isOpen) return null;
   // Checkout closes the session (is_active = 0), so activeSession goes null
@@ -924,6 +961,14 @@ export function SessionCheckoutModal({
               kept_change_usd: keptChange.usd,
               kept_change_lbp: keptChange.lbp,
             }
+          : {}),
+        // LIRA-310 Waive: sent next to the kept fields, each only when > 0
+        // and only while there is a charge to waive from.
+        ...(waived && hasChargeToCollect && waived.usd > 0
+          ? { waived_usd: waived.usd }
+          : {}),
+        ...(waived && hasChargeToCollect && waived.lbp > 0
+          ? { waived_lbp: waived.lbp }
           : {}),
         userId: user.id,
       });
@@ -1254,12 +1299,24 @@ export function SessionCheckoutModal({
                       // rate-invariant — editing the modal rate no longer
                       // re-derives it through a USD scalar (the T2 bug,
                       // docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md MCP-4).
+                      // LIRA-310: a Waive comes off its own currency's
+                      // bucket, so Remaining (and the Waive) go away.
                       totals={[
-                        ...(netChargeUsd > 0
-                          ? [{ amount: netChargeUsd, currency: "USD" }]
+                        ...(netChargeUsd - (waived?.usd ?? 0) > 0
+                          ? [
+                              {
+                                amount: netChargeUsd - (waived?.usd ?? 0),
+                                currency: "USD",
+                              },
+                            ]
                           : []),
-                        ...(netChargeLbp > 0
-                          ? [{ amount: netChargeLbp, currency: "LBP" }]
+                        ...(netChargeLbp - (waived?.lbp ?? 0) > 0
+                          ? [
+                              {
+                                amount: netChargeLbp - (waived?.lbp ?? 0),
+                                currency: "LBP",
+                              },
+                            ]
                           : []),
                       ]}
                       // Session payments convert at the BUY side (owner decision
@@ -1271,6 +1328,7 @@ export function SessionCheckoutModal({
                       onChange={handlePaymentLinesChange}
                       onReturnChange={setReturnLines}
                       onKeptChange={setKeptChange}
+                      onWaiveRemaining={handleWaiveRemaining}
                       // The customer pays the shop: change kept = profit.
                       payer="customer"
                       requiresClientForDebt={true}

@@ -24,6 +24,7 @@ import {
 } from "../db/systemSuppliers.js";
 import { financialLogger } from "../utils/logger.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
+import { isWithinShortfallMax, SHORTFALL_MAX } from "../validators/exchange.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
 import { allocateProportional } from "../utils/largestRemainder.js";
 import {
@@ -177,7 +178,7 @@ export type SupplierLedgerEntryType =
   /** CQ-10 (v131): the supplier forgives part of what the shop owes them.
    *  Negative ledger amount (mirror of PAYMENT — reduces what we owe), NO
    *  cash movement (no drawer/payments row) — see SupplierRepository's
-   *  _postSupplierDiscount. */
+   *  postSupplierBundledDiscount. */
   | "DISCOUNT"
   /** SUPPLIER_STOCK_INTAKE_PLAN.md (migration v164): receiving stock with a
    *  supplier attached writes ONE positive ledger row (+qty * unit cost) —
@@ -392,6 +393,16 @@ export interface SettleTransactionsData {
    * the SUPPLIER_SETTLEMENT transaction's metadata. Absent = all types.
    */
   covered_omt_service_types?: OmtCoveredType[];
+  /**
+   * LIRA-310 — Waive: the supplier accepted less than `amount_usd`/
+   * `amount_lbp`. `amount_*` stays the amount OWED; the legs pay
+   * `amount − discount` per currency; the SETTLEMENT row books the cash
+   * actually paid and a bundled DISCOUNT (received) closes the gap, linked
+   * to the SETTLEMENT row so the settlement's void/refund removes it.
+   * Refused for a bills-only batch, an Other-payment commission, a batch
+   * with no cash owed, or above `SHORTFALL_MAX` per currency.
+   */
+  discount?: SupplierDiscountData;
 }
 
 /**
@@ -817,6 +828,53 @@ export interface SettleAccountData {
    * the SUPPLIER_SETTLEMENT transaction's metadata. Absent = all types.
    */
   covered_omt_service_types?: OmtCoveredType[];
+  /**
+   * LIRA-310 — Waive: settle the selected rows for less than they net to.
+   * `amount_*` stays the rows' exact net; the legs move `amount − discount`
+   * per currency. PAY → the account let the shop pay less (received,
+   * profit +); COLLECT → the shop let the account pay less (forgiven,
+   * profit −). The anchor member's own row books the cash; a DISCOUNT row
+   * on the anchor member closes the gap, self-stamped with the settlement
+   * so the account queue never lists it. Refused with a surplus, when no
+   * cash is owed, or above `SHORTFALL_MAX` per currency.
+   */
+  discount?: SupplierDiscountData;
+}
+
+/**
+ * LIRA-310 — the ONE up-front check (rule 14) for a Waive on a supplier
+ * settlement (`settleTransactions`, `settleAccount`). `owed` is the
+ * settlement's own amount per currency (magnitude, before the waive).
+ * Every refusal is a plain sentence first, then the technical detail.
+ * Returns the waived magnitudes (0/0 when there is no discount).
+ */
+function assertSettlementWaive(
+  discount: SupplierDiscountData | undefined,
+  owed: { usd: number; lbp: number },
+  context: string,
+): { usd: number; lbp: number } {
+  const usd = Math.abs(discount?.amount_usd ?? 0);
+  const lbp = Math.abs(discount?.amount_lbp ?? 0);
+  if (usd === 0 && lbp === 0) return { usd: 0, lbp: 0 };
+  if (!isWithinShortfallMax(usd, "USD") || !isWithinShortfallMax(lbp, "LBP")) {
+    throw new DatabaseError(
+      `The waived amount is more than $${SHORTFALL_MAX.USD} / ` +
+        `${SHORTFALL_MAX.LBP.toLocaleString("en-US")} LBP. (${context}: ` +
+        `waive $${usd.toFixed(2)} + ${lbp} LBP is above SHORTFALL_MAX)`,
+    );
+  }
+  const EPS = { usd: 0.005, lbp: 0.5 };
+  if (
+    (usd > 0 && usd >= Math.abs(owed.usd) - EPS.usd) ||
+    (lbp > 0 && lbp >= Math.abs(owed.lbp) - EPS.lbp)
+  ) {
+    throw new DatabaseError(
+      `The waived amount must be less than what is owed — pay at least ` +
+        `part of it. (${context}: waive $${usd.toFixed(2)} + ${lbp} LBP vs ` +
+        `owed $${Math.abs(owed.usd).toFixed(2)} + ${Math.abs(owed.lbp)} LBP)`,
+    );
+  }
+  return { usd, lbp };
 }
 
 /**
@@ -2782,6 +2840,44 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
     const owesCash =
       Math.abs(data.amount_usd) > 0.005 || Math.abs(data.amount_lbp) > 0.005;
+    // ── LIRA-310 — Waive (the supplier accepted less) ─────────────────────
+    // Refused, before any write, wherever there is no cash payment for the
+    // waive to sit beside: a bills-only batch (nothing owed — its
+    // commission arrives IN), an Other-payment commission collection (those
+    // legs are the commission, not a payment), or a batch owing nothing.
+    // `amount_*` stays the amount OWED; from here on every cash check uses
+    // `cash* = amount − waive` (FEATURE_GUIDE §13 item 15: the legs are
+    // reconciled against the SAME figure the posting loop books).
+    const hasWaive =
+      Math.abs(data.discount?.amount_usd ?? 0) > 0 ||
+      Math.abs(data.discount?.amount_lbp ?? 0) > 0;
+    if (hasWaive && isBillsOnlyBatch) {
+      throw new DatabaseError(
+        "A bills-only settlement has nothing owed to waive. (Settlement: " +
+          "a discount is not accepted on a bills-only batch — its commission " +
+          "arrives IN, no cash is paid out)",
+      );
+    }
+    if (hasWaive && data.commission_collection_mode === "OTHER_PAYMENT") {
+      throw new DatabaseError(
+        "Waive is not available when the commission is collected by another " +
+          "payment. (Settlement: discount refused with " +
+          "commission_collection_mode OTHER_PAYMENT)",
+      );
+    }
+    if (hasWaive && !owesCash) {
+      throw new DatabaseError(
+        "There is nothing owed to waive on this settlement. (Settlement: " +
+          "discount refused — amount_usd/amount_lbp are 0)",
+      );
+    }
+    const waive = assertSettlementWaive(
+      data.discount,
+      { usd: data.amount_usd, lbp: data.amount_lbp },
+      "Settlement",
+    );
+    const cashUsd = data.amount_usd - waive.usd;
+    const cashLbp = data.amount_lbp - waive.lbp;
     if (owesCash && !data.payments?.length) {
       throw new DatabaseError(
         "Settlement requires at least one payment-method leg to pay the net amount owed",
@@ -2937,21 +3033,26 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         if (leg.currency_code === "USD") legSumUsd += amt;
         else legSumLbp += amt;
       }
+      // LIRA-310 — against the cash actually paid (`amount − waive`), the
+      // same figure the SETTLEMENT row and the posting loop below book.
       if (
-        Math.abs(legSumUsd - data.amount_usd) > 0.005 ||
-        Math.abs(legSumLbp - data.amount_lbp) > 0.005
+        Math.abs(legSumUsd - cashUsd) > 0.005 ||
+        Math.abs(legSumLbp - cashLbp) > 0.005
       ) {
         const plain = supplierLegMismatchSentence(
           {
-            usd: legSumUsd - data.amount_usd,
-            lbp: legSumLbp - data.amount_lbp,
+            usd: legSumUsd - cashUsd,
+            lbp: legSumLbp - cashLbp,
           },
           { usd: 0.005, lbp: 0.005 },
         );
         throw new DatabaseError(
           `${plain} (Settlement payment legs do not reconcile to the net amount owed — ` +
-            `expected $${data.amount_usd.toFixed(2)} + ${data.amount_lbp} LBP, ` +
-            `got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP)`,
+            `expected $${cashUsd.toFixed(2)} + ${cashLbp} LBP` +
+            (hasWaive
+              ? ` [owed $${data.amount_usd.toFixed(2)} + ${data.amount_lbp} LBP − waived $${waive.usd.toFixed(2)} + ${waive.lbp} LBP]`
+              : "") +
+            `, got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP)`,
         );
       }
     }
@@ -2975,8 +3076,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // ORDER BY created_at DESC list (A6).
 
         // ── 1. Insert SETTLEMENT ledger entry (net paid to supplier, stored negative) ──
-        const netUsd = -Math.abs(data.amount_usd);
-        const netLbp = -Math.abs(data.amount_lbp);
+        // LIRA-310: the cash actually paid; a waived gap posts as its own
+        // DISCOUNT row below (step 4b), so the two together = amount owed.
+        const netUsd = -Math.abs(cashUsd);
+        const netLbp = -Math.abs(cashLbp);
         const ledgerRes = this.db
           .prepare(
             `INSERT INTO supplier_ledger
@@ -3100,14 +3203,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           ? `Settlement: ${data.financial_service_ids.length} txns — ${this._getSupplierName(data.supplier_id)}${
               commissionMoney ? ` credited ${commissionMoney} commission` : ""
             }`
-          : `Settlement: ${data.financial_service_ids.length} txns, net $${data.amount_usd.toFixed(2)}`;
+          : `Settlement: ${data.financial_service_ids.length} txns, net $${cashUsd.toFixed(2)}` +
+            (hasWaive
+              ? ` (waived $${waive.usd.toFixed(2)}${waive.lbp ? ` + ${waive.lbp.toLocaleString()} LBP` : ""})`
+              : "");
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
           source_table: "supplier_ledger",
           source_id: ledgerEntryId,
           user_id: data.created_by,
-          amount_usd: data.amount_usd,
-          amount_lbp: data.amount_lbp,
+          // LIRA-310: the cash actually paid (= Σ legs); the waived gap is
+          // its own COUNTERPARTY_DISCOUNT row.
+          amount_usd: cashUsd,
+          amount_lbp: cashLbp,
           // Owner decision 2026-10-07: the rate the cashier actually used
           // (stamp-only; else createTransaction's market snapshot).
           ...cashierRateStamp(data.exchange_rate),
@@ -3174,6 +3282,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             // record for a new-model batch is `supplier_settlements`).
             commission_model: batchModel,
             entry_mode: data.entry_mode ?? "LUMP",
+            // LIRA-310 — informational: the waived gap (its money/profit
+            // effect lives on the bundled COUNTERPARTY_DISCOUNT row).
+            ...(hasWaive
+              ? {
+                  waived_usd: waive.usd,
+                  waived_lbp: waive.lbp,
+                  owed_usd: data.amount_usd,
+                  owed_lbp: data.amount_lbp,
+                }
+              : {}),
             // LIRA-256 — informational: which OMT commission types this
             // settlement's statement covered (absent = all types).
             ...(data.covered_omt_service_types
@@ -3275,6 +3393,31 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               tenantId,
             });
           }
+        }
+
+        // ── 4b. LIRA-310 — the waived gap: ONE bundled supplier DISCOUNT
+        // (received: the supplier let the shop pay less), linked to THIS
+        // settlement's ledger row so the settlement's void/refund removes it
+        // (rule 20, `TransactionRepository._reverseSupplierBundledDiscount`),
+        // and self-stamped with it so no account queue lists it. No FIFO
+        // purchase coverage — a settlement never applies any.
+        if (hasWaive) {
+          this.postSupplierBundledDiscount(
+            data.supplier_id,
+            {
+              amount_usd: waive.usd,
+              amount_lbp: waive.lbp,
+              reason: data.discount?.reason,
+            },
+            {
+              direction: "received",
+              parentLedgerId: ledgerEntryId,
+              createdBy: data.created_by,
+              applyPurchaseCoverage: false,
+              settlementId: ledgerEntryId,
+              transactionMetadata: { settlement_transaction_id: txnId },
+            },
+          );
         }
 
         // ── 5. NEW-MODEL batches only — book the real commission ──────────
@@ -4663,11 +4806,42 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           "selected rows' net is not a supported flow here",
       );
     }
+    // ── LIRA-310 — Waive (settle the rows for less than they net to) ─────
+    // PAY: the account let the shop pay less (received). COLLECT: the shop
+    // let the account pay less (forgiven). Refused with a surplus (the two
+    // point opposite ways), when the rows owe nothing, or above the cap.
+    const hasWaive =
+      Math.abs(data.discount?.amount_usd ?? 0) > 0 ||
+      Math.abs(data.discount?.amount_lbp ?? 0) > 0;
+    if (hasWaive && hasSurplus) {
+      throw new DatabaseError(
+        "Waive can't be combined with an overpayment credit. (Account " +
+          "settlement: discount refused together with surplus_usd/surplus_lbp)",
+      );
+    }
+    if (
+      hasWaive &&
+      Math.abs(netUsd) <= EPS_USD &&
+      Math.abs(netLbp) <= EPS_LBP
+    ) {
+      throw new DatabaseError(
+        "There is nothing owed to waive on this settlement. (Account " +
+          "settlement: the selected rows net to 0)",
+      );
+    }
+    const waive = assertSettlementWaive(
+      data.discount,
+      { usd: netUsd, lbp: netLbp },
+      "Account settlement",
+    );
+
     // The rows' own net (validated above, UNCHANGED) plus the declared
-    // surplus — this combined figure, never `data.amount_usd`/`amount_lbp`
-    // alone, is what `payments[]` must reconcile to from here on.
-    const totalAmountUsd = data.amount_usd + surplusUsd;
-    const totalAmountLbp = data.amount_lbp + surplusLbp;
+    // surplus, minus the LIRA-310 waive — this combined figure, never
+    // `data.amount_usd`/`amount_lbp` alone, is what `payments[]` must
+    // reconcile to from here on (FEATURE_GUIDE §13 item 15: the same figure
+    // the anchor row and the posting loop book).
+    const totalAmountUsd = data.amount_usd + surplusUsd - waive.usd;
+    const totalAmountLbp = data.amount_lbp + surplusLbp - waive.lbp;
 
     const owesCash =
       Math.abs(totalAmountUsd) > EPS_USD || Math.abs(totalAmountLbp) > EPS_LBP;
@@ -4832,6 +5006,34 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       anchorSupplierId = Math.min(...memberIds);
     }
 
+    // LIRA-310 — the waive lowers the ANCHOR member's own neutralizing row
+    // (the DISCOUNT row is posted on the anchor, linked to that row). Capped
+    // at the anchor's own net in each currency, pointing the settlement's
+    // way — otherwise the anchor row would flip sign (`resolveEntry`'s
+    // opposite-direction refusal) or stop netting the anchor's own rows.
+    const anchorRawNet = memberNet.get(anchorSupplierId)!;
+    const waiveSign = wantsPay ? 1 : -1;
+    if (hasWaive) {
+      const fits = (net: number, w: number, eps: number): boolean =>
+        w === 0 || waiveSign * net >= w - eps;
+      if (
+        !fits(anchorRawNet.usd, waive.usd, EPS_USD) ||
+        !fits(anchorRawNet.lbp, waive.lbp, EPS_LBP)
+      ) {
+        throw new DatabaseError(
+          "The waived amount is more than this account member owes in the " +
+            "selected rows — settle it separately or waive less. (Account " +
+            `settlement: waive $${waive.usd.toFixed(2)} + ${waive.lbp} LBP ` +
+            `vs anchor member ${anchorSupplierId} net ` +
+            `$${anchorRawNet.usd.toFixed(2)} + ${anchorRawNet.lbp} LBP)`,
+        );
+      }
+    }
+    const anchorNetForRow = {
+      usd: anchorRawNet.usd - waiveSign * waive.usd,
+      lbp: anchorRawNet.lbp - waiveSign * waive.lbp,
+    };
+
     // Pure — picks the entry_type/signed amounts that negate a member's own
     // subtotal to exactly 0 (recordSupplierCashflow's PAY/RECEIVE sign
     // convention, generalized to a POSITIVE-or-NEGATIVE starting subtotal).
@@ -4938,8 +5140,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           `Account settlement: ${freshParent.name} (${data.direction})`;
 
         // ── A. Anchor member's own row (transaction_id linked after create) ──
-        const anchorNet = memberNet.get(anchorSupplierId)!;
-        const anchorEntry = resolveEntry(anchorSupplierId, anchorNet);
+        // LIRA-310: net of the waive (the DISCOUNT row below books the gap).
+        const anchorEntry = resolveEntry(anchorSupplierId, anchorNetForRow);
         const anchorRes = this.db
           .prepare(
             `INSERT INTO supplier_ledger
@@ -4966,23 +5168,31 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               ? data.payments[0].method
               : "SPLIT"
             : "CASH";
+        const cashUsd = data.amount_usd - waive.usd;
+        const cashLbp = data.amount_lbp - waive.lbp;
         const summary =
           `Account Settlement: ${freshParent.name} — ${data.direction} ` +
-          `$${data.amount_usd.toFixed(2)}` +
-          `${data.amount_lbp ? ` + ${data.amount_lbp.toLocaleString()} LBP` : ""}` +
+          `$${cashUsd.toFixed(2)}` +
+          `${cashLbp ? ` + ${cashLbp.toLocaleString()} LBP` : ""}` +
           ` across ${totalMembers} member${totalMembers === 1 ? "" : "s"}` +
           (hasSurplus
             ? ` (+ $${surplusUsd.toFixed(2)}` +
               `${surplusLbp ? ` / ${surplusLbp.toLocaleString()} LBP` : ""}` +
               ` overpayment credit)`
+            : "") +
+          (hasWaive
+            ? ` (waived $${waive.usd.toFixed(2)}` +
+              `${waive.lbp ? ` + ${waive.lbp.toLocaleString()} LBP` : ""})`
             : "");
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
           source_table: "supplier_ledger",
           source_id: anchorLedgerId,
           user_id: data.created_by,
-          amount_usd: data.amount_usd,
-          amount_lbp: data.amount_lbp,
+          // LIRA-310: the rows' net settled in cash (net − waive); the
+          // waived gap is its own COUNTERPARTY_DISCOUNT row.
+          amount_usd: cashUsd,
+          amount_lbp: cashLbp,
           profit_usd: profitUsd,
           profit_lbp: profitLbp,
           // Owner decision 2026-10-07: the row saves the rate the cashier
@@ -5005,6 +5215,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             // what the account balance/queue actually reflect).
             surplus_usd: surplusUsd,
             surplus_lbp: surplusLbp,
+            // LIRA-310 — informational (the money/profit effect lives on the
+            // bundled COUNTERPARTY_DISCOUNT row).
+            ...(hasWaive
+              ? {
+                  waived_usd: waive.usd,
+                  waived_lbp: waive.lbp,
+                  owed_usd: data.amount_usd,
+                  owed_lbp: data.amount_lbp,
+                }
+              : {}),
             members: memberIds,
             // LIRA-256 — informational: which OMT commission types this
             // settlement's statement covered (absent = all types).
@@ -5054,6 +5274,32 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           throw new DatabaseError(
             `Account settlement aborted: failed to stamp the anchor ` +
               `supplier_ledger row ${anchorLedgerId} with its transaction/settlement id`,
+          );
+        }
+
+        // ── B2. LIRA-310 — the waived gap: ONE bundled DISCOUNT on the
+        // anchor member, linked to the anchor row (the settlement's
+        // `source_id`) so the settlement's void/refund removes it (rule 20,
+        // `TransactionRepository._reverseSupplierBundledDiscount`), and
+        // self-stamped with the anchor's settlement id so
+        // `getAccountUnsettled` never lists it as an open row. No FIFO
+        // purchase coverage.
+        if (hasWaive) {
+          this.postSupplierBundledDiscount(
+            anchorSupplierId,
+            {
+              amount_usd: waive.usd,
+              amount_lbp: waive.lbp,
+              reason: data.discount?.reason,
+            },
+            {
+              direction: wantsPay ? "received" : "forgiven",
+              parentLedgerId: anchorLedgerId,
+              createdBy: data.created_by,
+              applyPurchaseCoverage: false,
+              settlementId: anchorLedgerId,
+              transactionMetadata: { settlement_transaction_id: txnId },
+            },
           );
         }
 
@@ -5486,17 +5732,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           data.discount &&
           (data.discount.amount_usd > 0 || data.discount.amount_lbp > 0)
         ) {
-          this._postSupplierDiscount(
-            data.supplier_id,
-            data.discount,
-            data.created_by,
-            tenantId,
-            rate,
+          this.postSupplierBundledDiscount(data.supplier_id, data.discount, {
+            direction: "received",
             // Owner decision 2026-10-07 — link the discount to THIS
             // payment's ledger row so the payment's void/refund removes it
             // too (`TransactionRepository._reverseSupplierBundledDiscount`).
-            ledgerEntryId,
-          );
+            parentLedgerId: ledgerEntryId,
+            createdBy: data.created_by,
+            applyPurchaseCoverage: true,
+            rate,
+          });
         }
 
         return { id: ledgerEntryId };
@@ -5512,7 +5757,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   /**
    * Rule 14 — the ONE FIFO allocator for supplier_purchases (shared by
-   * recordSupplierCashflow's PAY branch and _postSupplierDiscount; CQ-10
+   * recordSupplierCashflow's PAY branch and postSupplierBundledDiscount; CQ-10
    * extracted this out of recordSupplierCashflow rather than pasting the
    * same allocation loop a third time). Oldest-open-first, clamped at each
    * purchase's outstanding balance. `usdEquivalent` is already converted
@@ -5567,35 +5812,56 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
-   * CQ-10 — post ONE COUNTERPARTY_DISCOUNT transaction (+ its owning
-   * 'DISCOUNT' supplier_ledger row) for a supplier forgiving part of what the
-   * shop owes them. D8: the standalone write-off caller was removed — this is
-   * now called ONLY from recordSupplierCashflow's PAY-direction branch
-   * (bundled discount), inside that flow's own db.transaction().
+   * CQ-10 / LIRA-310 — post ONE COUNTERPARTY_DISCOUNT transaction (+ its
+   * owning 'DISCOUNT' supplier_ledger row) bundled with a cash movement on
+   * the same supplier. The ONE writer (rule 14) shared by:
+   *   - `recordSupplierCashflow` PAY + discount (received, with FIFO
+   *     purchase coverage, no settlement stamp — behaviour unchanged);
+   *   - `settleTransactions` / `settleAccount` (LIRA-310 Waive on a
+   *     settlement — no coverage, self-stamped with the settlement id so the
+   *     account queue never lists it);
+   *   - `LotoCheckpointRepository.settleCheckpoint(s)` (LIRA-310).
+   * Runs inside the caller's own db.transaction().
    *
-   * amount_usd/amount_lbp = 0 (no cash moved); profit_usd/profit_lbp =
-   * POSITIVE the forgiven amount (D1: a supplier discount is a gain — the
-   * shop no longer has to pay that cost).
+   * Direction (D1, `buildCounterpartyDiscountPosting`):
+   *   - "received": the supplier lets the shop pay less — ledger −x (the shop
+   *     owes less), profit +x;
+   *   - "forgiven": the shop lets the supplier pay it less — ledger +x (the
+   *     supplier owes less), profit −x.
    *
-   * Owner decision 2026-10-07 (rule 20) — the discount's reversal owner is
-   * the payment it rode with. Its 'DISCOUNT' ledger row is linked to that
-   * payment's own ledger row (`source_ref_table='supplier_ledger'`,
-   * `source_ref_id=<payment row>` — the same back-link convention as the
-   * settlement commission credit) so voiding/refunding the payment finds
-   * and removes it (`TransactionRepository._reverseSupplierBundledDiscount`).
-   * NOT `is_auto`: the operator typed this discount (rule 26), so it stays
-   * visible and the LIRA-091 auto-sibling cascade never touches it.
+   * amount_usd/amount_lbp = 0 on the transaction (no cash moved).
+   *
+   * Reversal owner (rule 20): the parent row it rode with. The DISCOUNT row
+   * is linked to that parent's ledger row (`source_ref_table=
+   * 'supplier_ledger'`, `source_ref_id=<parent row>`) so the parent's
+   * void/refund finds and removes it
+   * (`TransactionRepository._reverseSupplierBundledDiscount`). LOTO
+   * settlements are non-reversible, so their discount stays with them.
+   * NOT `is_auto`: the operator typed (or waived) this discount (rule 26),
+   * so it stays visible and the LIRA-091 auto-sibling cascade never touches
+   * it.
    */
-  private _postSupplierDiscount(
+  postSupplierBundledDiscount(
     supplierId: number,
     discount: SupplierDiscountData,
-    createdBy: number,
-    tenantId: number,
-    rate: number,
-    parentLedgerId: number,
+    opts: {
+      direction: "received" | "forgiven";
+      parentLedgerId: number;
+      createdBy: number;
+      /** FIFO purchase coverage — only the plain supplier Pay applies it. */
+      applyPurchaseCoverage: boolean;
+      /** Rate for the FIFO coverage's LBP conversion (coverage only). */
+      rate?: number;
+      /** Self-stamp `supplier_ledger.settlement_id` (checked: 1 row). */
+      settlementId?: number;
+      /** Extra keys stamped on the discount transaction's metadata. */
+      transactionMetadata?: Record<string, unknown>;
+    },
   ): number {
+    const tenantId = getCurrentTenantId();
     const amountUsd = Math.abs(discount.amount_usd || 0);
     const amountLbp = Math.abs(discount.amount_lbp || 0);
+    const ledgerSign = opts.direction === "received" ? -1 : 1;
 
     const linked = this._supplierLedgerHasSourceRefColumns();
     const ledgerRes = linked
@@ -5608,12 +5874,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           )
           .run(
             supplierId,
-            -amountUsd,
-            -amountLbp,
+            ledgerSign * amountUsd,
+            ledgerSign * amountLbp,
             discount.reason ?? null,
-            createdBy,
+            opts.createdBy,
             tenantId,
-            parentLedgerId,
+            opts.parentLedgerId,
           )
       : this.db
           .prepare(
@@ -5623,18 +5889,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           )
           .run(
             supplierId,
-            -amountUsd,
-            -amountLbp,
+            ledgerSign * amountUsd,
+            ledgerSign * amountLbp,
             discount.reason ?? null,
-            createdBy,
+            opts.createdBy,
             tenantId,
           );
     const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
     const label = this._getSupplierName(supplierId);
     const money = `$${amountUsd.toFixed(2)}${amountLbp ? ` + ${amountLbp.toLocaleString()} LBP` : ""}`;
-    // CQ-5: the signed profit + counterparty metadata shape (D1 — a supplier
-    // forgiving a payable is booked "as if paid", flow OUT) is now the ONE
+    // CQ-5: the signed profit + counterparty metadata shape (D1) is the ONE
     // shared helper every counterparty discount posts through (moneyPosting.ts).
     const posting = buildCounterpartyDiscountPosting({
       kind: "supplier",
@@ -5643,31 +5908,58 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       counterpartyName: label,
       amountUsd,
       amountLbp,
-      discountDirection: "received",
+      discountDirection: opts.direction,
       reason: discount.reason,
-      extraMetadata: { supplier_id: supplierId, entry_type: "DISCOUNT" },
+      extraMetadata: {
+        supplier_id: supplierId,
+        entry_type: "DISCOUNT",
+        ...(opts.transactionMetadata ?? {}),
+      },
     });
     const txnId = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
       source_table: "supplier_ledger",
       source_id: ledgerEntryId,
-      user_id: createdBy,
+      user_id: opts.createdBy,
       amount_usd: 0,
       amount_lbp: 0,
       profit_usd: posting.profit_usd,
       profit_lbp: posting.profit_lbp,
-      summary: `Supplier discount received: ${money} — ${label}`,
+      summary:
+        opts.direction === "received"
+          ? `Supplier discount received: ${money} — ${label}`
+          : `Supplier discount given: ${money} — ${label}`,
       metadata_json: posting.metadata_json,
     });
 
-    this.db
+    const stampSettlement =
+      opts.settlementId != null && this._supplierLedgerHasSettlementIdColumn();
+    const stampRes = this.db
       .prepare(
-        `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+        stampSettlement
+          ? `UPDATE supplier_ledger SET transaction_id = ?, settlement_id = ? WHERE id = ? AND tenant_id = ?`
+          : `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
       )
-      .run(txnId, ledgerEntryId, tenantId);
+      .run(
+        ...(stampSettlement
+          ? [txnId, opts.settlementId, ledgerEntryId, tenantId]
+          : [txnId, ledgerEntryId, tenantId]),
+      );
+    if (stampRes.changes !== 1) {
+      throw new DatabaseError(
+        `Supplier discount aborted: failed to stamp its supplier_ledger row ` +
+          `${ledgerEntryId} with its transaction/settlement id`,
+      );
+    }
 
-    const usdEquivalent = amountUsd + amountLbp / rate;
-    this._applyPurchaseFifoCoverage(supplierId, usdEquivalent, tenantId);
+    if (opts.applyPurchaseCoverage) {
+      const rate = opts.rate || 89000;
+      this._applyPurchaseFifoCoverage(
+        supplierId,
+        amountUsd + amountLbp / rate,
+        tenantId,
+      );
+    }
 
     return txnId;
   }
@@ -5704,8 +5996,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   // D8: writeOffSupplierDebt (standalone write-off, its own transaction) was
   // REMOVED — the owner decided the bundled Pay-form discount is the only
-  // supported path. `_postSupplierDiscount` above stays; it is also called
-  // from recordSupplierCashflow's PAY-direction branch.
+  // supported path. `postSupplierBundledDiscount` above stays; it is called
+  // from recordSupplierCashflow's PAY-direction branch and (LIRA-310) the
+  // supplier/LOTO settlement paths.
 }
 
 let supplierRepositoryInstance: SupplierRepository | null = null;

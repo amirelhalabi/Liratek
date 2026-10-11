@@ -2586,7 +2586,10 @@ export class ProfitService {
                   // kept part comes back off, on the undo's own day.
                   r.txn_type === "REFUND_KEPT_CHANGE_UNDO"
                   ? "Refund kept change undone"
-                  : "Kept change";
+                  : // LIRA-310 — the Waive at a basket checkout (−).
+                    r.txn_type === "WAIVED_SHORTFALL"
+                    ? "Waived at basket checkout"
+                    : "Kept change";
       const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
       // Display fix 2026-10-07: only a debt repayment is a "repayment" —
       // every other $0 kept-change row was mislabeled as one.

@@ -1708,7 +1708,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * still clears by the full reduction and the shortfall is shop profit,
    * stamped on the CREDIT_CASH_OUT row's own profit. `resolveKeptChange`
    * checks every cash-out before any write: payout lines = reduction − kept
-   * (S2 epsilon), kept under PAYOUT_KEEP_CHANGE_MAX in the credit's own
+   * (S2 epsilon), kept within PAYOUT_KEEP_CHANGE_MAX ($5 / 450,000 LBP, inclusive) in the credit's own
    * currency, and NO OUT legs (a payout has no change — the old loop debited
    * an OUT leg as if it were more cash handed out). A mixed USD + LBP credit
    * cannot keep change (the helper owes in one currency). Every payout line

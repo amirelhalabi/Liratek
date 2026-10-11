@@ -103,6 +103,8 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string | null> = {
   CREDIT_CASH_IN: "Account Credit",
   DEBT_CASH_OUT: "Cash Advance",
   KEPT_CHANGE: null,
+  // LIRA-310: the session basket Waive sibling (profit-only).
+  WAIVED_SHORTFALL: "Waived",
   WARRANTY_COST: "Warranty Cost",
   SUPPLIER_PAYMENT: null,
   SUPPLIER_SETTLEMENT: "Supplier Settlement",

@@ -860,6 +860,9 @@ contextBridge.exposeInMainWorld("api", {
       /** LIRA-256 — OMT commission types this settlement's statement covers
        *  (absent = all types). Rule 12: mirrors the core settle schema. */
       covered_omt_service_types?: OmtCoveredTypesInput;
+      /** LIRA-310 — Waive: the supplier accepted `amount − discount`.
+       *  Rule 12/23: mirrors supplierSettleSchema.discount. */
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
     }) => ipcRenderer.invoke("suppliers:settle-transactions", data),
     // OMT open-credit account settlement (LIRA-189, CONTRACT_W2.md §2.1) — ONE
     // payment across the account parent (OMT) + its children (OMT App,
@@ -893,6 +896,9 @@ contextBridge.exposeInMainWorld("api", {
       /** LIRA-256 — OMT commission types this settlement's statement covers
        *  (absent = all types). Rule 12: mirrors the core settle schema. */
       covered_omt_service_types?: OmtCoveredTypesInput;
+      /** LIRA-310 — Waive: settle the rows for less than they net to.
+       *  Rule 12/23: mirrors supplierSettleAccountSchema.discount. */
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
     }) => ipcRenderer.invoke("suppliers:settle-account", data),
     recordCashflow: (data: {
       supplier_id: number;

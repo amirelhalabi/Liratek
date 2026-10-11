@@ -6639,6 +6639,27 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
+## LIRA-310: Waive on every payment page — HIGH — DONE, not yet released (owner decisions 2026-10-11)
+
+Spec: `specs/310-waive-everywhere/spec.md`. Today only POS (and Maintenance through the POS checkout) has a Waive button, for gaps under $1.
+
+**Owner decisions 2026-10-11 (binding):**
+1. Waive on every payment page. Screen-only pages (Group A) and pages that need a new saved record (Group B) ship together.
+2. Limit $5 for a USD total, 450,000 LBP for an LBP total. One shared value, checked on screen and on the server.
+3. Where the discount has a ceiling (recharge profit, partner balance, maintenance labour), Waive is hidden if discount + gap would exceed it.
+4. Automatic kept change on payout pages rises from $1 / 100,000 LBP to $5 / 450,000 LBP.
+5. The Loto ticket and Custom Services Discount fields, which show but are never saved, are made to work.
+
+**What users will notice:** a Waive button next to "Remaining" on every payment page closes a gap of up to $5 (or 450,000 LBP) in one tap; payouts keep up to $5 of leftover as profit automatically; the Loto and Custom Services discounts are saved.
+
+**Follow-up debt (rule 21, logged by LIRA-310 T042):** the supplier settle payload types are still hand-written
+in three places — `electron-app/preload.ts` (`suppliers.settleTransactions` / `settleAccount` inline `data`
+types), `frontend/src/types/electron.d.ts` (same two), and `SettleAccountRequest`
+(`frontend/src/features/suppliers/hooks/useSuppliers.ts`). LIRA-310 added `discount` to each by hand; they
+should be rewritten to `z.input<typeof supplierSettleSchema>` / `SupplierSettleAccountPayload` so the next
+schema key cannot be missed. (`SettleAccountRequest` also lacks `covered_omt_service_types`, which the
+schema has.)
+
 ## LIRA-308: Debt repayment — ticks and amount stay in step — HIGH — DONE, not committed (owner decisions + answers 2026-10-11)
 
 Follows LIRA-304 (`specs/304-debt-item-picking/`, shipped). Today the "Process Repayment" item picker is optional: the

@@ -6,7 +6,7 @@
  *
  * On a PAYOUT sheet (Exchange: each line is cash the shop hands out) keeping
  * runs opposite to T3: when the lines are SHORT of the total by a small
- * leftover (under $1 / 100,000 LBP — the shared core PAYOUT_KEEP_CHANGE_MAX)
+ * leftover (up to and including $5 / 450,000 LBP — the shared core PAYOUT_KEEP_CHANGE_MAX)
  * the leftover is kept automatically and `onKeptChange` reports it, with a
  * green note. Owner example: $101.12 owed, $101 handed over → kept $0.12.
  *
@@ -115,10 +115,19 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
     expect(onKeptChange.mock.calls.at(-1)?.[0]?.usd).toBe(0.62);
   });
 
-  it("nothing kept when the shortfall is $1 or more (a real shortchange, not change) — 'Remaining to pay out'", () => {
+  // LIRA-310 (owner decision 2026-10-11): the cap rose from $1 / 100,000 LBP
+  // to $5 / 450,000 LBP, up to and including.
+  it("keeps a shortfall of exactly $5.00 (the cap is inclusive)", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
     renderMpi({ total: 101.12, currency: "USD", direction: "payout", onKeptChange });
-    type("100.12");
+    type("96.12");
+    expect(onKeptChange.mock.calls.at(-1)?.[0]?.usd).toBe(5);
+  });
+
+  it("nothing kept when the shortfall is over $5 (a real shortchange, not change) — 'Remaining to pay out'", () => {
+    const onKeptChange = jest.fn<void, [Kept]>();
+    renderMpi({ total: 101.12, currency: "USD", direction: "payout", onKeptChange });
+    type("96.11");
     expect(onKeptChange).not.toHaveBeenCalledWith(
       expect.objectContaining({ usd: expect.any(Number) }),
     );
@@ -138,7 +147,7 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
     );
   });
 
-  it("LBP payout: reports the LBP leftover (under 100,000 LBP)", () => {
+  it("LBP payout: reports the LBP leftover (within 450,000 LBP)", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
     renderMpi({ total: 8_912_345, currency: "LBP", direction: "payout", onKeptChange });
     type("8900000");
@@ -150,10 +159,17 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
     });
   });
 
-  it("LBP payout: nothing kept at 100,000 LBP short or more", () => {
+  it("LBP payout: keeps exactly 450,000 LBP (the cap is inclusive)", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
     renderMpi({ total: 8_912_345, currency: "LBP", direction: "payout", onKeptChange });
-    type("8812345");
+    type("8462345");
+    expect(onKeptChange.mock.calls.at(-1)?.[0]?.lbp).toBe(450_000);
+  });
+
+  it("LBP payout: nothing kept over 450,000 LBP short", () => {
+    const onKeptChange = jest.fn<void, [Kept]>();
+    renderMpi({ total: 8_912_345, currency: "LBP", direction: "payout", onKeptChange });
+    type("8462344");
     expect(onKeptChange).not.toHaveBeenCalledWith(
       expect.objectContaining({ lbp: expect.any(Number) }),
     );

@@ -264,14 +264,15 @@ describe("MultiPaymentInput — automatic kept change (payout mode)", () => {
     );
   });
 
-  it("(c) a shortfall at or over the cap is 'Remaining to pay out' and nothing is kept", () => {
+  // LIRA-310: the cap is $5 / 450,000 LBP, inclusive.
+  it("(c) a shortfall over the cap is 'Remaining to pay out' and nothing is kept", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
     renderPayout(onKeptChange);
 
     pay("101");
     expect(lastKept(onKeptChange)?.usd).toBe(0.12);
 
-    pay("100.12");
+    pay("96.11");
     expect(lastKept(onKeptChange)).toBeNull();
     expect(
       within(screen.getByTestId("remaining-row")).getByText(

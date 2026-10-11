@@ -13,9 +13,9 @@
  *   customer   customer → shop (POS, recharge  shop PROFIT (uncapped):
  *              sale, OMT SEND, debts, …);      IN − OUT − kept = due
  *              OUT = change back to customer
- *   payout     shop → customer (OMT/Whish      shop PROFIT, capped below
- *              RECEIVE, Binance cash-out,      PAYOUT_KEEP_CHANGE_MAX ($1 /
- *              buyback, credit cash-out,       100,000 LBP), payout currency
+ *   payout     shop → customer (OMT/Whish      shop PROFIT, capped at (incl.)
+ *              RECEIVE, Binance cash-out,      PAYOUT_KEEP_CHANGE_MAX ($5 /
+ *              buyback, credit cash-out,       450,000 LBP), payout currency
  *              Exchange, Hold Money pickup);   only: paid = owed − kept
  *              NO OUT legs ever
  *   payout +   shop → customer in BOTH         shop PROFIT per currency, NO
@@ -102,6 +102,7 @@ import {
 import {
   KEPT_CHANGE_ROUNDING_TOLERANCE,
   PAYOUT_KEEP_CHANGE_MAX,
+  isWithinShortfallMax,
 } from "../validators/exchange.js";
 import { holdPickupKeptPerCurrency } from "../validators/holdMoney.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
@@ -132,6 +133,33 @@ export interface CustomerKeptChangeInput extends ResolveKeptChangeCommon {
   inLegs: ReconciliationLeg[] | undefined | null;
   /** Change handed back to the customer (OUT legs). */
   outLegs?: ReconciliationLeg[] | undefined | null;
+  /**
+   * LIRA-310 — the shop accepts LESS than `expected` (the Waive button, a
+   * Loto ticket discount, a session basket waive). A CLAIM only: verified
+   * as `IN − OUT = expected − reduction` (USD-equivalent at the tender
+   * rate), the claim must equal that real gap within cents / whole-LBP
+   * rounding, and it lowers the caller's profit only. Refused together with
+   * kept change, an OUT leg, a partner transaction or no IN legs. Absent or
+   * zero = no reduction (the call behaves exactly as before).
+   */
+  claimedReduction?: { usd?: number; lbp?: number } | null;
+  /** Ceiling per currency for {@link claimedReduction}. The claim must sit
+   *  under each currency's cap AND, in total (USD-equivalent), under the
+   *  larger of the two — so a split claim cannot double the allowance.
+   *  Required whenever a reduction is claimed. */
+  reductionCap?: { usd: number; lbp: number };
+  /** How the cashier calls it in refusals: "discount" (Loto) or "waived
+   *  amount" (session basket, the default). */
+  reductionLabel?: string;
+  /** Cashier wording of the cap in the over-cap refusal ("the shop's
+   *  commission on this ticket"). Default: the cap amounts. */
+  reductionCapText?: string;
+  /** A TYPED discount (Loto) may come with change: the customer hands over
+   *  the face value and gets the discount back. Then the gap is
+   *  `expected − (IN − OUT)`. Without it (a Waive closing a shortfall, the
+   *  session basket) any OUT leg is refused — a short payment gives no
+   *  change. */
+  reductionAllowsChange?: boolean;
 }
 
 /** Shop hands money to a customer. */
@@ -203,6 +231,11 @@ export interface KeptChangeResult {
    *  LBP). 0 in customer / payout mode. */
   costUsd: number;
   costLbp: number;
+  /** LIRA-310 customer mode: the VERIFIED reduction per currency — profit
+   *  to SUBTRACT from the caller's stamp (or book as a WAIVED_SHORTFALL
+   *  sibling). 0 in every other mode and whenever nothing was claimed. */
+  reductionUsd: number;
+  reductionLbp: number;
 }
 
 const ZERO: KeptChangeResult = {
@@ -212,6 +245,8 @@ const ZERO: KeptChangeResult = {
   notReturnedLbp: 0,
   costUsd: 0,
   costLbp: 0,
+  reductionUsd: 0,
+  reductionLbp: 0,
 };
 
 /** Cents / whole-LBP rounding the UI applies to a kept figure (one
@@ -346,6 +381,10 @@ export function resolveKeptChange(
     case "customer": {
       const inLegs = nonEmpty(input.inLegs);
       const outLegs = nonEmpty(input.outLegs);
+      const reduction = readReduction(input);
+      if (reduction.any) {
+        return resolveCustomerReduction(input, inLegs, outLegs, kept, reduction, rate);
+      }
       if (kept.any && inLegs.length === 0) {
         throw refusal(
           "There is no payment to keep change from.",
@@ -522,12 +561,14 @@ export function resolveKeptChange(
           `Kept change must be in the payout currency (${to})`,
         );
       }
+      // LIRA-310 (owner decision 2026-10-11): up to AND including the cap —
+      // the one shared predicate the screen also uses (rule 14).
       const cap = PAYOUT_KEEP_CHANGE_MAX[to];
-      if (keptInPayout >= cap) {
+      if (!isWithinShortfallMax(keptInPayout, to)) {
         throw refusal(
-          `You can only keep less than ${formatMoneyAmount(cap, to)} of change on a payout.`,
+          `You can only keep up to ${formatMoneyAmount(cap, to)} of change on a payout.`,
           context,
-          `Kept change must be a small leftover — under ${formatMoneyAmount(cap, to)}`,
+          `Kept change must be a small leftover — at most ${formatMoneyAmount(cap, to)}`,
         );
       }
 
@@ -631,4 +672,155 @@ function resolvePerCurrencyPayout(
     );
   }
   return { ...ZERO, keptUsd: k.keptUsd, keptLbp: k.keptLbp };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// LIRA-310 — customer reduction (Waive / Loto discount / session waive)
+// ─────────────────────────────────────────────────────────────────────────
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function readReduction(input: CustomerKeptChangeInput) {
+  const label = input.reductionLabel ?? "waived amount";
+  const usd = input.claimedReduction?.usd ?? 0;
+  const lbp = input.claimedReduction?.lbp ?? 0;
+  if (!Number.isFinite(usd) || !Number.isFinite(lbp) || usd < 0 || lbp < 0) {
+    throw refusal(
+      `The ${label} isn't valid.`,
+      input.context,
+      "a reduction must be a non-negative amount",
+    );
+  }
+  return { usd, lbp, any: usd > 0 || lbp > 0 };
+}
+
+/**
+ * The customer branch with a reduction claimed (see
+ * {@link CustomerKeptChangeInput.claimedReduction}). Order matters for the
+ * cashier: the shape refusals first (kept, partner, change, no payment),
+ * then the cap, then the exact-gap match, then the S2 equation against the
+ * lowered target (the same move the payout branch makes with its kept).
+ *
+ * The gap is compared in USD-equivalent at the tender rate — never per
+ * currency: a $20 basket paid partly in LBP has a positive USD and a
+ * negative LBP per-currency gap, which means nothing.
+ */
+function resolveCustomerReduction(
+  input: CustomerKeptChangeInput,
+  inLegs: ReconciliationLeg[],
+  outLegs: ReconciliationLeg[],
+  kept: { usd: number; lbp: number; any: boolean },
+  reduction: { usd: number; lbp: number; any: boolean },
+  rate: number,
+): KeptChangeResult {
+  const { context, exchangeRate, tenderExchangeRate } = input;
+  const label = input.reductionLabel ?? "waived amount";
+  const The = `The ${label}`;
+  if (kept.any) {
+    throw refusal(
+      `${The} can't be combined with change kept.`,
+      context,
+      "a reduction and kept change were both claimed — a payment is either short or over, never both",
+    );
+  }
+  if (input.isForPartner) {
+    throw refusal(
+      `${capitalize(label)} isn't allowed on a partner transaction.`,
+      context,
+      "a partner transaction requires the exact amount",
+    );
+  }
+  if (outLegs.length > 0 && input.reductionAllowsChange !== true) {
+    throw refusal(
+      `${The} can't be combined with change given back.`,
+      context,
+      "a reduction closes a shortfall — a payment that gives change back is not short",
+    );
+  }
+  if (inLegs.length === 0) {
+    throw refusal(
+      `There is no payment to apply the ${label} to.`,
+      context,
+      "a reduction needs the payment lines — without them nothing was paid",
+    );
+  }
+  const cap = input.reductionCap;
+  if (!cap) {
+    throw refusal(
+      `${The} can't be accepted here.`,
+      context,
+      "no reduction cap was supplied — every caller must bound a reduction",
+    );
+  }
+
+  const tolerance = keptTolerance(reduction, rate);
+  const reductionUsdEq = usdEquivalent(reduction.usd, reduction.lbp, rate);
+  const capUsdEq = Math.max(cap.usd, cap.lbp / rate);
+  if (
+    reduction.usd > cap.usd + ROUNDING_TOLERANCE.USD + FLOAT_DUST ||
+    reduction.lbp > cap.lbp + ROUNDING_TOLERANCE.LBP + FLOAT_DUST ||
+    reductionUsdEq > capUsdEq + tolerance
+  ) {
+    const capText =
+      input.reductionCapText ??
+      `${formatMoneyAmount(cap.usd, "USD")} / ${formatMoneyAmount(cap.lbp, "LBP")}`;
+    throw refusal(
+      `${The} is more than ${capText}.`,
+      context,
+      `claimed $${reduction.usd.toFixed(2)} + ${Math.round(reduction.lbp)} LBP, cap $${cap.usd.toFixed(2)} / ${Math.round(cap.lbp)} LBP`,
+    );
+  }
+
+  const inS = sumLegsByCurrency(inLegs, context);
+  const outS =
+    outLegs.length > 0
+      ? sumLegsByCurrency(outLegs, context)
+      : { usd: 0, lbp: 0 };
+  const paidUsd =
+    usdEquivalent(inS.usd, inS.lbp, rate) -
+    usdEquivalent(outS.usd, outS.lbp, rate);
+  const expectedUsd = usdEquivalent(
+    input.expected.usd,
+    input.expected.lbp,
+    rate,
+  );
+  const gapUsd = expectedUsd - paidUsd;
+  // The screen rounds the gap in whichever currency it computes it — the
+  // claim's own currency, or the tender's when the two differ (an LBP ticket
+  // paid in USD: a 4-dp USD waive converted back to LBP lands a fraction of
+  // an LBP off). So the match allows the claim's rounding plus the rounding
+  // of a tender currency the claim is NOT in — never twice the same one.
+  const tenderUsd = inS.usd !== 0 || outS.usd !== 0;
+  const tenderLbp = inS.lbp !== 0 || outS.lbp !== 0;
+  const matchTolerance =
+    tolerance +
+    (tenderUsd && reduction.usd === 0 ? ROUNDING_TOLERANCE.USD : 0) +
+    (tenderLbp && reduction.lbp === 0 ? ROUNDING_TOLERANCE.LBP / rate : 0);
+  if (Math.abs(reductionUsdEq - gapUsd) > matchTolerance) {
+    throw refusal(
+      `${The} does not match what is left to pay.`,
+      context,
+      `claimed $${reductionUsdEq.toFixed(4)} USD-equivalent, but expected − paid is $${gapUsd.toFixed(4)} at rate ${rate}`,
+    );
+  }
+
+  // IN = expected − reduction, via the S2 equation with the lowered target.
+  reconcileLegs({
+    inLegs,
+    outLegs,
+    expectedTotals: {
+      usd: input.expected.usd - reduction.usd,
+      lbp: input.expected.lbp - reduction.lbp,
+    },
+    exchangeRate,
+    ...(tenderExchangeRate !== undefined ? { tenderExchangeRate } : {}),
+    context,
+  });
+  return {
+    ...ZERO,
+    reductionUsd: reduction.usd,
+    reductionLbp: reduction.lbp,
+  };
 }

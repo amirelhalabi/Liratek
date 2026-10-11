@@ -167,7 +167,7 @@ opt-in: nothing is reported unless the page wires `onKeptChange`.
 | `payer` | Who pays | Change fields | Kept change means | Note copy |
 | --- | --- | --- | --- | --- |
 | `"customer"` (default) | customer → shop (POS, recharge sale, OMT SEND, debts, …) | on overpay; change back = OUT legs | shop **profit**, uncapped | "Keeping X as profit" / "Change kept (profit)" |
-| `"payout"` | shop → customer (OMT/Whish RECEIVE, Binance cash-out, app RECEIVE, credit buy-back, Debts credit cash-out, Exchange) | never; **no OUT legs ever** | shop **profit**, only a shortfall under `PAYOUT_KEEP_CHANGE_MAX` ($1 / 100,000 LBP), payout currency only | "Keeping X as profit." |
+| `"payout"` | shop → customer (OMT/Whish RECEIVE, Binance cash-out, app RECEIVE, credit buy-back, Debts credit cash-out, Exchange) | never; **no OUT legs ever** | shop **profit**, only a shortfall up to and including `PAYOUT_KEEP_CHANGE_MAX` = `SHORTFALL_MAX` ($5 / 450,000 LBP, compared in the payout's own currency via `isWithinShortfallMax`; LIRA-310 owner decision 2026-10-11), payout currency only | "Keeping X as profit." |
 | `"shop"` | shop → outsider (Expenses) | on overpay; change the outsider hands back = OUT legs (cash coming INTO the drawer) | **added to the cost**, never profit | "Not returned: X — added to the cost." |
 
 **Server — `resolveKeptChange`** (`packages/core/src/repositories/keptChange.ts`,
@@ -178,7 +178,8 @@ equation), checks the client's claim, and returns what to book:
 - customer: `IN − OUT − kept = due`; returns `keptUsd/keptLbp` → ADD to the
   transaction's own `profit_usd`/`profit_lbp` stamp (per currency, never
   converted, never a separate field — so the generic void/refund negates it).
-- payout: refuses any OUT leg; `paid = owed − kept`; kept below the cap, in
+- payout: refuses any OUT leg; `paid = owed − kept`; kept at most the cap
+  ($5 / 450,000 LBP inclusive, `isWithinShortfallMax`), in
   the payout currency, only when the lines are really short. Same
   `keptUsd/keptLbp` → profit stamp. `postPayoutLegs` takes the validated
   kept as an optional `keptChange` (default 0).
@@ -210,11 +211,12 @@ parentheses.
 Custom Services (Debts repayment no longer keeps change: unreturned change is
 the customer's account credit — LIRA-308 owner answer 1, 2026-10-11), recharge/OMT sales; payout — OMT/Whish
 RECEIVE, Binance cash-out, app RECEIVE, credit buy-back, Whish top-up from a
-client, Debts credit cash-out, Hold Money pickup (one currency: capped as
-above; both currencies: kept per currency with NO cap — handed ≤ held in each
+client, Debts credit cash-out, Hold Money pickup (one currency: capped at
+$5 / 450,000 LBP inclusive as above; both currencies: kept per currency with NO cap — handed ≤ held in each
 currency and the claim must equal held − handed; owner decision 2026-10-07),
 refunds of SALE, DEBT_REPAYMENT, FINANCIAL_SERVICE, RECHARGE, CUSTOM_SERVICE,
-MAINTENANCE and LOTO (one currency, cash or wallet return lines; the five module
+MAINTENANCE and LOTO (one currency, cash or wallet return lines, kept up to
+and including $5 / 450,000 LBP; the five module
 types record the kept part as `metadata_json.refund_kept_change_usd/lbp`, read by
 `ProfitRepository.getRefundKeptChangeProfit`); shop — Expenses. Kept change is
 refused on partner transactions — except a customer session basket, which may
@@ -737,6 +739,7 @@ LIRA-305 decisions Y1–Y14). The old "Syria provider on the OMT/Whish page" pla
   settlement's reversal DOES sweep its bundled discount (ledger + profit negated), since
   "undo the settlement" must net the whole bundle to 0 — the two behaviors are deliberate,
   per-flow decisions, not an inconsistency.
+- **LIRA-310 bundled settlement discounts (Waive).** Voiding or refunding a `SUPPLIER_SETTLEMENT` (batch or account settle) now sweeps the supplier `DISCOUNT` row the Waive bundled with it (`_linkedSupplierDiscount` accepts settlement parents; ledger soft-void + negated profit; no purchase-coverage give-back). A LOTO settlement's waived discount is non-reversible like `LOTO_SETTLEMENT` itself — correct it with an opposite supplier adjustment. A session basket's `WAIVED_SHORTFALL` is swept by `voidSessionBasket`/`refundSessionBasket`; a single-item refund of a waived basket is refused.
 
 ---
 
@@ -792,6 +795,7 @@ LIRA-305 decisions Y1–Y14). The old "Syria provider on the OMT/Whish page" pla
   provider filter; they only ever hold OMT/WHISH rows and commission-eligible bills because
   only those are born unsettled (`pendingSettlementSql`).
 - Discounts reduce profit; per-item refund of a discounted sale nets to exactly 0.
+- **Waive (LIRA-310, owner decisions 2026-10-11).** A Waive button sits in MultiPaymentInput's Remaining row and follows it: hidden whenever Remaining is hidden, never on a payout, only for a gap up to and including `SHORTFALL_MAX` ($5 / 450,000 LBP, in the total's own currency, `isWithinShortfallMax` — the same predicate payout kept change uses). It never pushes a discount past its ceiling (`maxDiscount` / `waiveRemainingMax`). What it books depends on the page: pages with a discount add the gap to it (POS, Maintenance, recharge, Debts, Partners, Suppliers Pay, Custom Services); Expenses lowers the bill; Loto ticket sends `discount_lbp` (profit only, ≤ commission, LOTO still owed sale − commission); a session basket sends `waived_usd/lbp`, verified by `resolveKeptChange`'s customer reduction and booked as a `WAIVED_SHORTFALL` sibling (amount 0, profit −waived, swept by the basket void/refund; a single-item refund of a waived basket is refused); supplier/LOTO settlements book a bundled supplier `DISCOUNT` (received when the shop pays less, forgiven when the counterparty does). OMT system / Whish system transfers never get Waive.
 - USD and LBP profits are tracked **separately** per module (an LBP maintenance job
   books `profit_lbp`; summing only `profit_usd` loses it).
 - Recharge teshriji profit = (price − cost) − SMS cost, SMS converted for LBP transfers.

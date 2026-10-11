@@ -89,6 +89,12 @@ export interface CheckoutRequest {
    *  (G42, `resolveBasketKeptChange`) before anything is booked. */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /** LIRA-310 Waive: the gap the shop accepts not to collect, per currency
+   *  → standalone WAIVED_SHORTFALL row (profit −waived). A CLAIM only —
+   *  verified against the basket's net charge (`resolveBasketKeptChange`),
+   *  capped at SHORTFALL_MAX, before anything is booked. */
+  waived_usd?: number;
+  waived_lbp?: number;
   userId: number;
 }
 
@@ -438,6 +444,8 @@ export class SessionCheckoutService {
         userId,
         kept_change_usd,
         kept_change_lbp,
+        waived_usd,
+        waived_lbp,
       } = request;
 
       if (!cartItems || cartItems.length === 0) {
@@ -481,6 +489,16 @@ export class SessionCheckoutService {
           success: false,
           error:
             "Session checkout: keeping change needs the exchange rate the basket was paid at",
+        };
+      }
+      // LIRA-310: the Waive claim — same rule (checked at the basket's rate).
+      const waivedClaim = { usd: waived_usd ?? 0, lbp: waived_lbp ?? 0 };
+      const claimsWaived = hasKeptChangeClaim(waivedClaim);
+      if (claimsWaived && !(exchangeRate && exchangeRate > 0)) {
+        return {
+          success: false,
+          error:
+            "The waived amount can't be checked without the exchange rate. (Session checkout: waiving needs the exchange rate the basket was paid at)",
         };
       }
 
@@ -725,6 +743,8 @@ export class SessionCheckoutService {
         // G42: it also verifies the kept-change claim before its first write.
         let keptUsd = 0;
         let keptLbp = 0;
+        let waivedUsd = 0;
+        let waivedLbp = 0;
         if (payments && payments.length > 0) {
           const basket = getSessionPaymentService().recordBasketPayment(
             sessionId,
@@ -735,11 +755,14 @@ export class SessionCheckoutService {
               clientId: sessionClientId ?? null,
               feeOnTopReceiveFsIds,
               keptChange: claimsKept ? keptClaim : null,
+              waived: claimsWaived ? waivedClaim : null,
             },
           );
           keptUsd = basket.keptUsd;
           keptLbp = basket.keptLbp;
-        } else if (claimsKept) {
+          waivedUsd = basket.waivedUsd;
+          waivedLbp = basket.waivedLbp;
+        } else if (claimsKept || claimsWaived) {
           // No payment lines: the helper refuses ("nothing to keep it from").
           // Called rather than hand-thrown so the refusal text has one source.
           resolveBasketKeptChange({
@@ -751,6 +774,7 @@ export class SessionCheckoutService {
               payoutTotalLbp: 0,
             },
             claimedKept: keptClaim,
+            claimedWaived: claimsWaived ? waivedClaim : null,
             exchangeRate: exchangeRate as number,
           });
         }
@@ -813,6 +837,51 @@ export class SessionCheckoutService {
             keptUsd,
             keptLbp,
             keptTxnId,
+          );
+        }
+
+        // LIRA-310 Waive: the KEPT_CHANGE mirror — a standalone profit-only
+        // WAIVED_SHORTFALL row (amount 0, profit −waived), session-linked so
+        // voidSessionBasket/refundSessionBasket sweep it with the basket
+        // (rule 20; SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES). The
+        // items and every counterparty's share are untouched — the shop
+        // alone absorbs the gap. Books the VERIFIED amount, never the claim.
+        if (waivedUsd > 0 || waivedLbp > 0) {
+          const waivedTxnId = getTransactionRepository().createTransaction({
+            type: "WAIVED_SHORTFALL",
+            source_table: "customer_sessions",
+            source_id: sessionId,
+            user_id: userId,
+            amount_usd: 0,
+            amount_lbp: 0,
+            profit_usd: -waivedUsd,
+            profit_lbp: -waivedLbp,
+            ...cashierRateStamp(exchangeRate),
+            client_id: sessionClientId ?? null,
+            // Same reason as KEPT_CHANGE above (LIRA-230): no formData to
+            // inject the session's walk-in name into.
+            client_name: sessionCustomerName ?? null,
+            summary: `Waived (session checkout): ${[
+              waivedUsd > 0 ? `$${waivedUsd}` : null,
+              waivedLbp > 0 ? `${waivedLbp.toLocaleString()} LBP` : null,
+            ]
+              .filter(Boolean)
+              .join(" + ")}`,
+            metadata_json: {
+              session_id: sessionId,
+              waived_usd: waivedUsd,
+              waived_lbp: waivedLbp,
+            },
+          });
+          repo.linkTransaction(
+            sessionId,
+            "waived_shortfall",
+            waivedTxnId,
+            0,
+            0,
+            -waivedUsd,
+            -waivedLbp,
+            waivedTxnId,
           );
         }
 

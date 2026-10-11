@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { CounterpartySettleModal, type PaymentLine } from "@liratek/ui";
 import type { Money } from "@liratek/ui";
 import {
-  PAYOUT_KEEP_CHANGE_MAX,
+  SHORTFALL_MAX,
   type RefundKeptChangeInput,
 } from "@liratek/core";
 import type { TransactionPaymentLeg } from "../cashFlow";
@@ -190,12 +190,14 @@ export function RefundMethodModal({
   // mode then reports the small shortfall it keeps.
   const keptEligible = allowKeptChange && defaults.length === 1;
   const refundCurrency = defaults[0]?.currencyCode ?? "USD";
-  // The server's own cap (resolveKeptChange, payer "payout": kept must be
-  // strictly LESS than it), in the refund's one currency — never hand-typed.
+  // The ONE shared cap (LIRA-310, owner decision 2026-10-11: up to AND
+  // including it — `isWithinShortfallMax`, which both MultiPaymentInput's
+  // payout keep and resolveKeptChange apply), in the refund's one currency —
+  // never hand-typed.
   const keptCapText =
     refundCurrency === "LBP"
-      ? `${PAYOUT_KEEP_CHANGE_MAX.LBP.toLocaleString("en-US")} LBP`
-      : `$${PAYOUT_KEEP_CHANGE_MAX.USD.toLocaleString("en-US")}`;
+      ? `${SHORTFALL_MAX.LBP.toLocaleString("en-US")} LBP`
+      : `$${SHORTFALL_MAX.USD.toLocaleString("en-US")}`;
 
   const totals: Money[] = useMemo(
     () => defaults.map((d) => ({ currency: d.currencyCode, amount: d.amount })),
@@ -337,7 +339,7 @@ export function RefundMethodModal({
           {!hasLegsToOverride
             ? "A reversal entry will be created. Review the returned phone(s) below, then confirm."
             : keptEligible
-              ? `A reversal entry will be created. Choose which drawer(s) the refund is handed back from, and adjust the rate if needed. Hand back what the customer originally paid — in cash or a wallet in ${refundCurrency} it may be short by less than ${keptCapText}, and the rest is kept as profit.`
+              ? `A reversal entry will be created. Choose which drawer(s) the refund is handed back from, and adjust the rate if needed. Hand back what the customer originally paid — in cash or a wallet in ${refundCurrency} it may be short by up to ${keptCapText}, and the rest is kept as profit.`
               : "A reversal entry will be created. Choose which drawer(s) the refund is handed back from, and adjust the rate if needed — the total value at the rate shown must match what the customer originally paid."}
         </span>
       }

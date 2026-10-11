@@ -53,6 +53,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💸 OMT / Whish & suppliers
 
+- Supplier settle and OMT account settle: when you pay (or receive) up to $5 / 450,000 LBP less than due, Waive records the difference as a discount and the balance closes at zero. Undoing the settlement also undoes the discount.
+- Paying out (OMT / Whish receive, Binance, Whish top-up from a client, debt cash-out, Hold Money pickup, refunds): the shop now keeps a leftover of up to $5 (or 450,000 LBP) automatically, up from $1 (or 100,000 LBP). There is no Waive button on OMT system or Whish system transfers.
 - Services page: an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique
   now goes through with a fee of 0 or no fee typed. It used to say "OMT fee is required".
 - OMT account on the Suppliers page: a new check shows what OMT's balance SMS should say (your
@@ -103,6 +105,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🤝 Partners
 
+- Partner settle: a Waive button next to "Remaining" moves a gap of up to $5 (or 450,000 LBP) into the discount in one tap.
 - Partners page: a transfer you do through a partner on OMT App or Whish App now shows as "OMT APP"
   or "WHISH APP" in the partner's history, instead of looking like a regular OMT or Whish transfer.
   From now on only.
@@ -112,7 +115,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 ## 🧾 Transactions
 
 - Refunding a currency exchange now works: the refund simply swaps the money back.
-- Refunds: you can now hand back a round amount and keep a small leftover (under $1 or 100,000 LBP, in the refund's currency) as shop profit — for example, refund $20.12, hand back $20. Works for sales, debt payments, OMT/Whish and wallet transfers, recharges, custom services, repairs and Loto tickets, paid back in cash or through a wallet (not a customer account or gift card). It shows on the Profits page under Kept change on the day of the refund (not the day of the original sale or transfer), and in that day's close, so the close matches the drawer.
+- Refunds: you can now hand back a round amount and keep a small leftover (up to $5 or 450,000 LBP, in the refund's currency) as shop profit — for example, refund $20.12, hand back $20. Works for sales, debt payments, OMT/Whish and wallet transfers, recharges, custom services, repairs and Loto tickets, paid back in cash or through a wallet (not a customer account or gift card). It shows on the Profits page under Kept change on the day of the refund (not the day of the original sale or transfer), and in that day's close, so the close matches the drawer.
 - Payment details now show each payment method on one line with both currencies (for example "In — Cash: $115 + 200,000 LBP"), and which drawer the money went to when it went to more than one, or into the OMT/Whish cash drawer.
 - Customer basket checkout: a "Goes to" line shows how much of the cash goes to the OMT/Whish cash drawer and how much to General. When the customer pays only part in cash, the cash now covers the OMT/Whish transfer first, and change always comes out of General. From now on.
 - Settling a debt, a partner or a supplier: the window now scrolls on small screens, so the Confirm button is always reachable.
@@ -164,6 +167,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 📱 MTC / Alfa
 
+- Mobile services (MTC, Alfa, cards, Katsh, iPick, crypto, OMT App / Whish App transfers): a Waive button next to "Remaining" adds a gap of up to $5 (or 450,000 LBP) to the discount in one tap. It is not offered when it would sell below cost.
 - MTC / Alfa: selling days now also lowers the line's credit balance by the days' cost, so the drawer
   and the lines stay equal. From now on only.
 - iPick, Katsh and Whish App: the touch and Alfa prepaid card tiles now show a picture of the card,
@@ -174,6 +178,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🎟️ Loto
 
+- Ticket sale: the Discount field is now saved. It comes out of the shop's commission (never more than the commission), and Loto is still owed the same. A Waive button fills it in one tap for a gap of up to 450,000 LBP.
+- Settlement with Loto: when the amounts differ by up to 450,000 LBP, Waive records the difference as a discount and the settlement goes through. The Settle button now waits until the amount is covered.
 - Loto: a ticket's payment must now add up to its price. From now on, change kept as store credit
   is recorded on the customer's account.
 - Loto settlement: the payment you record must now match the settlement amount.
@@ -185,6 +191,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💱 Exchange
 
+- Paying out an exchange: a leftover of up to $5 (or 450,000 LBP) is now kept as profit automatically, up from $1 (or 100,000 LBP).
 - Exchange: you can now keep the change — hand out the round amount (e.g. $101 instead of $101.12) and the leftover cents count as shop profit automatically; the form says so. On the Profits page those kept cents count as kept change instead of being added into the Currency Exchange profit, which now shows only the exchange margin; the total profit is the same.
 - Exchange: the page now opens on USD → LBP.
 - From now on, keeping change on an exchange payout is refused if the amount kept is more than what was actually left unpaid.
@@ -208,6 +215,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🛒 POS
 
+- Payment: the Waive button next to "Remaining" now closes a gap of up to $5 (or 450,000 LBP) in one tap, instead of under $1. On a repair, it never takes the discount past the labour price.
 - Receipts now carry one receipt number per sale: RCP- followed by the sale number. It is the same on every reprint and you can search warranties with it. A receipt printed at checkout before a new sale is saved shows no number (a resumed draft already shows its number).
 - The "Receipt Header Text" saved in Settings → Shop Config now prints under the shop name on sale receipts and on repair, recharge and other service receipts.
 - POS: a sale entered with an earlier date and time ("Set custom time" at checkout) is now recorded on that day in Sales, Transactions and Profits, also when you finish a saved draft. Before, it was always recorded at the moment you pressed Complete. From now on only — sales already entered keep their date. The dashboard's "cash collected today" still includes the cash, because that is when it went into the drawer.
@@ -239,6 +247,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💳 Debts
 
+- Debt payment: a Waive button next to "Remaining" moves a gap of up to $5 (or 450,000 LBP) into Discount / Forgive in one tap.
 - Cashing out a client's credit: if you hand out slightly less than the credit (under $1 or 100,000 LBP), the credit now clears to zero and the difference counts as shop profit on the Profits page.
 - Cashing out a credit now checks that the cash you hand out matches what comes off the client's credit, and only allows cash or wallet methods (not the client's account or a gift card).
 - Repayments where you keep the extra change: from now on the kept amount is checked against what the customer actually paid, and it no longer counts as paying off the client's other items.
@@ -325,6 +334,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Recording an expense now has a separate Bill amount. If you hand the vendor more than the bill, enter the change you got back — it goes back into your drawer, and any change the vendor kept is added to the expense. From now on.
 - From now on, an expense saves the exchange rate shown in its payment box, including one you type by hand, instead of the day's market rate.
 - Expenses → History: the payment column now shows how each expense was actually paid (for example Whish or Binance) instead of always "Cash".
+- Expenses: when the vendor accepts a little less than the bill (up to $5 or 450,000 LBP), a Waive button next to "Remaining" lowers the bill to what you handed, and the expense is saved at that amount.
 
 ## ⚙️ Settings
 
@@ -346,6 +356,14 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Returned phones: the refund window no longer asks for a warranty date — set the warranty at the till when you sell the phone again. Phone Units shows "Not sold" in the Warranty column for phones on the shelf, and searching a shelf phone's IMEI on the Warranty page now says it is in stock and not sold yet.
 - Web app: the warranty months you enter when adding a new product are now saved. Before, the web app dropped them and the product was saved with no warranty.
 - Desktop app: importing products from a file now works for rows with no barcode — a barcode is created for them, as the web app already did. Before, those rows were refused.
+
+## 🧺 Customer baskets
+
+- Basket checkout: a Waive button next to "Remaining" lets the shop absorb a gap of up to $5 (or 450,000 LBP). It shows as a "Waived" line in Transactions and comes off that checkout's profit.
+
+## 🛠️ Custom services
+
+- The Discount field on a custom service sale is now saved: it lowers the selling price (never below cost). A Waive button fills it in one tap for a gap of up to $5 (or 450,000 LBP).
 
 ## 🖥️ Desktop app
 

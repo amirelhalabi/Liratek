@@ -1094,7 +1094,10 @@ const DISCOUNT_RULES = {
   },
   "COUNTERPARTY_DISCOUNT/supplier": {
     transactionType: "COUNTERPARTY_DISCOUNT",
-    mode: "Supplier discount bundled into a cash PAY (recordSupplierCashflow)",
+    mode:
+      "Supplier discount received — bundled into a cash PAY " +
+      "(recordSupplierCashflow), or a Waive on a supplier/LOTO settlement " +
+      "where the shop pays less (LIRA-310)",
     mapRef: "POSTING_MAP.md §4.7 Supplier pay / receive cash (+discount)",
     ledgers: {
       drawers: NONE,
@@ -1104,12 +1107,34 @@ const DISCOUNT_RULES = {
       debt: NONE,
     },
     notes:
-      "Only reachable bundled with SUPPLIER_PAYMENT/pay (D8 removed the " +
-      "standalone write-off). Reversal owner: that payment's void/refund " +
-      "(owner decision 2026-10-07, like the Partners page) — the DISCOUNT " +
-      "row is linked to the payment's ledger row at write time and is " +
-      "soft-voided with its profit negated and FIFO coverage given back. A " +
-      "discount written before the link existed stays booked after the void.",
+      "Always bundled with a parent cash row (D8 removed the standalone " +
+      "write-off): SUPPLIER_PAYMENT/pay, SUPPLIER_SETTLEMENT (batch or " +
+      "account PAY) or LOTO_SETTLEMENT. Reversal owner: the parent's " +
+      "void/refund (owner decision 2026-10-07, like the Partners page) — the " +
+      "DISCOUNT row is linked to the parent's ledger row at write time and " +
+      "is soft-voided with its profit negated (and, for a Pay, its FIFO " +
+      "coverage given back). LOTO_SETTLEMENT is non-reversible, so its " +
+      "discount stays with it (correct with an opposite supplier " +
+      "adjustment). A discount written before the link existed stays booked " +
+      "after the void.",
+  },
+  "COUNTERPARTY_DISCOUNT/supplier-forgiven": {
+    transactionType: "COUNTERPARTY_DISCOUNT",
+    mode:
+      "Waive on a settlement where the supplier pays the shop less — " +
+      "account settle COLLECT, or a LOTO settlement LOTO pays (LIRA-310)",
+    mapRef: "POSTING_MAP.md §4.7 Supplier pay / receive cash (+discount)",
+    ledgers: {
+      drawers: NONE,
+      // DISCOUNT +x: the supplier owes the shop less.
+      supplier: SUPPLIER_UP,
+      partner: NONE,
+      debt: NONE,
+    },
+    notes:
+      "Profit −x (a real cost, D1 'forgiven'). Same reversal owner as " +
+      "COUNTERPARTY_DISCOUNT/supplier: the parent settlement's void/refund " +
+      "(SUPPLIER_SETTLEMENT); LOTO_SETTLEMENT stays non-reversible.",
   },
 } as const satisfies Record<string, PostingRule>;
 
@@ -1268,6 +1293,8 @@ export const POSTING_RULE_EXCLUSIONS: Readonly<
   // Standalone profit-only row of a session basket: profit stamp only, none
   // of the four ledgers moves.
   KEPT_CHANGE: "no-money",
+  // LIRA-310: the session basket Waive sibling — the same shape (profit −waived).
+  WAIVED_SHORTFALL: "no-money",
 
   // ── reversals: checked as "create + reverse nets to 0 on every ledger,
   //    per currency" (rule 20) in each module's reversal tests, not as a

@@ -4,7 +4,7 @@
  *
  * A RECEIVE is a payout: the shop hands the customer money. Kept change on a
  * payout = the shop hands out a round figure a little SHORT of what it owes
- * (under PAYOUT_KEEP_CHANGE_MAX, in the payout currency) and the leftover is
+ * (up to PAYOUT_KEEP_CHANGE_MAX, in the payout currency) and the leftover is
  * shop profit inside the transaction's own profit stamp, so the generic void
  * negates it. A payout never carries change (OUT) legs.
  *
@@ -348,8 +348,10 @@ describe("RECEIVE payout kept change — a tampered claim is refused", () => {
     expectRefused(omt(100.5, 100, { kept_change_usd: 0.9 }), /reconcile|more than/i);
   });
 
-  it("kept at the $1 cap is refused", () => {
-    expectRefused(omt(101.5, 100.5, { kept_change_usd: 1 }), /small leftover/i);
+  // LIRA-310 owner decision 2026-10-11: cap moved from $1 (strictly under)
+  // to $5 (inclusive).
+  it("kept above the $5 cap is refused", () => {
+    expectRefused(omt(106.5, 100.5, { kept_change_usd: 6 }), /small leftover/i);
   });
 
   it("kept in the other currency than the payout is refused", () => {
@@ -507,5 +509,45 @@ describe("RECEIVE is a payout — change (OUT) legs are refused", () => {
       },
       /change \(OUT\) legs/i,
     );
+  });
+});
+
+// LIRA-310 owner decision 2026-10-11: the payout keep cap is SHORTFALL_MAX
+// ($5 / 450,000 LBP), "up to and including".
+describe("LIRA-310 — RECEIVE payout keep cap is $5 / 450,000 LBP, inclusive", () => {
+  const omt = (amount: number, paid: number, kept: number): Payload => ({
+    provider: "OMT",
+    serviceType: "RECEIVE",
+    amount,
+    currency: "USD",
+    omtServiceType: "INTRA",
+    cashoutMethod: "CASH",
+    payments: [{ method: "CASH", currencyCode: "USD", amount: paid }],
+    kept_change_usd: kept,
+  });
+  const whishLbp = (amount: number, paid: number, kept: number): Payload => ({
+    provider: "WHISH_APP",
+    serviceType: "RECEIVE",
+    amount,
+    currency: "LBP",
+    commission: 0,
+    payments: [{ method: "CASH", currencyCode: "LBP", amount: paid }],
+    kept_change_lbp: kept,
+  });
+
+  it("$4.50 kept is accepted", () => {
+    expect(create(omt(104.5, 100, 4.5))).toBeGreaterThan(0);
+  });
+  it("$5.00 kept (exactly the cap) is accepted", () => {
+    expect(create(omt(105, 100, 5))).toBeGreaterThan(0);
+  });
+  it("$5.01 kept is refused", () => {
+    expectRefused(omt(105.01, 100, 5.01), /small leftover/i);
+  });
+  it("450,000 LBP kept (exactly the cap) is accepted", () => {
+    expect(create(whishLbp(2_450_000, 2_000_000, 450_000))).toBeGreaterThan(0);
+  });
+  it("450,001 LBP kept is refused", () => {
+    expectRefused(whishLbp(2_450_001, 2_000_000, 450_001), /small leftover/i);
   });
 });

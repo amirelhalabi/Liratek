@@ -637,6 +637,12 @@ export interface SettleAccountRequest {
    */
   surplus_usd?: number;
   surplus_lbp?: number;
+  /**
+   * LIRA-310 — Waive: settle the ticked rows for less than they net to
+   * (≤ $5 / 450,000 LBP per currency). PAY → the account let the shop pay
+   * less; COLLECT → the shop let the account pay less. Never with a surplus.
+   */
+  discount?: { amount_usd: number; amount_lbp: number; reason?: string };
 }
 
 export interface SettleAccountResult {

@@ -3,7 +3,7 @@
  * 2026-10-07) — the SAME rules the whole-sale refund already follows
  * (`TransactionRepository.refundKeptChange.test.ts`): a $20.12 item handed
  * back as $20 lets the shop keep the $0.12 as profit — cash or wallet only, one
- * currency, the refund's own currency, under $1 / 100,000 LBP, checked by
+ * currency, the refund's own currency, up to $5 / 450,000 LBP, checked by
  * `resolveKeptChange` (payer "payout"), refused on a FOR-partner sale.
  *
  * It is NOT a partial refund: the item side (stock, REFUND amount,
@@ -393,15 +393,17 @@ describe("refund kept change — POS per-item refund (refundSaleItem)", () => {
       );
     });
 
-    it("cap: $1.00 short is not a small leftover", () => {
-      const { saleId, itemA } = twoLineCashSale(21, 10, "USD");
+    // LIRA-310 owner decision 2026-10-11: cap moved from $1 (strictly
+    // under) to $5 (inclusive).
+    it("cap: $6.00 short is not a small leftover", () => {
+      const { saleId, itemA } = twoLineCashSale(26, 10, "USD");
       expectRefused(
         {
           saleId,
           saleItemId: itemA,
           refundQuantity: 1,
           refundLegs: [{ method: "CASH", currencyCode: "USD", amount: 20 }],
-          keptChange: { kept_change_usd: 1 },
+          keptChange: { kept_change_usd: 6 },
         },
         /must be a small leftover/,
       );
@@ -495,5 +497,54 @@ describe("refund kept change — POS per-item refund (refundSaleItem)", () => {
         /kept change|keep change|partner/i,
       );
     });
+  });
+});
+
+// LIRA-310 owner decision 2026-10-11: the per-item refund (payout) keep cap
+// is SHORTFALL_MAX ($5 / 450,000 LBP), "up to and including".
+describe("LIRA-310 — per-item refund keep cap is $5 / 450,000 LBP, inclusive", () => {
+  const usd = (price: number, handed: number, kept: number) => {
+    const { saleId, itemA } = twoLineCashSale(price, 10, "USD");
+    return () =>
+      refundItem({
+        saleId,
+        saleItemId: itemA,
+        refundQuantity: 1,
+        refundLegs: [{ method: "CASH", currencyCode: "USD", amount: handed }],
+        keptChange: { kept_change_usd: kept },
+      });
+  };
+  const lbp = (handed: number, kept: number) => {
+    const { saleId, itemA } = twoLineCashSale(20, 10, "LBP"); // item = 1,790,000 LBP
+    return () =>
+      refundItem({
+        saleId,
+        saleItemId: itemA,
+        refundQuantity: 1,
+        refundLegs: [{ method: "CASH", currencyCode: "LBP", amount: handed }],
+        keptChange: { kept_change_lbp: kept },
+      });
+  };
+
+  it("$4.50 kept is accepted", () => {
+    expect(usd(24.5, 20, 4.5)()).toBeGreaterThan(0);
+  });
+  it("$5.00 kept (exactly the cap) is accepted", () => {
+    expect(usd(25, 20, 5)()).toBeGreaterThan(0);
+  });
+  it("$5.01 kept is refused", () => {
+    const run = usd(25.01, 20, 5.01);
+    const before = snapshotLedgers(db);
+    expect(run).toThrow(/must be a small leftover/);
+    expectPostings(before, snapshotLedgers(db), {});
+  });
+  it("450,000 LBP kept (exactly the cap) is accepted", () => {
+    expect(lbp(1_340_000, 450_000)()).toBeGreaterThan(0);
+  });
+  it("450,001 LBP kept is refused", () => {
+    const run = lbp(1_339_999, 450_001);
+    const before = snapshotLedgers(db);
+    expect(run).toThrow(/must be a small leftover/);
+    expectPostings(before, snapshotLedgers(db), {});
   });
 });

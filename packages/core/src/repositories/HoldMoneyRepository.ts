@@ -348,7 +348,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
    *
    * Kept change (owner decision 2026-10-07): on a ONE-currency pickup the
    * cashier may hand out a round figure (held $50.12, hands $50); the
-   * leftover is shop profit, capped below PAYOUT_KEEP_CHANGE_MAX in that
+   * leftover is shop profit, capped at PAYOUT_KEEP_CHANGE_MAX ($5 / 450,000 LBP, inclusive) in that
    * currency, verified by `resolveKeptChange` (payer "payout") and stamped
    * on the HOLD_MONEY_COLLECT row's own profit_usd/profit_lbp. The pickup
    * still records the FULL portion, so the held balance clears completely.

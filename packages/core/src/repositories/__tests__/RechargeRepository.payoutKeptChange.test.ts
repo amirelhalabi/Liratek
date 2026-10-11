@@ -9,7 +9,7 @@
  *     amount − fee from its drawers.
  *
  * Kept change on a payout = the shop hands out a round figure a little SHORT
- * of what it owes (under PAYOUT_KEEP_CHANGE_MAX, payout currency only); the
+ * of what it owes (up to PAYOUT_KEEP_CHANGE_MAX, payout currency only); the
  * leftover is profit inside the transaction's own stamp, so the generic void
  * negates it (rule 20). Failing-first (rule 17); real schema per test.
  * Payload field names come from the core schemas (rule 24).
@@ -273,13 +273,15 @@ describe("TELECOM_CREDIT_BUYBACK — payout kept change", () => {
     );
   });
 
-  it("refuses kept at the 100,000 LBP cap", () => {
+  // LIRA-310 owner decision 2026-10-11: cap moved from 100,000 LBP
+  // (strictly under) to 450,000 LBP (inclusive).
+  it("refuses kept above the 450,000 LBP cap", () => {
     expectRefused(
       () =>
         buyback({
-          price: 800_000,
+          price: 1_200_000,
           payments: [{ method: "CASH", currencyCode: "LBP", amount: 700_000 }],
-          kept_change_lbp: 100_000,
+          kept_change_lbp: 500_000,
         }),
       /small leftover/i,
     );
@@ -337,13 +339,69 @@ describe("RECHARGE_TOPUP from a client — payout kept change", () => {
     );
   });
 
-  it("refuses kept at the $1 cap", () => {
+  // LIRA-310 owner decision 2026-10-11: cap moved from $1 (strictly under)
+  // to $5 (inclusive).
+  it("refuses kept above the $5 cap", () => {
     expectRefused(
       () =>
         topUp({
           fee: 0,
-          payments: [{ method: "CASH", currencyCode: "USD", amount: 99 }],
-          kept_change_usd: 1,
+          payments: [{ method: "CASH", currencyCode: "USD", amount: 94 }],
+          kept_change_usd: 6,
+        }),
+      /small leftover/i,
+    );
+  });
+});
+
+// LIRA-310 owner decision 2026-10-11: the payout keep cap is SHORTFALL_MAX
+// ($5 / 450,000 LBP), "up to and including".
+describe("LIRA-310 — payout keep cap is $5 / 450,000 LBP, inclusive", () => {
+  it("top-up: $4.50 kept is accepted", () => {
+    const res = topUp({
+      fee: 0,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 95.5 }],
+      kept_change_usd: 4.5,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+  });
+  it("top-up: $5.00 kept (exactly the cap) is accepted", () => {
+    const res = topUp({
+      fee: 0,
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 95 }],
+      kept_change_usd: 5,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+  });
+  it("top-up: $5.01 kept is refused", () => {
+    expectRefused(
+      () =>
+        topUp({
+          fee: 0,
+          payments: [{ method: "CASH", currencyCode: "USD", amount: 94.99 }],
+          kept_change_usd: 5.01,
+        }),
+      /small leftover/i,
+    );
+  });
+  it("buy-back: 450,000 LBP kept (exactly the cap) is accepted", () => {
+    const res = buyback({
+      price: 1_150_000,
+      payments: [{ method: "CASH", currencyCode: "LBP", amount: 700_000 }],
+      kept_change_lbp: 450_000,
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+  });
+  it("buy-back: 450,001 LBP kept is refused", () => {
+    expectRefused(
+      () =>
+        buyback({
+          price: 1_150_001,
+          payments: [{ method: "CASH", currencyCode: "LBP", amount: 700_000 }],
+          kept_change_lbp: 450_001,
         }),
       /small leftover/i,
     );

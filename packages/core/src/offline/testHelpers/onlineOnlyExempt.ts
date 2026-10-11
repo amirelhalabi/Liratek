@@ -22,8 +22,19 @@ export const ONLINE_ONLY_EXEMPT: Record<string, readonly OnlineOnlyExemption[]> 
     { method: "_bookCommissionAtSettlement", channels: ["suppliers:settle-transactions", "suppliers:settle-account"] },
     { method: "_markFinancialServicesSettled", channels: ["suppliers:settle-transactions", "suppliers:settle-account"] },
     { method: "recordSupplierCashflow", channels: ["suppliers:record-cashflow"] },
-    // reached from recordSupplierCashflow only
-    { method: "_postSupplierDiscount", channels: ["suppliers:record-cashflow"] },
+    // LIRA-310 — the shared bundled-discount writer: the supplier Pay, both
+    // supplier settlements, and the two LOTO checkpoint settlements (all
+    // online-only).
+    {
+      method: "postSupplierBundledDiscount",
+      channels: [
+        "suppliers:record-cashflow",
+        "suppliers:settle-transactions",
+        "suppliers:settle-account",
+        "loto:checkpoint:settle",
+        "loto:checkpoints:settle-batch",
+      ],
+    },
   ],
   "PartnerRepository.ts": [{ method: "create", channels: ["partners:create"] }],
 };

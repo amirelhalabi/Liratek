@@ -1,7 +1,7 @@
 /**
  * Hold Money pickup — kept change (owner decision 2026-10-07: a pickup is a
  * PAYOUT, so handing out the round figure keeps the leftover as shop profit,
- * capped below PAYOUT_KEEP_CHANGE_MAX in the pickup's own currency; a payout
+ * capped at (incl.) PAYOUT_KEEP_CHANGE_MAX in the pickup's own currency; a payout
  * never carries OUT legs). docs/FEATURE_GUIDE.md §4.1.
  *
  * Every fixture goes through `holdMoneyCollectSchema.parse` (rule 24 — the
@@ -176,10 +176,12 @@ describe("Hold Money pickup — kept change (payer = payout)", () => {
       );
     });
 
-    it("kept at or above the $1 cap", () => {
-      const id = holdUsd(51.5);
+    // LIRA-310 owner decision 2026-10-11: cap moved from $1 (strictly
+    // under) to $5 (inclusive).
+    it("kept above the $5 cap", () => {
+      const id = holdUsd(56.5);
       expectRefused(
-        { id, payments: [cashUsd(50)], kept_change_usd: 1.5 },
+        { id, payments: [cashUsd(50)], kept_change_usd: 6.5 },
         /small leftover/i,
       );
     });
@@ -734,5 +736,39 @@ describe("Hold Money pickup — two-currency kept change: characterization", () 
     expect(collectTxn().profit_usd).toBe(0);
     expect(collectTxn().profit_lbp).toBe(0);
     expect(repo.getById(id)!.status).toBe("collected");
+  });
+});
+
+// LIRA-310 owner decision 2026-10-11: the one-currency pickup (payout) keep
+// cap is SHORTFALL_MAX ($5 / 450,000 LBP), "up to and including".
+describe("LIRA-310 — Hold Money pickup keep cap is $5 / 450,000 LBP, inclusive", () => {
+  function expectOk(res: { success: boolean; error?: string }) {
+    expect(res.error).toBeUndefined();
+    expect(res.success).toBe(true);
+  }
+  function expectCapRefused(res: { success: boolean; error?: string }) {
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/small leftover/i);
+  }
+
+  it("$4.50 kept is accepted", () => {
+    const id = holdUsd(54.5);
+    expectOk(collect({ id, payments: [cashUsd(50)], kept_change_usd: 4.5 }));
+  });
+  it("$5.00 kept (exactly the cap) is accepted", () => {
+    const id = holdUsd(55);
+    expectOk(collect({ id, payments: [cashUsd(50)], kept_change_usd: 5 }));
+  });
+  it("$5.01 kept is refused", () => {
+    const id = holdUsd(55.01);
+    expectCapRefused(collect({ id, payments: [cashUsd(50)], kept_change_usd: 5.01 }));
+  });
+  it("450,000 LBP kept (exactly the cap) is accepted", () => {
+    const id = holdUsd(0, 1_450_000);
+    expectOk(collect({ id, payments: [cashLbp(1_000_000)], kept_change_lbp: 450_000 }));
+  });
+  it("450,001 LBP kept is refused", () => {
+    const id = holdUsd(0, 1_450_001);
+    expectCapRefused(collect({ id, payments: [cashLbp(1_000_000)], kept_change_lbp: 450_001 }));
   });
 });

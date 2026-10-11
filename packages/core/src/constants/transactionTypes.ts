@@ -219,6 +219,10 @@ export const TRANSACTION_TYPES = {
   /** T3 keep-change on a session basket: a standalone profit-only row
    *  (amount 0 — the tender is booked by the basket's payment legs). */
   KEPT_CHANGE: "KEPT_CHANGE",
+  /** LIRA-310 Waive on a session basket: the KEPT_CHANGE mirror — a
+   *  standalone profit-only row (amount 0, profit −waived), session-linked
+   *  (kind "waived_shortfall"), swept by the basket void/refund. */
+  WAIVED_SHORTFALL: "WAIVED_SHORTFALL",
   SUPPLIER_PAYMENT: "SUPPLIER_PAYMENT",
   SUPPLIER_SETTLEMENT: "SUPPLIER_SETTLEMENT",
   /** PFT-6b: a Partners-page settlement's money movement — the drawer leg
@@ -451,6 +455,9 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // standalone void would desync profit from money. Rule-20 reversal owner:
     // none needed (the kept cash physically stays in the drawer regardless).
     TRANSACTION_TYPES.KEPT_CHANGE,
+    // WAIVED_SHORTFALL (LIRA-310): the KEPT_CHANGE mirror (profit −waived,
+    // no legs) — same reasoning; the basket void/refund owns it.
+    TRANSACTION_TYPES.WAIVED_SHORTFALL,
     // WARRANTY_COST (LIRA-296): profit-only, no legs; owned by its warranty
     // claim — `WarrantyService.voidClaim` reverses the claim as a whole
     // (stock, units, defective holding, repair job, refund, cost rows).
@@ -627,6 +634,9 @@ export const SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES: ReadonlySet<Transac
   new Set<TransactionType>([
     TRANSACTION_TYPES.LOTO_CASH_PRIZE,
     TRANSACTION_TYPES.KEPT_CHANGE,
+    // LIRA-310: same as KEPT_CHANGE — the generic path zeroes its (negative)
+    // profit (void: status; refund: keptChangeSource's REFUND branch).
+    TRANSACTION_TYPES.WAIVED_SHORTFALL,
   ]);
 
 /**
@@ -735,8 +745,8 @@ export const REPAYMENT_COVERABLE_DEBT_TYPES: readonly string[] = [
  * LIRA-232 (SESSION_ITEM_REFUND_PLAN.md §2 owner decision #4) — the ONLY
  * session-basket member types `TransactionRepository.refundSessionBasketItem`
  * will act on: "sold items" (products, services, recharges). Payouts (a
- * negative-amount financial item, a loto cash prize) and KEPT_CHANGE are
- * deliberately excluded — they were netted against the basket's other items
+ * negative-amount financial item, a loto cash prize), KEPT_CHANGE and
+ * WAIVED_SHORTFALL (LIRA-310) are deliberately excluded — they were netted against the basket's other items
  * at checkout, not sold on their own, and can only be undone by the
  * whole-basket reversal (`voidSessionBasket`/`refundSessionBasket`).
  * FINANCIAL_SERVICE is excluded too: the owner's enumeration names only

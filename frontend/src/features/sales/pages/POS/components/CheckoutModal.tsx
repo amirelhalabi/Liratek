@@ -1140,9 +1140,22 @@ export default function CheckoutModal({
                     showDiscount={false}
                     smartSplitOverpay={!isLbpTotal}
                     cashOnlyReturn={true}
+                    // LIRA-310: Waive adds the gap to this modal's discount,
+                    // never past `maxDiscount` (Maintenance: labour); when the
+                    // gap is bigger than the room left, Waive is hidden.
                     onWaiveRemaining={(amt) =>
-                      setDiscount((d) => (d ?? 0) + amt)
+                      setDiscount((d) =>
+                        Math.min((d ?? 0) + amt, maxDiscount ?? Infinity),
+                      )
                     }
+                    {...(maxDiscount != null
+                      ? {
+                          waiveRemainingMax: Math.max(
+                            0,
+                            maxDiscount - (discount ?? 0),
+                          ),
+                        }
+                      : {})}
                     label="Payment"
                     {...(initialMethod ? { initialMethod } : {})}
                     clientId={selectedClient?.id ?? null}

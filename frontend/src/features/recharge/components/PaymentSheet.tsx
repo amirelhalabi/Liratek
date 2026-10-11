@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   MultiPaymentInput,
+  type Money,
   type MultiPaymentPayer,
   type PaymentLine,
   type VoucherOption,
@@ -74,6 +75,18 @@ export interface PaymentSheetProps {
    *  `direction` when both are passed. */
   payer?: MultiPaymentPayer;
   onDiscountChange?: (discount: number) => void;
+  /** LIRA-310 — pass-through to MultiPaymentInput's Waive. Leave unset on
+   *  the recharge forms: with `showDiscount` + `maxDiscount` +
+   *  `onDiscountChange` they get the built-in waive into their own discount.
+   *  `amount` is rounded to the total's currency; the second argument is the
+   *  per-currency remainder. */
+  onWaiveRemaining?: (amount: number, remainingByCurrency: Money[]) => void;
+  /** Largest gap (in the total's currency) Waive may cover. Default is the
+   *  shared $5 / 450,000 LBP limit. */
+  waiveRemainingThreshold?: number;
+  /** Room left in the page's own discount; Waive is hidden when the gap is
+   *  larger. Only used with `onWaiveRemaining`. */
+  waiveRemainingMax?: number;
   onPmFeesChange?: (fees: Record<string, number>) => void;
   /** Increment this to remount MultiPaymentInput (e.g. when client is selected) */
   paymentInputKey?: number;
@@ -134,6 +147,9 @@ export function PaymentSheet({
   direction,
   payer,
   onDiscountChange,
+  onWaiveRemaining,
+  waiveRemainingThreshold,
+  waiveRemainingMax,
   onPmFeesChange,
   paymentInputKey,
   initialPaymentMethod,
@@ -276,6 +292,13 @@ export function PaymentSheet({
               showDiscount={showDiscount}
               {...(maxDiscount !== undefined ? { maxDiscount } : {})}
               {...(onDiscountChange ? { onDiscountChange } : {})}
+              {...(onWaiveRemaining ? { onWaiveRemaining } : {})}
+              {...(waiveRemainingThreshold !== undefined
+                ? { waiveRemainingThreshold }
+                : {})}
+              {...(waiveRemainingMax !== undefined
+                ? { waiveRemainingMax }
+                : {})}
               paymentMethods={paymentMethods}
               currencies={[
                 { code: "USD", symbol: "$" },

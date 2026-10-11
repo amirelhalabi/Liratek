@@ -558,6 +558,8 @@ router.post("/checkpoints/settle-batch", (req, res) => {
       // LIRA-258: split legs (`payments`) or the legacy single `payment`.
       v.data.payments ?? v.data.payment,
       v.data.tender_exchange_rate,
+      // LIRA-310 — Waive (LBP) on the batch's combined net.
+      v.data.discount_lbp,
     );
     // Mirrors lotoHandlers.ts's loto:checkpoints:settle-batch audit.
     auditRest(req, {
@@ -621,6 +623,8 @@ router.post("/checkpoints/:id/settle", (req, res) => {
       req.user!.userId,
       v.data.payments,
       v.data.tender_exchange_rate,
+      // LIRA-310 — Waive (LBP).
+      v.data.discount_lbp,
     );
     // Mirrors lotoHandlers.ts's loto:checkpoint:settle audit.
     auditRest(req, {

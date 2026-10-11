@@ -10,15 +10,25 @@ import {
  */
 
 /**
- * Payout "keep the change" cap (owner decision 2026-10-06, D9 refined) — the
- * ONE definition (rule 14) read by ExchangeRepository's server-side refusal
- * and by `@liratek/ui`'s MultiPaymentInput payout mode (which only offers the
- * toggle below it). A kept leftover must be STRICTLY LESS than this, in the
- * payout currency: under $1 for a USD payout, under 100,000 LBP for an LBP
- * payout. Exists so a hand-built payload cannot book a real shortchange
- * (e.g. $50 not paid out) as "kept change" profit.
+ * The ONE shortfall cap (rule 14; LIRA-310, owner decisions 2026-10-11) —
+ * how far short of the amount due a payment may be closed without the
+ * customer or the counterparty paying it: the Waive button on every payment
+ * page, the server's check of a waived amount, and the shop keeping a
+ * payout's leftover as profit. UP TO AND INCLUDING $5 for a USD total and
+ * 450,000 LBP for an LBP total, compared in the total's own currency — never
+ * converted, so a rate move cannot change what is allowed. Any other
+ * currency has no allowance at all. Exists so a hand-built payload cannot
+ * book a real shortchange (e.g. $50 not paid) as a waive or as kept change.
  */
-export const PAYOUT_KEEP_CHANGE_MAX = { USD: 1, LBP: 100_000 } as const;
+export const SHORTFALL_MAX = { USD: 5, LBP: 450_000 } as const;
+
+/**
+ * Payout "keep the change" cap (owner decision 2026-10-06, D9 refined;
+ * raised to the shared shortfall cap by LIRA-310). Kept as its own name for
+ * its existing readers — ExchangeRepository/keptChange.ts server refusal and
+ * MultiPaymentInput payout mode — but it IS `SHORTFALL_MAX`: one value.
+ */
+export const PAYOUT_KEEP_CHANGE_MAX = SHORTFALL_MAX;
 
 /**
  * Cents / whole-LBP rounding a kept-change figure may carry — the ONE
@@ -28,6 +38,20 @@ export const PAYOUT_KEEP_CHANGE_MAX = { USD: 1, LBP: 100_000 } as const;
  * a browser-side preview can share it; keptChange.ts itself is Node-only.
  */
 export const KEPT_CHANGE_ROUNDING_TOLERANCE = { USD: 0.005, LBP: 0.5 } as const;
+
+/**
+ * Is `amount` (in `currency`, the total's own currency) a shortfall the shop
+ * may close — 0 up to and including `SHORTFALL_MAX`, plus that currency's
+ * rounding tolerance? False for a negative amount and for any currency
+ * without a cap. The one predicate the screen and the server share.
+ */
+export function isWithinShortfallMax(amount: number, currency: string): boolean {
+  if (currency !== "USD" && currency !== "LBP") return false;
+  if (!Number.isFinite(amount) || amount < 0) return false;
+  return (
+    amount <= SHORTFALL_MAX[currency] + KEPT_CHANGE_ROUNDING_TOLERANCE[currency]
+  );
+}
 
 /** Kept-change fields shared by both exchange schemas below — one
  *  definition so neither schema can silently strip them (rule 23). */

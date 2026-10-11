@@ -21,6 +21,18 @@ export const FIXTURES: readonly BindingFixture[] = [
       payments: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 300000 }],
     },
   },
+  {
+    // LIRA-310: the ticket discount (Waive) — 480,000 paid on a 500,000
+    // ticket, 20,000 discounted out of the 22,250 commission
+    channel: "loto:sell",
+    payload: {
+      sale_amount: 500000,
+      currency: "LBP",
+      commission_rate: 0.0445,
+      payments: [{ method: "CASH", currencyCode: "LBP", amount: 480000 }],
+      discount_lbp: 20000,
+    },
+  },
   { channel: "loto:update", payload: { id: 12001, ticket_number: "T-1B", note: "ticket edited" } },
   { channel: "loto:cash-prize:create", payload: { ticket_number: "T-1B", prize_amount: 200000 } },
   { channel: "loto:update-metadata", payload: { id: 12001, note: "edited offline" } },

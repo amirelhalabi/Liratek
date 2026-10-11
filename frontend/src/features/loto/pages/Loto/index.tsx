@@ -70,6 +70,9 @@ export function LotoPage() {
     usd: number;
     lbp: number;
   } | null>(null);
+  // LIRA-310: the payment input's Discount (and its Waive), in LBP — booked
+  // and sent as `discount_lbp`; lowers the shop's commission profit only.
+  const [discount, setDiscount] = useState(0);
   const [clientId, setClientId] = useState<number | null>(null);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
@@ -122,6 +125,12 @@ export function LotoPage() {
   const commissionRate = settings
     ? parseFloat(settings.commission_rate)
     : 0.0445;
+  // LIRA-310: the most a discount (or a Waive) may take off a ticket — the
+  // shop's own commission on it; the server enforces the same cap.
+  const ticketCommission = saleAmount
+    ? (parseFloat(saleAmount) || 0) * commissionRate
+    : 0;
+  const discountLbp = Math.round(discount);
 
   useEffect(() => {
     loadSettings();
@@ -342,6 +351,11 @@ export function LotoPage() {
             kept_change_lbp: keptChange.lbp,
           }
         : {}),
+      // LIRA-310: the discount, whole LBP. Never on a partner ticket (no
+      // counter payment) or a session-cart line (the basket's Waive owns it).
+      ...(!forPartner && !activeSession && discountLbp > 0
+        ? { discount_lbp: discountLbp }
+        : {}),
       clientId: resolvedClientId,
       clientName: resolvedClientName,
       // PFT-R: routes the FULL sale amount to the selected partner's ledger
@@ -371,6 +385,7 @@ export function LotoPage() {
       setPaymentLines([]);
       setReturnLegs([]);
       setKeptChange(null);
+      setDiscount(0);
       setClientId(null);
       setClientName("");
       setClientPhone("");
@@ -403,6 +418,7 @@ export function LotoPage() {
         setSaleAmount("");
         setPaymentLines([]);
         setReturnLegs([]);
+        setDiscount(0);
         setClientId(null);
         setClientName("");
         setClientPhone("");
@@ -672,6 +688,13 @@ export function LotoPage() {
                       onChange={setPaymentLines}
                       onReturnChange={setReturnLegs}
                       onKeptChange={setKeptChange}
+                      // LIRA-310: the Discount is booked (sent as
+                      // discount_lbp) and capped at the commission, so the
+                      // built-in Waive works too. Hidden in session-cart
+                      // mode: the basket checkout's Waive owns that case.
+                      showDiscount={!activeSession}
+                      onDiscountChange={setDiscount}
+                      maxDiscount={ticketCommission}
                       showPmFee={false}
                       paymentMethods={methods}
                       currencies={[
