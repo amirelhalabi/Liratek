@@ -215,7 +215,13 @@ function main() {
 
   if (result.status !== 0) {
     // Playwright already reported the real failure (test failures, "No
-    // tests found", a config error, ...) — propagate it as-is.
+    // tests found", a config error, ...) — propagate it as-is. Say so
+    // explicitly: the floor line above only proves the suite RAN, and
+    // "meets the floor" printed last once read as a green run (2026-10-11).
+    console.error(
+      `[run-e2e] RUN FAILED — Playwright exited ${result.status ?? "by signal " + result.signal}` +
+        (stats?.unexpected ? ` with ${stats.unexpected} failed test(s)` : ""),
+    );
     process.exitCode = result.status ?? 1;
     return;
   }

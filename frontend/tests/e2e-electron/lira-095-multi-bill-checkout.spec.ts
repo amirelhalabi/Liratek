@@ -29,7 +29,7 @@
  */
 
 import { test, expect, navigateTo } from "./fixtures";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
 
 // LIRA-297 (web mode): the web app re-polls sessions only every 120s, so a
@@ -268,6 +268,30 @@ async function addBill(
 }
 
 /**
+ * New-client info (name + phone) auto-promotes the payment method to
+ * CUSTOMER_ACCOUNT and remounts MultiPaymentInput — WAIT for that to land,
+ * then switch the leg back to CASH. Picking CASH first raced the remount in
+ * headed runs (2026-10-11, probe: CASH picked on the old instance, the
+ * remount then came up as CUSTOMER_ACCOUNT): the basket was charged to the
+ * account and no row carried a cash leg. The new instance must also have
+ * re-filled its amount before the method change, or the change can write
+ * back its pre-fill 0.
+ */
+async function switchPromotedLegToCash(scope: Locator) {
+  const methodSelect = scope
+    .locator('[data-testid^="payment-method-"]')
+    .first();
+  const amountInput = scope.locator('[data-testid^="payment-amount-"]').first();
+  await expect(methodSelect).toHaveValue("CUSTOMER_ACCOUNT", {
+    timeout: 10_000,
+  });
+  await expect(amountInput).not.toHaveValue(/^(0|0\.00)?$/);
+  await methodSelect.selectOption("CASH");
+  await expect(methodSelect).toHaveValue("CASH");
+  await expect(amountInput).not.toHaveValue(/^(0|0\.00)?$/);
+}
+
+/**
  * Open the PaymentSheet, attach a NEW client (name + phone), force the leg
  * back to CASH (both client paths auto-promote to CUSTOMER_ACCOUNT, which the
  * financial-services prepaid-credit gate would reject for a fresh client),
@@ -278,11 +302,7 @@ async function payCashWithClient(page: Page, name: string, phone: string) {
   await page.getByPlaceholder(/Client name \(optional\)/i).fill(name);
   await page.keyboard.press("Escape"); // dismiss autocomplete dropdown if any
   await page.getByPlaceholder(/Phone number/i).fill(phone);
-  // New-client info auto-promotes the payment method to CUSTOMER_ACCOUNT and
-  // remounts MultiPaymentInput — wait for it, then switch back to CASH.
-  const methodSelect = page.locator('[data-testid^="payment-method-"]').first();
-  await expect(methodSelect).toBeVisible();
-  await methodSelect.selectOption("CASH");
+  await switchPromotedLegToCash(page.locator("body"));
   await page.getByRole("button", { name: /^Pay / }).click();
 }
 
@@ -794,11 +814,7 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     // auto-promotes to CUSTOMER_ACCOUNT), pay in USD instead of LBP, and
     // OVERPAY — the sheet must produce a change (OUT) leg.
     const sheet = appPage.locator('[data-testid="multi-payment-input"]').last();
-    const methodSelect = sheet
-      .locator('[data-testid^="payment-method-"]')
-      .first();
-    await expect(methodSelect).toBeVisible();
-    await methodSelect.selectOption("CASH");
+    await switchPromotedLegToCash(sheet);
     await sheet
       .locator('select:not([data-testid^="payment-method-"])')
       .first()

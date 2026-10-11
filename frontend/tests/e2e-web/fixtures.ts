@@ -275,3 +275,54 @@ export async function staffHeaders(
   expect(res.success, JSON.stringify(res)).toBeTruthy();
   return { Authorization: `Bearer ${res.data.token as string}` };
 }
+
+/**
+ * Unlock the Profits gate over REST for a spec that reads profit figures.
+ *
+ * Two traps this exists to close (2026-10-11):
+ *  1. `GET /api/profits/password-status` answers `{ success, data: { isSet } }`.
+ *     Reading `status.isSet` (always undefined) made every caller treat the
+ *     password as unset and REPLACE it on every run (PUT /password is
+ *     set-or-replace) — silently changing the password every later spec uses.
+ *  2. The suite shares one DB and two passwords are in use: the desktop
+ *     fixtures' `E2E_PROFITS_PASSWORD` ("Profits1!", also lira-web-025/048/049)
+ *     and "1234" (lira-web-029/036). A fresh DB gets the desktop one, so the
+ *     web-shared specs that run after this still unlock; an already-set
+ *     password is never replaced, only tried.
+ */
+export const PROFITS_PASSWORDS = ["Profits1!", "1234"] as const;
+
+export async function unlockProfitsOverRest(
+  page: Page,
+  headers: Record<string, string>,
+): Promise<void> {
+  const status = await (
+    await page.request.get(`${BACKEND_URL}/api/profits/password-status`, {
+      headers,
+    })
+  ).json();
+  expect(status.success, JSON.stringify(status)).toBeTruthy();
+  if (!status.data?.isSet) {
+    const setRes = await (
+      await page.request.put(`${BACKEND_URL}/api/profits/password`, {
+        headers,
+        data: { password: PROFITS_PASSWORDS[0] },
+      })
+    ).json();
+    expect(setRes.success, JSON.stringify(setRes)).toBeTruthy();
+  }
+  const errors: string[] = [];
+  for (const password of PROFITS_PASSWORDS) {
+    const res = await (
+      await page.request.post(`${BACKEND_URL}/api/profits/unlock`, {
+        headers,
+        data: { password },
+      })
+    ).json();
+    if (res.success) return;
+    errors.push(String(res.error));
+  }
+  throw new Error(
+    `unlockProfitsOverRest: none of the known e2e profits passwords unlocked — ${errors.join(" / ")}`,
+  );
+}

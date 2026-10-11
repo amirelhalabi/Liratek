@@ -433,8 +433,16 @@ test.describe("LIRA-123 — auto-debt remainder scenarios", () => {
     const methodSelect = sheet
       .locator('[data-testid^="payment-method-"]')
       .first();
-    await expect(methodSelect).toBeVisible({ timeout: 5_000 });
+    // Wait for the client auto-promotion (and its MultiPaymentInput remount)
+    // to land BEFORE switching back to CASH — picking CASH first raced the
+    // remount in headed runs, which then came up as CUSTOMER_ACCOUNT
+    // (2026-10-11; same race as lira-095's switchPromotedLegToCash).
+    await expect(methodSelect).toHaveValue("CUSTOMER_ACCOUNT", {
+      timeout: 10_000,
+    });
+    await expect(amounts(sheet).first()).toHaveValue("600,000");
     await methodSelect.selectOption("CASH");
+    await expect(methodSelect).toHaveValue("CASH");
     await expect(amounts(sheet).first()).toHaveValue("600,000");
     await amounts(sheet).first().fill("500000");
 

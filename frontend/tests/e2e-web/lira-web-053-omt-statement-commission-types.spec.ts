@@ -22,9 +22,14 @@
  * precedent as lira-web-052; later specs match by identity). Rule 27: the
  * Profits read uses a wide date window, never "today".
  */
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  BACKEND_URL,
+  unlockProfitsOverRest,
+} from "./fixtures";
 
-const PROFITS_PASSWORD = "1234";
 const INTRA_X = 461;
 const INTRA_FEE = 7;
 const WU_X = 517;
@@ -65,29 +70,8 @@ test("lira-web-053 OMT statement commission types: the check subtracts only cove
   const token = await page.evaluate(() => localStorage.getItem("liratek.jwt"));
   const auth = { Authorization: `Bearer ${token}` };
 
-  // ── Profits gate (same pattern as lira-web-052) ─────────────────────────
-  const status = await (
-    await page.request.get(`${BACKEND_URL}/api/profits/password-status`, {
-      headers: auth,
-    })
-  ).json();
-  expect(status.success, JSON.stringify(status)).toBeTruthy();
-  if (!status.isSet) {
-    const setRes = await (
-      await page.request.put(`${BACKEND_URL}/api/profits/password`, {
-        headers: auth,
-        data: { password: PROFITS_PASSWORD },
-      })
-    ).json();
-    expect(setRes.success, JSON.stringify(setRes)).toBeTruthy();
-  }
-  const unlockRes = await (
-    await page.request.post(`${BACKEND_URL}/api/profits/unlock`, {
-      headers: auth,
-      data: { password: PROFITS_PASSWORD },
-    })
-  ).json();
-  expect(unlockRes.success, JSON.stringify(unlockRes)).toBeTruthy();
+  // ── Profits gate — never replaces an already-set password ─────────────
+  await unlockProfitsOverRest(page, auth);
 
   const suppliers = await (
     await page.request.get(`${BACKEND_URL}/api/suppliers`, { headers: auth })

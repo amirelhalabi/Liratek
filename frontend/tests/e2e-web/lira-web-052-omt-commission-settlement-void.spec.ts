@@ -32,9 +32,14 @@
  * IDENTITY (the SEND's own id, the settlement's own ledger id), never by
  * position or absolute totals. Amounts (373 / 7) are unique to this file.
  */
-import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
+import {
+  test,
+  expect,
+  loginAsAdmin,
+  BACKEND_URL,
+  unlockProfitsOverRest,
+} from "./fixtures";
 
-const PROFITS_PASSWORD = "1234";
 const X = 373;
 const FEE = 7;
 const GROSS = X + FEE; // 380 — what a new-model SEND owes OMT (D1)
@@ -68,29 +73,8 @@ test("OMT SEND owes the gross amount, settles with a LUMP commission over REST, 
   const token = await page.evaluate(() => localStorage.getItem("liratek.jwt"));
   const auth = { Authorization: `Bearer ${token}` };
 
-  // ── Profits gate (same pattern as lira-web-036) ─────────────────────────
-  const status = await (
-    await page.request.get(`${BACKEND_URL}/api/profits/password-status`, {
-      headers: auth,
-    })
-  ).json();
-  expect(status.success, JSON.stringify(status)).toBeTruthy();
-  if (!status.isSet) {
-    const setRes = await (
-      await page.request.put(`${BACKEND_URL}/api/profits/password`, {
-        headers: auth,
-        data: { password: PROFITS_PASSWORD },
-      })
-    ).json();
-    expect(setRes.success, JSON.stringify(setRes)).toBeTruthy();
-  }
-  const unlockRes = await (
-    await page.request.post(`${BACKEND_URL}/api/profits/unlock`, {
-      headers: auth,
-      data: { password: PROFITS_PASSWORD },
-    })
-  ).json();
-  expect(unlockRes.success, JSON.stringify(unlockRes)).toBeTruthy();
+  // ── Profits gate — never replaces an already-set password ─────────────
+  await unlockProfitsOverRest(page, auth);
 
   // ── Seeded OMT supplier (identified by provider, never list position) ───
   const suppliers = await (

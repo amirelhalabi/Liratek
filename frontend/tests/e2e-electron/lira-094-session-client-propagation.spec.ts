@@ -130,7 +130,14 @@ const PROVIDER_MARKERS: Record<string, string> = {
   // the reliable "provider active" signal is its inner tab row, not the
   // transfer amount input (hidden while Bills mode is selected).
   "Whish App": "btn:Transfer",
-  "OMT App": "#transfer-amount",
+  // NOT "#transfer-amount": the Whish App form renders the same input id,
+  // and the tab switch is a startTransition — the OLD (Whish App) form stays
+  // on screen until the new one commits. With the shared id the wait passed
+  // on the outgoing form, the amount was typed into it, and the OMT App form
+  // then mounted empty ("Add to Cart" disabled — headed runs, 2026-10-11).
+  // The "Cash Out to OMT" header button is OMT-App-only and commits in the
+  // same render as the OMT App form.
+  "OMT App": "btn:Cash Out to OMT",
   Binance: "#crypto-amount",
 };
 

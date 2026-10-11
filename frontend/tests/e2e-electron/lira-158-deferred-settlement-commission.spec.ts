@@ -220,9 +220,7 @@ async function getProfitFigures(page: Page): Promise<{
  *  reads the sibling `ProfitAmountSpans` markup, which has the same shape.
  *  `parse()` below extracts ONLY the `$`-prefixed USD token, never the LBP
  *  half, so a nonzero LBP amount can't get concatenated into the USD number. */
-async function readProfitsPageFigures(
-  page: Page,
-): Promise<{
+async function readProfitsPageFigures(page: Page): Promise<{
   commissionAtSettlementUsd: number;
   deferredClientDebtUsd: number;
 }> {
@@ -384,6 +382,20 @@ async function settleOmtRow(
   await settleBtn.click();
   await expect(settleModalRoot(page)).toBeVisible({ timeout: 10_000 });
 
+  // Pick CASH BEFORE entering the commission. MultiPaymentInput re-syncs the
+  // single leg to the net total (owed − commission) in an effect; a method
+  // change dispatched in the few ms between that effect's setState and its
+  // commit runs updatePaymentLine over the PRE-sync lines and writes the old
+  // (owed) amount back — and a method change never re-triggers the sync, so
+  // the leg stayed at the owed figure, the sheet showed "reduce the payment
+  // to …" and Confirm stayed disabled. Reproduced only in headed runs
+  // (2026-10-11, console probe: sync 635.41→631.06, then the method change
+  // 10 ms later still saw [635.41]). Entering the commission LAST makes the
+  // sync the final writer.
+  const methodSelect = page.locator('[data-testid^="payment-method-"]').first();
+  await expect(methodSelect).toBeVisible({ timeout: 10_000 });
+  await methodSelect.selectOption("CASH");
+
   const body = beforeContentBlock(page);
   await body.getByRole("button", { name: "Lump sum", exact: true }).click();
 
@@ -391,14 +403,6 @@ async function settleOmtRow(
     .locator('label:text-is("Commission (USD)")')
     .locator("xpath=following-sibling::input[1]");
   await commissionUsdInput.fill(enteredCommissionUsd.toFixed(2));
-
-  // The net payment to OMT (owed − entered commission) needs an active
-  // payment leg — MultiPaymentInput auto-fills the single CASH line to that
-  // total once a method is picked (same convention as every other
-  // settlement spec's payCashWithClient/methodSelect usage).
-  const methodSelect = page.locator('[data-testid^="payment-method-"]').first();
-  await expect(methodSelect).toBeVisible({ timeout: 10_000 });
-  await methodSelect.selectOption("CASH");
 
   const confirmBtn = settleModalRoot(page).getByRole("button", {
     name: "Confirm Settlement",
