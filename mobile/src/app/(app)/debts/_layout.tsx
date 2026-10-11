@@ -1,4 +1,5 @@
 import { Stack } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ConnectionGate } from "@/components/ConnectionGate";
 import { useModuleGates } from "@/data/useModuleGates";
@@ -12,6 +13,8 @@ export const unstable_settings = { initialRouteName: "index" };
 /** The Debts tab's own page stack (LIRA-300): its detail page keeps the tab bar and its state. */
 export default function DebtsLayout() {
   const t = useTheme();
+  // Main tab pages have no header (owner 2026-10-11): start below the clock instead.
+  const insets = useSafeAreaInsets();
   const gates = useModuleGates();
   // While the tab is hidden, drop its pages so a half-filled repayment is not kept (LIRA-307).
   if (!debtsTabVisible(gates)) return null;
@@ -25,7 +28,7 @@ export default function DebtsLayout() {
           contentStyle: { backgroundColor: "transparent" },
         }}
       >
-        <Stack.Screen name="index" options={{ title: "Customer debts" }} />
+        <Stack.Screen name="index" options={{ title: "Customer debts", headerShown: false, contentStyle: { backgroundColor: "transparent", paddingTop: insets.top } }} />
         <Stack.Screen name="[id]" options={{ title: "Client" }} />
       </Stack>
     </ConnectionGate>
