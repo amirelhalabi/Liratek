@@ -11,12 +11,17 @@ private final class Ticker: NSObject {
 /// Reports whether the system tab bar is minimized (iOS 26
 /// `tabBarMinimizeBehavior`), which UIKit does not expose. Each frame while JS
 /// listens, it reads the tab bar's glass platter: it shrinks from the full bar
-/// to a single round button when minimized. A shrinking platter reports
-/// minimized at once, a growing one expanded, so JS moves with the dock rather
-/// than after it.
+/// to a single round button when minimized. Decided by size with a margin
+/// (hysteresis), not by the direction of the last change: a one-frame dip in
+/// width (seen when a tab page first opens) must not read as minimized.
+///   minimized  once the platter is under 75% of the bar's width (expanded it
+///              is ~90%, e.g. 360 of 402pt; crossing 75% is early in the
+///              shrink, so JS moves with the dock);
+///   expanded   once it is wider than 1.5x its height (early in the growth;
+///              the minimized platter is a circle, width == height).
 public class TabBarStateModule: Module {
   private var link: CADisplayLink?
-  private var lastWidth: CGFloat = 0
+  private var known = false
   private var minimized = false
   private var settledCenter: Double = 0
   private var sentMinimized: Bool?
@@ -32,6 +37,7 @@ public class TabBarStateModule: Module {
   private func start() {
     guard link == nil else { return }
     sentMinimized = nil
+    known = false
     let l = CADisplayLink(target: Ticker { [weak self] in self?.tick() }, selector: #selector(Ticker.tick))
     l.add(to: .main, forMode: .common)
     link = l
@@ -53,25 +59,25 @@ public class TabBarStateModule: Module {
     let window = UIApplication.shared.connectedScenes
       .compactMap { ($0 as? UIWindowScene)?.windows.first { $0.isKeyWindow } }.first
     guard let window, let bar = findTabBarController(window.rootViewController)?.tabBar, !bar.isHidden else { return }
-    // The platter: the bar's widest visible direct subview (on-screen geometry,
-    // so mid-animation frames count).
-    let platter = bar.subviews
-      .filter { !$0.isHidden && $0.alpha > 0.01 }
-      .map { v -> CGRect in
-        let p = v.layer.presentation() ?? v.layer
-        return p.convert(p.bounds, to: window.layer)
-      }
-      .max { $0.width < $1.width }
-    guard let platter, platter.width > 0 else { return }
+    // The platter: UIKit's `_UITabBarPlatterView` when present, else the
+    // bar's widest visible direct subview (on-screen geometry, so
+    // mid-animation frames count).
+    let visible = bar.subviews.filter { !$0.isHidden && $0.alpha > 0.01 }
+    let view = visible.first { String(describing: type(of: $0)).contains("Platter") }
+      ?? visible.max { $0.bounds.width < $1.bounds.width }
+    guard let view else { return }
+    let layer = view.layer.presentation() ?? view.layer
+    let platter = layer.convert(layer.bounds, to: window.layer)
+    guard platter.width > 0, platter.height > 0 else { return }
 
-    if lastWidth == 0 {
-      minimized = platter.width < bar.bounds.width / 2
-    } else if platter.width < lastWidth - 0.5 {
+    if !known {
+      minimized = platter.width < platter.height * 1.5
+      known = true
+    } else if !minimized, platter.width < bar.bounds.width * 0.75 {
       minimized = true
-    } else if platter.width > lastWidth + 0.5 {
+    } else if minimized, platter.width > platter.height * 1.5 {
       minimized = false
     }
-    lastWidth = platter.width
 
     // Once the minimized platter settles into its round button, note how far
     // its centre sits above the screen's bottom edge (differs per device).
