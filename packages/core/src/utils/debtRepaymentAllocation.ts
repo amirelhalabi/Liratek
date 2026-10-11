@@ -16,10 +16,14 @@
  * must import nothing (CLAUDE.md rule 29).
  *
  * Owner rules (specs/304-debt-item-picking/spec.md FR-001/004/008/009,
- * research D3):
- *  - Coverage: ticked items first, oldest first among them; whatever is left
- *    in today's order — sales first (USD), then charges and basket members
- *    oldest first. Strictly same currency, like today's FIFO: a USD
+ * research D3; LIRA-308 owner decisions 2026-10-11):
+ *  - Coverage: the cashier's ticked items first, then the items the amount
+ *    ticked by itself (`auto` targets, LIRA-308 decision 5) — inside each
+ *    group cash-drawer items (open primary-system transfers) first, then
+ *    oldest first (LIRA-308 decision 4; LIRA-304 had "oldest first" only).
+ *    Whatever is left in today's order — sales first (USD), then charges
+ *    and basket members oldest first (unchanged: write-off and callers with
+ *    no ticks). Strictly same currency, like today's FIFO: a USD
  *    reduction never pays an LBP item (the ledger is kept per currency).
  *  - Routing: a ticked primary-system transfer's share goes to its drawer; a
  *    ticked item of any other kind does not; the value left after the
@@ -36,6 +40,10 @@ export type DebtItemKind = "sale" | "charge" | "member";
 export interface DebtItemRef {
   kind: DebtItemKind;
   id: number;
+  /** LIRA-308 decision 5 — ticked by the amount (it was more than the
+   *  cashier's ticked sum), not by the cashier: paid only after every
+   *  cashier tick. Absent = the cashier ticked it. */
+  auto?: boolean;
 }
 
 export type Currency = "USD" | "LBP";
@@ -116,6 +124,22 @@ function byAge(a: AllocationItem, b: AllocationItem): number {
   return a.id - b.id;
 }
 
+/** LIRA-308 — an item whose payment goes to the shop's primary-system cash
+ *  drawer (an open primary-system transfer). The ONE predicate behind both
+ *  the picker's "Cash drawer" badge (`OpenDebtItem.isPrimary`) and the
+ *  coverage order below. */
+export function isCashDrawerItem(it: AllocationItem): boolean {
+  return !!it.routingCap;
+}
+
+/** LIRA-308 decision 4 — the order inside the ticked items: cash-drawer
+ *  items first, then oldest first. */
+function byTickedPriority(a: AllocationItem, b: AllocationItem): number {
+  const pa = isCashDrawerItem(a) ? 0 : 1;
+  const pb = isCashDrawerItem(b) ? 0 : 1;
+  return pa !== pb ? pa - pb : byAge(a, b);
+}
+
 export function allocateRepayment(
   input: AllocateRepaymentInput,
 ): AllocateRepaymentResult {
@@ -146,11 +170,23 @@ export function allocateRepayment(
   let budgetUsd = Math.max(0, input.reductionUsd);
   let budgetLbp = Math.max(0, input.reductionLbp);
 
-  const ticked = input.items
-    .filter((it) => (input.targets ?? []).some((t) => sameRef(t, it)))
-    .sort(byAge);
+  // The cashier's ticks, then the amount's own ticks (LIRA-308 decision 5)
+  // — each group cash drawer first, then oldest (decision 4). A ref sent
+  // both ways counts as the cashier's.
+  const targets = input.targets ?? [];
+  const cashierTicked = input.items
+    .filter((it) => targets.some((t) => !t.auto && sameRef(t, it)))
+    .sort(byTickedPriority);
+  const autoTicked = input.items
+    .filter(
+      (it) =>
+        !cashierTicked.includes(it) &&
+        targets.some((t) => t.auto && sameRef(t, it)),
+    )
+    .sort(byTickedPriority);
+  const ticked = [...cashierTicked, ...autoTicked];
 
-  // ── Coverage, step 1: ticked items, oldest first, same currency ────────
+  // ── Coverage, step 1: ticked items in that order, same currency ────────
   const tickedTakes: CoverageTake[] = [];
   for (const it of ticked) {
     const o = open.get(key(it))!;
@@ -302,6 +338,72 @@ export function allocateRepayment(
     routedUsd,
     routedLbp,
   };
+}
+
+export interface PlanRepaymentTargetsInput {
+  items: AllocationItem[];
+  /** What the cashier ticked (any `auto` flag on these is ignored). */
+  ticked: DebtItemRef[];
+  /** What the payment AND any bundled discount remove from the debt, in the
+   *  debt's currencies (LIRA-308 decision 8: applied together). */
+  reductionUsd: number;
+  reductionLbp: number;
+  rate: number;
+}
+
+export interface PlanRepaymentTargetsResult {
+  /** The targets to send: the cashier's ticks, then every unticked item the
+   *  amount reaches, flagged `auto`. */
+  targets: DebtItemRef[];
+  /** What each item is paid — the "pays $X · leaves $Y" figures. */
+  coverage: CoverageTake[];
+}
+
+/**
+ * LIRA-308 decision 5 — which unticked items an amount above the ticked sum
+ * reaches (cash drawer first, then oldest), so the screen ticks them by
+ * itself and sends them as `auto` targets. Pure coverage (no routing): the
+ * same `allocateRepayment` walk the server runs, with every unticked item
+ * offered as an `auto` target. Sending `targets` back to `allocateRepayment`
+ * with the same reduction gives exactly `coverage` (the reached items are a
+ * prefix of that walk).
+ */
+export function planRepaymentTargets(
+  input: PlanRepaymentTargetsInput,
+): PlanRepaymentTargetsResult {
+  const ticked: DebtItemRef[] = input.items
+    .filter((it) => input.ticked.some((t) => sameRef(t, it)))
+    .map((it) => ({ kind: it.kind, id: it.id }));
+  // Keep the cashier's own order for the payload.
+  ticked.sort(
+    (a, b) =>
+      input.ticked.findIndex((t) => sameRef(t, a)) -
+      input.ticked.findIndex((t) => sameRef(t, b)),
+  );
+  const others = input.items.filter(
+    (it) => !ticked.some((t) => sameRef(t, it)),
+  );
+  const { coverage } = allocateRepayment({
+    items: input.items,
+    targets: [
+      ...ticked,
+      ...others.map((it) => ({ kind: it.kind, id: it.id, auto: true })),
+    ],
+    reductionUsd: input.reductionUsd,
+    reductionLbp: input.reductionLbp,
+    appliedUsd: 0,
+    appliedLbp: 0,
+    cashUsd: 0,
+    cashLbp: 0,
+    rate: input.rate,
+  });
+  const reached = others
+    .filter((it) =>
+      coverage.some((c) => sameRef(c, it) && (c.usd > 0 || c.lbp > 0)),
+    )
+    .sort(byTickedPriority)
+    .map((it): DebtItemRef => ({ kind: it.kind, id: it.id, auto: true }));
+  return { targets: [...ticked, ...reached], coverage };
 }
 
 /**

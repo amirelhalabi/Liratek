@@ -60,11 +60,14 @@ export const addRepaymentSchema = z
     transaction_time: transactionTimeSchema,
     // LIRA-304 — the open debt items the cashier ticked: paid first, the
     // rest in today's order. Re-checked server-side (DebtRepository).
+    // LIRA-308 decision 5 — `auto: true` marks an item the amount ticked by
+    // itself: paid only after the cashier's ticks.
     targets: z
       .array(
         z.object({
           kind: z.enum(["sale", "charge", "member"]),
           id: z.number().int().positive(),
+          auto: z.boolean().optional(),
         }),
       )
       .max(200)

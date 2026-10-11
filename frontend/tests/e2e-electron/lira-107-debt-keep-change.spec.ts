@@ -167,10 +167,13 @@ test.describe("LIRA-107 — keep change on a debt repayment", () => {
     await expect(amount).toHaveValue("600,000");
     await amount.fill("700000");
 
-    // The overpay surfaces Return/Change, seeded with the full change. Hand
-    // nothing back: empty both fields — the whole 100,000 is kept
-    // automatically (owner decision 2026-10-06 removed the "Keep change"
-    // button; repay mode wires onKeptChange).
+    // The overpay surfaces Return/Change. LIRA-308 (owner decision 6,
+    // 2026-10-11): on a repayment it defaults to the customer's account
+    // (credit) — switch it to Cash to keep the change instead. Seeded with
+    // the full change. Hand nothing back: empty both fields — the whole
+    // 100,000 is kept automatically (owner decision 2026-10-06 removed the
+    // "Keep change" button; repay mode wires onKeptChange).
+    await appPage.getByTestId("return-method").selectOption("CASH");
     await appPage.getByTestId("return-usd").fill("");
     await appPage.getByTestId("return-lbp").fill("");
     await expect(appPage.getByText("Change kept (profit)")).toBeVisible();

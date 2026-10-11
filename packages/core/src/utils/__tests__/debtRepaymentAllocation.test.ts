@@ -6,8 +6,12 @@
  * quickstart table.
  *
  * Owner rules (spec FR-001, FR-004, FR-008, FR-009; research D3):
- *  - coverage: ticked items first (oldest first among them), the rest in
- *    today's order (sales first, then charges oldest first), same currency;
+ *  - coverage: ticked items first, the rest in today's order (sales first,
+ *    then charges oldest first), same currency. Inside the ticked items the
+ *    order was "oldest first" (LIRA-304); LIRA-308 (owner decision 4,
+ *    2026-10-11) changed it to cash-drawer items first, then oldest — see
+ *    debtRepaymentAllocation.lira308.test.ts. These cases still pass because
+ *    their ticked transfer is also the oldest item;
  *  - routing: a ticked primary-system transfer's share goes to its drawer, a
  *    ticked item of any other kind does not; whatever is left goes to the
  *    drawer first ("OMT drawer first");

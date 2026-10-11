@@ -155,6 +155,29 @@ export interface MultiPaymentInputProps {
     currencyCode: string;
     amount: number;
   }>;
+  /** LIRA-308 (owner decisions 2026-10-11) — what the amount FILLS to,
+   *  per currency, when it differs from what is owed (`totals`). The Debts
+   *  repayment sheet passes the ticked items' sum here while `totals` stays
+   *  the whole debt, so an amount between the two is a normal (bigger)
+   *  payment and only an amount above `totals` is an overpay. Taken as-is
+   *  (the caller nets any discount of its own). Default: `totals`. */
+  fillTotals?: Money[];
+  /** LIRA-308 decision 2 — changing this value re-fills the amount to
+   *  `fillTotals`, even after the operator typed an amount (a tick change
+   *  always resets the amount). One line per non-zero currency, like
+   *  `initialLines`; methods are kept per currency. Ignored on mount. */
+  fillKey?: string | number;
+  /** The change-return method selected when an overpay first appears
+   *  (default "CASH"). LIRA-308 decision 6: the Debts repayment sheet
+   *  passes "CUSTOMER_ACCOUNT" so an amount above the whole debt becomes
+   *  account credit unless the cashier picks cash change. */
+  defaultReturnMethod?: string;
+  /** LIRA-308 decision 9 — when every payment line is in ONE currency, a
+   *  non-cash change (e.g. account credit) is expressed in that currency
+   *  instead of `totalAmountCurrency`: an LBP overpay on an LBP debt
+   *  becomes LBP credit, not a converted USD figure. Re-applied whenever the
+   *  lines' currencies change; the cashier can still pick another. */
+  returnCurrencyFollowsTender?: boolean;
   /** Payment methods to display in dropdown */
   paymentMethods: PaymentMethod[];
   /** Available currencies */
@@ -350,6 +373,10 @@ export default function MultiPaymentInput({
   paidLabel = "Paid",
   initialMethod,
   initialLines,
+  fillTotals,
+  fillKey,
+  defaultReturnMethod,
+  returnCurrencyFollowsTender = false,
   clientId,
   fetchClientVouchers,
   onWaiveRemaining,
@@ -413,7 +440,9 @@ export default function MultiPaymentInput({
   );
 
   // --- Return / change (shop → customer) state ---
-  const [returnMethod, setReturnMethod] = useState<string>("CASH");
+  const [returnMethod, setReturnMethod] = useState<string>(
+    defaultReturnMethod ?? "CASH",
+  );
   // For non-CASH returns: which currency to express the amount in.
   const [returnCurrency, setReturnCurrency] =
     useState<string>(totalAmountCurrency);
@@ -589,7 +618,8 @@ export default function MultiPaymentInput({
       }));
     const { remaining } = allocatePayments(
       {
-        totals: effectiveTotals,
+        // LIRA-308: fill to `fillTotals` when the caller gives one.
+        totals: fillTotals ?? effectiveTotals,
         payments: otherPayments,
         rates: internalRates,
         side,
@@ -643,6 +673,9 @@ export default function MultiPaymentInput({
   const totalsKey = totalsProp
     ? totalsProp.map((t) => `${t.currency}:${t.amount}`).join("|")
     : null;
+  const fillTotalsKey = fillTotals
+    ? fillTotals.map((t) => `${t.currency}:${t.amount}`).join("|")
+    : null;
 
   // In single mode, auto-sync the line amount with the effective totals
   // (currency-aware). Skipped once the user manually edits the amount, so a
@@ -669,11 +702,60 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     totalsKey,
+    fillTotalsKey,
     isSplitMode,
     effectiveRate,
     singleLineCurrency,
     clampedDiscount,
   ]);
+
+  // LIRA-308 decision 9 — non-cash change follows a single-currency tender.
+  const tenderCurrencyKey = [
+    ...new Set(paymentLines.map((l) => l.currencyCode)),
+  ].join("|");
+  useEffect(() => {
+    if (!returnCurrencyFollowsTender) return;
+    const ccys = tenderCurrencyKey.split("|").filter(Boolean);
+    if (ccys.length === 1) setReturnCurrency(ccys[0]);
+  }, [returnCurrencyFollowsTender, tenderCurrencyKey]);
+
+  // LIRA-308 decision 2 — a new `fillKey` re-fills the amount to
+  // `fillTotals`, overriding a typed amount: one line per non-zero currency
+  // (like `initialLines`), each keeping the method its currency's line had.
+  // A single line then stays in sync through the auto-sync effect above.
+  const prevFillKeyRef = useRef(fillKey);
+  useEffect(() => {
+    if (prevFillKeyRef.current === fillKey) return;
+    prevFillKeyRef.current = fillKey;
+    if (!fillTotals) return;
+    singleAmountTouchedRef.current = false;
+    const methodFor = (ccy: string): string =>
+      paymentLines.find((l) => l.currencyCode === ccy)?.method ??
+      paymentLines[0]?.method ??
+      initialMethod ??
+      "CASH";
+    const owed = fillTotals.filter((t) => t.amount > 0);
+    const next: PaymentLine[] =
+      owed.length > 0
+        ? owed.map((t) => ({
+            id: crypto.randomUUID(),
+            method: methodFor(t.currency),
+            currencyCode: t.currency,
+            amount: t.amount,
+          }))
+        : [
+            {
+              id: paymentLines[0]?.id ?? crypto.randomUUID(),
+              method: paymentLines[0]?.method ?? initialMethod ?? "CASH",
+              currencyCode: paymentLines[0]?.currencyCode ?? currency,
+              amount: 0,
+            },
+          ];
+    setIsSplitMode(next.length > 1);
+    setPaymentLines(next);
+    onChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillKey]);
 
   // Sync the first line's method with initialMethod and notify the parent.
   // Fires:

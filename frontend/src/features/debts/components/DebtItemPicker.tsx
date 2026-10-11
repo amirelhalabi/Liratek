@@ -2,48 +2,58 @@
  * LIRA-304 (spec US2, FR-006/FR-007) — the repayment screen's list of open
  * debt items. Separate visits are one line each; the items of a session
  * basket are grouped under "Session #N basket" and can be ticked one by
- * one. Ticking is optional: nothing ticked = today's order.
+ * one.
+ *
+ * LIRA-308 (owner decisions 2026-10-11) — the ticks and the amount stay in
+ * step: the page owns which items are ticked (the cashier's ticks plus the
+ * ones the amount ticked by itself, flagged `auto`) and what each ticked
+ * item is paid; this list only shows them and reports a tick change.
  */
 import type { OpenDebtItem, DebtItemRef } from "@liratek/core";
 
 interface DebtItemPickerProps {
   items: OpenDebtItem[];
+  /** What is ticked on screen: the cashier's ticks and the amount's own
+   *  (`auto`). */
   selected: DebtItemRef[];
-  onChange: (next: DebtItemRef[]) => void;
+  /** A tick box was clicked. */
+  onToggle: (item: OpenDebtItem) => void;
+  onClear: () => void;
+  /** What this payment (with any discount) pays on each item — the
+   *  "pays $X · leaves $Y" figures. */
+  coverage: Array<{ kind: string; id: number; usd: number; lbp: number }>;
+  /** The modal's USD→LBP rate, for the USD figure of an LBP item. */
+  rate: number;
 }
 
 const sameRef = (a: DebtItemRef, b: DebtItemRef): boolean =>
   a.kind === b.kind && a.id === b.id;
 
-function openText(item: OpenDebtItem): string {
-  return [
-    item.openUsd > 0.004 ? `$${item.openUsd.toFixed(2)}` : "",
-    item.openLbp > 0.5 ? `${Math.round(item.openLbp).toLocaleString()} LBP` : "",
-  ]
-    .filter(Boolean)
-    .join(" + ");
+const fmtUsd = (n: number): string => `$${n.toFixed(2).replace(/\.00$/, "")}`;
+const fmtLbp = (n: number): string => `${Math.round(n).toLocaleString()} LBP`;
+
+/** One amount in the item's own currency (or both, for a mixed item). */
+function money(usd: number, lbp: number, hasUsd: boolean, hasLbp: boolean) {
+  const parts = [
+    hasUsd ? fmtUsd(Math.max(0, usd)) : "",
+    hasLbp ? fmtLbp(Math.max(0, lbp)) : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" + ") : fmtUsd(0);
 }
 
 export default function DebtItemPicker({
   items,
   selected,
-  onChange,
+  onToggle,
+  onClear,
+  coverage,
+  rate,
 }: DebtItemPickerProps) {
   if (items.length === 0) return null;
 
-  const toggle = (item: OpenDebtItem) => {
-    const ref = { kind: item.kind, id: item.id };
-    onChange(
-      selected.some((s) => sameRef(s, ref))
-        ? selected.filter((s) => !sameRef(s, ref))
-        : [...selected, ref],
-    );
-  };
-
   // Group basket items under their session; everything else stands alone,
   // in the order the server returned (oldest first).
-  const groups: Array<{ sessionId: number | null; items: OpenDebtItem[] }> =
-    [];
+  const groups: Array<{ sessionId: number | null; items: OpenDebtItem[] }> = [];
   for (const item of items) {
     const last = groups[groups.length - 1];
     if (item.sessionId != null && last && last.sessionId === item.sessionId) {
@@ -54,37 +64,68 @@ export default function DebtItemPicker({
   }
 
   const row = (item: OpenDebtItem, indent: boolean) => {
-    const checked = selected.some(
-      (s) => s.kind === item.kind && s.id === item.id,
-    );
+    const tick = selected.find((s) => sameRef(s, item));
+    const hasUsd = item.openUsd > 0.004;
+    const hasLbp = item.openLbp > 0.5;
+    const take = coverage.find((c) => sameRef(c as DebtItemRef, item)) ?? {
+      usd: 0,
+      lbp: 0,
+    };
     return (
       <label
         key={`${item.kind}-${item.id}`}
         data-testid={`debt-item-${item.kind}-${item.id}`}
-        className={`flex items-center gap-2 py-1.5 text-sm cursor-pointer ${
+        className={`flex flex-col py-1.5 text-sm cursor-pointer ${
           indent ? "pl-4" : ""
         }`}
       >
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={() => toggle(item)}
-          className="accent-emerald-500"
-        />
-        <span className="flex-1 min-w-0 truncate text-slate-200">
-          {item.label}
+        <span className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={!!tick}
+            onChange={() => onToggle(item)}
+            className="accent-emerald-500"
+          />
+          <span className="flex-1 min-w-0 truncate text-slate-200">
+            {item.label}
+          </span>
+          {item.isPrimary && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/40 text-sky-300 shrink-0">
+              Cash drawer
+            </span>
+          )}
+          <span className="font-mono text-slate-300 shrink-0">
+            {money(item.openUsd, item.openLbp, hasUsd, hasLbp)}
+            {hasLbp && !hasUsd && rate > 0 && (
+              <span className="text-slate-500">
+                {" "}
+                (≈ {fmtUsd(item.openLbp / rate)})
+              </span>
+            )}
+          </span>
         </span>
-        {item.isPrimary && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-900/40 text-sky-300 shrink-0">
-            Cash drawer
+        {tick && (
+          <span
+            data-testid={`debt-item-pays-${item.kind}-${item.id}`}
+            className="pl-6 text-[11px] text-slate-400"
+          >
+            {tick.auto && (
+              <span className="text-emerald-400">added by the amount · </span>
+            )}
+            pays {money(take.usd, take.lbp, hasUsd, hasLbp)} · leaves{" "}
+            {money(
+              item.openUsd - take.usd,
+              item.openLbp - take.lbp,
+              hasUsd,
+              hasLbp,
+            )}
           </span>
         )}
-        <span className="font-mono text-slate-300 shrink-0">
-          {openText(item)}
-        </span>
       </label>
     );
   };
+
+  const nothingTicked = !selected.some((s) => !s.auto);
 
   return (
     <div
@@ -98,7 +139,7 @@ export default function DebtItemPicker({
         {selected.length > 0 && (
           <button
             type="button"
-            onClick={() => onChange([])}
+            onClick={onClear}
             className="text-[11px] text-slate-400 hover:text-slate-200"
           >
             Clear
@@ -119,9 +160,18 @@ export default function DebtItemPicker({
           ),
         )}
       </div>
-      <p className="text-[11px] text-slate-500 mt-1">
-        Nothing ticked = cash drawer first, then oldest first.
-      </p>
+      {nothingTicked ? (
+        <p
+          data-testid="debt-item-picker-hint"
+          className="text-[11px] text-amber-400 mt-1"
+        >
+          Tick what this payment is for
+        </p>
+      ) : (
+        <p className="text-[11px] text-slate-500 mt-1">
+          A smaller amount pays the cash-drawer items first, then the oldest.
+        </p>
+      )}
     </div>
   );
 }

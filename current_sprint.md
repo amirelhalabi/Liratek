@@ -6639,6 +6639,73 @@ Reported: OMT system SEND, Cash to Business, $10,000, fee 0 — refused with "OM
 
 **What users will notice:** on the Services page, an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique now goes through with a fee of 0 or no fee typed.
 
+## LIRA-308: Debt repayment — ticks and amount stay in step — HIGH — DONE, not committed (owner decisions 2026-10-11)
+
+Follows LIRA-304 (`specs/304-debt-item-picking/`, shipped). Today the "Process Repayment" item picker is optional: the
+amount is the whole debt whatever is ticked, and Confirm works with nothing ticked.
+
+**Owner decisions 2026-10-11 (binding):**
+1. On open, ALL open items are ticked and the amount is pre-filled with the sum of the ticked items (USD; LBP items
+   also shown in USD at the modal's rate).
+2. Ticking or unticking resets the amount to the new ticked sum, even after the cashier typed an amount. Typing an
+   amount never unticks anything.
+3. Nothing ticked → Confirm is disabled, with the hint "Tick what this payment is for".
+4. Amount LESS than the ticked sum → partial: inside the ticked items, cash-drawer items (primary-system OMT/Whish
+   transfers) are paid first, then oldest first. Each ticked line shows "pays $X · leaves $Y" before Confirm.
+5. Amount MORE than the ticked sum but not more than the whole debt → the extra pays unticked items in the same order
+   (cash drawer first, then oldest); those items tick themselves on screen before Confirm and are sent as targets.
+   They never take money away from an item the cashier ticked.
+6. Amount MORE than the whole debt → every item ticked and paid; the rest becomes the customer's account credit, shown
+   in "Goes to" (e.g. "Account credit $16"). Uses the existing change-to-account path (Customer Account change leg →
+   `CREDIT_DEPOSIT` "Change returned", reversed by the repayment's void); the cashier can still switch the change to
+   cash.
+7. LBP / mixed payments are compared at the modal's rate (as `computeRepayFigures` already does).
+8. A discount/forgive is applied together with the payment to the ticked items, in the same order.
+9. LBP-denominated debts: the same rules, per currency.
+
+**Acceptance:** each rule above is pinned by a test (core allocation order, bundled-discount order, the modal's
+behaviour); the server posts exactly what the modal previews (one function, `allocateRepayment` /
+`planRepaymentTargets`); a client whose debt is only non-itemised (Manual Debt) can still be repaid; web e2e green.
+
+**What users will notice:** on the Debts page, Process Repayment opens with every item ticked and the amount filled
+in. Ticking or unticking changes the amount; a smaller amount shows what each item pays and what it leaves; a bigger
+amount ticks the next items by itself; anything beyond the whole debt is kept as account credit.
+
+**Built 2026-10-11 (not yet committed):**
+- Core `utils/debtRepaymentAllocation.ts`: inside the ticked items cash-drawer first, then oldest
+  (`isCashDrawerItem`, also behind `OpenDebtItem.isPrimary`); targets may carry `auto: true` (paid after
+  every cashier tick); new `planRepaymentTargets` (which unticked items an amount reaches; its targets
+  give the server the same coverage). No-target order unchanged. `addRepaymentSchema` keeps `auto`
+  (types in preload, handler, `electron.d.ts`, `DebtService`). `DebtRepository`: a bundled discount
+  uses the repayment's targets (write-off unchanged).
+- `MultiPaymentInput`: opt-in `fillTotals` / `fillKey` / `defaultReturnMethod` (other forms unchanged).
+- Debts page + `DebtItemPicker`: all ticked on open, tick change resets the amount, Confirm disabled with
+  nothing ticked, "pays $X · leaves $Y" per ticked line, auto-ticked lines marked "added by the amount",
+  LBP items show "(≈ $X)", "Account credit" line in Goes to. Overpay credit reuses the existing
+  CUSTOMER_ACCOUNT change leg → `CREDIT_DEPOSIT` "Change returned" (reversed by the repayment's
+  refund — characterization test). The cashier can switch the change to cash (lira-107 desktop spec now
+  does so before keeping the change).
+- Fill is capped at the ledger due; a client with only non-itemised debt (no picker) is unaffected.
+
+**Verification:** failing-first recorded before the code: core allocation 7/9 failed (d4: 30 vs 50; auto
+tier: 0 vs 10), DebtRepository 3/5 failed (d4, d5, d8), schema 1/1 failed (`auto` stripped), MPI fill 5/7
+failed, Debts modal 8/9 failed (the passing ones are characterizations, named as such in the files).
+Existing LIRA-304 picker tests updated (they ticked from nothing; now they untick). Gates: core jest
+717 suites / 6802 passed (22 s), frontend 525 / 3206 (54 s), backend 172 / 1772 (10 s), electron 78 / 540
+(18 s), `yarn typecheck` exit 0 (3 min), `yarn lint` 0 errors, transport-parity clean, release-notes
+check OK; web e2e lira-web-051 2/2 passed (new UI test not proven failing-first), lira-web-007/011/012/037
+6/6. Desktop e2e (lira-107, lira-304) not run — CI only.
+Follow-up the same day: overpay credit is in the tender's currency when the payment is in one currency (an
+LBP overpay is LBP credit — MPI `returnCurrencyFollowsTender`, test written after the code, not proven
+failing-first); the "Account credit" line also shows for a client with no listed items (failed first);
+refund AND void of an overpaid repayment net the ledger and every drawer to zero (characterization).
+
+**Open for the owner:** (a) a client with Manual/imported debt plus listed items now gets the items' sum,
+not the whole balance, as the amount (decision 1 read literally); (b) a tick change rebuilds the payment
+lines one per currency, so a second-method line (cash + Whish in USD) is replaced by one line; (c) an
+overpay now defaults to account credit instead of cash change, including small rounding overpays —
+keeping change means switching the change method to Cash first.
+
 ## LIRA-307: phone app follows the shop's module switches (Settings → Modules) — IN PROGRESS (owner decisions 2026-10-11)
 
 Spec, plan and tasks: `specs/307-mobile-module-gating/`.

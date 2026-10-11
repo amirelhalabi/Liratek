@@ -1330,7 +1330,11 @@ export interface ElectronAPI {
        *  cash payment. Posts a signed-profit 'Debt Discount' ledger row. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
       /** LIRA-304 — ticked debt items. */
-      targets?: Array<{ kind: "sale" | "charge" | "member"; id: number }>;
+      targets?: Array<{
+        kind: "sale" | "charge" | "member";
+        id: number;
+        auto?: boolean;
+      }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
      *  cash movement. Capped server-side at the client's outstanding balance

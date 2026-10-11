@@ -55,7 +55,11 @@ export interface RepaymentData {
    *  to the repository (no business logic here). */
   tender_exchange_rate?: number;
   /** LIRA-304 — ticked debt items (see DebtRepository.CreateRepaymentData). */
-  targets?: Array<{ kind: "sale" | "charge" | "member"; id: number }>;
+  targets?: Array<{
+    kind: "sale" | "charge" | "member";
+    id: number;
+    auto?: boolean;
+  }>;
 }
 
 /** Input for DebtService.addCredit / addCreditOrThrow. */

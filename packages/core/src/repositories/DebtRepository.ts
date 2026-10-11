@@ -21,6 +21,7 @@ import { getSettingsRepository } from "./SettingsRepository.js";
 import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import {
   allocateRepayment,
+  isCashDrawerItem,
   type AllocationItem,
   type CoverageTake,
   type DebtItemRef,
@@ -821,6 +822,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           data.discount,
           data.created_by,
           data.transaction_time,
+          // LIRA-308 decision 8: payment and discount together pay the
+          // ticked items, in the same order (the discount walks on from
+          // where the cash stopped — the same split as one combined walk).
+          data.targets,
         );
       }
 
@@ -846,6 +851,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     discount: CounterpartyDiscountData,
     createdBy: number,
     transactionTime?: string,
+    /** LIRA-308 decision 8 — the bundled repayment's targets; absent for a
+     *  standalone write-off (today's order). */
+    targets?: DebtItemRef[],
   ): number {
     const tenantId = getCurrentTenantId();
     const amountUsd = Math.abs(discount.amount_usd || 0);
@@ -907,13 +915,20 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     // _coverServiceDebtsFIFO — otherwise a forgiven balance would leave
     // deferred profit stuck behind an uncovered charge row forever.
     // LIRA-304: the same calculation and coverage writer as a repayment
-    // (today's order; a discount moves no cash, so nothing is routed). Its
+    // (ticked items first when bundled with a ticked repayment — LIRA-308
+    // decision 8 — else today's order; a discount moves no cash, so nothing
+    // is routed). A target the repayment's own cash already cleared is no
+    // longer open and simply drops out. Its
     // coverage is recorded on the discount's own metadata for audit —
     // COUNTERPARTY_DISCOUNT stays non-reversible.
     const baseSystem = getSettingsRepository().getShopBaseSystem();
     const openItems = this._loadAllocationItems(clientId, baseSystem);
+    const openTargets = (targets ?? []).filter((t) =>
+      openItems.some((it) => it.kind === t.kind && it.id === t.id),
+    );
     const allocation = allocateRepayment({
       items: openItems,
+      ...(openTargets.length > 0 ? { targets: openTargets } : {}),
       reductionUsd: amountUsd,
       reductionLbp: amountLbp,
       appliedUsd: 0,
@@ -1344,8 +1359,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           label: info?.summary ?? `${it.kind} #${it.id}`,
           type: info?.type ?? null,
           sessionId: info?.session_id ?? null,
-          isPrimary: !!it.routingCap,
-          primaryDrawer: it.routingCap ? primaryCashDrawerName(baseSystem) : null,
+          isPrimary: isCashDrawerItem(it),
+          primaryDrawer: isCashDrawerItem(it)
+            ? primaryCashDrawerName(baseSystem)
+            : null,
         };
       })
       .sort((a, b) =>

@@ -47,7 +47,11 @@ interface RepaymentData {
   transaction_time?: string;
   // LIRA-304 — ticked debt items (addRepaymentSchema `targets`), forwarded
   // as-is; DebtRepository re-checks each one.
-  targets?: Array<{ kind: "sale" | "charge" | "member"; id: number }>;
+  targets?: Array<{
+    kind: "sale" | "charge" | "member";
+    id: number;
+    auto?: boolean;
+  }>;
 }
 
 export function registerDebtHandlers(): void {

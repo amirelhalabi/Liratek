@@ -372,7 +372,11 @@ contextBridge.exposeInMainWorld("api", {
        *  carries it (rule 12: the binding type lists every field sent). */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
       /** LIRA-304 — ticked debt items. */
-      targets?: Array<{ kind: "sale" | "charge" | "member"; id: number }>;
+      targets?: Array<{
+        kind: "sale" | "charge" | "member";
+        id: number;
+        auto?: boolean;
+      }>;
     }) => ipcRenderer.invoke("debt:add-repayment", data),
     getOpenItems: (clientId: number) =>
       ipcRenderer.invoke("debt:get-open-items", clientId),

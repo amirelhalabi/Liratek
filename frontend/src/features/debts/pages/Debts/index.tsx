@@ -56,6 +56,7 @@ import { SessionDebtDetailModal } from "../../components/SessionDebtDetailModal"
 import DebtItemPicker from "../../components/DebtItemPicker";
 import {
   allocateRepayment,
+  planRepaymentTargets,
   type DebtItemRef,
   type OpenDebtItem,
 } from "@liratek/core";
@@ -196,8 +197,14 @@ export default function Debts() {
   // a reduction the operator never saw.
   const [repayModalRate, setRepayModalRate] = useState<number | null>(null);
   // LIRA-304 — the client's open debt items and the ones the cashier ticked.
+  // LIRA-308 — `repayTargets` holds the CASHIER's ticks only; the items the
+  // amount ticks by itself are derived (`repayPlan` below), never stored,
+  // so they follow the amount both ways. `repayFillKey` is bumped on every
+  // tick change: the payment sheet then resets the amount to the ticked
+  // sum, even a typed one (owner decision 2).
   const [repayOpenItems, setRepayOpenItems] = useState<OpenDebtItem[]>([]);
   const [repayTargets, setRepayTargets] = useState<DebtItemRef[]>([]);
+  const [repayFillKey, setRepayFillKey] = useState(0);
   // T3 keep-change: change the operator chose to KEEP as shop profit rather
   // than return. Excluded from the debt reduction (it is NOT the client's
   // credit) and stamped on the DEBT_REPAYMENT transaction as profit.
@@ -602,7 +609,14 @@ export default function Debts() {
     apiRef.current
       .getOpenDebtItems(repayClientId)
       .then((items) => {
-        if (!cancelled) setRepayOpenItems(items);
+        if (cancelled) return;
+        setRepayOpenItems(items);
+        // LIRA-308 decision 1 — everything is ticked on open, and the
+        // amount fills to their sum. No fill-key bump here: the sheet's own
+        // auto-fill picks the new sum up unless the cashier already typed
+        // an amount or split the payment while the items were loading
+        // (a slow load must not wipe what they entered).
+        setRepayTargets(items.map((it) => ({ kind: it.kind, id: it.id })));
       })
       .catch((error) => {
         logger.error("Failed to load open debt items", { error });
@@ -688,12 +702,94 @@ export default function Debts() {
     };
   };
 
+  // LIRA-308 (owner decisions 2026-10-11) — the ticks and the amount stay
+  // in step. The ticked sum fills the amount (minus a bundled discount:
+  // decision 8 applies payment + discount together); an amount above it
+  // ticks the next items by itself (decision 5) and below it pays the
+  // ticked items cash drawer first, then oldest (decision 4) — all from the
+  // ONE allocation the server posts with (`planRepaymentTargets` →
+  // `allocateRepayment`).
+  const repayHasPicker = repayMode === "repay" && repayOpenItems.length > 0;
+  const repayTickedItems = repayOpenItems.filter((it) =>
+    repayTargets.some((t) => t.kind === it.kind && t.id === it.id),
+  );
+  // Capped per currency at what is still due: items can add up to more
+  // than the ledger balance (e.g. a separate account credit), and filling
+  // above it would turn the difference into change/credit.
+  const repayFillTotals = repayHasPicker
+    ? [
+        {
+          amount: Math.max(
+            0,
+            Math.min(
+              repayRemainingDueUsd,
+              Math.round(
+                (repayTickedItems.reduce((s, it) => s + it.openUsd, 0) -
+                  repayAppliedDiscountUsd) *
+                  100,
+              ) / 100,
+            ),
+          ),
+          currency: "USD",
+        },
+        {
+          amount: Math.max(
+            0,
+            Math.min(
+              repayRemainingDueLbp,
+              Math.round(
+                repayTickedItems.reduce((s, it) => s + it.openLbp, 0) -
+                  repayAppliedDiscountLbp,
+              ),
+            ),
+          ),
+          currency: "LBP",
+        },
+      ].filter((t) => t.amount > 0)
+    : undefined;
+  const repayPlan = (() => {
+    if (!repayHasPicker || repayTargets.length === 0) return null;
+    const f = computeRepayFigures();
+    if (!Number.isFinite(f.reduceUsd) || !Number.isFinite(f.reduceLbp)) {
+      return null;
+    }
+    return planRepaymentTargets({
+      items: repayOpenItems,
+      ticked: repayTargets,
+      reductionUsd: f.reduceUsd + repayAppliedDiscountUsd,
+      reductionLbp: f.reduceLbp + repayAppliedDiscountLbp,
+      rate: f.conversionRate,
+    });
+  })();
+  // What is ticked on screen and sent: the cashier's ticks, then the
+  // amount's own (`auto`).
+  const repaySentTargets: DebtItemRef[] = repayPlan?.targets ?? repayTargets;
+  const toggleRepayTarget = (item: OpenDebtItem) => {
+    // A tick change starts from what the cashier SEES ticked (auto ticks
+    // included) and resets the amount to the new ticked sum (decision 2).
+    const shown = repaySentTargets.map((t) => ({ kind: t.kind, id: t.id }));
+    const isShown = shown.some((t) => t.kind === item.kind && t.id === item.id);
+    setRepayTargets(
+      isShown
+        ? shown.filter((t) => !(t.kind === item.kind && t.id === item.id))
+        : [...shown, { kind: item.kind, id: item.id }],
+    );
+    setRepayFillKey((k) => k + 1);
+  };
+  const clearRepayTargets = () => {
+    setRepayTargets([]);
+    setRepayFillKey((k) => k + 1);
+  };
+
   // LIRA-304 (spec FR-010) — "Goes to": where this repayment's cash lands,
   // computed by the SAME calculation the server posts with
-  // (`allocateRepayment`). Shown only when part of it goes to the primary
-  // system's cash drawer.
+  // (`allocateRepayment`, with the same targets). Shown when part of it goes
+  // to the primary system's cash drawer, or (LIRA-308 decision 6) when
+  // change goes to the customer's account as credit.
   const repayPreview = (() => {
-    if (repayMode !== "repay" || repayOpenItems.length === 0) return null;
+    // No listed items still shows an account-credit line (decision 6);
+    // routing then has nothing to route.
+    if (repayMode !== "repay") return null;
     const f = computeRepayFigures();
     if (!Number.isFinite(f.reduceUsd) || !Number.isFinite(f.reduceLbp)) {
       return null;
@@ -717,7 +813,7 @@ export default function Debts() {
     const cashLbp = Math.min(cashOf("LBP"), appliedLbp);
     const result = allocateRepayment({
       items: repayOpenItems,
-      targets: repayTargets,
+      targets: repaySentTargets,
       reductionUsd: f.reduceUsd,
       reductionLbp: f.reduceLbp,
       appliedUsd,
@@ -726,7 +822,18 @@ export default function Debts() {
       cashLbp,
       rate: f.conversionRate,
     });
-    if (result.routedUsd <= 0 && result.routedLbp <= 0) return null;
+    // LIRA-308 decision 6 — change sent to the customer's account (the
+    // existing CUSTOMER_ACCOUNT change leg the server books as credit).
+    const creditOf = (ccy: string) =>
+      repayReturnLegs
+        .filter(
+          (l) => l.currencyCode === ccy && l.method === "CUSTOMER_ACCOUNT",
+        )
+        .reduce((sum, l) => sum + l.amount, 0);
+    const creditUsd = creditOf("USD");
+    const creditLbp = creditOf("LBP");
+    const routed = result.routedUsd > 0 || result.routedLbp > 0;
+    if (!routed && creditUsd <= 0 && creditLbp <= 0) return null;
     const fmt = (usd: number, lbp: number): string =>
       [
         usd > 0.004 ? `$${usd.toFixed(2).replace(/\.00$/, "")}` : "",
@@ -734,17 +841,27 @@ export default function Debts() {
       ]
         .filter(Boolean)
         .join(" + ");
+    // Cash physically left in General: the cash taken in, less cash change
+    // handed back, less what moves to the primary cash drawer. (Change sent
+    // to the account stays in the drawer.)
+    const cashBackOf = (ccy: string) =>
+      repayReturnLegs
+        .filter((l) => l.currencyCode === ccy && isCash(l.method))
+        .reduce((sum, l) => sum + l.amount, 0);
     return {
       systemLabel:
         repayOpenItems.find((i) => i.primaryDrawer)?.primaryDrawer ===
         "Whish_System"
           ? "Whish Cash Drawer"
           : "OMT Cash Drawer",
-      systemText: fmt(result.routedUsd, result.routedLbp),
-      generalText: fmt(
-        Math.max(0, cashUsd - result.routedUsd),
-        Math.max(0, cashLbp - result.routedLbp),
-      ),
+      systemText: routed ? fmt(result.routedUsd, result.routedLbp) : "",
+      generalText: routed
+        ? fmt(
+            Math.max(0, cashOf("USD") - cashBackOf("USD") - result.routedUsd),
+            Math.max(0, cashOf("LBP") - cashBackOf("LBP") - result.routedLbp),
+          )
+        : "",
+      creditText: fmt(creditUsd, creditLbp),
     };
   })();
 
@@ -961,8 +1078,9 @@ export default function Debts() {
           : {}),
         ...keptFields,
         ...discountFields,
-        // LIRA-304 — the items the cashier ticked (the server re-checks them).
-        ...(repayTargets.length > 0 ? { targets: repayTargets } : {}),
+        // LIRA-304 — the items the cashier ticked (the server re-checks
+        // them); LIRA-308 — then the ones the amount ticked itself (`auto`).
+        ...(repaySentTargets.length > 0 ? { targets: repaySentTargets } : {}),
         ...(repayTransactionTime
           ? { transaction_time: repayTransactionTime }
           : {}),
@@ -2298,12 +2416,17 @@ export default function Debts() {
             confirmLabel={
               repayMode === "cashout" ? "Confirm Cash Out" : "Confirm Payment"
             }
+            // LIRA-308 decision 3 — nothing ticked, nothing to confirm.
+            confirmDisabled={repayHasPicker && repayTargets.length === 0}
             beforeContent={
-              repayMode === "repay" && repayOpenItems.length > 0 ? (
+              repayHasPicker ? (
                 <DebtItemPicker
                   items={repayOpenItems}
-                  selected={repayTargets}
-                  onChange={setRepayTargets}
+                  selected={repaySentTargets}
+                  onToggle={toggleRepayTarget}
+                  onClear={clearRepayTargets}
+                  coverage={repayPlan?.coverage ?? []}
+                  rate={repayModalRate ?? EXCHANGE_RATE}
                 />
               ) : undefined
             }
@@ -2370,6 +2493,23 @@ export default function Debts() {
                   : []),
               ],
               currency: "USD",
+              // LIRA-308 — the amount fills to the TICKED sum while `totals`
+              // stays the whole debt: an amount between the two pays more
+              // items, only one above the whole debt is change — which goes
+              // to the customer's account by default (decision 6, the
+              // existing CUSTOMER_ACCOUNT change leg → "Change returned"
+              // credit, reversed with the repayment).
+              ...(repayMode === "repay"
+                ? {
+                    defaultReturnMethod: "CUSTOMER_ACCOUNT",
+                    // Decision 9: an LBP overpay is LBP credit.
+                    returnCurrencyFollowsTender: true,
+                    hasClient: true,
+                    ...(repayFillTotals
+                      ? { fillTotals: repayFillTotals, fillKey: repayFillKey }
+                      : {}),
+                  }
+                : {}),
               // Who pays (FEATURE_GUIDE §4.1): a repayment is the customer
               // paying the shop; a cash-out is the shop paying the client —
               // no change/return block, only a small kept shortfall. The
@@ -2486,19 +2626,29 @@ export default function Debts() {
                 <div className="text-xs font-medium text-slate-300 mb-1">
                   Goes to
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">
-                    {repayPreview.systemLabel}
-                  </span>
-                  <span className="font-mono text-emerald-400">
-                    {repayPreview.systemText}
-                  </span>
-                </div>
+                {repayPreview.systemText && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">
+                      {repayPreview.systemLabel}
+                    </span>
+                    <span className="font-mono text-emerald-400">
+                      {repayPreview.systemText}
+                    </span>
+                  </div>
+                )}
                 {repayPreview.generalText && (
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">General</span>
                     <span className="font-mono text-emerald-400">
                       {repayPreview.generalText}
+                    </span>
+                  </div>
+                )}
+                {repayPreview.creditText && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Account credit</span>
+                    <span className="font-mono text-emerald-400">
+                      {repayPreview.creditText}
                     </span>
                   </div>
                 )}
