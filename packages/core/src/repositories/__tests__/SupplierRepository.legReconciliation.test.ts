@@ -874,29 +874,35 @@ describe("SupplierRepository.recordSupplierCashflow() — leg reconciliation (LI
     });
   });
 
-  it("rejects an OUT (change) leg outright — no code in this method has ever read a leg's direction", () => {
+  // LIRA-313 (owner decision 2026-10-12): OUT (change) legs are now booked —
+  // this used to assert they were rejected. The invariant the rejection
+  // protected (LIRA-193: drawer movement === ledger movement) is what is
+  // checked now: a $100 PAY with $20 change back moves the drawer −80 and
+  // books a −80 PAYMENT row.
+  it("books an OUT (change) leg: drawer delta equals the NET ledger movement", () => {
     const supplierId = seedSupplier(db, "Katsh");
     const preDrawer = drawerBalance(db, "General", "USD");
 
-    expect(() =>
-      repo.recordSupplierCashflow({
-        supplier_id: supplierId,
-        direction: "PAY",
-        created_by: 1,
-        payments: [
-          { method: "CASH", currency_code: "USD", amount: 100 },
-          {
-            method: "CASH",
-            currency_code: "USD",
-            amount: 20,
-            direction: "OUT",
-          },
-        ],
-      }),
-    ).toThrow(/does not accept OUT/i);
+    const result = repo.recordSupplierCashflow({
+      supplier_id: supplierId,
+      direction: "PAY",
+      created_by: 1,
+      payments: [
+        { method: "CASH", currency_code: "USD", amount: 100 },
+        {
+          method: "CASH",
+          currency_code: "USD",
+          amount: 20,
+          direction: "OUT",
+        },
+      ],
+    });
 
-    expect(ledgerCount(db)).toBe(0);
-    expect(drawerBalance(db, "General", "USD")).toBeCloseTo(preDrawer);
+    const drawerDelta = drawerBalance(db, "General", "USD") - preDrawer;
+    const ledger = ledgerRow(db, result.id);
+    expect(drawerDelta).toBeCloseTo(-80, 2);
+    expect(ledger.amount_usd).toBeCloseTo(-80, 2);
+    expect(drawerDelta).toBeCloseTo(ledger.amount_usd, 2);
   });
 
   it("rejects a non-USD/LBP leg currency — the sum loop would otherwise drop it from the total while the posting loop still posted it", () => {

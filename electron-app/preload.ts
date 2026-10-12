@@ -45,6 +45,8 @@ import type {
   SaleRequest,
   // LIRA-256 — OMT statement covered commission types (core schema input).
   OmtCoveredTypesInput,
+  // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
+  SupplierCashflowPayload,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -901,17 +903,10 @@ contextBridge.exposeInMainWorld("api", {
        *  Rule 12/23: mirrors supplierSettleAccountSchema.discount. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
     }) => ipcRenderer.invoke("suppliers:settle-account", data),
-    recordCashflow: (data: {
-      supplier_id: number;
-      direction: "PAY" | "RECEIVE";
-      payments: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-      }>;
-      note?: string;
-      exchange_rate?: number;
-    }) => ipcRenderer.invoke("suppliers:record-cashflow", data),
+    // LIRA-313 (rule 12/21) — derived from the core schema: the hand-copied
+    // type lacked the per-leg `direction` (change legs) and `discount`.
+    recordCashflow: (data: SupplierCashflowPayload) =>
+      ipcRenderer.invoke("suppliers:record-cashflow", data),
     // NOTE: the standalone write-off (CQ-10) was REMOVED (owner decision D8,
     // SUPPLIER_STOCK_INTAKE_PLAN.md) — the bundled Pay-form discount above
     // (recordCashflow's `discount` field) is the surviving forgiveness path.

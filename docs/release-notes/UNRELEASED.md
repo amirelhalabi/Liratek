@@ -53,6 +53,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💸 OMT / Whish & suppliers
 
+- Suppliers page, Pay / Receive: paying (or receiving) more than what is owed now puts the extra on the supplier's account. For example, you owe $100 and pay $150: the supplier now owes you $50. The change box lets you choose: "Get change back" (the supplier hands the extra back, recorded in your drawer) or "To account". If only part is handed back, the rest stays on their account.
+- Suppliers page, Products tab: a supplier with a debt you recorded but no linked product now shows what you owe and counts in the Total Owed. It used to show $0.00 and "Settled".
 - Suppliers page: there is no Waive button when you settle a supplier, settle the OMT account, or pay on the Pay / Receive tab. If a supplier accepts a little less, type the difference in the Discount field on the Pay / Receive tab.
 - Paying out (OMT / Whish receive, Binance, Whish top-up from a client, debt cash-out, Hold Money pickup, refunds): the shop now keeps a leftover of up to $5 (or 450,000 LBP) automatically, up from $1 (or 100,000 LBP). There is no Waive button on OMT system or Whish system transfers.
 - Services page: an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique
@@ -114,6 +116,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🤝 Partners
 
+- Partner settle: paying more than the balance now leaves the extra on the partner's account, in either direction. The change box lets you choose "Return change" (recorded in your drawer) or "To account". Before, change handed back from that box was not recorded, so the drawer and the partner's balance were off by that amount.
+- Partner settle: when you owe the partner, the payment box now shows how much you owe. It used to show a total of $0.00.
 - Partner settle: a Waive button next to "Remaining" moves a gap of up to $5 (or 450,000 LBP) into the discount in one tap.
 - Partners page: a transfer you do through a partner on OMT App or Whish App now shows as "OMT APP"
   or "WHISH APP" in the partner's history, instead of looking like a regular OMT or Whish transfer.
@@ -259,6 +263,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💳 Debts
 
+- Settle Debt: when a customer pays more than they owe, the change now starts as "Return change". Tap "To account" to keep it all as the customer's credit, or type a smaller amount to return and the rest goes to their account. The credit now shows as "Overpayment kept as credit" (it used to say "Change returned").
+- Cash Out: you can now pay a customer more than their credit. The extra is added to what they owe. For example, they have $50 credit and you hand them $80: they now owe you $30.
 - Debt payment: a Waive button moves a gap of up to $5 (or 450,000 LBP) into Discount / Forgive in one tap. When you tick only some items, it covers only the ticked items: a "Remaining on ticked" line shows what is left on them, with Waive next to it, and the items you did not tick stay owed.
 - Cashing out a client's credit: if you hand out slightly less than the credit (under $1 or 100,000 LBP), the credit now clears to zero and the difference counts as shop profit on the Profits page.
 - Cashing out a credit now checks that the cash you hand out matches what comes off the client's credit, and only allows cash or wallet methods (not the client's account or a gift card).

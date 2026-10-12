@@ -72,13 +72,30 @@ export const partnerRecordTransactionSchema = z.object({
 // CQ-11 — a single split-settlement leg (MultiPaymentInput on the Partners
 // page): "settle $100 as $60 CASH + $40 OMT". Deliberately NOT the same shape
 // as the sales/recharge payment-leg contract (utils/payments.ts) — there is
-// no `direction` field because a partner settlement never carries a
-// return/change leg, only money moving one way.
+// LIRA-313 (owner decision 2026-10-12): a leg MAY carry `direction: "OUT"` —
+// change the other side hands back on an overpaid settlement, moving the
+// drawer the opposite way to the settlement. A leg without `direction` is IN
+// (the settlement's own flow), as everywhere else (FEATURE_GUIDE §4). The
+// settlement `amount` is the NET: sum(IN) − sum(OUT) — whatever change is not
+// handed back stays on the partner's balance.
 const partnerSettlementLegSchema = z.object({
   method: z.string().min(1),
   currency_code: z.string().min(1),
   amount: z.number().positive(),
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
+
+/** LIRA-313 — the settlement amount a leg set pays: IN legs minus OUT
+ *  (change handed back) legs. The ONE definition (rule 14), shared by the
+ *  schema refine below and PartnerService.settle. */
+export function partnerSettlementNet(
+  legs: ReadonlyArray<{ amount: number; direction?: "IN" | "OUT" }>,
+): number {
+  return legs.reduce(
+    (sum, leg) => sum + (leg.direction === "OUT" ? -leg.amount : leg.amount),
+    0,
+  );
+}
 
 // Settle a partner balance (money — writes a SETTLEMENT partner_ledger entry;
 // direction is computed server-side from the current balance).
@@ -125,11 +142,17 @@ export const partnerSettleSchema = z
   .refine(
     (d) =>
       !d.payments ||
-      Math.abs(
-        d.payments.reduce((sum, leg) => sum + leg.amount, 0) - d.amount,
-      ) <= 0.005,
+      Math.abs(partnerSettlementNet(d.payments) - d.amount) <= 0.005,
     {
-      message: "Payment legs must sum to the settlement amount",
+      message:
+        "Payment legs (paid minus change handed back) must sum to the settlement amount",
+      path: ["payments"],
+    },
+  )
+  .refine(
+    (d) => !d.payments || d.payments.some((leg) => leg.direction !== "OUT"),
+    {
+      message: "A settlement needs at least one payment leg, not only change",
       path: ["payments"],
     },
   )

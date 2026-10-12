@@ -901,22 +901,15 @@ export default function Debts() {
       // though the REST route (`POST /api/debts/cash-out`) is live.
       // Allocate the payout against the PER-CURRENCY credit; a remainder in
       // one currency settles the other's credit at the modal rate (paying an
-      // LBP credit out in USD is legitimate). The payout may never exceed the
-      // total credit — the excess would leave cash out of the till unbooked.
+      // LBP credit out in USD is legitimate). LIRA-313 (owner decision
+      // 2026-10-12): paying out MORE than the credit is allowed — what is
+      // left after clearing the credit is sent in its own tender currency
+      // and the server books it as the client's debt.
       const cashOutRate = repayModalRate ?? EXCHANGE_RATE;
       const rateNeeded = paidLBP > 0 || creditLbp > 0;
       if (rateNeeded && !(Number.isFinite(cashOutRate) && cashOutRate > 0)) {
         alert(
           "Exchange rate unavailable — set today's USD/LBP rate before a cash out involving LBP.",
-        );
-        return;
-      }
-      const paidConv = paidUSD + (paidLBP > 0 ? paidLBP / cashOutRate : 0);
-      const creditConv =
-        creditUsd + (creditLbp > 0 ? creditLbp / cashOutRate : 0);
-      if (paidConv > creditConv + 0.05) {
-        alert(
-          `Cash out ($${paidConv.toFixed(2)}) exceeds the client's credit ($${creditConv.toFixed(2)}).`,
         );
         return;
       }
@@ -930,17 +923,26 @@ export default function Debts() {
       const hasCashOutKept = cashOutKeptUsd > 0 || cashOutKeptLbp > 0;
       let outUsd = Math.min(paidUSD, creditUsd);
       let outLbp = Math.min(paidLBP, creditLbp);
-      const leftUsd = paidUSD - outUsd;
-      const leftLbp = paidLBP - outLbp;
-      if (leftUsd > 0) {
-        outLbp = Math.min(creditLbp, outLbp + leftUsd * cashOutRate);
+      let leftUsd = paidUSD - outUsd;
+      let leftLbp = paidLBP - outLbp;
+      if (leftUsd > 0 && outLbp < creditLbp) {
+        const lbpTaken = Math.min(creditLbp - outLbp, leftUsd * cashOutRate);
+        outLbp += lbpTaken;
+        leftUsd -= lbpTaken / cashOutRate;
       }
-      if (leftLbp > 0) {
-        outUsd = Math.min(creditUsd, outUsd + leftLbp / cashOutRate);
+      if (leftLbp > 0 && outUsd < creditUsd) {
+        const usdTaken = Math.min(creditUsd - outUsd, leftLbp / cashOutRate);
+        outUsd += usdTaken;
+        leftLbp -= usdTaken * cashOutRate;
       }
       if (hasCashOutKept) {
         outUsd = creditUsd;
         outLbp = creditLbp;
+      } else {
+        // LIRA-313 — paid out beyond the whole credit: the server books
+        // this part (per currency) as the client's debt.
+        if (leftUsd > 0.005) outUsd += Math.round(leftUsd * 100) / 100;
+        if (leftLbp > 0.5) outLbp += Math.round(leftLbp);
       }
       try {
         // ONE payload (rule 22). Payout lines only — a payout never carries
@@ -2495,11 +2497,12 @@ export default function Debts() {
               currency: "USD",
               // LIRA-308 — the amount fills to the TICKED sum while `totals`
               // stays the whole debt: an amount between the two pays more
-              // items, only one above the whole debt is change. Owner
-              // answer 1 (2026-10-11): the cashier types what is handed
-              // back; whatever is NOT entered goes to the customer's account
-              // (the existing CUSTOMER_ACCOUNT change leg → "Change
-              // returned" credit, reversed with the repayment). Nothing is
+              // items, only one above the whole debt is change. LIRA-313
+              // (owner decisions 2026-10-12): the change starts as "Return
+              // change" (full); "To account" or a partial return sends the
+              // rest to the customer's account (the CUSTOMER_ACCOUNT change
+              // leg → "Overpayment kept as credit", reversed with the
+              // repayment). Nothing is
               // kept as profit on a repayment any more. A tick change keeps
               // the cashier's payment lines (answer 3 — MPI `fillKey`).
               ...(repayMode === "repay"
@@ -2564,6 +2567,14 @@ export default function Debts() {
               // cash-out sheet owes in the credit's own currency when it is
               // LBP-only, so a kept shortfall is reported in LBP.
               payer: repayMode === "cashout" ? "payout" : "customer",
+              // LIRA-313 — paying out more than the credit is the client's
+              // new debt, not a mistake.
+              ...(repayMode === "cashout"
+                ? {
+                    payoutExcessToAccount: true,
+                    accountLabel: "the client's credit",
+                  }
+                : {}),
               ...(repayMode === "cashout" && creditUsd <= 0 && creditLbp > 0
                 ? { totalAmountCurrency: "LBP" }
                 : {}),

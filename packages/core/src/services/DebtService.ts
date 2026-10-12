@@ -501,28 +501,21 @@ export class DebtService {
       };
     }
 
-    // The payout may not exceed the client's credit PER CURRENCY — the excess
-    // would turn into NEW client debt, which a cash-out must never create.
-    // (A mixed position — USD credit + LBP debt — nets to ~0 converted, so
-    // the check must be per currency, never on the converted total.)
+    // LIRA-313 (owner decision 2026-10-12): a payout ABOVE the client's
+    // credit is allowed — the excess becomes client debt ("the extra goes
+    // into the account"). Split PER CURRENCY (a mixed position — USD credit
+    // + LBP debt — must never be netted on a converted total): the part up
+    // to the credit clears it, the rest is booked as debt by the repository
+    // in the SAME transaction. A cash-out still needs SOME credit to start
+    // from; lending to a client with no credit is Add Credit / Debt.
     const balance = this.debtRepo.getClientBalance(clientId);
     const creditUsd = Math.max(0, -balance.balance_usd);
     const creditLbp = Math.max(0, -balance.balance_lbp);
     if (creditUsd <= 0 && creditLbp <= 0) {
       return { success: false, error: "Client has no credit to cash out" };
     }
-    if (amountUSD > creditUsd + 0.05) {
-      return {
-        success: false,
-        error: `Cash out ($${amountUSD.toFixed(2)}) exceeds the client's USD credit ($${creditUsd.toFixed(2)})`,
-      };
-    }
-    if ((amountLBP ?? 0) > creditLbp + 1000) {
-      return {
-        success: false,
-        error: `Cash out (${(amountLBP ?? 0).toLocaleString()} LBP) exceeds the client's LBP credit (${creditLbp.toLocaleString()} LBP)`,
-      };
-    }
+    const debtExcessUsd = Math.max(0, (amountUSD ?? 0) - creditUsd);
+    const debtExcessLbp = Math.max(0, (amountLBP ?? 0) - creditLbp);
 
     try {
       const result = this.debtRepo.cashOutCredit({
@@ -536,10 +529,19 @@ export class DebtService {
         tender_exchange_rate: data.tender_exchange_rate,
         kept_change_usd: data.keptChangeUSD,
         kept_change_lbp: data.keptChangeLBP,
+        debt_excess_usd: debtExcessUsd > 0.005 ? debtExcessUsd : 0,
+        debt_excess_lbp: debtExcessLbp > 0.5 ? debtExcessLbp : 0,
       });
 
       debtLogger.info(
-        { clientId, amountUSD, amountLBP, cashOutId: result.id },
+        {
+          clientId,
+          amountUSD,
+          amountLBP,
+          debtExcessUsd,
+          debtExcessLbp,
+          cashOutId: result.id,
+        },
         `Credit cash out of $${amountUSD} for client ${clientId}`,
       );
 

@@ -11,11 +11,16 @@
  *
  * Answer 1 — "if the customer pays 85, and we didn't set $1 in the returned
  * amount, then $1 is account credit": with `unreturnedChangeTo=
- * "CUSTOMER_ACCOUNT"` the return fields start EMPTY, what the cashier types
- * there is handed back (as cash), and whatever is NOT entered becomes a
- * CUSTOMER_ACCOUNT change leg (the existing path the server books as
- * account credit). Nothing is kept as profit. Small rounding overpays
- * follow the same rule.
+ * "CUSTOMER_ACCOUNT"` what the cashier types in the return fields is handed
+ * back (as cash), and whatever is NOT entered becomes a CUSTOMER_ACCOUNT
+ * change leg (the existing path the server books as account credit).
+ * Nothing is kept as profit.
+ *
+ * LIRA-313 (owner decisions 2026-10-12) changed ONE thing here: the return
+ * fields now start FULL ("Return change" is the default) instead of empty,
+ * and a "To account" button empties them so the whole change is credited.
+ * Rule 24 — the cases below that relied on the empty start now press "To
+ * account" first; the account-credit behaviour itself is unchanged.
  *
  * Both are opt-in props; other forms are unaffected.
  */
@@ -224,7 +229,7 @@ describe("answer 3 — a tick change keeps the payment lines; the last one absor
 });
 
 describe("answer 1 — change the cashier does not enter as returned is account credit", () => {
-  it("$84 due, $85 paid, nothing returned → a $1 CUSTOMER_ACCOUNT change leg; the return fields start empty", () => {
+  it('$84 due, $85 paid: the $1 starts as change to return; "To account" makes it a $1 CUSTOMER_ACCOUNT change leg', () => {
     const onChange = jest.fn<void, [PaymentLine[]]>();
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     render(
@@ -238,9 +243,15 @@ describe("answer 1 — change the cashier does not enter as returned is account 
       }),
     );
     fireEvent.change(amountInputs()[0], { target: { value: "85" } });
+    // LIRA-313 — default "Return change": the field starts with the full $1.
     expect((screen.getByTestId("return-usd") as HTMLInputElement).value).toBe(
-      "",
+      "1.00",
     );
+    expect(shape(last(onReturnChange))).toEqual([
+      { method: "CASH", currencyCode: "USD", amount: 1 },
+    ]);
+    fireEvent.click(screen.getByTestId("change-destination-account"));
+    expect(screen.queryByTestId("return-usd")).toBeNull();
     expect(shape(last(onReturnChange))).toEqual([
       { method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 1 },
     ]);
@@ -314,6 +325,8 @@ describe("answer 1 — change the cashier does not enter as returned is account 
       }),
     );
     fireEvent.change(amountInputs()[0], { target: { value: "910000" } });
+    // LIRA-313 — the change starts as cash to return; "To account" credits it.
+    fireEvent.click(screen.getByTestId("change-destination-account"));
     expect(shape(last(onReturnChange))).toEqual([
       { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 10_000 },
     ]);

@@ -9,6 +9,8 @@ import type {
   DesktopUnpairInput,
   // LIRA-256 — OMT statement covered commission types (core schema input).
   OmtCoveredTypesInput,
+  // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
+  SupplierCashflowPayload,
   UnitWarrantyDisplay,
   DailyStatsSnapshot,
   DailyStatsSnapshotQuery,
@@ -2107,20 +2109,11 @@ export interface ElectronAPI {
        *  Rule 12/23: mirrors the core settle schema's `discount`. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    recordCashflow: (data: {
-      supplier_id: number;
-      direction: "PAY" | "RECEIVE";
-      payments: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-      }>;
-      note?: string;
-      exchange_rate?: number;
-      /** CQ-10: bundled discount — PAY direction only (backend rejects it on
-       *  RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row. */
-      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    // LIRA-313 (rule 21) — the core schema's input type: per-leg
+    // `direction` (change legs) and the PAY-only bundled `discount`.
+    recordCashflow: (
+      data: SupplierCashflowPayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     // NOTE: the standalone write-off (CQ-10) was REMOVED (owner decision D8,
     // SUPPLIER_STOCK_INTAKE_PLAN.md) — the bundled Pay-form discount above
     // (recordCashflow's `discount` field) is the surviving forgiveness path.

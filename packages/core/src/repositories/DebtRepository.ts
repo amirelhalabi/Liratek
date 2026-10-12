@@ -773,7 +773,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             clientId: data.client_id,
             amountUsd: r.currencyCode === "USD" ? amt : 0,
             amountLbp: r.currencyCode === "LBP" ? amt : 0,
-            note: "Change returned",
+            // LIRA-313 — this change was NOT handed back; it stays on the
+            // client's account as credit.
+            note: "Overpayment kept as credit",
             createdBy: String(data.created_by),
             transactionId: txnId,
             ...(data.transaction_time
@@ -1733,11 +1735,25 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
      *  repayment's (`kept_change_usd`/`kept_change_lbp`). */
     kept_change_usd?: number;
     kept_change_lbp?: number;
+    /** LIRA-313 — the part of `amount_*` paid out BEYOND the client's
+     *  credit (computed by DebtService.cashOut, per currency). It is booked
+     *  as a separate 'Manual Debt' row in the SAME transaction: the client
+     *  now owes it. Default 0 = the whole amount clears credit. */
+    debt_excess_usd?: number;
+    debt_excess_lbp?: number;
   }): { id: number } {
     const tenantId = getCurrentTenantId();
     return this.transaction(() => {
       const reductionUsd = Math.abs(data.amount_usd);
       const reductionLbp = Math.abs(data.amount_lbp);
+      const excessUsd = Math.min(
+        reductionUsd,
+        Math.max(0, data.debt_excess_usd ?? 0),
+      );
+      const excessLbp = Math.min(
+        reductionLbp,
+        Math.max(0, data.debt_excess_lbp ?? 0),
+      );
 
       // Payout legs: default to CASH legs matching the reduction PER
       // CURRENCY. A USD-only default silently skipped the drawer debit on an
@@ -1821,8 +1837,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       `);
       const result = stmt.run(
         data.client_id,
-        Math.abs(data.amount_usd),
-        Math.abs(data.amount_lbp),
+        reductionUsd - excessUsd,
+        reductionLbp - excessLbp,
         data.note || "Credit cash out",
         data.created_by,
         tenantId,
@@ -1830,6 +1846,29 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         data.transaction_time ?? requestNow(),
       );
       const ledgerId = Number(result.lastInsertRowid);
+      // LIRA-313 — paid out beyond the credit: the client now owes the
+      // excess. Same 'Manual Debt' row (and sign) a cash advance books, so
+      // it is repaid like any other account debt. CREDIT_CASH_OUT is
+      // NON_REVERSIBLE (transactionTypes.ts), so this row — linked to the
+      // same transaction below — has no void path to own (rule 20).
+      let excessLedgerId: number | null = null;
+      if (excessUsd > 0 || excessLbp > 0) {
+        const excessRes = this.db
+          .prepare(
+            `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+             VALUES (?, 'Manual Debt', ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            data.client_id,
+            excessUsd,
+            excessLbp,
+            "Paid out beyond credit",
+            data.created_by,
+            tenantId,
+            data.transaction_time ?? requestNow(),
+          );
+        excessLedgerId = Number(excessRes.lastInsertRowid);
+      }
 
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.CREDIT_CASH_OUT,
@@ -1847,7 +1886,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         client_id: data.client_id,
         summary: `Credit Cash Out: $${Math.abs(data.amount_usd)} + ${Math.abs(
           data.amount_lbp,
-        )} LBP`,
+        )} LBP${
+          excessUsd > 0 || excessLbp > 0
+            ? ` (beyond credit, now owed: $${excessUsd} + ${excessLbp} LBP)`
+            : ""
+        }`,
         exchange_rate: recordExchangeRate,
         metadata_json: {
           legs: legs.length > 1 ? legs : undefined,
@@ -1871,6 +1914,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           `UPDATE debt_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
         )
         .run(txnId, ledgerId, tenantId);
+      if (excessLedgerId !== null) {
+        this.db
+          .prepare(
+            `UPDATE debt_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(txnId, excessLedgerId, tenantId);
+      }
 
       const insertPayment = {
         run: (

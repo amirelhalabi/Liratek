@@ -392,6 +392,10 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   const useClientAccount = !cashMoved;
   const [clientAccountAmount, setClientAccountAmount] = useState("");
   const [settleLines, setSettleLines] = useState<PaymentLine[]>([]);
+  // LIRA-313 — change handed back on an overpaid settlement (OUT legs).
+  // Change NOT handed back stays on the partner's balance: the settlement
+  // amount is the net (paid − change), so it simply crosses zero.
+  const [settleReturnLegs, setSettleReturnLegs] = useState<PaymentLine[]>([]);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // CQ-10: bundled discount — forgives part of what the partner owes,
@@ -414,15 +418,26 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   const usedRate = paymentRate ?? exchangeRate;
 
   const validLines = settleLines.filter((l) => l.amount > 0);
-  const legsAmount = validLines.reduce((s, l) => s + l.amount, 0);
+  const validReturnLegs = settleReturnLegs.filter((l) => l.amount > 0);
+  // LIRA-313 — the settlement pays what was paid minus the change handed
+  // back; the server re-derives the same net from the legs.
+  const legsAmount =
+    validLines.reduce((s, l) => s + l.amount, 0) -
+    validReturnLegs.reduce((s, l) => s + l.amount, 0);
   const parsedAmount = useClientAccount
     ? parseFloat(clientAccountAmount) || 0
     : legsAmount;
   const isValid = parsedAmount > 0;
-  const balanceInCurrency = Math.max(
-    0,
-    currency === "USD" ? partner.usd : partner.lbp,
-  );
+  // LIRA-313 — what this settlement settles, in EITHER direction: the
+  // server settles toward zero from the balance's sign, so a balance we owe
+  // the partner (negative) is just as much "owed" as one they owe us. The
+  // old Math.max(0, …) showed "Total $0.00" whenever we owed them.
+  const signedBalanceInCurrency =
+    currency === "USD" ? partner.usd : partner.lbp;
+  const balanceInCurrency = Math.abs(signedBalanceInCurrency);
+  // Negative balance = we owe the partner = the shop pays (FEATURE_GUIDE
+  // §4.1 payer "shop": change is something we GET back).
+  const shopPays = signedBalanceInCurrency < 0;
   // CQ-10: PartnerService.settle posts the settlement `amount` and the
   // `discount` as two INDEPENDENT ledger rows with no combined validation
   // (unlike Debts, where the reduction math is capped against the
@@ -495,11 +510,21 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
           : {}),
         ...(!useClientAccount && validLines.length > 0
           ? {
-              payments: validLines.map((l) => ({
-                method: l.method,
-                currency_code: l.currencyCode,
-                amount: l.amount,
-              })),
+              // ONE payload (rule 22): paid legs + change handed back
+              // (LIRA-313, `direction: "OUT"`).
+              payments: [
+                ...validLines.map((l) => ({
+                  method: l.method,
+                  currency_code: l.currencyCode,
+                  amount: l.amount,
+                })),
+                ...validReturnLegs.map((l) => ({
+                  method: l.method,
+                  currency_code: l.currencyCode,
+                  amount: l.amount,
+                  direction: "OUT" as const,
+                })),
+              ],
             }
           : {}),
         ...(parsedDiscount > 0
@@ -636,6 +661,20 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               totalAmountCurrency: currency,
               currency,
               onChange: setSettleLines,
+              // LIRA-313 (owner decisions 2026-10-12) — an overpay is change
+              // handed back (default) or left on the partner's account.
+              // Change comes back only in the settlement currency (every
+              // leg must be in it) and only as cash.
+              onReturnChange: setSettleReturnLegs,
+              unreturnedChangeTo: "ACCOUNT_BALANCE",
+              accountLabel: "the partner's account",
+              cashOnlyReturn: true,
+              returnCurrencies: [currency],
+              payer: shopPays ? "shop" : "customer",
+              // Owner rule 2026-10-12 (LIRA-310 follow-up): Waive only when
+              // money comes IN. Paying a partner we owe is money OUT — the
+              // old Math.max(0, …) total hid it by accident; now explicit.
+              waiveDisabled: shopPays,
               showPmFee: false,
               showDiscount: false,
               // Locked to the single selected currency — the operator can

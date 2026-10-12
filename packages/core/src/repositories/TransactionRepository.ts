@@ -6516,9 +6516,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     if (!ledger || ledger.entry_type !== "PAYMENT" || ledger.is_auto) return;
 
     const rate = original.exchange_rate || 89000;
+    // LIRA-313 — give back the SIGNED net, exactly what recordSupplierCashflow
+    // applied (`usd + lbp / rate` of the paid − change legs). A PAYMENT row
+    // is negative, so the net paid is −(usd + lbp / rate). Change handed
+    // back in the other currency makes that currency's amount POSITIVE
+    // ($150 paid, 4,450,000 LBP back → −150 / +4,450,000 → $100 net);
+    // summing absolute values would give back $200 of coverage. For every
+    // older row both amounts are ≤ 0, so this equals the old abs sum.
     this._giveBackSupplierPurchaseCoverage(
       ledger.supplier_id,
-      Math.abs(ledger.amount_usd) + Math.abs(ledger.amount_lbp) / rate,
+      Math.max(0, -(ledger.amount_usd + ledger.amount_lbp / rate)),
       tenantId,
     );
   }

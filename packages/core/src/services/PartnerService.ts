@@ -19,6 +19,7 @@ import {
 } from "../repositories/index.js";
 import { NotFoundError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
+import { partnerSettlementNet } from "../validators/partner.js";
 
 const partnerLogger = logger.child({ module: "partner" });
 
@@ -214,7 +215,14 @@ export class PartnerService {
      *  structural rules (same-currency legs, legs sum to `amount`, no
      *  CLIENT_ACCOUNT leg) — re-checked here too since the service can be
      *  (and is, in tests) called directly, bypassing Zod. */
-    payments?: Array<{ method: string; currency_code: string; amount: number }>;
+    payments?: Array<{
+      method: string;
+      currency_code: string;
+      amount: number;
+      /** LIRA-313 — "OUT" = change the other side hands back (moves the
+       *  drawer opposite to the settlement). Absent = IN. */
+      direction?: "IN" | "OUT";
+    }>;
     /** Owner decision 2026-10-07 — the rate the settle modal showed,
      *  stamped on the PARTNER_SETTLEMENT transaction (never converts an
      *  amount: legs are locked to `currency`). */
@@ -253,10 +261,17 @@ export class PartnerService {
             `Every payment leg's currency_code must match the settlement currency (${data.currency})`,
           );
         }
-        const legsSum = data.payments.reduce((sum, leg) => sum + leg.amount, 0);
+        if (data.payments.every((leg) => leg.direction === "OUT")) {
+          throw new Error(
+            "A settlement needs at least one payment leg, not only change",
+          );
+        }
+        // LIRA-313 — the legs pay the NET: what was paid minus the change
+        // handed back. Change not handed back stays on the balance.
+        const legsSum = partnerSettlementNet(data.payments);
         if (Math.abs(legsSum - data.amount) > 0.005) {
           throw new Error(
-            `Payment legs (${legsSum} ${data.currency}) must sum to the settlement amount (${data.amount} ${data.currency})`,
+            `Payment legs (${legsSum} ${data.currency}, paid minus change) must sum to the settlement amount (${data.amount} ${data.currency})`,
           );
         }
       }

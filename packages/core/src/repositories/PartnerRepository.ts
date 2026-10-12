@@ -552,7 +552,15 @@ export class PartnerRepository extends BaseRepository<Partner> {
     /** CQ-11 — split payment legs (MultiPaymentInput). Each leg's amount is
      *  UNsigned (positive); the direction sign is derived once from
      *  `entry.direction`, same as the legacy single-leg `signed` below. */
-    legs?: Array<{ method: string; currency_code: string; amount: number }>,
+    legs?: Array<{
+      method: string;
+      currency_code: string;
+      amount: number;
+      /** LIRA-313 — "OUT" = change the other side handed back: moves the
+       *  drawer OPPOSITE to the settlement. `entry.amount` is already the
+       *  net (IN − OUT), so the drawer total equals it exactly. */
+      direction?: "IN" | "OUT";
+    }>,
     /** Owner decision 2026-10-07 — the rate the cashier's settle modal
      *  showed; stamped on the transaction when sent, else createTransaction's
      *  market-rate snapshot. Never converts an amount. */
@@ -582,11 +590,13 @@ export class PartnerRepository extends BaseRepository<Partner> {
     // `counterparty.method`) reflects what ACTUALLY moved money — the
     // legs' methods when present (collapsing to 'SPLIT' when they're mixed),
     // falling back to the legacy `method` when `legs` is omitted.
-    const legMethods = legs ? new Set(legs.map((l) => l.method)) : null;
+    const legMethods = legs
+      ? new Set(legs.filter((l) => l.direction !== "OUT").map((l) => l.method))
+      : null;
     const effectiveMethod = legMethods
       ? legMethods.size > 1
         ? "SPLIT"
-        : (legs as Array<{ method: string }>)[0].method
+        : [...legMethods][0]
       : method;
 
     const txn = this.db.transaction(() => {
@@ -646,17 +656,21 @@ export class PartnerRepository extends BaseRepository<Partner> {
             const legDrawerName = paymentMethodToDrawerName(leg.method);
             const legDrawerCurrency =
               leg.method === "BINANCE" ? "USDT" : leg.currency_code;
-            const legSigned =
+            const isChange = leg.direction === "OUT";
+            const flowSigned =
               entry.direction === "CREDIT"
                 ? Math.abs(leg.amount)
                 : -Math.abs(leg.amount);
+            const legSigned = isChange ? -flowSigned : flowSigned;
             insertPaymentRow(this.db, {
               transactionId: txnId,
               method: leg.method,
               drawerName: legDrawerName,
               currencyCode: legDrawerCurrency,
               amount: legSigned,
-              note: `Partner settlement (${label})`,
+              note: isChange
+                ? `Change returned (${label})`
+                : `Partner settlement (${label})`,
               createdBy: userId,
               tenantId,
             });

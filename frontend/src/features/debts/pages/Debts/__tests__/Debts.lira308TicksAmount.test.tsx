@@ -409,6 +409,9 @@ it("6 + 9 — no itemised debt, LBP overpay: LBP account credit, shown in Goes t
   await waitFor(() => expect(mockGetOpenDebtItems).toHaveBeenCalled());
   await waitFor(() => expect(amountValue()).toBe("600000"));
   typeAmount("700000");
+  // LIRA-313 (owner decision 2026-10-12): the change starts as "Return
+  // change"; "To account" puts the whole overpay on the account.
+  fireEvent.click(await screen.findByTestId("change-destination-account"));
   await waitFor(() =>
     expect(screen.getByTestId("repay-goes-to").textContent).toContain(
       "Account credit100,000 LBP",
@@ -437,17 +440,13 @@ it("answer 1 — $10 over, $4 typed as returned: $4 cash back, $6 account credit
   await openSettle();
   await waitFor(() => expect(amountValue()).toBe("135"));
   typeAmount("145");
-  // The returned-amount field starts empty: nothing is handed back until
-  // the cashier types it.
+  // LIRA-313 (owner decision 2026-10-12): the returned-amount field now
+  // starts FULL ("Return change" is the default); the cashier lowers it to
+  // what is really handed back and the rest goes to the account.
   const returned = (await screen.findByTestId(
     "return-usd",
   )) as HTMLInputElement;
-  expect(returned.value).toBe("");
-  await waitFor(() =>
-    expect(screen.getByTestId("repay-goes-to").textContent).toContain(
-      "Account credit$10",
-    ),
-  );
+  expect(returned.value).toBe("10.00");
   fireEvent.change(returned, { target: { value: "4" } });
   await waitFor(() =>
     expect(screen.getByTestId("repay-goes-to").textContent).toContain(

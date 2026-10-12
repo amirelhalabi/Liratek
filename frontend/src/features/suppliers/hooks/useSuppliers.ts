@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
 import { normaliseCoveredTypes, type OmtCoveredType } from "@liratek/core";
 import type {
+  SupplierCashflowPayload,
   SupplierLedgerEntryPayload,
   SupplierSettleInput,
 } from "@liratek/core";
@@ -460,19 +461,10 @@ export function useSupplierCashflowMutation(
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: {
-      supplier_id: number;
-      direction: "PAY" | "RECEIVE";
-      payments: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-      }>;
-      note?: string;
-      exchange_rate?: number;
-      /** CQ-10: bundled discount — PAY direction only. */
-      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-    }) => api.recordSupplierCashflow(data),
+    // LIRA-313 (rule 21) — the core schema's input type: the hand-written
+    // copy lacked the per-leg `direction` that marks change handed back.
+    mutationFn: (data: SupplierCashflowPayload) =>
+      api.recordSupplierCashflow(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });

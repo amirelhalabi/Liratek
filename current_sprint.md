@@ -6654,6 +6654,24 @@ Spec: `specs/309-phone-lines-management/` (spec, plan, research, data model, con
 
 **What users will notice:** a new Phone Lines page next to Mobile Recharge lists your shop lines and the lines you sell with credit, expiry and days left; you can enter a sold line's carrier, expiry and credit there or in the product form.
 
+## LIRA-313: Overpayment goes into the account — Suppliers, Debts, Partners — BUILT, not yet committed, tests written but not run (owner decisions 2026-10-12)
+
+Owner rule: "in any mode (pay / receive) the extra amount paid goes into the account" — the balance crosses zero (client owes $100, pays $150 → $50 credit; we pay a supplier $150 on $100 owed → they owe us $50). Live test on the test tenant (2026-10-12) found Supplier Pay/Receive and Partner settle already booked the extra, but both showed a "Return / Change" box the server never received (if the cashier handed change back, drawer and balance were off by that amount), Debts → Cash Out refused anything above the credit, and three display bugs.
+
+**Owner decisions 2026-10-12 (binding):**
+
+1. Cash Out above the credit is allowed; the extra becomes the client's debt.
+2. The change box gets "Return change" / "To account"; **"Return change" is the default**, and a partial return sends the rest to the account. Applies to Debts → Settle Debt too (replaces LIRA-308 answer 1's empty start).
+3. Supplier/Partner change is made real: returned change is booked as an OUT leg; the unreturned part stays on the account.
+
+**Built:** core — `recordSupplierCashflow` accepts OUT legs (net per currency, opposite drawer), partner settle legs take `direction` (`partnerSettlementNet`, schema + service), `DebtService.cashOut` splits the excess into a `'Manual Debt'` row in the same CREDIT_CASH_OUT transaction (non-reversible type, so no void owner needed), the Debts account-credit note is now "Overpayment kept as credit", and `getProductSupplierBalances` covers every non-system supplier (fixes the Products tab "$0.00 / Settled"). Voiding a supplier PAY now gives back purchase coverage by the signed net (`TransactionRepository._unapplySupplierPurchaseCoverage`), not `|usd| + |lbp|`. Partner settle hides Waive when we pay the partner (owner rule: Waive only for money coming in). UI — `MultiPaymentInput` gains `unreturnedChangeTo: "ACCOUNT_BALANCE"`, `accountLabel`, `returnCurrencies`, `payoutExcessToAccount` and the Return change / To account toggle; Suppliers Pay/Receive and Partner settle send change legs; the Supplier total is only what is owed in the chosen direction; Partner settle uses `Math.abs` of the balance and payer "shop" when we owe them. Preload/`electron.d.ts` cashflow types now derive from `SupplierCashflowPayload` (rule 21).
+
+**Tests (written, NOT run — owner asked for write-only; not proven failing-first, rule 17):** `SupplierRepository.cashflowChangeLegs.test.ts`, `PartnerSettlement.changeLegs.test.ts`, `DebtRepository.cashOutBeyondCredit.test.ts`, `MultiPaymentInput.lira313AccountToggle.test.tsx`; updated `SupplierRepository.legReconciliation.test.ts` (OUT-leg rejection → net-equals-drawer guard), `MultiPaymentInput.lira308OwnerAnswers.test.tsx`, e2e `lira-107` and `lira-web-051` (press "To account").
+
+**Not covered (open):** the OMT/company "Settle Account" sheet still refuses a COLLECT surplus and the per-row Settle refuses overpay; a partner at exactly $0 can only "receive" through Settle (direction comes from the balance sign).
+
+**What users will notice:** paying or receiving more than is owed on Suppliers, Partners and Debts now leaves the extra on the other side's account; the change box asks "Return change" or "To account"; Cash Out can go beyond a customer's credit and the rest becomes their debt; Products-tab suppliers show their recorded debt.
+
 ## LIRA-311: Expense History shows totals and every day — DONE, not yet committed (owner request 2026-10-12)
 
 The Expense History window was fed `getTodayExpenses()`, so its date filter could never reach a past day, and it showed no totals. It now loads every listed expense (new `getExpenseHistory` on core, IPC `db:get-expense-history`, REST `GET /api/expenses/history`, adapter + web shim) when it opens, and shows Total USD / Total LBP chips for the rows on screen. Owner decisions 2026-10-12: chips in the window's title bar, refunded rows left out of the totals (same rule as the page header — one shared `expenseTotals` helper), and the load fix ships in the same change. No upper bound on the history load (expense rows are small); revisit if a shop's history grows large.

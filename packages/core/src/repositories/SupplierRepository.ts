@@ -8,6 +8,8 @@ import {
 } from "../constants/transactionTypes.js";
 import {
   isDrawerAffectingMethod,
+  isReturnLeg,
+  partitionLegs,
   resolveServiceCashDrawer,
   type ServiceCashDrawerContext,
 } from "../utils/payments.js";
@@ -451,8 +453,9 @@ export interface SupplierCashflowData {
    * shared runtime schema (`supplierPaymentLegSchema`, reused by
    * `supplierCashflowSchema`) but was missing here, the same completeness
    * gap `SettleTransactionsData.payments` had (see its doc comment).
-   * `recordSupplierCashflow` has never read a per-leg `direction` either —
-   * declared so the reject-outright guard below can see and reject it.
+   * LIRA-313: `direction: "OUT"` is a change leg — money handed back on an
+   * overpaid cashflow, moving the drawer opposite to the cashflow. The
+   * ledger books the net per currency (IN − OUT).
    */
   payments: Array<{
     method: string;
@@ -2153,8 +2156,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
-   * SUPPLIER_STOCK_INTAKE_PLAN.md — LEDGER-ONLY balance, restricted to
-   * is_system = 0 suppliers that have a linked product_suppliers row.
+   * SUPPLIER_STOCK_INTAKE_PLAN.md — LEDGER-ONLY balance over every
+   * is_system = 0 supplier (LIRA-313 dropped the product_suppliers link
+   * requirement — see the WHERE below).
    *
    * This REPLACES the old recompute-from-live-inventory query, which had two
    * bugs that die with this rewrite:
@@ -2176,13 +2180,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   getProductSupplierBalances(): SupplierBalance[] {
     try {
       const tenantId = getCurrentTenantId();
+      // LIRA-313 — every non-system supplier, linked to a product or not.
+      // The Products tab lists every `is_system = 0` supplier; requiring a
+      // `product_suppliers` link here showed a supplier with a recorded debt
+      // but no linked product as "$0.00 / Settled" and left its debt out of
+      // the page total.
       return this.query<SupplierBalance>(
         this._ledgerBalanceQuery(`
           s.is_system = 0 AND s.is_active = 1 AND s.tenant_id = ?
-          AND EXISTS (
-            SELECT 1 FROM product_suppliers ps
-            WHERE ps.supplier_id = s.id AND ps.tenant_id = s.tenant_id
-          )
         `),
         tenantId,
       );
@@ -5566,14 +5571,22 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     // currency code from the total while the posting loop would still post
     // it to a real drawer — the same sum-vs-post divergence, just via an
     // unrecognised currency instead of a non-drawer method.
+    //
+    // LIRA-313 (owner decision 2026-10-12) — OUT legs are now ACCEPTED here:
+    // they are the change the supplier hands back on an overpaid PAY (or the
+    // change we hand back on an overpaid RECEIVE), moving the drawer the
+    // OPPOSITE way to the cashflow. The ledger books the NET per currency
+    // (IN − OUT); change that is NOT handed back simply stays on the
+    // supplier's balance, which may cross zero ("the extra goes into the
+    // account"). Every leg, IN or OUT, still has to move a real drawer.
+    const { inLegs: cashflowInLegs, outLegs: cashflowChangeLegs } =
+      partitionLegs(data.payments);
+    if (cashflowInLegs.length === 0) {
+      throw new DatabaseError(
+        "Supplier cashflow needs at least one payment leg, not only change",
+      );
+    }
     for (const p of data.payments) {
-      if (p.direction === "OUT") {
-        throw new DatabaseError(
-          "Supplier cashflow does not accept OUT (change/return) legs — " +
-            "there is no customer to hand change back to; pay or collect " +
-            "the exact amount",
-        );
-      }
       this._assertSupplierLegMovesADrawer(p.method, "Supplier cashflow");
       this._assertSupplierLegCurrencyIsValid(
         p.currency_code,
@@ -5604,13 +5617,31 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             ? data.exchange_rate
             : 89000;
 
+        // LIRA-313 — NET per currency: paid (IN) minus change handed back
+        // (OUT). A currency can go negative (e.g. $150 paid, 100,000 LBP
+        // change back) — the ledger is per currency, so that is exact.
         let usd = 0;
         let lbp = 0;
         for (const p of data.payments) {
-          const amt = Math.abs(p.amount);
+          const amt = Math.abs(p.amount) * (isReturnLeg(p) ? -1 : 1);
           if (p.currency_code === "USD") usd += amt;
           else if (p.currency_code === "LBP") lbp += amt;
         }
+        if (usd + lbp / rate <= 0.005) {
+          throw new DatabaseError(
+            "Supplier cashflow: the change handed back is not less than what was paid",
+          );
+        }
+        const changeNote =
+          cashflowChangeLegs.length > 0
+            ? ` (change back: ${cashflowChangeLegs
+                .map((l) =>
+                  l.currency_code === "LBP"
+                    ? `${Math.abs(l.amount).toLocaleString()} LBP`
+                    : `$${Math.abs(l.amount).toFixed(2)}`,
+                )
+                .join(" + ")})`
+            : "";
 
         const ledgerRes = this.db
           .prepare(
@@ -5629,7 +5660,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           );
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
-        const money = `$${usd.toFixed(2)}${lbp ? ` + ${lbp.toLocaleString()} LBP` : ""}`;
+        const money = `$${usd.toFixed(2)}${lbp ? ` + ${lbp.toLocaleString()} LBP` : ""}${changeNote}`;
         // note 14 — thin-summary enrichment: append the supplier's name
         // (paid TO them vs received FROM them), after the existing prefix.
         const supplierName = this._getSupplierName(data.supplier_id);
@@ -5639,7 +5670,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // CQ-7: funneled through createTransaction() instead of a raw INSERT
         // — gains the completeness guards and exchange-rate snapshot.
         const cashflowMethod =
-          data.payments.length === 1 ? data.payments[0].method : "SPLIT";
+          cashflowInLegs.length === 1 ? cashflowInLegs[0].method : "SPLIT";
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
           source_table: "supplier_ledger",
@@ -5696,7 +5727,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           // Primary Cash Drawer plan §1/§8.2 (decision #10): a CASH leg to
           // the shop's primary-system supplier resolves to the PCD.
           const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
-          const delta = sign * Math.abs(p.amount);
+          // LIRA-313 — a change (OUT) leg moves the drawer the other way.
+          const isChange = isReturnLeg(p);
+          const delta = (isChange ? -sign : sign) * Math.abs(p.amount);
           applyDrawerDelta(this.db, {
             drawerName,
             currencyCode: p.currency_code,
@@ -5709,7 +5742,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             drawerName,
             currencyCode: p.currency_code,
             amount: delta,
-            note: data.note ?? summary,
+            note: isChange ? "Change returned" : (data.note ?? summary),
             createdBy: data.created_by,
             tenantId,
           });

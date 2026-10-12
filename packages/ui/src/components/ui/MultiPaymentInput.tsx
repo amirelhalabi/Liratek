@@ -189,8 +189,33 @@ export interface MultiPaymentInputProps {
    *  one more change leg with this method (in the tender's currency under
    *  `returnCurrencyFollowsTender`). Nothing is kept as profit
    *  (`onKeptChange` never reports a keep), and an under-return is not a
-   *  mismatch. Customer payer only; requires `hasClient`. */
-  unreturnedChangeTo?: "CUSTOMER_ACCOUNT";
+   *  mismatch. Customer payer only; requires `hasClient`.
+   *
+   *  LIRA-313 (owner decisions 2026-10-12) — the return fields now start
+   *  FULL ("Return change" is the default); a "Return change" / "To
+   *  account" toggle in the change box clears or refills them, and
+   *  whatever is not entered still goes to the account. The second value
+   *  serves counterparty pages (Suppliers, Partners):
+   *  - "CUSTOMER_ACCOUNT": the unreturned change is emitted as one more
+   *    OUT leg with that method — the server books it as client credit.
+   *  - "ACCOUNT_BALANCE": NO leg is emitted — the server books the net
+   *    (paid − change handed back), so change not handed back simply stays
+   *    on the counterparty's balance. Works for the customer AND shop
+   *    payer, and needs no `hasClient`. */
+  unreturnedChangeTo?: "CUSTOMER_ACCOUNT" | "ACCOUNT_BALANCE";
+  /** LIRA-313 — whose account the unreturned change lands on, for the
+   *  change-box copy (e.g. "the supplier's account"). Default "the
+   *  customer's account". */
+  accountLabel?: string;
+  /** LIRA-313 — limit the CASH return fields to these currencies (e.g. a
+   *  partner settlement whose legs must all be in the settlement currency).
+   *  Default: both USD and LBP. */
+  returnCurrencies?: string[];
+  /** LIRA-313 (owner decision 2026-10-12) — payout mode only: paying out
+   *  MORE than the total is not a mistake but becomes the other side's
+   *  debt (Debts → Cash Out above the credit). The Paid figure is not
+   *  flagged red, and a note says how much the other side will owe. */
+  payoutExcessToAccount?: boolean;
   /** Payment methods to display in dropdown */
   paymentMethods: PaymentMethod[];
   /** Available currencies */
@@ -419,6 +444,9 @@ export default function MultiPaymentInput({
   defaultReturnMethod,
   returnCurrencyFollowsTender = false,
   unreturnedChangeTo,
+  accountLabel,
+  returnCurrencies,
+  payoutExcessToAccount = false,
   clientId,
   fetchClientVouchers,
   onWaiveRemaining,
@@ -494,6 +522,10 @@ export default function MultiPaymentInput({
   // For CASH returns: editable USD and LBP amounts (mirrors POS "Change Given").
   const [returnAmountUSD, setReturnAmountUSD] = useState<string>("");
   const [returnAmountLBP, setReturnAmountLBP] = useState<string>("");
+  // LIRA-313 — the "To account" choice in the change box: the return
+  // fields are cleared and the whole change goes to the account. Off by
+  // default (owner decision 2026-10-12: "Return change" is the default).
+  const [changeToAccount, setChangeToAccount] = useState(false);
   // Stable id prefix for return legs (consumers don't use the id).
   const returnLegIdRef = useRef<string>(crypto.randomUUID());
   // Tracks whether the user manually edited the single-mode amount, so a
@@ -1400,15 +1432,41 @@ export default function MultiPaymentInput({
     cashOnlyReturn || paymentMethods.every((pm) => pm.code === "CASH");
   const effectiveReturnMethod = isCashOnlyPayment ? "CASH" : returnMethod;
   /** LIRA-308 answer 1 — change not entered as returned goes to the account. */
-  const creditUnreturned = !!unreturnedChangeTo && !isPayout && hasClient;
+  const creditUnreturned =
+    !!unreturnedChangeTo &&
+    !isPayout &&
+    (unreturnedChangeTo === "ACCOUNT_BALANCE" || hasClient);
+  // LIRA-313 — which CASH return fields exist (e.g. a partner settlement
+  // can only take change back in its own currency).
+  const allowReturnUSD = !returnCurrencies || returnCurrencies.includes("USD");
+  const allowReturnLBP = !returnCurrencies || returnCurrencies.includes("LBP");
 
   /** The full suggested return the auto-init effect below seeds. */
-  const seedFullSuggestedReturn = () => {
-    // LIRA-308 answer 1 — the cashier types what is handed back; the rest
-    // goes to the account, so nothing is pre-entered.
-    if (creditUnreturned) {
+  const seedFullSuggestedReturn = (toAccount: boolean = changeToAccount) => {
+    // LIRA-313 — "To account" chosen: nothing is handed back, the whole
+    // change goes to the account. (LIRA-308 answer 1's empty seed is
+    // replaced by owner decision 2026-10-12: "Return change" is the
+    // default, so the fields start full like everywhere else.)
+    if (creditUnreturned && toAccount) {
       setReturnAmountUSD("");
       setReturnAmountLBP("");
+      return;
+    }
+    // LIRA-313 — a single allowed return currency takes the whole change.
+    if (!allowReturnLBP && allowReturnUSD) {
+      setReturnAmountUSD(
+        convertSafe(overpaidTarget, totalAmountCurrency, "USD").toFixed(2),
+      );
+      setReturnAmountLBP("");
+      return;
+    }
+    if (!allowReturnUSD && allowReturnLBP) {
+      setReturnAmountUSD("");
+      setReturnAmountLBP(
+        String(
+          Math.round(convertSafe(overpaidTarget, totalAmountCurrency, "LBP")),
+        ),
+      );
       return;
     }
     if (totalAmountCurrency === "USD") {
@@ -1495,6 +1553,19 @@ export default function MultiPaymentInput({
 
   const handleReturnLBPChange = (raw: string) => {
     setReturnAmountLBP(raw);
+  };
+
+  // LIRA-313 — the change-box toggle. "To account" empties the return
+  // fields (the whole change goes to the account); "Return change" refills
+  // them with the full change due.
+  const handleChangeToAccount = () => {
+    setChangeToAccount(true);
+    setReturnAmountUSD("");
+    setReturnAmountLBP("");
+  };
+  const handleReturnChange = () => {
+    setChangeToAccount(false);
+    seedFullSuggestedReturn(false);
   };
 
   // LIRA-264 (owner 2026-10-06) — "All in $" / "All in LBP": one tap puts
@@ -1614,7 +1685,7 @@ export default function MultiPaymentInput({
   const paidHasProblem =
     !paidExact &&
     ((remainingShortfall > matchTolerance && !payoutKeepActive) ||
-      (isPayout && overpaidTarget > matchTolerance) ||
+      (isPayout && overpaidTarget > matchTolerance && !payoutExcessToAccount) ||
       (effectiveReturnMethod === "CASH" &&
         hasReturnMismatch &&
         !underReturnKept) ||
@@ -1644,7 +1715,13 @@ export default function MultiPaymentInput({
         });
       }
       // LIRA-308 answer 1 — the change NOT entered as returned is credited.
-      if (creditUnreturned && unreturnedCreditAmount > 0) {
+      // LIRA-313 — "ACCOUNT_BALANCE" emits no leg: the server books the net,
+      // so the unreturned change stays on the balance by itself.
+      if (
+        creditUnreturned &&
+        unreturnedChangeTo === "CUSTOMER_ACCOUNT" &&
+        unreturnedCreditAmount > 0
+      ) {
         legs.push({
           id: `${returnLegIdRef.current}_credit`,
           method: unreturnedChangeTo!,
@@ -2702,6 +2779,19 @@ export default function MultiPaymentInput({
             Keeping {dualAmountText(remainingShortfall)} as profit.
           </p>
         )}
+        {/* LIRA-313 — payout above the total becomes the other side's debt. */}
+        {isPayout &&
+          payoutExcessToAccount &&
+          overpaidTarget > matchTolerance && (
+            <p
+              data-testid="payout-excess-summary"
+              className="text-[11px] text-amber-300 px-2"
+            >
+              {dualAmountText(overpaidTarget)} more than{" "}
+              {accountLabel ?? "the balance"} — it is added to their account as
+              debt.
+            </p>
+          )}
 
         {/* Return / Change (overpaid) — choose how to hand the change back */}
         {isOverpaid && (
@@ -2759,60 +2849,104 @@ export default function MultiPaymentInput({
               </span>
             </div>
 
+            {/* LIRA-313 (owner decisions 2026-10-12) — the change either goes
+                back, or stays on the account. "Return change" is the
+                default; a partial return sends the rest to the account. */}
+            {creditUnreturned && effectiveReturnMethod === "CASH" && (
+              <div
+                data-testid="change-destination"
+                className="flex gap-1.5"
+                role="group"
+                aria-label="What happens to the change"
+              >
+                <button
+                  type="button"
+                  data-testid="change-destination-return"
+                  aria-pressed={!changeToAccount}
+                  onClick={handleReturnChange}
+                  className={`flex-1 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
+                    !changeToAccount
+                      ? "bg-amber-500/30 border-amber-400 text-amber-100"
+                      : "bg-slate-900 border-amber-700/40 text-amber-300 hover:border-amber-500"
+                  }`}
+                >
+                  {isShopPayer ? "Get change back" : "Return change"}
+                </button>
+                <button
+                  type="button"
+                  data-testid="change-destination-account"
+                  aria-pressed={changeToAccount}
+                  onClick={handleChangeToAccount}
+                  className={`flex-1 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
+                    changeToAccount
+                      ? "bg-emerald-500/30 border-emerald-400 text-emerald-100"
+                      : "bg-slate-900 border-amber-700/40 text-amber-300 hover:border-amber-500"
+                  }`}
+                >
+                  To account
+                </button>
+              </div>
+            )}
+
             {/* CASH: dual USD + LBP editable fields */}
-            {effectiveReturnMethod === "CASH" ? (
+            {effectiveReturnMethod === "CASH" &&
+            !(creditUnreturned && changeToAccount) ? (
               <div className="flex gap-2">
-                <div className="flex-1">
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
-                      $
-                    </span>
-                    <input
-                      data-testid="return-usd"
-                      type="text"
-                      inputMode="decimal"
-                      value={returnAmountUSD}
-                      onChange={(e) => handleReturnUSDChange(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
-                    />
+                {allowReturnUSD && (
+                  <div className="flex-1">
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                        $
+                      </span>
+                      <input
+                        data-testid="return-usd"
+                        type="text"
+                        inputMode="decimal"
+                        value={returnAmountUSD}
+                        onChange={(e) => handleReturnUSDChange(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    {/* LIRA-264 — "All in $" / "All in LBP" autofill. */}
+                    <button
+                      type="button"
+                      data-testid="return-all-usd"
+                      onClick={handleReturnAllUSD}
+                      title="Give the whole change in dollars"
+                      className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
+                    >
+                      All in $
+                    </button>
                   </div>
-                  {/* LIRA-264 — "All in $" / "All in LBP" autofill. */}
-                  <button
-                    type="button"
-                    data-testid="return-all-usd"
-                    onClick={handleReturnAllUSD}
-                    title="Give the whole change in dollars"
-                    className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
-                  >
-                    All in $
-                  </button>
-                </div>
-                <div className="flex-1">
-                  <div className="relative">
-                    <input
-                      data-testid="return-lbp"
-                      type="text"
-                      inputMode="numeric"
-                      value={returnAmountLBP}
-                      onChange={(e) => handleReturnLBPChange(e.target.value)}
-                      placeholder="0"
-                      className="w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
-                    />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
-                      LBP
-                    </span>
+                )}
+                {allowReturnLBP && (
+                  <div className="flex-1">
+                    <div className="relative">
+                      <input
+                        data-testid="return-lbp"
+                        type="text"
+                        inputMode="numeric"
+                        value={returnAmountLBP}
+                        onChange={(e) => handleReturnLBPChange(e.target.value)}
+                        placeholder="0"
+                        className="w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                      />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                        LBP
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      data-testid="return-all-lbp"
+                      onClick={handleReturnAllLBP}
+                      title="Give the whole change in LBP"
+                      className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
+                    >
+                      All in LBP
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    data-testid="return-all-lbp"
-                    onClick={handleReturnAllLBP}
-                    title="Give the whole change in LBP"
-                    className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
-                  >
-                    All in LBP
-                  </button>
-                </div>
+                )}
               </div>
             ) : null}
 
@@ -2853,7 +2987,9 @@ export default function MultiPaymentInput({
                 {returnCurrency === "LBP"
                   ? `${unreturnedCreditAmount.toLocaleString()} LBP`
                   : `$${unreturnedCreditAmount.toFixed(2)}`}{" "}
-                not returned goes to the customer&apos;s account as credit.
+                {unreturnedChangeTo === "ACCOUNT_BALANCE"
+                  ? `not ${isShopPayer ? "given back" : "returned"} stays on ${accountLabel ?? "their account"}.`
+                  : `not returned goes to ${accountLabel ?? "the customer's account"} as credit.`}
               </p>
             )}
             {/* Fix-round finding #4 (2026-09-24): the two return fields

@@ -746,6 +746,12 @@ export default function SuppliersPage() {
     "PAY",
   );
   const [cashflowLines, setCashflowLines] = useState<PaymentLine[]>([]);
+  // LIRA-313 — change handed back on an overpaid Pay/Receive (OUT legs).
+  // Change NOT handed back stays on the supplier's balance (the server
+  // books the net), so only the real cash legs are kept here.
+  const [cashflowReturnLegs, setCashflowReturnLegs] = useState<PaymentLine[]>(
+    [],
+  );
   const [cashflowNote, setCashflowNote] = useState("");
   const [cashflowKey, setCashflowKey] = useState(0);
   // CQ-10: bundled discount on the Pay/Receive form. MultiPaymentInput's
@@ -1124,6 +1130,11 @@ export default function SuppliersPage() {
     };
   }, [activeBalanceMap, selectedSupplierId, exchangeRate]);
 
+  // LIRA-313 — what is owed in the CHOSEN direction: the balance when it
+  // points that way (PAY: we owe them; RECEIVE: they owe us), else 0.
+  const cashflowOwed =
+    cashflowDirection === defaultDirection ? Math.abs(payAmount) : 0;
+
   // SUPPLIER_STOCK_INTAKE_PLAN.md (D9) — the old FIFO "payment coverage"
   // math (itemsWithCoverage) assumed the balance was RECOMPUTED from live
   // stock × live cost, so "how much of this item's cost is paid" could be
@@ -1218,11 +1229,23 @@ export default function SuppliersPage() {
     const res = await supplierCashflow.mutateAsync({
       supplier_id: selectedSupplierId,
       direction: cashflowDirection,
-      payments: activeLines.map((p) => ({
-        method: p.method,
-        currency_code: p.currencyCode,
-        amount: p.amount,
-      })),
+      // ONE payload (rule 22): every paid line, plus the change handed
+      // back as OUT legs (LIRA-313).
+      payments: [
+        ...activeLines.map((p) => ({
+          method: p.method,
+          currency_code: p.currencyCode,
+          amount: p.amount,
+        })),
+        ...cashflowReturnLegs
+          .filter((l) => l.amount > 0)
+          .map((l) => ({
+            method: l.method,
+            currency_code: l.currencyCode,
+            amount: l.amount,
+            direction: "OUT" as const,
+          })),
+      ],
       exchange_rate: cashflowRate ?? exchangeRate,
       // Omit `note` entirely when empty (exactOptionalPropertyTypes: the field is
       // `note?: string`, so it must be absent rather than explicitly undefined).
@@ -1241,6 +1264,7 @@ export default function SuppliersPage() {
       "success",
     );
     setCashflowLines([]);
+    setCashflowReturnLegs([]);
     setCashflowNote("");
     setCashflowKey((k) => k + 1);
   };
@@ -2697,12 +2721,21 @@ export default function SuppliersPage() {
                   }
                   multiPaymentInputKey={`${cashflowKey}-${cashflowDirection}`}
                   multiPaymentInput={{
-                    totals: [
-                      { amount: Math.abs(payAmount), currency: payCurrency },
-                    ],
+                    // LIRA-313 — only what is owed IN THIS DIRECTION: paying a
+                    // supplier who already owes us (or collecting from one we
+                    // owe) owes nothing, so the whole amount is extra and
+                    // goes to the account.
+                    totals: [{ amount: cashflowOwed, currency: payCurrency }],
                     totalAmountCurrency: payCurrency,
                     currency: payCurrency,
                     onChange: setCashflowLines,
+                    // LIRA-313 (owner decisions 2026-10-12) — an overpay is
+                    // change handed back (default) or left on the supplier's
+                    // account; the server books the net.
+                    onReturnChange: setCashflowReturnLegs,
+                    unreturnedChangeTo: "ACCOUNT_BALANCE",
+                    accountLabel: "the supplier's account",
+                    cashOnlyReturn: true,
                     showPmFee: false,
                     // CQ-10: discount is PAY-only (the supplier forgiving part
                     // of what we owe them) — the backend rejects it on
@@ -2710,7 +2743,7 @@ export default function SuppliersPage() {
                     // mean the built-in scalar discount maps 1:1, no custom
                     // row needed (unlike Debts' mixed USD+LBP due).
                     showDiscount: cashflowDirection === "PAY",
-                    maxDiscount: Math.abs(payAmount),
+                    maxDiscount: cashflowOwed,
                     onDiscountChange: setCashflowDiscount,
                     paymentMethods: methods,
                     currencies: [
@@ -2722,8 +2755,9 @@ export default function SuppliersPage() {
                     // LIRA-310 T016 — on PAY the shop is the payer, so the
                     // Remaining row reads "Remaining to pay" (not "Remaining
                     // (Debt)"). Labels only: this sheet wires no kept change
-                    // or return legs, so FEATURE_GUIDE §4.1's shop-payer
-                    // "kept → cost" rule never applies here.
+                    // (`onKeptChange`), so FEATURE_GUIDE §4.1's shop-payer
+                    // "kept → cost" rule never applies here — change not
+                    // handed back stays on the supplier's account (LIRA-313).
                     payer: cashflowDirection === "PAY" ? "shop" : "customer",
                     // Owner decision 2026-10-12 — no Waive anywhere on the
                     // Suppliers page: a gap the supplier forgives is typed
