@@ -734,7 +734,7 @@ export default function CheckpointTimeline() {
                 <button
                   onClick={() => setViewCheckpoint(null)}
                   className="p-1 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-                  aria-label="Close"
+                  aria-label="Close details"
                 >
                   <X size={18} />
                 </button>

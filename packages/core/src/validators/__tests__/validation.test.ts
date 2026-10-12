@@ -5,8 +5,6 @@ import {
   createExchangeSchema,
   createRechargeSchema,
   createExpenseSchema,
-  createDailyClosingSchema,
-  setOpeningBalancesSchema,
   setRateSchema,
   saveMaintenanceJobSchema,
   createFinancialServiceSchema,
@@ -200,59 +198,6 @@ describe("Validation Schemas", () => {
       };
 
       expect(() => createExpenseSchema.parse(missingDate)).toThrow();
-    });
-  });
-
-  describe("setOpeningBalancesSchema", () => {
-    it("validates valid opening balances", () => {
-      const validData = {
-        closingDate: "2024-02-14",
-        amounts: [
-          { currency: "USD", amount: 1000 },
-          { currency: "LBP", amount: 90000000 },
-        ],
-        userId: 1,
-      };
-
-      expect(() => setOpeningBalancesSchema.parse(validData)).not.toThrow();
-    });
-
-    it("rejects invalid date format", () => {
-      const invalidData = {
-        closingDate: "14/02/2024",
-        amounts: [{ currency: "USD", amount: 1000 }],
-        userId: 1,
-      };
-
-      expect(() => setOpeningBalancesSchema.parse(invalidData)).toThrow();
-    });
-
-    it("rejects empty amounts array", () => {
-      const invalidData = {
-        closingDate: "2024-02-14",
-        amounts: [],
-        userId: 1,
-      };
-
-      expect(() => setOpeningBalancesSchema.parse(invalidData)).toThrow(
-        "At least one drawer amount is required",
-      );
-    });
-  });
-
-  describe("createDailyClosingSchema", () => {
-    it("validates valid daily closing", () => {
-      const validData = {
-        closingDate: "2024-02-14",
-        amounts: [
-          { currency: "USD", amount: 500 },
-          { currency: "LBP", amount: 45000000 },
-        ],
-        userId: 1,
-        notes: "All good",
-      };
-
-      expect(() => createDailyClosingSchema.parse(validData)).not.toThrow();
     });
   });
 

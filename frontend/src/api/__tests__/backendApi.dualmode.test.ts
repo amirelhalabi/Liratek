@@ -176,8 +176,6 @@ describe("backendApi dual-mode routing", () => {
         getSystemExpectedBalancesDynamic: jest.fn(async () => ({})),
         hasOpeningBalanceToday: jest.fn(async () => true),
         getDailyStatsSnapshot: jest.fn(async () => ({})),
-        setOpeningBalances: jest.fn(async () => ({ success: true })),
-        createDailyClosing: jest.fn(async () => ({ success: true, id: 1 })),
         updateDailyClosing: jest.fn(async () => ({ success: true })),
       },
 
@@ -243,9 +241,7 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.getDebtors();
     await apiMod.getClientDebtHistory(1);
     await apiMod.getClientDebtTotal(1);
-    await apiMod.addRepayment(
-      {} as Parameters<typeof apiMod.addRepayment>[0],
-    );
+    await apiMod.addRepayment({} as Parameters<typeof apiMod.addRepayment>[0]);
 
     await apiMod.getExchangeRates();
     await apiMod.getCurrenciesList();

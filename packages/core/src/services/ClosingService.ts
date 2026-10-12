@@ -9,7 +9,6 @@ import {
 import { ProfitService, getProfitService } from "./ProfitService.js";
 import type { DailyStatsSnapshotQuery } from "../validators/closing.js";
 import { closingLogger } from "../utils/logger.js";
-import { localDay } from "../utils/localDate.js";
 import { clientDay } from "../utils/requestDay.js";
 export interface ClosingResult {
   success: boolean;
@@ -394,73 +393,6 @@ export class ClosingService {
       closingLogger.error(
         { error, data },
         "ClosingService.updateDailyClosing error",
-      );
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  /**
-   * Set opening balances for a closing date.
-   * Creates a checkpoint record of type OPENING.
-   */
-  setOpeningBalances(data: {
-    closingDate?: string;
-    userId?: number;
-    amounts?: Array<{
-      drawer_name: string;
-      currency_code: string;
-      expected_amount: number;
-      physical_amount: number;
-    }>;
-  }): ClosingResult {
-    try {
-      return this.repo.createCheckpoint({
-        user_id: data.userId ?? 0,
-        drawer_name: "AGGREGATED",
-        notes: `Opening balances for ${data.closingDate ?? localDay()}`,
-        amounts: data.amounts ?? [],
-      });
-    } catch (error) {
-      closingLogger.error(
-        { error, data },
-        "ClosingService.setOpeningBalances error",
-      );
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  /**
-   * Create a daily closing record (legacy — delegates to createCheckpoint).
-   */
-  createDailyClosing(data: {
-    closingDate?: string;
-    userId?: number;
-    amounts?: Array<{
-      drawer_name: string;
-      currency_code: string;
-      expected_amount: number;
-      physical_amount: number;
-    }>;
-    notes?: string;
-  }): ClosingResult {
-    try {
-      return this.repo.createCheckpoint({
-        user_id: data.userId ?? 0,
-        drawer_name: "AGGREGATED",
-        notes:
-          data.notes ?? `Daily closing for ${data.closingDate ?? localDay()}`,
-        amounts: data.amounts ?? [],
-      });
-    } catch (error) {
-      closingLogger.error(
-        { error, data },
-        "ClosingService.createDailyClosing error",
       );
       return {
         success: false,

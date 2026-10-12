@@ -1,6 +1,5 @@
 import { z } from "zod";
 import {
-  positiveDecimalSchema,
   positiveIntegerSchema,
   currencyCodeSchema,
   localDayFormatSchema,
@@ -27,32 +26,9 @@ import {
  */
 export const localDaySchema = localDayFormatSchema;
 
-const drawerAmountSchema = z.object({
-  currency: currencyCodeSchema,
-  amount: positiveDecimalSchema,
-});
-
-export const setOpeningBalancesSchema = z.object({
-  closingDate: localDaySchema,
-  amounts: z
-    .array(drawerAmountSchema)
-    .min(1, "At least one drawer amount is required"),
-  userId: positiveIntegerSchema,
-});
-
-export const createDailyClosingSchema = z.object({
-  closingDate: localDaySchema,
-  amounts: z
-    .array(drawerAmountSchema)
-    .min(1, "At least one drawer amount is required"),
-  userId: positiveIntegerSchema,
-  notes: z.string().max(1000).optional(),
-});
-
 // Per-drawer/currency line of a unified checkpoint: the physical count plus
 // the expected (system) amount at count time. Shape matches CheckpointAmount
 // in ClosingRepository (drawer_name/currency_code/expected_amount/physical_amount) —
-// distinct from the legacy {currency, amount} drawerAmountSchema above.
 const checkpointAmountSchema = z.object({
   drawer_name: z.string().min(1),
   currency_code: currencyCodeSchema,
@@ -156,9 +132,6 @@ export const sinceLastCountQuerySchema = z.object({
 });
 export type SinceLastCountQuery = z.input<typeof sinceLastCountQuerySchema>;
 
-export type DrawerAmountInput = z.infer<typeof drawerAmountSchema>;
-export type SetOpeningBalancesInput = z.infer<typeof setOpeningBalancesSchema>;
-export type CreateDailyClosingInput = z.infer<typeof createDailyClosingSchema>;
 export type CheckpointAmountInput = z.infer<typeof checkpointAmountSchema>;
 export type CheckpointCarrierLineInput = z.infer<
   typeof checkpointCarrierLineSchema

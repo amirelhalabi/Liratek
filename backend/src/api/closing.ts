@@ -10,8 +10,6 @@ import { validateRequest, validateQuery } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
 import {
   getClosingService,
-  setOpeningBalancesSchema,
-  createDailyClosingSchema,
   createCheckpointSchema,
   hasOpeningBalanceTodayQuerySchema,
   dailyStatsSnapshotQuerySchema,
@@ -177,83 +175,6 @@ router.get(
       res
         .status(200)
         .json({ success: false, error: "Failed to get daily stats" });
-    }
-  },
-);
-
-// POST /api/closing/opening-balances
-router.post(
-  "/opening-balances",
-  requireAuth,
-  validateRequest(setOpeningBalancesSchema),
-  async (req: AuthRequest, res) => {
-    try {
-      const userId = req.user?.userId ?? 1;
-      const result = closingService.setOpeningBalances({
-        ...req.body,
-        userId,
-      });
-
-      if (result.success) {
-        logger.info(
-          { closingDate: req.body.closingDate, userId: req.body.userId },
-          "Opening balances set",
-        );
-        // No IPC precedent (setOpeningBalances is never called from any
-        // electron-app handler) — new vocabulary per the ticket.
-        auditRest(req, {
-          action: "create",
-          entity_type: "opening_balance",
-          summary: `Set opening balances for ${req.body.closingDate}`,
-        });
-        res.json(result);
-      } else {
-        res.status(400).json(result);
-      }
-    } catch (error) {
-      logger.error({ error }, "Set opening balances error");
-      res
-        .status(500)
-        .json({ success: false, error: "Failed to set opening balances" });
-    }
-  },
-);
-
-// POST /api/closing/daily-closing
-router.post(
-  "/daily-closing",
-  requireAuth,
-  validateRequest(createDailyClosingSchema),
-  async (req: AuthRequest, res) => {
-    try {
-      const userId = req.user?.userId ?? 1;
-      const result = closingService.createDailyClosing({
-        ...req.body,
-        userId,
-      });
-
-      if (result.success) {
-        logger.info(
-          { closingDate: req.body.closingDate, userId: req.body.userId },
-          "Daily closing created",
-        );
-        // No IPC precedent (createDailyClosing is never called from any
-        // electron-app handler) — new vocabulary per the ticket, distinct
-        // from the create_checkpoint/daily_closings action below.
-        auditRest(req, {
-          action: "create",
-          entity_type: "daily_closings",
-          summary: `Created daily closing for ${req.body.closingDate}`,
-        });
-        res.json(result);
-      } else {
-        res.status(400).json(result);
-      }
-    } catch (error) {
-      logger.error({ error }, "Create daily closing error");
-      res
-        .status(500)
-        .json({ success: false, error: "Failed to create daily closing" });
     }
   },
 );
