@@ -174,6 +174,7 @@ export {
   getResaleLineRepository,
   resetResaleLineRepository,
   UNSOLD_LINE_SQL,
+  RESALE_LINE_CUSTOMER_RECHARGE_ERROR,
   type ResaleLineEntity,
   type ResaleLineRow,
 } from "./ResaleLineRepository.js";

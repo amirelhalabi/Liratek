@@ -11,6 +11,7 @@ import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { appEvents, useApi } from "@liratek/ui";
+import type { ResaleLineRow } from "@liratek/core";
 import { costOfValidityDaysUsd } from "@liratek/core";
 import type {
   TopUpFromClientInput,
@@ -293,6 +294,25 @@ export default function MobileRecharge() {
   const isShopLineMatch = shopLines.some((line) =>
     isSameLebanesePhone(phoneNumber, line.phone_number),
   );
+
+  // LIRA-309 US4 — the shop's lines held FOR SALE (unsold, every carrier), so
+  // a typed number that is one of them is recognised in any format and is
+  // never booked as a customer sale (the server refuses it as well).
+  const [resaleLines, setResaleLines] = useState<ResaleLineRow[]>([]);
+  const loadResaleLines = useCallback(async () => {
+    try {
+      const rows = await apiRef.current.getResaleLines({ include_sold: false });
+      setResaleLines(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      logger.error("Failed to load lines for sale:", error);
+    }
+  }, []);
+  useEffect(() => {
+    void loadResaleLines();
+  }, [loadResaleLines]);
+  const resaleLineMatch = phoneNumber
+    ? (resaleLines.find((l) => isSameLebanesePhone(phoneNumber, l.phone_number)) ?? null)
+    : null;
   // Owner note #21: the checkbox itself. ON (default) = case 1, the existing
   // credit buy-back (payment OUT). OFF = case 2, the customer used the shop
   // line for a call (payment IN, ordinary credit sale, no SMS fee). Reset to
@@ -1942,6 +1962,18 @@ export default function MobileRecharge() {
             activeConfig={activeConfig}
             handleTelecomSubmit={handleTelecomSubmit}
             isShopLineMatch={isShopLineMatch}
+            resaleLineMatch={resaleLineMatch}
+            onResaleRechargeDone={() => {
+              void loadResaleLines();
+              if (activeProvider === "MTC" || activeProvider === "Alfa") {
+                void loadShopLines(activeProvider);
+              }
+              appEvents.emit(
+                "notification:show",
+                "Line recharged — its cost and price went up by what it cost.",
+                "success",
+              );
+            }}
             shopLineBuyback={shopLineBuyback}
             setShopLineBuyback={setShopLineBuyback}
             // #28 (LIRA-218) — the line a DAYS sale actually decrements

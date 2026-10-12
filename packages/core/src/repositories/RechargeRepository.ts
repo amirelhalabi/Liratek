@@ -52,6 +52,10 @@ import {
   getCarrierLineRepository,
   type CarrierKey,
 } from "./CarrierLineRepository.js";
+import {
+  getResaleLineRepository,
+  RESALE_LINE_CUSTOMER_RECHARGE_ERROR,
+} from "./ResaleLineRepository.js";
 import { getCarrierLineService } from "../services/CarrierLineService.js";
 import { getCarrierLineOwedDeliveryRepository } from "./CarrierLineOwedDeliveryRepository.js";
 import { isSameLebanesePhone } from "../utils/phoneNumber.js";
@@ -987,6 +991,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           error: `Phone number does not match any of the shop's active ${data.provider} lines — SHOP_LINE_USE requires the shop's own line`,
         };
       }
+    }
+
+    // LIRA-309 US4 — a customer recharge may not target a line the shop
+    // holds for sale and has not sold: that would book fake revenue. The
+    // shop recharges its own line through the internal recharge instead.
+    if (getResaleLineRepository().findUnsoldByNumber(data.phoneNumber)) {
+      return { success: false, error: RESALE_LINE_CUSTOMER_RECHARGE_ERROR };
     }
 
     try {

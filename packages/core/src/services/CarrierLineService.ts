@@ -162,9 +162,7 @@ export class CarrierLineService {
    * holds for sale and has not sold yet. A shop line may not take it.
    */
   private isUnsoldForSaleLine(phone: string | null | undefined): boolean {
-    return this.resaleRepo
-      .listLines({ includeSold: false })
-      .some((l) => isSameLebanesePhone(l.phone_number, phone));
+    return this.resaleRepo.findUnsoldByNumber(phone) !== null;
   }
 
   /** Active lines for one carrier — the Recharge-tab compact panel. */

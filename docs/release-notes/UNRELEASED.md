@@ -202,6 +202,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Lines you sell: a new Recharge button on the Phone Lines page adds days or credit to a line you sell, taken from one of your shop lines or from an iPick/Katsh card. What it costs you is added to the line's cost and selling price, so its profit when sold stays the same. You can undo it from Transactions until the line is sold.
 - Settlement with Loto: when Loto pays you up to 450,000 LBP less than the settlement, Waive records the difference as a discount and the settlement goes through. There is no Waive when you are the one paying Loto. The Settle button now waits until the amount is covered.
 - Loto: a ticket's payment must now add up to its price. From now on, change kept as store credit
+- Mobile Recharge now recognises the lines you sell, however the number is typed (spaces, dashes, +961). It shows "This is your line for sale" with the Recharge panel instead of charging it as a customer sale, and a customer sale on such a number is refused.
   is recorded on the customer's account.
 - Loto settlement: the payment you record must now match the settlement amount.
 - Loto tickets can now be paid with a customer's gift card.

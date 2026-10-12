@@ -48,6 +48,8 @@ import {
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
+import type { ResaleLineRow } from "@liratek/core";
+import { ResaleLineRechargePanel } from "@/features/phoneLines/components/ResaleLineRechargePanel";
 
 /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — Days/Alfa Gift block + redirect
  *  shown when the typed phone number is this carrier's own shop line.
@@ -185,6 +187,13 @@ interface TelecomFormProps {
    *  Days & Alfa Gift unconditionally, which can only add validity via an
    *  iPick/Katsh self-charge. */
   isShopLineMatch: boolean;
+  /** LIRA-309 US4 — the typed number is one of the shop's lines held FOR
+   *  SALE (matched by the parent in any format, any carrier). A customer
+   *  sale on it is blocked (the server refuses it too); the internal recharge
+   *  panel is offered instead on that carrier's tab. */
+  resaleLineMatch?: ResaleLineRow | null;
+  /** Called after the internal recharge of `resaleLineMatch` succeeds. */
+  onResaleRechargeDone?: () => void;
   /** Owner note #21 (2026-09-24): the shop-line checkbox's own checked state,
    *  lifted to the parent (Recharge/index.tsx) since `handleTelecomSubmit`
    *  needs it too. ON (default) = case 1, the existing credit buy-back
@@ -266,6 +275,8 @@ export function TelecomForm({
   shopLineBuyback,
   setShopLineBuyback,
   primaryLine,
+  resaleLineMatch = null,
+  onResaleRechargeDone,
 }: TelecomFormProps) {
   const api = useApi();
   const { activeSession } = useSession();
@@ -697,6 +708,33 @@ export function TelecomForm({
                   </div>
                 </div>
               )}
+              {/* LIRA-309 US4 — the typed number is one of the shop's own
+                  lines for sale: no customer sale; recharge it internally. */}
+              {resaleLineMatch &&
+                (resaleLineMatch.carrier === (isMTC ? "mtc" : "alfa") ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-violet-500/40 bg-violet-500/10 px-4 py-3 text-sm text-violet-100">
+                      {`This is your line for sale: ${resaleLineMatch.name}`}
+                      <span className="block text-xs text-violet-200/80">
+                        It can't be sold as a customer recharge. Recharge it
+                        below; what it costs is added to its cost and price.
+                      </span>
+                    </div>
+                    <ResaleLineRechargePanel
+                      line={resaleLineMatch}
+                      onCancel={() => setPhoneNumber("")}
+                      onDone={() => {
+                        setPhoneNumber("");
+                        onResaleRechargeDone?.();
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    {`This is your ${resaleLineMatch.carrier === "mtc" ? "MTC" : "Alfa"} line for sale (${resaleLineMatch.name}).`}{" "}
+                    Open the {resaleLineMatch.carrier === "mtc" ? "MTC" : "Alfa"} tab to recharge it.
+                  </div>
+                ))}
               {rechargeType === "CREDIT_TRANSFER" && (
                 <div className="flex-1">
                   <span
@@ -1338,7 +1376,9 @@ export function TelecomForm({
                 (rechargeType === "DAYS" &&
                   (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)) ||
                 (forPartner && (!telecomPrice || !selectedPartnerId)) ||
-                isBuybackBlockedBySession
+                isBuybackBlockedBySession ||
+                // LIRA-309 — never a customer sale on the shop's own line for sale.
+                resaleLineMatch !== null
               }
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap flex items-center gap-1.5 ${
                 isSubmitting ||

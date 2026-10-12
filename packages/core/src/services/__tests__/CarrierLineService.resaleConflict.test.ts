@@ -10,6 +10,7 @@ import type { CarrierLineRepository } from "../../repositories/CarrierLineReposi
 import type { CarrierLineMovementRepository } from "../../repositories/CarrierLineMovementRepository.js";
 import type { CarrierLineOwedDeliveryRepository } from "../../repositories/CarrierLineOwedDeliveryRepository.js";
 import type { ResaleLineRepository } from "../../repositories/ResaleLineRepository.js";
+import { isSameLebanesePhone } from "../../utils/phoneNumber.js";
 
 function makeService(unsoldNumbers: string[]) {
   const line = { id: 3, carrier: "mtc", phone_number: "03111111", is_active: 0 };
@@ -20,9 +21,11 @@ function makeService(unsoldNumbers: string[]) {
     getById: jest.fn().mockReturnValue(line),
   } as unknown as CarrierLineRepository;
   const resaleRepo = {
-    listLines: jest
-      .fn()
-      .mockReturnValue(unsoldNumbers.map((n) => ({ phone_number: n }))),
+    findUnsoldByNumber: jest.fn((phone: string) =>
+      unsoldNumbers.some((n) => isSameLebanesePhone(n, phone))
+        ? { phone_number: phone }
+        : null,
+    ),
   } as unknown as ResaleLineRepository;
   const service = new CarrierLineService(
     repo,

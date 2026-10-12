@@ -15,7 +15,10 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { requestNow } from "../utils/requestNow.js";
-import { isPhoneLineCategoryName } from "../utils/phoneNumber.js";
+import {
+  isPhoneLineCategoryName,
+  isSameLebanesePhone,
+} from "../utils/phoneNumber.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
@@ -142,6 +145,11 @@ export interface UpsertResaleLineData {
  * list, by number detection, and (US4) by the customer-recharge guard. Reads
  * the `p.` alias of `products`.
  */
+/** LIRA-309 US4 — the refusal for a customer recharge aimed at one of the
+ *  shop's own lines held for sale (defined once, rule 14). */
+export const RESALE_LINE_CUSTOMER_RECHARGE_ERROR =
+  "This is your line for sale — use Recharge on the Phone Lines page (or the Recharge line panel on Mobile Recharge).";
+
 export const UNSOLD_LINE_SQL =
   "(p.is_deleted = 0 AND p.is_active = 1 AND p.stock_quantity > 0)";
 
@@ -206,6 +214,23 @@ export class ResaleLineRepository extends BaseRepository<ResaleLineEntity> {
       )
       .all(...params) as ResaleLineRow[];
     return rows.filter((r) => isPhoneLineCategoryName(r.category));
+  }
+
+  /** The unsold line held for sale whose number matches `phone` in any
+   *  format (spaces, dashes, +961 / 00961), or null. */
+  findUnsoldByNumber(phone: string | null | undefined): ResaleLineRow | null {
+    if (!phone) return null;
+    // Same guard as ExpenseRepository._productUnitsTableExists: every real
+    // schema has both tables (create_db.sql + v211), but narrow test
+    // fixtures for other modules build a database without them.
+    if (!this.tableExists("resale_lines") || !this.tableExists("products")) {
+      return null;
+    }
+    return (
+      this.listLines({ includeSold: false }).find((l) =>
+        isSameLebanesePhone(l.phone_number, phone),
+      ) ?? null
+    );
   }
 
   getByProductId(productId: number): ResaleLineEntity | null {

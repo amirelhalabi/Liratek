@@ -316,10 +316,11 @@ description: "Task list for LIRA-309 Phone Lines Management"
 
 ### Tests for User Story 4 (write first, see them fail)
 
-- [ ] T049 [P] [US4] Write `packages/core/src/repositories/__tests__/RechargeRepository.resaleLineGuard.test.ts` (**C12**):
+- [x] T049 [P] [US4] Write `packages/core/src/repositories/__tests__/RechargeRepository.resaleLineGuard.test.ts` (**C12**):
   - `processRecharge` for a customer on number "+961 3 555 101" matching an unsold for-sale line is refused with "This is your line for sale — use Recharge line on the Phone Lines or Mobile Recharge page.";
   - after the line is sold (stock 0) it is accepted.
-- [ ] T050 [P] [US4] Write `frontend/src/features/recharge/pages/Recharge/__tests__/Recharge.resaleLineDetection.test.tsx`:
+- [x] T050 [P] [US4] Write `frontend/src/features/recharge/pages/Recharge/__tests__/Recharge.resaleLineDetection.test.tsx`:
+  > Delivered as (2026-10-13): the frontend test is `frontend/src/features/recharge/components/__tests__/TelecomForm.resaleLineMatch.test.tsx` (form-level, `resaleLineMatch` prop); the page matches the number and passes it in. The guard message is "This is your line for sale — use Recharge on the Phone Lines page (or the Recharge line panel on Mobile Recharge)."
   - "+961 3 555 101" shows "This is your line for sale: MTC line 03 555 101" and renders the panel instead of the payment section;
   - an Alfa line's number on the MTC tab shows "This is an Alfa line" and no panel;
   - shop-line behaviour is unchanged;
@@ -327,15 +328,15 @@ description: "Task list for LIRA-309 Phone Lines Management"
 
 ### Implementation for User Story 4
 
-- [ ] T051 [US4] In `packages/core/src/repositories/RechargeRepository.ts`, next to the `isShopOwnLine` re-check (≈:975-983), refuse customer recharges whose number matches `ResaleLineRepository.findUnsoldByNumber` (using the same "unsold line" fragment from T010). T049 passes.
-- [ ] T052 [US4] In `frontend/src/features/recharge/pages/Recharge/index.tsx`:
+- [x] T051 [US4] In `packages/core/src/repositories/RechargeRepository.ts`, next to the `isShopOwnLine` re-check (≈:975-983), refuse customer recharges whose number matches `ResaleLineRepository.findUnsoldByNumber` (using the same "unsold line" fragment from T010). T049 passes.
+- [x] T052 [US4] In `frontend/src/features/recharge/pages/Recharge/index.tsx`:
   - load `getResaleLines({ carrier, include_sold: false })` beside `getActiveCarrierLines` (≈:292);
   - match with `isSameLebanesePhone`;
   - on a match show the banner and render `ResaleLineRechargePanel` instead of the customer payment section;
   - block when the carrier tab differs.
 
   `api` is read through a ref. T050 passes.
-- [ ] T053 [US4] Add a release note line: Mobile Recharge now recognises the lines you sell, however the number is typed, and won't let them be charged as a customer sale.
+- [x] T053 [US4] Add a release note line: Mobile Recharge now recognises the lines you sell, however the number is typed, and won't let them be charged as a customer sale.
 
 **Checkpoint**: all four stories work independently.
 
