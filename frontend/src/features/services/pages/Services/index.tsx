@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
+import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
+import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -28,7 +31,7 @@ import {
   DecimalInput,
   canChargeToCustomerAccount,
 } from "@liratek/ui";
-import { DataTable } from "@liratek/ui";
+import { DataTable, DateRangeFilter } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { StatsCards } from "../../components/StatsCards";
@@ -398,6 +401,7 @@ export default function Services() {
       if (result.success) {
         setEditingId(null);
         loadData();
+        void loadFullHistory();
       }
     } finally {
       setEditSaving(false);
@@ -603,6 +607,42 @@ export default function Services() {
       setIsLoading(false);
     }
   }, [api, provider, partnerSystem]);
+
+  // History window: every row for this provider, not the page's latest 50,
+  // so its date filter and totals cover every day (LIRA-314). `api` is read
+  // through a ref so an unstable identity never re-fires the load (rule 25).
+  const historyApiRef = useRef(api);
+  historyApiRef.current = api;
+  const [historyRows, setHistoryRows] = useState<Transaction[] | null>(null);
+  const loadFullHistory = useCallback(async () => {
+    try {
+      const rows = (await historyApiRef.current.getOMTHistory(provider, {
+        all: true,
+      })) as Transaction[];
+      setHistoryRows(rows);
+    } catch (error) {
+      logger.error("Failed to load full history:", error);
+    }
+  }, [provider]);
+  useEffect(() => {
+    if (showHistory) void loadFullHistory();
+  }, [showHistory, loadFullHistory]);
+  const {
+    filteredData: historyShown,
+    from: historyFrom,
+    to: historyTo,
+    setFrom: setHistoryFrom,
+    setTo: setHistoryTo,
+  } = useDateRangeFilter(historyRows ?? transactions, "created_at");
+  // Totals of the rows on screen — the Amount column, USD and LBP only;
+  // refunded left out.
+  const historyTotals = usdLbpTotals(historyShown, (tx) =>
+    tx.currency === "LBP"
+      ? { usd: 0, lbp: tx.amount }
+      : tx.currency === "USD"
+        ? { usd: tx.amount, lbp: 0 }
+        : { usd: 0, lbp: 0 },
+  );
 
   useEffect(() => {
     loadData();
@@ -2693,12 +2733,25 @@ export default function Services() {
                 <History className="text-slate-400" size={18} />
                 Transaction History
                 <span className="text-xs text-slate-500 font-normal ml-1">
-                  ({transactions.length} records)
+                  ({historyShown.length} records)
                 </span>
               </h2>
               <div className="flex items-center gap-2">
+                <UsdLbpTotalChips
+                  usd={historyTotals.usd}
+                  lbp={historyTotals.lbp}
+                />
+                <DateRangeFilter
+                  from={historyFrom}
+                  to={historyTo}
+                  onFromChange={setHistoryFrom}
+                  onToChange={setHistoryTo}
+                />
                 <button
-                  onClick={loadData}
+                  onClick={() => {
+                    loadData();
+                    void loadFullHistory();
+                  }}
                   className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
                   title="Refresh"
                 >
@@ -2759,7 +2812,7 @@ export default function Services() {
                     className: "px-3 py-3 w-10",
                   },
                 ]}
-                data={transactions}
+                data={historyShown}
                 exportExcel
                 exportPdf
                 exportFilename="services-history"

@@ -6678,6 +6678,8 @@ Follow-up to LIRA-311. Every History window shows two chips for the rows on scre
 
 What each window totals: Custom Services — Price; Maintenance — the Price column (labour charged); Loto — Sale Amount; OMT/Whish/Katsh/Binance — Amount (SEND and RECEIVE together, non-USD/LBP currencies count 0); MTC/Alfa — cost + profit of sale rows (TOP_UP / CREDIT_BUYBACK / SHOP_LINE_USE count 0); Exchange — net USD / LBP. Exchange, financial-services and recharge History reads take an `all` flag (`{ all: true }` over IPC, `?all=1` over REST, `historyAllQuerySchema`) that drops the 50/100-row cap; only the History windows ask for it, the page lists keep their caps.
 
+Follow-up 2026-10-13: the OMT/Whish page (`Services/index.tsx`) has its own built-in History window, missed in the first pass — it now gets the same full load, a date filter and the Total USD / LBP chips (Amount, USD/LBP only).
+
 **What users will notice:** every History window (Services, Maintenance, Loto, Exchange, MTC/Alfa, OMT/Whish and the other money services) shows a USD and an LBP total for what is listed, and Exchange, MTC/Alfa and OMT/Whish history now reach every past day.
 
 ## LIRA-311: Expense History shows totals and every day — DONE, deployed 2026-10-12 (owner request 2026-10-12)
