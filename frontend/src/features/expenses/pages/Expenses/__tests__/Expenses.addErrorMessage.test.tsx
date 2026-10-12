@@ -36,6 +36,8 @@ const mockApi = {
 jest.mock("@liratek/ui", () => ({
   appEvents: { emit: jest.fn(), on: jest.fn(() => () => {}) },
   useApi: () => mockApi,
+  // The page's Bill amount field is the real DecimalInput (100,000 display).
+  DecimalInput: jest.requireActual("@liratek/ui").DecimalInput,
   // LIRA-262: the page now renders the stock-use SearchBar.
   SearchBar: () => <div data-testid="search-bar" />,
   PageHeader: ({
