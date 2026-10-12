@@ -15,6 +15,11 @@ import { logger } from "../server.js";
 
 const router = express.Router();
 
+// Refusals answer HTTP 200 + `{ success: false, error }`, like IPC (rule 19c).
+// They used to be 400s, which the web adapter turns into a thrown error, so the
+// Carrier Lines form showed "Operation failed" instead of the reason (found
+// live 2026-10-12). Successful creates stay 201; unexpected crashes stay 500.
+
 // Carrier Lines (LIRA W6.a — shop SIM-line tracking).
 //
 // `POST /record-usage` (LIRA-145) is a money write: it books a `Line_Usage`
@@ -34,7 +39,7 @@ router.use(authenticateJWT);
 router.get("/active/:carrier", (req, res): void => {
   const carrier = req.params.carrier;
   if (carrier !== "alfa" && carrier !== "mtc") {
-    res.status(400).json({ success: false, error: "Invalid carrier" });
+    res.json({ success: false, error: "Invalid carrier" });
     return;
   }
   try {
@@ -66,7 +71,7 @@ router.get("/active", (_req, res): void => {
 router.get("/primary/:carrier", (req, res): void => {
   const { carrier } = req.params;
   if (carrier !== "alfa" && carrier !== "mtc") {
-    res.status(400).json({ success: false, error: "Invalid carrier" });
+    res.json({ success: false, error: "Invalid carrier" });
     return;
   }
   try {
@@ -233,7 +238,7 @@ router.post(
           summary: `Added ${req.body.carrier} carrier line ${req.body.phone_number}`,
         });
       }
-      res.status(result.success ? 201 : 400).json(result);
+      res.status(result.success ? 201 : 200).json(result);
     } catch (error) {
       logger.error({ error }, "Create carrier line error");
       res.status(500).json({ success: false, error: "Failed to create" });
@@ -247,7 +252,7 @@ router.post(
 router.put("/:id/set-primary", requireRole(["admin"]), (req, res): void => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: "Invalid id" });
+    res.json({ success: false, error: "Invalid id" });
     return;
   }
   try {
@@ -273,13 +278,13 @@ router.put("/:id/set-primary", requireRole(["admin"]), (req, res): void => {
 router.put("/:id", requireRole(["admin"]), (req, res): void => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: "Invalid id" });
+    res.json({ success: false, error: "Invalid id" });
     return;
   }
   const parsed = carrierLineUpdateSchema.safeParse({ ...req.body, id });
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
-    res.status(400).json({
+    res.json({
       success: false,
       error: firstIssue?.message ?? "Invalid carrier line payload",
     });
@@ -299,7 +304,7 @@ router.put("/:id", requireRole(["admin"]), (req, res): void => {
         summary: `Updated carrier line #${id}`,
       });
     }
-    res.status(result.success ? 200 : 400).json(result);
+    res.json(result);
   } catch (error) {
     logger.error({ error }, "Update carrier line error");
     res.status(500).json({ success: false, error: "Failed to update" });
@@ -314,7 +319,7 @@ router.put(
   (req, res): void => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
-      res.status(400).json({ success: false, error: "Invalid id" });
+      res.json({ success: false, error: "Invalid id" });
       return;
     }
     const parsed = carrierLineUpdateBalanceSchema.safeParse({
@@ -323,7 +328,7 @@ router.put(
     });
     if (!parsed.success) {
       const firstIssue = parsed.error.issues[0];
-      res.status(400).json({
+      res.json({
         success: false,
         error: firstIssue?.message ?? "Invalid balance payload",
       });
@@ -343,7 +348,7 @@ router.put(
           summary: `Updated carrier line #${id} balance`,
         });
       }
-      res.status(result.success ? 200 : 400).json(result);
+      res.json(result);
     } catch (error) {
       logger.error({ error }, "Update carrier line balance error");
       res.status(500).json({ success: false, error: "Failed to update" });
@@ -355,7 +360,7 @@ router.put(
 router.put("/:id/archive", requireRole(["admin"]), (req, res): void => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: "Invalid id" });
+    res.json({ success: false, error: "Invalid id" });
     return;
   }
   try {
@@ -370,7 +375,7 @@ router.put("/:id/archive", requireRole(["admin"]), (req, res): void => {
         summary: `Archived carrier line #${id}`,
       });
     }
-    res.status(result.success ? 200 : 400).json(result);
+    res.json(result);
   } catch (error) {
     logger.error({ error }, "Archive carrier line error");
     res.status(500).json({ success: false, error: "Failed to archive" });
@@ -381,7 +386,7 @@ router.put("/:id/archive", requireRole(["admin"]), (req, res): void => {
 router.put("/:id/toggle-active", requireRole(["admin"]), (req, res): void => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: "Invalid id" });
+    res.json({ success: false, error: "Invalid id" });
     return;
   }
   try {
@@ -396,7 +401,7 @@ router.put("/:id/toggle-active", requireRole(["admin"]), (req, res): void => {
         summary: `Toggled carrier line #${id}`,
       });
     }
-    res.status(result.success ? 200 : 400).json(result);
+    res.json(result);
   } catch (error) {
     logger.error({ error }, "Toggle carrier line error");
     res.status(500).json({ success: false, error: "Failed to toggle" });

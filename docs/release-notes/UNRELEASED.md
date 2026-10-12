@@ -272,6 +272,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 - If you sign in with Google, your Google photo now shows as your account picture, from your next Google sign-in.
 
+- Web app: when adding, editing, archiving or reactivating a shop line is refused (for example a number that is already one of your lines), Settings → Carrier Lines now shows the reason instead of "Operation failed".
 - Web app: the recent sales list on the POS page now shows the day you pick — before, it always showed today's sales.
 - Web app: pages and pop-ups no longer get cut off at the bottom when the screen is enlarged. To make things bigger or smaller, use your browser's zoom (Ctrl + / Ctrl −, or ⌘ + / ⌘ − on a Mac); the size option in My account is now only in the desktop app.
 - The LiraTek website now has its own Arabic page at liratek.shop/ar, and the language button switches between the English and Arabic pages.
