@@ -11,6 +11,7 @@ import type { SaveMaintenanceJobPayload } from "@liratek/core";
 import type {
   ListResaleLinesQueryInput,
   SaveResaleLineInput,
+  WriteOffResaleLineInput,
   ResaleLineRow,
   ResaleLineEntity,
 } from "@liratek/core";
@@ -1993,6 +1994,10 @@ export type ApiAdapter = {
   saveResaleLine: (
     data: SaveResaleLineInput,
   ) => Promise<{ success: boolean; data?: ResaleLineEntity; error?: string }>;
+  /** Admin: write off a LOST line held for sale (books its cost as a loss). */
+  writeOffResaleLine: (
+    data: WriteOffResaleLineInput,
+  ) => Promise<{ success: boolean; data?: { expense_id: number }; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only)

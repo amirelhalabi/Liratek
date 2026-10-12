@@ -45,7 +45,11 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getResaleLineService, saveResaleLineSchema } from "@liratek/core";
+import {
+  getResaleLineService,
+  saveResaleLineSchema,
+  writeOffResaleLineSchema,
+} from "@liratek/core";
 import resaleLinesRouter from "../resaleLines.js";
 
 function buildApp(): Express {
@@ -135,6 +139,38 @@ describe("Resale line REST routes (LIRA-309)", () => {
         .send({ ...PAYLOAD, validity_expires_at: "2026-02-30" });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("POST /api/resale-lines/:productId/write-off", () => {
+    const WRITE_OFF = writeOffResaleLineSchema.parse({
+      product_id: 5,
+      note: "number burned",
+      client_day: "2026-10-12",
+    });
+
+    it("admin writes off — validated payload + the JWT user reach the service", async () => {
+      const spy = jest
+        .spyOn(service, "writeOff")
+        .mockReturnValue({ success: true, data: { expense_id: 55 } });
+      const res = await request(app)
+        .post(`/api/resale-lines/5/write-off`)
+        .set("x-test-role", "admin")
+        .send({ ...WRITE_OFF, userId: 999 });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, data: { expense_id: 55 } });
+      // The actor is the JWT's user (7), never a body field.
+      expect(spy).toHaveBeenCalledWith(WRITE_OFF, 7);
+    });
+
+    it("a cashier (staff) is refused and never reaches the service", async () => {
+      const spy = jest.spyOn(service, "writeOff");
+      const res = await request(app)
+        .post(`/api/resale-lines/5/write-off`)
+        .set("x-test-role", "staff")
+        .send(WRITE_OFF);
+      expect(res.status).toBe(403);
       expect(spy).not.toHaveBeenCalled();
     });
   });

@@ -56,6 +56,7 @@ import type {
   ResaleLineEntity,
   ListResaleLinesQueryInput,
   SaveResaleLineInput,
+  WriteOffResaleLineInput,
 } from "@liratek/core";
 
 /** LIRA-306 — the plain envelope the offline:* channels reply with. */
@@ -3728,6 +3729,11 @@ export interface ElectronAPI {
     save: (data: SaveResaleLineInput) => Promise<{
       success: boolean;
       data?: ResaleLineEntity;
+      error?: string;
+    }>;
+    writeOff: (data: WriteOffResaleLineInput) => Promise<{
+      success: boolean;
+      data?: { expense_id: number };
       error?: string;
     }>;
   };

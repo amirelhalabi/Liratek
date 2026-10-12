@@ -11,6 +11,7 @@ import type {
   // LIRA-309 — phone lines held for sale.
   ListResaleLinesQueryInput,
   SaveResaleLineInput,
+  WriteOffResaleLineInput,
   // LIRA-306 — offline desktop fallback (desktop-only, E1; rule 21).
   DesktopPairInput,
   DesktopUnpairInput,
@@ -765,6 +766,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   getResaleLines = (query?: ListResaleLinesQueryInput) =>
     api.getResaleLines(query);
   saveResaleLine = (data: SaveResaleLineInput) => api.saveResaleLine(data);
+  writeOffResaleLine = (data: WriteOffResaleLineInput) =>
+    api.writeOffResaleLine(data);
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking)

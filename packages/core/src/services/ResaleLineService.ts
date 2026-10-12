@@ -16,14 +16,27 @@ import {
   type CarrierLineRepository,
 } from "../repositories/CarrierLineRepository.js";
 import {
+  getExpenseRepository,
+  type ExpenseRepository,
+} from "../repositories/ExpenseRepository.js";
+import {
   isPhoneLineCategoryName,
   isSameLebanesePhone,
 } from "../utils/phoneNumber.js";
+import {
+  classifyLineStatus,
+  RESALE_LINE_EXPIRY_WARNING_DAYS,
+} from "../utils/lineStatus.js";
+import { clientDay } from "../utils/requestDay.js";
 import { inventoryLogger } from "../utils/logger.js";
 import type {
   ListResaleLinesQuery,
   SaveResaleLineData,
+  WriteOffResaleLineData,
 } from "../validators/resaleLine.js";
+
+/** The expense category a written-off line is booked under. */
+export const LOST_PHONE_LINE_CATEGORY = "Lost phone line";
 
 /** One message for both directions of FR-005 (a number can be a shop line
  *  or an unsold for-sale line, never both). */
@@ -37,10 +50,21 @@ export type ResaleLineResult<T> =
 export class ResaleLineService {
   private repo: ResaleLineRepository;
   private carrierRepo: CarrierLineRepository;
+  private expenseRepoRef: ExpenseRepository | null;
 
-  constructor(repo?: ResaleLineRepository, carrierRepo?: CarrierLineRepository) {
+  constructor(
+    repo?: ResaleLineRepository,
+    carrierRepo?: CarrierLineRepository,
+    expenseRepo?: ExpenseRepository,
+  ) {
     this.repo = repo ?? getResaleLineRepository();
     this.carrierRepo = carrierRepo ?? getCarrierLineRepository();
+    this.expenseRepoRef = expenseRepo ?? null;
+  }
+
+  private get expenseRepo(): ExpenseRepository {
+    if (!this.expenseRepoRef) this.expenseRepoRef = getExpenseRepository();
+    return this.expenseRepoRef;
   }
 
   /** The For sale list (and, with `include_sold: false`, the numbers the
@@ -82,6 +106,69 @@ export class ResaleLineService {
       inventoryLogger.error(
         { error, productId: input.product_id },
         "Failed to save for-sale line details",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Write off a LOST line held for sale (FR-016, owner decision 2026-10-11):
+   * the line stays in stock with a "write off?" alert until the owner acts;
+   * this books its full cost (FIFO, so any capitalized recharge included)
+   * as a loss. Reuses the existing reversible stock-expense flow
+   * (EXPENSE_INVENTORY) — no new money path; its void restores the stock
+   * and removes the expense.
+   *
+   * "Lost" is judged on the shop's own day (`client_day`, rule 27).
+   */
+  writeOff(
+    input: WriteOffResaleLineData,
+    userId: number,
+  ): ResaleLineResult<{ expense_id: number }> {
+    try {
+      const line = this.repo
+        .listLines({ includeSold: false })
+        .find((l) => l.product_id === input.product_id);
+      if (!line) return { success: false, error: "This line is not in stock." };
+
+      const day = input.client_day ?? clientDay();
+      const status = classifyLineStatus(
+        line.validity_expires_at,
+        day,
+        RESALE_LINE_EXPIRY_WARNING_DAYS,
+      ).status;
+      if (status !== "LOST") {
+        return {
+          success: false,
+          error:
+            "Only a line that is lost (expired past its grace period) can be written off.",
+        };
+      }
+
+      const note = input.note?.trim();
+      const expenseId = this.expenseRepo.createStockExpense(
+        {
+          source: "INVENTORY",
+          item_id: input.product_id,
+          quantity: 1,
+          category: LOST_PHONE_LINE_CATEGORY,
+          description: `Lost phone line ${line.phone_number ?? ""}${note ? ` — ${note}` : ""}`,
+          expense_date: day,
+        },
+        userId,
+      );
+      inventoryLogger.info(
+        { productId: input.product_id, expenseId },
+        "Lost phone line written off",
+      );
+      return { success: true, data: { expense_id: expenseId } };
+    } catch (error) {
+      inventoryLogger.error(
+        { error, productId: input.product_id },
+        "Failed to write off phone line",
       );
       return {
         success: false,

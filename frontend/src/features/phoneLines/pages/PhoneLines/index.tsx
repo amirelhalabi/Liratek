@@ -13,10 +13,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@liratek/ui";
 import {
+  classifyLineStatus,
   RESALE_LINE_EXPIRY_WARNING_DAYS,
   type ResaleLineRow,
   type SaveResaleLineInput,
+  type WriteOffResaleLineInput,
 } from "@liratek/core";
+import { localDay } from "@/shared/utils/localDay";
 import { Phone } from "lucide-react";
 import CarrierLinesManager from "@/features/settings/pages/Settings/CarrierLinesManager";
 import { LineStatusChip } from "@/features/phoneLines/components/LineStatusChip";
@@ -50,6 +53,9 @@ export default function PhoneLines() {
   const [edit, setEdit] = useState<EditForm | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // LIRA-309 — the lost line awaiting the owner's write-off confirmation.
+  const [writeOffRow, setWriteOffRow] = useState<ResaleLineRow | null>(null);
+  const [notice, setNotice] = useState("");
 
   const load = useCallback(async (includeSold: boolean) => {
     setLoading(true);
@@ -110,6 +116,40 @@ export default function PhoneLines() {
       await load(showSold);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save the line.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isLost = (row: ResaleLineRow) =>
+    row.is_unsold === 1 &&
+    classifyLineStatus(
+      row.validity_expires_at,
+      localDay(),
+      RESALE_LINE_EXPIRY_WARNING_DAYS,
+    ).status === "LOST";
+
+  const handleWriteOff = async () => {
+    if (!writeOffRow) return;
+    setError("");
+    const payload: WriteOffResaleLineInput = {
+      product_id: writeOffRow.product_id,
+      client_day: localDay(),
+    };
+    setSaving(true);
+    try {
+      const res = await apiRef.current.writeOffResaleLine(payload);
+      if (!res.success) {
+        setError(res.error || "Could not write off the line.");
+        return;
+      }
+      setNotice(
+        `Line ${writeOffRow.phone_number ?? ""} written off — ${money(writeOffRow.cost_price_usd)} booked as a loss.`,
+      );
+      setWriteOffRow(null);
+      await load(showSold);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not write off the line.");
     } finally {
       setSaving(false);
     }
@@ -183,6 +223,37 @@ export default function PhoneLines() {
               {error}
             </div>
           )}
+          {notice && (
+            <div className="text-emerald-400 text-sm bg-emerald-900/20 px-3 py-1.5 rounded">
+              {notice}
+            </div>
+          )}
+
+          {writeOffRow && (
+            <div className="border border-red-700/60 rounded-lg p-4 bg-red-950/30 space-y-3">
+              <p className="text-sm text-slate-200">
+                Line {writeOffRow.phone_number} is lost. Book{" "}
+                <span className="font-semibold">{money(writeOffRow.cost_price_usd)}</span>{" "}
+                as a loss and take it out of stock? You can undo this from
+                Transactions.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleWriteOff}
+                  disabled={saving}
+                  className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded text-sm"
+                >
+                  {saving ? "Writing off..." : "Write off"}
+                </button>
+                <button
+                  onClick={() => setWriteOffRow(null)}
+                  className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm"
+                >
+                  Keep it
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="bg-slate-800 rounded-xl border border-slate-700/50 overflow-x-auto">
             <table className="w-full text-sm">
@@ -232,7 +303,18 @@ export default function PhoneLines() {
                     <td className="px-4 py-3 font-mono text-xs text-slate-300">
                       {money(row.cost_price_usd)} / {money(row.selling_price_usd)}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap">
+                      {isLost(row) && (
+                        <button
+                          onClick={() => {
+                            setNotice("");
+                            setWriteOffRow(row);
+                          }}
+                          className="px-2 py-0.5 bg-red-900/40 hover:bg-red-900/60 text-red-300 rounded text-xs"
+                        >
+                          Write off
+                        </button>
+                      )}
                       {row.is_unsold === 1 && (
                         <button
                           onClick={() => openEdit(row)}

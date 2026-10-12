@@ -1911,6 +1911,11 @@ contextBridge.exposeInMainWorld("api", {
       validity_expires_at?: string | null;
       credits?: number;
     }) => ipcRenderer.invoke("resale-lines:save", data),
+    writeOff: (data: {
+      product_id: number;
+      note?: string;
+      client_day?: string;
+    }) => ipcRenderer.invoke("resale-lines:write-off", data),
   },
   carrierLines: {
     getActiveByCarrier: (carrier: "alfa" | "mtc") =>

@@ -17,6 +17,7 @@ import type { UnitWarrantyDisplay } from "@liratek/core";
 import type {
   ListResaleLinesQueryInput,
   SaveResaleLineInput,
+  WriteOffResaleLineInput,
   ResaleLineRow,
   ResaleLineEntity,
 } from "@liratek/core";
@@ -7637,6 +7638,24 @@ export async function saveResaleLine(
         `/api/resale-lines/${data.product_id}`,
         { method: "PUT", body: data },
       ),
+  );
+}
+
+/** Admin: write off a LOST line held for sale (books its cost as a loss). */
+export async function writeOffResaleLine(
+  data: WriteOffResaleLineInput,
+): Promise<{ success: boolean; data?: { expense_id: number }; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().resaleLines.writeOff(data),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: { expense_id: number };
+        error?: string;
+      }>(`/api/resale-lines/${data.product_id}/write-off`, {
+        method: "POST",
+        body: data,
+      }),
   );
 }
 

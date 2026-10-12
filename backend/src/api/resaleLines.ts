@@ -14,6 +14,7 @@ import {
   getResaleLineService,
   listResaleLinesQuerySchema,
   saveResaleLineSchema,
+  writeOffResaleLineSchema,
   type ListResaleLinesQuery,
 } from "@liratek/core";
 import {
@@ -70,6 +71,42 @@ router.put(
             validity_expires_at: req.body.validity_expires_at ?? null,
             credits: req.body.credits ?? null,
           },
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
+
+// POST /api/resale-lines/:productId/write-off — book a LOST line's cost as a
+// loss (admin), through the existing reversible stock-expense flow (FR-016).
+// The actor comes from the JWT, never the body (rule 19c).
+router.post(
+  "/:productId/write-off",
+  requireRole(["admin"]),
+  validateRequest(writeOffResaleLineSchema),
+  (req, res) => {
+    try {
+      if (Number(req.params.productId) !== req.body.product_id) {
+        res.json({
+          success: false,
+          error: "Product id in the path and body do not match.",
+        });
+        return;
+      }
+      const result = getResaleLineService().writeOff(
+        req.body,
+        (req as AuthRequest).user!.userId,
+      );
+      if (result.success) {
+        auditRest(req as AuthRequest, {
+          action: "create",
+          entity_type: "resale_line",
+          entity_id: String(req.body.product_id),
+          summary: `Wrote off lost phone line (product #${req.body.product_id})`,
+          metadata: { expense_id: result.data.expense_id },
         });
       }
       res.json(result);

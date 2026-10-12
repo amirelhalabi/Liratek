@@ -177,6 +177,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - MTC / Alfa: if the drawer no longer matches the total of its SIM lines, the Recharge page now shows a warning with both amounts, so you can fix it with a checkpoint.
 - New Phone Lines page (next to Mobile Recharge): your shop lines and the lines you sell in one place, with credit, expiry date and days left. For a line you sell, you can now enter its carrier, expiry and credit there or in the product form. Shop lines also show their days left in Settings → Carrier Lines.
 
+- Lines you sell: the Dashboard ("needs attention") and the bell now warn 3 days before one expires, show how many days are left to save it once expired, and ask whether to write it off once it is lost. Shop lines keep their 7-day warning. Write off on the Phone Lines page books the line's cost as a loss; you can undo it from Transactions.
 ## 🎟️ Loto
 
 - Ticket sale: the Discount field is now saved. It comes out of the shop's commission (never more than the commission), and Loto is still owed the same. A Waive button fills it in one tap for a gap of up to 450,000 LBP.

@@ -144,7 +144,7 @@ description: "Task list for LIRA-309 Phone Lines Management"
 
 ### Tests for User Story 2 (write first, see them fail)
 
-- [ ] T026 [P] [US2] Write `frontend/src/features/dashboard/utils/__tests__/lineExpiryAlerts.test.ts`:
+- [x] T026 [P] [US2] Write `frontend/src/features/dashboard/utils/__tests__/lineExpiryAlerts.test.ts`:
   - for-sale alert at d = 3, none at d = 4;
   - shop-line alert at d = 7, none at d = 8 (unchanged behaviour);
   - red at d = −2 with "3 days left to save it";
@@ -152,40 +152,40 @@ description: "Task list for LIRA-309 Phone Lines Management"
   - sold or archived lines → none.
 
   Keep the existing `carrierLineAlerts` tests passing (`missing`, `sold-ahead`).
-- [ ] T027 [P] [US2] Write `packages/core/src/services/__tests__/ResaleLineService.writeOff.test.ts` (**C14**):
+- [x] T027 [P] [US2] Write `packages/core/src/services/__tests__/ResaleLineService.writeOff.test.ts` (**C14**):
   - writing off an unsold LOST line with batch cost 18 creates an `EXPENSE_INVENTORY` expense of 18 at FIFO cost, stock 1→0, category "Lost phone line";
   - voiding that transaction restores stock 1 and removes the expense;
   - writing off a non-LOST or sold line is refused.
 
 ### Implementation for User Story 2
 
-- [ ] T028 [US2] Evolve `frontend/src/features/dashboard/utils/carrierLineAlerts.ts` into `computeLineExpiryAlerts(shopLines, resaleLines, today, rechargeEnabled)`:
+- [x] T028 [US2] Evolve `frontend/src/features/dashboard/utils/carrierLineAlerts.ts` into `computeLineExpiryAlerts(shopLines, resaleLines, today, rechargeEnabled)`:
   - move today's 7-day literal to `SHOP_LINE_EXPIRY_WARNING_DAYS` from core;
   - use `classifyLineStatus` for both kinds;
   - add kinds `resale-expiring`, `resale-grace` and `resale-lost` (write-off).
 
   Keep `missing` and `sold-ahead`. T026 passes.
-- [ ] T029 [US2] In `frontend/src/features/dashboard/pages/Dashboard.tsx`:
+- [x] T029 [US2] In `frontend/src/features/dashboard/pages/Dashboard.tsx`:
   - load `getResaleLines()` beside `getAllActiveCarrierLines()` (≈:711);
   - feed `computeLineExpiryAlerts`;
   - render items in `pageAlerts` (≈:1030), each naming the number, carrier, kind (shop / for sale) and days left or days left to save it;
   - actions navigate to `/phone-lines`.
-- [ ] T030 [US2] In `frontend/src/shared/components/layouts/TopBar.tsx` (beside the low-stock poll ≈:216-280):
+- [x] T030 [US2] In `frontend/src/shared/components/layouts/TopBar.tsx` (beside the low-stock poll ≈:216-280):
   - compute the same alerts and `appEvents.emit("notification:show", text, "warning")`;
   - emit **at most once per `lineId:status:day` per session** through an in-memory `Set`, so the 20-entry bell does not flood (research R9).
-- [ ] T031 [US2] Add `writeOff({ productId, note, clientDay, userId })` to `ResaleLineService` (any transaction goes through a repository `withTransaction`; no `getDatabase()` in the service, rule 13):
+- [x] T031 [US2] Add `writeOff({ productId, note, clientDay, userId })` to `ResaleLineService` (any transaction goes through a repository `withTransaction`; no `getDatabase()` in the service, rule 13):
   - require status LOST (computed with `clientDay ?? localDay()`, rule 27) and an unsold line;
   - call the existing `ExpenseRepository.createStockExpense` (ExpenseRepository.ts:654) with category "Lost phone line", quantity 1 and the note;
   - add **no** new money path.
 
   T027 passes.
-- [ ] T032 [US2] Wire `resale-lines:write-off` on every layer:
+- [x] T032 [US2] Wire `resale-lines:write-off` on every layer:
   - IPC handler with `requireRole(['admin'])` + `validatePayload(WriteOffResaleLineSchema)` in `electron-app/handlers/resaleLineHandlers.ts`, plus preload and `electron.d.ts`;
   - `channelPolicy.ts` (write);
   - REST `POST /api/resale-lines/:productId/write-off` (admin) in `backend/src/api/resaleLines.ts`, with `userId` from the JWT;
   - `writeOffResaleLine` in `backendApi.ts`, `ElectronApiAdapter.ts` and `packages/ui/src/api/types.ts`.
-- [ ] T033 [US2] Add a "Write off" button on LOST unsold for-sale rows in `frontend/src/features/phoneLines/pages/PhoneLines/index.tsx`, with an in-page confirm showing the amount (e.g. "Book $18.00 as a loss?") and a success toast.
-- [ ] T034 [US2] Add a release note line: the Dashboard and the bell now warn 3 days before a line you sell expires (shop lines still warn 7 days before), and a lost line asks whether to write it off.
+- [x] T033 [US2] Add a "Write off" button on LOST unsold for-sale rows in `frontend/src/features/phoneLines/pages/PhoneLines/index.tsx`, with an in-page confirm showing the amount (e.g. "Book $18.00 as a loss?") and a success toast.
+- [x] T034 [US2] Add a release note line: the Dashboard and the bell now warn 3 days before a line you sell expires (shop lines still warn 7 days before), and a lost line asks whether to write it off.
 
 **Checkpoint**: US1 + US2 work independently. Alerts are live with no money changes beyond the reversible write-off.
 

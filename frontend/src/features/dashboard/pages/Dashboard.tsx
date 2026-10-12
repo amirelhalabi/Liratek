@@ -62,7 +62,16 @@ import {
   type PartnerSettlementAmount,
 } from "../utils/partnerSettlement";
 import { formatCurrency } from "@/utils/currency";
-import { isDrawerVisible, visibleDrawerCurrencies } from "@liratek/core";
+import {
+  isDrawerVisible,
+  visibleDrawerCurrencies,
+  type ResaleLineRow,
+} from "@liratek/core";
+import {
+  computeResaleLineAlerts,
+  resaleLineAlertText,
+} from "@/features/phoneLines/utils/resaleLineAlerts";
+import { localDay } from "@/shared/utils/localDay";
 // LIRA-214 (OWNER_NOTES_REMAINING_BUILD.md #24, migration v183) — the shared
 // Hold Money pickup sheet (also used by HoldMoneySection's Active Holds
 // list), so this card's "Collect" opens the SAME payment-form + partial-
@@ -473,6 +482,8 @@ export default function Dashboard() {
   /** Active carrier lines, every carrier — feeds the expiry/missing-line
    *  banner (D11 / D4). Non-critical: a failed fetch just means no banner. */
   const [carrierLines, setCarrierLines] = useState<CarrierLineEntity[]>([]);
+  // LIRA-309 — lines held for sale, for their expiry / write-off alerts.
+  const [resaleLines, setResaleLines] = useState<ResaleLineRow[]>([]);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [showCashOutModal, setShowCashOutModal] = useState(false);
   const [initialBalancesSet, setInitialBalancesSet] = useState(true);
@@ -716,6 +727,15 @@ export default function Dashboard() {
         // non-critical
       }
 
+      // LIRA-309 — lines held for sale (non-critical — feeds their expiry /
+      // write-off alerts). Dual-mode via useApi().
+      try {
+        const resale = await apiRef.current.getResaleLines();
+        if (Array.isArray(resale)) setResaleLines(resale);
+      } catch {
+        // non-critical
+      }
+
       // Load active money holds (non-critical — surfaced as notification
       // cards). Dual-mode via useApi().holdMoney — no window.api gate.
       try {
@@ -808,6 +828,18 @@ export default function Dashboard() {
   const carrierLineAlerts = useMemo(
     () => computeCarrierLineAlerts(carrierLines, isModuleEnabled("recharge")),
     [carrierLines, isModuleEnabled],
+  );
+
+  // LIRA-309 — lines held for sale: amber 3 days before expiry, red in
+  // grace, "write off?" once lost. Judged on the shop's own day (rule 27).
+  const resaleLineAlerts = useMemo(
+    () =>
+      computeResaleLineAlerts(
+        resaleLines,
+        localDay(),
+        isModuleEnabled("recharge"),
+      ),
+    [resaleLines, isModuleEnabled],
   );
 
   // #28 (LIRA-218) — M6 fix (2026-09-24 adversarial review): a sold-ahead
@@ -1082,6 +1114,20 @@ export default function Dashboard() {
       });
     }
 
+    if (resaleLineAlerts.length > 0) {
+      items.push({
+        id: "resale-lines",
+        icon: Phone,
+        title:
+          resaleLineAlerts.length > 1
+            ? "Lines for sale need attention"
+            : "Line for sale needs attention",
+        detail: resaleLineAlerts.map(resaleLineAlertText).join(" · "),
+        actionLabel: "Open Phone Lines",
+        onAction: () => navigate("/phone-lines"),
+      });
+    }
+
     // DC-7 — one or more widgets failed on the last load. Named so the
     // operator knows WHICH figures might be stale, instead of a tile
     // silently sitting at 0 with no indication anything went wrong.
@@ -1107,6 +1153,7 @@ export default function Dashboard() {
     checkpointsEnabled,
     startingCheckpointSet,
     carrierLineAlerts,
+    resaleLineAlerts,
     drawerEntries,
     navigate,
     widgetLoadErrors,

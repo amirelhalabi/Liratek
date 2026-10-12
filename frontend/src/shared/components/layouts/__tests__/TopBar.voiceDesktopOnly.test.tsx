@@ -74,6 +74,11 @@ jest.mock("@/features/sessions/components/CustomerSessionButton", () => ({
   CustomerSessionButton: () => null,
 }));
 
+// LIRA-309 — TopBar reads the module switches (line-for-sale bell alerts).
+jest.mock("@/contexts/ModuleContext", () => ({
+  useModules: () => ({ isModuleEnabled: () => true }),
+}));
+
 jest.mock("@/contexts/ThemeContext", () => ({
   useTheme: () => ({ theme: "dark", toggleTheme: jest.fn() }),
 }));

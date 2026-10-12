@@ -18,6 +18,17 @@ import { useVoiceBotSettings } from "@/hooks/useVoiceBotSettings";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { arePhoneNumbersEqual } from "@/utils/phoneNumber";
 import logger from "@/utils/logger";
+import { useModules } from "@/contexts/ModuleContext";
+import {
+  computeResaleLineAlerts,
+  resaleLineAlertText,
+} from "@/features/phoneLines/utils/resaleLineAlerts";
+import { localDay } from "@/shared/utils/localDay";
+
+/** LIRA-309 — line-for-sale alerts already shown this session. TopBar
+ *  re-runs its checks on every poll and the bell keeps only 20 entries, so
+ *  each `resale:<id>:<status>:<day>` key is emitted once. */
+const shownLineAlertKeys = new Set<string>();
 
 interface TopBarProps {
   showHomeButton?: boolean;
@@ -87,6 +98,10 @@ export default function TopBar({
   showShopName = false,
 }: TopBarProps) {
   const api = useApi();
+  // LIRA-309 — read through a ref: the polling effect below runs once ([]).
+  const { isModuleEnabled } = useModules();
+  const isModuleEnabledRef = useRef(isModuleEnabled);
+  isModuleEnabledRef.current = isModuleEnabled;
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const shopName = useShopName();
@@ -250,6 +265,24 @@ export default function TopBar({
           );
       } catch {
         // Silently ignore notification polling errors
+      }
+      // LIRA-309 — lines held for sale: expiring / in grace / lost. Its own
+      // try so a failure here never hides the warnings above.
+      try {
+        const lines = await api.getResaleLines();
+        if (!mounted || !Array.isArray(lines)) return;
+        const alerts = computeResaleLineAlerts(
+          lines,
+          localDay(),
+          isModuleEnabledRef.current("recharge"),
+        );
+        for (const a of alerts) {
+          if (shownLineAlertKeys.has(a.key)) continue;
+          shownLineAlertKeys.add(a.key);
+          appEvents.emit("notification:show", resaleLineAlertText(a), "warning");
+        }
+      } catch {
+        // non-critical
       }
     };
     const offSale = appEvents.on("sale:completed", refresh);

@@ -19,6 +19,7 @@ import {
   validatePayload,
   ListResaleLinesQuerySchema,
   SaveResaleLineSchema,
+  WriteOffResaleLineSchema,
 } from "../schemas/index.js";
 
 export function registerResaleLineHandlers(): void {
@@ -70,6 +71,37 @@ export function registerResaleLineHandlers(): void {
           error instanceof Error
             ? error.message
             : "Failed to save phone line details",
+      };
+    }
+  });
+
+  // Write off a LOST line held for sale (admin) — books its cost as a loss
+  // through the existing reversible stock-expense flow (FR-016).
+  ipcMain.handle("resale-lines:write-off", (event, data: unknown) => {
+    try {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(WriteOffResaleLineSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = service.writeOff(v.data, auth.userId);
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "resale_line",
+          entity_id: String(v.data.product_id),
+          summary: `Wrote off lost phone line (product #${v.data.product_id})`,
+          metadata: { expense_id: result.data.expense_id },
+        });
+      }
+      return result;
+    } catch (error) {
+      inventoryLogger.error({ error }, "resale-lines:write-off failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to write off the line",
       };
     }
   });

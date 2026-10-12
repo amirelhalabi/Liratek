@@ -184,8 +184,10 @@ import {
   // LIRA-309 — phone lines held for sale (packages/core/src/validators/resaleLine.ts).
   listResaleLinesQuerySchema,
   saveResaleLineSchema,
+  writeOffResaleLineSchema,
   type ListResaleLinesQuery,
   type SaveResaleLineData,
+  type WriteOffResaleLineData,
   registerProductUnitsSchema,
   productUnitsForProductSchema,
   listProductUnitsSchema,
@@ -1144,6 +1146,8 @@ export const ListResaleLinesQuerySchema =
   listResaleLinesQuerySchema as unknown as z.ZodSchema<ListResaleLinesQuery>;
 export const SaveResaleLineSchema =
   saveResaleLineSchema as unknown as z.ZodSchema<SaveResaleLineData>;
+export const WriteOffResaleLineSchema =
+  writeOffResaleLineSchema as unknown as z.ZodSchema<WriteOffResaleLineData>;
 
 // =============================================================================
 // Product Units (LIRA-143 phase 5 — phone IMEI units & warranty)

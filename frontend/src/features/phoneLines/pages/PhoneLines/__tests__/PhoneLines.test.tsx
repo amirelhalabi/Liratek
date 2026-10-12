@@ -22,6 +22,7 @@ function inDays(n: number): string {
 const mockGetAdminCarrierLines = jest.fn();
 const mockGetResaleLines = jest.fn();
 const mockSaveResaleLine = jest.fn();
+const mockWriteOffResaleLine = jest.fn();
 // A STABLE object reference (rule 25).
 const mockApi = {
   getAdminCarrierLines: mockGetAdminCarrierLines,
@@ -32,6 +33,7 @@ const mockApi = {
   setPrimaryCarrierLine: jest.fn(),
   getResaleLines: mockGetResaleLines,
   saveResaleLine: mockSaveResaleLine,
+  writeOffResaleLine: mockWriteOffResaleLine,
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -94,6 +96,10 @@ describe("PhoneLines page (LIRA-309)", () => {
       }),
     ]);
     mockSaveResaleLine.mockReset().mockResolvedValue({ success: true });
+    mockWriteOffResaleLine.mockReset().mockResolvedValue({
+      success: true,
+      data: { expense_id: 5 },
+    });
   });
 
   it("shows the For sale group with a status per line (3-day window)", async () => {
@@ -161,5 +167,28 @@ describe("PhoneLines page (LIRA-309)", () => {
     await waitFor(() =>
       expect(mockGetResaleLines).toHaveBeenLastCalledWith({ include_sold: true }),
     );
+  });
+
+  it("offers Write off only on a lost line, confirms the amount, then calls the server", async () => {
+    mockGetResaleLines.mockResolvedValue([
+      forSale({ product_id: 20, phone_number: "03555120", validity_expires_at: inDays(-9), cost_price_usd: 18 }),
+      forSale({ product_id: 21, phone_number: "03555121", validity_expires_at: inDays(-2) }),
+    ]);
+    render(<PhoneLines />);
+    const lost = await screen.findByTestId("resale-line-20");
+    const grace = screen.getByTestId("resale-line-21");
+    expect(within(grace).queryByRole("button", { name: "Write off" })).toBeNull();
+
+    fireEvent.click(within(lost).getByRole("button", { name: "Write off" }));
+    expect(screen.getByText(/Book/).textContent).toContain("$18.00");
+    // The confirm strip's button is the second "Write off" on screen.
+    const buttons = screen.getAllByRole("button", { name: "Write off" });
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(mockWriteOffResaleLine).toHaveBeenCalledTimes(1));
+    expect(mockWriteOffResaleLine.mock.calls[0][0]).toEqual({
+      product_id: 20,
+      client_day: localDay(),
+    });
+    expect(await screen.findByText(/written off/)).toBeTruthy();
   });
 });
