@@ -168,7 +168,7 @@ test.describe("LIRA-096 — debt split repayment (USD + LBP)", () => {
     const amount = (i: number) =>
       appPage.locator('[data-testid^="payment-amount-"]').nth(i);
     await amount(0).fill(String(USD_LEG));
-    await appPage.getByRole("button", { name: /Add Payment Line/i }).click();
+    await appPage.getByTestId("add-payment-line").click();
     const line2 = appPage.locator('[data-testid^="payment-line-"]').nth(1);
     await line2.locator("select").nth(1).selectOption("LBP");
     await amount(1).fill(String(LBP_LEG));

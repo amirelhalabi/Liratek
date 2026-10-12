@@ -266,6 +266,10 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - At checkout, the screen now shows which drawer each payment goes into (for example Cash → General) instead of always saying Drawer B. The same applies when taking payment for a repair in Maintenance.
 - POS and Maintenance checkout: when a sale is refused (for example an item with no stock left), the Complete Sale and Save Draft buttons now come back so you can fix the basket. Before, they stayed stuck on "Processing..." and you had to close the window.
 - POS and Maintenance checkout now convert Lira at the same rate as every other screen — a $10 item asks 890,000 LBP at a rate of 89,000. From now on, a POS cart added to a session is saved at the same rate it is paid at. Earlier sales keep their rate.
+- Payment form: the discount now shows once, on the "After Discount" line, instead of again next to the Discount field. When a discount is over its limit, "Capped to max" now shows next to the field.
+- Payment form: the title stays "Payment" when you split a payment (the "Split Active" button already says so), and the button to add a payment line now reads "+ Add line" everywhere.
+- Payment form: when change goes back to the customer's account or by another method, the amount now shows once, on the "Change due" line.
+- Payment form: when a client is needed (to put the payment on their account, give change as store credit, or use a gift card), one red box at the bottom now lists every reason.
 
 ## 💳 Debts
 

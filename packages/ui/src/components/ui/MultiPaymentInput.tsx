@@ -412,6 +412,139 @@ function parseNum(formatted: string): number {
   return parseFloat(formatted.replace(/,/g, "")) || 0;
 }
 
+/** Symbols drawn inside the amount field (others show only in the picker). */
+const INLINE_SYMBOLS = ["$", "€", "£"];
+
+interface PaymentLineRowProps {
+  /** "payment" for the main lines, "counter-flow" for the opposite-direction
+   *  section — the data-testid prefix each control already had. */
+  testIdPrefix: "payment" | "counter-flow";
+  lineId: string;
+  method: string;
+  currencyCode: string;
+  amount: number;
+  methods: PaymentMethod[];
+  currencies: Currency[];
+  /** The currency's display symbol (from the `currencies` prop). */
+  symbol: string;
+  /** "large" = the single-line form; "compact" = split and counter-flow. */
+  size: "large" | "compact";
+  accent: "violet" | "emerald";
+  onMethodChange: (method: string) => void;
+  onCurrencyChange: (currencyCode: string) => void;
+  onAmountChange: (amount: number) => void;
+  /** Shows the remove (X) button when given. */
+  onRemove?: () => void;
+  removeDisabled?: boolean;
+  /** data-testid for the row itself (the counter-flow lines carry one). */
+  rowTestId?: string;
+}
+
+/**
+ * One method + currency + amount (+ remove) row. The single line, every
+ * split line and every counter-flow line render through this, so the three
+ * cannot drift apart. Display only: every change goes straight to the
+ * caller's handler.
+ */
+function PaymentLineRow({
+  testIdPrefix,
+  lineId,
+  method,
+  currencyCode,
+  amount,
+  methods,
+  currencies,
+  symbol,
+  size,
+  accent,
+  onMethodChange,
+  onCurrencyChange,
+  onAmountChange,
+  onRemove,
+  removeDisabled = false,
+  rowTestId,
+}: PaymentLineRowProps) {
+  const large = size === "large";
+  const bg = large ? "bg-slate-800/80" : "bg-slate-900";
+  const py = large ? "py-2.5" : "py-2";
+  const focus =
+    accent === "emerald"
+      ? "focus:border-emerald-500"
+      : "focus:border-violet-500";
+  const showSymbol = INLINE_SYMBOLS.includes(symbol);
+
+  return (
+    <div
+      {...(rowTestId ? { "data-testid": rowTestId } : {})}
+      className="flex items-center gap-2"
+    >
+      {/* Payment Method */}
+      <select
+        data-testid={`${testIdPrefix}-method-${lineId}`}
+        value={method}
+        onChange={(e) => onMethodChange(e.target.value)}
+        className={`flex-1 min-w-0 ${bg} border border-slate-600 rounded-lg px-3 ${py} text-white text-sm focus:outline-none ${focus} transition-colors`}
+      >
+        {methods.map((pm) => (
+          <option key={pm.code} value={pm.code}>
+            {pm.label}
+          </option>
+        ))}
+      </select>
+
+      {/* Currency */}
+      <select
+        data-testid={`${testIdPrefix}-currency-${lineId}`}
+        value={currencyCode}
+        onChange={(e) => onCurrencyChange(e.target.value)}
+        className={`w-20 ${bg} border border-slate-600 rounded-lg px-2 ${py} text-white text-sm focus:outline-none ${focus} transition-colors`}
+      >
+        {currencies.map((curr) => (
+          <option key={curr.code} value={curr.code}>
+            {curr.code}
+          </option>
+        ))}
+      </select>
+
+      {/* Amount — DecimalInput keeps the raw text while focused so decimal
+          points survive typing (a controlled fmtNum/parseNum round-trip ate
+          the "." on every keystroke). */}
+      <div className={`relative ${large ? "w-36" : "w-28"}`}>
+        {showSymbol && (
+          <span
+            className={`absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 ${large ? "text-sm" : "text-xs"}`}
+          >
+            {symbol}
+          </span>
+        )}
+        <DecimalInput
+          data-testid={`${testIdPrefix}-amount-${lineId}`}
+          value={amount}
+          decimals={currencyCode === "LBP" ? 0 : 2}
+          onChange={onAmountChange}
+          className={`w-full ${bg} border border-slate-600 rounded-lg pr-3 ${py} text-white text-sm font-mono focus:outline-none ${focus} transition-colors ${
+            showSymbol ? "pl-7" : "pl-3"
+          }`}
+          placeholder="0"
+        />
+      </div>
+
+      {/* Remove */}
+      {onRemove && (
+        <button
+          type="button"
+          disabled={removeDisabled}
+          onClick={onRemove}
+          className="flex-shrink-0 px-0.5 py-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
+          title="Remove"
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function MultiPaymentInput({
   currency,
   totalAmountCurrency = "USD",
@@ -1032,13 +1165,8 @@ export default function MultiPaymentInput({
   /** Voucher picker shown under a GIFT_CARD line — driven by the client's vouchers. */
   const renderVoucherSelector = (line: PaymentLine) => {
     if (line.method !== "GIFT_CARD") return null;
-    if (!clientId) {
-      return (
-        <p className="mt-1 text-[11px] text-amber-400">
-          Select a client to use a voucher.
-        </p>
-      );
-    }
+    // No client: the shared "client needed" box at the bottom says so.
+    if (!clientId) return null;
     if (clientVouchers.length === 0) {
       return (
         <p className="mt-1 text-[11px] text-amber-400">
@@ -1601,6 +1729,11 @@ export default function MultiPaymentInput({
       ? Math.round(rawReturnAmount)
       : Number(rawReturnAmount.toFixed(2));
 
+  // The "Change due" row shows USD and LBP; any other return currency
+  // still needs its own figure next to the currency picker.
+  const returnCurrencyInChangeDue =
+    returnCurrency === "USD" || returnCurrency === "LBP";
+
   // CUSTOMER_ACCOUNT return requires a client (it becomes store credit).
   const returnNeedsClient =
     effectiveReturnMethod === "CUSTOMER_ACCOUNT" && !hasClient;
@@ -2118,6 +2251,28 @@ export default function MultiPaymentInput({
       !(counterFlow?.requiresClient && !counterFlow?.hasClient),
   );
 
+  // Every reason this sheet needs a client, shown together at the bottom.
+  // Same conditions the three separate messages used before.
+  const visibleLines = isSplitMode ? paymentLines : paymentLines.slice(0, 1);
+  const clientNeededReasons: string[] = [];
+  if (hasDebt && requiresClientForDebt && !hasClient && totalInTarget > 0) {
+    clientNeededReasons.push(
+      "Client is required when using DEBT payment method",
+    );
+  }
+  if (isOverpaid && returnNeedsClient) {
+    clientNeededReasons.push(
+      "Select a client to return change as store credit.",
+    );
+  }
+  if (
+    fetchClientVouchers &&
+    !clientId &&
+    visibleLines.some((l) => l.method === "GIFT_CARD")
+  ) {
+    clientNeededReasons.push("Select a client to use a voucher.");
+  }
+
   return (
     <div
       data-testid="multi-payment-input"
@@ -2126,7 +2281,9 @@ export default function MultiPaymentInput({
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700/40">
         <span className="text-sm font-semibold text-slate-200 tracking-wide shrink-0">
-          {isSplitMode ? `${label || "Payment"} Split` : label || "Payment"}
+          {/* Split state is shown on the Split toggle alone ("Split
+              Active") — the title no longer repeats it. */}
+          {label || "Payment"}
         </span>
         {/* Direction chip — only when a counter-flow section is active
             (owner decision #10 area, BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4
@@ -2240,88 +2397,38 @@ export default function MultiPaymentInput({
                 </div>
 
                 <div className="flex-1 min-w-0 p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    {/* Payment Method */}
-                    <select
-                      data-testid={`payment-method-${line.id}`}
-                      value={line.method}
-                      onChange={(e) =>
-                        updatePaymentLine(line.id, "method", e.target.value)
-                      }
-                      className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
-                    >
-                      {paymentMethods.map((pm) => (
-                        <option key={pm.code} value={pm.code}>
-                          {pm.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* Currency */}
-                    <select
-                      data-testid={`payment-currency-${line.id}`}
-                      value={line.currencyCode}
-                      onChange={(e) =>
-                        updatePaymentLine(
-                          line.id,
-                          "currencyCode",
-                          e.target.value,
-                        )
-                      }
-                      className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
-                    >
-                      {currencies.map((curr) => (
-                        <option key={curr.code} value={curr.code}>
-                          {curr.code}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* Amount — DecimalInput keeps the raw text while focused so
-                      decimal points survive typing (a controlled fmtNum/parseNum
-                      round-trip ate the "." on every keystroke). */}
-                    <div className="relative w-28">
-                      {["$", "€", "£"].includes(
-                        getSymbol(line.currencyCode),
-                      ) && (
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
-                          {getSymbol(line.currencyCode)}
-                        </span>
-                      )}
-                      <DecimalInput
-                        data-testid={`payment-amount-${line.id}`}
-                        value={line.amount}
-                        decimals={line.currencyCode === "LBP" ? 0 : 2}
-                        onChange={(n) =>
-                          updatePaymentLine(line.id, "amount", n)
-                        }
-                        className={`w-full bg-slate-900 border border-slate-600 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors ${
-                          ["$", "€", "£"].includes(getSymbol(line.currencyCode))
-                            ? "pl-7"
-                            : "pl-3"
-                        }`}
-                        placeholder="0"
-                      />
-                    </div>
-
-                    {/* Remove */}
-                    <button
-                      type="button"
-                      disabled={paymentLines.length === 1}
-                      onClick={() => removePaymentLine(line.id)}
-                      className="flex-shrink-0 px-0.5 py-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
-                      title="Remove"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+                  <PaymentLineRow
+                    testIdPrefix="payment"
+                    lineId={line.id}
+                    method={line.method}
+                    currencyCode={line.currencyCode}
+                    amount={line.amount}
+                    methods={paymentMethods}
+                    currencies={currencies}
+                    symbol={getSymbol(line.currencyCode)}
+                    size="compact"
+                    accent="violet"
+                    onMethodChange={(v) =>
+                      updatePaymentLine(line.id, "method", v)
+                    }
+                    onCurrencyChange={(v) =>
+                      updatePaymentLine(line.id, "currencyCode", v)
+                    }
+                    onAmountChange={(n) =>
+                      updatePaymentLine(line.id, "amount", n)
+                    }
+                    onRemove={() => removePaymentLine(line.id)}
+                    removeDisabled={paymentLines.length === 1}
+                  />
 
                   {/* Voucher picker (GIFT_CARD) */}
-                  {fetchClientVouchers && line.method === "GIFT_CARD" && (
-                    <div className="pl-3 border-l-2 border-orange-500/30">
-                      {renderVoucherSelector(line)}
-                    </div>
-                  )}
+                  {fetchClientVouchers &&
+                    !!clientId &&
+                    line.method === "GIFT_CARD" && (
+                      <div className="pl-3 border-l-2 border-orange-500/30">
+                        {renderVoucherSelector(line)}
+                      </div>
+                    )}
 
                   {/* PM Fee sub-line */}
                   {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
@@ -2358,10 +2465,11 @@ export default function MultiPaymentInput({
             {/* Add payment line button */}
             <button
               type="button"
+              data-testid="add-payment-line"
               onClick={addPaymentLine}
               className="w-full py-2 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
             >
-              + Add {label || "Payment"} Line
+              + Add line
             </button>
           </>
         ) : (
@@ -2370,81 +2478,31 @@ export default function MultiPaymentInput({
             data-testid={`payment-line-${paymentLines[0]?.id}`}
             className="space-y-2"
           >
-            <div className="flex items-center gap-2">
-              {/* Payment Method */}
-              <select
-                data-testid={`payment-method-${paymentLines[0]?.id}`}
-                value={paymentLines[0]?.method || "CASH"}
-                onChange={(e) =>
-                  updatePaymentLine(
-                    paymentLines[0]?.id,
-                    "method",
-                    e.target.value,
-                  )
-                }
-                className="flex-1 min-w-0 bg-slate-800/80 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
-              >
-                {paymentMethods.map((pm) => (
-                  <option key={pm.code} value={pm.code}>
-                    {pm.label}
-                  </option>
-                ))}
-              </select>
-
-              {/* Currency */}
-              <select
-                data-testid={`payment-currency-${paymentLines[0]?.id}`}
-                value={paymentLines[0]?.currencyCode || currency}
-                onChange={(e) =>
-                  updatePaymentLine(
-                    paymentLines[0]?.id,
-                    "currencyCode",
-                    e.target.value,
-                  )
-                }
-                className="w-20 bg-slate-800/80 border border-slate-600 rounded-lg px-2 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
-              >
-                {currencies.map((curr) => (
-                  <option key={curr.code} value={curr.code}>
-                    {curr.code}
-                  </option>
-                ))}
-              </select>
-
-              {/* Amount */}
-              <div className="relative w-36">
-                {["$", "€", "£"].includes(
-                  getSymbol(paymentLines[0]?.currencyCode || currency),
-                ) && (
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
-                    {getSymbol(paymentLines[0]?.currencyCode || currency)}
-                  </span>
-                )}
-                <DecimalInput
-                  data-testid={`payment-amount-${paymentLines[0]?.id}`}
-                  value={paymentLines[0]?.amount ?? 0}
-                  decimals={
-                    (paymentLines[0]?.currencyCode || currency) === "LBP"
-                      ? 0
-                      : 2
-                  }
-                  onChange={(n) =>
-                    updatePaymentLine(paymentLines[0]?.id, "amount", n)
-                  }
-                  className={`w-full bg-slate-800/80 border border-slate-600 rounded-lg pr-3 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors ${
-                    ["$", "€", "£"].includes(
-                      getSymbol(paymentLines[0]?.currencyCode || currency),
-                    )
-                      ? "pl-7"
-                      : "pl-3"
-                  }`}
-                  placeholder="0"
-                />
-              </div>
-            </div>
+            <PaymentLineRow
+              testIdPrefix="payment"
+              lineId={paymentLines[0]?.id}
+              method={paymentLines[0]?.method || "CASH"}
+              currencyCode={paymentLines[0]?.currencyCode || currency}
+              amount={paymentLines[0]?.amount ?? 0}
+              methods={paymentMethods}
+              currencies={currencies}
+              symbol={getSymbol(paymentLines[0]?.currencyCode || currency)}
+              size="large"
+              accent="violet"
+              onMethodChange={(v) =>
+                updatePaymentLine(paymentLines[0]?.id, "method", v)
+              }
+              onCurrencyChange={(v) =>
+                updatePaymentLine(paymentLines[0]?.id, "currencyCode", v)
+              }
+              onAmountChange={(n) =>
+                updatePaymentLine(paymentLines[0]?.id, "amount", n)
+              }
+            />
 
             {/* Voucher picker (GIFT_CARD) */}
             {fetchClientVouchers &&
+              !!clientId &&
               paymentLines[0]?.method === "GIFT_CARD" &&
               paymentLines[0] && (
                 <div>{renderVoucherSelector(paymentLines[0])}</div>
@@ -2473,71 +2531,31 @@ export default function MultiPaymentInput({
           </div>
 
           {counterFlowLines.map((line) => (
-            <div
+            <PaymentLineRow
               key={line.id}
-              data-testid={`counter-flow-line-${line.id}`}
-              className="flex items-center gap-2"
-            >
-              <select
-                data-testid={`counter-flow-method-${line.id}`}
-                value={line.method}
-                onChange={(e) =>
-                  updateCounterFlowLine(line.id, "method", e.target.value)
-                }
-                className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-              >
-                {counterFlowMethods.map((pm) => (
-                  <option key={pm.code} value={pm.code}>
-                    {pm.label}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                data-testid={`counter-flow-currency-${line.id}`}
-                value={line.currencyCode}
-                onChange={(e) =>
-                  updateCounterFlowLine(line.id, "currencyCode", e.target.value)
-                }
-                className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-              >
-                {currencies.map((curr) => (
-                  <option key={curr.code} value={curr.code}>
-                    {curr.code}
-                  </option>
-                ))}
-              </select>
-
-              <div className="relative w-28">
-                {["$", "€", "£"].includes(getSymbol(line.currencyCode)) && (
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
-                    {getSymbol(line.currencyCode)}
-                  </span>
-                )}
-                <DecimalInput
-                  data-testid={`counter-flow-amount-${line.id}`}
-                  value={line.amount}
-                  decimals={line.currencyCode === "LBP" ? 0 : 2}
-                  onChange={(n) => updateCounterFlowLine(line.id, "amount", n)}
-                  className={`w-full bg-slate-900 border border-slate-600 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500 transition-colors ${
-                    ["$", "€", "£"].includes(getSymbol(line.currencyCode))
-                      ? "pl-7"
-                      : "pl-3"
-                  }`}
-                  placeholder="0"
-                />
-              </div>
-
-              <button
-                type="button"
-                disabled={counterFlowLines.length === 1}
-                onClick={() => removeCounterFlowLine(line.id)}
-                className="flex-shrink-0 px-0.5 py-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
-                title="Remove"
-              >
-                <X size={14} />
-              </button>
-            </div>
+              rowTestId={`counter-flow-line-${line.id}`}
+              testIdPrefix="counter-flow"
+              lineId={line.id}
+              method={line.method}
+              currencyCode={line.currencyCode}
+              amount={line.amount}
+              methods={counterFlowMethods}
+              currencies={currencies}
+              symbol={getSymbol(line.currencyCode)}
+              size="compact"
+              accent="emerald"
+              onMethodChange={(v) =>
+                updateCounterFlowLine(line.id, "method", v)
+              }
+              onCurrencyChange={(v) =>
+                updateCounterFlowLine(line.id, "currencyCode", v)
+              }
+              onAmountChange={(n) =>
+                updateCounterFlowLine(line.id, "amount", n)
+              }
+              onRemove={() => removeCounterFlowLine(line.id)}
+              removeDisabled={counterFlowLines.length === 1}
+            />
           ))}
 
           <button
@@ -2546,7 +2564,7 @@ export default function MultiPaymentInput({
             onClick={addCounterFlowLine}
             className="w-full py-1.5 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
           >
-            + Add Split
+            + Add line
           </button>
         </div>
       )}
@@ -2642,13 +2660,22 @@ export default function MultiPaymentInput({
                   placeholder="0"
                 />
               </div>
-              {discountAmount > 0 && (
+              {/* Payout only: off the shop's fee — the customer gets more.
+                  Elsewhere the "After Discount" row below already shows the
+                  result, so the amount is not echoed here. */}
+              {discountAmount > 0 && !discountLowersTotal && (
                 <span className="font-mono text-emerald-400 text-xs">
-                  {/* Payout: off the shop's fee — the customer gets more. */}
-                  {discountLowersTotal ? "-" : "+"}
-                  {fmtTarget(toDisplayCurrency(clampedDiscount))}
+                  +{fmtTarget(toDisplayCurrency(clampedDiscount))}
                 </span>
               )}
+              {/* Discount cap — inline beside the (red-bordered) field
+                  rather than on a row of its own. */}
+              {maxDiscount !== undefined &&
+                discountNormalized > maxDiscount && (
+                  <span className="text-[11px] text-red-400">
+                    Capped to max ({fmtTarget(toDisplayCurrency(maxDiscount))})
+                  </span>
+                )}
             </div>
           </div>
         )}
@@ -2662,15 +2689,6 @@ export default function MultiPaymentInput({
             </span>
           </div>
         )}
-
-        {/* Discount cap warning */}
-        {discountVisible &&
-          maxDiscount !== undefined &&
-          discountNormalized > maxDiscount && (
-            <div className="text-[11px] text-red-400">
-              Capped to max ({fmtTarget(toDisplayCurrency(maxDiscount))})
-            </div>
-          )}
 
         {/* Total Paid */}
         <div className="flex justify-between items-center text-xs pt-1.5 border-t border-slate-700/40">
@@ -3010,36 +3028,34 @@ export default function MultiPaymentInput({
                     : `${fmtWithSymbol(convertSafe(-returnMismatch, totalAmountCurrency, "USD"), "$", 2)} of the change is not covered by these fields yet.`}
                 </p>
               )}
-            {effectiveReturnMethod !== "CASH" && (
-              /* Non-CASH: currency dropdown + derived read-only amount */
-              <div className="flex items-center gap-1.5 justify-end">
-                {currencies.length > 1 && (
-                  <select
-                    data-testid="return-currency"
-                    value={returnCurrency}
-                    onChange={(e) => setReturnCurrency(e.target.value)}
-                    className="bg-slate-900 border border-amber-700/40 rounded-md px-1.5 py-0.5 text-amber-200 text-[11px] focus:outline-none focus:border-amber-500"
-                  >
-                    {currencies.map((curr) => (
-                      <option key={curr.code} value={curr.code}>
-                        {curr.code}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <span className="font-mono font-bold text-amber-300">
-                  {returnCurrency === "USD"
-                    ? `$${returnAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                    : Math.round(returnAmount).toLocaleString()}
-                </span>
-              </div>
-            )}
-
-            {returnNeedsClient && (
-              <p className="text-[11px] text-red-400">
-                Select a client to return change as store credit.
-              </p>
-            )}
+            {effectiveReturnMethod !== "CASH" &&
+              (currencies.length > 1 || !returnCurrencyInChangeDue) && (
+                /* Non-CASH: currency dropdown. The amount itself is the
+                   "Change due" row above (USD | LBP), so it is repeated here
+                   only for a currency that row does not show (e.g. EUR). */
+                <div className="flex items-center gap-1.5 justify-end">
+                  {currencies.length > 1 && (
+                    <select
+                      data-testid="return-currency"
+                      value={returnCurrency}
+                      onChange={(e) => setReturnCurrency(e.target.value)}
+                      className="bg-slate-900 border border-amber-700/40 rounded-md px-1.5 py-0.5 text-amber-200 text-[11px] focus:outline-none focus:border-amber-500"
+                    >
+                      {currencies.map((curr) => (
+                        <option key={curr.code} value={curr.code}>
+                          {curr.code}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {!returnCurrencyInChangeDue && (
+                    <span className="font-mono font-bold text-amber-300">
+                      {/* Same figure as before this row was trimmed. */}
+                      {Math.round(returnAmount).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              )}
           </div>
         )}
 
@@ -3062,9 +3078,14 @@ export default function MultiPaymentInput({
         )}
       </div>
 
-      {/* Validation Messages */}
-      {hasDebt && requiresClientForDebt && !hasClient && totalInTarget > 0 && (
-        <div className="mx-4 mb-3 text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20 flex items-center gap-2">
+      {/* Validation Messages — every "a client is needed" reason in ONE box
+          (debt line, store-credit change, gift-card voucher) instead of one
+          message per section. */}
+      {clientNeededReasons.length > 0 && (
+        <div
+          data-testid="client-needed"
+          className="mx-4 mb-3 text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20 flex items-start gap-2"
+        >
           <svg
             width="14"
             height="14"
@@ -3072,12 +3093,17 @@ export default function MultiPaymentInput({
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
+            className="shrink-0 mt-px"
           >
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-          Client is required when using DEBT payment method
+          <div className="space-y-0.5">
+            {clientNeededReasons.map((reason) => (
+              <p key={reason}>{reason}</p>
+            ))}
+          </div>
         </div>
       )}
     </div>
