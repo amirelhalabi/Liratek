@@ -34,6 +34,14 @@ import type {
   ExpensePaymentLeg,
 } from "../validators/expense.js";
 
+/**
+ * Rows the expense lists show: everything except a row deleted from the
+ * Expenses page (`voided`). A row refunded from the Transactions page is
+ * still listed — it is badged, not hidden. Not `activeExpense`: that one
+ * also drops refunded rows, which is right for totals but not for a list.
+ */
+const LISTED_EXPENSE = "status != 'voided'";
+
 export interface ExpenseEntity {
   id: number;
   description: string;
@@ -852,7 +860,23 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM expenses
-         WHERE ${isToday("expense_date")} AND status != 'voided' AND tenant_id = ?
+         WHERE ${isToday("expense_date")} AND ${LISTED_EXPENSE} AND tenant_id = ?
+         ORDER BY expense_date DESC`,
+      )
+      .all(getCurrentTenantId()) as ExpenseEntity[];
+  }
+
+  /**
+   * Every listed expense, any day — the History window's data. It used to be
+   * fed `getTodayExpenses()`, so its date filter could never reach a past
+   * day. Refunded rows stay in (the window badges them); the window filters
+   * by day and leaves refunded rows out of its own totals.
+   */
+  getExpenseHistory(): ExpenseEntity[] {
+    return this.db
+      .prepare(
+        `SELECT ${this.getColumns()} FROM expenses
+         WHERE ${LISTED_EXPENSE} AND tenant_id = ?
          ORDER BY expense_date DESC`,
       )
       .all(getCurrentTenantId()) as ExpenseEntity[];

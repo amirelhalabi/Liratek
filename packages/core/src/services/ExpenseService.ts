@@ -97,6 +97,18 @@ export class ExpenseService {
   }
 
   /**
+   * Every listed expense, any day (the History window)
+   */
+  getExpenseHistory(): ExpenseEntity[] {
+    try {
+      return this.repo.getExpenseHistory();
+    } catch (error) {
+      expenseLogger.error({ error }, "ExpenseService.getExpenseHistory error");
+      return [];
+    }
+  }
+
+  /**
    * Delete an expense
    */
   deleteExpense(id: number, userId: number): ExpenseResult {

@@ -177,6 +177,11 @@ export function registerDatabaseHandlers(): void {
     return expenseService.getTodayExpenses();
   });
 
+  // Get every listed expense, any day (History window)
+  ipcMain.handle("db:get-expense-history", () => {
+    return expenseService.getExpenseHistory();
+  });
+
   // Delete Expense
   ipcMain.handle("db:delete-expense", (e, rawId: unknown) => {
     const auth = requireRole(e.sender.id, ["admin"]);

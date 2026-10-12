@@ -222,6 +222,7 @@ import type {
   AccountLedgerEntry,
   AccountUnsettledRow,
   ChartDataPoint,
+  ExpenseListRow,
 } from "@liratek/ui";
 
 import type { AccountPicture, GoogleLinkView } from "@liratek/core";
@@ -2168,6 +2169,19 @@ export async function getTodayExpenses() {
     `/api/expenses/today`,
   );
   return res.expenses;
+}
+
+/** Every listed expense, any day — the History window's rows. */
+export async function getExpenseHistory(): Promise<ExpenseListRow[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().expenses.getHistory(),
+    async () =>
+      (
+        await requestJson<{ success: boolean; expenses: ExpenseListRow[] }>(
+          `/api/expenses/history`,
+        )
+      ).expenses,
+  );
 }
 
 /** Manual expense — payload is core's createExpenseSchema input (rule 21):

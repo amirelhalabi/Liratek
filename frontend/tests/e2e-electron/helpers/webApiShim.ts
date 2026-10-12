@@ -720,6 +720,8 @@ function webApiShimBody(): void {
       ).services ?? [],
     "expenses.getToday": async () =>
       (await rest("GET", "/api/expenses/today")).expenses,
+    "expenses.getHistory": async () =>
+      (await rest("GET", "/api/expenses/history")).expenses,
     "profits.byModule": async ([from, to]) =>
       (await rest("GET", "/api/profits/by-module" + qs({ from, to }))).data ??
       [],

@@ -1,6 +1,7 @@
 export type {
   ApiAdapter,
   ApiUser,
+  ExpenseListRow,
   ApiResult,
   ApiMeResult,
   ProductWriteResult,

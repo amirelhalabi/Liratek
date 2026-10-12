@@ -258,6 +258,23 @@ export type {
   NetProfitWindowResult,
 };
 
+/** One expense as the Expenses page lists it (`ExpenseRepository.getColumns`). */
+export type ExpenseListRow = {
+  id: number;
+  description: string;
+  category: string;
+  paid_by_method?: string;
+  amount_usd: number;
+  amount_lbp: number;
+  expense_date: string;
+  note?: string | null;
+  status?: string;
+  edited_by?: string | null;
+  edited_at?: string | null;
+  is_refunded?: number;
+  refunded_at?: string | null;
+};
+
 export type ApiUser = {
   id: number;
   username: string;
@@ -1474,6 +1491,8 @@ export type ApiAdapter = {
   // Expenses
   // ---------------------------------------------------------------------------
   getTodayExpenses: () => Promise<any[]>;
+  /** Every listed expense, any day (History window). Raw array. */
+  getExpenseHistory: () => Promise<ExpenseListRow[]>;
   /** Manual expense — core's createExpenseSchema input (bill, cash lines,
    *  change back, not-returned claim). Write envelope. */
   addExpense: (

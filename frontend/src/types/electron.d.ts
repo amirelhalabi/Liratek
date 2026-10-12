@@ -861,6 +861,8 @@ export interface ElectronAPI {
         refunded_at?: string | null;
       }>
     >;
+    /** Every listed expense, any day (History window) — same rows as getToday. */
+    getHistory: () => ReturnType<ElectronAPI["expenses"]["getToday"]>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
     updateMetadata: (data: {
       id: number;

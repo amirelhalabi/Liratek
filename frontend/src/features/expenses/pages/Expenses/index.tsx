@@ -16,6 +16,7 @@ import {
 import { HistoryModal } from "./components/HistoryModal";
 import { StockUsePicker, type StockPick } from "./components/StockUsePicker";
 import { StatsCards } from "../../components/StatsCards";
+import { expenseTotals } from "../../utils/expenseTotals";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -122,6 +123,21 @@ export default function Expenses() {
       setExpenses(data);
     } catch (error) {
       logger.error("Failed to load expenses:", error);
+    }
+  };
+
+  // The History window lists every day, not just today's rows above, so its
+  // date filter can reach past days. Loaded when the window opens.
+  const [historyExpenses, setHistoryExpenses] = useState<Expense[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const loadExpenseHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      setHistoryExpenses(await api.getExpenseHistory());
+    } catch (error) {
+      logger.error("Failed to load expense history:", error);
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -288,6 +304,7 @@ export default function Expenses() {
       const result = await api.deleteExpense(id);
       if (result.success) {
         loadTodayExpenses();
+        if (showHistoryModal) loadExpenseHistory();
       } else {
         // Rule 19c: a server refusal is a resolved { success: false, error }
         // envelope on BOTH transports, not a thrown error — mirrors
@@ -309,15 +326,7 @@ export default function Expenses() {
   // back flagged is_refunded (the History window badges it) — its money was
   // already returned, so the header total leaves it out, matching Profits
   // and the closing report.
-  const activeExpenses = expenses.filter((e) => !e.is_refunded);
-  const totalUSD = activeExpenses.reduce(
-    (sum, e) => sum + (e.amount_usd || 0),
-    0,
-  );
-  const totalLBP = activeExpenses.reduce(
-    (sum, e) => sum + (e.amount_lbp || 0),
-    0,
-  );
+  const { totalUSD, totalLBP } = expenseTotals(expenses);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
@@ -330,7 +339,10 @@ export default function Expenses() {
           <div className="flex items-center gap-2">
             <StatsCards totalUSD={totalUSD} totalLBP={totalLBP} />
             <button
-              onClick={() => setShowHistoryModal(true)}
+              onClick={() => {
+                setShowHistoryModal(true);
+                loadExpenseHistory();
+              }}
               className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
             >
               <History size={16} />
@@ -589,10 +601,10 @@ export default function Expenses() {
       {/* History Modal */}
       {showHistoryModal && (
         <HistoryModal
-          expenses={expenses}
-          loading={false}
+          expenses={historyExpenses}
+          loading={historyLoading}
           onClose={() => setShowHistoryModal(false)}
-          onRefresh={loadTodayExpenses}
+          onRefresh={loadExpenseHistory}
           onVoid={handleVoid}
           methodLabels={Object.fromEntries(
             drawerAffectingMethods.map((m) => [m.code, m.label]),

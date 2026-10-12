@@ -371,6 +371,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Expenses
   // ---------------------------------------------------------------------------
   getTodayExpenses = () => api.getTodayExpenses();
+  getExpenseHistory = () => api.getExpenseHistory();
   addExpense = (payload: CreateExpenseRequest) => api.addExpense(payload);
   deleteExpense = (id: number) => api.deleteExpense(id);
   /** LIRA-262 — the shop used one of its own items (expense at cost, no

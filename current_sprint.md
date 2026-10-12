@@ -6654,6 +6654,12 @@ Spec: `specs/309-phone-lines-management/` (spec, plan, research, data model, con
 
 **What users will notice:** a new Phone Lines page next to Mobile Recharge lists your shop lines and the lines you sell with credit, expiry and days left; you can enter a sold line's carrier, expiry and credit there or in the product form.
 
+## LIRA-311: Expense History shows totals and every day — DONE, not yet committed (owner request 2026-10-12)
+
+The Expense History window was fed `getTodayExpenses()`, so its date filter could never reach a past day, and it showed no totals. It now loads every listed expense (new `getExpenseHistory` on core, IPC `db:get-expense-history`, REST `GET /api/expenses/history`, adapter + web shim) when it opens, and shows Total USD / Total LBP chips for the rows on screen. Owner decisions 2026-10-12: chips in the window's title bar, refunded rows left out of the totals (same rule as the page header — one shared `expenseTotals` helper), and the load fix ships in the same change. No upper bound on the history load (expense rows are small); revisit if a shop's history grows large.
+
+**What users will notice:** the Expenses History window now shows past days, and shows the total USD and total LBP of the expenses listed (refunded ones not counted), following the date filter.
+
 ## LIRA-310: Waive on every payment page — HIGH — DONE, not yet released (owner decisions 2026-10-11)
 
 Spec: `specs/310-waive-everywhere/spec.md`. Today only POS (and Maintenance through the POS checkout) has a Waive button, for gaps under $1.

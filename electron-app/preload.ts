@@ -119,6 +119,7 @@ contextBridge.exposeInMainWorld("api", {
     addStockUse: (data: CreateStockExpenseInput) =>
       ipcRenderer.invoke("expenses:add-stock-use", data),
     getToday: () => ipcRenderer.invoke("db:get-today-expenses"),
+    getHistory: () => ipcRenderer.invoke("db:get-expense-history"),
     delete: (id: number) => ipcRenderer.invoke("db:delete-expense", id),
     updateMetadata: (data: {
       id: number;

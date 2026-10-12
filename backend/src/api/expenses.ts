@@ -22,6 +22,13 @@ router.get("/today", (_req, res) => {
   res.json({ success: true, expenses });
 });
 
+// GET /api/expenses/history — every listed expense, any day (History window)
+router.get("/history", (_req, res) => {
+  const service = getExpenseService();
+  const expenses = service.getExpenseHistory();
+  res.json({ success: true, expenses });
+});
+
 // POST /api/expenses (admin and staff — LIRA-242 owner decision 2026-09-28:
 // adding an expense is routine cashier work; voiding/deleting one below
 // stays admin-only, matching dbHandlers.ts's "db:add-expense" IPC gate).

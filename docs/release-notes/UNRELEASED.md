@@ -333,6 +333,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🧾 Expenses
 
+- Expenses: the History window now shows past days, not only today, and shows the total USD and total LBP of the expenses listed. The totals follow the date filter and leave refunded expenses out.
 - Expenses: search and pick any inventory item or Katsh / iPick / Whish App product to record using it for the shop — it comes out of stock at its cost, no cash moves.
 - Desktop app: an expense entered with an earlier date and time now keeps that time (it was saved as "now").
 - Recording an expense now has a separate Bill amount. If you hand the vendor more than the bill, enter the change you got back — it goes back into your drawer, and any change the vendor kept is added to the expense. From now on.
