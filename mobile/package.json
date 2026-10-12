@@ -7,6 +7,10 @@
     "start": "APP_VARIANT=local expo start",
     "ios": "APP_VARIANT=local expo run:ios",
     "android": "APP_VARIANT=local expo run:android",
+    "ios:local": "node scripts/run-mobile.mjs ios local",
+    "ios:dev": "node scripts/run-mobile.mjs ios dev",
+    "android:local": "node scripts/run-mobile.mjs android local",
+    "android:dev": "node scripts/run-mobile.mjs android dev",
     "typecheck": "tsc --noEmit",
     "doctor": "npx expo-doctor",
     "test": "jest"
