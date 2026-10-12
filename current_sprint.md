@@ -6667,6 +6667,10 @@ Spec: `specs/310-waive-everywhere/spec.md`. Today only POS (and Maintenance thro
 
 **What users will notice:** a Waive button next to "Remaining" on every payment page closes a gap of up to $5 (or 450,000 LBP) in one tap; payouts keep up to $5 of leftover as profit automatically; the Loto and Custom Services discounts are saved.
 
+**Follow-up (owner decision 2026-10-12):** no Waive anywhere on the Suppliers page (OMT account settle, batch settle, Pay / Receive). The owner types a gap into the Pay tab's Discount field by hand. Server support for a settlement `discount` stays. The LOTO settlement on the Loto page keeps Waive. **What users will notice:** the Suppliers page has no Waive button; use the Discount field on Pay / Receive.
+
+**Follow-up (owner rule 2026-10-12, binding):** "Waive only when money comes IN to the shop and the payer hands over a little less than the total (up to $5 / 450,000 LBP). Overpaying is never a waive — it is change or customer credit." Expenses loses its Waive (the shop pays the vendor); the LOTO settlement keeps Waive only when LOTO pays the shop, not when the shop pays LOTO. Server untouched. **What users will notice:** Waive now only appears when a customer or partner pays you a little less; it no longer shows on expenses or when you pay Loto.
+
 **Follow-up debt (rule 21, logged by LIRA-310 T042):** the supplier settle payload types are still hand-written
 in three places — `electron-app/preload.ts` (`suppliers.settleTransactions` / `settleAccount` inline `data`
 types), `frontend/src/types/electron.d.ts` (same two), and `SettleAccountRequest`

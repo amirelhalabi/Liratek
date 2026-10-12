@@ -85,7 +85,9 @@ describe("MultiPaymentInput — Waive (LIRA-310)", () => {
     });
 
     it("USD total: shows at exactly $5.00, hides at $5.01", () => {
-      const { unmount } = renderMpi(105, "USD", { onWaiveRemaining: jest.fn() });
+      const { unmount } = renderMpi(105, "USD", {
+        onWaiveRemaining: jest.fn(),
+      });
       pay("100");
       expect(waive()).toBeInTheDocument();
       unmount();
@@ -191,5 +193,152 @@ describe("MultiPaymentInput — Waive (LIRA-310)", () => {
       const last = onDiscount.mock.calls.at(-1)![0];
       expect(Math.abs(last - 10_000)).toBeLessThanOrEqual(100);
     });
+  });
+
+  describe("waiveDisabled (owner decision 2026-10-12: no Waive on the Suppliers page)", () => {
+    it("hides the external Waive", () => {
+      renderMpi(16.5, "USD", {
+        onWaiveRemaining: jest.fn(),
+        waiveDisabled: true,
+      });
+      pay("16");
+      expect(screen.getByTestId("remaining-row")).toBeInTheDocument();
+      expect(waive()).not.toBeInTheDocument();
+    });
+
+    it("hides the built-in Waive but keeps the Discount field", () => {
+      renderMpi(16.5, "USD", {
+        showDiscount: true,
+        maxDiscount: 2,
+        onDiscountChange: jest.fn(),
+        waiveDisabled: true,
+      });
+      pay("16");
+      expect(waive()).not.toBeInTheDocument();
+      expect(screen.getByText("Discount")).toBeInTheDocument();
+    });
+  });
+});
+
+/**
+ * Owner decision 2026-10-12 (LIRA-310 follow-up) — `waiveTotals`: Waive
+ * measures the gap against these totals (the Debts sheet passes the TICKED
+ * items' sum, net of its discount) instead of the whole amount owed. The
+ * gap is shown on its own "Remaining on ticked" line, Waive sits inside that
+ * line, and the whole-debt Remaining row keeps its figure without a Waive.
+ * Owner example: $14 sale unticked + $20 Loto ticked, $18.50 paid →
+ * Remaining $15.50, Remaining on ticked $1.50 [Waive].
+ */
+describe("MultiPaymentInput — Waive against waiveTotals (ticked items only)", () => {
+  const ticked = (amount: number, currency: "USD" | "LBP" = "USD") => [
+    { amount, currency },
+  ];
+  const tickedRow = () => screen.queryByTestId("remaining-ticked-row");
+
+  it("owner example: gap measured against the ticked $20, Waive only in that line", () => {
+    const onWaive = jest.fn();
+    renderMpi(34, "USD", {
+      onWaiveRemaining: onWaive,
+      waiveTotals: ticked(20),
+    });
+    pay("18.5");
+    // Whole-debt Remaining keeps showing $15.50, with no Waive inside it.
+    const remainingRow = screen.getByTestId("remaining-row");
+    expect(remainingRow.textContent).toContain("15.50");
+    expect(
+      remainingRow.querySelector('[data-testid="waive-remaining"]'),
+    ).toBeNull();
+    // Its own line: Remaining on ticked $1.50 [Waive].
+    const row = tickedRow()!;
+    expect(row).toBeInTheDocument();
+    expect(row.textContent).toContain("Remaining on ticked");
+    expect(row.textContent).toContain("1.50");
+    expect(row.querySelector('[data-testid="waive-remaining"]')).not.toBeNull();
+    fireEvent.click(waive()!);
+    expect(onWaive).toHaveBeenCalledTimes(1);
+    const [amount, byCurrency] = onWaive.mock.calls[0];
+    expect(amount).toBe(1.5);
+    expect(byCurrency).toEqual([{ currency: "USD", amount: 1.5 }]);
+  });
+
+  it("ticked items fully paid: no Waive even though the whole debt is short by $1", () => {
+    renderMpi(21, "USD", {
+      onWaiveRemaining: jest.fn(),
+      waiveTotals: ticked(20),
+    });
+    pay("20");
+    expect(screen.getByTestId("remaining-row")).toBeInTheDocument();
+    expect(tickedRow()).not.toBeInTheDocument();
+    expect(waive()).not.toBeInTheDocument();
+  });
+
+  it("cap is applied to the ticked gap: Waive at exactly $5.00, not at $5.01", () => {
+    const { unmount } = renderMpi(100, "USD", {
+      onWaiveRemaining: jest.fn(),
+      waiveTotals: ticked(20),
+    });
+    pay("15");
+    expect(waive()).toBeInTheDocument();
+    unmount();
+    renderMpi(100, "USD", {
+      onWaiveRemaining: jest.fn(),
+      waiveTotals: ticked(20.01),
+    });
+    pay("15");
+    expect(tickedRow()).toBeInTheDocument();
+    expect(waive()).not.toBeInTheDocument();
+  });
+
+  it("LBP cap on the ticked gap: 450,000 waivable, 450,001 not", () => {
+    const { unmount } = renderMpi(5_000_000, "LBP", {
+      onWaiveRemaining: jest.fn(),
+      waiveTotals: ticked(1_450_000, "LBP"),
+    });
+    pay("1000000");
+    expect(waive()).toBeInTheDocument();
+    unmount();
+    renderMpi(5_000_000, "LBP", {
+      onWaiveRemaining: jest.fn(),
+      waiveTotals: ticked(1_450_001, "LBP"),
+    });
+    pay("1000000");
+    expect(waive()).not.toBeInTheDocument();
+  });
+
+  it("never on a payout", () => {
+    renderMpi(34, "USD", {
+      onWaiveRemaining: jest.fn(),
+      waiveTotals: ticked(20),
+      payer: "payout",
+    });
+    pay("18.5");
+    expect(tickedRow()).not.toBeInTheDocument();
+    expect(waive()).not.toBeInTheDocument();
+  });
+
+  it("waiveDisabled hides it", () => {
+    renderMpi(34, "USD", {
+      onWaiveRemaining: jest.fn(),
+      waiveTotals: ticked(20),
+      waiveDisabled: true,
+    });
+    pay("18.5");
+    expect(waive()).not.toBeInTheDocument();
+  });
+
+  it("everything ticked (ticked gap = whole gap): one Remaining row with Waive, no duplicate line", () => {
+    const onWaive = jest.fn();
+    renderMpi(20, "USD", {
+      onWaiveRemaining: onWaive,
+      waiveTotals: ticked(20),
+    });
+    pay("18.5");
+    expect(tickedRow()).not.toBeInTheDocument();
+    const remainingRow = screen.getByTestId("remaining-row");
+    expect(
+      remainingRow.querySelector('[data-testid="waive-remaining"]'),
+    ).not.toBeNull();
+    fireEvent.click(waive()!);
+    expect(onWaive.mock.calls[0][0]).toBe(1.5);
   });
 });

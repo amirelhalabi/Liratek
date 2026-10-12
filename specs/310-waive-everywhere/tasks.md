@@ -500,3 +500,9 @@ description: "Task list for LIRA-310 — Waive on every payment page"
 2. **Next**: US4 (cap raise) and US2 (Loto + Session), each proven with net-to-zero tests.
 3. **Then**: US3 (settlements), the riskiest posting change.
 4. **Finally**: US5, US6, polish, docs, release note. Then wait for "commit".
+
+## Follow-up (owner decision 2026-10-12): "Waived" is its own Profits line
+
+- [x] Core guard `packages/core/src/repositories/__tests__/ProfitRepository.lira310WaivedRow.test.ts`. Red run before the fix: 5 failed of 5. Kept Change read `Received: -1` against an expected `2` (kept $2 netted with waived −$3), `summary.waived` was undefined, and `classifyProfitModuleRow("WAIVED")` returned `"equation"`. Green after: 5 of 5.
+- [x] Page guard `frontend/src/features/profits/pages/__tests__/Profits.lira310Waived.test.tsx`. Red run: 2 failed of 3 (no `overview-waived-card`; the WAIVED By Module row rendered as an equation, without "Profit:"). Green after: 3 of 3.
+- [x] Split: `waivedShortfallSource` is the one Waived predicate. `keptChangeSource` no longer matches a waive. `keptChangeOrWaivedSource` is used by the views without a Kept Change line (By Date, By Cashier, By Client, refund-kept exclusion), so their totals are unchanged. New `getWaivedShortfallProfit` / `getWaivedShortfallDetail`, summary `waived`, By Module `WAIVED` row with its drill-down, and an Overview "Waived" card.

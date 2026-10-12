@@ -326,6 +326,15 @@ interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** LIRA-310 follow-up — what the shop waived at basket checkouts (its own
+   *  "Waived" line, never inside Kept Change), net of basket voids/refunds.
+   *  Already inside `totals.gross_profit_*`. Optional so an older cached
+   *  payload doesn't crash the page. */
+  waived?: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   /** LIRA-296 — the cost of honouring warranties (usually negative), net
    *  of recoveries and voided claims. Already inside gross. Optional so an
    *  older cached payload doesn't crash the page. */
@@ -2317,6 +2326,51 @@ export default function Profits() {
                   </div>
                 </div>
               ) : null}
+
+              {/* LIRA-310 follow-up (owner decision 2026-10-12) — Waived:
+                  what the shop chose not to collect at a basket checkout.
+                  Its own line, never folded into Kept Change above. Already
+                  inside the totals; same profit-only card as Hold Money. */}
+              {summary.waived &&
+                (summary.waived.count > 0 ||
+                  summary.waived.profit_usd !== 0 ||
+                  summary.waived.profit_lbp !== 0) && (
+                  <div
+                    data-testid="overview-waived-card"
+                    className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">
+                        Waived
+                      </span>
+                      <span className="text-xs bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded-full">
+                        {summary.waived.count} txns
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      {summary.waived.profit_usd !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">USD</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.waived.profit_usd)}`}
+                          >
+                            {formatAmount(summary.waived.profit_usd, "USD")}
+                          </span>
+                        </div>
+                      )}
+                      {summary.waived.profit_lbp !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">LBP</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.waived.profit_lbp)}`}
+                          >
+                            {formatAmount(summary.waived.profit_lbp, "LBP")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
               {/* Discounts (CQ-10, D1): signed profit — negative when the
                   shop forgave a client/partner debt, positive when a

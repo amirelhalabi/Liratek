@@ -233,8 +233,10 @@ export function SettlementVerification({
       const tenderRate = usedRate > 0 ? { tender_exchange_rate: usedRate } : {};
       // LIRA-310 — the waived gap (LBP), only when something was waived.
       // Built once, shared by both settle calls below (rule 22).
+      // Owner rule 2026-10-12: Waive only when money comes IN — LOTO pays
+      // the shop (net > 0). Never sent when the shop pays LOTO.
       const waiveFields =
-        waived.lbp > 0 ? { discount_lbp: waived.lbp } : {};
+        totals.net > 0 && waived.lbp > 0 ? { discount_lbp: waived.lbp } : {};
 
       // If there's unchecked activity but no checkpoints, create a checkpoint first
       if (unsettledCheckpoints.length === 0 && uncheckedActivity) {
@@ -386,7 +388,12 @@ export function SettlementVerification({
   // stays allowed (no payment recorded — the existing contract the
   // repository keeps, see assertSettlementLegsReconcile).
   const settleNetAbs = Math.abs(totals.net);
-  const payTarget = Math.max(0, settleNetAbs - waived.lbp);
+  // Owner rule 2026-10-12 (LIRA-310 follow-up): Waive only when money comes
+  // IN to the shop — LOTO pays us (net > 0). When the shop pays LOTO
+  // (net < 0) there is no Waive and any earlier waive does not count.
+  const waiveAllowed = totals.net > 0;
+  const waivedLbp = waiveAllowed ? waived.lbp : 0;
+  const payTarget = Math.max(0, settleNetAbs - waivedLbp);
   const usedRateForGate = paymentRate ?? exchangeRate;
   const paidLbp = paymentLines.reduce(
     (sum, p) =>
@@ -398,7 +405,7 @@ export function SettlementVerification({
   );
   const hasPaymentLegs = paymentLines.some((p) => p.amount > 0);
   const settleUnderpaid =
-    hasPaymentLegs && paidLbp + waived.lbp < settleNetAbs - 100;
+    hasPaymentLegs && paidLbp + waivedLbp < settleNetAbs - 100;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -746,15 +753,15 @@ export function SettlementVerification({
                     // The shop pays LOTO when the net is negative.
                     payer={totals.net < 0 ? "shop" : "customer"}
                     onWaiveRemaining={onWaiveRemaining}
+                    waiveDisabled={!waiveAllowed}
                   />
-                  {waived.lbp > 0 && (
+                  {waivedLbp > 0 && (
                     <div
                       className="mt-2 flex items-center justify-between text-xs text-amber-300"
                       data-testid="loto-settle-waived"
                     >
                       <span>
-                        Waived {waived.lbp.toLocaleString()} LBP —{" "}
-                        {totals.net < 0 ? "LOTO accepts less" : "LOTO pays less"}
+                        Waived {waivedLbp.toLocaleString()} LBP — LOTO pays less
                       </span>
                       <button
                         type="button"
@@ -771,7 +778,9 @@ export function SettlementVerification({
                       data-testid="loto-settle-underpaid"
                     >
                       The entered payment doesn't cover the settlement —
-                      enter the full amount or tap Waive for a small gap.
+                      {waiveAllowed
+                        ? " enter the full amount or tap Waive for a small gap."
+                        : " enter the full amount."}
                     </p>
                   )}
                 </div>

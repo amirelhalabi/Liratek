@@ -46,7 +46,7 @@ jest.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-let mockPictureUrl: string | null = null;
+const mockPictureUrl: string | null = null;
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({
     user: { username: "cashier", role: "staff", pictureUrl: mockPictureUrl },
@@ -95,7 +95,7 @@ jest.mock("@/shared/hooks/useOnlineStatus", () => ({
   useOnlineStatus: () => true,
 }));
 
-let mockActiveSession: { id: number; customer_phone?: string } | null = null;
+const mockActiveSession: { id: number; customer_phone?: string } | null = null;
 jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => ({ activeSession: mockActiveSession }),
 }));

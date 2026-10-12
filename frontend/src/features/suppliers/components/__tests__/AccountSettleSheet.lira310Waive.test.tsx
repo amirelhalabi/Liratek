@@ -1,23 +1,21 @@
 /** @jest-environment jsdom */
 
 /**
- * LIRA-310 (US3, T043) — Waive on the supplier ACCOUNT settle sheet.
+ * LIRA-310 follow-up — owner decision 2026-10-12: NO Waive anywhere on the
+ * Suppliers page, including the OMT/WHISH account settle sheet. A gap is
+ * recorded by typing in the Pay tab's Discount field by hand instead.
  *
- * The ticked rows net to $1,225; the cashier hands over $1,222 and taps
- * Waive on the Remaining row. The sheet must:
- *   - accept the payment (Settle enabled — the waived $3 closes the gap);
- *   - send the rows' own net unchanged (`amount_usd` 1225), the legs as
- *     paid, and `discount: { amount_usd: 3, amount_lbp: 0 }` — the field
- *     names come from the core schema (`supplierSettleAccountSchema`,
- *     parsed below, rule 24);
- *   - send no `discount` when nothing was waived;
- *   - drop the waive when the payment lines change afterwards (stale);
- *   - offer no Waive while an overpayment surplus is declared (the server
- *     refuses the two together).
+ * Guards:
+ *   - $3 short of the ticked rows' $1,225 net: the Remaining row shows but
+ *     carries no Waive button, Settle stays disabled (no waived subtraction);
+ *   - a full payment sends no `discount` (names from the core schema,
+ *     `supplierSettleAccountSchema` — rule 24);
+ *   - no Waive with a declared surplus either.
  *
  * Same strategy as AccountSettleSheet.test.tsx: the real MultiPaymentInput,
  * only `useApi` mocked (a stable object, rule 25).
- * Rule 17: written before the change and run red — see tasks.md T043.
+ * Rule 17: rewritten before the change and run red against the LIRA-310
+ * Waive wiring.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -120,40 +118,26 @@ async function payLess(value: string) {
   fireEvent.change(amount, { target: { value } });
 }
 
-describe("AccountSettleSheet — LIRA-310 Waive", () => {
+describe("AccountSettleSheet — no Waive on the Suppliers page (owner 2026-10-12)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 1 });
   });
 
-  it("pays $1,222 of $1,225, Waive → Settle enabled, sends discount $3 and the rows' own net", async () => {
+  it("$3 short of $1,225: the Remaining row shows, but no Waive button — Settle stays disabled", async () => {
     renderSheet();
     await payLess("1222");
     const submit = screen.getByTestId("supplier-account-settle-submit");
     await waitFor(() => expect(submit).toBeDisabled());
-
-    fireEvent.click(await screen.findByTestId("waive-remaining"));
-    await waitFor(() => expect(submit).not.toBeDisabled());
-    fireEvent.click(submit);
-
-    await waitFor(() =>
-      expect(mockSettleSupplierAccount).toHaveBeenCalledTimes(1),
-    );
-    const [accountId, payload] = mockSettleSupplierAccount.mock.calls[0];
-    // The payload must survive the real core schema (rule 24 — names from
-    // the schema, not hand-typed).
-    const parsed = supplierSettleAccountSchema.parse({
-      ...payload,
-      account_supplier_id: accountId,
-    });
-    expect(parsed.discount).toEqual({ amount_usd: 3, amount_lbp: 0 });
-    expect(parsed.amount_usd).toBeCloseTo(1225, 2);
-    expect(parsed.payments).toEqual([
-      { method: "CASH", currency_code: "USD", amount: 1222 },
-    ]);
+    expect(await screen.findByTestId("remaining-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("supplier-account-settle-waived"),
+    ).not.toBeInTheDocument();
+    expect(mockSettleSupplierAccount).not.toHaveBeenCalled();
   });
 
-  it("no Waive tapped: a full payment sends no discount", async () => {
+  it("a full payment sends the rows' net and no discount", async () => {
     renderSheet();
     await screen.findAllByTestId("supplier-account-settle-row");
     const submit = screen.getByTestId("supplier-account-settle-submit");
@@ -162,24 +146,18 @@ describe("AccountSettleSheet — LIRA-310 Waive", () => {
     await waitFor(() =>
       expect(mockSettleSupplierAccount).toHaveBeenCalledTimes(1),
     );
-    const [, payload] = mockSettleSupplierAccount.mock.calls[0];
+    const [accountId, payload] = mockSettleSupplierAccount.mock.calls[0];
+    // Names from the core schema (rule 24).
+    const parsed = supplierSettleAccountSchema.parse({
+      ...payload,
+      account_supplier_id: accountId,
+    });
+    expect(parsed.amount_usd).toBeCloseTo(1225, 2);
+    expect(parsed.discount).toBeUndefined();
     expect(payload).not.toHaveProperty("discount");
   });
 
-  it("changing the payment after Waive drops the waive (Settle disabled again)", async () => {
-    renderSheet();
-    await payLess("1222");
-    fireEvent.click(await screen.findByTestId("waive-remaining"));
-    const submit = screen.getByTestId("supplier-account-settle-submit");
-    await waitFor(() => expect(submit).not.toBeDisabled());
-
-    fireEvent.change(screen.getByDisplayValue("1,222"), {
-      target: { value: "1221" },
-    });
-    await waitFor(() => expect(submit).toBeDisabled());
-  });
-
-  it("no Waive while an overpayment surplus is declared", async () => {
+  it("no Waive while an overpayment surplus is declared either", async () => {
     renderSheet();
     await screen.findAllByTestId("supplier-account-settle-row");
     fireEvent.change(

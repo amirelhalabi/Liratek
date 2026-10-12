@@ -2508,8 +2508,17 @@ export default function Debts() {
                     // Decision 9: an LBP overpay is LBP credit.
                     returnCurrencyFollowsTender: true,
                     hasClient: true,
+                    // Owner decision 2026-10-12 — Waive covers ONLY the
+                    // ticked items: its gap is measured against the same
+                    // ticked sum net of the discount (`repayFillTotals`),
+                    // so it never forgives an unticked item. No picker (no
+                    // itemised debt) keeps the whole-debt Waive.
                     ...(repayFillTotals
-                      ? { fillTotals: repayFillTotals, fillKey: repayFillKey }
+                      ? {
+                          fillTotals: repayFillTotals,
+                          fillKey: repayFillKey,
+                          waiveTotals: repayFillTotals,
+                        }
                       : {}),
                     // LIRA-310 — Waive: each currency's part of what is
                     // left goes into the matching "Discount / Forgive" box

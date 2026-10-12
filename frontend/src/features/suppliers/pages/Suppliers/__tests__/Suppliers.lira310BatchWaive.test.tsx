@@ -1,21 +1,24 @@
 /** @jest-environment jsdom */
 /**
- * LIRA-310 (US3, T044) — Waive on the single-supplier BATCH settle modal
- * (Suppliers page → Settle tab → Confirm Settlement).
+ * LIRA-310 follow-up — owner decision 2026-10-12: NO Waive anywhere on the
+ * Suppliers page. A gap the supplier forgives is recorded by typing in the
+ * Pay tab's Discount field by hand.
  *
- *   - $100 owed, the cashier enters $97 and taps Waive on the Remaining row
- *     → Confirm enabled; the payload keeps `amount_usd` 100 (owed), the legs
- *     as paid ($97) and `discount: { amount_usd: 3, amount_lbp: 0 }` — field
- *     names checked by parsing through the core `supplierSettleSchema`
- *     (rule 24);
- *   - a full payment sends no `discount`;
- *   - a bills-only batch collected by "Other payment" offers no Waive (the
- *     server refuses it: those legs are the commission, not a payment).
+ *   - batch settle (Settle tab → Confirm Settlement): $100 owed, $97 paid →
+ *     the Remaining row shows, no Waive button, Confirm stays disabled;
+ *   - a full payment sends no `discount` (names via the core
+ *     `supplierSettleSchema` — rule 24);
+ *   - a bills-only batch collected by "Other payment" offers no Waive;
+ *   - Pay / Receive tab: $3 short of $100 → no Waive button; the Discount
+ *     field is still there, and a typed $3 discount is sent as
+ *     `discount: { amount_usd: 3, amount_lbp: 0 }` (names via the core
+ *     `supplierCashflowSchema`).
  *
  * Same INTERACTION-layer strategy as Suppliers.settlePaymentReconciliation:
  * the real CounterpartySettleModal / MultiPaymentInput; `useApi` mocked with
  * a stable object (rule 25).
- * Rule 17: written before the change and run red — see tasks.md T044.
+ * Rule 17: rewritten before the change and run red against the LIRA-310
+ * Waive wiring.
  */
 
 import {
@@ -26,12 +29,13 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { supplierSettleSchema } from "@liratek/core";
+import { supplierCashflowSchema, supplierSettleSchema } from "@liratek/core";
 import Suppliers from "../index";
 
 const mockGetSuppliers = jest.fn();
 const mockGetUnsettledTransactions = jest.fn();
 const mockSettleTransactions = jest.fn();
+const mockRecordSupplierCashflow = jest.fn();
 const mockApi = {
   getSuppliers: mockGetSuppliers,
   getSupplierBalances: jest.fn().mockResolvedValue([]),
@@ -42,7 +46,8 @@ const mockApi = {
   getAllSupplierTransactions: jest.fn().mockResolvedValue([]),
   getUnsettledTransactions: mockGetUnsettledTransactions,
   settleTransactions: mockSettleTransactions,
-  recordSupplierCashflow: jest.fn(),
+  recordSupplierCashflow: mockRecordSupplierCashflow,
+  getOpenRecordedSupplierDebts: jest.fn().mockResolvedValue([]),
   addSupplierLedgerEntry: jest.fn(),
   getSupplierPurchases: jest.fn(),
   createSupplierPurchase: jest.fn(),
@@ -132,9 +137,7 @@ function renderPage() {
 
 async function openSettleConfirm() {
   fireEvent.click(await screen.findByText("OMT"));
-  const legacyRow = (await screen.findByText("OMT_TRANSFER")).closest(
-    "label",
-  )!;
+  const legacyRow = (await screen.findByText("OMT_TRANSFER")).closest("label")!;
   fireEvent.click(within(legacyRow).getByRole("checkbox"));
   fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
   const amountInput = await screen.findByDisplayValue("100");
@@ -142,7 +145,7 @@ async function openSettleConfirm() {
   return { amountInput, submit };
 }
 
-describe("Suppliers page — batch settle Waive (LIRA-310)", () => {
+describe("Suppliers page — no Waive on the batch settle (owner 2026-10-12)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetSuppliers.mockResolvedValue([OMT_SUPPLIER]);
@@ -152,27 +155,15 @@ describe("Suppliers page — batch settle Waive (LIRA-310)", () => {
     mockSettleTransactions.mockResolvedValue({ success: true, id: 1 });
   });
 
-  it("$100 owed, $97 paid, Waive → Confirm enabled, discount $3 sent with the owed amount", async () => {
+  it("$100 owed, $97 paid: Remaining shows, no Waive button, Confirm stays disabled", async () => {
     renderPage();
     const { amountInput, submit } = await openSettleConfirm();
     fireEvent.change(amountInput, { target: { value: "97" } });
     await waitFor(() => expect(submit).toBeDisabled());
-
-    fireEvent.click(await screen.findByTestId("waive-remaining"));
-    await waitFor(() => expect(submit).not.toBeDisabled());
-    expect(
-      screen.queryByTestId("settle-payment-mismatch"),
-    ).not.toBeInTheDocument();
-    fireEvent.click(submit);
-
-    await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
-    const payload = mockSettleTransactions.mock.calls[0][0];
-    const parsed = supplierSettleSchema.parse(payload);
-    expect(parsed.amount_usd).toBe(100);
-    expect(parsed.discount).toEqual({ amount_usd: 3, amount_lbp: 0 });
-    expect(parsed.payments).toEqual([
-      { method: "CASH", currency_code: "USD", amount: 97 },
-    ]);
+    expect(await screen.findByTestId("remaining-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("settle-waived")).not.toBeInTheDocument();
+    expect(mockSettleTransactions).not.toHaveBeenCalled();
   });
 
   it("a full payment sends no discount", async () => {
@@ -181,9 +172,9 @@ describe("Suppliers page — batch settle Waive (LIRA-310)", () => {
     await waitFor(() => expect(submit).not.toBeDisabled());
     fireEvent.click(submit);
     await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
-    expect(mockSettleTransactions.mock.calls[0][0]).not.toHaveProperty(
-      "discount",
-    );
+    const payload = mockSettleTransactions.mock.calls[0][0];
+    expect(supplierSettleSchema.parse(payload).discount).toBeUndefined();
+    expect(payload).not.toHaveProperty("discount");
   });
 
   it("bills-only batch collected by Other payment: no Waive", async () => {
@@ -232,5 +223,77 @@ describe("Suppliers page — batch settle Waive (LIRA-310)", () => {
     // The Remaining row shows (a $1 gap) — but without its Waive button.
     expect(await screen.findByTestId("remaining-amount")).toBeInTheDocument();
     expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
+  });
+});
+
+describe("Suppliers page — Pay / Receive tab: Discount field, no Waive (owner 2026-10-12)", () => {
+  const PRODUCT_SUPPLIER = {
+    id: 5,
+    name: "Acme Distributors",
+    contact_name: null,
+    phone: null,
+    note: null,
+    is_active: 1,
+    module_key: null,
+    provider: null,
+    is_system: 0,
+    created_at: "2026-08-01T00:00:00Z",
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetSuppliers.mockResolvedValue([PRODUCT_SUPPLIER]);
+    mockGetUnsettledTransactions.mockResolvedValue([]);
+    mockApi.getSupplierProductBalances.mockResolvedValue([
+      { supplier_id: 5, total_usd: 100, total_lbp: 0 },
+    ]);
+    mockRecordSupplierCashflow.mockResolvedValue({ success: true, id: 1 });
+  });
+
+  async function openPayTab() {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Products" }));
+    fireEvent.click((await screen.findAllByText("Acme Distributors"))[0]);
+    fireEvent.click(await screen.findByText("Pay / Receive"));
+    const amount = (await screen.findAllByTestId(/^payment-amount-/)).find(
+      (el) => el.tagName === "INPUT",
+    ) as HTMLInputElement;
+    return amount;
+  }
+
+  function discountInput(): HTMLInputElement {
+    const label = screen.getByText("Discount", { selector: "span" });
+    const row = label.parentElement as HTMLElement;
+    return row.querySelector("input") as HTMLInputElement;
+  }
+
+  it("$3 short of $100: no Waive button, the Discount field is shown", async () => {
+    const amount = await openPayTab();
+    fireEvent.change(amount, { target: { value: "97" } });
+    expect(await screen.findByTestId("remaining-row")).toBeInTheDocument();
+    expect(screen.getByText("Remaining to pay")).toBeInTheDocument();
+    expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
+    expect(discountInput()).toBeInTheDocument();
+  });
+
+  it("a hand-typed $3 discount is sent with the $97 payment", async () => {
+    const amount = await openPayTab();
+    fireEvent.change(amount, { target: { value: "97" } });
+    fireEvent.change(discountInput(), { target: { value: "3" } });
+    await waitFor(() =>
+      expect(screen.queryByTestId("remaining-row")).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Record Payment"));
+
+    await waitFor(() => expect(mockRecordSupplierCashflow).toHaveBeenCalled());
+    const parsed = supplierCashflowSchema.parse(
+      mockRecordSupplierCashflow.mock.calls[0][0],
+    );
+    expect(parsed.direction).toBe("PAY");
+    expect(parsed.discount).toEqual({ amount_usd: 3, amount_lbp: 0 });
+    expect(parsed.payments).toEqual([
+      { method: "CASH", currency_code: "USD", amount: 97 },
+    ]);
   });
 });

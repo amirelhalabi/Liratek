@@ -449,6 +449,17 @@ const EXCLUDED_UNITS: Record<string, string> = {
   // an exclusion. Its DEBT_REPAYMENT/KEPT_CHANGE arm is unchanged and
   // still needs no gate, for getDebtRepaymentProfit's reason above (those
   // rows ARE the recognition event).
+  "ProfitRepository:getWaivedShortfallProfit:(query)":
+    "LIRA-310 follow-up (owner decision 2026-10-12): the session basket " +
+    "Waive (WAIVED_SHORTFALL, amount 0, profit −waived) and its basket-" +
+    "refund REFUND row. Until this split these EXACT rows were summed, " +
+    "ungated, inside getDebtRepaymentProfit (see its entry above) — moving " +
+    "them to their own 'Waived' line changes no recognition. A waive is a " +
+    "loss the shop takes at checkout, the mirror of KEPT_CHANGE: the " +
+    "checkout IS the recognition event, nothing left to defer.",
+  "ProfitRepository:getWaivedShortfallDetail:(query)":
+    "Row-level twin of getWaivedShortfallProfit (same rows, same WHERE) — " +
+    "same reason, verbatim (rule 14).",
   "ProfitRepository:getCounterpartyDiscountDetail:(query)":
     "Mirrors getCounterpartyDiscountTotals exactly (see that method's own " +
     "EXCLUDED_UNITS entry above): COUNTERPARTY_DISCOUNT carries a signed " +

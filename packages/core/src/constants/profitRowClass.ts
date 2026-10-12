@@ -76,6 +76,8 @@ const PROFIT_ONLY_MODULES: ReadonlySet<string> = new Set([
   "HOLD_MONEY",
   // LIRA-296 — the Warranty cost line (no revenue/cost pair).
   "WARRANTY",
+  // LIRA-310 follow-up — a basket Waive's own "Waived" line.
+  "WAIVED",
 ]);
 
 /** `ProfitByModule.module` EXACT values whose revenue is a pass-through

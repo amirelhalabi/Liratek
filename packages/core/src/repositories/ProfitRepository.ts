@@ -1968,17 +1968,42 @@ export function reattributedSettlementCommission(
  * state.
  */
 /**
- * LIRA-310 — the session basket's standalone profit-only siblings: the
- * KEPT_CHANGE row (+kept) and its mirror WAIVED_SHORTFALL (−waived). ONE
- * SQL list (rule 14) for {@link keptChangeSource}'s two branches, so a
- * waive nets inside the same "Other / kept change" money the Profits page
- * already sums everywhere (overview, By Module, By Date, By Cashier, By
- * Client, day close) — and its basket REFUND row nets with it. It is NOT a
- * kept-change EVENT: {@link keptChangeCountEligible} and
- * {@link keptChangeRecognizedCount} deliberately keep listing KEPT_CHANGE
- * alone.
+ * LIRA-310 follow-up (owner decision 2026-10-12) — the ONE definition of "is
+ * this transactions row part of a session basket Waive" (rule 14): the
+ * standalone `WAIVED_SHORTFALL` row (amount 0, profit −waived) or the REFUND
+ * row a basket refund writes for it (`reverses_id` → the waive). A VOIDED
+ * waive needs no branch — `status = 'ACTIVE'` at every call site drops it.
+ *
+ * The Profits page shows this as its OWN "Waived" line
+ * ({@link ProfitRepository.getWaivedShortfallProfit} /
+ * {@link ProfitRepository.getWaivedShortfallDetail}), never inside "Kept
+ * Change" — so {@link keptChangeSource} does NOT match it. The views with
+ * no Kept Change line of their own (By Date, By Cashier, By Client) fold
+ * both through {@link keptChangeOrWaivedSource}, so their totals are the
+ * same as when the waive was folded into kept change.
  */
-const SESSION_PROFIT_ONLY_SIBLING_TYPES_SQL = `('KEPT_CHANGE', 'WAIVED_SHORTFALL')`;
+export function waivedShortfallSource(alias: string): string {
+  return `(${alias}.type = 'WAIVED_SHORTFALL'
+                     OR (${alias}.type = 'REFUND'
+                         AND EXISTS (
+                           SELECT 1 FROM transactions wsorig
+                           WHERE wsorig.id = ${alias}.reverses_id
+                             AND wsorig.type = 'WAIVED_SHORTFALL'
+                             AND wsorig.tenant_id = ${alias}.tenant_id
+                         )))`;
+}
+
+/**
+ * LIRA-310 follow-up — the profit-only rows a Profits view folds into ONE
+ * per-row / per-day / per-key sum when it has no separate Kept Change or
+ * Waived line: {@link keptChangeSource} OR {@link waivedShortfallSource}.
+ * Used by every kept-change reader EXCEPT the two that feed the Kept Change
+ * line itself (`getDebtRepaymentProfit`, `getKeptChangeDetail`). No bind
+ * params.
+ */
+export function keptChangeOrWaivedSource(alias: string): string {
+  return `(${keptChangeSource(alias)} OR ${waivedShortfallSource(alias)})`;
+}
 
 export function keptChangeSource(alias: string): string {
   // LIRA-201c: a standalone KEPT_CHANGE row's own REFUND row (basket
@@ -2001,12 +2026,12 @@ export function keptChangeSource(alias: string): string {
   return `((${alias}.source_table = 'debt_ledger' AND ${alias}.type IN ('DEBT_REPAYMENT', 'REFUND'))
                      OR (${alias}.source_table = 'debt_ledger' AND ${alias}.type = 'CREDIT_CASH_OUT'
                          AND (${alias}.profit_usd != 0 OR ${alias}.profit_lbp != 0))
-                     OR ${alias}.type IN ${SESSION_PROFIT_ONLY_SIBLING_TYPES_SQL}
+                     OR ${alias}.type = 'KEPT_CHANGE'
                      OR (${alias}.type = 'REFUND'
                          AND EXISTS (
                            SELECT 1 FROM transactions kcorig
                            WHERE kcorig.id = ${alias}.reverses_id
-                             AND kcorig.type IN ${SESSION_PROFIT_ONLY_SIBLING_TYPES_SQL}
+                             AND kcorig.type = 'KEPT_CHANGE'
                              AND kcorig.tenant_id = ${alias}.tenant_id
                          )))`;
 }
@@ -2095,7 +2120,7 @@ export function refundKeptChangeAmount(
  *  which {@link keptChangeSource} already counts whole). No bind params. */
 export function refundKeptChangeRow(alias: string, supported: boolean): string {
   return `${alias}.status = 'ACTIVE' AND ${alias}.type IN ('REFUND', 'REFUND_UNDO')
-            AND NOT ${keptChangeSource(alias)}
+            AND NOT ${keptChangeOrWaivedSource(alias)}
             AND (${refundKeptChangeAmount(alias, "usd", supported)} != 0 OR ${refundKeptChangeAmount(alias, "lbp", supported)} != 0)`;
 }
 
@@ -2196,7 +2221,7 @@ function keptChangeAttributedUserId(alias: string): string {
   // getByUser's per-row CASE under `COALESCE(orig.user_id, t.user_id)`,
   // net of the kept part — stampNetOfRefundKeptChange). No bind params
   // (keptChangeSource embeds none).
-  return `(CASE WHEN ${keptChangeSource(alias)}
+  return `(CASE WHEN ${keptChangeOrWaivedSource(alias)}
             THEN COALESCE((SELECT o.user_id FROM transactions o WHERE o.id = ${refundOriginalIdExpr(alias)}), ${alias}.user_id)
             ELSE ${alias}.user_id END)`;
 }
@@ -2406,7 +2431,7 @@ export function keptChangeProfitForKey(
   // rest of that REFUND's stamp stays in the caller's per-row sum on the
   // original's day (stampNetOfRefundKeptChange).
   return `COALESCE((
-              SELECT SUM(CASE WHEN ${keptChangeSource("kc")} THEN kc.${profitCol}
+              SELECT SUM(CASE WHEN ${keptChangeOrWaivedSource("kc")} THEN kc.${profitCol}
                               ELSE ${refundKeptChangeAmount("kc", currency, supported)} END)
               FROM transactions kc
               WHERE ${keptChangeRecognitionGates("kc", supported)}
@@ -3572,7 +3597,7 @@ function keptChangeRecognitionGates(
   // row too, dated by its own day (refundKeptChangeDay — the same
   // `created_at` every kept-change source is dated by). No new binds.
   return `${kcAlias}.status = 'ACTIVE'
-              AND (${keptChangeSource(kcAlias)} OR (${refundKeptChangeRow(kcAlias, supported)}))
+              AND (${keptChangeOrWaivedSource(kcAlias)} OR (${refundKeptChangeRow(kcAlias, supported)}))
               AND ${dateRange(refundKeptChangeDay(kcAlias))}
               AND ${kcAlias}.tenant_id = ?`;
 }
@@ -4262,6 +4287,40 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM transactions t
         WHERE t.status = 'ACTIVE'
           AND ${keptChangeSource("t")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, getCurrentTenantId()) as {
+      profit_usd: number;
+      profit_lbp: number;
+      count: number;
+    };
+  }
+
+  /**
+   * LIRA-310 follow-up (owner decision 2026-10-12) — the "Waived" line: what
+   * the shop chose not to collect at a session basket checkout
+   * ({@link waivedShortfallSource}). Signed (a waive is negative); a basket
+   * void drops the row (`status`), a basket refund adds its negated REFUND
+   * row — both net to 0. `count` is the waives themselves, never their
+   * REFUND rows. Profit-only (no revenue/cost pair), dated by `created_at`
+   * like {@link getDebtRepaymentProfit}.
+   */
+  getWaivedShortfallProfit(
+    fromDt: string,
+    toDt: string,
+  ): { profit_usd: number; profit_lbp: number; count: number } {
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
+          COALESCE(SUM(CASE WHEN t.type = 'WAIVED_SHORTFALL'
+                             AND (t.profit_usd != 0 OR t.profit_lbp != 0)
+                            THEN 1 ELSE 0 END), 0) AS count
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${waivedShortfallSource("t")}
           AND ${dateRange("t.created_at")}
           AND t.tenant_id = ?`,
       )
@@ -6419,6 +6478,38 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
+   * LIRA-310 follow-up — per-row drill-down under the WAIVED By Module row.
+   * Mirrors {@link getWaivedShortfallProfit} minus the `SUM`, so the listed
+   * rows add up exactly to the row's total. A voided waive's $0 reversal is
+   * never listed ({@link isEmptyVoidReversalRow}, same as kept change).
+   */
+  getWaivedShortfallDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitOnlyDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          t.client_name AS counterpart_name,
+          t.client_phone AS counterpart_phone,
+          t.type AS txn_type,
+          t.profit_usd AS profit_usd,
+          t.profit_lbp AS profit_lbp
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${waivedShortfallSource("t")}
+          AND NOT ${isEmptyVoidReversalRow("t")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
+        ORDER BY t.created_at DESC, t.id DESC`,
+      )
+      .all(fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
+  }
+
+  /**
    * LIRA-233 — per-row drill-down under the COUNTERPARTY_DISCOUNT By Module
    * row. Mirrors {@link getCounterpartyDiscountTotals} minus the `SUM` — NO
    * partner/debt gate, and NON_REVERSIBLE (no REFUND row ever exists), so
@@ -6937,7 +7028,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
           FROM transactions t
           WHERE t.status = 'ACTIVE'
-            AND ${keptChangeSource("t")}
+            AND ${keptChangeOrWaivedSource("t")}
             AND ${dateRange("t.created_at")}
             AND t.tenant_id = ?
           GROUP BY ${localDayExpr("t.created_at")}

@@ -247,6 +247,21 @@ export interface MultiPaymentInputProps {
    *  external Waive: hidden when the shortfall would not fit, so a waive can
    *  never push a discount past its ceiling (owner decision 3). */
   waiveRemainingMax?: number;
+  /** Never show Waive on this sheet, built-in or external (owner decision
+   *  2026-10-12: no Waive anywhere on the Suppliers page — the owner types
+   *  a discount by hand instead). The Discount field itself is unaffected. */
+  waiveDisabled?: boolean;
+  /** Owner decision 2026-10-12 (LIRA-310 follow-up) — what Waive measures
+   *  its gap against, per currency, when that is NOT the whole amount owed.
+   *  The Debts repayment sheet passes the TICKED items' sum net of its own
+   *  discount (the same figure as its `fillTotals`), so Waive only ever
+   *  forgives the ticked items. The gap is shown on its own "Remaining on
+   *  ticked" line with Waive inside it; the Remaining row keeps the
+   *  whole-debt figure without a Waive. When the two gaps are the same
+   *  (everything ticked) there is one row, with Waive, as before. Same cap,
+   *  never on a payout, honours `waiveDisabled`. Taken as-is (the caller
+   *  nets any discount of its own). Default: the effective totals. */
+  waiveTotals?: Money[];
   /** When true and totalAmountCurrency is "USD", auto-seed the CASH return
    *  fields as integer USD notes + LBP remainder (the dual-currency
    *  cash-drawer convention) instead of a single lump sum in one currency.
@@ -409,6 +424,8 @@ export default function MultiPaymentInput({
   onWaiveRemaining,
   waiveRemainingThreshold,
   waiveRemainingMax,
+  waiveDisabled = false,
+  waiveTotals,
   smartSplitOverpay = false,
   cashOnlyReturn = false,
   autoDebtRemainder = false,
@@ -1281,12 +1298,27 @@ export default function MultiPaymentInput({
     totalAmountCurrency === "LBP" ? Math.round(v) : Math.round(v * 100) / 100;
   // The cap check uses the cap's own rounding tolerance (the shared core
   // one), not the looser leg-matching tolerance — 450,001 LBP is over.
-  const waiveEligible =
+  // Owner decision 2026-10-12 — the gap Waive closes: against `waiveTotals`
+  // when given (the ticked items on the Debts sheet), else the same
+  // shortfall the Remaining row shows.
+  const waiveTargets: Money[] = waiveTotals ?? effectiveTotals;
+  const waiveShortfall = waiveTotals
+    ? Math.max(0, sumInTarget(waiveTotals) - totalPaid)
+    : remainingShortfall;
+  // Its own "Remaining on ticked" line only when it differs from the whole
+  // Remaining — everything ticked keeps the single row (no duplicate).
+  const showTickedRemainingRow =
+    !!waiveTotals &&
     !isPayout &&
-    remainingShortfall > matchTolerance &&
+    waiveShortfall > matchTolerance &&
+    Math.abs(waiveShortfall - remainingShortfall) > matchTolerance;
+  const waiveEligible =
+    !waiveDisabled &&
+    !isPayout &&
+    waiveShortfall > matchTolerance &&
     (waiveRemainingThreshold === undefined
-      ? isWithinShortfallMax(remainingShortfall, totalAmountCurrency)
-      : remainingShortfall <= waiveThreshold);
+      ? isWithinShortfallMax(waiveShortfall, totalAmountCurrency)
+      : waiveShortfall <= waiveThreshold);
   // Built-in path: no page handler → the gap goes into THIS component's own
   // discount, only where that discount is shown, lowers the total and is
   // booked by the page, and only when it still fits `maxDiscount`.
@@ -1296,18 +1328,18 @@ export default function MultiPaymentInput({
     discountLowersTotal &&
     !!onDiscountChange &&
     (maxDiscount === undefined ||
-      clampedDiscount + remainingShortfall <= maxDiscount + matchTolerance);
+      clampedDiscount + waiveShortfall <= maxDiscount + matchTolerance);
   const externalWaive =
     !!onWaiveRemaining &&
     (waiveRemainingMax === undefined ||
-      remainingShortfall <= waiveRemainingMax + matchTolerance);
+      waiveShortfall <= waiveRemainingMax + matchTolerance);
   const showWaiveButton = waiveEligible && (externalWaive || builtInWaive);
 
   const handleWaive = () => {
     if (onWaiveRemaining) {
       const { remaining } = allocatePayments(
         {
-          totals: effectiveTotals,
+          totals: waiveTargets,
           payments: paymentLines.map((l) => ({
             amount: Math.max(0, l.amount || 0),
             currency: l.currencyCode,
@@ -1318,7 +1350,7 @@ export default function MultiPaymentInput({
         { round: false },
       );
       onWaiveRemaining(
-        roundToTarget(remainingShortfall),
+        roundToTarget(waiveShortfall),
         remaining
           .filter((m) => m.amount > 0)
           .map((m) => ({
@@ -1336,7 +1368,7 @@ export default function MultiPaymentInput({
     // crossing into change (a USD discount against an LBP total keeps 4 dp —
     // one cent is ~900 LBP, far above the 100 LBP match tolerance).
     const target = convertSafe(
-      clampedDiscount + remainingShortfall,
+      clampedDiscount + waiveShortfall,
       totalAmountCurrency,
       discountCurrency,
     );
@@ -1348,6 +1380,19 @@ export default function MultiPaymentInput({
           : Math.ceil(target * 100 - 1e-9) / 100;
     setDiscountRaw(String(roundedUp));
   };
+  // One Waive button, rendered in the Remaining row or — with `waiveTotals`
+  // and a different ticked gap — in the "Remaining on ticked" line.
+  const waiveButton = (
+    <button
+      type="button"
+      data-testid="waive-remaining"
+      onClick={handleWaive}
+      className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
+      title="Waive the remaining shortfall (adds it to the discount)"
+    >
+      Waive
+    </button>
+  );
   // When the shop only has cash as a payment method, the change is obviously cash —
   // show a simple currency toggle. Any non-cash method available surfaces the full
   // method picker regardless of what the customer selected.
@@ -1564,7 +1609,8 @@ export default function MultiPaymentInput({
   // A problem is: underpaid with nothing kept, a payout handing out more
   // than owed, or a CASH change return that does not add up (over-return,
   // or an under-return this page cannot keep).
-  const paidExact = Math.abs(totalPaid - effectiveTotalInTarget) < matchTolerance;
+  const paidExact =
+    Math.abs(totalPaid - effectiveTotalInTarget) < matchTolerance;
   const paidHasProblem =
     !paidExact &&
     ((remainingShortfall > matchTolerance && !payoutKeepActive) ||
@@ -1636,7 +1682,12 @@ export default function MultiPaymentInput({
   // LIRA-084 (owner decision 2026-10-02) — this is now the FULL available
   // change per currency, a ceiling the operator can partially return
   // against (below), not automatically the whole kept amount.
-  const { keptUsd: fullKeptUsd, keptLbp: fullKeptLbp, keptUsdExact: fullKeptUsdExact, keptLbpExact: fullKeptLbpExact } = (() => {
+  const {
+    keptUsd: fullKeptUsd,
+    keptLbp: fullKeptLbp,
+    keptUsdExact: fullKeptUsdExact,
+    keptLbpExact: fullKeptLbpExact,
+  } = (() => {
     if (!keepActive)
       return { keptUsd: 0, keptLbp: 0, keptUsdExact: 0, keptLbpExact: 0 };
     const allocationInput = {
@@ -1662,10 +1713,8 @@ export default function MultiPaymentInput({
     return {
       keptUsd: change.find((m) => m.currency === "USD")?.amount ?? 0,
       keptLbp: change.find((m) => m.currency === "LBP")?.amount ?? 0,
-      keptUsdExact:
-        exactChange.find((m) => m.currency === "USD")?.amount ?? 0,
-      keptLbpExact:
-        exactChange.find((m) => m.currency === "LBP")?.amount ?? 0,
+      keptUsdExact: exactChange.find((m) => m.currency === "USD")?.amount ?? 0,
+      keptLbpExact: exactChange.find((m) => m.currency === "LBP")?.amount ?? 0,
     };
   })();
 
@@ -2038,46 +2087,46 @@ export default function MultiPaymentInput({
         </div>
 
         {allowSplit && (
-        <button
-          type="button"
-          data-testid="split-toggle"
-          onClick={toggleSplitMode}
-          className={`shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
-            isSplitMode
-              ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
-              : "bg-slate-800 text-slate-400 border border-slate-600 hover:text-slate-200 hover:border-slate-500"
-          }`}
-        >
-          {isSplitMode ? (
-            <>
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
-              </svg>
-              Split Active
-            </>
-          ) : (
-            <>
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M16 3h5v5M4 20L21 3" />
-              </svg>
-              Split
-            </>
-          )}
-        </button>
+          <button
+            type="button"
+            data-testid="split-toggle"
+            onClick={toggleSplitMode}
+            className={`shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
+              isSplitMode
+                ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
+                : "bg-slate-800 text-slate-400 border border-slate-600 hover:text-slate-200 hover:border-slate-500"
+            }`}
+          >
+            {isSplitMode ? (
+              <>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+                </svg>
+                Split Active
+              </>
+            ) : (
+              <>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M16 3h5v5M4 20L21 3" />
+                </svg>
+                Split
+              </>
+            )}
+          </button>
         )}
       </div>
 
@@ -2619,17 +2668,27 @@ export default function MultiPaymentInput({
               >
                 {renderDualAmount(effectiveTotalInTarget - totalPaid)}
               </span>
-              {showWaiveButton && (
-                <button
-                  type="button"
-                  data-testid="waive-remaining"
-                  onClick={handleWaive}
-                  className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
-                  title="Waive the remaining shortfall (adds it to the discount)"
-                >
-                  Waive
-                </button>
-              )}
+              {showWaiveButton && !showTickedRemainingRow && waiveButton}
+            </span>
+          </div>
+        )}
+        {/* Owner decision 2026-10-12 — what is left on the TICKED items
+            (`waiveTotals`) when it differs from the whole Remaining above;
+            Waive lives here then, so it only forgives the ticked items. */}
+        {showTickedRemainingRow && (
+          <div
+            data-testid="remaining-ticked-row"
+            className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md bg-red-500/10 border border-red-500/20"
+          >
+            <span className="text-red-400">Remaining on ticked</span>
+            <span className="flex items-center gap-2">
+              <span
+                data-testid="remaining-ticked-amount"
+                className="flex items-center gap-1 font-mono font-bold text-red-400"
+              >
+                {renderDualAmount(waiveShortfall)}
+              </span>
+              {showWaiveButton && waiveButton}
             </span>
           </div>
         )}
@@ -2769,8 +2828,8 @@ export default function MultiPaymentInput({
                   data-testid="keep-change-summary"
                   className="text-[11px] text-amber-300"
                 >
-                  Not returned: {dualAmountText(keptTotalTarget)} — added to
-                  the cost.
+                  Not returned: {dualAmountText(keptTotalTarget)} — added to the
+                  cost.
                 </p>
               ) : (
                 <p
@@ -2804,17 +2863,17 @@ export default function MultiPaymentInput({
             {effectiveReturnMethod === "CASH" &&
               hasReturnMismatch &&
               !underReturnKept && (
-              <p
-                data-testid="return-mismatch-warning"
-                className="text-[11px] text-red-400 mt-1"
-              >
-                {returnMismatch > 0
-                  ? isShopPayer
-                    ? `Getting back ${fmtWithSymbol(convertSafe(returnMismatch, totalAmountCurrency, "USD"), "$", 2)} more than was overpaid.`
-                    : `Returning ${fmtWithSymbol(convertSafe(returnMismatch, totalAmountCurrency, "USD"), "$", 2)} more than the customer overpaid.`
-                  : `${fmtWithSymbol(convertSafe(-returnMismatch, totalAmountCurrency, "USD"), "$", 2)} of the change is not covered by these fields yet.`}
-              </p>
-            )}
+                <p
+                  data-testid="return-mismatch-warning"
+                  className="text-[11px] text-red-400 mt-1"
+                >
+                  {returnMismatch > 0
+                    ? isShopPayer
+                      ? `Getting back ${fmtWithSymbol(convertSafe(returnMismatch, totalAmountCurrency, "USD"), "$", 2)} more than was overpaid.`
+                      : `Returning ${fmtWithSymbol(convertSafe(returnMismatch, totalAmountCurrency, "USD"), "$", 2)} more than the customer overpaid.`
+                    : `${fmtWithSymbol(convertSafe(-returnMismatch, totalAmountCurrency, "USD"), "$", 2)} of the change is not covered by these fields yet.`}
+                </p>
+              )}
             {effectiveReturnMethod !== "CASH" && (
               /* Non-CASH: currency dropdown + derived read-only amount */
               <div className="flex items-center gap-1.5 justify-end">

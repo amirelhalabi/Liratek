@@ -53,7 +53,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💸 OMT / Whish & suppliers
 
-- Supplier settle and OMT account settle: when you pay (or receive) up to $5 / 450,000 LBP less than due, Waive records the difference as a discount and the balance closes at zero. Undoing the settlement also undoes the discount.
+- Suppliers page: there is no Waive button when you settle a supplier, settle the OMT account, or pay on the Pay / Receive tab. If a supplier accepts a little less, type the difference in the Discount field on the Pay / Receive tab.
 - Paying out (OMT / Whish receive, Binance, Whish top-up from a client, debt cash-out, Hold Money pickup, refunds): the shop now keeps a leftover of up to $5 (or 450,000 LBP) automatically, up from $1 (or 100,000 LBP). There is no Waive button on OMT system or Whish system transfers.
 - Services page: an OMT send for Cash to Business, Cash to Government, OMT Card or Ogero/Mecanique
   now goes through with a fee of 0 or no fee typed. It used to say "OMT fee is required".
@@ -150,6 +150,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 📊 Profits page
 
+- Profits: amounts waived at basket checkout now have their own "Waived" line (Overview card and By Module row, with its list of transactions) instead of being taken off "Kept Change". Totals do not change.
 - Profits: a new "Warranty cost" line (By Module, plus an Overview card) shows what honouring warranties cost the shop — replacements, refunded faulty items and warranty repair parts — on the day of each claim. Past sales are never changed, and a voided claim leaves it at zero.
 - On the Profits page, the commission on money you pay out for a partner (Services → Via Partner → Pay out, for example a Syria transfer) now counts once the partner's account in that currency covers it — by cash the partner paid you, or by what you owe that partner for transfers you sent through them. Until then it waits, and if the partner still owes part, the newest pay-outs wait first. This includes pay-outs, payments and transfers you recorded before this update, so the profit shown for earlier days can change — it goes up for partners you both send and pay out through. A day's close opened again shows the new figure; a printed copy does not change. Manual partner entries made with "Cash moved" off never count as the partner paying.
 - Profits: items in a customer basket put on the customer's account now count as profit only once
@@ -176,12 +177,12 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Binance: the "≈ LBP" amount under the total now uses the rate you typed in the payment sheet, so it matches what is recorded.
 - MTC / Alfa: if the drawer no longer matches the total of its SIM lines, the Recharge page now shows a warning with both amounts, so you can fix it with a checkpoint.
 - New Phone Lines page (next to Mobile Recharge): your shop lines and the lines you sell in one place, with credit, expiry date and days left. For a line you sell, you can now enter its carrier, expiry and credit there or in the product form. Shop lines also show their days left in Settings → Carrier Lines.
-
 - Lines you sell: the Dashboard ("needs attention") and the bell now warn 3 days before one expires, show how many days are left to save it once expired, and ask whether to write it off once it is lost. Shop lines keep their 7-day warning. Write off on the Phone Lines page books the line's cost as a loss; you can undo it from Transactions.
+
 ## 🎟️ Loto
 
 - Ticket sale: the Discount field is now saved. It comes out of the shop's commission (never more than the commission), and Loto is still owed the same. A Waive button fills it in one tap for a gap of up to 450,000 LBP.
-- Settlement with Loto: when the amounts differ by up to 450,000 LBP, Waive records the difference as a discount and the settlement goes through. The Settle button now waits until the amount is covered.
+- Settlement with Loto: when Loto pays you up to 450,000 LBP less than the settlement, Waive records the difference as a discount and the settlement goes through. There is no Waive when you are the one paying Loto. The Settle button now waits until the amount is covered.
 - Loto: a ticket's payment must now add up to its price. From now on, change kept as store credit
   is recorded on the customer's account.
 - Loto settlement: the payment you record must now match the settlement amount.
@@ -249,7 +250,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💳 Debts
 
-- Debt payment: a Waive button next to "Remaining" moves a gap of up to $5 (or 450,000 LBP) into Discount / Forgive in one tap.
+- Debt payment: a Waive button moves a gap of up to $5 (or 450,000 LBP) into Discount / Forgive in one tap. When you tick only some items, it covers only the ticked items: a "Remaining on ticked" line shows what is left on them, with Waive next to it, and the items you did not tick stay owed.
 - Cashing out a client's credit: if you hand out slightly less than the credit (under $1 or 100,000 LBP), the credit now clears to zero and the difference counts as shop profit on the Profits page.
 - Cashing out a credit now checks that the cash you hand out matches what comes off the client's credit, and only allows cash or wallet methods (not the client's account or a gift card).
 - Repayments where you keep the extra change: from now on the kept amount is checked against what the customer actually paid, and it no longer counts as paying off the client's other items.
@@ -271,9 +272,9 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🌐 Web app
 
+- Web app: when adding, editing, archiving or reactivating a shop line is refused (for example a number that is already one of your lines), Settings → Carrier Lines now shows the reason instead of "Operation failed".
 - If you sign in with Google, your Google photo now shows as your account picture, from your next Google sign-in.
 
-- Web app: when adding, editing, archiving or reactivating a shop line is refused (for example a number that is already one of your lines), Settings → Carrier Lines now shows the reason instead of "Operation failed".
 - Web app: the recent sales list on the POS page now shows the day you pick — before, it always showed today's sales.
 - Web app: pages and pop-ups no longer get cut off at the bottom when the screen is enlarged. To make things bigger or smaller, use your browser's zoom (Ctrl + / Ctrl −, or ⌘ + / ⌘ − on a Mac); the size option in My account is now only in the desktop app.
 - The LiraTek website now has its own Arabic page at liratek.shop/ar, and the language button switches between the English and Arabic pages.
@@ -337,7 +338,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Recording an expense now has a separate Bill amount. If you hand the vendor more than the bill, enter the change you got back — it goes back into your drawer, and any change the vendor kept is added to the expense. From now on.
 - From now on, an expense saves the exchange rate shown in its payment box, including one you type by hand, instead of the day's market rate.
 - Expenses → History: the payment column now shows how each expense was actually paid (for example Whish or Binance) instead of always "Cash".
-- Expenses: when the vendor accepts a little less than the bill (up to $5 or 450,000 LBP), a Waive button next to "Remaining" lowers the bill to what you handed, and the expense is saved at that amount.
+- Expenses: there is no Waive button when you record an expense — the shop is the one paying. Enter the bill at the amount you actually paid.
 
 ## ⚙️ Settings
 

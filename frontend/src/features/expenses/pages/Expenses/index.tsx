@@ -526,22 +526,10 @@ export default function Expenses() {
                   setKeptChange(kept ? { usd: kept.usd, lbp: kept.lbp } : null)
                 }
                 onExchangeRateChange={setTenderRate}
-                // LIRA-310 US6 — "the vendor accepted less": Waive lowers
-                // the bill by the gap (rounded to the bill's currency), so
-                // the expense is recorded at what was actually handed. The
-                // server's shop reconcile (handed − returned − notReturned
-                // = bill) then sees an exact payment.
-                onWaiveRemaining={(amt) => {
-                  const bill = Number(billAmount) || 0;
-                  const lowered = Math.max(0, bill - amt);
-                  setBillAmount(
-                    String(
-                      billCurrency === "LBP"
-                        ? Math.round(lowered)
-                        : Math.round(lowered * 100) / 100,
-                    ),
-                  );
-                }}
+                // Owner rule 2026-10-12 (LIRA-310 follow-up): Waive only
+                // when money comes IN to the shop. An expense is money going
+                // OUT (the shop pays a vendor), so there is no Waive here.
+                waiveDisabled
                 // The vendor hands change back in cash, into the drawer.
                 cashOnlyReturn
                 paymentMethods={drawerAffectingMethods.map((m) => ({

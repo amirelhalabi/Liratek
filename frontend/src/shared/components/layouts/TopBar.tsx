@@ -101,7 +101,9 @@ export default function TopBar({
   // LIRA-309 — read through a ref: the polling effect below runs once ([]).
   const { isModuleEnabled } = useModules();
   const isModuleEnabledRef = useRef(isModuleEnabled);
-  isModuleEnabledRef.current = isModuleEnabled;
+  useEffect(() => {
+    isModuleEnabledRef.current = isModuleEnabled;
+  }, [isModuleEnabled]);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const shopName = useShopName();

@@ -1,20 +1,23 @@
-/** @jest-environment jsdom */
-
 /**
- * LIRA-310 (US3, T045) — Waive on the LOTO settlement dialog.
+ * LIRA-310 (US3, T045) — Waive on the LOTO settlement dialog, under the
+ * owner rule of 2026-10-12 (binding): "Waive only when money comes IN to
+ * the shop and the payer hands over a little less than the total."
  *
- *   - The shop owes LOTO 1,200,000 LBP and enters 1,000,000: "Settle All" is
- *     blocked (the missing underpaid gate). Waive on the Remaining row
- *     (the payment input's `onWaiveRemaining`) closes the 200,000 gap: the
- *     payment input's total drops to 1,000,000, Settle is enabled and the
- *     batch payload carries `discount_lbp: 200000` beside the 1,000,000 leg.
- *   - "Create Checkpoint & Settle" sends `discount_lbp` on the single settle.
+ *   - LOTO owes the shop (net > 0, money IN) and pays 200,000 short:
+ *     "Settle All" is blocked (underpaid gate); Waive on the Remaining row
+ *     closes the gap, the payment total drops, Settle is enabled and the
+ *     batch payload carries `discount_lbp: 200000`.
+ *   - "Create Checkpoint & Settle" in the same direction sends
+ *     `discount_lbp` on the single settle.
+ *   - The shop owes LOTO (net < 0, money OUT) and pays short: NO Waive is
+ *     offered, Settle stays blocked, and no `discount_lbp` is ever sent.
  *   - Without a waive, no `discount_lbp` key is sent.
  *
- * Payloads are parsed through the core schemas (rule 24). The payment input
- * is a stub (same strategy as SettlementVerification.batchSettle.test.tsx);
- * `useApi` is one stable object (rule 25).
- * Rule 17: written before the change and run red — see tasks.md T045.
+ * The payment input is a stub that mirrors the real component's gate: it
+ * shows Waive only when `onWaiveRemaining` is given and `waiveDisabled` is
+ * not set. `useApi` is one stable object (rule 25); payloads are parsed
+ * through the core schemas (rule 24).
+ * Rule 17: the direction guard was written before the change and run red.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -58,6 +61,7 @@ jest.mock("@liratek/ui", () => {
     MultiPaymentInput: (p: {
       onChange: (l: PaymentLine[]) => void;
       totals: Array<{ amount: number; currency: string }>;
+      waiveDisabled?: boolean;
       onWaiveRemaining?: (
         amount: number,
         byCcy: Array<{ currency: string; amount: number }>,
@@ -69,7 +73,7 @@ jest.mock("@liratek/ui", () => {
           <button type="button" onClick={() => p.onChange(stubLines)}>
             stub-pay
           </button>
-          {p.onWaiveRemaining && (
+          {p.onWaiveRemaining && !p.waiveDisabled && (
             <button
               type="button"
               onClick={() =>
@@ -129,7 +133,7 @@ async function openDialog(): Promise<void> {
   await screen.findByText("stub-pay");
 }
 
-describe("SettlementVerification — LIRA-310 Waive", () => {
+describe("SettlementVerification — LIRA-310 Waive (money IN only)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     stubLines = [];
@@ -141,11 +145,11 @@ describe("SettlementVerification — LIRA-310 Waive", () => {
     mockSettleBatch.mockResolvedValue({ success: true, checkpoints: [] });
   });
 
-  it("underpaid is blocked; Waive 200,000 → total drops, Settle enabled, batch sends discount_lbp", async () => {
-    // net = 50,000 − 1,250,000 = −1,200,000 (the shop pays LOTO)
+  it("LOTO owes the shop, paid short: blocked; Waive 200,000 → total drops, Settle enabled, batch sends discount_lbp", async () => {
+    // net = 2,400,000 − (1,250,000 − 50,000) = +1,200,000 (LOTO pays us)
     mockGetUnsettled.mockResolvedValue({
       success: true,
-      checkpoints: [cp(1, 1_250_000, 50_000, 0)],
+      checkpoints: [cp(1, 1_250_000, 50_000, 2_400_000)],
     });
     stubLines = [
       { id: "a", method: "CASH", currencyCode: "LBP", amount: 1_000_000 },
@@ -168,23 +172,28 @@ describe("SettlementVerification — LIRA-310 Waive", () => {
     );
     expect(parsed.discount_lbp).toBe(200_000);
     expect(parsed.payments).toEqual([
-      { method: "CASH", currency_code: "LBP", amount: -1_000_000 },
+      { method: "CASH", currency_code: "LBP", amount: 1_000_000 },
     ]);
   });
 
-  it("create-and-settle sends discount_lbp on the single settle", async () => {
+  it("create-and-settle (LOTO owes the shop) sends discount_lbp on the single settle", async () => {
     mockGetUnsettled.mockResolvedValue({ success: true, checkpoints: [] });
-    // One 500,000 ticket, commission 22,250 → we pay LOTO 477,750.
+    // One 500,000 ticket (commission 22,250) and a 1,000,000 cash prize
+    // not yet on a checkpoint → LOTO pays us 1,000,000 − 477,750 = 522,250.
     mockGetUncheckpointed.mockResolvedValue({
       success: true,
       tickets: [{ sale_amount: 500_000, commission_amount: 22_250 }],
     });
+    mockGetUnreimbursed.mockResolvedValue({
+      success: true,
+      prizes: [{ prize_amount: 1_000_000, checkpoint_id: null }],
+    });
     mockCreateScheduled.mockResolvedValue({
       success: true,
-      checkpoint: cp(9, 500_000, 22_250, 0),
+      checkpoint: cp(9, 500_000, 22_250, 1_000_000),
     });
     stubLines = [
-      { id: "a", method: "CASH", currencyCode: "LBP", amount: 477_000 },
+      { id: "a", method: "CASH", currencyCode: "LBP", amount: 521_500 },
     ];
     stubWaive = 750;
 
@@ -203,11 +212,32 @@ describe("SettlementVerification — LIRA-310 Waive", () => {
     );
     expect(parsed.discount_lbp).toBe(750);
     expect(parsed.payments).toEqual([
-      { method: "CASH", currency_code: "LBP", amount: -477_000 },
+      { method: "CASH", currency_code: "LBP", amount: 521_500 },
     ]);
   });
 
-  it("a full payment sends no discount_lbp", async () => {
+  it("the shop owes LOTO, paid short: NO Waive, Settle stays blocked, no discount_lbp", async () => {
+    // net = 50,000 − 1,250,000 = −1,200,000 (the shop pays LOTO)
+    mockGetUnsettled.mockResolvedValue({
+      success: true,
+      checkpoints: [cp(1, 1_250_000, 50_000, 0)],
+    });
+    stubLines = [
+      { id: "a", method: "CASH", currencyCode: "LBP", amount: 1_198_000 },
+    ];
+    stubWaive = 2_000;
+
+    await openDialog();
+    fireEvent.click(screen.getByText("stub-pay"));
+    const settle = screen.getByRole("button", { name: /settle all \(1\)/i });
+    await waitFor(() => expect(settle).toBeDisabled());
+    expect(screen.queryByText("stub-waive")).not.toBeInTheDocument();
+    expect(screen.getByTestId("loto-settle-underpaid")).toBeInTheDocument();
+    expect(lastPaymentTotals).toEqual([{ amount: 1_200_000, currency: "LBP" }]);
+    expect(mockSettleBatch).not.toHaveBeenCalled();
+  });
+
+  it("a full payment to LOTO sends no discount_lbp", async () => {
     mockGetUnsettled.mockResolvedValue({
       success: true,
       checkpoints: [cp(1, 1_250_000, 50_000, 0)],
@@ -219,8 +249,6 @@ describe("SettlementVerification — LIRA-310 Waive", () => {
     fireEvent.click(screen.getByText("stub-pay"));
     fireEvent.click(screen.getByRole("button", { name: /settle all \(1\)/i }));
     await waitFor(() => expect(mockSettleBatch).toHaveBeenCalledTimes(1));
-    expect(mockSettleBatch.mock.calls[0][0]).not.toHaveProperty(
-      "discount_lbp",
-    );
+    expect(mockSettleBatch.mock.calls[0][0]).not.toHaveProperty("discount_lbp");
   });
 });

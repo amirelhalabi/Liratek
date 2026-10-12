@@ -24,7 +24,7 @@ The other payment pages have no Waive button. A cashier who is a few dollars sho
    - Loto: the discount comes out of the shop's commission. LOTO is still owed the full sale minus commission.
    - Custom Services: the discount lowers the selling price, and so the profit.
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Waive a small gap on pages that already have a discount (Priority: P1)
 
@@ -68,6 +68,7 @@ A cashier sells a Loto ticket for 500,000 LBP or closes a customer basket in Ses
 ### User Story 3 - Waive on settlements: the shop and a supplier or LOTO square up (Priority: P2)
 
 The owner settles with OMT's open-credit account, settles a batch of supplier transactions, or settles with LOTO. The amounts differ by a few dollars. Today these settlements refuse anything but the exact amount. With Waive, the gap is recorded as a discount between the two sides, and the settlement closes:
+
 - If the shop pays less, the supplier gave the shop a discount, and profit goes up by the gap.
 - If the supplier or LOTO pays the shop less, the shop gave the discount, and profit goes down by the gap.
 
@@ -100,6 +101,7 @@ On Exchange, OMT/Whish receive, Hold money pickup, Whish top-up from a client, D
 ### User Story 5 - Loto and Custom Services Discount fields are saved (Priority: P2)
 
 On a Loto ticket sale or a Custom Services sale, the cashier types a discount. Today the field changes the screen but is never saved, so the payment comes out short. Now the discount is saved:
+
 - Loto: it comes out of the shop's commission, up to the commission.
 - Custom Services: it lowers the selling price.
 
@@ -133,7 +135,7 @@ The owner pays a $52 bill and hands over $50, and the vendor accepts it. One tap
 - **Transfer through a partner (For-Partner OMT/Whish)**: no Waive. The partner's amount must be exact, the same rule that already refuses kept change there.
 - **Offline desktop**: a waive recorded while offline replays later exactly as it was saved.
 
-## Requirements *(mandatory)*
+## Requirements _(mandatory)_
 
 ### Functional Requirements
 
@@ -158,24 +160,24 @@ The owner pays a $52 bill and hands over $50, and the vendor accepts it. One tap
 
 ### Acceptance matrix
 
-| Page | Who pays | Waive does | Group |
-| --- | --- | --- | --- |
-| POS checkout | customer → shop | adds to sale discount (existing) + ceiling check | A |
-| Maintenance | customer → shop | adds to discount (existing) + labour ceiling check | A |
-| Recharge: Telecom, card grid, Katsh, Crypto, Financial, OMT/Whish App | customer → shop | adds to discount, ceiling = shop profit | A |
-| Debts repayment | customer → shop | adds to Discount/Forgive | A |
-| Partners settle | partner → shop | adds to capped discount | A |
-| Suppliers Pay | shop → supplier | adds to discount (Pay only) | A |
-| Custom Services | customer → shop | lowers selling price | A |
-| Expenses | shop → vendor | lowers bill to amount handed | A |
-| Loto ticket | customer → shop | saved waive/discount, lowers commission profit | B |
-| Session checkout | customer → shop | saved waive, lowers basket profit | B |
-| Supplier account settle | shop ↔ OMT account | bundled discount received / given | B |
-| Supplier batch settle | shop → supplier | bundled discount received | B |
-| LOTO settlement | shop ↔ LOTO | bundled discount received / given | B |
-| Exchange, OMT/Whish RECEIVE, Hold money pickup, Whish top-up from client, Debts cash-out, Refund | shop → customer | no button; automatic kept change up to new limit | C |
-| Hold money drop-off | customer → shop (deposit) | no button | — |
-| OMT system / Whish system SEND (Services page) | customer → shop | no button — system transactions are never waived (owner, 2026-10-11) | — |
+| Page                                                                                             | Who pays                  | Waive does                                                           | Group |
+| ------------------------------------------------------------------------------------------------ | ------------------------- | -------------------------------------------------------------------- | ----- |
+| POS checkout                                                                                     | customer → shop           | adds to sale discount (existing) + ceiling check                     | A     |
+| Maintenance                                                                                      | customer → shop           | adds to discount (existing) + labour ceiling check                   | A     |
+| Recharge: Telecom, card grid, Katsh, Crypto, Financial, OMT/Whish App                            | customer → shop           | adds to discount, ceiling = shop profit                              | A     |
+| Debts repayment                                                                                  | customer → shop           | adds to Discount/Forgive                                             | A     |
+| Partners settle                                                                                  | partner → shop            | adds to capped discount                                              | A     |
+| Suppliers Pay                                                                                    | shop → supplier           | adds to discount (Pay only)                                          | A     |
+| Custom Services                                                                                  | customer → shop           | lowers selling price                                                 | A     |
+| Expenses                                                                                         | shop → vendor             | lowers bill to amount handed                                         | A     |
+| Loto ticket                                                                                      | customer → shop           | saved waive/discount, lowers commission profit                       | B     |
+| Session checkout                                                                                 | customer → shop           | saved waive, lowers basket profit                                    | B     |
+| Supplier account settle                                                                          | shop ↔ OMT account        | bundled discount received / given                                    | B     |
+| Supplier batch settle                                                                            | shop → supplier           | bundled discount received                                            | B     |
+| LOTO settlement                                                                                  | shop ↔ LOTO               | bundled discount received / given                                    | B     |
+| Exchange, OMT/Whish RECEIVE, Hold money pickup, Whish top-up from client, Debts cash-out, Refund | shop → customer           | no button; automatic kept change up to new limit                     | C     |
+| Hold money drop-off                                                                              | customer → shop (deposit) | no button                                                            | —     |
+| OMT system / Whish system SEND (Services page)                                                   | customer → shop           | no button — system transactions are never waived (owner, 2026-10-11) | —     |
 
 ### Key Entities
 
@@ -183,7 +185,7 @@ The owner pays a $52 bill and hands over $50, and the vendor accepts it. One tap
 - **Waived amount** (on a customer sale): the gap the shop absorbs, per currency, saved with the transaction. It reduces that transaction's profit.
 - **Settlement discount**: an existing kind of record between the shop and a supplier, partner or LOTO, signed "received" or "given". Here it is bundled with a settlement and undone with it.
 
-## Success Criteria *(mandatory)*
+## Success Criteria _(mandatory)_
 
 ### Measurable Outcomes
 
@@ -208,9 +210,13 @@ These were decided during the build and are what the code and tests do:
 
 - **Customer-side cap** (Loto ticket, Session basket) is checked by the server in USD-equivalent at the cashier's rate, with each currency also under its own cap. A split claim therefore cannot double the allowance. The screen still compares in the total's own currency, and guard tests prove the two agree at the limit: exactly 450,000 LBP is accepted at rates 89,000–100,000, and exactly $5.00 is accepted.
 - **Loto ticket discount is LBP only.** A USD discount is refused, because the Profits page cannot tell it apart from kept change. A typed Loto discount may come with change given back; a session Waive may not.
-- **Session waive in Profits**: a `WAIVED_SHORTFALL` row comes off the "Kept Change" line, which now shows kept change minus waived amounts. In the drill-down it is labelled "Waived at basket checkout". Refunding a single item from a waived basket is refused; voiding or refunding the whole basket works.
+- **Session waive in Profits** (owner decision 2026-10-12, replacing the first build that netted it into Kept Change): a `WAIVED_SHORTFALL` row is its own "Waived" line — an Overview card, a "Waived" row in By Module with its own drill-down ("Waived at basket checkout"). "Kept Change" shows only kept change. Totals are unchanged (example: Sales $120, Kept Change $2, Waived −$3, Total $119); By Date, By Cashier and By Client show only totals, so they include it as before. Refunding a single item from a waived basket is refused; voiding or refunding the whole basket works.
 - **Settlement waive** must be less than what is owed, per currency, so some cash always moves.
   - **Account settle**: the waive lands on the account member the settlement is anchored to. If it is bigger than that member's share, the server refuses it.
   - **LOTO settle**: a waive sent with no payment lines is refused.
   - **Settlement rows**: the `SUPPLIER_SETTLEMENT` / `LOTO_SETTLEMENT` row records the cash actually paid; the full amount stays in metadata (and in `loto_settlements.net_settlement`).
-- **Debts**: Waive follows Remaining, which is measured against the whole open debt. So it shows only when the whole remainder is up to $5, and it then forgives the unticked items too.
+- **Debts — Waive covers only the ticked items** (owner decision 2026-10-12, after the build; replaces the first build, where Waive followed the whole-debt Remaining and so also forgave unticked items). When the item picker is shown, the gap Waive closes is measured against the ticked items' sum minus the discount (the same figure the amount fills to), passed to the payment input as `waiveTotals`. That gap gets its own "Remaining on ticked" line with Waive inside it; the "Remaining (Debt)" row keeps the whole-debt figure without a Waive. When the cashier has ticked everything, the two gaps are equal and there is one row, with Waive, as before. "Ticked" means the cashier's own ticks: items the amount ticks by itself (an amount above the ticked sum) do not count, so once the amount is above the cashier-ticked sum there is no Waive even if the whole remainder is under $5 (open owner question: should those auto-ticked items count?). Same $5 / 450,000 LBP cap, never on a cash-out. Example: $14 sale unticked + $20 Loto ticket ticked, $18.50 paid → Remaining on ticked $1.50 [Waive] → Discount / Forgive $1.50 → the Loto ticket ends at $0, the $14 sale stays owed, balance $14. The server needs no change: the bundled discount already walks the same ticked targets after the cash (LIRA-308 decision 8). It stays on the ticked items as long as it is no bigger than what the cash left open on them, which a Waive-sized discount is by construction; a discount typed by hand above that still spills onto unticked items (unchanged behaviour). A client with no itemised debt (no picker) keeps the whole-debt Waive. Tests: `MultiPaymentInput.waive.test.tsx` (waiveTotals), `Debts.lira310WaiveTicked.test.tsx`, `DebtRepository.lira308.test.ts` (owner example, characterization).
+- **No Waive on the Suppliers page** (owner decision 2026-10-12, after the build). The OMT account settle sheet, the supplier batch settle and the Pay / Receive tab show no Waive button (`waiveDisabled` on their payment input). This replaces the Suppliers Pay row of the page table and the supplier half of User Story 3 / FR-007. The owner records a gap by typing it into the Pay tab's Discount field by hand, as before LIRA-310. The server is unchanged: batch and account settle still accept a bundled `discount` and void/refund still sweeps it, but the Suppliers screens never send one. The LOTO settlement (on the Loto page) keeps Waive.
+- **Waive only on money IN** (owner rule 2026-10-12, binding, after the build): "Waive only when money comes IN to the shop and the payer hands over a little less than the total (up to $5 / 450,000 LBP, same cap for USD and LBP). Overpaying is never a waive — it is change or customer credit." Two screens changed to comply; every other page already did:
+  - **Expenses: no Waive.** An expense is the shop paying a vendor (money OUT). The earlier "Waive lowers the bill to what was handed" (User Story 6) is removed; the payment input gets `waiveDisabled`. The cashier enters the bill at what was actually paid. Guards: `Expenses.lira310Waive.test.tsx`, `lira-web-057` Expenses test.
+  - **LOTO settlement: Waive only when LOTO pays the shop** (net > 0). When the shop pays LOTO (net < 0) the dialog passes `waiveDisabled`, ignores any earlier waive, and never sends `discount_lbp`; the underpaid gate still blocks a short payment. The server still accepts `discount_lbp` in both directions (unchanged). Guard: `SettlementVerification.lira310Waive.test.tsx`.

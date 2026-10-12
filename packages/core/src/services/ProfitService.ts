@@ -606,6 +606,17 @@ export interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** LIRA-310 follow-up (owner decision 2026-10-12) — the "Waived" line:
+   *  what the shop chose not to collect at a session basket checkout
+   *  (WAIVED_SHORTFALL, negative), net of basket voids/refunds. Its OWN
+   *  line — never inside `debt_repayments` (the Kept Change figure). See
+   *  {@link ProfitRepository.getWaivedShortfallProfit}. Profit-only,
+   *  NETTED into `totals` below — the day close reads those totals. */
+  waived: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   /** LIRA-296 (owner decision D1) — the cost of honouring warranties
    *  (usually negative), net of recoveries and voids. See
    *  {@link ProfitRepository.getWarrantyTotals}. Profit-only, NETTED into
@@ -1041,6 +1052,11 @@ export class ProfitService {
       // profit-only, pickup + void net to 0 (rule 20).
       const holdMoney = this.repo.getHoldMoneyProfit(fromDt, toDt);
 
+      // LIRA-310 follow-up (owner decision 2026-10-12) — a basket Waive is
+      // its own "Waived" line, no longer inside debtRepayments (Kept
+      // Change); netted into gross below so the totals are unchanged.
+      const waived = this.repo.getWaivedShortfallProfit(fromDt, toDt);
+
       // LIRA-296 — the Warranty cost line (claims' costs, recoveries,
       // void negations) — profit-only, netted into gross.
       const warranty = this.repo.getWarrantyTotals(fromDt, toDt);
@@ -1139,6 +1155,7 @@ export class ProfitService {
         supplierCommission.profit_usd +
         topupsBuybacks.profit_usd +
         holdMoney.profit_usd +
+        waived.profit_usd +
         warranty.profit_usd +
         refundKept.profit_usd;
       const grossProfitLbp =
@@ -1159,6 +1176,7 @@ export class ProfitService {
         supplierCommission.profit_lbp +
         topupsBuybacks.profit_lbp +
         holdMoney.profit_lbp +
+        waived.profit_lbp +
         warranty.profit_lbp +
         refundKept.profit_lbp;
 
@@ -1214,6 +1232,7 @@ export class ProfitService {
         supplier_commission: supplierCommission,
         topups_buybacks: topupsBuybacks,
         hold_money: holdMoney,
+        waived,
         warranty,
         expenses,
         totals: {
@@ -1511,6 +1530,23 @@ export class ProfitService {
         });
       }
 
+      // LIRA-310 follow-up (owner decision 2026-10-12) — a basket Waive is
+      // its OWN row, right after Kept Change, never folded into it.
+      const waivedTotals = this.repo.getWaivedShortfallProfit(fromDt, toDt);
+      if (waivedTotals.profit_usd !== 0 || waivedTotals.profit_lbp !== 0) {
+        results.push({
+          module: "WAIVED",
+          label: "Waived",
+          revenue_usd: 0,
+          revenue_lbp: 0,
+          cost_usd: 0,
+          cost_lbp: 0,
+          profit_usd: waivedTotals.profit_usd,
+          profit_lbp: waivedTotals.profit_lbp,
+          count: waivedTotals.count,
+        });
+      }
+
       const discountTotals = this.repo.getCounterpartyDiscountTotals(
         fromDt,
         toDt,
@@ -1696,6 +1732,10 @@ export class ProfitService {
       match: (key) => key === "KEPT_CHANGE",
       build: (_key, fromDt, toDt) =>
         this.buildKeptChangeModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "WAIVED",
+      build: (_key, fromDt, toDt) => this.buildWaivedModuleDetail(fromDt, toDt),
     },
     {
       match: (key) => key === "COUNTERPARTY_DISCOUNT",
@@ -2586,10 +2626,7 @@ export class ProfitService {
                   // kept part comes back off, on the undo's own day.
                   r.txn_type === "REFUND_KEPT_CHANGE_UNDO"
                   ? "Refund kept change undone"
-                  : // LIRA-310 — the Waive at a basket checkout (−).
-                    r.txn_type === "WAIVED_SHORTFALL"
-                    ? "Waived at basket checkout"
-                    : "Kept change";
+                  : "Kept change";
       const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
       // Display fix 2026-10-07: only a debt repayment is a "repayment" —
       // every other $0 kept-change row was mislabeled as one.
@@ -2628,6 +2665,67 @@ export class ProfitService {
 
     return {
       module: "KEPT_CHANGE",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-310 follow-up (owner decision 2026-10-12) — the "Waived" row's
+   * drill-down. Same flat profit-only shape as kept change: a row with real
+   * money is 100% counted (a basket refund's reversal included, labelled),
+   * so the listed rows add up exactly to the By Module row
+   * ({@link ProfitRepository.getWaivedShortfallProfit}).
+   */
+  private buildWaivedModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const rows: ProfitOnlyDetailRow[] = this.repo.getWaivedShortfallDetail(
+      fromDt,
+      toDt,
+    );
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+
+    for (const r of rows) {
+      const isRealMoney = r.profit_usd !== 0 || r.profit_lbp !== 0;
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "waived",
+        date: r.created_at,
+        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        detail:
+          r.txn_type === "REFUND"
+            ? "Waive reversed (basket refunded)"
+            : "Waived at basket checkout",
+        amount_usd: 0,
+        amount_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: isRealMoney ? 100 : 0,
+        counted_profit_usd: isRealMoney ? r.profit_usd : 0,
+        counted_profit_lbp: isRealMoney ? r.profit_lbp : 0,
+        reason: isRealMoney ? null : "Nothing waived on this entry ($0).",
+        fee_note: null,
+      };
+      if (isRealMoney) {
+        counted.push(row);
+        countedProfitUsd += r.profit_usd;
+        countedProfitLbp += r.profit_lbp;
+      } else {
+        notCounted.push(row);
+      }
+    }
+
+    return {
+      module: "WAIVED",
       counted,
       not_counted: notCounted,
       counted_total_profit_usd: countedProfitUsd,

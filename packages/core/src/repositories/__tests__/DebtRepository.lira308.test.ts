@@ -209,6 +209,31 @@ describe("decision 8 — a bundled discount covers the ticked items", () => {
     expect(salePaid(sale.saleId)).toBe(0);
   });
 
+  // LIRA-310 follow-up (owner decision 2026-10-12): the Debts sheet's Waive
+  // now closes only the ticked items' gap; this pins the posting side of
+  // the owner's own example. Characterization — it passed before the
+  // frontend change (decision 8 already routes the discount to the ticked
+  // targets), so it is NOT a failing-first guard.
+  it("owner example: $18.50 cash + $1.50 waived, Loto ticked → Loto $0, the $14 sale stays owed, balance $14", () => {
+    const sale = seedSaleDebt(db, { clientId: 7, usd: 14 });
+    const loto = seedChargeDebt(db, {
+      clientId: 7,
+      debtType: "Loto Debt",
+      txnType: "LOTO",
+      usd: 20,
+    });
+    repay({
+      usd: 18.5,
+      legs: cashUsd(18.5),
+      targets: [{ kind: "charge", id: loto.debtRowId }],
+      discount: { amount_usd: 1.5, amount_lbp: 0 },
+    });
+    expect(coveredUsd(loto.debtRowId)).toBeCloseTo(20, 2);
+    expect(salePaid(sale.saleId)).toBe(0);
+    expect(balance().usd).toBeCloseTo(14, 2);
+    expect(balance().lbp).toBe(0);
+  });
+
   it("no targets: the discount keeps today's order (sales first)", () => {
     const sale = seedSaleDebt(db, { clientId: 7, usd: 14 });
     seedChargeDebt(db, {

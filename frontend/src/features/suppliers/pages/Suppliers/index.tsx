@@ -14,7 +14,6 @@ import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { useWaivedShortfall } from "@/shared/hooks/useWaivedShortfall";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   useSuppliersQuery,
@@ -1538,35 +1537,6 @@ export default function SuppliersPage() {
   const settleHasActiveLegs = settlePaymentLines.some((p) => p.amount > 0);
   const settleOwesCash =
     Math.abs(settleNetPayUsd) > 0.005 || Math.abs(settleNetPayLbp) > 0.005;
-  // LIRA-310 — Waive on the batch settle: the Remaining row's Waive button
-  // stores the gap per currency (the supplier accepted less). Offered only
-  // when cash is genuinely owed and the batch is not bills-only (a
-  // bills-only batch owes nothing — its "Other payment" legs ARE the
-  // commission; the server refuses both). The waive belongs to THIS payment:
-  // it drops when the lines change, the modal reopens, or the net changes.
-  const settleWaiveAllowed = !isBillsOnlyBatch && settleOwesCash;
-  const {
-    waived: settleWaived,
-    hasWaive: settleHasWaive,
-    onWaiveRemaining: onSettleWaiveRemaining,
-    clear: clearSettleWaive,
-  } = useWaivedShortfall(
-    settlePaymentLines,
-    `${settleKey}|${settleNetPayUsd}|${settleNetPayLbp}`,
-  );
-  const settleWaiveActive = settleWaiveAllowed && settleHasWaive;
-  // What the legs must pay: owed − waived, per currency (the same figure
-  // the server reconciles the legs to — FEATURE_GUIDE §13 item 15).
-  const settleCashUsd = Math.max(
-    0,
-    settleNetPayUsd - (settleWaiveActive ? settleWaived.usd : 0),
-  );
-  const settleCashLbp = Math.max(
-    0,
-    settleNetPayLbp - (settleWaiveActive ? settleWaived.lbp : 0),
-  );
-  const settleCashAmount =
-    settleNetPayCurrency === "LBP" ? settleCashLbp : settleCashUsd;
 
   // ── LIRA-193 — reconcile entered payment legs against the net amount
   // owed, per currency, before Confirm is even reachable. Ports
@@ -1601,8 +1571,8 @@ export default function SuppliersPage() {
   );
   const settleUnderpaid =
     settleOwesCash &&
-    (settleEnteredUsd < settleCashUsd - 0.005 ||
-      settleEnteredLbp < settleCashLbp - 0.005);
+    (settleEnteredUsd < settleNetPayUsd - 0.005 ||
+      settleEnteredLbp < settleNetPayLbp - 0.005);
   // A currency that's simultaneously under AND over (a stray leg in the
   // "wrong" currency while the right one still falls short) reports as
   // underpaid — the operator still needs to add money before overpayment
@@ -1612,8 +1582,8 @@ export default function SuppliersPage() {
   const settleOverpaid =
     settleOwesCash &&
     !settleUnderpaid &&
-    (settleEnteredUsd > settleCashUsd + 0.005 ||
-      settleEnteredLbp > settleCashLbp + 0.005);
+    (settleEnteredUsd > settleNetPayUsd + 0.005 ||
+      settleEnteredLbp > settleNetPayLbp + 0.005);
   const settleLegsReconcile = !settleUnderpaid && !settleOverpaid;
 
   // Owner follow-up (2026-08-13) — "Other payment" mode's legs are NOT a
@@ -1813,16 +1783,6 @@ export default function SuppliersPage() {
           : {}),
         // LIRA-256 — OMT supplier only, and only when not "All types".
         ...(settleCovered ? { covered_omt_service_types: settleCovered } : {}),
-        // LIRA-310 — the waived gap, per currency; only when something was
-        // waived. `amount_*` above stays the amount OWED.
-        ...(settleWaiveActive
-          ? {
-              discount: {
-                amount_usd: settleWaived.usd,
-                amount_lbp: settleWaived.lbp,
-              },
-            }
-          : {}),
       });
       if (!(result as { success: boolean }).success) {
         alert((result as { error?: string }).error || "Settlement failed");
@@ -1833,11 +1793,7 @@ export default function SuppliersPage() {
         `Settled ${selectedSettleIds.size} transaction${selectedSettleIds.size !== 1 ? "s" : ""} — ${
           isBillsOnlyBatch
             ? `${selectedSupplier?.name ?? "supplier"} credited ${formatMoney(settleEnteredCommissionAmount, settleEnteredCommissionCurrency)}`
-            : `net ${formatMoney(settleCashAmount, settleNetPayCurrency)}${
-                settleWaiveActive
-                  ? ` (waived ${formatMoney(settleNetPayAmount - settleCashAmount, settleNetPayCurrency)})`
-                  : ""
-              }`
+            : `net ${formatMoney(settleNetPayAmount, settleNetPayCurrency)}`
         }`,
         "success",
       );
@@ -2767,10 +2723,12 @@ export default function SuppliersPage() {
                     // Remaining row reads "Remaining to pay" (not "Remaining
                     // (Debt)"). Labels only: this sheet wires no kept change
                     // or return legs, so FEATURE_GUIDE §4.1's shop-payer
-                    // "kept → cost" rule never applies here. The built-in
-                    // Waive (showDiscount + onDiscountChange + maxDiscount)
-                    // already adds a gap to the discount.
+                    // "kept → cost" rule never applies here.
                     payer: cashflowDirection === "PAY" ? "shop" : "customer",
+                    // Owner decision 2026-10-12 — no Waive anywhere on the
+                    // Suppliers page: a gap the supplier forgives is typed
+                    // into the Discount field above by hand.
+                    waiveDisabled: true,
                   }}
                   onConfirm={handleCashflow}
                   confirmLabel={
@@ -3476,35 +3434,13 @@ export default function SuppliersPage() {
                     : `The entered payment is ${formatMoney(
                         (settleNetPayCurrency === "LBP"
                           ? settleEnteredLbp
-                          : settleEnteredUsd) - settleCashAmount,
+                          : settleEnteredUsd) - settleNetPayAmount,
                         settleNetPayCurrency,
                       )} more than the net amount. Settlement legs must match exactly — reduce the payment to ${formatMoney(
-                        settleCashAmount,
+                        settleNetPayAmount,
                         settleNetPayCurrency,
                       )}.`}
                 </p>
-              )}
-              {settleWaiveActive && (
-                <div
-                  className="flex items-center justify-between text-xs text-amber-300"
-                  data-testid="settle-waived"
-                >
-                  <span>
-                    Waived{" "}
-                    {formatMoney(
-                      settleNetPayAmount - settleCashAmount,
-                      settleNetPayCurrency,
-                    )}{" "}
-                    — {selectedSupplier.name} accepts less
-                  </span>
-                  <button
-                    type="button"
-                    onClick={clearSettleWaive}
-                    className="underline text-slate-300 hover:text-white"
-                  >
-                    Undo
-                  </button>
-                </div>
               )}
             </div>
           }
@@ -3536,6 +3472,8 @@ export default function SuppliersPage() {
                     ],
                     exchangeRate: exchangeRate,
                     onExchangeRateChange: setSettleRate,
+                    // Owner decision 2026-10-12 — no Waive on this page.
+                    waiveDisabled: true,
                   }
                 : null
               : {
@@ -3543,12 +3481,9 @@ export default function SuppliersPage() {
                   // leg currency now follow settleNetPayCurrency instead of
                   // being hardcoded to USD, so a Katsh-style LBP commission
                   // settlement defaults to LBP the way the owner expects.
-                  // LIRA-310 — once waived, the total drops by the waived
-                  // gap (Remaining reaches 0); the key (settleKey) is
-                  // unchanged, so the typed lines are kept.
                   totals: [
                     {
-                      amount: settleCashAmount,
+                      amount: settleNetPayAmount,
                       currency: settleNetPayCurrency,
                     },
                   ],
@@ -3566,9 +3501,9 @@ export default function SuppliersPage() {
                   onExchangeRateChange: setSettleRate,
                   // The shop pays the supplier: "Remaining to pay".
                   payer: "shop",
-                  ...(settleWaiveAllowed
-                    ? { onWaiveRemaining: onSettleWaiveRemaining }
-                    : {}),
+                  // Owner decision 2026-10-12 — no Waive anywhere on the
+                  // Suppliers page.
+                  waiveDisabled: true,
                 }
           }
         >

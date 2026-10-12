@@ -4,7 +4,6 @@ import { X } from "lucide-react";
 import { isOmtRowCovered, type OmtCoveredType } from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
-import { useWaivedShortfall } from "@/shared/hooks/useWaivedShortfall";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   useSupplierAccountUnsettledQuery,
@@ -267,22 +266,6 @@ export function AccountSettleSheet({
   const activeLines = paymentLines.filter((p) => p.amount > 0);
   const hasActiveLegs = activeLines.length > 0;
 
-  // LIRA-310 — Waive: the Remaining row's Waive button stores the gap per
-  // currency; it belongs to THIS payment (dropped when the lines, the
-  // selection, the direction or the surplus change). Never with a declared
-  // surplus — the server refuses the two together.
-  const {
-    waived,
-    hasWaive,
-    onWaiveRemaining,
-    clear: clearWaive,
-  } = useWaivedShortfall(paymentLines, multiPaymentKey);
-  const waivedAmount = hasWaive
-    ? Math.abs(collapseNetBalance(waived.usd, waived.lbp, exchangeRate).amount)
-    : 0;
-  // What the legs must cover: the target minus what was waived.
-  const payTarget = Math.max(0, targetAmount - waivedAmount);
-
   const enteredAmount = useMemo(() => {
     let usd = 0;
     let lbp = 0;
@@ -309,8 +292,8 @@ export function AccountSettleSheet({
   // settles a $100 debt, drawer drops $150, ledger nets to 0" bug) — the
   // surplus input above is the ONLY sanctioned way to widen the target, and
   // once widened, legs must STILL reconcile to it exactly.
-  const underpaid = hasTarget && enteredAmount < payTarget - NET_EPS;
-  const overpaid = hasTarget && enteredAmount > payTarget + NET_EPS;
+  const underpaid = hasTarget && enteredAmount < targetAmount - NET_EPS;
+  const overpaid = hasTarget && enteredAmount > targetAmount + NET_EPS;
   const reconciles = !underpaid && !overpaid;
 
   const settleMutation = useSettleSupplierAccountMutation(
@@ -377,11 +360,6 @@ export function AccountSettleSheet({
         // LIRA-256 — only when the statement covers some types, never for
         // "All types" (absent = unchanged behaviour).
         ...(coveredTypes ? { covered_omt_service_types: coveredTypes } : {}),
-        // LIRA-310 — the waived gap, per currency; only when something was
-        // waived. `amount_*` above stays the rows' own net.
-        ...(hasWaive
-          ? { discount: { amount_usd: waived.usd, amount_lbp: waived.lbp } }
-          : {}),
       });
 
       if (!result.success) {
@@ -391,11 +369,7 @@ export function AccountSettleSheet({
 
       appEvents.emit(
         "notification:show",
-        `${account.account_name} account ${direction === "PAY" ? "settled" : "collected"} — ${formatMoney(payTarget, collapsedNet.currency)}${
-          hasWaive
-            ? ` (waived ${formatMoney(waivedAmount, collapsedNet.currency)})`
-            : ""
-        }`,
+        `${account.account_name} account ${direction === "PAY" ? "settled" : "collected"} — ${formatMoney(targetAmount, collapsedNet.currency)}`,
         "success",
       );
       onSettled();
@@ -632,10 +606,10 @@ export function AccountSettleSheet({
                 {underpaid
                   ? "The entered payment doesn't cover the selected rows — a selected row can't be partially paid. Enter the full net amount or deselect some rows."
                   : `The entered payment is ${formatMoney(
-                      enteredAmount - payTarget,
+                      enteredAmount - targetAmount,
                       collapsedNet.currency,
                     )} more than the net amount${hasSurplusInput ? " + declared surplus" : ""}. Settlement legs must match exactly — reduce the payment to ${formatMoney(
-                      payTarget,
+                      targetAmount,
                       collapsedNet.currency,
                     )}${hasSurplusInput ? ", or lower the overpayment amount below" : ""}.`}
               </p>
@@ -731,10 +705,9 @@ export function AccountSettleSheet({
           {hasTarget && (
             <MultiPaymentInput
               key={multiPaymentKey}
-              // LIRA-310 — once waived, the total the legs owe drops by the
-              // waived gap (Remaining reaches 0). The key stays on the full
-              // target so the lines the cashier typed are kept.
-              totals={[{ amount: payTarget, currency: collapsedNet.currency }]}
+              totals={[
+                { amount: targetAmount, currency: collapsedNet.currency },
+              ]}
               totalAmountCurrency={collapsedNet.currency}
               currency={collapsedNet.currency}
               onChange={setPaymentLines}
@@ -751,28 +724,10 @@ export function AccountSettleSheet({
               // reads "Remaining to pay" (labels only — this sheet wires no
               // kept change).
               payer={direction === "PAY" ? "shop" : "customer"}
-              {...(!hasSurplusInput ? { onWaiveRemaining } : {})}
+              // Owner decision 2026-10-12 — no Waive anywhere on the
+              // Suppliers page (a gap is typed into the Pay tab's Discount).
+              waiveDisabled
             />
-          )}
-          {hasWaive && (
-            <div
-              className="flex items-center justify-between text-xs text-amber-300"
-              data-testid="supplier-account-settle-waived"
-            >
-              <span>
-                Waived {formatMoney(waivedAmount, collapsedNet.currency)} —{" "}
-                {direction === "PAY"
-                  ? `${account.account_name} accepts less`
-                  : `${account.account_name} pays less`}
-              </span>
-              <button
-                type="button"
-                onClick={clearWaive}
-                className="underline text-slate-300 hover:text-white"
-              >
-                Undo
-              </button>
-            </div>
           )}
 
           <div>
