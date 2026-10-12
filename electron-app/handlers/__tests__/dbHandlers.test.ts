@@ -215,7 +215,7 @@ describe("dbHandlers IPC: Closing functionality", () => {
         (call) => call[0] === "closing:getCarrierLineAdjustments",
       )[1];
       const filters = { date_from: "2026-10-01", drawer_name: "MTC" };
-      const result = await handler({}, filters);
+      const result = await handler({ sender: { id: 1 } }, filters);
 
       expect(mockClosingService.getCarrierLineAdjustments).toHaveBeenCalledWith(
         filters,
@@ -244,7 +244,7 @@ describe("dbHandlers IPC: Closing functionality", () => {
       const handler = ipcMain.handle.mock.calls.find(
         (call) => call[0] === "closing:getCarrierLineAdjustments",
       )[1];
-      const result = await handler({}, {});
+      const result = await handler({ sender: { id: 1 } }, {});
 
       expect(result).toEqual({ success: false, error: "boom" });
     });
@@ -310,9 +310,9 @@ describe("dbHandlers IPC: Closing functionality", () => {
         (call) => call[0] === "closing:get-daily-stats-snapshot",
       )[1];
 
-      await expect(
-        handler(sender, { day: "not-a-date" }),
-      ).rejects.toThrow(/Validation failed/);
+      await expect(handler(sender, { day: "not-a-date" })).rejects.toThrow(
+        /Validation failed/,
+      );
       expect(mockClosingService.getDailyStatsSnapshot).not.toHaveBeenCalled();
     });
 
@@ -367,7 +367,10 @@ describe("dbHandlers IPC: Closing functionality", () => {
       });
 
       it("no session at all -> includeProfit:false, but the activity stats are still returned (this channel keeps its historical no-role-check read access)", async () => {
-        mockRequireRole.mockReturnValue({ ok: false, error: "Not authenticated" });
+        mockRequireRole.mockReturnValue({
+          ok: false,
+          error: "Not authenticated",
+        });
         mockHasProfitsUnlock.mockReturnValue(false);
         const snapshot = { salesCount: 1, profitHidden: true };
         mockClosingService.getDailyStatsSnapshot.mockReturnValue(snapshot);
@@ -383,6 +386,47 @@ describe("dbHandlers IPC: Closing functionality", () => {
         );
         expect(result).toEqual(snapshot);
       });
+    });
+  });
+
+  // Owner decision 2026-10-12: the Checkpoint Timeline and its reads are
+  // admin-only on both transports. Rule 17: run against the ungated handlers.
+  describe("Checkpoint Timeline reads — admin only", () => {
+    const find = (channel: string) =>
+      ipcMain.handle.mock.calls.find((call) => call[0] === channel)[1];
+    const staff = { sender: { id: 9 } };
+
+    beforeEach(() => {
+      mockRequireRole.mockReturnValue({ ok: false, error: "Forbidden" });
+    });
+
+    afterEach(() => {
+      mockRequireRole.mockReturnValue({ ok: true, userId: 7, role: "staff" });
+    });
+
+    it("closing:getCheckpointTimeline refuses staff without reading", async () => {
+      const result = await find("closing:getCheckpointTimeline")(staff, {});
+      expect(mockRequireRole).toHaveBeenCalledWith(9, ["admin"]);
+      expect(result).toEqual({ success: false, error: "Forbidden" });
+      expect(mockClosingService.getCheckpointTimeline).not.toHaveBeenCalled();
+    });
+
+    it("closing:getCarrierLineAdjustments refuses staff without reading", async () => {
+      const result = await find("closing:getCarrierLineAdjustments")(staff, {});
+      expect(mockRequireRole).toHaveBeenCalledWith(9, ["admin"]);
+      expect(result).toEqual({ success: false, error: "Forbidden" });
+      expect(
+        mockClosingService.getCarrierLineAdjustments,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("closing:get-initial-checkpoint-date answers null to staff without reading", async () => {
+      const result = await find("closing:get-initial-checkpoint-date")(staff);
+      expect(mockRequireRole).toHaveBeenCalledWith(9, ["admin"]);
+      expect(result).toBeNull();
+      expect(
+        mockClosingService.getInitialCheckpointDate,
+      ).not.toHaveBeenCalled();
     });
   });
 });

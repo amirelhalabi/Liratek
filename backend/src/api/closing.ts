@@ -367,8 +367,11 @@ router.post(
   },
 );
 
-// GET /api/closing/checkpoint-timeline — read the checkpoint history (any role).
-router.get("/checkpoint-timeline", requireAuth, async (req, res) => {
+// GET /api/closing/checkpoint-timeline — read the checkpoint history. Admin
+// only, like the page (owner decision 2026-10-12): counts and variances are
+// not for staff. /last-checkpoint-per-drawer stays open — the Dashboard's
+// drawer cards read it for every role.
+router.get("/checkpoint-timeline", requireAuth, adminGate, async (req, res) => {
   try {
     const q = req.query;
     const filters: CheckpointFilters = {};
@@ -397,31 +400,36 @@ router.get("/checkpoint-timeline", requireAuth, async (req, res) => {
 });
 
 // GET /api/closing/carrier-line-adjustments — read the manual carrier-line
-// (MTC/Alfa SIM) drawer-adjustment history (any role), sibling of
+// (MTC/Alfa SIM) drawer-adjustment history (admin only), sibling of
 // /checkpoint-timeline above — same manual-query-parsing idiom (rule 14).
-router.get("/carrier-line-adjustments", requireAuth, async (req, res) => {
-  try {
-    const q = req.query;
-    const filters: CarrierLineAdjustmentFilters = {};
-    if (typeof q.date_from === "string") filters.date_from = q.date_from;
-    if (typeof q.date_to === "string") filters.date_to = q.date_to;
-    if (typeof q.drawer_name === "string") filters.drawer_name = q.drawer_name;
+router.get(
+  "/carrier-line-adjustments",
+  requireAuth,
+  adminGate,
+  async (req, res) => {
+    try {
+      const q = req.query;
+      const filters: CarrierLineAdjustmentFilters = {};
+      if (typeof q.date_from === "string") filters.date_from = q.date_from;
+      if (typeof q.date_to === "string") filters.date_to = q.date_to;
+      if (typeof q.drawer_name === "string")
+        filters.drawer_name = q.drawer_name;
 
-    const result = await closingService.getCarrierLineAdjustments(filters);
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Get carrier line adjustments error");
-    res
-      .status(500)
-      .json({
+      const result = await closingService.getCarrierLineAdjustments(filters);
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Get carrier line adjustments error");
+      res.status(500).json({
         success: false,
         error: "Failed to get carrier line adjustments",
       });
-  }
-});
+    }
+  },
+);
 
-// GET /api/closing/initial-checkpoint-date — the setup checkpoint's date (any role).
-router.get("/initial-checkpoint-date", requireAuth, (_req, res) => {
+// GET /api/closing/initial-checkpoint-date — the setup checkpoint's date
+// (admin only; read only by the Checkpoint Timeline).
+router.get("/initial-checkpoint-date", requireAuth, adminGate, (_req, res) => {
   try {
     const date = closingService.getInitialCheckpointDate();
     res.json({ success: true, date });

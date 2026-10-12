@@ -4,6 +4,7 @@ import {
   getCurrencyService,
   createCurrencySchema,
   updateCurrencySchema,
+  setDrawerCurrenciesSchema,
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
@@ -189,6 +190,63 @@ router.get("/countable-drawer-currencies", (_req, res): void => {
     });
   }
 });
+
+// GET /api/currencies/drawers/:drawerName/currencies — the drawer's currency
+// codes; web twin of IPC currencies:forDrawer (any signed-in role, like IPC).
+// backendApi.ts called this path on web long before it existed (404).
+router.get("/drawers/:drawerName/currencies", (req, res): void => {
+  try {
+    const currencyService = getCurrencyService();
+    const currencies = currencyService.getCurrenciesForDrawer(
+      req.params.drawerName,
+    );
+    res.json({ success: true, currencies });
+  } catch (error) {
+    logger.error({ error }, "Get currencies for drawer error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch currencies for drawer" });
+  }
+});
+
+// PUT /api/currencies/drawers/:drawerName/currencies — replace a drawer's
+// currency list (admin only); web twin of IPC currencies:setDrawerCurrencies.
+// A service refusal (e.g. General, which accepts every currency) answers
+// HTTP 200 + the envelope, like IPC (rule 19c).
+router.put(
+  "/drawers/:drawerName/currencies",
+  requireRole(["admin"]),
+  validateRequest(setDrawerCurrenciesSchema),
+  (req, res): void => {
+    try {
+      const drawerName = req.params.drawerName;
+      const currencies: string[] = req.body.currencies;
+      const currencyService = getCurrencyService();
+      const result = currencyService.setCurrenciesForDrawer(
+        drawerName,
+        currencies,
+      );
+
+      if (result.success) {
+        // Mirrors currencyHandlers.ts's currencies:setDrawerCurrencies audit.
+        auditRest(req, {
+          action: "update",
+          entity_type: "currency_drawers",
+          entity_id: drawerName,
+          summary: `Set currencies for drawer ${drawerName}`,
+          new_values: { currencies },
+        });
+      }
+
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Set currencies for drawer error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to set currencies for drawer" });
+    }
+  },
+);
 
 // GET /api/currencies/by-drawer/:drawerName - Get full currencies for a drawer
 router.get("/by-drawer/:drawerName", (_req, res): void => {

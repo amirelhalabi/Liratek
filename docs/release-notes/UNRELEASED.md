@@ -102,6 +102,15 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - After you sign in, admins now get one Checkpoint window that lists all your drawers together (General first), when checkpoints are turned on and at least one drawer has not been counted today. Count each drawer and press its own Save — each drawer is saved on its own and then shows as "Counted today", while the others stay open for counting. Drawers already counted today are marked and can be counted again. The window stays open until you close it, opens once per sign-in, and closing it or refreshing the page does not bring it back. The clipboard button on each drawer card on the Dashboard still opens that one drawer's Checkpoint as before.
 - Drawer balances and Cash on Hand always show dollars and lira, even at zero; other currencies (euro, AUD, SAR…) appear only when the drawer holds some.
 - When you count a drawer, the count window now shows how many sales came in on that drawer since its last count, with the list: time, what it was (for example "Whish App Send", named the same way as on the Transactions page), client, details and amount.
+- Count window: "N sales since the last count" now reads "N movements since the last count", because the list also holds top ups, cash outs and transfers, not only sales.
+- Checkpoint Timeline: a drawer counted at zero now shows $0.00 and how much is short. Before, it showed the expected amount and "Matched" — this also corrects how past zero counts are shown.
+- Checkpoint Timeline: an empty drawer counted at zero now shows "$0.00 + 0 LBP" and "Balanced" instead of "—" and "No amounts recorded".
+- Checkpoint Timeline: the amount column is now called "Counted", and each row says "Short $3.00", "Over $8.00" or "Balanced" instead of a plus or minus sign.
+- Checkpoint Timeline: when you pick more than one day, each row shows its day under the time, and the details window always shows the full date.
+- Checkpoint Timeline: in the details window, the title, time, user and notes stay at the top while you scroll the amounts.
+- Checkpoint Timeline: the starting drawer amounts row is now called "All drawers", shows how many drawers it covers instead of one combined total, and its details list the amounts under each drawer's name.
+- Checkpoint Timeline is now for admins only. Staff who open its address are sent back to the home page.
+- Initial Drawer Amounts: adding a currency such as USDT to General and pressing Save Amounts now saves your amounts. If a save fails, you now see a message instead of a button stuck on "Saving…".
 
 ## 🤝 Partners
 
@@ -272,6 +281,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🌐 Web app
 
+- Settings → Currencies: changing which currencies a drawer accepts now saves in the web app.
 - Web app: when adding, editing, archiving or reactivating a shop line is refused (for example a number that is already one of your lines), Settings → Carrier Lines now shows the reason instead of "Operation failed".
 - If you sign in with Google, your Google photo now shows as your account picture, from your next Google sign-in.
 

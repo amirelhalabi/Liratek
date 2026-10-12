@@ -17,29 +17,57 @@ jest.mock("@liratek/ui", () => ({
 beforeEach(() => mockGet.mockReset());
 
 describe("SinceLastCountList", () => {
-  it("asks for this drawer only and shows how many sales came in since the last count", async () => {
+  it("asks for this drawer only and shows how many drawer movements (sales, top ups, cash outs…) happened since the last count", async () => {
     mockGet.mockResolvedValue([
       {
         drawer: "Whish_App",
         lastCountAt: "2026-10-09 18:00:00",
         transactions: [
-          { id: 7, type: "FINANCIAL_SERVICE", summary: "WHISH_APP SEND", client_id: 3, client_name: "Hassan", amount_usd: 50, amount_lbp: 0, created_at: "2026-10-09 21:30:00", drawer_amounts: { USD: -50 } },
-          { id: 8, type: "FINANCIAL_SERVICE", summary: "OMT_APP SEND", client_id: null, client_name: null, amount_usd: 20, amount_lbp: 0, created_at: "2026-10-09 21:40:00", drawer_amounts: { USD: 20 } },
+          {
+            id: 7,
+            type: "FINANCIAL_SERVICE",
+            summary: "WHISH_APP SEND",
+            client_id: 3,
+            client_name: "Hassan",
+            amount_usd: 50,
+            amount_lbp: 0,
+            created_at: "2026-10-09 21:30:00",
+            drawer_amounts: { USD: -50 },
+          },
+          {
+            id: 8,
+            type: "FINANCIAL_SERVICE",
+            summary: "OMT_APP SEND",
+            client_id: null,
+            client_name: null,
+            amount_usd: 20,
+            amount_lbp: 0,
+            created_at: "2026-10-09 21:40:00",
+            drawer_amounts: { USD: 20 },
+          },
         ],
       },
     ]);
     render(<SinceLastCountList drawer="Whish_App" />);
-    expect(await screen.findByText("2 sales since the last count")).toBeTruthy();
+    expect(
+      await screen.findByText("2 movements since the last count"),
+    ).toBeTruthy();
     expect(mockGet).toHaveBeenCalledWith(["Whish_App"]);
-    fireEvent.click(screen.getByRole("button", { name: /2 sales since the last count/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /2 movements since the last count/ }),
+    );
     expect(screen.getByText(/Hassan/)).toBeTruthy();
     expect(screen.getByText("-$50")).toBeTruthy();
   });
 
   it("says so when nothing came in, and shows nothing when the list cannot load (e.g. staff)", async () => {
-    mockGet.mockResolvedValueOnce([{ drawer: "OMT_App", lastCountAt: null, transactions: [] }]);
+    mockGet.mockResolvedValueOnce([
+      { drawer: "OMT_App", lastCountAt: null, transactions: [] },
+    ]);
     const { unmount } = render(<SinceLastCountList drawer="OMT_App" />);
-    expect(await screen.findByText("No sales since the last count")).toBeTruthy();
+    expect(
+      await screen.findByText("No movements since the last count"),
+    ).toBeTruthy();
     unmount();
 
     mockGet.mockResolvedValueOnce(null);

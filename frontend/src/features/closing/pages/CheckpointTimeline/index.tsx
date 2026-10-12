@@ -113,6 +113,43 @@ function todayISO(): string {
   return localDay();
 }
 
+/** The drawer name an all-drawers checkpoint (initial setup) is stored under. */
+const ALL_DRAWERS = "AGGREGATED";
+
+function drawerLabel(name: string): string {
+  if (name === ALL_DRAWERS) return "All drawers";
+  return DRAWER_CONFIGS[name as DrawerType]?.label ?? name;
+}
+
+/** The counted amount. 0 is a real count; only a missing count (NULL in the
+ *  database, never written by today's checkpoint) falls back to expected. */
+function countedOf(c: CheckpointCurrency): number {
+  return c.physical_amount ?? c.opening_amount ?? 0;
+}
+
+/** Money written the shop's way: `$8.00`, `50,000 LBP`, `10.00 USDT`. */
+function formatMoney(amount: number, code: string): string {
+  const value = formatCurrencyAmount(amount, code);
+  return code === "USD" ? `$${value}` : `${value} ${code}`;
+}
+
+/** counted − expected in words, e.g. "Short $3.00" / "Over 50,000 LBP". */
+function shortOrOver(variance: number, amount: string): string {
+  return `${variance < 0 ? "Short" : "Over"} ${amount}`;
+}
+
+/** The drawers a checkpoint's amount lines belong to, in Dashboard order. */
+function drawersOf(checkpoint: CheckpointRecord): string[] {
+  const names = new Set(
+    checkpoint.currencies.map((c) => c.drawer_name ?? checkpoint.drawer_name),
+  );
+  const ordered = DRAWER_ORDER.filter((d) => names.has(d));
+  return [
+    ...ordered,
+    ...[...names].filter((n) => !ordered.includes(n as DrawerType)),
+  ];
+}
+
 export default function CheckpointTimeline() {
   const api = useApi();
   // Rule 25 — `api`'s identity is only stable because `ApiProvider` happens
@@ -236,30 +273,41 @@ export default function CheckpointTimeline() {
       if (!totals[c.currency_code]) {
         totals[c.currency_code] = 0;
       }
-      totals[c.currency_code] += c.physical_amount ?? c.opening_amount ?? 0;
+      totals[c.currency_code] += countedOf(c);
     });
     return totals;
   };
 
   const CURRENCY_ORDER = ["USD", "USDT", "LBP"];
 
+  // The row's counted amount. A currency is listed when it was counted or
+  // expected at anything but zero — so a drawer counted at $0 against $205
+  // still shows "$0.00". An all-zero drawer lists every currency at 0. A
+  // checkpoint spanning several drawers (initial setup) says how many,
+  // since one total across drawers is money no single drawer holds.
   const getAmountDisplay = (checkpoint: CheckpointRecord): string => {
+    const drawers = drawersOf(checkpoint);
+    if (drawers.length > 1) return `${drawers.length} drawers`;
     const totals = getAggregatedTotals(checkpoint);
-    const parts: string[] = [];
-    CURRENCY_ORDER.forEach((code) => {
-      const amount = totals[code];
-      if (!amount) return;
-      if (code === "USD") parts.push(`$${formatCurrency(amount, code)}`);
-      else if (code === "LBP")
-        parts.push(`${formatCurrency(amount, code)} LBP`);
-      else parts.push(`${formatCurrency(amount, code)} ${code}`);
-    });
-    Object.entries(totals).forEach(([code, amount]) => {
-      if (!CURRENCY_ORDER.includes(code) && amount) {
-        parts.push(`${formatCurrency(amount, code)} ${code}`);
-      }
-    });
-    return parts.join(" + ") || "—";
+    const nonZero = new Set(
+      checkpoint.currencies
+        .filter((c) => countedOf(c) !== 0 || (c.opening_amount ?? 0) !== 0)
+        .map((c) => c.currency_code),
+    );
+    const codes = nonZero.size > 0 ? nonZero : new Set(Object.keys(totals));
+    const ordered = [
+      ...CURRENCY_ORDER.filter((code) => codes.has(code)),
+      ...[...codes].filter((code) => !CURRENCY_ORDER.includes(code)),
+    ];
+    return (
+      ordered
+        .map((code) =>
+          code === "USD"
+            ? `$${formatCurrency(totals[code] ?? 0, code)}`
+            : `${formatCurrency(totals[code] ?? 0, code)} ${code}`,
+        )
+        .join(" + ") || "—"
+    );
   };
 
   // Currencies whose counted amount differs from expected (opening). No
@@ -268,7 +316,7 @@ export default function CheckpointTimeline() {
     checkpoint.currencies
       .map((c) => {
         const expected = c.opening_amount ?? 0;
-        const counted = c.physical_amount ?? c.opening_amount ?? 0;
+        const counted = countedOf(c);
         const { status, variance } = getVarianceStatus(counted, expected);
         return { code: c.currency_code, status, variance };
       })
@@ -294,9 +342,8 @@ export default function CheckpointTimeline() {
     const parts: string[] =
       diffs.length > 2
         ? [`Variance in ${diffs.length} currencies`]
-        : diffs.map(
-            (d) =>
-              `${d.code} ${d.variance > 0 ? "+" : ""}${formatCurrencyAmount(d.variance, d.code)}`,
+        : diffs.map((d) =>
+            shortOrOver(d.variance, formatMoney(Math.abs(d.variance), d.code)),
           );
     if (validityDiffs.length === 1) {
       parts.push(`Validity ${formatDayVariance(validityDiffs[0].days)}`);
@@ -312,6 +359,7 @@ export default function CheckpointTimeline() {
     return checkpoints.filter(
       (cp) =>
         cp.drawer_name.toLowerCase().includes(q) ||
+        drawerLabel(cp.drawer_name).toLowerCase().includes(q) ||
         cp.user_name.toLowerCase().includes(q) ||
         (cp.notes ?? "").toLowerCase().includes(q),
     );
@@ -377,6 +425,29 @@ export default function CheckpointTimeline() {
       setFilters((f) => ({ ...f, date_from: initialCheckpointDate }));
     }
   };
+
+  // A range of more than one day puts the day under each row's time; the
+  // details window always shows the full date.
+  const multiDay = filters.date_from !== filters.date_to;
+  const formatDay = (iso: string) =>
+    parseDbDate(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+  const formatFullDate = (iso: string) =>
+    parseDbDate(iso).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  const renderTimeCell = (iso: string) => (
+    <td className="p-2 text-slate-300 font-mono">
+      {formatTime(iso)}
+      {multiDay && (
+        <div className="text-[11px] text-slate-500">{formatDay(iso)}</div>
+      )}
+    </td>
+  );
 
   const formatDateLabel = (iso: string) =>
     new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
@@ -483,7 +554,7 @@ export default function CheckpointTimeline() {
                 className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
               {
-                header: "Amount",
+                header: "Counted",
                 sortKey: "amount",
                 className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
@@ -510,7 +581,13 @@ export default function CheckpointTimeline() {
             exportExcel
             exportPdf
             exportFilename="checkpoints"
-            exportDefaultColumns={["Time", "Drawer", "Amount", "User", "Notes"]}
+            exportDefaultColumns={[
+              "Time",
+              "Drawer",
+              "Counted",
+              "User",
+              "Notes",
+            ]}
             showRowCount
             totalRowCount={timelineRows.length}
             defaultSortKey="created_at"
@@ -546,9 +623,8 @@ export default function CheckpointTimeline() {
               if (row.kind === "adjustment") {
                 const { adjustment } = row;
                 const meta = parseAdjustmentMeta(adjustment.metadata_json);
-                const drawerLabel = meta.drawerName
-                  ? (DRAWER_CONFIGS[meta.drawerName as DrawerType]?.label ??
-                    meta.drawerName)
+                const lineDrawerLabel = meta.drawerName
+                  ? drawerLabel(meta.drawerName)
                   : "—";
                 const signed = adjustment.amount_usd;
                 return (
@@ -557,12 +633,10 @@ export default function CheckpointTimeline() {
                     data-testid={`carrier-line-adjustment-row-${adjustment.id}`}
                     className="border-t border-slate-800 text-xs hover:bg-slate-700/50 transition-colors bg-violet-500/5"
                   >
-                    <td className="p-2 text-slate-300 font-mono">
-                      {formatTime(adjustment.created_at)}
-                    </td>
+                    {renderTimeCell(adjustment.created_at)}
                     <td className="p-2 text-slate-300">
                       <span className="inline-flex items-center gap-1">
-                        {drawerLabel}
+                        {lineDrawerLabel}
                         <span className="text-[10px] uppercase tracking-wide text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">
                           Line edit
                         </span>
@@ -593,9 +667,6 @@ export default function CheckpointTimeline() {
               }
 
               const checkpoint = row.checkpoint;
-              const drawerLabel =
-                DRAWER_CONFIGS[checkpoint.drawer_name as DrawerType]?.label ??
-                checkpoint.drawer_name;
               const diffs = getCheckpointDiffs(checkpoint);
               const validityDiffs = getValidityDiffs(checkpoint);
               return (
@@ -603,20 +674,27 @@ export default function CheckpointTimeline() {
                   key={`checkpoint-${checkpoint.id}`}
                   className="border-t border-slate-800 text-xs hover:bg-slate-700/50 transition-colors"
                 >
-                  <td className="p-2 text-slate-300 font-mono">
-                    {formatTime(checkpoint.created_at)}
+                  {renderTimeCell(checkpoint.created_at)}
+                  <td className="p-2 text-slate-300">
+                    {drawerLabel(checkpoint.drawer_name)}
                   </td>
-                  <td className="p-2 text-slate-300">{drawerLabel}</td>
                   <td className="p-2">
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-emerald-400 font-mono font-medium">
+                      <span className="text-white font-mono font-medium">
                         {getAmountDisplay(checkpoint)}
                       </span>
-                      {(diffs.length > 0 || validityDiffs.length > 0) && (
+                      {diffs.length > 0 || validityDiffs.length > 0 ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 font-mono">
                           <AlertTriangle className="w-3 h-3 flex-shrink-0" />
                           {getVarianceSummary(diffs, validityDiffs)}
                         </span>
+                      ) : (
+                        checkpoint.currencies.length > 0 && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
+                            <Check className="w-3 h-3 flex-shrink-0" />
+                            Balanced
+                          </span>
+                        )
                       )}
                     </div>
                   </td>
@@ -642,27 +720,29 @@ export default function CheckpointTimeline() {
         )}
       </div>
 
-      {/* View Checkpoint Details Modal */}
+      {/* View Checkpoint Details Modal — header and footer stay pinned;
+          only the amounts scroll, so a long all-drawers checkpoint never
+          pushes its title off the screen. */}
       {viewCheckpoint && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">
-                Checkpoint Details —{" "}
-                {DRAWER_CONFIGS[viewCheckpoint.drawer_name as DrawerType]
-                  ?.label ?? viewCheckpoint.drawer_name}
-              </h2>
-              <button
-                onClick={() => setViewCheckpoint(null)}
-                className="p-1 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="space-y-2 mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-6 pb-4 border-b border-slate-700 space-y-2">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-lg font-semibold text-white">
+                  Checkpoint Details — {drawerLabel(viewCheckpoint.drawer_name)}
+                </h2>
+                <button
+                  onClick={() => setViewCheckpoint(null)}
+                  className="p-1 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Time</span>
                 <span className="text-white">
+                  {formatFullDate(viewCheckpoint.created_at)} ·{" "}
                   {formatTime(viewCheckpoint.created_at)}
                 </span>
               </div>
@@ -671,15 +751,15 @@ export default function CheckpointTimeline() {
                 <span className="text-white">{viewCheckpoint.user_name}</span>
               </div>
               {viewCheckpoint.notes && (
-                <div className="flex justify-between text-sm">
+                <div className="flex justify-between text-sm gap-4">
                   <span className="text-slate-400">Notes</span>
-                  <span className="text-white italic">
+                  <span className="text-white italic text-right">
                     {viewCheckpoint.notes}
                   </span>
                 </div>
               )}
             </div>
-            <div className="border-t border-slate-700 pt-4">
+            <div className="flex-1 min-h-0 overflow-y-auto p-6 pt-4">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs text-slate-400 uppercase tracking-wide">
                   Amounts
@@ -687,15 +767,19 @@ export default function CheckpointTimeline() {
                 <p className="text-[11px] text-slate-500">Expected → Counted</p>
               </div>
               {(() => {
-                const entries = viewCheckpoint.currencies
-                  .filter(
-                    (c) => (c.physical_amount ?? c.opening_amount ?? 0) !== 0,
-                  )
-                  .map((c) => ({
-                    code: c.currency_code,
-                    amount: c.physical_amount ?? c.opening_amount ?? 0,
-                    expected: c.opening_amount ?? 0,
-                  }));
+                // Every amount line, counted zeros included. Lines at 0 → 0
+                // are left out only when other lines hold money, so an
+                // empty drawer still shows its balanced zeros.
+                const all = viewCheckpoint.currencies.map((c) => ({
+                  drawer: c.drawer_name ?? viewCheckpoint.drawer_name,
+                  code: c.currency_code,
+                  amount: countedOf(c),
+                  expected: c.opening_amount ?? 0,
+                }));
+                const nonZero = all.filter(
+                  (e) => e.amount !== 0 || e.expected !== 0,
+                );
+                const entries = nonZero.length > 0 ? nonZero : all;
 
                 if (entries.length === 0) {
                   return (
@@ -704,159 +788,189 @@ export default function CheckpointTimeline() {
                     </p>
                   );
                 }
+
+                const drawers = drawersOf(viewCheckpoint).filter((d) =>
+                  entries.some((e) => e.drawer === d),
+                );
+                const grouped = drawers.length > 1;
+                const currencyRank = (code: string) => {
+                  const i = CURRENCY_ORDER.indexOf(code);
+                  return i === -1 ? CURRENCY_ORDER.length : i;
+                };
+
                 return (
+                  <div className="space-y-4">
+                    {drawers.map((drawer) => (
+                      <div key={drawer} className="space-y-2">
+                        {grouped && (
+                          <p className="text-xs font-semibold text-slate-300">
+                            {drawerLabel(drawer)}
+                          </p>
+                        )}
+                        {entries
+                          .filter((e) => e.drawer === drawer)
+                          .sort(
+                            (a, b) =>
+                              currencyRank(a.code) - currencyRank(b.code),
+                          )
+                          .map(({ code, amount, expected }) => {
+                            const { status, variance } = getVarianceStatus(
+                              amount,
+                              expected,
+                            );
+                            const matched = status === "match";
+                            return (
+                              <div
+                                key={`${drawer}-${code}`}
+                                className="flex items-center gap-3 rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2.5"
+                              >
+                                {/* Currency pill */}
+                                <span className="flex-shrink-0 w-12 text-center text-xs font-bold text-slate-300 bg-slate-800 border border-slate-700 rounded-md py-1">
+                                  {code}
+                                </span>
+
+                                {/* Expected → Counted */}
+                                <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
+                                  <span className="text-sm text-slate-500 truncate">
+                                    {formatCurrencyAmount(expected, code)}
+                                  </span>
+                                  <span className="text-slate-600">→</span>
+                                  <span className="text-base text-white font-semibold truncate">
+                                    {formatCurrencyAmount(amount, code)}
+                                  </span>
+                                </div>
+
+                                {/* Variance badge */}
+                                {matched ? (
+                                  <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+                                    <Check className="w-3.5 h-3.5" /> Matched
+                                  </span>
+                                ) : (
+                                  <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
+                                    <AlertTriangle className="w-3.5 h-3.5" />
+                                    {shortOrOver(
+                                      variance,
+                                      formatCurrencyAmount(
+                                        Math.abs(variance),
+                                        code,
+                                      ),
+                                    )}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Counted SIM lines — credits + validity expiry (plan Phase 3) */}
+              {(viewCheckpoint.carrier_lines?.length ?? 0) > 0 && (
+                <div className="border-t border-slate-700 pt-4 mt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">
+                      Carrier Lines
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Expected → Counted
+                    </p>
+                  </div>
                   <div className="space-y-2">
-                    {entries.map(({ code, amount, expected }) => {
-                      const { status, variance } = getVarianceStatus(
-                        amount,
-                        expected,
+                    {viewCheckpoint.carrier_lines!.map((line) => {
+                      const credits = getVarianceStatus(
+                        line.counted_credits,
+                        line.expected_credits,
                       );
-                      const matched = status === "match";
+                      const validity = getDateVarianceStatus(
+                        line.counted_expires_at,
+                        line.expected_expires_at,
+                      );
                       return (
                         <div
-                          key={code}
-                          className="flex items-center gap-3 rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2.5"
+                          key={line.carrier_line_id}
+                          className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2.5 space-y-1.5"
                         >
-                          {/* Currency pill */}
-                          <span className="flex-shrink-0 w-12 text-center text-xs font-bold text-slate-300 bg-slate-800 border border-slate-700 rounded-md py-1">
-                            {code}
-                          </span>
-
-                          {/* Expected → Counted */}
-                          <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
-                            <span className="text-sm text-slate-500 truncate">
-                              {formatCurrencyAmount(expected, code)}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-300 uppercase">
+                              {line.carrier}
                             </span>
-                            <span className="text-slate-600">→</span>
-                            <span className="text-base text-white font-semibold truncate">
-                              {formatCurrencyAmount(amount, code)}
+                            <span className="text-xs text-slate-400 font-mono">
+                              {line.phone_number}
                             </span>
+                            {line.label && (
+                              <span className="text-[11px] text-slate-500 truncate">
+                                {line.label}
+                              </span>
+                            )}
                           </div>
 
-                          {/* Variance badge */}
-                          {matched ? (
-                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                              <Check className="w-3.5 h-3.5" /> Matched
+                          <div className="flex items-center gap-3">
+                            <span className="flex-shrink-0 w-16 text-[11px] text-slate-500">
+                              Credits
                             </span>
-                          ) : (
-                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
-                              <AlertTriangle className="w-3.5 h-3.5" />
-                              {variance > 0 ? "+" : ""}
-                              {formatCurrencyAmount(variance, code)}
+                            <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
+                              <span className="text-sm text-slate-500 truncate">
+                                {formatCurrencyAmount(
+                                  line.expected_credits,
+                                  "USD",
+                                )}
+                              </span>
+                              <span className="text-slate-600">→</span>
+                              <span className="text-sm text-white font-semibold truncate">
+                                {formatCurrencyAmount(
+                                  line.counted_credits,
+                                  "USD",
+                                )}
+                              </span>
+                            </div>
+                            {credits.status === "match" ? (
+                              <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+                                <Check className="w-3.5 h-3.5" /> Matched
+                              </span>
+                            ) : (
+                              <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                {credits.variance > 0 ? "+" : ""}
+                                {formatCurrencyAmount(credits.variance, "USD")}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <span className="flex-shrink-0 w-16 text-[11px] text-slate-500">
+                              Validity
                             </span>
-                          )}
+                            <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
+                              <span className="text-sm text-slate-500 truncate">
+                                {line.expected_expires_at ?? "not set"}
+                              </span>
+                              <span className="text-slate-600">→</span>
+                              <span className="text-sm text-white font-semibold truncate">
+                                {line.counted_expires_at ?? "not counted"}
+                              </span>
+                            </div>
+                            {validity.status === "match" ? (
+                              <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+                                <Check className="w-3.5 h-3.5" /> Matched
+                              </span>
+                            ) : (
+                              <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                {formatDayVariance(validity.days)}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
-                );
-              })()}
+                </div>
+              )}
             </div>
 
-            {/* Counted SIM lines — credits + validity expiry (plan Phase 3) */}
-            {(viewCheckpoint.carrier_lines?.length ?? 0) > 0 && (
-              <div className="border-t border-slate-700 pt-4 mt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-slate-400 uppercase tracking-wide">
-                    Carrier Lines
-                  </p>
-                  <p className="text-[11px] text-slate-500">
-                    Expected → Counted
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  {viewCheckpoint.carrier_lines!.map((line) => {
-                    const credits = getVarianceStatus(
-                      line.counted_credits,
-                      line.expected_credits,
-                    );
-                    const validity = getDateVarianceStatus(
-                      line.counted_expires_at,
-                      line.expected_expires_at,
-                    );
-                    return (
-                      <div
-                        key={line.carrier_line_id}
-                        className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2.5 space-y-1.5"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-300 uppercase">
-                            {line.carrier}
-                          </span>
-                          <span className="text-xs text-slate-400 font-mono">
-                            {line.phone_number}
-                          </span>
-                          {line.label && (
-                            <span className="text-[11px] text-slate-500 truncate">
-                              {line.label}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="flex-shrink-0 w-16 text-[11px] text-slate-500">
-                            Credits
-                          </span>
-                          <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
-                            <span className="text-sm text-slate-500 truncate">
-                              {formatCurrencyAmount(
-                                line.expected_credits,
-                                "USD",
-                              )}
-                            </span>
-                            <span className="text-slate-600">→</span>
-                            <span className="text-sm text-white font-semibold truncate">
-                              {formatCurrencyAmount(
-                                line.counted_credits,
-                                "USD",
-                              )}
-                            </span>
-                          </div>
-                          {credits.status === "match" ? (
-                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                              <Check className="w-3.5 h-3.5" /> Matched
-                            </span>
-                          ) : (
-                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
-                              <AlertTriangle className="w-3.5 h-3.5" />
-                              {credits.variance > 0 ? "+" : ""}
-                              {formatCurrencyAmount(credits.variance, "USD")}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="flex-shrink-0 w-16 text-[11px] text-slate-500">
-                            Validity
-                          </span>
-                          <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
-                            <span className="text-sm text-slate-500 truncate">
-                              {line.expected_expires_at ?? "not set"}
-                            </span>
-                            <span className="text-slate-600">→</span>
-                            <span className="text-sm text-white font-semibold truncate">
-                              {line.counted_expires_at ?? "not counted"}
-                            </span>
-                          </div>
-                          {validity.status === "match" ? (
-                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                              <Check className="w-3.5 h-3.5" /> Matched
-                            </span>
-                          ) : (
-                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
-                              <AlertTriangle className="w-3.5 h-3.5" />
-                              {formatDayVariance(validity.days)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4 flex justify-end">
+            <div className="px-6 py-4 border-t border-slate-700 flex justify-end">
               <button
                 onClick={() => setViewCheckpoint(null)}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"

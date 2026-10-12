@@ -424,9 +424,9 @@ function AppRoutes() {
         <Route
           path="/checkpoint-timeline"
           element={
-            <ProtectedRoute>
+            <AdminRoute>
               <CheckpointTimeline />
-            </ProtectedRoute>
+            </AdminRoute>
           }
         />
         <Route

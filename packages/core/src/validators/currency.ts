@@ -29,6 +29,14 @@ export const updateCurrencySchema = z.object({
   is_active: z.number().int().min(0).max(1).optional(),
 });
 
+/** The body of `PUT /api/currencies/drawers/:drawerName/currencies` — the
+ *  drawer's whole currency list (the drawer comes from the URL). IPC
+ *  `currencies:setDrawerCurrencies` passes the same list as a positional
+ *  argument, so it has no payload object to validate. */
+export const setDrawerCurrenciesSchema = z.object({
+  currencies: z.array(z.string().min(1, "Currency code cannot be empty")),
+});
+
 export type CreateCurrencyInput = z.infer<typeof createCurrencySchema>;
 export type UpdateCurrencyInput = z.infer<typeof updateCurrencySchema>;
 // What a caller SENDS (`z.input`) — the adapters type payloads with these.

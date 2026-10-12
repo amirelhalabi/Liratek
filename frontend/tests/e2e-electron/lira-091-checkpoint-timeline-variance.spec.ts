@@ -172,8 +172,8 @@ test.describe("LIRA-091 — checkpoint timeline variance (no tolerance)", () => 
     // ── AC1 + AC3 on the ROW: one amber attention badge carrying BOTH deltas ──
     const rowBadge = row.locator("span.text-amber-400");
     await expect(rowBadge).toBeVisible();
-    await expect(rowBadge).toContainText("USD +5.00"); // overage, amber
-    await expect(rowBadge).toContainText("LBP -10,000"); // shortage, amber
+    await expect(rowBadge).toContainText("Over $5.00"); // overage, amber
+    await expect(rowBadge).toContainText("Short 10,000 LBP"); // shortage, amber
     // The row must NOT use the old sign-based green/red colouring.
     await expect(row.locator("span.text-green-400")).toHaveCount(0);
     await expect(row.locator("span.text-red-400")).toHaveCount(0);
@@ -190,10 +190,10 @@ test.describe("LIRA-091 — checkpoint timeline variance (no tolerance)", () => 
     await expect(dialog.getByText("Expected → Counted")).toBeVisible();
     // … and both the overage and the shortage as amber attention badges.
     await expect(
-      dialog.locator("span.text-amber-400").filter({ hasText: "+5.00" }),
+      dialog.locator("span.text-amber-400").filter({ hasText: "Over 5.00" }),
     ).toBeVisible();
     await expect(
-      dialog.locator("span.text-amber-400").filter({ hasText: "-10,000" }),
+      dialog.locator("span.text-amber-400").filter({ hasText: "Short 10,000" }),
     ).toBeVisible();
 
     // AC3: no green-for-over, no red-for-short anywhere in the modal.

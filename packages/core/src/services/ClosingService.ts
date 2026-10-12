@@ -264,9 +264,10 @@ export class ClosingService {
 
   /**
    * LIRA-252 wave 2 — Checkpoint-Timeline companion for every manual
-   * carrier-line drawer adjustment in a date range (not wired to a
-   * transport yet; this is the core service wrapper only — see
-   * `ClosingRepository.getCarrierLineAdjustments`'s own doc comment).
+   * carrier-line drawer adjustment in a date range. Served on both
+   * transports — IPC `closing:getCarrierLineAdjustments` and REST
+   * `GET /api/closing/carrier-line-adjustments` — and read by the Checkpoint
+   * Timeline (see `ClosingRepository.getCarrierLineAdjustments`).
    */
   async getCarrierLineAdjustments(
     filters: import("../repositories/ClosingRepository.js").CarrierLineAdjustmentFilters = {},

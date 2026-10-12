@@ -101,4 +101,58 @@ describe("InitialDrawerAmountsModal — Add currency scope", () => {
       expect(screen.getAllByText("EUR").length).toBeGreaterThan(0),
     );
   });
+
+  // Board 9 (2026-10-12). General accepts every currency, so core refuses
+  // to store a currency list for it — the save used to stop on that refusal
+  // (desktop) or hang on "Saving…" (web, where the route was missing).
+  // Rule 17: both cases run against the unfixed modal first.
+  it("adding a currency to General saves the amounts without storing a currency list for General", async () => {
+    mockSetDrawerCurrencies.mockResolvedValue({
+      success: false,
+      error:
+        "The General drawer accepts every currency — its currency list is not configurable.",
+    });
+    mockCreateCheckpoint.mockResolvedValue({ success: true, id: 1 });
+    const onSaved = jest.fn();
+    render(<InitialDrawerAmountsModal onClose={jest.fn()} onSaved={onSaved} />);
+
+    const picker = await screen.findByTestId(
+      "initial-drawer-add-currency-General",
+    );
+    fireEvent.change(picker, { target: { value: "EUR" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Amounts" }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(mockSetDrawerCurrencies).not.toHaveBeenCalledWith(
+      "General",
+      expect.anything(),
+    );
+    expect(mockCreateCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amounts: expect.arrayContaining([
+          expect.objectContaining({
+            drawer_name: "General",
+            currency_code: "EUR",
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("a save that throws shows an error and gives the button back instead of hanging on Saving…", async () => {
+    mockCreateCheckpoint.mockRejectedValue(new Error("Network error"));
+    render(
+      <InitialDrawerAmountsModal onClose={jest.fn()} onSaved={jest.fn()} />,
+    );
+
+    const save = screen.getByRole("button", { name: "Save Amounts" });
+    // The button stays disabled until the drawer amounts have loaded.
+    await waitFor(() => expect(save).not.toBeDisabled());
+    fireEvent.click(save);
+
+    expect(await screen.findByText(/Network error/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save Amounts" }),
+    ).not.toBeDisabled();
+  });
 });

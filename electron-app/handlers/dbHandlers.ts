@@ -345,11 +345,12 @@ export function registerDatabaseHandlers(): void {
     return result;
   });
 
-  // Get checkpoint timeline
+  // Get checkpoint timeline (admin only — owner decision 2026-10-12, same
+  // gate as the REST route and the page)
   ipcMain.handle(
     "closing:getCheckpointTimeline",
     async (
-      _event,
+      e,
       filters: {
         date_from?: string;
         date_to?: string;
@@ -359,6 +360,8 @@ export function registerDatabaseHandlers(): void {
       },
     ) => {
       try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) return { success: false, error: auth.error };
         const closingService = getClosingService();
         return closingService.getCheckpointTimeline(filters);
       } catch (err) {
@@ -378,7 +381,7 @@ export function registerDatabaseHandlers(): void {
   ipcMain.handle(
     "closing:getCarrierLineAdjustments",
     async (
-      _event,
+      e,
       filters: {
         date_from?: string;
         date_to?: string;
@@ -386,6 +389,8 @@ export function registerDatabaseHandlers(): void {
       },
     ) => {
       try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) return { success: false, error: auth.error };
         const closingService = getClosingService();
         return await closingService.getCarrierLineAdjustments(filters);
       } catch (err) {
@@ -563,9 +568,12 @@ export function registerDatabaseHandlers(): void {
     }
   });
 
-  // Closing date of the initial (setup) checkpoint, or null (no auth required)
-  ipcMain.handle("closing:get-initial-checkpoint-date", async () => {
+  // Closing date of the initial (setup) checkpoint, or null. Admin only — its
+  // one reader is the Checkpoint Timeline; a refused caller gets null.
+  ipcMain.handle("closing:get-initial-checkpoint-date", async (e) => {
     try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return null;
       return getClosingService().getInitialCheckpointDate();
     } catch (err) {
       closingLogger.error(

@@ -5,7 +5,7 @@ import { useModules } from "@/contexts/ModuleContext";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { DRAWER_ORDER, DRAWER_CONFIGS } from "../config/drawers";
-import { isDrawerVisible } from "@liratek/core";
+import { isDrawerVisible, isUnrestrictedDrawer } from "@liratek/core";
 
 // Tailwind accent colors for each drawer
 const DRAWER_ACCENT: Record<string, string> = {
@@ -110,18 +110,31 @@ export function InitialDrawerAmountsModal({
   async function handleSave() {
     setSaving(true);
     setError(null);
+    try {
+      await saveAll();
+    } catch (err) {
+      // A thrown save (e.g. the web app losing its connection) must give the
+      // button back with a message, never leave it stuck on "Saving…".
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
 
+  async function saveAll() {
     // Persist any newly-added currencies to currency_drawers first, so the
     // drawer's currency set stays the single source of truth. Only drawers
-    // whose set grew need an update.
+    // whose set grew need an update. An unrestricted drawer (General)
+    // accepts every currency and has no stored list — core refuses to write
+    // one — so its new currency needs nothing beyond its amount below.
     for (const drawer of visibleDrawers) {
+      if (isUnrestrictedDrawer(drawer)) continue;
       const current = drawerCurrencies[drawer] ?? [];
       const baseline = baselineCurrencies[drawer] ?? [];
       const grew = current.some((c) => !baseline.includes(c));
       if (grew) {
         const res = await api.setDrawerCurrencies(drawer, current);
         if (!res.success) {
-          setSaving(false);
           setError(res.error ?? `Failed to add currency to ${drawer}`);
           return;
         }
@@ -154,8 +167,6 @@ export function InitialDrawerAmountsModal({
       notes: "Initial drawer amounts setup",
       amounts: amountRows,
     });
-
-    setSaving(false);
 
     if (!result.success) {
       setError(result.error ?? "Failed to save drawer amounts");

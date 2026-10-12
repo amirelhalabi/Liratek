@@ -49,7 +49,6 @@ function drawerAffectingPayments(): { sql: string; params: string[] } {
  */
 const CHECKPOINT_MOVEMENT_REASON = "CHECKPOINT";
 
-
 /**
  * LIRA-289 (rule 26): a transaction the SYSTEM wrote as a side-effect of
  * another (metadata_json.is_auto = true). Malformed or absent metadata reads
@@ -197,8 +196,10 @@ export interface DrawerCheckpointStatus {
 export interface CheckpointCurrency {
   currency_code: string;
   opening_amount: number;
+  /** Undefined only when the amount was not counted (NULL); 0 is a count. */
   physical_amount?: number;
   variance?: number;
+  drawer_name?: string;
 }
 
 export interface CheckpointRecord {
@@ -293,7 +294,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Timestamps compare through julianday(): `payments.created_at` holds
    * both `YYYY-MM-DD HH:MM:SS` and ISO `…Z` text.
    */
-  getDrawerBalancesAsOf(at: string = requestNow()): DynamicSystemExpectedBalances {
+  getDrawerBalancesAsOf(
+    at: string = requestNow(),
+  ): DynamicSystemExpectedBalances {
     const result = this.getSystemExpectedBalancesDynamic();
     const moved = drawerAffectingPayments();
     const later = this.db
@@ -577,9 +580,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           // doesn't run (no row submitted at all) both stay backward
           // compatible — this only blocks a non-zero bare figure.
           const carrierByDrawerName = new Map<string, CarrierKey>(
-            (Object.entries(CARRIER_DRAWER_NAMES) as [CarrierKey, string][]).map(
-              ([carrier, drawerName]) => [drawerName, carrier],
-            ),
+            (
+              Object.entries(CARRIER_DRAWER_NAMES) as [CarrierKey, string][]
+            ).map(([carrier, drawerName]) => [drawerName, carrier]),
           );
           for (const r of rows) {
             if (r.currency_code !== "USD") continue;
@@ -1119,8 +1122,8 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       const amounts = this.query<{
         drawer_name: string;
         currency_code: string;
-        opening_amount: number;
-        physical_amount: number;
+        opening_amount: number | null;
+        physical_amount: number | null;
       }>(
         `SELECT drawer_name, currency_code, opening_amount, physical_amount
          FROM daily_closing_amounts
@@ -1132,19 +1135,20 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
 
       checkpoint.carrier_lines = this.getCheckpointCarrierLines(checkpoint.id);
 
-      checkpoint.currencies = amounts.map((a: any) => ({
-        currency_code: a.currency_code,
-        opening_amount: a.opening_amount || 0,
-        physical_amount:
-          a.physical_amount && a.physical_amount > 0
-            ? a.physical_amount
-            : undefined,
-        variance:
-          a.physical_amount && a.physical_amount > 0
-            ? a.physical_amount - a.opening_amount
-            : undefined,
-        drawer_name: a.drawer_name, // Keep drawer info for modal
-      }));
+      // A count of 0 (or below) is a real count — only NULL means "not
+      // counted". Treating `<= 0` as missing made the timeline show the
+      // EXPECTED amount as counted, hiding a fully-short drawer.
+      checkpoint.currencies = amounts.map((a) => {
+        const opening = a.opening_amount ?? 0;
+        const counted = a.physical_amount ?? undefined;
+        return {
+          currency_code: a.currency_code,
+          opening_amount: opening,
+          physical_amount: counted,
+          variance: counted === undefined ? undefined : counted - opening,
+          drawer_name: a.drawer_name, // Keep drawer info for modal
+        };
+      });
     }
 
     return checkpoints;
@@ -1154,9 +1158,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * LIRA-252 wave 2 — every manual carrier-line drawer adjustment
    * (`CarrierLineRepository.postCarrierDrawerAdjustment`'s
    * `CARRIER_LINE_ADJUSTMENT` transactions: create/edit/quick-update/
-   * deactivate/reactivate/archive) in a date range. Feeds a LATER
-   * Checkpoint-Timeline UI wave (not wired to any transport here — core read
-   * only).
+   * deactivate/reactivate/archive) in a date range. The Checkpoint Timeline
+   * interleaves these rows between checkpoints; served on both transports
+   * (IPC `closing:getCarrierLineAdjustments`, REST
+   * `GET /api/closing/carrier-line-adjustments`).
    *
    * `date_from`/`date_to` default to "today" (`clientDay()`), same rule-27
    * reasoning as `getCheckpointTimeline` above: a request near midnight
@@ -1393,7 +1398,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * (SQLite UTC text): a late offline booking at `at` changes a day that was
    * already counted. `excludeIds` = rows the booking itself just created.
    */
-  findClosingsRecordedAfter(day: string, at: string, excludeIds: readonly number[] = []): number[] {
+  findClosingsRecordedAfter(
+    day: string,
+    at: string,
+    excludeIds: readonly number[] = [],
+  ): number[] {
     const rows = this.db
       .prepare(
         `SELECT id FROM daily_closings WHERE tenant_id = ? AND closing_date = ? AND created_at > ? ORDER BY id`,

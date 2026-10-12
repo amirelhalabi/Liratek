@@ -1,5 +1,5 @@
 /**
- * LIRA-289 FR-010 — "N sales since the last count" on the drawer count screen.
+ * LIRA-289 FR-010 — "N movements since the last count" on the drawer count screen.
  *
  * Lists the transactions that moved THIS drawer after its latest count (the
  * expected amount above already includes them; this explains why it moved).
@@ -8,7 +8,12 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { formatMoneyAmount, transactionSummary, transactionTitle, type SinceLastCountDrawer } from "@liratek/core";
+import {
+  formatMoneyAmount,
+  transactionSummary,
+  transactionTitle,
+  type SinceLastCountDrawer,
+} from "@liratek/core";
 import { useApi } from "@liratek/ui";
 
 interface Props {
@@ -26,7 +31,12 @@ function localTime(ts: string): string {
   const d = new Date(ts.includes("T") ? ts : `${ts.replace(" ", "T")}Z`);
   return Number.isNaN(d.getTime())
     ? ts
-    : d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    : d.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
 }
 
 export function SinceLastCountList({ drawer }: Props) {
@@ -38,7 +48,9 @@ export function SinceLastCountList({ drawer }: Props) {
   useEffect(() => {
     apiRef.current = api;
   }, [api]);
-  const [data, setData] = useState<SinceLastCountDrawer | null | undefined>(undefined);
+  const [data, setData] = useState<SinceLastCountDrawer | null | undefined>(
+    undefined,
+  );
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -47,7 +59,9 @@ export function SinceLastCountList({ drawer }: Props) {
     // does not offer this read — hides the panel and never breaks counting.
     const load = async () => {
       try {
-        const res = await apiRef.current.getTransactionsSinceLastCount([drawer]);
+        const res = await apiRef.current.getTransactionsSinceLastCount([
+          drawer,
+        ]);
         if (!cancelled) setData(res?.[0] ?? null);
       } catch {
         if (!cancelled) setData(null);
@@ -62,9 +76,15 @@ export function SinceLastCountList({ drawer }: Props) {
   if (!data) return null;
   const count = data.transactions.length;
   if (count === 0) {
-    return <p className="text-sm text-slate-400">No sales since the last count</p>;
+    return (
+      <p className="text-sm text-slate-400">
+        No movements since the last count
+      </p>
+    );
   }
-  const label = `${count} sale${count === 1 ? "" : "s"} since the last count`;
+  // Every movement of this drawer — sales, top ups, cash outs, transfers —
+  // not only sales: a Top Up alone used to read "1 sale".
+  const label = `${count} movement${count === 1 ? "" : "s"} since the last count`;
 
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-900/60">
@@ -80,16 +100,23 @@ export function SinceLastCountList({ drawer }: Props) {
       {open && (
         <ul className="divide-y divide-slate-700/60 border-t border-slate-700/60">
           {data.transactions.map((t) => (
-            <li key={t.id} className="flex items-start justify-between gap-3 px-4 py-2 text-sm">
+            <li
+              key={t.id}
+              className="flex items-start justify-between gap-3 px-4 py-2 text-sm"
+            >
               <div className="min-w-0">
                 <p className="truncate text-white">
                   {transactionTitle(t)}
                   {t.client_name ? ` · ${t.client_name}` : ""}
                 </p>
                 {transactionSummary(t) ? (
-                  <p className="truncate text-xs text-slate-300">{transactionSummary(t)}</p>
+                  <p className="truncate text-xs text-slate-300">
+                    {transactionSummary(t)}
+                  </p>
                 ) : null}
-                <p className="text-xs text-slate-400">{localTime(t.created_at)}</p>
+                <p className="text-xs text-slate-400">
+                  {localTime(t.created_at)}
+                </p>
               </div>
               <div className="shrink-0 text-right font-semibold text-white">
                 {Object.entries(t.drawer_amounts).map(([cur, amt]) => (

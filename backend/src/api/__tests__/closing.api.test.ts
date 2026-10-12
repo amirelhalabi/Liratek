@@ -222,7 +222,7 @@ describe("Closing REST routes — CQ-9 follow-up", () => {
 
       const res = await request(app)
         .get("/api/closing/carrier-line-adjustments")
-        .set("x-test-role", "staff");
+        .set("x-test-role", "admin");
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true, adjustments: fake });
@@ -237,7 +237,7 @@ describe("Closing REST routes — CQ-9 follow-up", () => {
       const res = await request(app)
         .get("/api/closing/carrier-line-adjustments")
         .query({ date_from: "2026-09-01", date_to: "2026-09-30" })
-        .set("x-test-role", "staff");
+        .set("x-test-role", "admin");
 
       expect(res.status).toBe(200);
       expect(spy).toHaveBeenCalledWith({
@@ -254,7 +254,7 @@ describe("Closing REST routes — CQ-9 follow-up", () => {
       const res = await request(app)
         .get("/api/closing/carrier-line-adjustments")
         .query({ drawer_name: "MTC_Line" })
-        .set("x-test-role", "staff");
+        .set("x-test-role", "admin");
 
       expect(res.status).toBe(200);
       expect(spy).toHaveBeenCalledWith({ drawer_name: "MTC_Line" });
@@ -267,7 +267,7 @@ describe("Closing REST routes — CQ-9 follow-up", () => {
 
       const res = await request(app)
         .get("/api/closing/carrier-line-adjustments")
-        .set("x-test-role", "staff");
+        .set("x-test-role", "admin");
 
       expect(res.status).toBe(500);
       expect(res.body.success).toBe(false);
