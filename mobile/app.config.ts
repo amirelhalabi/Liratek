@@ -17,6 +17,12 @@ const variantConfig = {
 
 const { bundleIdentifier, name, scheme } = variantConfig[APP_VARIANT];
 
+// Android refuses to install an update whose versionCode is not higher than
+// the installed one. Derive it from the version so a version bump is enough:
+// 0.1.1 → 101, 1.2.3 → 10203.
+const [major, minor, patch] = version.split(".").map(Number);
+const versionCode = major * 10000 + minor * 100 + patch;
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name,
@@ -32,6 +38,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: bundleIdentifier,
+    versionCode,
     // LiraTek swirl (assets/brand, owner-chosen 2026-10-10): Pastel Violet on Cosmic Navy.
     adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundColor: "#0c134f" },
   },
