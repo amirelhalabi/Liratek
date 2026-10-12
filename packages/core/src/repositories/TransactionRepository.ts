@@ -7605,7 +7605,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    *   - the refund moves money OUT of the shop (a money-IN original — a
    *     sale, a SEND). Refunding a payout original (a RECEIVE) takes money
    *     back FROM the customer, where "keeping" a shortfall would be a loss.
-   * The cap (under $1 / 100,000 LBP), the real-shortfall check, and the
+   * The cap (PAYOUT_KEEP_CHANGE_MAX, $5 / 450,000 LBP), the real-shortfall check, and the
    * FOR-partner refusal are `resolveKeptChange`'s own.
    *
    * It is NOT a partial refund: the caller still reverses the item side in
