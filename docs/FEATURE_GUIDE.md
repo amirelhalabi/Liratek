@@ -154,6 +154,12 @@ CUSTOMER_ACCOUNT) − sum(OUT change legs) − kept_change = required total`.
   `DebtRepository.cashOutBeyondCredit` (core jest). Voiding a supplier PAY gives back
   purchase coverage by the same SIGNED net (`_unapplySupplierPurchaseCoverage`), never
   `|usd| + |lbp|`, which would over-unwind when the change came back in the other currency.
+  **Supplier settlements too (LIRA-315, owner 2026-10-13):** `settleTransactions` and
+  `settleAccount` share `_resolveSettlementLegs` — CASH-only change legs (a wallet IN leg
+  "returned" through another wallet would wash money between drawers, Finding A), no
+  underpay, change ≤ overpay — and `_bookSettlementOverpay` books the extra as one
+  `supplier_ledger` row per currency (PAY → −extra `PAYMENT`, COLLECT → +extra
+  `SUPPLIER_PAYS_US`), linked to the settlement's transaction so its void removes it.
 - **One payment covering N transactions**: legs must book against exactly ONE of
   them (the carrier); the others are sent with `deferPayment: true` (skips the
   inflow and change-leg blocks, still books cost outflow + supplier commission).

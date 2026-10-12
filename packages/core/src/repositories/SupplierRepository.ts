@@ -372,11 +372,12 @@ export interface SettleTransactionsData {
    * (`supplierPaymentLegSchema`, reused by `supplierSettleSchema`) has
    * always carried it: a caller CAN put `direction: "OUT"` on a leg here at
    * runtime today, TypeScript's structural typing does not strip it, and
-   * this repository never read the field to reject it. Declared here so the
-   * reconciliation guard in `settleTransactions` below can see and reject it
-   * (no code in that method has ever interpreted a per-leg `direction` — a
-   * supplier settlement has no customer to hand change back to, same
-   * reasoning `settleAccount` (LIRA-189) already established).
+   * this repository never read the field to reject it.
+   *
+   * LIRA-315 (owner decision 2026-10-13): `direction: "OUT"` is now a real
+   * change leg — money the supplier hands back on an overpaid settlement,
+   * moving the drawer IN. The legs may pay more than owed; the extra goes on
+   * the supplier's account (`_resolveSettlementLegs`/`_bookSettlementOverpay`).
    */
   payments?: Array<{
     method: string;
@@ -792,10 +793,10 @@ export interface SettleAccountData {
    * CASH leg always lands in the OMT Cash Drawer, regardless of which
    * child the debt came from.
    *
-   * `direction: "OUT"` is hard-rejected by `settleAccount` itself (Finding
-   * A, third hardening round) — kept on the shared leg shape only because
-   * `settleTransactions`/`recordSupplierCashflow` reuse the same type for
-   * their own legitimate change-return legs.
+   * LIRA-315 (owner decision 2026-10-13): `direction: "OUT"` is change
+   * handed back on an overpaid settlement (it used to be hard-rejected,
+   * Finding A). The legs may pay or collect more than the rows net to; the
+   * extra goes on the account (`_resolveSettlementLegs`).
    */
   payments?: Array<{
     method: string;
@@ -817,10 +818,12 @@ export interface SettleAccountData {
    * as a credit row the operator can tick at a LATER settlement — the exact
    * same mixed-sign netting a `WALLET_CASHOUT` credit row already gets
    * (§8.4), so "applying" the credit needs no new code path (D18: "applied
-   * manually", never auto-applied). Optional, defaults to 0 — every existing
-   * caller is byte-identical. Only valid with `direction: "PAY"` (rejected
-   * on COLLECT — collecting more than owed is a different, un-designed
-   * flow); must be non-negative.
+   * manually", never auto-applied). Optional, defaults to 0.
+   *
+   * LIRA-315 (owner decision 2026-10-13): no longer needed — the overpay is
+   * derived from the legs, in PAY and COLLECT alike, and the sheet dropped
+   * its "Overpayment" field. Still accepted from older callers only when it
+   * equals what the legs overpaid; must be non-negative.
    */
   surplus_usd?: number;
   surplus_lbp?: number;
@@ -2729,6 +2732,172 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
+   * LIRA-315 (owner decisions 2026-10-12/13) — the ONE leg check (rule 14)
+   * for a supplier settlement (`settleTransactions`, `settleAccount`) that
+   * may be OVERPAID: "in any mode the extra amount paid goes into the
+   * account". Replaces the old exact-match reconciliation and the blanket
+   * OUT-leg ban of both methods.
+   *
+   * - IN legs (no `direction`) are the money paid (PAY) or collected
+   *   (COLLECT); OUT legs are change handed back the other way.
+   * - Every leg must move a real drawer in USD or LBP (the same two
+   *   predicates as before).
+   * - No underpay: each currency's IN total must cover what is `owed` in
+   *   that currency (a Waive is the only way to settle for less, and it is
+   *   already netted out of `owed` by the caller).
+   * - Change can never exceed the overpay: the extra, converted at `rate`,
+   *   must not be negative (tolerance $0.05 plus one 5,000 LBP note, the
+   *   change box's LBP rounding).
+   *
+   * Returns the extra PER CURRENCY (`IN − OUT − owed`). One currency may be
+   * negative when change came back in the other (paid $150 on $100, got
+   * 4,450,000 LBP back → +$50 / −4,450,000 LBP): the ledger is per
+   * currency, so that is booked exactly, never converted.
+   * `allowOverpay: false` keeps the old exact rule (a Waive is in play —
+   * paying less and more at once is contradictory).
+   */
+  private _resolveSettlementLegs(
+    legs: ReadonlyArray<{
+      method: string;
+      currency_code: string;
+      amount: number;
+      direction?: "IN" | "OUT";
+    }>,
+    owed: { usd: number; lbp: number },
+    opts: {
+      context: string;
+      rate: number;
+      eps: { usd: number; lbp: number };
+      allowOverpay: boolean;
+    },
+  ): { extra: { usd: number; lbp: number } } {
+    let inUsd = 0;
+    let inLbp = 0;
+    let outUsd = 0;
+    let outLbp = 0;
+    for (const leg of legs) {
+      this._assertSupplierLegMovesADrawer(leg.method, opts.context);
+      this._assertSupplierLegCurrencyIsValid(leg.currency_code, opts.context);
+      // Change comes back as CASH only — what every settle sheet sends
+      // (`cashOnlyReturn`). This keeps Finding A's wash closed: a wallet IN
+      // leg "returned" through ANOTHER wallet would shuffle money between two
+      // drawers under cover of a settlement.
+      if (isReturnLeg(leg) && leg.method !== "CASH") {
+        throw new DatabaseError(
+          `Change can only be handed back in cash. (${opts.context}: a ` +
+            `${leg.method} change (OUT) leg is not accepted)`,
+        );
+      }
+      const amt = Math.abs(leg.amount);
+      const isUsd = leg.currency_code === "USD";
+      if (isReturnLeg(leg)) {
+        if (isUsd) outUsd += amt;
+        else outLbp += amt;
+      } else if (isUsd) inUsd += amt;
+      else inLbp += amt;
+    }
+    if (inUsd + inLbp <= 0) {
+      throw new DatabaseError(
+        `The payment has no amount, only change. (${opts.context}: at least ` +
+          `one paid leg is required, not only change legs)`,
+      );
+    }
+    const extra = {
+      usd: inUsd - outUsd - owed.usd,
+      lbp: inLbp - outLbp - owed.lbp,
+    };
+    const short =
+      inUsd < owed.usd - opts.eps.usd || inLbp < owed.lbp - opts.eps.lbp;
+    const over =
+      Math.abs(extra.usd) > opts.eps.usd || Math.abs(extra.lbp) > opts.eps.lbp;
+    if (short || (!opts.allowOverpay && over)) {
+      const plain = supplierLegMismatchSentence(
+        { usd: inUsd - outUsd - owed.usd, lbp: inLbp - outLbp - owed.lbp },
+        opts.eps,
+      );
+      throw new DatabaseError(
+        `${plain} (${opts.context} payment legs do not reconcile to the amount ` +
+          `owed — expected at least $${owed.usd.toFixed(2)} + ${owed.lbp} LBP, ` +
+          `paid $${inUsd.toFixed(2)} + ${inLbp} LBP, change back ` +
+          `$${outUsd.toFixed(2)} + ${outLbp} LBP)`,
+      );
+    }
+    // Tolerance: $0.05 plus one 5,000 LBP note — the change box rounds LBP
+    // change UP to the smallest note ("All in LBP", the smart split), which
+    // can hand back up to ~$0.056 more than the exact change.
+    if (extra.usd + extra.lbp / opts.rate < -(0.05 + 5000 / opts.rate)) {
+      throw new DatabaseError(
+        `The change handed back is more than what was overpaid. (${opts.context}: ` +
+          `paid − change − owed = $${extra.usd.toFixed(2)} + ${extra.lbp} LBP ` +
+          `at ${opts.rate} LBP/USD)`,
+      );
+    }
+    return {
+      extra: {
+        usd: Math.abs(extra.usd) > opts.eps.usd ? extra.usd : 0,
+        lbp: Math.abs(extra.lbp) > opts.eps.lbp ? extra.lbp : 0,
+      },
+    };
+  }
+
+  /**
+   * LIRA-315 — book a settlement's overpay (`_resolveSettlementLegs`'s
+   * `extra`) on the supplier's account: ONE `supplier_ledger` row per
+   * currency with a nonzero extra, each with its own sign, so no row ever
+   * mixes directions (an account member row netting USD and LBP in opposite
+   * directions cannot be settled later — `resolveEntry`).
+   *
+   * Sign: PAY (shop pays) — extra paid means the supplier owes us → ledger
+   * −extra; COLLECT (supplier pays us) — extra received means we owe them →
+   * ledger +extra. A negative ledger amount is a `PAYMENT`, a positive one
+   * `SUPPLIER_PAYS_US` (recordSupplierCashflow's convention).
+   *
+   * Linked to the settlement's own transaction (`transaction_id`), so
+   * `TransactionRepository._reverseSupplierSettlement`'s
+   * `supplier_ledger WHERE transaction_id = ?` scan soft-voids it on
+   * void/refund (rule 20 — no new reversal code). Left OPEN
+   * (`settlement_id` NULL): on an account it re-enters the unsettled queue
+   * as a row the operator can tick later, exactly like LIRA-203's credit.
+   * Runs inside the caller's db.transaction().
+   */
+  private _bookSettlementOverpay(args: {
+    supplierId: number;
+    extra: { usd: number; lbp: number };
+    flow: "PAY" | "COLLECT";
+    transactionId: number;
+    createdBy: number;
+    tenantId: number;
+    note: string;
+  }): void {
+    const ledgerSign = args.flow === "PAY" ? -1 : 1;
+    const insert = this.db.prepare(
+      `INSERT INTO supplier_ledger
+         (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, tenant_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    );
+    for (const [usd, lbp] of [
+      [args.extra.usd, 0],
+      [0, args.extra.lbp],
+    ] as const) {
+      if (usd === 0 && lbp === 0) continue;
+      const amountUsd = ledgerSign * usd;
+      const amountLbp = ledgerSign * lbp;
+      const entryType: SupplierLedgerEntryType =
+        amountUsd + amountLbp < 0 ? "PAYMENT" : "SUPPLIER_PAYS_US";
+      insert.run(
+        args.supplierId,
+        entryType,
+        amountUsd,
+        amountLbp,
+        args.note,
+        args.createdBy,
+        args.transactionId,
+        args.tenantId,
+      );
+    }
+  }
+
+  /**
    * Atomically settle a batch of financial_services transactions with a supplier.
    *
    * Primary Cash Drawer model (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md
@@ -3008,59 +3177,31 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           "reserved for the commission and cannot also pay the settled amount",
       );
     }
+    // LIRA-315 (owner decisions 2026-10-12/13) — the legs may pay MORE than
+    // owed: the extra goes on the supplier's account (one ledger row per
+    // currency, `_bookSettlementOverpay`), and change the supplier hands
+    // back is an OUT leg moving the drawer the other way. Underpaying is
+    // still refused (only a Waive settles for less), and with a Waive the
+    // legs must still match exactly. Replaces LIRA-193's exact-match check
+    // and its blanket OUT-leg ban; the drawer/currency predicates are the
+    // same two (rule 14), shared with `settleAccount`.
+    let overpay = { usd: 0, lbp: 0 };
     if (owesCash) {
-      // No IN/OUT partition needed, by construction: a leg carrying
-      // `direction: "OUT"` is rejected outright immediately below, exactly
-      // like `settleAccount`'s own blanket ban (Finding A) — a supplier
-      // settlement has no customer to hand change back to. Verified before
-      // adding this: neither this method nor any of its existing callers
-      // (electron-app/handlers/supplierHandlers.ts, backend/src/api/
-      // suppliers.ts, the Suppliers settle UI) ever sends one — the field
-      // exists on the shared leg shape only because the runtime validator
-      // schema is shared with `settleAccount`/`recordSupplierCashflow` (see
-      // `SettleTransactionsData.payments`'s own doc comment) — so rejecting
-      // it here closes an untested capability gap with no legitimate sender
-      // to accommodate, the same conclusion LIRA-189 reached for
-      // `settleAccount`.
-      let legSumUsd = 0;
-      let legSumLbp = 0;
-      for (const leg of data.payments!) {
-        if (leg.direction === "OUT") {
-          throw new DatabaseError(
-            "Settlement does not accept OUT (change/return) legs — a " +
-              "supplier settlement has no customer to hand change back to; " +
-              "pay exactly the net amount owed",
-          );
-        }
-        this._assertSupplierLegMovesADrawer(leg.method, "Settlement");
-        this._assertSupplierLegCurrencyIsValid(leg.currency_code, "Settlement");
-        const amt = Math.abs(leg.amount);
-        if (leg.currency_code === "USD") legSumUsd += amt;
-        else legSumLbp += amt;
-      }
-      // LIRA-310 — against the cash actually paid (`amount − waive`), the
-      // same figure the SETTLEMENT row and the posting loop below book.
-      if (
-        Math.abs(legSumUsd - cashUsd) > 0.005 ||
-        Math.abs(legSumLbp - cashLbp) > 0.005
-      ) {
-        const plain = supplierLegMismatchSentence(
-          {
-            usd: legSumUsd - cashUsd,
-            lbp: legSumLbp - cashLbp,
-          },
-          { usd: 0.005, lbp: 0.005 },
-        );
-        throw new DatabaseError(
-          `${plain} (Settlement payment legs do not reconcile to the net amount owed — ` +
-            `expected $${cashUsd.toFixed(2)} + ${cashLbp} LBP` +
-            (hasWaive
-              ? ` [owed $${data.amount_usd.toFixed(2)} + ${data.amount_lbp} LBP − waived $${waive.usd.toFixed(2)} + ${waive.lbp} LBP]`
-              : "") +
-            `, got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP)`,
-        );
-      }
+      overpay = this._resolveSettlementLegs(
+        data.payments!,
+        { usd: cashUsd, lbp: cashLbp },
+        {
+          context: "Settlement",
+          rate:
+            data.exchange_rate && data.exchange_rate > 0
+              ? data.exchange_rate
+              : 89000,
+          eps: { usd: 0.005, lbp: 0.005 },
+          allowOverpay: !hasWaive,
+        },
+      ).extra;
     }
+    const hasOverpay = overpay.usd !== 0 || overpay.lbp !== 0;
 
     try {
       const tenantId = getCurrentTenantId();
@@ -3200,8 +3341,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           isBillsOnlyBatch && !isOtherPaymentCommission
             ? (supplier?.provider ?? "CASH")
             : data.payments && data.payments.length > 0
-              ? data.payments.length === 1
-                ? data.payments[0].method
+              ? data.payments.filter((p) => !isReturnLeg(p)).length === 1
+                ? data.payments.find((p) => !isReturnLeg(p))!.method
                 : "SPLIT"
               : "CASH";
         const settlementSummary = isBillsOnlyBatch
@@ -3211,6 +3352,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           : `Settlement: ${data.financial_service_ids.length} txns, net $${cashUsd.toFixed(2)}` +
             (hasWaive
               ? ` (waived $${waive.usd.toFixed(2)}${waive.lbp ? ` + ${waive.lbp.toLocaleString()} LBP` : ""})`
+              : "") +
+            (hasOverpay
+              ? ` (extra on account: $${overpay.usd.toFixed(2)}${overpay.lbp ? ` + ${overpay.lbp.toLocaleString()} LBP` : ""})`
               : "");
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
@@ -3218,9 +3362,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           source_id: ledgerEntryId,
           user_id: data.created_by,
           // LIRA-310: the cash actually paid (= Σ legs); the waived gap is
-          // its own COUNTERPARTY_DISCOUNT row.
-          amount_usd: cashUsd,
-          amount_lbp: cashLbp,
+          // its own COUNTERPARTY_DISCOUNT row. LIRA-315: plus any overpay
+          // (net of change), booked on the supplier's account below.
+          amount_usd: cashUsd + overpay.usd,
+          amount_lbp: cashLbp + overpay.lbp,
           // Owner decision 2026-10-07: the rate the cashier actually used
           // (stamp-only; else createTransaction's market snapshot).
           ...cashierRateStamp(data.exchange_rate),
@@ -3381,10 +3526,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             // paid to the shop's primary-system supplier resolves to the
             // PCD; every other supplier/method falls through unchanged.
             const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
+            // LIRA-315 — change the supplier hands back comes IN.
+            const isChange = isReturnLeg(p);
+            const delta = (isChange ? 1 : -1) * Math.abs(p.amount);
             applyDrawerDelta(this.db, {
               drawerName,
               currencyCode: p.currency_code,
-              delta: -Math.abs(p.amount),
+              delta,
               tenantId,
             });
             insertPaymentRow(this.db, {
@@ -3392,8 +3540,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               method: p.method,
               drawerName,
               currencyCode: p.currency_code,
-              amount: -Math.abs(p.amount),
-              note: data.note ?? "Settlement payment",
+              amount: delta,
+              note: isChange
+                ? "Change returned"
+                : (data.note ?? "Settlement payment"),
               createdBy: data.created_by,
               tenantId,
             });
@@ -3423,6 +3573,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               transactionMetadata: { settlement_transaction_id: txnId },
             },
           );
+        }
+
+        // ── 4c. LIRA-315 — the overpay goes on the supplier's account ──────
+        if (hasOverpay) {
+          this._bookSettlementOverpay({
+            supplierId: data.supplier_id,
+            extra: overpay,
+            flow: "PAY",
+            transactionId: txnId,
+            createdBy: data.created_by,
+            tenantId,
+            note: `Overpayment on settlement: ${this._getSupplierName(data.supplier_id)} — paid beyond the ${data.financial_service_ids.length} settled row${data.financial_service_ids.length === 1 ? "" : "s"}`,
+          });
         }
 
         // ── 5. NEW-MODEL batches only — book the real commission ──────────
@@ -4791,26 +4954,21 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       );
     }
 
-    // ── LIRA-203 — overpayment surplus (owner D18 follow-up) ───────────────
-    // See `SettleAccountData.surplus_usd`'s own doc comment for the full
-    // design. Validated here, BEFORE the transaction opens, alongside every
-    // other direction/amount guard above — a bad request must never open a
-    // write transaction just to be rolled back.
-    const surplusUsd = data.surplus_usd ?? 0;
-    const surplusLbp = data.surplus_lbp ?? 0;
-    if (surplusUsd < 0 || surplusLbp < 0) {
+    // ── LIRA-203 / LIRA-315 — an explicit overpayment surplus (legacy) ─────
+    // LIRA-315 (owner decision 2026-10-13): the sheet no longer has a
+    // separate "Overpayment" field — paying (or collecting) more than the
+    // rows net to IS the overpay, derived from the legs below. A caller that
+    // still sends `surplus_usd`/`surplus_lbp` (an older client, an offline
+    // replay) is accepted only when it matches what the legs actually paid.
+    const declaredSurplusUsd = data.surplus_usd ?? 0;
+    const declaredSurplusLbp = data.surplus_lbp ?? 0;
+    if (declaredSurplusUsd < 0 || declaredSurplusLbp < 0) {
       throw new DatabaseError(
         "Account settlement: surplus_usd/surplus_lbp cannot be negative",
       );
     }
-    const hasSurplus = surplusUsd > EPS_USD || surplusLbp > EPS_LBP;
-    if (hasSurplus && !wantsPay) {
-      throw new DatabaseError(
-        "Account settlement: an overpayment surplus is only valid when " +
-          "PAYING the account (direction: PAY) — collecting more than the " +
-          "selected rows' net is not a supported flow here",
-      );
-    }
+    const declaredSurplus =
+      declaredSurplusUsd > EPS_USD || declaredSurplusLbp > EPS_LBP;
     // ── LIRA-310 — Waive (settle the rows for less than they net to) ─────
     // PAY: the account let the shop pay less (received). COLLECT: the shop
     // let the account pay less (forgiven). Refused with a surplus (the two
@@ -4818,7 +4976,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     const hasWaive =
       Math.abs(data.discount?.amount_usd ?? 0) > 0 ||
       Math.abs(data.discount?.amount_lbp ?? 0) > 0;
-    if (hasWaive && hasSurplus) {
+    if (hasWaive && declaredSurplus) {
       throw new DatabaseError(
         "Waive can't be combined with an overpayment credit. (Account " +
           "settlement: discount refused together with surplus_usd/surplus_lbp)",
@@ -4840,155 +4998,63 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       "Account settlement",
     );
 
-    // The rows' own net (validated above, UNCHANGED) plus the declared
-    // surplus, minus the LIRA-310 waive — this combined figure, never
-    // `data.amount_usd`/`amount_lbp` alone, is what `payments[]` must
-    // reconcile to from here on (FEATURE_GUIDE §13 item 15: the same figure
-    // the anchor row and the posting loop book).
-    const totalAmountUsd = data.amount_usd + surplusUsd - waive.usd;
-    const totalAmountLbp = data.amount_lbp + surplusLbp - waive.lbp;
+    // The rows' own net (validated above, UNCHANGED) minus the LIRA-310
+    // waive — what the legs must AT LEAST pay (PAY) or collect (COLLECT).
+    const rowsCashUsd = data.amount_usd - waive.usd;
+    const rowsCashLbp = data.amount_lbp - waive.lbp;
 
     const owesCash =
-      Math.abs(totalAmountUsd) > EPS_USD || Math.abs(totalAmountLbp) > EPS_LBP;
-    if (owesCash && !data.payments?.length) {
+      Math.abs(rowsCashUsd) > EPS_USD || Math.abs(rowsCashLbp) > EPS_LBP;
+    if ((owesCash || declaredSurplus) && !data.payments?.length) {
       throw new DatabaseError(
         "Account settlement requires at least one payment-method leg to move the net amount owed",
       );
     }
-    if (!owesCash && data.payments?.length) {
+
+    // ── 4b. LIRA-315 — legs: overpay goes on the account, change allowed ───
+    // `_resolveSettlementLegs` (rule 14, shared with settleTransactions)
+    // replaces this method's exact-match reconciliation (LIRA-189 step 4b)
+    // and its blanket OUT-leg ban (Finding A). Change is now a legitimate
+    // leg: the money the other side hands back on an overpay, moving the
+    // drawer opposite to the settlement (step E). Finding A's wash — an
+    // equal IN/OUT pair across two drawers with no ledger fact — is closed
+    // differently now: every leg, IN or OUT, still lands as a `payments`
+    // row on THIS settlement's transaction (visible in the audit trail),
+    // and change can never exceed what was overpaid. Owner decision
+    // 2026-10-13: the extra goes on the account in BOTH directions — COLLECT
+    // included (it used to be refused).
+    const overpay =
+      data.payments && data.payments.length > 0
+        ? this._resolveSettlementLegs(
+            data.payments,
+            { usd: rowsCashUsd, lbp: rowsCashLbp },
+            {
+              context: "Account settlement",
+              rate:
+                data.exchange_rate && data.exchange_rate > 0
+                  ? data.exchange_rate
+                  : 89000,
+              eps: { usd: EPS_USD, lbp: EPS_LBP },
+              allowOverpay: !hasWaive,
+            },
+          ).extra
+        : { usd: 0, lbp: 0 };
+    if (
+      declaredSurplus &&
+      (Math.abs(overpay.usd - declaredSurplusUsd) > EPS_USD ||
+        Math.abs(overpay.lbp - declaredSurplusLbp) > EPS_LBP)
+    ) {
       throw new DatabaseError(
-        "Account settlement has no net cash to move — payment-method legs are not accepted",
+        "The payment doesn't match the overpayment entered. (Account " +
+          `settlement: surplus $${declaredSurplusUsd.toFixed(2)} + ${declaredSurplusLbp} LBP ` +
+          `declared, legs overpay $${overpay.usd.toFixed(2)} + ${overpay.lbp} LBP)`,
       );
     }
-
-    // ── OUT legs are rejected outright (Finding A, third hardening round) ──
-    // Rule 16's OUT legs exist for a flow where a CUSTOMER overpaid and gets
-    // change back. A supplier settlement has no customer — the shop either
-    // pays exactly what it owes or collects exactly what it's owed.
-    // AccountSettleSheet.tsx's own `handleSubmit` comment documents why the
-    // UI deliberately never wires a return/kept-change leg here. Before this
-    // guard, step 4b's reconciliation checked only the per-currency NET of
-    // IN minus OUT against the settled amount, with no bound on gross volume
-    // and no requirement that the legs resolve to the same drawer — so a
-    // caller could append an equal-and-opposite IN/OUT pair (even in a
-    // currency the settled rows never touch), routing the IN leg to one real
-    // drawer and the OUT leg to another via `resolveServiceCashDrawer`
-    // (step E). The net still passed the guard; real money moved between two
-    // of the shop's drawers with no ledger fact and no audit trail — a wash
-    // that also desyncs the closing count. Verified before adding this: no
-    // caller sends an OUT leg here today — the IPC handler
-    // (`electron-app/handlers/supplierHandlers.ts`) and REST route
-    // (`backend/src/api/suppliers.ts`) both pass the validated payload
-    // through unmodified, and `AccountSettleSheet.tsx` never sets
-    // `direction` on a payment line it builds (see its comment above) — so
-    // rejecting OUT legs outright closes this completely with no legitimate
-    // sender to accommodate. `direction` stays in the shared schema/type
-    // (`supplierPaymentLegSchema`) — `settleTransactions`/
-    // `recordSupplierCashflow` still use it for their own real change-return
-    // legs.
-    //
-    // Because this check runs unconditionally and throws before either step
-    // 4b's leg reconciliation or step E's posting loop is reached, neither
-    // of those steps can ever see an OUT leg — their OUT-side branches
-    // (an `outLegs`/`outSum` computation in 4b, a second oppositely signed
-    // posting loop in E) were removed as dead code (fourth hardening
-    // round). Do not re-add OUT-leg handling downstream of this guard: it
-    // would be unreachable by construction. If a legitimate need for
-    // supplier-settlement change/return legs ever arises, it starts HERE,
-    // by relaxing this ban — not by resurrecting the removed branches.
-    if (data.payments?.some((p) => p.direction === "OUT")) {
-      throw new DatabaseError(
-        "Account settlement does not accept OUT (change/return) legs — a " +
-          "supplier settlement has no customer to hand change back to; pay " +
-          "or collect the exact net amount owed",
-      );
-    }
-
-    // ── 4a. ONE predicate for "this leg can settle a supplier account" ────
-    // Rule 14 — shared by the leg-reconciliation sum immediately below AND
-    // the posting loop (step E) so the two can never again independently
-    // decide which legs count. THIS is the second leak found in this
-    // method: the reconciliation summed EVERY leg (drawer-affecting or not)
-    // into its total while the posting loop silently `continue`d past any
-    // leg whose method `isDrawerAffectingMethod` excludes (CUSTOMER_ACCOUNT,
-    // GIFT_CARD, ...) — `payments = [{CASH, 70}, {CUSTOMER_ACCOUNT, 30}]`
-    // against a $100 debt reconciled clean at 70+30=100, stamped the
-    // supplier fully settled, and only $70 actually left the drawer. A
-    // supplier settlement pays or collects real money from a counterparty:
-    // there is no customer to charge via CUSTOMER_ACCOUNT and no gift card
-    // to redeem here, so a non-drawer-affecting method is meaningless in
-    // this flow — reject it outright, never silently drop the leg, so the
-    // caller learns exactly which method is the problem.
-    const assertLegMovesADrawer = (method: string): void => {
-      if (!isDrawerAffectingMethod(method)) {
-        throw new DatabaseError(
-          `Account settlement: payment method "${method}" does not move a ` +
-            `real drawer and cannot settle a supplier account (no customer ` +
-            `to charge, no gift card to redeem)`,
-        );
-      }
-    };
-
-    // ── 4b. Leg reconciliation (rule 16 + the leak this ticket fixes) ─────
-    // `data.amount_usd`/`amount_lbp` were already cross-checked above (step
-    // 4) against the RE-COMPUTED net of `selections` — but that says nothing
-    // about whether `data.payments` (the legs that actually move the
-    // drawer, step E below) agree with that figure. Before this check, the
-    // posting loop applied EVERY leg verbatim: a supplier owed $100 could be
-    // "settled" with a $150 CASH leg and the drawer would drop the full
-    // $150 while the ledger only nets $100 — a $50 leak with no ledger row,
-    // no profit stamp, and no kept-change record. Symmetric with the
-    // Other-payment commission check above (settleTransactions' own
-    // per-currency sum comparison), NOT `reconcileLegs`/`moneyPosting.ts`'s
-    // USD-equivalent conversion — this flow has no exchange rate to convert
-    // at (`SettleAccountData.exchange_rate`'s own doc: "no exchange rate is
-    // involved anywhere in this flow"), so legs are reconciled PER CURRENCY,
-    // same EPS_USD/EPS_LBP tolerance as every other check in this method.
-    //
-    // No IN/OUT partition needed: every leg reaching this point IS an IN
-    // leg — the ban just above already hard-rejects any leg carrying
-    // `direction: "OUT"`, so `data.payments` can never contain one here.
-    // Sum every leg verbatim as money actually paid/collected.
-    //
-    // A mismatch in EITHER direction (overpay or underpay) is a hard reject,
-    // never silently absorbed or auto-corrected: a supplier settlement has
-    // no customer to hand change to and no "the shop keeps the difference"
-    // concept like a sale's kept-change — the operator's legs must describe
-    // exactly the amount being settled, or the batch doesn't post. Money
-    // must never move without a matching ledger fact.
-    if (data.payments && data.payments.length > 0) {
-      let legSumUsd = 0;
-      let legSumLbp = 0;
-      for (const leg of data.payments) {
-        assertLegMovesADrawer(leg.method);
-        const amt = Math.abs(leg.amount);
-        if (leg.currency_code === "USD") legSumUsd += amt;
-        else if (leg.currency_code === "LBP") legSumLbp += amt;
-        else {
-          throw new DatabaseError(
-            `Account settlement: payment leg currency "${leg.currency_code}" is not USD or LBP`,
-          );
-        }
-      }
-      if (
-        Math.abs(legSumUsd - totalAmountUsd) > EPS_USD ||
-        Math.abs(legSumLbp - totalAmountLbp) > EPS_LBP
-      ) {
-        const plain = supplierLegMismatchSentence(
-          {
-            usd: legSumUsd - totalAmountUsd,
-            lbp: legSumLbp - totalAmountLbp,
-          },
-          { usd: EPS_USD, lbp: EPS_LBP },
-        );
-        throw new DatabaseError(
-          `${plain} (Account settlement payment legs do not reconcile to the settled amount ` +
-            `${hasSurplus ? "[selected rows + overpayment surplus] " : ""}— ` +
-            `expected $${totalAmountUsd.toFixed(2)} + ${totalAmountLbp} LBP, ` +
-            `got $${legSumUsd.toFixed(2)} + ${legSumLbp} LBP)`,
-        );
-      }
-    }
+    const hasSurplus = overpay.usd !== 0 || overpay.lbp !== 0;
+    const surplusUsd = overpay.usd;
+    const surplusLbp = overpay.lbp;
+    const assertLegMovesADrawer = (method: string): void =>
+      this._assertSupplierLegMovesADrawer(method, "Account settlement");
 
     // ── 6. Drawer context — PARENT's provider (D3) ─────────────────────────
     // Finding 1 (fourth hardening round) — NOT built here. `parent` was read
@@ -5167,10 +5233,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
         // ── B. ONE SUPPLIER_SETTLEMENT transaction, anchored on row A ──────
         const totalMembers = memberIds.length;
+        const paidLegs = (data.payments ?? []).filter((p) => !isReturnLeg(p));
         const settlementMethod =
-          data.payments && data.payments.length > 0
-            ? data.payments.length === 1
-              ? data.payments[0].method
+          paidLegs.length > 0
+            ? paidLegs.length === 1
+              ? paidLegs[0].method
               : "SPLIT"
             : "CASH";
         const cashUsd = data.amount_usd - waive.usd;
@@ -5181,9 +5248,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           `${cashLbp ? ` + ${cashLbp.toLocaleString()} LBP` : ""}` +
           ` across ${totalMembers} member${totalMembers === 1 ? "" : "s"}` +
           (hasSurplus
-            ? ` (+ $${surplusUsd.toFixed(2)}` +
-              `${surplusLbp ? ` / ${surplusLbp.toLocaleString()} LBP` : ""}` +
-              ` overpayment credit)`
+            ? ` (extra on account: $${surplusUsd.toFixed(2)}` +
+              `${surplusLbp ? ` + ${surplusLbp.toLocaleString()} LBP` : ""})`
             : "") +
           (hasWaive
             ? ` (waived $${waive.usd.toFixed(2)}` +
@@ -5412,7 +5478,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         for (const p of data.payments ?? []) {
           assertLegMovesADrawer(p.method);
           const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
-          const delta = cashSign * Math.abs(p.amount);
+          // LIRA-315 — change (an OUT leg) moves the drawer the other way.
+          const delta =
+            (isReturnLeg(p) ? -cashSign : cashSign) * Math.abs(p.amount);
           applyDrawerDelta(this.db, {
             drawerName,
             currencyCode: p.currency_code,
@@ -5484,26 +5552,21 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // manually" mechanism (D18), reusing steps 0-3's existing
         // mixed-sign selection/negation unchanged.
         if (hasSurplus) {
-          const surplusNote =
-            `Overpayment credit: ${freshParent.name} — paid ` +
-            `$${surplusUsd.toFixed(2)}` +
-            `${surplusLbp ? ` + ${surplusLbp.toLocaleString()} LBP` : ""}` +
-            ` beyond the ${totalMembers} selected row${totalMembers === 1 ? "" : "s"}`;
-          this.db
-            .prepare(
-              `INSERT INTO supplier_ledger
-                 (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, tenant_id, created_at)
-               VALUES (?, 'PAYMENT', ?, ?, ?, ?, ?, ?, datetime('now'))`,
-            )
-            .run(
-              data.account_supplier_id,
-              -surplusUsd,
-              -surplusLbp,
-              surplusNote,
-              data.created_by,
-              txnId,
-              tenantId,
-            );
+          // LIRA-315 — one row per currency, PAY or COLLECT (see
+          // `_bookSettlementOverpay`); same parent, same link, same OPEN
+          // state as LIRA-203's single PAY-only credit row.
+          this._bookSettlementOverpay({
+            supplierId: data.account_supplier_id,
+            extra: { usd: surplusUsd, lbp: surplusLbp },
+            flow: wantsPay ? "PAY" : "COLLECT",
+            transactionId: txnId,
+            createdBy: data.created_by,
+            tenantId,
+            note:
+              `Overpayment ${wantsPay ? "credit" : "received"}: ${freshParent.name} — ` +
+              `${wantsPay ? "paid" : "collected"} beyond the ${totalMembers} ` +
+              `selected row${totalMembers === 1 ? "" : "s"}`,
+          });
         }
 
         // Return the ANCHOR ledger row id — same convention as

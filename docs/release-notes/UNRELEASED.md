@@ -53,6 +53,8 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💸 OMT / Whish & suppliers
 
+- Suppliers page, Settle (a supplier's transactions) and the OMT account's Settle Account: you can now pay more than what is owed. The extra goes on the supplier's account (they owe you), unless the supplier hands it back: the change box lets you choose "Get change back" (recorded in your drawer) or "To account". Before, a supplier's Settle refused any amount above the total.
+- OMT account, Settle Account: when OMT pays you more than the selected rows, the extra now goes on OMT's account (you owe them); before, it was refused. The separate "Record an overpayment" box is gone: just type the amount paid.
 - OMT, Whish, Katsh and Binance History windows now show every past transaction (not only the latest 50) and the total USD and total LBP of the amounts listed, following the date filter. Sent and received are added together; USDT and other currencies are not counted; refunded ones are left out.
 - Suppliers page, Pay / Receive: paying (or receiving) more than what is owed now puts the extra on the supplier's account. For example, you owe $100 and pay $150: the supplier now owes you $50. The change box lets you choose: "Get change back" (the supplier hands the extra back, recorded in your drawer) or "To account". If only part is handed back, the rest stays on their account.
 - Suppliers page, Products tab: a supplier with a debt you recorded but no linked product now shows what you owe and counts in the Total Owed. It used to show $0.00 and "Settled".

@@ -1134,7 +1134,10 @@ describe("SupplierRepository.settleAccount()", () => {
   // block, bug (b) by reverting the posting loop to a single un-partitioned
   // `for (const p of data.payments)` using `cashSign` on every leg).
   describe("leg reconciliation", () => {
-    it("rejects an overpaid CASH leg — legs must equal the settled amount, not just be accepted verbatim", () => {
+    // LIRA-315 (owner decision 2026-10-13) — used to be rejected. The leak
+    // it guarded (drawer −$150, ledger nets $100) stays closed: the extra
+    // $50 is its own ledger row on the account parent.
+    it("an overpaid CASH leg settles the row and opens −$50 on the account parent (drawer −150 = ledger −150)", () => {
       const { omtId, ipickId } = seedOmtAccount();
       const debtId = seedLedgerEntry(db, {
         supplierId: ipickId,
@@ -1143,28 +1146,23 @@ describe("SupplierRepository.settleAccount()", () => {
       });
       const preDrawer = drawerBal(db, "OMT_System", "USD");
 
-      expect(() =>
-        repo.settleAccount({
-          account_supplier_id: omtId,
-          direction: "PAY",
-          selections: [{ kind: "LEDGER", id: debtId }],
-          amount_usd: 100,
-          amount_lbp: 0,
-          commission_usd: 0,
-          commission_lbp: 0,
-          created_by: 1,
-          // A $100 debt "settled" with a $150 CASH leg — the pre-fix bug:
-          // the $50 difference would leave the drawer with no ledger row,
-          // no profit stamp, and no kept-change record.
-          payments: [{ method: "CASH", currency_code: "USD", amount: 150 }],
-        }),
-      ).toThrow(/do not reconcile/i);
+      repo.settleAccount({
+        account_supplier_id: omtId,
+        direction: "PAY",
+        selections: [{ kind: "LEDGER", id: debtId }],
+        amount_usd: 100,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [{ method: "CASH", currency_code: "USD", amount: 150 }],
+      });
 
-      // Nothing moved — the whole write rolled back atomically.
-      expect(ledgerSum(db, ipickId).usd).toBeCloseTo(100);
-      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer);
+      expect(ledgerSum(db, ipickId).usd).toBeCloseTo(0);
+      expect(ledgerSum(db, omtId).usd).toBeCloseTo(-50);
+      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer - 150);
       expect(repo.getAccountUnsettled(omtId).some((r) => r.id === debtId)).toBe(
-        true,
+        false,
       );
     });
 
@@ -1195,7 +1193,9 @@ describe("SupplierRepository.settleAccount()", () => {
       expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer);
     });
 
-    it("rejects when only the LBP side of a mixed-currency batch fails to reconcile — checked per currency, not aggregated", () => {
+    // LIRA-315 — per currency: an LBP overpay opens an LBP row on the
+    // parent, never converted.
+    it("an LBP overpay on a mixed-currency batch opens −50,000 LBP on the parent — per currency, not aggregated", () => {
       const { omtId, ipickId } = seedOmtAccount();
       const debtId = seedLedgerEntry(db, {
         supplierId: ipickId,
@@ -1203,30 +1203,24 @@ describe("SupplierRepository.settleAccount()", () => {
         amountUsd: 50,
         amountLbp: 100_000,
       });
-      const preDrawerUsd = drawerBal(db, "OMT_System", "USD");
-      const preDrawerLbp = drawerBal(db, "OMT_System", "LBP");
 
-      expect(() =>
-        repo.settleAccount({
-          account_supplier_id: omtId,
-          direction: "PAY",
-          selections: [{ kind: "LEDGER", id: debtId }],
-          amount_usd: 50,
-          amount_lbp: 100_000,
-          commission_usd: 0,
-          commission_lbp: 0,
-          created_by: 1,
-          // USD leg is exactly right; LBP leg is 50,000 over.
-          payments: [
-            { method: "CASH", currency_code: "USD", amount: 50 },
-            { method: "CASH", currency_code: "LBP", amount: 150_000 },
-          ],
-        }),
-      ).toThrow(/do not reconcile/i);
+      repo.settleAccount({
+        account_supplier_id: omtId,
+        direction: "PAY",
+        selections: [{ kind: "LEDGER", id: debtId }],
+        amount_usd: 50,
+        amount_lbp: 100_000,
+        commission_usd: 0,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 50 },
+          { method: "CASH", currency_code: "LBP", amount: 150_000 },
+        ],
+      });
 
-      expect(ledgerSum(db, ipickId)).toEqual({ usd: 50, lbp: 100_000 });
-      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawerUsd);
-      expect(drawerBal(db, "OMT_System", "LBP")).toBeCloseTo(preDrawerLbp);
+      expect(ledgerSum(db, ipickId)).toEqual({ usd: 0, lbp: 0 });
+      expect(ledgerSum(db, omtId)).toEqual({ usd: 0, lbp: -50_000 });
     });
 
     // Cashier-facing wording: the message must OPEN with one plain sentence
@@ -1276,15 +1270,23 @@ describe("SupplierRepository.settleAccount()", () => {
         expect(msg).toMatch(/do not reconcile/i);
       });
 
-      it('overpaid → "The payment is more than the total."', () => {
-        const sentence = "The payment is more than the total.";
+      // LIRA-315 — overpaying is accepted now; the "too much" refusal left
+      // is change larger than the overpay.
+      it('change larger than the overpay → "The change handed back is more than what was overpaid."', () => {
+        const sentence =
+          "The change handed back is more than what was overpaid.";
         const msg = settleWith([
-          { method: "CASH", currency_code: "USD", amount: 150 },
+          { method: "CASH", currency_code: "USD", amount: 110 },
           { method: "CASH", currency_code: "LBP", amount: 100_000 },
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 30,
+            direction: "OUT",
+          },
         ]);
         expect(msg.startsWith(`${sentence} (`)).toBe(true);
         expect(count(msg, sentence)).toBe(1);
-        expect(msg).toMatch(/do not reconcile/i);
       });
 
       it('one currency short, the other over → "The payment doesn\'t match the total."', () => {
@@ -1298,16 +1300,10 @@ describe("SupplierRepository.settleAccount()", () => {
       });
     });
 
-    // Historical note (superseded, third hardening round, Finding A): this
-    // test used to prove a PAY-direction OUT (change) leg was credited back
-    // with the opposite sign instead of double-debiting (rule 16's IN/OUT
-    // partitioning). That OUT-leg support is exactly what Finding A closed:
-    // a supplier settlement has no customer to hand change back to, and the
-    // same IN/OUT shape let a caller wash money between two real drawers
-    // (see the "cross-drawer wash" describe block below). `settleTransactions`/
-    // `recordSupplierCashflow` still support OUT legs correctly — only this
-    // method's own support was removed.
-    it("PAY: an OUT (change) leg is rejected outright, not credited back — Finding A superseded rule-16 OUT support here", () => {
+    // LIRA-315 (owner decision 2026-10-13) — change is a real leg again
+    // (Finding A had banned it outright; the wash it closed stays closed by
+    // the cash-only change rule, see the "cross-drawer wash" block below).
+    it("PAY: $150 paid with $50 cash change back settles $100 exactly — drawer −100, nothing on the account", () => {
       const { omtId, ipickId } = seedOmtAccount();
       const debtId = seedLedgerEntry(db, {
         supplierId: ipickId,
@@ -1316,36 +1312,32 @@ describe("SupplierRepository.settleAccount()", () => {
       });
       const preDrawer = drawerBal(db, "OMT_System", "USD");
 
-      expect(() =>
-        repo.settleAccount({
-          account_supplier_id: omtId,
-          direction: "PAY",
-          selections: [{ kind: "LEDGER", id: debtId }],
-          amount_usd: 100,
-          amount_lbp: 0,
-          commission_usd: 0,
-          commission_lbp: 0,
-          created_by: 1,
-          // Tendered $150, $50 "change" back — the shape rule 16 supports
-          // elsewhere, now hard-rejected here (Finding A).
-          payments: [
-            { method: "CASH", currency_code: "USD", amount: 150 },
-            {
-              method: "CASH",
-              currency_code: "USD",
-              amount: 50,
-              direction: "OUT",
-            },
-          ],
-        }),
-      ).toThrow(/does not accept OUT/i);
+      repo.settleAccount({
+        account_supplier_id: omtId,
+        direction: "PAY",
+        selections: [{ kind: "LEDGER", id: debtId }],
+        amount_usd: 100,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 150 },
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 50,
+            direction: "OUT",
+          },
+        ],
+      });
 
-      // Nothing moved — rejected before the write transaction opened.
-      expect(ledgerSum(db, ipickId).usd).toBeCloseTo(100);
-      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer);
+      expect(ledgerSum(db, ipickId).usd).toBeCloseTo(0);
+      expect(ledgerSum(db, omtId).usd).toBeCloseTo(0);
+      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer - 100);
     });
 
-    it("COLLECT: an OUT (change-back) leg is rejected outright too, not just on PAY", () => {
+    it("COLLECT: $120 collected with $20 cash change handed back settles $100 — drawer +100", () => {
       const { omtId, appId } = seedOmtAccount();
       // A raw credit row on the account child — the shop is owed $100.
       const creditId = seedLedgerEntry(db, {
@@ -1355,30 +1347,29 @@ describe("SupplierRepository.settleAccount()", () => {
       });
       const preDrawer = drawerBal(db, "OMT_System", "USD");
 
-      expect(() =>
-        repo.settleAccount({
-          account_supplier_id: omtId,
-          direction: "COLLECT",
-          selections: [{ kind: "LEDGER", id: creditId }],
-          amount_usd: 100,
-          amount_lbp: 0,
-          commission_usd: 0,
-          commission_lbp: 0,
-          created_by: 1,
-          payments: [
-            { method: "CASH", currency_code: "USD", amount: 120 },
-            {
-              method: "CASH",
-              currency_code: "USD",
-              amount: 20,
-              direction: "OUT",
-            },
-          ],
-        }),
-      ).toThrow(/does not accept OUT/i);
+      repo.settleAccount({
+        account_supplier_id: omtId,
+        direction: "COLLECT",
+        selections: [{ kind: "LEDGER", id: creditId }],
+        amount_usd: 100,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 120 },
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 20,
+            direction: "OUT",
+          },
+        ],
+      });
 
-      expect(ledgerSum(db, appId).usd).toBeCloseTo(-100);
-      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer);
+      expect(ledgerSum(db, appId).usd).toBeCloseTo(0);
+      expect(ledgerSum(db, omtId).usd).toBeCloseTo(0);
+      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer + 100);
     });
   });
 
@@ -1391,22 +1382,15 @@ describe("SupplierRepository.settleAccount()", () => {
   // TWO DIFFERENT real drawers. Real money moved between the shop's drawers
   // with no ledger fact and no audit trail.
   //
-  // The fix that closed this was the BLANKET OUT-leg ban a few steps above
-  // step 4b (`data.payments?.some((p) => p.direction === "OUT")`), not
-  // anything wash-specific — any leg carrying `direction: "OUT"` is now
-  // rejected before either step 4b or step E ever runs, so there is no
-  // remaining path (verified: every reconciliation/posting sum uses
-  // `Math.abs`, additively, with no subtraction left anywhere a caller could
-  // exploit to cancel two legs against each other) through which an
-  // IN/OUT pair — matched drawers or not — could still reach the posting
-  // loop. This test therefore now exercises exactly the same guard as the
-  // "leg reconciliation" describe block's OUT-rejection tests above; it is
-  // kept, named for what it actually proves today, as a dedicated regression
-  // guard for the ORIGINAL cross-drawer-wash payload shape (mismatched
-  // drawers, in a currency the settled row never touches) specifically —
-  // not as evidence of any wash-specific defense that no longer exists.
-  describe("cross-drawer wash (Finding A) — closed by the blanket OUT-leg ban", () => {
-    it("rejects an equal-and-opposite IN/OUT pair across two different drawers via the blanket OUT-leg ban — regression guard for the original wash payload", () => {
+  // That first fix was a BLANKET OUT-leg ban. LIRA-315 (owner decision
+  // 2026-10-13) lifted the ban — change handed back on an overpay is a real
+  // leg again — and closes the wash differently: `_resolveSettlementLegs`
+  // accepts change ONLY in CASH, so a wallet IN leg can never be "returned"
+  // through another wallet to shuffle money between drawers. The original
+  // wash payload (OMT IN / WHISH OUT, in a currency the settled row never
+  // touches) is kept below as the regression guard for that rule.
+  describe("cross-drawer wash (Finding A) — closed by the cash-only change rule (LIRA-315)", () => {
+    it("rejects an equal-and-opposite IN/OUT pair across two different wallet drawers — change must come back in cash", () => {
       const { omtId, ipickId } = seedOmtAccount();
       // $100 USD debt — the settlement never touches LBP at all.
       const debtId = seedLedgerEntry(db, {
@@ -1443,7 +1427,7 @@ describe("SupplierRepository.settleAccount()", () => {
             },
           ],
         }),
-      ).toThrow(/does not accept OUT/i);
+      ).toThrow(/only be handed back in cash/i);
 
       // Nothing moved anywhere — not even the correctly-sized CASH leg,
       // because the whole batch is rejected atomically before the write
@@ -1534,7 +1518,7 @@ describe("SupplierRepository.settleAccount()", () => {
     // purpose (proving the non-drawer check also covers OUT legs) is now
     // subsumed by the blanket OUT rejection; updated to assert that outcome
     // instead of weakening or deleting the coverage.
-    it("rejects an OUT (change) leg before ever inspecting its method — even a non-drawer method never reaches that check", () => {
+    it("rejects a CUSTOMER_ACCOUNT change (OUT) leg — change must move a real drawer, in cash (LIRA-315)", () => {
       const { omtId, ipickId } = seedOmtAccount();
       const debtId = seedLedgerEntry(db, {
         supplierId: ipickId,
@@ -1565,7 +1549,7 @@ describe("SupplierRepository.settleAccount()", () => {
             },
           ],
         }),
-      ).toThrow(/does not accept OUT/i);
+      ).toThrow(/does not move a real drawer|only be handed back in cash/i);
 
       expect(ledgerSum(db, ipickId).usd).toBeCloseTo(100);
       expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer);
@@ -2150,6 +2134,60 @@ describe("SupplierRepository.settleAccount()", () => {
   // ── Reversal (rule 20) — create + void nets to 0, per currency ─────────
 
   describe("void", () => {
+    // LIRA-315 (owner decision 2026-10-13) — rule 20: the overpay rows
+    // `_bookSettlementOverpay` writes ride on the settlement's own
+    // transaction, so the void must take them back too, per currency.
+    it("overpay with LBP change: create + void nets the parent's extra rows, the member and both drawers back to 0", () => {
+      const { omtId, ipickId } = seedOmtAccount();
+      const debtId = seedLedgerEntry(db, {
+        supplierId: ipickId,
+        entryType: "TOP_UP",
+        amountUsd: 100,
+      });
+      const pre = {
+        ipick: ledgerSum(db, ipickId),
+        omt: ledgerSum(db, omtId),
+        usd: drawerBal(db, "OMT_System", "USD"),
+        lbp: drawerBal(db, "OMT_System", "LBP"),
+      };
+
+      // $150 paid on $100; OMT hands back 2,670,000 LBP ($30) — $20 extra
+      // stays on the account in USD, and we owe 2,670,000 LBP back.
+      const result = repo.settleAccount({
+        account_supplier_id: omtId,
+        direction: "PAY",
+        selections: [{ kind: "LEDGER", id: debtId }],
+        amount_usd: 100,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 0,
+        created_by: 1,
+        exchange_rate: 89_000,
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 150 },
+          {
+            method: "CASH",
+            currency_code: "LBP",
+            amount: 2_670_000,
+            direction: "OUT",
+          },
+        ],
+      });
+      expect(ledgerSum(db, omtId)).toEqual({ usd: -50, lbp: 2_670_000 });
+      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(pre.usd - 150);
+      expect(drawerBal(db, "OMT_System", "LBP")).toBeCloseTo(
+        pre.lbp + 2_670_000,
+      );
+
+      const txnId = ledgerRow(db, result.id).transaction_id as number;
+      txnRepo.voidTransaction(txnId, 1);
+
+      expect(ledgerSum(db, ipickId)).toEqual(pre.ipick);
+      expect(ledgerSum(db, omtId)).toEqual(pre.omt);
+      expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(pre.usd);
+      expect(drawerBal(db, "OMT_System", "LBP")).toBeCloseTo(pre.lbp);
+    });
+
     it("single-member (anchor-only) settlement: create + void nets the drawer, the ledger and profit back to the PRE-settlement state", () => {
       const { omtId, appId } = seedOmtAccount();
       const cashoutLedgerId = seedCashout(db, {

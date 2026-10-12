@@ -157,17 +157,15 @@ describe("AccountSettleSheet — no Waive on the Suppliers page (owner 2026-10-1
     expect(payload).not.toHaveProperty("discount");
   });
 
-  it("no Waive while an overpayment surplus is declared either", async () => {
+  // LIRA-315 — the separate surplus field is gone; an overpay is typed
+  // straight into the amount. Still no Waive.
+  it("no Waive on an overpay either", async () => {
     renderSheet();
     await screen.findAllByTestId("supplier-account-settle-row");
-    fireEvent.change(
-      screen.getByTestId("supplier-account-settle-surplus-input"),
-      { target: { value: "50" } },
-    );
-    const amount = await screen.findByDisplayValue("1,275");
-    fireEvent.change(amount, { target: { value: "1272" } });
+    const amount = await screen.findByDisplayValue("1,225");
+    fireEvent.change(amount, { target: { value: "1300" } });
     await waitFor(() =>
-      expect(screen.getByDisplayValue("1,272")).toBeInTheDocument(),
+      expect(screen.getByDisplayValue("1,300")).toBeInTheDocument(),
     );
     expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
   });

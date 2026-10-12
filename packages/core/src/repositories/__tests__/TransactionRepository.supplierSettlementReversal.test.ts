@@ -389,6 +389,47 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
     );
   });
 
+  // ── LIRA-315 — an overpaid settlement's extra rides on the same txn ─────
+  // Rule 20: `_bookSettlementOverpay` links its row(s) to the settlement's
+  // own transaction, so `_reverseSupplierSettlement`'s
+  // `supplier_ledger WHERE transaction_id = ?` scan voids them too.
+  it("LIRA-315: an overpaid settlement ($150 on $104.5) — void nets the supplier ledger and the PCD back to the pre-settlement state", () => {
+    const omtId = supplierIdByProvider(db, "OMT");
+    const res = db
+      .prepare(
+        `INSERT INTO financial_services (provider, service_type, amount, currency, commission, is_settled)
+         VALUES ('OMT', 'SEND', 100, 'USD', 0.5, 0)`,
+      )
+      .run();
+    const fsId = Number(res.lastInsertRowid);
+    db.prepare(
+      `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto, note)
+       VALUES (?, 'TOP_UP', 104.5, 0, 1, 'Auto: SEND via OMT (gross)')`,
+    ).run(omtId);
+    const ledgerBefore = ledgerSum(db, omtId);
+    const pcdBefore = drawerBal(db, "OMT_System");
+
+    const settlement = supplierRepo.settleTransactions({
+      supplier_id: omtId,
+      financial_service_ids: [fsId],
+      amount_usd: 104.5,
+      amount_lbp: 0,
+      commission_usd: 0.5,
+      commission_lbp: 0,
+      created_by: 1,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 150 }],
+    });
+    // Rows settled; the extra $45.50 is on OMT's account (OMT owes us).
+    expect(ledgerSum(db, omtId)).toBeCloseTo(-45.5, 4);
+    expect(drawerBal(db, "OMT_System")).toBeCloseTo(pcdBefore - 150, 4);
+
+    const txn = txnRepo.getBySourceId("supplier_ledger", settlement.id)!;
+    txnRepo.voidTransaction(txn.id, 1);
+
+    expect(ledgerSum(db, omtId)).toBeCloseTo(ledgerBefore, 4);
+    expect(drawerBal(db, "OMT_System")).toBeCloseTo(pcdBefore, 4);
+  });
+
   // ── Happy path: OMT commission-bearing settlement ────────────────────────
 
   describe("OMT settlement with commission (is_settled was 0 pre-settlement)", () => {

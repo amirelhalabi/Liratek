@@ -893,8 +893,8 @@ contextBridge.exposeInMainWorld("api", {
         amount: number;
         direction?: "IN" | "OUT";
       }>;
-      /** LIRA-203 — pay MORE than `selections` net to; the difference is
-       *  booked as a standalone account credit (direction: "PAY" only). */
+      /** LIRA-203 — legacy explicit overpay. LIRA-315: derived from
+       *  `payments` instead (PAY or COLLECT); must match it when sent. */
       surplus_usd?: number;
       surplus_lbp?: number;
       /** LIRA-256 — OMT commission types this settlement's statement covers

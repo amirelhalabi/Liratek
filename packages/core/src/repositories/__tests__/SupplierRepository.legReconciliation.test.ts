@@ -347,34 +347,46 @@ describe("SupplierRepository.settleTransactions() — leg reconciliation (LIRA-1
   });
 
   describe("leg reconciliation", () => {
-    it("rejects an overpaid CASH leg — legs must equal the net amount owed, not just be accepted verbatim", () => {
+    // LIRA-315 (owner decision 2026-10-13) — this used to be rejected. The
+    // LIRA-193 leak it guarded (drawer drops $150, ledger only nets $100)
+    // stays closed by a different route: the extra $50 is now its OWN ledger
+    // row on the supplier's account, so drawer movement === ledger movement.
+    it("an overpaid CASH leg settles the rows and books the extra on the supplier's account (drawer −150 = ledger −150)", () => {
       const supplierId = seedSupplier(db, "Katsh");
       const fsId = seedFs(db, { provider: "Katsh", amount: 100 });
       const preDrawer = drawerBalance(db, "General", "USD");
 
-      expect(() =>
-        repo.settleTransactions({
-          supplier_id: supplierId,
-          financial_service_ids: [fsId],
-          amount_usd: 100,
-          amount_lbp: 0,
-          commission_usd: 0,
-          commission_lbp: 0,
-          created_by: 1,
-          // A $100 debt "settled" with a $150 CASH leg — the pre-fix bug:
-          // the $50 difference would leave the drawer with no ledger row,
-          // no profit stamp, and no kept-change record.
-          payments: [{ method: "CASH", currency_code: "USD", amount: 150 }],
-        }),
-      ).toThrow(/do not reconcile/i);
+      repo.settleTransactions({
+        supplier_id: supplierId,
+        financial_service_ids: [fsId],
+        amount_usd: 100,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [{ method: "CASH", currency_code: "USD", amount: 150 }],
+      });
 
-      // Nothing moved — rejected before the write transaction ever opened.
-      expect(ledgerCount(db)).toBe(0);
-      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(preDrawer);
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(preDrawer - 150);
+      const rows = db
+        .prepare(
+          `SELECT entry_type, amount_usd, transaction_id FROM supplier_ledger ORDER BY id`,
+        )
+        .all() as {
+        entry_type: string;
+        amount_usd: number;
+        transaction_id: number;
+      }[];
+      expect(rows.map((r) => [r.entry_type, r.amount_usd])).toEqual([
+        ["SETTLEMENT", -100],
+        ["PAYMENT", -50],
+      ]);
+      // One transaction owns both rows, so a void removes both (rule 20).
+      expect(rows[1].transaction_id).toBe(rows[0].transaction_id);
       const fsRow = db
         .prepare(`SELECT is_settled FROM financial_services WHERE id = ?`)
         .get(fsId) as { is_settled: number };
-      expect(fsRow.is_settled).toBe(0);
+      expect(fsRow.is_settled).toBe(1);
     });
 
     it("rejects an underpaid CASH leg — a partial tender is not silently accepted as a full settlement", () => {
@@ -399,36 +411,40 @@ describe("SupplierRepository.settleTransactions() — leg reconciliation (LIRA-1
       expect(drawerBalance(db, "General", "USD")).toBeCloseTo(preDrawer);
     });
 
-    it("rejects when only the LBP side of a mixed-currency batch fails to reconcile — checked per currency, not aggregated", () => {
+    // LIRA-315 — per currency, an LBP overpay is booked as LBP on the
+    // supplier's account (never converted).
+    it("an LBP overpay on a mixed-currency batch books 50,000 LBP on the account — per currency, not aggregated", () => {
       const supplierId = seedSupplier(db, "Katsh");
       const fsId = seedFs(db, {
         provider: "Katsh",
         amount: 50,
         currency: "USD",
       });
-      const preDrawerUsd = drawerBalance(db, "General", "USD");
       const preDrawerLbp = drawerBalance(db, "General", "LBP");
 
-      expect(() =>
-        repo.settleTransactions({
-          supplier_id: supplierId,
-          financial_service_ids: [fsId],
-          amount_usd: 50,
-          amount_lbp: 100_000,
-          commission_usd: 0,
-          commission_lbp: 0,
-          created_by: 1,
-          // USD leg is exactly right; LBP leg is 50,000 over.
-          payments: [
-            { method: "CASH", currency_code: "USD", amount: 50 },
-            { method: "CASH", currency_code: "LBP", amount: 150_000 },
-          ],
-        }),
-      ).toThrow(/do not reconcile/i);
+      repo.settleTransactions({
+        supplier_id: supplierId,
+        financial_service_ids: [fsId],
+        amount_usd: 50,
+        amount_lbp: 100_000,
+        commission_usd: 0,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 50 },
+          { method: "CASH", currency_code: "LBP", amount: 150_000 },
+        ],
+      });
 
-      expect(ledgerCount(db)).toBe(0);
-      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(preDrawerUsd);
-      expect(drawerBalance(db, "General", "LBP")).toBeCloseTo(preDrawerLbp);
+      expect(drawerBalance(db, "General", "LBP")).toBeCloseTo(
+        preDrawerLbp - 150_000,
+      );
+      const extra = db
+        .prepare(
+          `SELECT amount_usd, amount_lbp FROM supplier_ledger WHERE entry_type = 'PAYMENT'`,
+        )
+        .all() as { amount_usd: number; amount_lbp: number }[];
+      expect(extra).toEqual([{ amount_usd: 0, amount_lbp: -50_000 }]);
     });
 
     // Cashier-facing wording: this reaches the till as a toast, so the
@@ -474,14 +490,22 @@ describe("SupplierRepository.settleTransactions() — leg reconciliation (LIRA-1
         expect(msg).toMatch(/do not reconcile/i);
       });
 
-      it('overpaid → "The payment is more than the total."', () => {
-        const sentence = "The payment is more than the total.";
+      // LIRA-315 — an overpay is accepted now; the remaining "too much"
+      // refusal is change larger than the overpay.
+      it('change larger than the overpay → "The change handed back is more than what was overpaid."', () => {
+        const sentence =
+          "The change handed back is more than what was overpaid.";
         const msg = settleWith(100, 0, [
-          { method: "CASH", currency_code: "USD", amount: 150 },
+          { method: "CASH", currency_code: "USD", amount: 120 },
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 30,
+            direction: "OUT",
+          },
         ]);
         expect(msg.startsWith(`${sentence} (`)).toBe(true);
         expect(count(msg, sentence)).toBe(1);
-        expect(msg).toMatch(/do not reconcile/i);
       });
 
       it('one currency short, the other over → "The payment doesn\'t match the total."', () => {
@@ -495,10 +519,12 @@ describe("SupplierRepository.settleTransactions() — leg reconciliation (LIRA-1
       });
     });
 
-    it("rejects an OUT (change) leg outright — a supplier settlement has no customer to hand change back to", () => {
+    // LIRA-315 — the change box rounds LBP change UP to a 5,000 LBP note:
+    // $0.06 change = 5,340 LBP, handed back as 10,000 LBP (~$0.052 over).
+    // That rounding must not be refused as "more change than overpaid".
+    it("LBP change rounded up to the next 5,000 note is accepted ($100.06 paid, 10,000 LBP back)", () => {
       const supplierId = seedSupplier(db, "Katsh");
       const fsId = seedFs(db, { provider: "Katsh", amount: 100 });
-      const preDrawer = drawerBalance(db, "General", "USD");
 
       expect(() =>
         repo.settleTransactions({
@@ -509,23 +535,53 @@ describe("SupplierRepository.settleTransactions() — leg reconciliation (LIRA-1
           commission_usd: 0,
           commission_lbp: 0,
           created_by: 1,
-          // Tendered $150, $50 "change" back — no code in this method has
-          // ever read a leg's `direction` to honor this; rejected outright
-          // instead, same as settleAccount (LIRA-189).
+          exchange_rate: 89_000,
           payments: [
-            { method: "CASH", currency_code: "USD", amount: 150 },
+            { method: "CASH", currency_code: "USD", amount: 100.06 },
             {
               method: "CASH",
-              currency_code: "USD",
-              amount: 50,
+              currency_code: "LBP",
+              amount: 10_000,
               direction: "OUT",
             },
           ],
         }),
-      ).toThrow(/does not accept OUT/i);
+      ).not.toThrow();
+    });
 
-      expect(ledgerCount(db)).toBe(0);
-      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(preDrawer);
+    // LIRA-315 (owner decision 2026-10-13) — change the supplier hands back
+    // is now a real leg (it used to be rejected outright).
+    it("an OUT (change) leg is booked: $150 paid, $50 back settles $100 exactly, drawer −100, nothing on the account", () => {
+      const supplierId = seedSupplier(db, "Katsh");
+      const fsId = seedFs(db, { provider: "Katsh", amount: 100 });
+      const preDrawer = drawerBalance(db, "General", "USD");
+
+      repo.settleTransactions({
+        supplier_id: supplierId,
+        financial_service_ids: [fsId],
+        amount_usd: 100,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 150 },
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 50,
+            direction: "OUT",
+          },
+        ],
+      });
+
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(preDrawer - 100);
+      expect(ledgerCount(db)).toBe(1); // only the SETTLEMENT row
+      const pay = db
+        .prepare(`SELECT amount, note FROM payments ORDER BY id`)
+        .all() as { amount: number; note: string }[];
+      expect(pay.map((p) => p.amount)).toEqual([-150, 50]);
+      expect(pay[1].note).toBe("Change returned");
     });
 
     it("rejects combining a nonzero net amount owed with an Other-payment commission collection — the Other-payment legs are reserved for the commission", () => {

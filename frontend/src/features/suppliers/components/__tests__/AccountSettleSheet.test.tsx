@@ -336,24 +336,25 @@ describe("AccountSettleSheet (LIRA-189)", () => {
   // would drop the drawer by the FULL entered amount while the ledger nets
   // to 0. Proven failing-first against the pre-fix code (rule 17) before
   // this test was kept — see the ticket's failing_first_proof.
-  it("blocks submit when the entered payment OVERPAYS the selection", async () => {
+  // LIRA-315 (owner decisions 2026-10-12/13) — an overpay is no longer
+  // blocked: the extra is change handed back or stays on the account.
+  it("does NOT block an overpay — submit stays enabled and no mismatch is shown", async () => {
     renderSheet([ROW_OMT, ROW_IPICK]);
     await screen.findAllByTestId("supplier-account-settle-row");
 
     const submit = await screen.findByTestId("supplier-account-settle-submit");
     await waitFor(() => expect(submit).not.toBeDisabled());
 
-    // Selected total / net is $1225 — type $1500, a $275 overpay.
     const amountInput = await screen.findByDisplayValue("1,225");
     fireEvent.change(amountInput, { target: { value: "1500" } });
 
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("supplier-account-settle-mismatch").textContent,
-      ).toMatch(/\$275\.00 more than the net amount/i);
-    });
-    expect(submit).toBeDisabled();
-    expect(mockSettleSupplierAccount).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.getByTestId("return-change")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId("supplier-account-settle-mismatch"),
+    ).not.toBeInTheDocument();
+    expect(submit).not.toBeDisabled();
   });
 
   it("confirms and submits when the entered payment matches the net amount exactly", async () => {

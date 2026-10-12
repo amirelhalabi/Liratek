@@ -154,9 +154,7 @@ function renderPage() {
  *  single-mode auto-sync-to-total effect) plus the Confirm button. */
 async function openSettleConfirm() {
   fireEvent.click(await screen.findByText("OMT"));
-  const legacyRow = (await screen.findByText("OMT_TRANSFER")).closest(
-    "label",
-  )!;
+  const legacyRow = (await screen.findByText("OMT_TRANSFER")).closest("label")!;
   fireEvent.click(within(legacyRow).getByRole("checkbox"));
   fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
 
@@ -189,7 +187,9 @@ describe("Suppliers page — single-supplier settle payment reconciliation (LIRA
     // "confirms ... exactly" case).
     fireEvent.change(amountInput, { target: { value: "100" } });
 
-    expect(screen.queryByTestId("settle-payment-mismatch")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("settle-payment-mismatch"),
+    ).not.toBeInTheDocument();
     expect(submit).not.toBeDisabled();
 
     fireEvent.click(submit);
@@ -202,28 +202,52 @@ describe("Suppliers page — single-supplier settle payment reconciliation (LIRA
     ]);
   });
 
-  // Money-safety regression (LIRA-193's own overpay example): a $100 debt
-  // entered as $150 must never reach settleTransactions — the repository's
-  // own reconciliation guard would now throw, but this is the UI half that
-  // must stop the operator getting there in the first place.
-  it("blocks submit and names the exact overage when the entered payment OVERPAYS the net amount owed", async () => {
+  // LIRA-315 (owner decisions 2026-10-12/13) — LIRA-193's overpay example
+  // ($150 on a $100 debt) is no longer blocked. The money-safety concern it
+  // guarded (drawer −$150, ledger nets $100) is now closed server-side: the
+  // extra is booked on the supplier's account. The UI's job is to send the
+  // change the supplier hands back as an OUT leg (default), or no change
+  // leg at all when the cashier picks "To account".
+  it("an overpay is allowed: by default the $50 goes back as a CASH change (OUT) leg", async () => {
     renderPage();
     const { amountInput, submit } = await openSettleConfirm();
 
     fireEvent.change(amountInput, { target: { value: "150" } });
 
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("settle-payment-mismatch").textContent,
-      ).toMatch(/\$50\.00 more than the net amount/i);
-    });
+    await waitFor(() =>
+      expect(screen.getByTestId("return-change")).toBeInTheDocument(),
+    );
     expect(
-      screen.getByTestId("settle-payment-mismatch").textContent,
-    ).toMatch(/reduce the payment to \$100\.00/i);
-    expect(submit).toBeDisabled();
+      screen.queryByTestId("settle-payment-mismatch"),
+    ).not.toBeInTheDocument();
+    expect(submit).not.toBeDisabled();
 
     fireEvent.click(submit);
-    expect(mockSettleTransactions).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
+    const payload = mockSettleTransactions.mock.calls[0][0];
+    expect(payload.amount_usd).toBe(100);
+    expect(payload.payments).toEqual([
+      { method: "CASH", currency_code: "USD", amount: 150 },
+      { method: "CASH", currency_code: "USD", amount: 50, direction: "OUT" },
+    ]);
+  });
+
+  it("an overpay with 'To account': only the paid leg is sent — the $50 stays on the supplier's account", async () => {
+    renderPage();
+    const { amountInput, submit } = await openSettleConfirm();
+
+    fireEvent.change(amountInput, { target: { value: "150" } });
+    fireEvent.click(await screen.findByTestId("change-destination-account"));
+    expect(screen.getByTestId("change-to-account-summary").textContent).toMatch(
+      /stays on the supplier's account/,
+    );
+
+    fireEvent.click(submit);
+    await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
+    const payload = mockSettleTransactions.mock.calls[0][0];
+    expect(payload.payments).toEqual([
+      { method: "CASH", currency_code: "USD", amount: 150 },
+    ]);
   });
 
   it("blocks submit when the entered payment UNDERPAYS the net amount owed", async () => {
@@ -233,9 +257,9 @@ describe("Suppliers page — single-supplier settle payment reconciliation (LIRA
     fireEvent.change(amountInput, { target: { value: "60" } });
 
     await waitFor(() => {
-      expect(
-        screen.getByTestId("settle-payment-mismatch").textContent,
-      ).toMatch(/doesn't cover the amount owed/i);
+      expect(screen.getByTestId("settle-payment-mismatch").textContent).toMatch(
+        /doesn't cover the amount owed/i,
+      );
     });
     expect(submit).toBeDisabled();
 
@@ -284,7 +308,9 @@ describe("Suppliers page — single-supplier settle payment reconciliation (LIRA
 
     await screen.findByDisplayValue("20000"); // RATE input, confirms the modal opened
 
-    expect(screen.queryByTestId("settle-payment-mismatch")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("settle-payment-mismatch"),
+    ).not.toBeInTheDocument();
     const confirmBtn = screen.getByText("Confirm Settlement");
     expect(confirmBtn).not.toBeDisabled();
 

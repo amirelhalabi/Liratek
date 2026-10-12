@@ -624,8 +624,9 @@ export interface SettleAccountRequest {
    * parent, deliberately left open (never auto-applied) so a LATER
    * settlement can tick it like any other unsettled row — see
    * `SupplierRepository.SettleAccountData.surplus_usd`'s own doc comment
-   * for the full design. Only valid with `direction: "PAY"`; the repository
-   * rejects a nonzero value on COLLECT.
+   * for the full design. LIRA-315: no longer sent by the sheet — the
+   * repository derives the overpay from `payments` (PAY or COLLECT); a value
+   * sent anyway must equal that derived overpay.
    */
   surplus_usd?: number;
   surplus_lbp?: number;

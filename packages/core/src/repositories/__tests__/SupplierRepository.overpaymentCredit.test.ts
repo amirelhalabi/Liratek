@@ -286,7 +286,12 @@ function seedLedgerEntry(
       `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp)
        VALUES (?, ?, ?, ?)`,
     )
-    .run(data.supplierId, data.entryType, data.amountUsd ?? 0, data.amountLbp ?? 0);
+    .run(
+      data.supplierId,
+      data.entryType,
+      data.amountUsd ?? 0,
+      data.amountLbp ?? 0,
+    );
   return Number(res.lastInsertRowid);
 }
 
@@ -346,8 +351,15 @@ function settlementTxnFor(
   txnId: number,
 ): { id: number; status: string; profit_usd: number; profit_lbp: number } {
   return db
-    .prepare(`SELECT id, status, profit_usd, profit_lbp FROM transactions WHERE id = ?`)
-    .get(txnId) as { id: number; status: string; profit_usd: number; profit_lbp: number };
+    .prepare(
+      `SELECT id, status, profit_usd, profit_lbp FROM transactions WHERE id = ?`,
+    )
+    .get(txnId) as {
+    id: number;
+    status: string;
+    profit_usd: number;
+    profit_lbp: number;
+  };
 }
 
 describe("SupplierRepository.settleAccount() — LIRA-203 overpayment surplus", () => {
@@ -372,7 +384,11 @@ describe("SupplierRepository.settleAccount() — LIRA-203 overpayment surplus", 
   });
 
   function seedOmtAccount(): { omtId: number; ipickId: number } {
-    const omtId = seedSupplier(db, { name: "OMT", provider: "OMT", isSystem: 1 });
+    const omtId = seedSupplier(db, {
+      name: "OMT",
+      provider: "OMT",
+      isSystem: 1,
+    });
     const ipickId = seedSupplier(db, {
       name: "iPick",
       provider: "iPick",
@@ -539,7 +555,10 @@ describe("SupplierRepository.settleAccount() — LIRA-203 overpayment surplus", 
 
   // ── Guards ───────────────────────────────────────────────────────────
 
-  it("rejects a nonzero surplus on COLLECT — overpaying only makes sense when PAYING the account", () => {
+  // LIRA-315 (owner decision 2026-10-13) — collecting MORE than the rows
+  // net to used to be refused. The extra now goes on the account the other
+  // way: OMT paid us $10 too much, so we owe OMT $10 (a +$10 row).
+  it("COLLECT $60 on a $50 credit: the row settles and +$10 opens on the parent (we owe the account)", () => {
     const { omtId, ipickId } = seedOmtAccount();
     // A cashout-shaped credit row nets the account negative, forcing COLLECT.
     const creditId = seedLedgerEntry(db, {
@@ -547,24 +566,31 @@ describe("SupplierRepository.settleAccount() — LIRA-203 overpayment surplus", 
       entryType: "PAYMENT",
       amountUsd: -50,
     });
+    const preDrawer = drawerBal(db, "OMT_System", "USD");
 
-    expect(() =>
-      repo.settleAccount({
-        account_supplier_id: omtId,
-        direction: "COLLECT",
-        selections: [{ kind: "LEDGER", id: creditId }],
-        amount_usd: 50,
-        amount_lbp: 0,
-        commission_usd: 0,
-        commission_lbp: 0,
-        surplus_usd: 10,
-        created_by: 1,
-        payments: [{ method: "CASH", currency_code: "USD", amount: 60 }],
-      }),
-    ).toThrow(/overpayment surplus is only valid when paying/i);
+    repo.settleAccount({
+      account_supplier_id: omtId,
+      direction: "COLLECT",
+      selections: [{ kind: "LEDGER", id: creditId }],
+      amount_usd: 50,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 0,
+      surplus_usd: 10, // an older client's declared surplus — still matches
+      created_by: 1,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 60 }],
+    });
 
-    // Nothing moved.
-    expect(ledgerSum(db, ipickId).usd).toBeCloseTo(-50);
+    expect(ledgerSum(db, ipickId).usd).toBeCloseTo(0);
+    expect(ledgerSum(db, omtId).usd).toBeCloseTo(10);
+    expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer + 60);
+    const extra = db
+      .prepare(
+        `SELECT entry_type, settlement_id FROM supplier_ledger WHERE supplier_id = ? AND amount_usd > 0`,
+      )
+      .get(omtId) as { entry_type: string; settlement_id: number | null };
+    expect(extra.entry_type).toBe("SUPPLIER_PAYS_US");
+    expect(extra.settlement_id).toBeNull();
   });
 
   it("rejects a negative surplus_usd outright", () => {
@@ -600,20 +626,23 @@ describe("SupplierRepository.settleAccount() — LIRA-203 overpayment surplus", 
     });
     const preDrawer = drawerBal(db, "OMT_System", "USD");
 
-    expect(() =>
-      repo.settleAccount({
-        account_supplier_id: omtId,
-        direction: "PAY",
-        selections: [{ kind: "LEDGER", id: debtId }],
-        amount_usd: 100,
-        amount_lbp: 0,
-        commission_usd: 0,
-        commission_lbp: 0,
-        surplus_usd: 50, // declares a $50 surplus...
-        created_by: 1,
-        payments: [{ method: "CASH", currency_code: "USD", amount: 120 }], // ...but only sends $120
-      }),
-    ).toThrow(/do not reconcile/i);
+    expect(
+      () =>
+        repo.settleAccount({
+          account_supplier_id: omtId,
+          direction: "PAY",
+          selections: [{ kind: "LEDGER", id: debtId }],
+          amount_usd: 100,
+          amount_lbp: 0,
+          commission_usd: 0,
+          commission_lbp: 0,
+          surplus_usd: 50, // declares a $50 surplus...
+          created_by: 1,
+          payments: [{ method: "CASH", currency_code: "USD", amount: 120 }], // ...but only sends $120
+        }),
+      // LIRA-315 — the overpay is derived from the legs ($20); a declared
+      // surplus that disagrees with it is refused.
+    ).toThrow(/doesn't match the overpayment entered/i);
 
     // Nothing moved — atomic rollback, exactly like the no-surplus case.
     expect(ledgerSum(db, ipickId).usd).toBeCloseTo(100);
@@ -622,29 +651,32 @@ describe("SupplierRepository.settleAccount() — LIRA-203 overpayment surplus", 
 
   // ── D18's original guard, UNCHANGED when surplus is simply omitted ─────
 
-  it("with no surplus field at all, an overpaid leg is STILL hard-rejected — byte-identical to pre-LIRA-203 behaviour", () => {
+  // LIRA-315 (owner decision 2026-10-13) — no surplus field needed any
+  // more: paying more IS the overpay. Same result as the declared case.
+  it("with no surplus field at all, an overpaid leg books the extra on the account parent (the sheet's new flow)", () => {
     const { omtId, ipickId } = seedOmtAccount();
     const debtId = seedLedgerEntry(db, {
       supplierId: ipickId,
       entryType: "TOP_UP",
       amountUsd: 100,
     });
+    const preDrawer = drawerBal(db, "OMT_System", "USD");
 
-    expect(() =>
-      repo.settleAccount({
-        account_supplier_id: omtId,
-        direction: "PAY",
-        selections: [{ kind: "LEDGER", id: debtId }],
-        amount_usd: 100,
-        amount_lbp: 0,
-        commission_usd: 0,
-        commission_lbp: 0,
-        created_by: 1,
-        payments: [{ method: "CASH", currency_code: "USD", amount: 150 }],
-      }),
-    ).toThrow(/do not reconcile/i);
+    repo.settleAccount({
+      account_supplier_id: omtId,
+      direction: "PAY",
+      selections: [{ kind: "LEDGER", id: debtId }],
+      amount_usd: 100,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 0,
+      created_by: 1,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 150 }],
+    });
 
-    expect(ledgerSum(db, ipickId).usd).toBeCloseTo(100);
+    expect(ledgerSum(db, ipickId).usd).toBeCloseTo(0);
+    expect(ledgerSum(db, omtId).usd).toBeCloseTo(-50);
+    expect(drawerBal(db, "OMT_System", "USD")).toBeCloseTo(preDrawer - 150);
   });
 
   // ── Void/reversal (rule 20) ─────────────────────────────────────────────

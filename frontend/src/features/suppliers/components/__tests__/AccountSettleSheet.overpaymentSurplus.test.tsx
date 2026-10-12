@@ -1,22 +1,34 @@
 /** @jest-environment jsdom */
 
 /**
- * LIRA-203 (owner D18 follow-up, OWNER_NOTES_2026-09-21.md §2b) —
- * `AccountSettleSheet`'s overpayment-surplus UI: paying MORE than the ticked
- * rows' net on PAY records the difference as a standalone account credit
- * (never auto-applied), and any credit already sitting on the account is
- * surfaced (not hidden) so the operator knows it can be applied by simply
- * leaving the credit row ticked.
+ * LIRA-203 (owner D18 follow-up) → LIRA-315 (owner decisions 2026-10-12/13):
+ * paying (or collecting) MORE than the ticked rows' net is allowed with NO
+ * separate "Overpayment" field. The payment box's change section decides:
+ * "Get change back" (default — the other side hands it back, an OUT leg) or
+ * "To account" (no leg — the server books the extra on the account, opened
+ * as a credit row it never auto-applies). Any credit already sitting on the
+ * account is surfaced so the operator knows it can be applied by leaving
+ * the credit row ticked. Rule 24: the old surplus-field cases were rewritten
+ * to guard the new flow, not deleted.
  *
  * Same rendering strategy as `AccountSettleSheet.test.tsx` (real
  * `@liratek/ui` `MultiPaymentInput`, only `useApi` mocked) — a broken
  * payload shape must fail here, not only in review.
  */
 
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AccountSettleSheet } from "../AccountSettleSheet";
-import type { AccountBalance, AccountUnsettledRow } from "../../hooks/useSuppliers";
+import type {
+  AccountBalance,
+  AccountUnsettledRow,
+} from "../../hooks/useSuppliers";
 
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
@@ -140,34 +152,37 @@ function renderSheet(
   const onSettled = jest.fn();
   render(
     <QueryClientProvider client={queryClient}>
-      <AccountSettleSheet account={account} onClose={onClose} onSettled={onSettled} />
+      <AccountSettleSheet
+        account={account}
+        onClose={onClose}
+        onSettled={onSettled}
+      />
     </QueryClientProvider>,
   );
   return { onClose, onSettled };
 }
 
-describe("AccountSettleSheet — LIRA-203 overpayment surplus", () => {
+describe("AccountSettleSheet — overpayment (LIRA-203 → LIRA-315)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 555 });
   });
 
-  it("PAY with a declared surplus widens the payment target and sends surplus_usd SEPARATELY from the rows-only amount_usd", async () => {
+  it("PAY $1,275 on $1,225 with 'To account': sends the rows-only amount_usd, ONE paid leg of 1,275, no surplus field and no change leg", async () => {
     renderSheet([ROW_OMT, ROW_IPICK]);
     await screen.findAllByTestId("supplier-account-settle-row");
 
     const submit = await screen.findByTestId("supplier-account-settle-submit");
     await waitFor(() => expect(submit).not.toBeDisabled());
 
-    const surplusInput = screen.getByTestId(
-      "supplier-account-settle-surplus-input",
+    const amountInput = await screen.findByDisplayValue("1,225");
+    fireEvent.change(amountInput, { target: { value: "1275" } });
+    fireEvent.click(await screen.findByTestId("change-destination-account"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("change-to-account-summary").textContent,
+      ).toMatch(/\$50\.00 not given back stays on OMT's account/),
     );
-    fireEvent.change(surplusInput, { target: { value: "50" } });
-
-    // MultiPaymentInput remounts (key includes targetAmount) and re-seeds a
-    // CASH line at the WIDENED total: 1225 (rows) + 50 (surplus) = 1275.
-    const amountInput = await screen.findByDisplayValue("1,275");
-    expect(amountInput).toBeInTheDocument();
 
     await waitFor(() => expect(submit).not.toBeDisabled());
     fireEvent.click(submit);
@@ -179,66 +194,52 @@ describe("AccountSettleSheet — LIRA-203 overpayment surplus", () => {
     // The ROWS guard is untouched — D18.
     expect(payload.amount_usd).toBeCloseTo(1225, 2);
     expect(payload.amount_lbp).toBe(0);
-    // The surplus travels as its OWN field.
-    expect(payload.surplus_usd).toBeCloseTo(50, 2);
+    // No separate surplus field — the server derives the extra from the legs.
+    expect(payload.surplus_usd).toBeUndefined();
     expect(payload.surplus_lbp).toBeUndefined();
     expect(payload.payments).toEqual([
       { method: "CASH", currency_code: "USD", amount: 1275 },
     ]);
   });
 
-  it("shows an explanatory note that the surplus is recorded as credit and applied manually, never automatically", async () => {
+  it("the default for an overpay is 'Get change back': the $275 is sent as a CASH change (OUT) leg", async () => {
     renderSheet([ROW_OMT, ROW_IPICK]);
     await screen.findAllByTestId("supplier-account-settle-row");
 
-    const surplusInput = screen.getByTestId(
-      "supplier-account-settle-surplus-input",
-    );
-    fireEvent.change(surplusInput, { target: { value: "25" } });
+    const submit = await screen.findByTestId("supplier-account-settle-submit");
+    await waitFor(() => expect(submit).not.toBeDisabled());
+
+    const amountInput = await screen.findByDisplayValue("1,225");
+    fireEvent.change(amountInput, { target: { value: "1500" } });
+
+    expect(
+      screen.queryByTestId("supplier-account-settle-mismatch"),
+    ).not.toBeInTheDocument();
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
 
     await waitFor(() => {
-      const note = screen.getByTestId("supplier-account-settle-surplus-note");
-      expect(note.textContent).toMatch(/account credit/i);
-      expect(note.textContent).toMatch(/never applied automatically/i);
+      expect(mockSettleSupplierAccount).toHaveBeenCalledTimes(1);
     });
+    const [, payload] = mockSettleSupplierAccount.mock.calls[0];
+    expect(payload.payments).toEqual([
+      { method: "CASH", currency_code: "USD", amount: 1500 },
+      { method: "CASH", currency_code: "USD", amount: 275, direction: "OUT" },
+    ]);
   });
 
-  it("the surplus input is not offered on COLLECT, and a value typed on PAY is cleared when switching to COLLECT", async () => {
+  it("no separate Overpayment field is offered — on PAY or COLLECT", async () => {
     renderSheet([ROW_OMT, ROW_IPICK]);
     await screen.findAllByTestId("supplier-account-settle-row");
-
-    const surplusInput = screen.getByTestId(
-      "supplier-account-settle-surplus-input",
-    );
-    fireEvent.change(surplusInput, { target: { value: "50" } });
-    expect(
-      (screen.getByTestId(
-        "supplier-account-settle-surplus-input",
-      ) as HTMLInputElement).value,
-    ).toBe("50");
-
-    fireEvent.click(
-      screen.getByTestId("supplier-account-settle-direction-collect"),
-    );
-
-    // The surplus control disappears entirely on COLLECT — core rejects a
-    // nonzero surplus there, so the UI never offers it.
     expect(
       screen.queryByTestId("supplier-account-settle-surplus-input"),
     ).not.toBeInTheDocument();
-
     fireEvent.click(
-      screen.getByTestId("supplier-account-settle-direction-pay"),
+      screen.getByTestId("supplier-account-settle-direction-collect"),
     );
-
-    // Switching back to PAY shows a FRESH (cleared) input, not the stale 50.
-    await waitFor(() => {
-      expect(
-        (screen.getByTestId(
-          "supplier-account-settle-surplus-input",
-        ) as HTMLInputElement).value,
-      ).toBe("");
-    });
+    expect(
+      screen.queryByTestId("supplier-account-settle-surplus-input"),
+    ).not.toBeInTheDocument();
   });
 
   it("surfaces an available-credit banner when the account already carries a negative (credit) balance", async () => {
@@ -271,21 +272,20 @@ describe("AccountSettleSheet — LIRA-203 overpayment surplus", () => {
     expect(within(debtRow).queryByText("Credit")).not.toBeInTheDocument();
   });
 
-  it("the existing exact-match overpay guard still fires with a surplus of 0 (undeclared overpay stays blocked)", async () => {
+  it("an UNDERpay is still a hard block (a ticked row can't be partly paid)", async () => {
     renderSheet([ROW_OMT, ROW_IPICK]);
     await screen.findAllByTestId("supplier-account-settle-row");
 
     const submit = await screen.findByTestId("supplier-account-settle-submit");
     await waitFor(() => expect(submit).not.toBeDisabled());
 
-    // No surplus declared — a raw overpaid leg is still a hard block.
     const amountInput = await screen.findByDisplayValue("1,225");
-    fireEvent.change(amountInput, { target: { value: "1500" } });
+    fireEvent.change(amountInput, { target: { value: "1000" } });
 
     await waitFor(() => {
       expect(
         screen.getByTestId("supplier-account-settle-mismatch").textContent,
-      ).toMatch(/\$275\.00 more than the net amount/i);
+      ).toMatch(/doesn.t cover the selected rows/i);
     });
     expect(submit).toBeDisabled();
     expect(mockSettleSupplierAccount).not.toHaveBeenCalled();

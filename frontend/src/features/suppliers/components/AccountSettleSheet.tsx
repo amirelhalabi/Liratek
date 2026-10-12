@@ -94,15 +94,13 @@ function isWaitingRow(
  * these unconditionally (0 for any non-cashout row), so this never guesses
  * at a server-computed commission.
  *
- * Overpayment surplus (LIRA-203, owner D18 follow-up): the sheet used to
- * hard-block ANY entered amount above the selected rows' net (see the old
- * comment on `overpaid` below, kept for history) — that block stays for an
- * UNDECLARED overpay, but PAY now offers an explicit "record as credit"
- * amount that widens the payment target on top of the rows' own net. The
- * surplus is entered in the settlement's own collapsed currency
- * (`collapsedNet.currency`) — the same single currency `MultiPaymentInput`
- * already targets for the rows themselves — and sent as `surplus_usd` XOR
- * `surplus_lbp` accordingly; core rejects it outright on COLLECT. Existing
+ * Overpayment (LIRA-315, owner decisions 2026-10-12/13 — replaces LIRA-203's
+ * separate "record an overpayment" field): paying (PAY) or collecting
+ * (COLLECT) MORE than the selected rows net to is allowed. The payment box's
+ * change section decides what happens to the extra: "Get change back" /
+ * "Return change" (the default — the other side hands it back, sent as OUT
+ * legs) or "To account" (no leg — the server books the extra on the
+ * account). Only an underpayment blocks Confirm. Existing
  * open credit (a prior overpayment, or a `WALLET_CASHOUT`) needs NO new UI
  * to "apply": it is already a negative row in the list above, pre-selected
  * like any other, and ticking/unticking it already nets against debt via
@@ -192,11 +190,9 @@ export function AccountSettleSheet({
   const [commissionLbpInput, setCommissionLbpInput] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  // LIRA-203 — declared overpayment, recorded as an account credit. Only
-  // meaningful on PAY (core rejects a nonzero surplus on COLLECT) — cleared
-  // whenever the direction isn't PAY so a stale value can never leak into a
-  // COLLECT submission.
-  const [surplusInput, setSurplusInput] = useState("");
+  // LIRA-315 — change handed back on an overpaid settlement (OUT legs).
+  // Change NOT handed back stays on the account: the server books it.
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
 
   // D8 — pre-select every open row the FIRST time the queue resolves (not
   // on every refetch, which would silently re-check rows the admin had
@@ -236,29 +232,14 @@ export function AccountSettleSheet({
   const direction = directionOverride ?? collapsedNet.direction;
   const rowsTargetAmount = Math.abs(collapsedNet.amount);
 
-  // LIRA-203 — only meaningful on PAY; core rejects a nonzero surplus on
-  // COLLECT (an "overpaid collect" is a different, undesigned flow). Parsed
-  // defensively like every other free-text money field in this file.
-  const surplusAmount =
-    direction === "PAY"
-      ? Math.max(0, parseFloat(surplusInput.replace(/,/g, "")) || 0)
-      : 0;
-  const hasSurplusInput = surplusAmount > NET_EPS;
-  useEffect(() => {
-    if (direction !== "PAY" && surplusInput !== "") setSurplusInput("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [direction]);
-
-  // The amount `MultiPaymentInput` must be handed and the payment legs must
-  // reconcile to — rows' own net PLUS whatever overpayment surplus was
-  // declared (0 when none). `data.amount_usd`/`amount_lbp` sent on submit
-  // below stay the rows-only figures — this combined figure only ever feeds
-  // the leg-side UI/target, never the rows guard itself.
-  const targetAmount = rowsTargetAmount + surplusAmount;
+  // What the payment must AT LEAST cover — the rows' own net. Anything
+  // above it is overpay (LIRA-315): handed back as change, or left on the
+  // account.
+  const targetAmount = rowsTargetAmount;
   const hasTarget = targetAmount > NET_EPS;
 
   // Reset the payment legs whenever the target the admin must cover changes
-  // (a different selection, a manual direction flip, or a surplus edit) — a
+  // (a different selection or a manual direction flip) — a
   // stale leg from a previous selection must never silently carry into a
   // new one.
   const multiPaymentKey = `${direction}-${targetAmount.toFixed(2)}-${collapsedNet.currency}`;
@@ -280,21 +261,13 @@ export function AccountSettleSheet({
   // short of the selected total can't partially settle a row, so this is a
   // hard block, not just a warning the admin can submit past.
   //
-  // Money-safety (owner-reported overpay bug) — an entered amount ABOVE the
-  // target (rows' net + any DECLARED surplus above) is ALSO a hard block,
-  // not just the lower bound. This sheet deliberately does NOT wire
-  // MultiPaymentInput's `onReturnChange`/`onKeptChange`, so every leg it
-  // produces is IN — there is no customer here for a supplier settlement to
-  // return change to, and the core repository rejects any leg with
-  // `direction: "OUT"` outright. LIRA-203 is the designed overpay flow this
-  // comment used to say didn't exist yet: an UNDECLARED overpaid IN leg
-  // still must never reach the backend (the reviewer-proven "$150 leg
-  // settles a $100 debt, drawer drops $150, ledger nets to 0" bug) — the
-  // surplus input above is the ONLY sanctioned way to widen the target, and
-  // once widened, legs must STILL reconcile to it exactly.
+  // LIRA-315 (owner decisions 2026-10-12/13): an amount ABOVE the rows' net
+  // is no longer blocked. The extra is change handed back (OUT legs, from
+  // `onReturnChange`) or stays on the account — the server derives and
+  // books it (`_resolveSettlementLegs`), so the old "undeclared overpay
+  // drops the drawer with no ledger fact" leak cannot happen.
   const underpaid = hasTarget && enteredAmount < targetAmount - NET_EPS;
-  const overpaid = hasTarget && enteredAmount > targetAmount + NET_EPS;
-  const reconciles = !underpaid && !overpaid;
+  const reconciles = !underpaid;
 
   const settleMutation = useSettleSupplierAccountMutation(
     account.account_supplier_id,
@@ -331,8 +304,8 @@ export function AccountSettleSheet({
       const result = await settleMutation.mutateAsync({
         direction,
         selections,
-        // Rows-only net — UNCHANGED by the surplus (D18: the ticked rows
-        // settle exactly as today). The surplus travels separately below.
+        // Rows-only net — the ticked rows settle exactly (D18). Any extra the
+        // legs carry is derived and booked server-side (LIRA-315).
         amount_usd: Math.abs(totals.netUsd),
         amount_lbp: Math.abs(totals.netLbp),
         commission_usd: commissionUsd,
@@ -341,21 +314,24 @@ export function AccountSettleSheet({
         ...(trimmedNote ? { note: trimmedNote } : {}),
         ...(activeLines.length > 0
           ? {
-              payments: activeLines.map((p) => ({
-                method: p.method,
-                currency_code: p.currencyCode,
-                amount: p.amount,
-              })),
+              // ONE payload (rule 22): paid lines + change handed back as
+              // OUT legs (LIRA-315).
+              payments: [
+                ...activeLines.map((p) => ({
+                  method: p.method,
+                  currency_code: p.currencyCode,
+                  amount: p.amount,
+                })),
+                ...returnLegs
+                  .filter((l) => l.amount > 0)
+                  .map((l) => ({
+                    method: l.method,
+                    currency_code: l.currencyCode,
+                    amount: l.amount,
+                    direction: "OUT" as const,
+                  })),
+              ],
             }
-          : {}),
-        // LIRA-203 — entered in the settlement's own collapsed currency
-        // (the same single currency MultiPaymentInput targets); core
-        // rejects a nonzero value on COLLECT (already guaranteed here since
-        // `surplusAmount` is forced to 0 off PAY).
-        ...(hasSurplusInput
-          ? collapsedNet.currency === "LBP"
-            ? { surplus_lbp: surplusAmount }
-            : { surplus_usd: surplusAmount }
           : {}),
         // LIRA-256 — only when the statement covers some types, never for
         // "All types" (absent = unchanged behaviour).
@@ -603,60 +579,12 @@ export function AccountSettleSheet({
                 className="text-amber-400 text-xs"
                 data-testid="supplier-account-settle-mismatch"
               >
-                {underpaid
-                  ? "The entered payment doesn't cover the selected rows — a selected row can't be partially paid. Enter the full net amount or deselect some rows."
-                  : `The entered payment is ${formatMoney(
-                      enteredAmount - targetAmount,
-                      collapsedNet.currency,
-                    )} more than the net amount${hasSurplusInput ? " + declared surplus" : ""}. Settlement legs must match exactly — reduce the payment to ${formatMoney(
-                      targetAmount,
-                      collapsedNet.currency,
-                    )}${hasSurplusInput ? ", or lower the overpayment amount below" : ""}.`}
+                The entered payment doesn&apos;t cover the selected rows — a
+                selected row can&apos;t be partially paid. Enter the full net
+                amount or deselect some rows.
               </p>
             )}
           </div>
-
-          {/* LIRA-203 — record a DECLARED overpayment as account credit.
-              PAY only (core rejects a nonzero surplus on COLLECT — there is
-              no ticked debt to overpay against when the account already
-              owes the shop). Entered in the settlement's own collapsed
-              currency and added straight onto `targetAmount`, so the
-              payment-leg input below already asks for rows + surplus. */}
-          {direction === "PAY" && (
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">
-                Record an overpayment as account credit (optional,{" "}
-                {collapsedNet.currency})
-              </label>
-              <input
-                type="text"
-                inputMode="decimal"
-                data-testid="supplier-account-settle-surplus-input"
-                value={surplusInput}
-                onChange={(e) => {
-                  const raw = e.target.value.replace(/,/g, "");
-                  if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
-                    setSurplusInput(raw);
-                  }
-                }}
-                placeholder="0.00"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
-              />
-              {hasSurplusInput && (
-                <p
-                  className="text-emerald-400 text-xs mt-1"
-                  data-testid="supplier-account-settle-surplus-note"
-                >
-                  Paying {formatMoney(targetAmount, collapsedNet.currency)}{" "}
-                  total — the{" "}
-                  {formatMoney(surplusAmount, collapsedNet.currency)} above the
-                  selected rows will be recorded as an account credit (
-                  {account.account_name} will owe the shop), applied manually at
-                  a future settlement — it is never applied automatically.
-                </p>
-              )}
-            </div>
-          )}
 
           {/* Settlement-day commission for whichever selected rows are
               commission-eligible (the OMT counter, LUMP — iPick never earns
@@ -711,6 +639,12 @@ export function AccountSettleSheet({
               totalAmountCurrency={collapsedNet.currency}
               currency={collapsedNet.currency}
               onChange={setPaymentLines}
+              // LIRA-315 (owner decisions 2026-10-12/13) — the extra is
+              // change handed back (default) or left on the account.
+              onReturnChange={setReturnLegs}
+              unreturnedChangeTo="ACCOUNT_BALANCE"
+              accountLabel={`${account.account_name}'s account`}
+              cashOnlyReturn
               showPmFee={false}
               showDiscount={false}
               paymentMethods={methods}

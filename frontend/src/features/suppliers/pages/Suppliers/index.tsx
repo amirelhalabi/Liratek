@@ -828,6 +828,10 @@ export default function SuppliersPage() {
   const [settlePaymentLines, setSettlePaymentLines] = useState<PaymentLine[]>(
     [],
   );
+  // LIRA-315 — change the supplier hands back on an overpaid settlement
+  // (OUT legs). Change NOT handed back stays on the supplier's account: the
+  // server books the extra there.
+  const [settleReturnLegs, setSettleReturnLegs] = useState<PaymentLine[]>([]);
   // Owner decision 2026-10-07: the rate the cashier actually used on the
   // Settle sheet's payment input (reported via onExchangeRateChange, also on
   // every remount). Sent as `exchange_rate` and stamped on the
@@ -1575,10 +1579,11 @@ export default function SuppliersPage() {
   // enabled for a payload the repository is about to reject with
   // "Settlement payment legs do not reconcile to the net amount owed".
   //
-  // Deliberately does NOT wire MultiPaymentInput's `onReturnChange`/
-  // `onKeptChange` below — a supplier settlement has no customer to hand
-  // change back to, and the repository now rejects any leg carrying
-  // `direction: "OUT"` outright. Do not "helpfully" add them.
+  // LIRA-315 (owner decisions 2026-10-12/13): paying MORE than the net is
+  // allowed — the extra goes on the supplier's account, and change the
+  // supplier hands back is sent as OUT legs (`onReturnChange` below). Only
+  // underpaying blocks Confirm. `onKeptChange` stays unwired: change not
+  // handed back is the supplier's credit, never shop profit or cost.
   const settleEnteredUsd = useMemo(
     () =>
       settlePaymentLines
@@ -1603,12 +1608,7 @@ export default function SuppliersPage() {
   // is even the relevant problem. Not reachable today (settleNetPayLbp is
   // structurally 0 in this branch — see its own comment), kept correct for
   // when a future LBP-eligible non-bill row stops that being true.
-  const settleOverpaid =
-    settleOwesCash &&
-    !settleUnderpaid &&
-    (settleEnteredUsd > settleNetPayUsd + 0.005 ||
-      settleEnteredLbp > settleNetPayLbp + 0.005);
-  const settleLegsReconcile = !settleUnderpaid && !settleOverpaid;
+  const settleLegsReconcile = !settleUnderpaid;
 
   // Owner follow-up (2026-08-13) — "Other payment" mode's legs are NOT a
   // net-pay tender (settleOwesCash is always false for a bills-only batch);
@@ -1798,11 +1798,23 @@ export default function SuppliersPage() {
           : {}),
         ...(activeLines.length > 0
           ? {
-              payments: activeLines.map((p) => ({
-                method: p.method,
-                currency_code: p.currencyCode,
-                amount: p.amount,
-              })),
+              // ONE payload (rule 22): paid lines + change handed back as
+              // OUT legs (LIRA-315). Change only exists on a net-pay tender.
+              payments: [
+                ...activeLines.map((p) => ({
+                  method: p.method,
+                  currency_code: p.currencyCode,
+                  amount: p.amount,
+                })),
+                ...(isBillsOnlyBatch ? [] : settleReturnLegs)
+                  .filter((l) => l.amount > 0)
+                  .map((l) => ({
+                    method: l.method,
+                    currency_code: l.currencyCode,
+                    amount: l.amount,
+                    direction: "OUT" as const,
+                  })),
+              ],
             }
           : {}),
         // LIRA-256 — OMT supplier only, and only when not "All types".
@@ -1824,6 +1836,7 @@ export default function SuppliersPage() {
       setShowSettleConfirm(false);
       setSelectedSettleIds(new Set());
       setSettlePaymentLines([]);
+      setSettleReturnLegs([]);
       setSettleNote("");
     } catch {
       alert("Settlement failed");
@@ -3463,17 +3476,9 @@ export default function SuppliersPage() {
                   className="text-amber-400 text-xs"
                   data-testid="settle-payment-mismatch"
                 >
-                  {settleUnderpaid
-                    ? "The entered payment doesn't cover the amount owed for these transactions — enter the full net amount or deselect some transactions."
-                    : `The entered payment is ${formatMoney(
-                        (settleNetPayCurrency === "LBP"
-                          ? settleEnteredLbp
-                          : settleEnteredUsd) - settleNetPayAmount,
-                        settleNetPayCurrency,
-                      )} more than the net amount. Settlement legs must match exactly — reduce the payment to ${formatMoney(
-                        settleNetPayAmount,
-                        settleNetPayCurrency,
-                      )}.`}
+                  The entered payment doesn&apos;t cover the amount owed for
+                  these transactions — enter the full net amount or deselect
+                  some transactions.
                 </p>
               )}
             </div>
@@ -3524,6 +3529,13 @@ export default function SuppliersPage() {
                   totalAmountCurrency: settleNetPayCurrency,
                   currency: settleNetPayCurrency,
                   onChange: setSettlePaymentLines,
+                  // LIRA-315 (owner decisions 2026-10-12/13) — an overpay is
+                  // change the supplier hands back (default) or left on the
+                  // supplier's account; the server books the extra.
+                  onReturnChange: setSettleReturnLegs,
+                  unreturnedChangeTo: "ACCOUNT_BALANCE",
+                  accountLabel: "the supplier's account",
+                  cashOnlyReturn: true,
                   showPmFee: false,
                   showDiscount: false,
                   paymentMethods: methods,
