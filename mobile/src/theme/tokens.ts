@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 /**
  * Colours copied from the web app's CSS variables (frontend/src/index.css,
  * :root for light and html.dark for dark). The web paints plain Tailwind
@@ -77,5 +79,12 @@ export const light: Palette = {
 export const radius = { lg: 8, xl: 12, xxl: 16 } as const;
 /** Space to keep at the bottom of a scrolling page so its end clears the floating tab bar. */
 export const TAB_BAR_CLEARANCE = 110;
+
+/**
+ * Bottom offset for a control floating above the tab bar (search button, cart
+ * bar). iOS's floating bar sits over the page, so the control clears it;
+ * Android's Material bar sits below the page, so a small gap is enough.
+ */
+export const FLOATING_BOTTOM = Platform.OS === "android" ? 16 : TAB_BAR_CLEARANCE - 8;
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 32 } as const;

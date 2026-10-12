@@ -41,7 +41,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "./plugins/withReleaseSigning",
     [
       "expo-splash-screen",
-      { image: "./assets/splash.png", imageWidth: 260, resizeMode: "contain", backgroundColor: "#020222" },
+      {
+        image: "./assets/splash.png",
+        imageWidth: 260,
+        resizeMode: "contain",
+        backgroundColor: "#020222",
+        // Android 12+ shows the splash logo inside a circle and crops the rest,
+        // which cut the wide wordmark to "LIRATE". Android gets the square
+        // swirl, which fits the circle; iOS keeps the wordmark.
+        android: { image: "./assets/brand/liratek-swirl.png", imageWidth: 140 },
+      },
     ],
   ],
   experiments: { typedRoutes: true },

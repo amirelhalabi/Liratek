@@ -40,7 +40,7 @@ import { queryKeys } from "@/data/queryKeys";
 import { useShopSlug } from "@/data/useShop";
 import { unwrap } from "@/data/unwrap";
 import { useTheme } from "@/theme/ThemeProvider";
-import { radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
+import { FLOATING_BOTTOM, radius, spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
 
 type Provider = "Katsh" | "iPick";
 type PayMethod = "CUSTOMER_ACCOUNT" | "WHISH" | "OMT";
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: spacing.lg,
     right: spacing.lg,
-    bottom: TAB_BAR_CLEARANCE - spacing.sm,
+    bottom: FLOATING_BOTTOM,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,

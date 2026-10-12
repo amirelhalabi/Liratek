@@ -1,6 +1,7 @@
 import { router, useSegments } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useEffect } from "react";
+import { Platform } from "react-native";
 
 import { PageBackground } from "@/components/PageBackground";
 import { useModuleGates } from "@/data/useModuleGates";
@@ -26,9 +27,26 @@ export default function AppLayout() {
   const gates = useModuleGates();
   const visible: Record<string, boolean> = { sell: sellTabVisible(gates), debts: debtsTabVisible(gates) };
   useLeaveHiddenTab(visible);
+  // Android draws the Material bottom bar: give it the app's colours, a label
+  // under every icon and a soft accent pill on the active tab. iOS keeps the
+  // system Liquid Glass bar untouched, so these props are Android-only.
+  const androidBar =
+    Platform.OS === "android"
+      ? {
+          backgroundColor: t.card,
+          labelVisibilityMode: "labeled" as const,
+          indicatorColor: withAlpha(t.accent, 0.2),
+          rippleColor: withAlpha(t.accent, 0.16),
+          iconColor: { default: t.textMuted, selected: t.accent },
+          labelStyle: {
+            default: { color: t.textMuted, fontSize: 12 },
+            selected: { color: t.accent, fontSize: 12, fontWeight: "600" as const },
+          },
+        }
+      : {};
   return (
     <PageBackground>
-      <NativeTabs tintColor={t.accent} minimizeBehavior="onScrollDown">
+      <NativeTabs tintColor={t.accent} minimizeBehavior="onScrollDown" {...androidBar}>
         <NativeTabs.Trigger name="(home)" contentStyle={content}>
           <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
           <NativeTabs.Trigger.Icon sf={{ default: "house", selected: "house.fill" }} md="home" />
@@ -63,4 +81,12 @@ function useLeaveHiddenTab(visible: Record<string, boolean>) {
   useEffect(() => {
     if (hidden) router.replace("/");
   }, [hidden]);
+}
+
+/** `#rrggbb` with an alpha channel (0–1), for the Android bar's pill and ripple. */
+function withAlpha(hex: string, alpha: number): string {
+  const a = Math.round(alpha * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `${hex}${a}`;
 }

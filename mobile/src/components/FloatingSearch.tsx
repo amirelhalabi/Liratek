@@ -15,7 +15,7 @@ import {
 
 import { useDockState } from "@/native/tabBarState";
 import { useTheme, useThemePreference } from "@/theme/ThemeProvider";
-import { spacing, TAB_BAR_CLEARANCE } from "@/theme/tokens";
+import { FLOATING_BOTTOM, spacing } from "@/theme/tokens";
 
 const GLASS = isLiquidGlassAvailable();
 
@@ -100,10 +100,11 @@ export function FloatingSearch({
   // cover that button); otherwise just above the floating tab bar.
   const bottom =
     keyboard > 0
-      ? keyboard + spacing.sm
+      ? // Android already shrinks the screen above the keyboard; iOS does not.
+        (Platform.OS === "android" ? 0 : keyboard) + spacing.sm
       : minimized
         ? (dock.centerFromBottom || FALLBACK_CENTER) - FAB_SIZE / 2
-        : TAB_BAR_CLEARANCE - spacing.sm;
+        : FLOATING_BOTTOM;
 
   if (!open) {
     return (
