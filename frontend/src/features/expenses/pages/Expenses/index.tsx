@@ -11,6 +11,7 @@ import {
   Select,
   useApi,
   MultiPaymentInput,
+  DecimalInput,
   type PaymentLine,
 } from "@liratek/ui";
 import { HistoryModal } from "./components/HistoryModal";
@@ -484,16 +485,15 @@ export default function Expenses() {
                   Bill amount *
                 </label>
                 <div className="flex gap-2">
-                  <input
+                  {/* The app's one amount input: shows 100,000 while the
+                      state keeps the plain number (same as Exchange / POS). */}
+                  <DecimalInput
                     id="expense-bill-amount"
                     data-testid="expense-bill-amount"
-                    type="text"
-                    inputMode="decimal"
-                    value={billAmount}
-                    onChange={(e) =>
-                      setBillAmount(e.target.value.replace(/[^0-9.]/g, ""))
-                    }
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white font-mono focus:border-orange-500 focus:ring-2 focus:ring-orange-500/50 outline-none transition-all"
+                    value={Number(billAmount) || 0}
+                    onChange={(v) => setBillAmount(v ? String(v) : "")}
+                    decimals={billCurrency === "USD" ? 2 : 0}
+                    className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white font-mono focus:border-orange-500 focus:ring-2 focus:ring-orange-500/50 outline-none transition-all"
                     placeholder={billCurrency === "USD" ? "0.00" : "0"}
                   />
                   <div

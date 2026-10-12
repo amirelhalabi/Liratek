@@ -355,6 +355,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Passwords may now use any symbol, such as - _ . or :, not only @ $ ! % * ? &. Passwords your browser suggests are accepted. This applies to the desktop app and the web app.
 - Navigation style, items per row, POS product display, auto-fill payment and UI scale moved from Settings → Shop Config to My account → Display (this device), so staff can now set their own screen. They are saved on each device, and your current choices are kept.
 - Web app, Settings → Currencies: adding a currency whose code already exists now shows "Currency code already exists". Before, nothing happened. Turning a currency on or off now also shows its error if it fails.
+- Expenses: the Bill amount field now shows thousands separators as you type (100,000 instead of 100000).
 
 ## 📦 Inventory
 - A product with a minimum stock of 0 no longer shows low-stock warnings (top-bar alert, Dashboard count, red stock figure on the Inventory list).
