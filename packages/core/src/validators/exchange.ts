@@ -3,6 +3,7 @@ import {
   positiveDecimalSchema,
   currencyCodeSchema,
   transactionTimeSchema,
+  historyAllQuerySchema,
 } from "./common.js";
 
 /**
@@ -217,6 +218,7 @@ export type ExchangeSubmitPayload = z.input<typeof exchangeSubmitSchema>;
 
 export const getExchangeHistorySchema = z.object({
   limit: z.coerce.number().int().positive().max(500).default(50),
+  all: historyAllQuerySchema,
 });
 
 /**

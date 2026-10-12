@@ -36,8 +36,16 @@ export function registerRechargeHandlers(): void {
   // Get Recharge History
   ipcMain.handle(
     "recharge:get-history",
-    (event: IpcMainInvokeEvent, provider: "MTC" | "Alfa") => {
-      return rechargeService.getHistory(provider);
+    // `{ all: true }` = every row instead of the latest 100 (History window).
+    (
+      event: IpcMainInvokeEvent,
+      provider: "MTC" | "Alfa",
+      opts?: { all?: boolean },
+    ) => {
+      return rechargeService.getHistory(
+        provider,
+        opts?.all === true ? null : undefined,
+      );
     },
   );
 

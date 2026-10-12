@@ -4988,9 +4988,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   // ---------------------------------------------------------------------------
 
   /**
-   * Get transaction history, optionally filtered by provider
+   * Get transaction history, optionally filtered by provider (`limit` null =
+   * every row, for the History window)
    */
-  getHistory(provider?: string, limit = 50): FinancialServiceEntity[] {
+  getHistory(
+    provider?: string,
+    limit: number | null = 50,
+  ): FinancialServiceEntity[] {
     let query = `SELECT ${this.getColumns()} FROM financial_services WHERE tenant_id = ?`;
     const params: (string | number)[] = [getCurrentTenantId()];
 
@@ -4999,8 +5003,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       params.push(provider);
     }
 
-    query += " ORDER BY created_at DESC LIMIT ?";
-    params.push(limit);
+    query += " ORDER BY created_at DESC";
+    if (limit !== null) {
+      query += " LIMIT ?";
+      params.push(limit);
+    }
 
     return this.db.prepare(query).all(...params) as FinancialServiceEntity[];
   }

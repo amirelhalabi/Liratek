@@ -17,7 +17,7 @@ import {
 import { HistoryModal } from "./components/HistoryModal";
 import { StockUsePicker, type StockPick } from "./components/StockUsePicker";
 import { StatsCards } from "../../components/StatsCards";
-import { expenseTotals } from "../../utils/expenseTotals";
+import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -327,7 +327,10 @@ export default function Expenses() {
   // back flagged is_refunded (the History window badges it) — its money was
   // already returned, so the header total leaves it out, matching Profits
   // and the closing report.
-  const { totalUSD, totalLBP } = expenseTotals(expenses);
+  const { usd: totalUSD, lbp: totalLBP } = usdLbpTotals(expenses, (e) => ({
+    usd: e.amount_usd,
+    lbp: e.amount_lbp,
+  }));
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 

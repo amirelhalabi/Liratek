@@ -1551,7 +1551,7 @@ export interface ElectronAPI {
       lotCoveredQty?: number;
       lotMarketQty?: number;
     }>;
-    getHistory: () => Promise<
+    getHistory: (opts?: { all?: boolean }) => Promise<
       Array<{
         id: number;
         created_at: string;
@@ -1724,7 +1724,7 @@ export interface ElectronAPI {
         amount: number;
       }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    getHistory: (provider?: string) => Promise<
+    getHistory: (provider?: string, opts?: { all?: boolean }) => Promise<
       Array<{
         id: number;
         provider: string;
@@ -1763,7 +1763,10 @@ export interface ElectronAPI {
   // Recharge
   recharge: {
     getStock: () => Promise<{ mtc: number; alfa: number }>;
-    getHistory: (provider: "MTC" | "Alfa") => Promise<
+    getHistory: (
+      provider: "MTC" | "Alfa",
+      opts?: { all?: boolean },
+    ) => Promise<
       Array<{
         id: number;
         carrier: string;

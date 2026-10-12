@@ -6672,7 +6672,15 @@ Owner rule: "in any mode (pay / receive) the extra amount paid goes into the acc
 
 **What users will notice:** paying or receiving more than is owed on Suppliers, Partners and Debts now leaves the extra on the other side's account; the change box asks "Return change" or "To account"; Cash Out can go beyond a customer's credit and the rest becomes their debt; Products-tab suppliers show their recorded debt.
 
-## LIRA-311: Expense History shows totals and every day — DONE, not yet committed (owner request 2026-10-12)
+## LIRA-314: USD / LBP totals in every History window — DONE, not yet committed (owner request 2026-10-12)
+
+Follow-up to LIRA-311. Every History window shows two chips for the rows on screen (refunded left out, one shared `usdLbpTotals` helper + `UsdLbpTotalChips`). Owner decisions 2026-10-12: two figures only, preferably the total value; Exchange shows net USD / net LBP (in − out); MTC/Alfa totals the customer price, not credits; the capped History lists load every row.
+
+What each window totals: Custom Services — Price; Maintenance — the Price column (labour charged); Loto — Sale Amount; OMT/Whish/Katsh/Binance — Amount (SEND and RECEIVE together, non-USD/LBP currencies count 0); MTC/Alfa — cost + profit of sale rows (TOP_UP / CREDIT_BUYBACK / SHOP_LINE_USE count 0); Exchange — net USD / LBP. Exchange, financial-services and recharge History reads take an `all` flag (`{ all: true }` over IPC, `?all=1` over REST, `historyAllQuerySchema`) that drops the 50/100-row cap; only the History windows ask for it, the page lists keep their caps.
+
+**What users will notice:** every History window (Services, Maintenance, Loto, Exchange, MTC/Alfa, OMT/Whish and the other money services) shows a USD and an LBP total for what is listed, and Exchange, MTC/Alfa and OMT/Whish history now reach every past day.
+
+## LIRA-311: Expense History shows totals and every day — DONE, deployed 2026-10-12 (owner request 2026-10-12)
 
 The Expense History window was fed `getTodayExpenses()`, so its date filter could never reach a past day, and it showed no totals. It now loads every listed expense (new `getExpenseHistory` on core, IPC `db:get-expense-history`, REST `GET /api/expenses/history`, adapter + web shim) when it opens, and shows Total USD / Total LBP chips for the rows on screen. Owner decisions 2026-10-12: chips in the window's title bar, refunded rows left out of the totals (same rule as the page header — one shared `expenseTotals` helper), and the load fix ships in the same change. No upper bound on the history load (expense rows are small); revisit if a shop's history grows large.
 

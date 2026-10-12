@@ -830,6 +830,13 @@ export function CryptoForm({
             };
             return result;
           })}
+          loadAll={async () =>
+            (
+              (await api.getOMTHistory("BINANCE", {
+                all: true,
+              })) as FinancialTransaction[]
+            ).map((tx) => ({ ...tx, cost: 0 }))
+          }
           provider="Binance"
           onClose={() => setShowHistory(false)}
           onRefresh={loadCryptoData}

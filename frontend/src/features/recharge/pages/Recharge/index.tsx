@@ -57,6 +57,7 @@ import type {
 import { PROVIDER_CONFIGS } from "../../types";
 import { deriveSubmittedRechargeType } from "@/shared/utils/rechargeLabels";
 import { cryptoAmounts } from "../../utils/cryptoAmounts";
+import { toTelecomHistoryRow } from "../../utils/telecomHistoryRow";
 
 // Fix round 1 (major, rule 25 — render-loop): a stable, module-level empty
 // array so the shop-lines effect below never sets a FRESH `[]` reference on
@@ -612,37 +613,7 @@ export default function MobileRecharge() {
       const history = await apiRef.current.getRechargeHistory(
         activeProvider as "MTC" | "Alfa",
       );
-      setRechargeHistory(
-        (history ?? []).map(
-          (r: any): FinancialTransaction => ({
-            id: r.id,
-            provider: r.carrier,
-            service_type: "SEND",
-            amount: r.amount,
-            currency: r.currency_code || "USD",
-            cost: r.cost,
-            commission: r.price - r.cost,
-            client_name: r.client_name,
-            phone_number: r.phone_number ?? null,
-            note: r.note ?? undefined,
-            edited_by: r.edited_by ?? null,
-            edited_at: r.edited_at ?? null,
-            default_price_to_client: r.default_price_to_client ?? null,
-            paid_by: r.paid_by ?? undefined,
-            reference_number: r.phone_number || undefined,
-            created_at: r.created_at,
-            // LIRA-185 #6: RechargeRepository.getHistory projects these
-            // (LIRA-131), but this hand-built mapping dropped them, so
-            // HistoryModal never showed a refunded MTC/Alfa sale as refunded.
-            // Same fix as the Binance mapping in loadBinanceData above.
-            is_refunded: r.is_refunded ?? 0,
-            refunded_at: r.refunded_at ?? null,
-            // LIRA-185 #4: unpaid account sale — History labels its profit
-            // "pending until paid" (same rule as the Profits page).
-            profit_pending: Boolean(r.profit_pending),
-          }),
-        ),
-      );
+      setRechargeHistory((history ?? []).map(toTelecomHistoryRow));
     } catch (error) {
       logger.error("Failed to load recharge history:", error);
       setRechargeHistory([]);

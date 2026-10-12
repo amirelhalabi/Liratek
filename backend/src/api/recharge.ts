@@ -57,8 +57,13 @@ router.get(
   (req, res): void => {
     try {
       const provider = req.query.provider as "MTC" | "Alfa";
+      // `?all=1` — every row, for the History window (historyAllQuerySchema).
+      const all = req.query.all as unknown as boolean;
       const rechargeService = getRechargeService();
-      const history = rechargeService.getHistory(provider);
+      const history = rechargeService.getHistory(
+        provider,
+        all ? null : undefined,
+      );
       res.json({ success: true, history });
     } catch (error) {
       logger.error({ error }, "Get recharge history error");

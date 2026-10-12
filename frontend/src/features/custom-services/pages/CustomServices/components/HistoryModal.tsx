@@ -24,6 +24,8 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
+import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
 import { useShopInfo } from "@/hooks/useShopName";
 import {
   getTransactionBySource,
@@ -171,6 +173,11 @@ export function HistoryModal({
   ).filter((tx) =>
     workStatusTab === "All" ? true : tx.work_status === workStatusTab,
   );
+  // Totals of the rows on screen — the Price column, refunded left out.
+  const totals = usdLbpTotals(scopedData, (tx) => ({
+    usd: tx.price_usd,
+    lbp: tx.price_lbp,
+  }));
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({
@@ -351,6 +358,7 @@ export function HistoryModal({
             </span>
           </h2>
           <div className="flex items-center gap-2">
+            <UsdLbpTotalChips usd={totals.usd} lbp={totals.lbp} />
             {/* LIRA-155 — "a way to filter to insurance" (item 4), mirroring
                 Maintenance's status-tab pill bar styling. */}
             <div className="flex items-center gap-1 bg-slate-800/60 rounded-lg border border-slate-700 p-0.5">

@@ -54,6 +54,16 @@ export const idSchema = z.number().int().positive();
 export const transactionTimeSchema = z.string().datetime().optional();
 
 /**
+ * `?all=1` on a History read (exchange, financial services, recharges): return
+ * every row instead of only the latest N, so the History window's date filter
+ * and totals cover every day. Absent means the usual capped list.
+ */
+export const historyAllQuerySchema = z
+  .enum(["1", "true"])
+  .optional()
+  .transform((v) => v !== undefined);
+
+/**
  * A `YYYY-MM-DD` CLIENT local calendar day — REQUIRED shape. This is the one
  * definition of the regex (rule 14); every other client-day schema in the
  * codebase (this file's own `clientDayInputSchema` below, and

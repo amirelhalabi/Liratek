@@ -271,7 +271,7 @@ export class ExchangeService {
    * `SettlerSummary` | null). Cross-repo assembly belongs here, not in
    * `ExchangeRepository` (rule 13) — `getColumns()` stays untouched.
    */
-  getHistory(limit: number = 50): ExchangeHistoryRow[] {
+  getHistory(limit: number | null = 50): ExchangeHistoryRow[] {
     try {
       const rows = this.exchangeRepo.getHistory(limit);
       return this.attachLotSummaries(rows);

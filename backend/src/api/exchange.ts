@@ -45,8 +45,10 @@ router.get("/currencies", (_req, res) => {
 // GET /api/exchange/history
 router.get("/history", validateQuery(getExchangeHistorySchema), (req, res) => {
   const limit = req.query.limit as unknown as number;
+  // `?all=1` — every row, for the History window (historyAllQuerySchema).
+  const all = req.query.all as unknown as boolean;
   const service = getExchangeService();
-  const history = service.getHistory(limit);
+  const history = service.getHistory(all ? null : limit);
   res.json({ success: true, history });
 });
 

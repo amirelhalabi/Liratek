@@ -3,6 +3,7 @@ import {
   idSchema,
   positiveDecimalSchema,
   transactionTimeSchema,
+  historyAllQuerySchema,
 } from "./common.js";
 import { TOP_UP_PROVIDERS } from "../constants/rechargeProviders.js";
 
@@ -174,6 +175,7 @@ export const getRechargeStockSchema = z.object({
  */
 export const getRechargeHistorySchema = z.object({
   provider: z.enum(["MTC", "Alfa"]),
+  all: historyAllQuerySchema,
 });
 
 /**

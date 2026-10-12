@@ -1462,7 +1462,11 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getExchangeRates: () => Promise<any[]>;
   getCurrenciesList: () => Promise<any[]>;
-  getExchangeHistory: (limit?: number) => Promise<any[]>;
+  /** `opts.all` — every row instead of the latest 50 (History window). */
+  getExchangeHistory: (
+    limit?: number,
+    opts?: { all?: boolean },
+  ) => Promise<any[]>;
   addExchangeTransaction: (payload: ExchangeSubmitPayload) => Promise<
     ApiResult & {
       id?: number;
@@ -1547,6 +1551,8 @@ export type ApiAdapter = {
    *  twin, so it silently yielded an empty history list in web mode. */
   getRechargeHistory: (
     provider: "MTC" | "Alfa",
+    /** `all` — every row instead of the latest 100 (History window). */
+    opts?: { all?: boolean },
   ) => Promise<RechargeHistoryEntry[]>;
   /** LIRA-250 follow-up — today's MTC/Alfa sales count/profit for the
    *  Recharge page's Count/Profit + Total Profit cards
@@ -1599,7 +1605,11 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)
   // ---------------------------------------------------------------------------
-  getOMTHistory: (provider?: string) => Promise<any[]>;
+  /** `opts.all` — every row instead of the latest 50 (History window). */
+  getOMTHistory: (
+    provider?: string,
+    opts?: { all?: boolean },
+  ) => Promise<any[]>;
   getOMTAnalytics: (providers?: string[]) => Promise<OMTAnalytics>;
   /** `code`/`details` carry any `AppError`'s structured payload (e.g. the
    *  FOR-partner secondary-system `BusinessRuleError`) — switch on `code`,

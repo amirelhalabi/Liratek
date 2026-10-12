@@ -1311,6 +1311,13 @@ function OmtWhishAppTransferFormInner({
       {showHistory && (
         <HistoryModal
           transactions={transactions}
+          loadAll={async () =>
+            (
+              (await api.getOMTHistory(activeProvider, {
+                all: true,
+              })) as FinancialTransaction[]
+            ).filter((tx) => tx.provider === activeProvider)
+          }
           provider={activeProvider === "OMT_APP" ? "OMT App" : "Whish App"}
           onClose={() => onCloseHistory?.()}
           onRefresh={loadFinancialData}

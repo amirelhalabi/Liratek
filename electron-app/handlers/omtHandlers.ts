@@ -69,9 +69,16 @@ export function registerOMTHandlers(): void {
   );
 
   // Get History (Last 50 transactions)
-  ipcMain.handle("omt:get-history", (_event, provider?: string) => {
-    return financialService.getHistory(provider);
-  });
+  // `{ all: true }` = every row instead of the latest 50 (History window).
+  ipcMain.handle(
+    "omt:get-history",
+    (_event, provider?: string, opts?: { all?: boolean }) => {
+      return financialService.getHistory(
+        provider,
+        opts?.all === true ? null : undefined,
+      );
+    },
+  );
 
   // Get Analytics (Today & Month totals)
   ipcMain.handle("omt:get-analytics", (_event, providers?: string[]) => {

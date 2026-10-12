@@ -1195,6 +1195,13 @@ export function FinancialForm({
       {showHistory && (
         <HistoryModal
           transactions={providerTx}
+          loadAll={async () =>
+            (
+              (await api.getOMTHistory(activeProvider ?? undefined, {
+                all: true,
+              })) as FinancialTransaction[]
+            ).filter((tx) => tx.provider === activeProvider)
+          }
           provider={meta.label}
           onClose={() => setShowHistory(false)}
           onRefresh={loadFinancialData}

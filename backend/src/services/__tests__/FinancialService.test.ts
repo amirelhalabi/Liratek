@@ -384,7 +384,7 @@ describe("FinancialService (delegation)", () => {
       );
       const result = service.getHistory();
       expect(result).toEqual(mockHistory);
-      expect(mockRepo.getHistory).toHaveBeenCalledWith(undefined);
+      expect(mockRepo.getHistory).toHaveBeenCalledWith(undefined, 50);
     });
 
     it("should filter history by provider", () => {
@@ -393,7 +393,7 @@ describe("FinancialService (delegation)", () => {
       ]);
       const result = service.getHistory("OMT");
       expect(result).toHaveLength(1);
-      expect(mockRepo.getHistory).toHaveBeenCalledWith("OMT");
+      expect(mockRepo.getHistory).toHaveBeenCalledWith("OMT", 50);
     });
 
     it("should return empty array on error", () => {

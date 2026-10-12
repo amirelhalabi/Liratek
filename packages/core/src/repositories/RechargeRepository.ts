@@ -542,9 +542,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
   }
 
   /**
-   * Get recharge history for a specific provider
+   * Get recharge history for a specific provider (latest 100; `limit` null =
+   * every row, for the History window)
    */
-  getHistory(provider: "MTC" | "Alfa"): RechargeEntity[] {
+  getHistory(
+    provider: "MTC" | "Alfa",
+    limit: number | null = 100,
+  ): RechargeEntity[] {
     // LIRA-185 #4: `profit_pending` — the sale's profit is still waiting on
     // an unpaid account charge. Reuses the Profits page's own
     // {@link notDebtPending} gate VERBATIM (rule 14) on this row's RECHARGE
@@ -560,10 +564,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
            CASE WHEN ${notDebtPending(saleTxnId)} THEN 0 ELSE 1 END AS profit_pending
          FROM recharges
          WHERE carrier = ? AND tenant_id = ?
-         ORDER BY created_at DESC
-         LIMIT 100`,
+         ORDER BY created_at DESC${limit === null ? "" : " LIMIT ?"}`,
       )
-      .all(provider, getCurrentTenantId()) as RechargeEntity[];
+      .all(
+        provider,
+        getCurrentTenantId(),
+        ...(limit === null ? [] : [limit]),
+      ) as RechargeEntity[];
 
     return rows;
   }

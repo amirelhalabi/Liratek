@@ -364,10 +364,28 @@ function webApiShimBody(): void {
       (await rest("GET", `/api/sales/${saleId}`)).sale,
     "transactions.getById": async ([id]) =>
       (await rest("GET", `/api/transactions/${id}`)).transaction ?? null,
-    "recharge.getHistory": async ([provider]) =>
-      (await rest("GET", "/api/recharge/history" + qs({ provider }))).history,
-    "omt.getHistory": async ([provider]) =>
-      (await rest("GET", "/api/services/history" + qs({ provider }))).history,
+    "recharge.getHistory": async ([provider, opts]) =>
+      (
+        await rest(
+          "GET",
+          "/api/recharge/history" +
+            qs({
+              provider,
+              all: (opts as { all?: boolean })?.all ? "1" : undefined,
+            }),
+        )
+      ).history,
+    "omt.getHistory": async ([provider, opts]) =>
+      (
+        await rest(
+          "GET",
+          "/api/services/history" +
+            qs({
+              provider,
+              all: (opts as { all?: boolean })?.all ? "1" : undefined,
+            }),
+        )
+      ).history,
     // Read — enveloped: the IPC session:cart:get handler itself returns
     // { success, items }, and so does the REST route.
     "session.cartGet": async ([sessionId]) =>
@@ -603,8 +621,14 @@ function webApiShimBody(): void {
     "rates.set": async ([data]) => rest("POST", "/api/rates", data),
 
     // Exchange + lots. getHistory is raw over IPC (no limit arg there).
-    "exchange.getHistory": async () =>
-      (await rest("GET", "/api/exchange/history")).history,
+    "exchange.getHistory": async ([opts]) =>
+      (
+        await rest(
+          "GET",
+          "/api/exchange/history" +
+            qs({ all: (opts as { all?: boolean })?.all ? "1" : undefined }),
+        )
+      ).history,
     "exchangeLots.getPositions": async () =>
       rest("GET", "/api/exchange-lots/positions"),
     "exchangeLots.getBreakdown": async ([exchangeId]) =>

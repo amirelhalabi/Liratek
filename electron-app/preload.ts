@@ -528,7 +528,8 @@ contextBridge.exposeInMainWorld("api", {
       kept_change_usd?: number;
       kept_change_lbp?: number;
     }) => ipcRenderer.invoke("exchange:add-transaction", data),
-    getHistory: () => ipcRenderer.invoke("exchange:get-history"),
+    getHistory: (opts?: { all?: boolean }) =>
+      ipcRenderer.invoke("exchange:get-history", opts),
     updateMetadata: (data: {
       id: number;
       client_name?: string;
@@ -642,8 +643,8 @@ contextBridge.exposeInMainWorld("api", {
         returnedCreditsUsd?: number;
       }>;
     }) => ipcRenderer.invoke("omt:add-transaction", data),
-    getHistory: (provider?: string) =>
-      ipcRenderer.invoke("omt:get-history", provider),
+    getHistory: (provider?: string, opts?: { all?: boolean }) =>
+      ipcRenderer.invoke("omt:get-history", provider, opts),
     getAnalytics: (providers?: string[]) =>
       ipcRenderer.invoke("omt:get-analytics", providers),
     getById: (id: number) => ipcRenderer.invoke("omt:get-by-id", id),
@@ -654,8 +655,8 @@ contextBridge.exposeInMainWorld("api", {
   // Recharge (Alfa/MTC)
   recharge: {
     getStock: () => ipcRenderer.invoke("recharge:get-stock"),
-    getHistory: (provider: "MTC" | "Alfa") =>
-      ipcRenderer.invoke("recharge:get-history", provider),
+    getHistory: (provider: "MTC" | "Alfa", opts?: { all?: boolean }) =>
+      ipcRenderer.invoke("recharge:get-history", provider, opts),
     // LIRA-250 follow-up — today's MTC/Alfa sales count/profit for the
     // Recharge page's stat cards.
     getTodayStats: (provider: "MTC" | "Alfa") =>

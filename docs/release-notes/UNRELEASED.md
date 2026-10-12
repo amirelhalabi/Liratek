@@ -53,6 +53,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💸 OMT / Whish & suppliers
 
+- OMT, Whish, Katsh and Binance History windows now show every past transaction (not only the latest 50) and the total USD and total LBP of the amounts listed, following the date filter. Sent and received are added together; USDT and other currencies are not counted; refunded ones are left out.
 - Suppliers page, Pay / Receive: paying (or receiving) more than what is owed now puts the extra on the supplier's account. For example, you owe $100 and pay $150: the supplier now owes you $50. The change box lets you choose: "Get change back" (the supplier hands the extra back, recorded in your drawer) or "To account". If only part is handed back, the rest stays on their account.
 - Suppliers page, Products tab: a supplier with a debt you recorded but no linked product now shows what you owe and counts in the Total Owed. It used to show $0.00 and "Settled".
 - Suppliers page: there is no Waive button when you settle a supplier, settle the OMT account, or pay on the Pay / Receive tab. If a supplier accepts a little less, type the difference in the Discount field on the Pay / Receive tab.
@@ -150,6 +151,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🔧 Maintenance
 
+- Maintenance History now shows the total USD and total LBP of the prices listed (labour charged), following the date filter. Refunded jobs are left out.
 - Saving a repair job that is already paid no longer charges the customer a second time.
 - From now on, a repair job stays linked to its customer when you edit it or move it to In progress or Ready. Before, the link could be lost, so the payment showed no customer and "on account" payments were refused. Jobs that already lost their customer need the customer picked again at checkout.
 - Reopening a repair job, and the History list, now show the customer's phone number.
@@ -181,6 +183,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 📱 MTC / Alfa
 
+- MTC and Alfa History now show every past sale (not only the latest 100) and the total USD and total LBP customers paid for the sales listed, following the date filter. Top-ups, credit buy-backs, shop-line use and refunded sales are left out.
 - Mobile services (MTC, Alfa, cards, Katsh, iPick, crypto, OMT App / Whish App transfers): a Waive button next to "Remaining" adds a gap of up to $5 (or 450,000 LBP) to the discount in one tap. It is not offered when it would sell below cost.
 - MTC / Alfa: selling days now also lowers the line's credit balance by the days' cost, so the drawer
   and the lines stay equal. From now on only.
@@ -194,6 +197,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🎟️ Loto
 
+- Loto Ticket History now shows the total USD and total LBP of the ticket sales listed, following the date filter. Refunded tickets are left out.
 - Ticket sale: the Discount field is now saved. It comes out of the shop's commission (never more than the commission), and Loto is still owed the same. A Waive button fills it in one tap for a gap of up to 450,000 LBP.
 - Settlement with Loto: when Loto pays you up to 450,000 LBP less than the settlement, Waive records the difference as a discount and the settlement goes through. There is no Waive when you are the one paying Loto. The Settle button now waits until the amount is covered.
 - Loto: a ticket's payment must now add up to its price. From now on, change kept as store credit
@@ -207,6 +211,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💱 Exchange
 
+- Exchange History now shows every past exchange (not only the latest 50) and the net USD and net LBP (received minus paid out) of the exchanges listed, following the date and currency filters. Other currencies are not counted; refunded exchanges are left out.
 - Paying out an exchange: a leftover of up to $5 (or 450,000 LBP) is now kept as profit automatically, up from $1 (or 100,000 LBP).
 - Exchange: you can now keep the change — hand out the round amount (e.g. $101 instead of $101.12) and the leftover cents count as shop profit automatically; the form says so. On the Profits page those kept cents count as kept change instead of being added into the Currency Exchange profit, which now shows only the exchange margin; the total profit is the same.
 - Exchange: the page now opens on USD → LBP.
@@ -385,6 +390,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 🛠️ Custom services
 
+- Service History now shows the total USD and total LBP of the prices listed, following the date, category and status filters. Refunded services are left out.
 - The Discount field on a custom service sale is now saved: it lowers the selling price (never below cost). A Waive button fills it in one tap for a gap of up to $5 (or 450,000 LBP).
 
 ## 🖥️ Desktop app

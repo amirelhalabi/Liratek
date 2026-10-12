@@ -8,8 +8,8 @@ import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { updateExpenseMetadata } from "@/api/backendApi";
 import { localDay } from "@/shared/utils/localDay";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
-import { StatsCards } from "../../../components/StatsCards";
-import { expenseTotals } from "../../../utils/expenseTotals";
+import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
+import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
 
 interface Expense {
   id?: number;
@@ -81,7 +81,10 @@ export function HistoryModal({
     "business_day",
   );
   // Totals of the rows on screen (follows the date filter), refunded left out.
-  const { totalUSD, totalLBP } = expenseTotals(filteredData);
+  const totals = usdLbpTotals(filteredData, (e) => ({
+    usd: e.amount_usd,
+    lbp: e.amount_lbp,
+  }));
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({
@@ -141,7 +144,7 @@ export function HistoryModal({
             </span>
           </h2>
           <div className="flex items-center gap-2">
-            <StatsCards totalUSD={totalUSD} totalLBP={totalLBP} />
+            <UsdLbpTotalChips usd={totals.usd} lbp={totals.lbp} />
             <DateRangeFilter
               from={from}
               to={to}

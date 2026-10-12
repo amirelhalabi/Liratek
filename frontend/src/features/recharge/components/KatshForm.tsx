@@ -775,7 +775,9 @@ function KatshFormInner({
   useEffect(() => {
     if (showHistory && activeProvider) {
       api
-        .getOMTHistory(activeProvider)
+        // Every row, not the latest 50 — the History window's date filter
+        // and totals cover every day.
+        .getOMTHistory(activeProvider, { all: true })
         .then((txs: FinancialTransaction[]) => {
           setHistoryTransactions(
             (txs ?? []).filter(

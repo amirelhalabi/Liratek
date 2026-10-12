@@ -64,9 +64,12 @@ export function registerExchangeHandlers(): void {
     },
   );
 
-  // Get History (last 50 transactions)
-  ipcMain.handle("exchange:get-history", () => {
-    return getExchangeServiceInstance().getHistory();
+  // Get History (last 50 transactions; `{ all: true }` = every row, for the
+  // History window)
+  ipcMain.handle("exchange:get-history", (_event, opts?: { all?: boolean }) => {
+    return getExchangeServiceInstance().getHistory(
+      opts?.all === true ? null : undefined,
+    );
   });
 
   // Update exchange metadata (staff and admin)

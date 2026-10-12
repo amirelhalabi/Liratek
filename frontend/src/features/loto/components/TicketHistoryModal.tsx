@@ -35,6 +35,8 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
+import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
 import { useShopInfo } from "@/hooks/useShopName";
 import { getTransactionBySource } from "@/api/backendApi";
 import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
@@ -76,6 +78,13 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
     tickets,
     "created_at",
+  );
+  // Totals of the rows on screen — the Sale Amount column (LBP tickets in
+  // LBP, every other ticket in USD, as the column shows), refunded left out.
+  const totals = usdLbpTotals(filteredData, (t) =>
+    t.currency === "LBP"
+      ? { usd: 0, lbp: t.sale_amount }
+      : { usd: t.sale_amount, lbp: 0 },
   );
 
   useEffect(() => {
@@ -133,6 +142,7 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
             </span>
           </h2>
           <div className="flex items-center gap-2">
+            <UsdLbpTotalChips usd={totals.usd} lbp={totals.lbp} />
             <DateRangeFilter
               from={from}
               to={to}

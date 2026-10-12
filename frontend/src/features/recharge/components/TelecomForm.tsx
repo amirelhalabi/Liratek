@@ -36,6 +36,10 @@ import { CarrierLinesPanel } from "./CarrierLinesPanel";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { localDay } from "@/shared/utils/localDay";
 import { snapValidityDaysUp } from "../utils/validityDays";
+import {
+  telecomSaleTotal,
+  toTelecomHistoryRow,
+} from "../utils/telecomHistoryRow";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { convertLBPToUSD } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -1380,6 +1384,14 @@ export function TelecomForm({
       {showHistory && (
         <HistoryModal
           transactions={rechargeHistory}
+          loadAll={async () =>
+            (
+              await api.getRechargeHistory(isMTC ? "MTC" : "Alfa", {
+                all: true,
+              })
+            ).map(toTelecomHistoryRow)
+          }
+          totalOf={telecomSaleTotal}
           provider={isMTC ? "MTC" : "Alfa"}
           amountLabel="Credits"
           amountAlwaysUsd

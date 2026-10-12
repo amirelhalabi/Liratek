@@ -1109,16 +1109,18 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
   // ---------------------------------------------------------------------------
 
   /**
-   * Get recent exchange history (last N transactions)
+   * Get recent exchange history (last N transactions; `null` = every row,
+   * for the History window)
    */
-  getHistory(limit: number = 50): ExchangeTransactionEntity[] {
-    return this.db
-      .prepare(
-        `SELECT ${this.getColumns()} FROM exchange_transactions
+  getHistory(limit: number | null = 50): ExchangeTransactionEntity[] {
+    const sql = `SELECT ${this.getColumns()} FROM exchange_transactions
          WHERE tenant_id = ?
-         ORDER BY created_at DESC LIMIT ?`,
-      )
-      .all(getCurrentTenantId(), limit) as ExchangeTransactionEntity[];
+         ORDER BY created_at DESC`;
+    return (
+      limit === null
+        ? this.db.prepare(sql).all(getCurrentTenantId())
+        : this.db.prepare(`${sql} LIMIT ?`).all(getCurrentTenantId(), limit)
+    ) as ExchangeTransactionEntity[];
   }
 
   /**

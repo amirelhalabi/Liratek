@@ -4,6 +4,7 @@ import {
   positiveDecimalSchema,
   currencyCodeSchema,
   transactionTimeSchema,
+  historyAllQuerySchema,
 } from "./common.js";
 
 /**
@@ -479,6 +480,7 @@ export const createFinancialServiceSchema = z
 export const getFinancialServicesSchema = z.object({
   provider: providerCodeSchema.optional(),
   limit: z.coerce.number().int().positive().max(1000).default(50),
+  all: historyAllQuerySchema,
 });
 
 export type CreateFinancialServiceInput = z.infer<

@@ -59,6 +59,9 @@ export interface FinancialTransaction {
    *  the repository's standard column list; just wasn't typed here before.
    *  Drives the History-modal Print button's receipt gating. */
   item_key?: string | null;
+  /** MTC/Alfa only — the `recharges.recharge_type` (sale, TOP_UP,
+   *  CREDIT_BUYBACK, …). Lets the History totals count sales only. */
+  recharge_type?: string;
 }
 
 export interface BinanceTransaction {

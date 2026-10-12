@@ -2030,6 +2030,7 @@ export default function Exchange() {
       {showHistoryModal && (
         <HistoryModal
           transactions={transactions}
+          loadAll={() => api.getExchangeHistory(undefined, { all: true })}
           loading={false}
           onClose={() => {
             setShowHistoryModal(false);

@@ -4,6 +4,8 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
+import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
 import { useShopInfo } from "@/hooks/useShopName";
 import { getTransactionBySource } from "@/api/backendApi";
 import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
@@ -73,6 +75,14 @@ export function HistoryModal({
     jobs,
     "created_at",
   );
+  // Totals of the rows on screen — the Price column (labour charged, in the
+  // job's currency), refunded left out.
+  const totals = usdLbpTotals(filteredData, (job) => {
+    const { currency, charged } = getLabourAmounts(job);
+    return currency === "LBP"
+      ? { usd: 0, lbp: charged }
+      : { usd: charged, lbp: 0 };
+  });
   const shopInfo = useShopInfo();
   const api = useApi();
 
@@ -105,6 +115,7 @@ export function HistoryModal({
             </span>
           </h2>
           <div className="flex items-center gap-2">
+            <UsdLbpTotalChips usd={totals.usd} lbp={totals.lbp} />
             <DateRangeFilter
               from={from}
               to={to}

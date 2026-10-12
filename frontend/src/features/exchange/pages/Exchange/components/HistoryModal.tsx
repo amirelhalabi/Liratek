@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   History,
   RefreshCw,
@@ -14,6 +14,9 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
+import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
+import logger from "@/utils/logger";
 
 // EXCHANGE_LOT_SETTLEMENT.md Phase 4b PINNED CONTRACT — mirrors
 // `SourceSummary`/`SettlerSummary` (packages/core/src/repositories/
@@ -95,6 +98,25 @@ interface HistoryModalProps {
   onRefresh: () => void;
   /** Preset by PositionsPanel's per-row "view" action (Q16). */
   initialCurrencyFilter?: string;
+  /**
+   * Loads EVERY exchange (the page's own list is only the latest 50). When
+   * given, the window shows these rows instead of `transactions`, so its
+   * date filter and totals cover every day.
+   */
+  loadAll?: () => Promise<ExchangeTx[]>;
+}
+
+/**
+ * One exchange's effect on the USD and LBP drawers: what came in minus what
+ * went out, per currency. Any other currency (EUR, …) counts 0.
+ */
+function netUsdLbp(tx: ExchangeTx): { usd: number; lbp: number } {
+  const amountIn = Number(tx.amount_in) || 0;
+  const amountOut = Number(tx.amount_out) || 0;
+  const net = (cur: string) =>
+    (tx.from_currency === cur ? amountIn : 0) -
+    (tx.to_currency === cur ? amountOut : 0);
+  return { usd: net("USD"), lbp: net("LBP") };
 }
 
 /** Status badge derivation for a lot-tracked BUY row (Q16). */
@@ -194,11 +216,30 @@ export function HistoryModal({
   onClose,
   onRefresh,
   initialCurrencyFilter,
+  loadAll,
 }: HistoryModalProps) {
   useModalFocusFix(true);
   const api = useApi();
+  // The full list, when `loadAll` is given. Read through a ref so a caller's
+  // inline arrow never re-fires the load (rule 25).
+  const loadAllRef = useRef(loadAll);
+  loadAllRef.current = loadAll;
+  const [allRows, setAllRows] = useState<ExchangeTx[] | null>(null);
+  const reloadAll = useCallback(async () => {
+    const load = loadAllRef.current;
+    if (!load) return;
+    try {
+      setAllRows(await load());
+    } catch (err) {
+      logger.error("Failed to load full exchange history:", err);
+    }
+  }, []);
+  useEffect(() => {
+    void reloadAll();
+  }, [reloadAll]);
+  const rows = allRows ?? transactions;
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
-    transactions,
+    rows,
     "created_at",
   );
 
@@ -206,20 +247,20 @@ export function HistoryModal({
   const [editForm, setEditForm] = useState({ client_name: "", note: "" });
   const [editSaving, setEditSaving] = useState(false);
 
-  // Currency filter (Q17 — client-side over the already-loaded, 50-row-capped
-  // rows; no server change). Options are derived from ALL loaded rows so the
-  // list doesn't shrink/reflow as the date filter narrows the visible set.
+  // Currency filter (Q17 — client-side over the loaded rows: every row once
+  // `loadAll` returns). Options are derived from ALL loaded rows so the list
+  // doesn't shrink/reflow as the date filter narrows the visible set.
   const [currencyFilter, setCurrencyFilter] = useState<string>(
     initialCurrencyFilter ?? "ALL",
   );
   const currencyOptions = useMemo(() => {
     const set = new Set<string>();
-    transactions.forEach((tx) => {
+    rows.forEach((tx) => {
       set.add(tx.from_currency);
       set.add(tx.to_currency);
     });
     return Array.from(set).sort();
-  }, [transactions]);
+  }, [rows]);
   const currencyFilteredData = useMemo(() => {
     if (currencyFilter === "ALL") return filteredData;
     return filteredData.filter(
@@ -228,6 +269,8 @@ export function HistoryModal({
         tx.to_currency === currencyFilter,
     );
   }, [filteredData, currencyFilter]);
+  // Net USD / LBP (in − out) of the rows on screen, refunded left out.
+  const totals = usdLbpTotals(currencyFilteredData, netUsdLbp);
 
   // Expandable settlement breakdown (Q16) — lazily fetched per row on first
   // expand, keyed by exchange id so a re-expand doesn't refetch.
@@ -273,6 +316,7 @@ export function HistoryModal({
       if (result.success) {
         setEditingId(null);
         onRefresh();
+        void reloadAll();
       } else {
         alert(result.error ?? "Failed to save");
       }
@@ -299,6 +343,7 @@ export function HistoryModal({
             </span>
           </h2>
           <div className="flex items-center gap-2">
+            <UsdLbpTotalChips label="Net" usd={totals.usd} lbp={totals.lbp} />
             <select
               value={currencyFilter}
               onChange={(e) => setCurrencyFilter(e.target.value)}
@@ -319,7 +364,10 @@ export function HistoryModal({
               onToChange={setTo}
             />
             <button
-              onClick={onRefresh}
+              onClick={() => {
+                onRefresh();
+                void reloadAll();
+              }}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
               title="Refresh"
             >

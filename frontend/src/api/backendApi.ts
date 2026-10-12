@@ -2104,13 +2104,18 @@ export async function getCurrenciesList() {
   );
 }
 
-export async function getExchangeHistory(limit?: number) {
+/** `opts.all` — every row instead of the latest 50 (History window). */
+export async function getExchangeHistory(
+  limit?: number,
+  opts?: { all?: boolean },
+) {
   if (isElectron()) {
     // Electron preload exposes getExchangeHistory() without limit
-    return (window as any).api.exchange.getHistory();
+    return (window as any).api.exchange.getHistory(opts);
   }
   const qs = new URLSearchParams();
   if (limit) qs.set("limit", String(limit));
+  if (opts?.all) qs.set("all", "1");
   const res = await requestJson<{ success: boolean; history: any[] }>(
     `/api/exchange/history?${qs.toString()}`,
   );
@@ -2508,16 +2513,20 @@ export type RechargeHistoryEntry = {
 // `window.api.recharge.getHistory()` call with no REST twin, so in the
 // browser it threw before `setRechargeHistory` ever ran, silently yielding
 // an empty history list (wrapped in try/catch, so no crash — just no data).
+/** `opts.all` — every row instead of the latest 100 (History window). */
 export async function getRechargeHistory(
   provider: "MTC" | "Alfa",
+  opts?: { all?: boolean },
 ): Promise<RechargeHistoryEntry[]> {
   if (isElectron()) {
-    return (window as any).api.recharge.getHistory(provider);
+    return (window as any).api.recharge.getHistory(provider, opts);
   }
   const res = await requestJson<{
     success: boolean;
     history: RechargeHistoryEntry[];
-  }>(`/api/recharge/history?provider=${encodeURIComponent(provider)}`);
+  }>(
+    `/api/recharge/history?provider=${encodeURIComponent(provider)}${opts?.all ? "&all=1" : ""}`,
+  );
   return res.history;
 }
 
@@ -2696,12 +2705,17 @@ export async function updateRechargeMetadata(
 }
 
 // Services (OMT/Whish/BOB)
-export async function getOMTHistory(provider?: string) {
+/** `opts.all` — every row instead of the latest 50 (History window). */
+export async function getOMTHistory(
+  provider?: string,
+  opts?: { all?: boolean },
+) {
   if (isElectron()) {
-    return (window as any).api.omt.getHistory(provider);
+    return (window as any).api.omt.getHistory(provider, opts);
   }
   const qs = new URLSearchParams();
   if (provider) qs.set("provider", provider);
+  if (opts?.all) qs.set("all", "1");
   const res = await requestJson<{ success: boolean; history: any[] }>(
     `/api/services/history?${qs.toString()}`,
   );

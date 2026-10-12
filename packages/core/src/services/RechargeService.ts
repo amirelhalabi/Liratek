@@ -51,9 +51,12 @@ export class RechargeService {
   /**
    * Get recharge history for a provider
    */
-  getHistory(provider: "MTC" | "Alfa"): RechargeEntity[] {
+  getHistory(
+    provider: "MTC" | "Alfa",
+    limit: number | null = 100,
+  ): RechargeEntity[] {
     try {
-      return this.rechargeRepo.getHistory(provider);
+      return this.rechargeRepo.getHistory(provider, limit);
     } catch (error) {
       rechargeLogger.error({ error }, "Failed to get recharge history");
       return [];

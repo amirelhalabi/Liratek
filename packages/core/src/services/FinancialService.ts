@@ -158,9 +158,12 @@ export class FinancialService {
   /**
    * Get transaction history, optionally filtered by provider
    */
-  getHistory(provider?: string): FinancialServiceEntity[] {
+  getHistory(
+    provider?: string,
+    limit: number | null = 50,
+  ): FinancialServiceEntity[] {
     try {
-      return this.fsRepo.getHistory(provider);
+      return this.fsRepo.getHistory(provider, limit);
     } catch (error) {
       financialLogger.error(
         { error, provider },

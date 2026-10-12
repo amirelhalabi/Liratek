@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   History,
   RefreshCw,
@@ -16,7 +16,10 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { UsdLbpTotalChips } from "@/shared/components/UsdLbpTotalChips";
+import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
 import { useShopInfo } from "@/hooks/useShopName";
+import logger from "@/utils/logger";
 import { getTransactionBySource } from "@/api/backendApi";
 import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
 import { isReceiptableTransaction } from "@/features/audit/receiptGating";
@@ -77,6 +80,22 @@ interface HistoryModalProps {
    */
   sourceTable?: string;
   transactionType?: string;
+  /**
+   * Loads EVERY row for this provider (the page's own list is only the
+   * latest 50–100). When given, the window shows these rows instead of
+   * `transactions`, so its date filter and totals cover every day.
+   */
+  loadAll?: () => Promise<FinancialTransaction[]>;
+  /** One row's value in the header totals. Default: `amount` in the row's
+   *  currency (USD or LBP; any other currency counts 0). */
+  totalOf?: (tx: FinancialTransaction) => { usd: number; lbp: number };
+}
+
+/** Default header total: the row's amount, in USD or LBP only. */
+function amountTotal(tx: FinancialTransaction): { usd: number; lbp: number } {
+  if (tx.currency === "USD") return { usd: tx.amount, lbp: 0 };
+  if (tx.currency === "LBP") return { usd: 0, lbp: tx.amount };
+  return { usd: 0, lbp: 0 };
 }
 
 export function HistoryModal({
@@ -94,12 +113,34 @@ export function HistoryModal({
   marginAlertThreshold = 100_000,
   sourceTable,
   transactionType,
+  loadAll,
+  totalOf = amountTotal,
 }: HistoryModalProps) {
   useModalFocusFix(true);
+  // The full list, when `loadAll` is given. Read through a ref so a caller's
+  // inline arrow (a new identity every render) never re-fires the load
+  // (rule 25).
+  const loadAllRef = useRef(loadAll);
+  loadAllRef.current = loadAll;
+  const [allRows, setAllRows] = useState<FinancialTransaction[] | null>(null);
+  const reloadAll = useCallback(async () => {
+    const load = loadAllRef.current;
+    if (!load) return;
+    try {
+      setAllRows(await load());
+    } catch (err) {
+      logger.error("Failed to load full history:", err);
+    }
+  }, []);
+  useEffect(() => {
+    void reloadAll();
+  }, [reloadAll]);
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
-    transactions,
+    allRows ?? transactions,
     "created_at",
   );
+  // Totals of the rows on screen, refunded left out.
+  const totals = usdLbpTotals(filteredData, totalOf);
   const shopInfo = useShopInfo();
   const api = useApi();
   const canPrint = Boolean(sourceTable && transactionType);
@@ -159,6 +200,7 @@ export function HistoryModal({
       if (result.success) {
         setEditingId(null);
         onRefresh();
+        void reloadAll();
       } else {
         setEditError(result.error ?? "Failed to save");
       }
@@ -195,6 +237,7 @@ export function HistoryModal({
             </span>
           </h2>
           <div className="flex items-center gap-2">
+            <UsdLbpTotalChips usd={totals.usd} lbp={totals.lbp} />
             <DateRangeFilter
               from={from}
               to={to}
@@ -202,7 +245,10 @@ export function HistoryModal({
               onToChange={setTo}
             />
             <button
-              onClick={onRefresh}
+              onClick={() => {
+                onRefresh();
+                void reloadAll();
+              }}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
               title="Refresh"
             >

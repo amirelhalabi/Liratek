@@ -184,7 +184,20 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
         id: 1,
         carrier: "MTC",
       });
-      expect(spy).toHaveBeenCalledWith("MTC");
+      // No `all` flag: the service's default 100-row cap (undefined).
+      expect(spy).toHaveBeenCalledWith("MTC", undefined);
+    });
+
+    it("?all=1 asks the service for every row (null limit) — LIRA-314", async () => {
+      const spy = jest.spyOn(rechargeService, "getHistory").mockReturnValue([]);
+
+      const res = await request(app)
+        .get("/api/recharge/history?provider=MTC&all=1")
+        .set("x-test-role", "staff");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(spy).toHaveBeenCalledWith("MTC", null);
     });
 
     it("an unauthenticated caller is refused with 401 and never reaches the service", async () => {

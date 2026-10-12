@@ -361,7 +361,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   getExchangeRates = () => api.getExchangeRates();
   getCurrenciesList = () => api.getCurrenciesList();
-  getExchangeHistory = (limit?: number) => api.getExchangeHistory(limit);
+  getExchangeHistory = (limit?: number, opts?: { all?: boolean }) =>
+    api.getExchangeHistory(limit, opts);
   addExchangeTransaction = (payload: ExchangeSubmitPayload) =>
     api.addExchangeTransaction(payload);
   updateExchangeMetadata = (payload: UpdateExchangeMetadataPayload) =>
@@ -413,8 +414,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Recharge
   // ---------------------------------------------------------------------------
   getRechargeStock = () => api.getRechargeStock();
-  getRechargeHistory = (provider: "MTC" | "Alfa") =>
-    api.getRechargeHistory(provider);
+  getRechargeHistory = (provider: "MTC" | "Alfa", opts?: { all?: boolean }) =>
+    api.getRechargeHistory(provider, opts);
   getRechargeTodayStats = (provider: "MTC" | "Alfa") =>
     api.getRechargeTodayStats(provider);
   getRechargeDrawerBalances = () => api.getRechargeDrawerBalances();
@@ -438,7 +439,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)
   // ---------------------------------------------------------------------------
-  getOMTHistory = (provider?: string) => api.getOMTHistory(provider);
+  getOMTHistory = (provider?: string, opts?: { all?: boolean }) =>
+    api.getOMTHistory(provider, opts);
   getOMTAnalytics = (providers?: string[]) => api.getOMTAnalytics(providers);
   addOMTTransaction = (payload: CreateFinancialServicePayload) =>
     api.addOMTTransaction(payload);
