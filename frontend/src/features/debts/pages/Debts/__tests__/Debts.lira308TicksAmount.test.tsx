@@ -322,6 +322,15 @@ it("6 — above the whole debt: Account credit in Goes to, sent as a Customer Ac
   await openSettle();
   await waitFor(() => expect(amountValue()).toBe("135"));
   typeAmount("151");
+  // LIRA-313 (owner decision 2026-10-12): the $16 starts as "Return change"
+  // — handed back from General, so only $34 stays there.
+  await waitFor(() =>
+    expect(screen.getByTestId("repay-goes-to").textContent).toContain(
+      "General$34",
+    ),
+  );
+  // "To account" keeps the $16 as the customer's credit instead.
+  fireEvent.click(screen.getByTestId("change-destination-account"));
   await waitFor(() =>
     expect(screen.getByTestId("repay-goes-to").textContent).toContain(
       "Account credit$16",
