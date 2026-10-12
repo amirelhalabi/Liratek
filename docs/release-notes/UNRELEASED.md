@@ -53,10 +53,9 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💸 OMT / Whish & suppliers
 
-- Suppliers page, Settle (a supplier's transactions) and the OMT account's Settle Account: you can now pay more than what is owed. The extra goes on the supplier's account (they owe you), unless the supplier hands it back: the change box lets you choose "Get change back" (recorded in your drawer) or "To account". Before, a supplier's Settle refused any amount above the total.
 - OMT account, Settle Account: when OMT pays you more than the selected rows, the extra now goes on OMT's account (you owe them); before, it was refused. The separate "Record an overpayment" box is gone: just type the amount paid.
 - OMT, Whish, Katsh and Binance History windows now show every past transaction (not only the latest 50) and the total USD and total LBP of the amounts listed, following the date filter. Sent and received are added together; USDT and other currencies are not counted; refunded ones are left out.
-- Suppliers page, Pay / Receive: paying (or receiving) more than what is owed now puts the extra on the supplier's account. For example, you owe $100 and pay $150: the supplier now owes you $50. The change box lets you choose: "Get change back" (the supplier hands the extra back, recorded in your drawer) or "To account". If only part is handed back, the rest stays on their account.
+- Suppliers page — Pay / Receive, Settle, and the OMT account's Settle Account: paying (or receiving) more than what is owed now puts the extra on the supplier's account. For example, you owe $100 and pay $150: the supplier now owes you $50. The change box lets you choose "Get change back" (the supplier hands the extra back, recorded in your drawer) or "To account"; if only part is handed back, the rest stays on their account. Before, Settle refused any amount above the total.
 - Suppliers page, Products tab: a supplier with a debt you recorded but no linked product now shows what you owe and counts in the Total Owed. It used to show $0.00 and "Settled".
 - Suppliers page: there is no Waive button when you settle a supplier, settle the OMT account, or pay on the Pay / Receive tab. If a supplier accepts a little less, type the difference in the Discount field on the Pay / Receive tab.
 - Paying out (OMT / Whish receive, Binance, Whish top-up from a client, debt cash-out, Hold Money pickup, refunds): the shop now keeps a leftover of up to $5 (or 450,000 LBP) automatically, up from $1 (or 100,000 LBP). There is no Waive button on OMT system or Whish system transfers.
@@ -83,18 +82,17 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Voiding an OMT or Whish transfer paid from a wallet with a card/wallet fee now puts the wallet
   back exactly as it was.
 - Suppliers page: a voided transfer now shows as "Voided" in the supplier's transaction history (it used to say "Unpaid"), and it no longer counts toward the unpaid number or the Outstanding total.
-- Services page, OMT/Whish receive: you can now hand out a round amount a little under what's owed (less than $1 or 100,000 LBP) and the shop keeps the difference as profit. The receive payment screen no longer asks for change. From now on.
+- Services page, OMT/Whish receive: the payment screen no longer asks for change.
 - From now on, voiding or refunding a supplier payment also removes the discount you entered with it, so the supplier's balance and your profit go back to exactly where they were. Payments recorded before this update keep their discount after a void.
 - OMT App and Whish App sends with a discount now go through: the customer pays less, and the discount comes out of your fee.
 - On a Binance cash-out or an OMT App / Whish App receive, a discount now comes off your fee and the customer receives that much more, instead of the payout being refused.
 - Binance sends: from now on, a discount lowers the shop fee recorded for the send (and shown on Profits), matching the cash you actually took in.
 - The Services page no longer shows a discount box on OMT and Whish sends and receives, because a discount there was never applied.
 - Custom services: when a service has no selling price saved, the price box now stays empty and you type the price before you can take payment or add it to a customer's basket. Before, the customer was charged the cost.
-- From now on, a fee typed on a Whish App receive is no longer charged on a Whish App send. Switching between Send and Receive also clears the fee you typed.
 - In a customer basket, an OMT receive line no longer shows a fee, and a For Partner transfer says it goes on the partner's account instead of listing fees the customer doesn't pay.
 - Custom services: a For Partner service now needs a selling price, like a walk-in sale. Until you type one, "Submit to Partner" stays greyed out and the page asks for a price, so the partner is always charged the price.
 - Desktop app: insurance services now start their fulfilment tracking (Ordered → Issued → Received → Delivered) like on the web app — before, the desktop app dropped it.
-- Whish App receive: a fee typed while the amount was in dollars is no longer charged after switching to LBP, where the fee field is hidden. Switching between USD and LBP now clears the fee on OMT App and Whish App. From now on; receives already recorded keep their fee.
+- OMT App and Whish App: a fee typed on a receive is no longer charged on a send, and a fee typed in dollars is no longer charged after switching to LBP (where the fee field is hidden). Switching between Send and Receive, or between USD and LBP, now clears the fee. From now on; transfers already recorded keep their fee.
 - When you settle a supplier and the payment you entered doesn't match the amount due, the error now tells you in plain words whether you paid too little or too much.
 - Suppliers: Pay / Receive, Settle and OMT account Settle now use the rate you type in the payment box and save it with the transaction. On Pay / Receive, an LBP payment's share of your purchases is now worked out at that rate.
 
@@ -106,10 +104,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
   with.
 - After you sign in, admins now get one Checkpoint window that lists all your drawers together (General first), when checkpoints are turned on and at least one drawer has not been counted today. Count each drawer and press its own Save — each drawer is saved on its own and then shows as "Counted today", while the others stay open for counting. Drawers already counted today are marked and can be counted again. The window stays open until you close it, opens once per sign-in, and closing it or refreshing the page does not bring it back. The clipboard button on each drawer card on the Dashboard still opens that one drawer's Checkpoint as before.
 - Drawer balances and Cash on Hand always show dollars and lira, even at zero; other currencies (euro, AUD, SAR…) appear only when the drawer holds some.
-- When you count a drawer, the count window now shows how many sales came in on that drawer since its last count, with the list: time, what it was (for example "Whish App Send", named the same way as on the Transactions page), client, details and amount.
-- Count window: "N sales since the last count" now reads "N movements since the last count", because the list also holds top ups, cash outs and transfers, not only sales.
-- Checkpoint Timeline: a drawer counted at zero now shows $0.00 and how much is short. Before, it showed the expected amount and "Matched" — this also corrects how past zero counts are shown.
-- Checkpoint Timeline: an empty drawer counted at zero now shows "$0.00 + 0 LBP" and "Balanced" instead of "—" and "No amounts recorded".
+- When you count a drawer, the count window now shows how many movements (sales, top ups, cash outs, transfers) came in on that drawer since its last count, with the list: time, what it was (for example "Whish App Send", named the same way as on the Transactions page), client, details and amount.
 - Checkpoint Timeline: the amount column is now called "Counted", and each row says "Short $3.00", "Over $8.00" or "Balanced" instead of a plus or minus sign.
 - Checkpoint Timeline: when you pick more than one day, a heading shows each day above its rows (when you sort by another column, the day shows under each time instead), and the details window always shows the full date.
 - Checkpoint Timeline: in the details window, the title, time, user and notes stay at the top while you scroll the amounts.
@@ -140,7 +135,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Customer basket checkout: a For Partner OMT or Whish transfer in the basket is no longer added to what the customer pays; it goes on the partner's account only. A For Partner receive is no longer paid out to the customer. From now on.
 - Customer basket checkout: you can keep change as profit even when the basket includes a For Partner transfer.
 - Customer basket: if an item can't be added to the basket, you now get a message saying why, and the item is not shown in the basket. Before, it showed for a moment even though it wasn't saved, then disappeared without explanation — or made the checkout fail later.
-- The refund window now labels the amount "Hand back". When a refund can be slightly short, it says by how much (less than $1, or less than 100,000 LBP for LBP refunds) and that the difference is kept as profit.
+- The refund window now labels the amount "Hand back". When a refund can be slightly short, it says by how much (up to $5, or up to 450,000 LBP for LBP refunds) and that the difference is kept as profit.
 - The Amount column now shows the sale's price instead of the cash the customer handed over. Voids and refunds show the amount reversed with a minus sign (−$4.25).
 - Under each sale, void and refund, the cash is spelled out: "paid $5.00 · change $0.50", "handed back $4.00 · kept $0.25".
 - The up/down arrows on voids and refunds now point the way the money actually moved.
@@ -191,18 +186,18 @@ The receipt header you typed in Settings now prints at the top of sale and repai
   and the lines stay equal. From now on only.
 - iPick, Katsh and Whish App: the touch and Alfa prepaid card tiles now show a picture of the card,
   so you can spot the right one at a glance.
-- Binance cash-outs, OMT App / Whish App receives, MTC/Alfa credit buy-backs and Whish App credit bought from a client: you can hand out a round amount a little under what's owed (less than $1 or 100,000 LBP) and the difference is shop profit. Payouts to a customer's account, from a wallet, for a partner or inside a customer session still need the exact amount.
+- Binance cash-outs, OMT App / Whish App receives, MTC/Alfa credit buy-backs and Whish App credit bought from a client: you can hand out a round amount a little under what's owed (up to $5 or 450,000 LBP) and the difference is shop profit. Payouts to a customer's account, from a wallet, for a partner or inside a customer session still need the exact amount.
 - Binance: the "≈ LBP" amount under the total now uses the rate you typed in the payment sheet, so it matches what is recorded.
 - MTC / Alfa: if the drawer no longer matches the total of its SIM lines, the Recharge page now shows a warning with both amounts, so you can fix it with a checkpoint.
 - New Phone Lines page (next to Mobile Recharge): your shop lines and the lines you sell in one place, with credit, expiry date and days left. For a line you sell, you can now enter its carrier, expiry and credit there or in the product form. Shop lines also show their days left in Settings → Carrier Lines.
 - Lines you sell: the Dashboard ("needs attention") and the bell now warn 3 days before one expires, show how many days are left to save it once expired, and ask whether to write it off once it is lost. Shop lines keep their 7-day warning. Write off on the Phone Lines page books the line's cost as a loss; you can undo it from Transactions.
+- Lines you sell: a new Recharge button on the Phone Lines page adds days or credit to a line you sell, taken from one of your shop lines or from an iPick/Katsh card. What it costs you is added to the line's cost and selling price, so its profit when sold stays the same. You can undo it from Transactions until the line is sold.
+- Mobile Recharge now recognises the lines you sell, however the number is typed (spaces, dashes, +961). It shows "This is your line for sale" with the Recharge panel instead of charging it as a customer sale, and a customer sale on such a number is refused.
 
 ## 🎟️ Loto
 
 - Loto Ticket History now shows the total USD and total LBP of the ticket sales listed, following the date filter. Refunded tickets are left out.
 - Ticket sale: the Discount field is now saved. It comes out of the shop's commission (never more than the commission), and Loto is still owed the same. A Waive button fills it in one tap for a gap of up to 450,000 LBP.
-- Lines you sell: a new Recharge button on the Phone Lines page adds days or credit to a line you sell, taken from one of your shop lines or from an iPick/Katsh card. What it costs you is added to the line's cost and selling price, so its profit when sold stays the same. You can undo it from Transactions until the line is sold.
-- Mobile Recharge now recognises the lines you sell, however the number is typed (spaces, dashes, +961). It shows "This is your line for sale" with the Recharge panel instead of charging it as a customer sale, and a customer sale on such a number is refused.
 - Settlement with Loto: when Loto pays you up to 450,000 LBP less than the settlement, Waive records the difference as a discount and the settlement goes through. There is no Waive when you are the one paying Loto. The Settle button now waits until the amount is covered.
 - Loto: a ticket's payment must now add up to its price. From now on, change kept as store credit
   is recorded on the customer's account.
@@ -253,16 +248,14 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Refunding a sale paid with a gift card now gives the gift card back.
 - Payment form: new buttons under the change fields put the whole change in dollars or in LBP with one tap.
 - Payment form: the remaining amount and the change now show in both dollars and LBP.
-- Payment form: the Keep change button is gone — if you hand back less change than due, the difference is kept as shop profit automatically and the form says so (POS, maintenance, sessions, debts, services, Loto, MTC/Alfa, Katsh/iPick, OMT/Whish, Exchange).
-- Debts: on a debt repayment, change you don't hand back is now kept as shop profit (the form says so) instead of being counted as extra payment off the customer's debt.
+- Payment form: the Keep change button is gone — if you hand back less change than due, the difference is kept as shop profit automatically and the form says so (POS, maintenance, sessions, services, Loto, MTC/Alfa, Katsh/iPick, OMT/Whish, Exchange).
 - Payment form: change you hand back in the other currency (for example LBP change from a dollar payment) while keeping the rest is now recorded as leaving the drawer — before, it was left out. From now on only.
 - Prices: an amber warning now shows when you change a price away from its saved price — on MTC/Alfa credit, the Katsh/iPick "Only Days" days and credit prices, and Services presets and items — showing the saved price next to the new one. It is only a warning: the sale still goes through.
 - POS and customer sessions: from now on, change you keep at checkout is checked against what the customer actually paid; a checkout claiming more kept change than was overpaid is refused instead of being booked as profit.
 - Custom services: from now on, a payment that doesn't add up to the price is refused, and kept change is checked against the real change due. In a customer session, kept change is counted once, at checkout.
 - Desktop app: custom services paid in another currency now save the exchange rate used in the payment window.
 - Payment form: change can be kept as profit only from cash or wallet payments. If the customer paid by account or gift card, hand the change back in full.
-- Payment error messages now start with a plain explanation of what's wrong (for example, "The payment doesn't add up to the total.").
-- POS: when you refund a single item in cash, you can now keep a small leftover (under $1 or 100,000 LBP) as shop profit, the same as when refunding a whole sale. Undoing that item refund removes it again.
+- POS: when you refund a single item in cash, you can now keep a small leftover (up to $5 or 450,000 LBP) as shop profit, the same as when refunding a whole sale. Undoing that item refund removes it again.
 - Payment form: change warnings now show the dollar sign before the amount (for example "Returning $0.53 more…").
 - Payment form: the Paid amount no longer turns red when change is due or kept. Red now only means something needs fixing, such as an underpayment or handing back too much change.
 - When a payment doesn't match the total, the message now starts with a plain explanation ("The payment doesn't add up to the total." or "The payment is more than the total.") instead of technical text — on Loto, Exchange, OMT/Whish fees, Hold Money, supplier payments and other screens.
@@ -276,22 +269,18 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 ## 💳 Debts
 
-- Settle Debt: when a customer pays more than they owe, the change now starts as "Return change". Tap "To account" to keep it all as the customer's credit, or type a smaller amount to return and the rest goes to their account. The credit now shows as "Overpayment kept as credit" (it used to say "Change returned").
+- Settle Debt: when a customer pays more than they owe, the change starts as "Return change". Type only what you hand back; whatever you don't hand back becomes the customer's account credit (shown in "Goes to"), or tap "To account" to keep it all as credit. It shows as "Overpayment kept as credit" (it used to say "Change returned"). Change is no longer kept as shop profit on a debt payment.
 - Cash Out: you can now pay a customer more than their credit. The extra is added to what they owe. For example, they have $50 credit and you hand them $80: they now owe you $30.
 - Debt payment: a Waive button moves a gap of up to $5 (or 450,000 LBP) into Discount / Forgive in one tap. When you tick only some items, it covers only the ticked items: a "Remaining on ticked" line shows what is left on them, with Waive next to it, and the items you did not tick stay owed.
-- Cashing out a client's credit: if you hand out slightly less than the credit (under $1 or 100,000 LBP), the credit now clears to zero and the difference counts as shop profit on the Profits page.
+- Cashing out a client's credit: if you hand out slightly less than the credit (up to $5 or 450,000 LBP), the credit now clears to zero and the difference counts as shop profit on the Profits page.
 - Cashing out a credit now checks that the cash you hand out matches what comes off the client's credit, and only allows cash or wallet methods (not the client's account or a gift card).
-- Repayments where you keep the extra change: from now on the kept amount is checked against what the customer actually paid, and it no longer counts as paying off the client's other items.
-- Hold Money: when you hand back a held amount as a round figure (for example $50 of $50.12), the small leftover (under $1 or 100,000 LBP, same currency) is kept as shop profit and the hold is fully closed. It shows on the Profits page (its own Hold Money card and a By Module row) and in the day close; voiding the pickup takes it back out.
+- Hold Money: when you hand back a held amount as a round figure (for example $50 of $50.12), the small leftover (up to $5 or 450,000 LBP, same currency) is kept as shop profit and the hold is fully closed. It shows on the Profits page (its own Hold Money card and a By Module row) and in the day close; voiding the pickup takes it back out.
 - From now on, a debt repayment paid in lira against a dollar debt (or partly in each currency) counts once toward what the customer owed. Before, it could also mark recharges or services on the account as paid, so their profit showed up too early.
 - From now on, voiding or refunding a debt repayment puts back exactly what that repayment paid off — it no longer marks an unrelated earlier sale, or a sale paid in cash, as unpaid again.
 - Hold Money: when you return a hold in both dollars and lira, you can now hand back a little less in either currency (for example $50 + 950,000 LBP on a $50 + 1,000,000 LBP hold); the difference is kept as shop profit and the hold is closed. The return sheet shows how much is being kept before you confirm.
-- Settle Debt: the window now lists everything the customer owes — each separate visit, and each item inside a basket that was put on the account — and you can tick what the money is for. Ticked items are paid first.
-- Settle Debt: the window now opens with every item ticked and the amount filled in. Ticking or unticking an item changes the amount to match; with nothing ticked, Confirm stays off until you tick what the payment is for.
+- Settle Debt: the window now lists everything the customer owes — each separate visit, and each item inside a basket that was put on the account — and you can tick what the money is for. It opens with every item ticked and the amount filled in; ticking or unticking changes the amount to match and keeps the payment lines you set up (for example Cash plus Whish), only the last line changes. With nothing ticked, Confirm stays off. Ticked items are paid first.
 - Settle Debt: a smaller amount pays the OMT/Whish cash-drawer items first, then the oldest, and each ticked line shows what it pays and what it leaves. A bigger amount ticks the next items by itself before you confirm.
-- Settle Debt: when the customer pays more than the whole debt, type in the change box only what you hand back; whatever you don't hand back becomes the customer's account credit (shown in "Goes to"). Change is no longer kept as shop profit on a debt payment.
 - Settle Debt: a balance that isn't linked to any item (a hand-added or imported debt) now shows as its own line, "Earlier balance (no items)", ticked with the rest, so the amount filled in is the whole balance.
-- Settle Debt: ticking or unticking an item keeps the payment lines you set up (for example Cash plus Whish); only the last line changes to match the new amount.
 - Settle Debt: a discount is now taken off the ticked items, together with the payment.
 - Accounts page: a basket that was put on the account now shows, under its line, what is still open on each of its items.
 - Profits: an item sold on the account inside a customer basket now counts its profit as soon as that item is paid, instead of waiting until the whole basket is paid. From now on.
@@ -302,7 +291,6 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 - Settings → Currencies: changing which currencies a drawer accepts now saves in the web app.
 - Web app: when adding, editing, archiving or reactivating a shop line is refused (for example a number that is already one of your lines), Settings → Carrier Lines now shows the reason instead of "Operation failed".
-- If you sign in with Google, your Google photo now shows as your account picture, from your next Google sign-in.
 
 - Web app: the recent sales list on the POS page now shows the day you pick — before, it always showed today's sales.
 - Web app: pages and pop-ups no longer get cut off at the bottom when the screen is enlarged. To make things bigger or smaller, use your browser's zoom (Ctrl + / Ctrl −, or ⌘ + / ⌘ − on a Mac); the size option in My account is now only in the desktop app.

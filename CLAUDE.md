@@ -155,6 +155,7 @@ Do NOT try to launch the app directly (`npx electron .`) to validate — it fail
     - **Owner decisions** that keep something as it is get no line either.
     - **Where the notes end up.** `yarn release` moves the file's content into `docs/release-notes/vX.Y.Z.md`. That file then becomes the GitHub release body, which the desktop updater shows, and it regenerates the in-app "What's new" data (`scripts/build-release-notes.cjs`). CI fails if that data is stale.
     - **WhatsApp copy:** `yarn release-notes:whatsapp <version|unreleased>` prints a version ready to paste.
+    - **Auditing the notes against git:** the `changelog-updater` skill supplies the wording rules; this rule still decides the file, headings and audience (no Added/Changed/Fixed, no PR links or credits). Its "since the last tag" range is wrong here: `yarn release-notes:cut` publishes web-only notes with no tag, so the latest `v*` tag can be several releases old. Start the range at the last commit that changed a `docs/release-notes/v*.md` file instead.
     - **Why this is a rule:** two weeks of changes once had to be rebuilt from commit history by two agents, because nobody wrote the note when the change was fresh. It is also the only channel through which desktop users learn what changed.
 
 ---
