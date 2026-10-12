@@ -68,6 +68,7 @@ import {
 } from "../utils/payments.js";
 import { getPaymentMethodRepository } from "./PaymentMethodRepository.js";
 import { getCarrierLineMovementRepository } from "./CarrierLineMovementRepository.js";
+import { getResaleLineRepository } from "./ResaleLineRepository.js";
 import { getCarrierLineService } from "../services/CarrierLineService.js";
 import { isPendingSupplierSettlement } from "./FinancialServiceRepository.js";
 import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
@@ -5530,6 +5531,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // Type-agnostic, keyed by transaction_id; no-op when none match.
       this._reverseCarrierLineMovements(original);
 
+      // 5g1. LIRA-309, rule 20 — a LINE_RECHARGE (internal recharge of a line
+      // held for sale): refuse once the line is sold or a newer recharge is
+      // active, else take the capitalized cost back off the line and restore
+      // its credits / expiry. No-op for every other type.
+      this._reverseResaleLineRecharge(original);
+
       // 5e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied to
       // this SALE back to IN_STOCK. Void never carries flag extras — the
       // phone-refund UI's defective/warranty-override flagging is REFUND-only
@@ -6120,6 +6127,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // 4g. LIRA-090 §8, rule 20 — carrier_line_movements reversal. See
     // voidTransaction's identical step.
     this._reverseCarrierLineMovements(original);
+
+    // 4g1. LIRA-309, rule 20 — LINE_RECHARGE reversal. See voidTransaction's
+    // identical step.
+    this._reverseResaleLineRecharge(original);
 
     // 4e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied
     // to this SALE back to IN_STOCK, applying the operator's chosen
@@ -9417,6 +9428,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * guards), same convention `_reverseLotoSupplierLedger`'s
    * `COALESCE(is_refunded, 0) = 0` guard uses.
    */
+  /**
+   * LIRA-309, rule 20 — reversal owner for a LINE_RECHARGE's own effects
+   * (capitalized cost on product + batch, the line's credits / expiry). Its
+   * drawer legs and shop-line movement are undone by the generic
+   * `_reversePayments` / `_reverseCarrierLineMovements`. Throws (rolling the
+   * void back) when the line is sold or a newer recharge is still active.
+   */
+  private _reverseResaleLineRecharge(original: TransactionEntity): void {
+    if (original.type !== TRANSACTION_TYPES.LINE_RECHARGE) return;
+    getResaleLineRepository().reverseRecharge(original.id);
+  }
+
   private _reverseCarrierLineMovements(original: TransactionEntity): void {
     const hasTable = this.db
       .prepare(

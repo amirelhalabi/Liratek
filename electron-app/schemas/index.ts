@@ -185,6 +185,8 @@ import {
   listResaleLinesQuerySchema,
   saveResaleLineSchema,
   writeOffResaleLineSchema,
+  rechargeResaleLineSchema,
+  type RechargeResaleLineData,
   type ListResaleLinesQuery,
   type SaveResaleLineData,
   type WriteOffResaleLineData,
@@ -1148,6 +1150,8 @@ export const SaveResaleLineSchema =
   saveResaleLineSchema as unknown as z.ZodSchema<SaveResaleLineData>;
 export const WriteOffResaleLineSchema =
   writeOffResaleLineSchema as unknown as z.ZodSchema<WriteOffResaleLineData>;
+export const RechargeResaleLineSchema =
+  rechargeResaleLineSchema as unknown as z.ZodSchema<RechargeResaleLineData>;
 
 // =============================================================================
 // Product Units (LIRA-143 phase 5 — phone IMEI units & warranty)

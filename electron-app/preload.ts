@@ -1913,6 +1913,17 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
       client_day?: string;
     }) => ipcRenderer.invoke("resale-lines:write-off", data),
+    recharge: (data: {
+      product_id: number;
+      source: "CARD" | "SHOP_LINE_CREDIT" | "DAYS";
+      mobile_service_item_id?: number;
+      credits?: number;
+      days?: number;
+      days_cost_usd?: number;
+      source_carrier_line_id?: number;
+      exchange_rate?: number;
+      client_day?: string;
+    }) => ipcRenderer.invoke("resale-lines:recharge", data),
   },
   carrierLines: {
     getActiveByCarrier: (carrier: "alfa" | "mtc") =>

@@ -49,6 +49,12 @@ export const TRANSACTION_TYPES = {
    *  owner for `carrier_lines`) are both type-agnostic, keyed only by
    *  transaction_id. See `FinancialServiceRepository.selfChargeTelecomItem`. */
   TELECOM_SELF_CHARGE: "TELECOM_SELF_CHARGE",
+  /** LIRA-309 — an internal recharge of a phone line the shop holds FOR
+   *  SALE (days / shop-line credit / iPick-Katsh card). Its cost is added to
+   *  the line's cost and selling price (no expense, profit 0). Reversible
+   *  via the generic void: `_reversePayments` + `_reverseCarrierLineMovements`
+   *  + `_reverseResaleLineRecharge` (newest first, refused once sold). */
+  LINE_RECHARGE: "LINE_RECHARGE",
   /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7/D8): a shop-line credit
    *  buy-back — the operator typed the shop's OWN carrier line's phone
    *  number into the Telecom Credit tab, flipping the form into a reversible

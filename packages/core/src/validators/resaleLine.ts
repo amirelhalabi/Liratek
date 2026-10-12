@@ -65,3 +65,45 @@ export type WriteOffResaleLineInput = z.input<typeof writeOffResaleLineSchema>;
 export type WriteOffResaleLineData = z.output<
   typeof writeOffResaleLineSchema
 >;
+
+/**
+ * Internal recharge of a line held for sale (LIRA-309 US3). Three sources
+ * (owner, 2026-10-11): MTC/Alfa DAYS taken from a shop line, CREDIT moved from
+ * a shop line, or a CARD from the iPick/Katsh balance. The recharge's cost is
+ * added to the line's cost and selling price.
+ */
+export const rechargeResaleLineSchema = z
+  .object({
+    product_id: z.number().int().positive(),
+    source: z.enum(["CARD", "SHOP_LINE_CREDIT", "DAYS"]),
+    /** CARD: the iPick/Katsh catalog card (same carrier as the line). */
+    mobile_service_item_id: z.number().int().positive().optional(),
+    /** SHOP_LINE_CREDIT: USD credit moved onto the line. */
+    credits: z.number().positive().optional(),
+    /** DAYS: days added, and what they cost the shop in USD. */
+    days: z.number().int().positive().optional(),
+    days_cost_usd: z.number().positive().optional(),
+    /** SHOP_LINE_CREDIT / DAYS: source shop line (default: primary). */
+    source_carrier_line_id: z.number().int().positive().optional(),
+    /** USD→LBP rate the cashier saw; server sell rate is the fallback. */
+    exchange_rate: z.number().positive().optional(),
+    client_day: clientDayInputSchema,
+  })
+  .superRefine((d, ctx) => {
+    if (d.source === "CARD" && d.mobile_service_item_id === undefined) {
+      ctx.addIssue({ code: "custom", path: ["mobile_service_item_id"], message: "Pick the card" });
+    }
+    if (d.source === "SHOP_LINE_CREDIT" && d.credits === undefined) {
+      ctx.addIssue({ code: "custom", path: ["credits"], message: "Enter the credit to move" });
+    }
+    if (d.source === "DAYS" && (d.days === undefined || d.days_cost_usd === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [d.days === undefined ? "days" : "days_cost_usd"],
+        message: "Enter the days and what they cost",
+      });
+    }
+  });
+
+export type RechargeResaleLineInput = z.input<typeof rechargeResaleLineSchema>;
+export type RechargeResaleLineData = z.output<typeof rechargeResaleLineSchema>;

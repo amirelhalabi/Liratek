@@ -302,7 +302,11 @@ export type {
   ResaleLineRow,
   ResaleLineEntity,
 } from "./repositories/ResaleLineRepository.js";
-export type { ResaleLineResult } from "./services/ResaleLineService.js";
+export type {
+  ResaleLineResult,
+  ResaleLineRechargeResult,
+  ResaleLineRechargeData,
+} from "./services/ResaleLineService.js";
 
 // LIRA-252 wave 2 — the manual carrier-line (MTC/Alfa) drawer-adjustment
 // read shape (`ClosingRepository.getCarrierLineAdjustments`), derived by the

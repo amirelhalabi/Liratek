@@ -27,13 +27,20 @@ import {
   classifyLineStatus,
   RESALE_LINE_EXPIRY_WARNING_DAYS,
 } from "../utils/lineStatus.js";
+import {
+  classifyLineValidity,
+  projectValidityExpiry,
+} from "../utils/carrierLineValidity.js";
+import { planSmsTransfer } from "../utils/telecomCredit.js";
 import { clientDay } from "../utils/requestDay.js";
 import { inventoryLogger } from "../utils/logger.js";
 import type {
   ListResaleLinesQuery,
+  RechargeResaleLineData,
   SaveResaleLineData,
   WriteOffResaleLineData,
 } from "../validators/resaleLine.js";
+import type { RecordRechargeInput } from "../repositories/ResaleLineRepository.js";
 
 /** The expense category a written-off line is booked under. */
 export const LOST_PHONE_LINE_CATEGORY = "Lost phone line";
@@ -46,6 +53,20 @@ export const LINE_NUMBER_TAKEN_ERROR =
 export type ResaleLineResult<T> =
   | { success: true; data: T }
   | { success: false; error: string };
+
+/** What a recharge of a line held for sale returns (LIRA-309 US3). */
+export interface ResaleLineRechargeData {
+  transaction_id: number;
+  recharge_id: number;
+  cost_usd: number;
+  line: {
+    cost_usd: number;
+    price_usd: number;
+    validity_expires_at: string | null;
+    credits: number;
+  };
+}
+export type ResaleLineRechargeResult = ResaleLineResult<ResaleLineRechargeData>;
 
 export class ResaleLineService {
   private repo: ResaleLineRepository;
@@ -176,6 +197,218 @@ export class ResaleLineService {
       };
     }
   }
+
+  /**
+   * LIRA-309 US3 — recharge a line held for sale from one of three sources
+   * (owner, 2026-10-11). The recharge's cost `c` (USD) is added to the line's
+   * cost, selling price and open batch unit cost, so its profit when sold is
+   * unchanged ($15/$25 + $3 of days → $18/$28 → still $10). No expense.
+   *
+   * - DAYS: days taken from a shop line (default primary): the shop line
+   *   loses the days and their cost in credits, the carrier drawer drops by
+   *   the cost (drawer = Σ shop-line credits, LIRA-252); c = the days' cost.
+   * - SHOP_LINE_CREDIT: credit moved from a shop line plus the SMS fee; the
+   *   shop line and carrier drawer drop by credit + fee; c = credit at the
+   *   shop's credit cost rate + the fee (no separate SMS expense).
+   * - CARD: an iPick/Katsh MTC/Alfa card, paid from that balance (LBP);
+   *   c = card cost ÷ the USD rate.
+   *
+   * Every write is tied to one LINE_RECHARGE transaction and undone by the
+   * generic void (`_reverseResaleLineRecharge`, newest first, not once sold).
+   */
+  recharge(
+    input: RechargeResaleLineData,
+    userId: number,
+  ): ResaleLineRechargeResult {
+    try {
+      return this.repo.withTransaction(() => {
+        const line = this.repo
+          .listLines({ includeSold: false })
+          .find((l) => l.product_id === input.product_id);
+        if (!line) return fail("This line is not in stock.");
+        if (!line.resale_line_id || !line.carrier) {
+          return fail("Save this line's carrier on the Phone Lines page first.");
+        }
+        const day = input.client_day ?? clientDay();
+        if (classifyLineValidity(line.validity_expires_at, day).state === "BURNED") {
+          return fail(
+            "This line has expired past its grace period and can no longer be recharged.",
+          );
+        }
+        const rate = input.exchange_rate ?? this.repo.getUsdSellRate();
+        const label = line.carrier === "mtc" ? "MTC" : "Alfa";
+        const carrierMismatch = `Use an ${label} card or line for this ${label} number.`;
+        const carrierDrawer = label;
+
+        let costUsd = 0;
+        let daysAdded = 0;
+        let creditsAdded = 0;
+        const legs: RecordRechargeInput["legs"] = [];
+        let sourceMovement: RecordRechargeInput["sourceMovement"];
+        let mobileServiceItemId: number | undefined;
+
+        if (input.source === "CARD") {
+          const card = this.repo.getCard(input.mobile_service_item_id as number);
+          if (!card || (card.provider !== "iPick" && card.provider !== "Katsh")) {
+            return fail("Pick an MTC or Alfa card from iPick or Katsh.");
+          }
+          if (card.category.toLowerCase() !== line.carrier) return fail(carrierMismatch);
+          if (!(card.cost_lbp > 0)) return fail("Enter what this recharge cost before saving.");
+          mobileServiceItemId = card.id;
+          daysAdded = card.validity_days ?? 0;
+          creditsAdded = card.credits ?? 0;
+          costUsd = round2(card.cost_lbp / rate);
+          legs.push({
+            method: "LINE_RECHARGE",
+            drawerName: this.repo.providerDrawerName(card.provider),
+            currency: "LBP",
+            amount: -card.cost_lbp,
+            note: `Line recharge cost: ${card.label}`,
+          });
+        } else {
+          const src = this.repo.getSourceShopLine(line.carrier, input.source_carrier_line_id);
+          if (!src || !src.is_active) return fail(`Pick an active ${label} shop line.`);
+          if (src.carrier !== line.carrier) return fail(carrierMismatch);
+
+          if (input.source === "DAYS") {
+            const days = input.days as number;
+            const v = classifyLineValidity(src.validity_expires_at, day);
+            // Owner, 2026-10-13: days can't be checked against a shop line
+            // with no expiry — ask for it first.
+            if (v.state === "NO_EXPIRY") {
+              return fail(
+                `Set the expiry of shop line ${src.phone_number} first (Phone Lines → Shop lines).`,
+              );
+            }
+            if (v.state !== "VALID" || v.daysRemaining < days) {
+              return fail(
+                `Shop line ${src.phone_number} has only ${Math.max(v.daysRemaining, 0)} days left.`,
+              );
+            }
+            daysAdded = days;
+            costUsd = round2(input.days_cost_usd as number);
+            legs.push({
+              method: "VALIDITY_DAYS_COST",
+              drawerName: carrierDrawer,
+              currency: "USD",
+              amount: -costUsd,
+              note: `Validity days cost: ${days} days (line for sale)`,
+            });
+            sourceMovement = {
+              carrierLineId: src.id,
+              creditsDelta: -costUsd,
+              validityDaysDelta: -days,
+              reason: "RESALE_DAYS",
+            };
+          } else {
+            const credits = input.credits as number;
+            const fee = round2(planSmsTransfer(credits).feeUsd);
+            const total = round2(credits + fee);
+            // Owner, 2026-10-13: allowed when the shop line is low, like a
+            // credit sale today (the line may go below zero).
+            creditsAdded = credits;
+            costUsd = round2((credits * this.repo.getCreditCostRateLbp()) / rate + fee);
+            legs.push({
+              method: carrierDrawer,
+              drawerName: carrierDrawer,
+              currency: "USD",
+              amount: -credits,
+              note: "Telecom balance sent (line for sale)",
+            });
+            if (fee > 0) {
+              legs.push({
+                method: carrierDrawer,
+                drawerName: carrierDrawer,
+                currency: "USD",
+                amount: -fee,
+                note: "SMS transfer fee (line for sale)",
+              });
+            }
+            sourceMovement = {
+              carrierLineId: src.id,
+              creditsDelta: -total,
+              validityDaysDelta: 0,
+              reason: "RESALE_TRANSFER",
+            };
+          }
+        }
+
+        if (!(costUsd > 0)) return fail("Enter what this recharge cost before saving.");
+
+        let newExpiry = line.validity_expires_at;
+        if (daysAdded > 0) {
+          const projected = projectValidityExpiry(line.validity_expires_at, daysAdded, day);
+          if (projected.burned) {
+            return fail(
+              "This line has expired past its grace period and can no longer be recharged.",
+            );
+          }
+          newExpiry = projected.expiry;
+        }
+        const newCredits = round2((line.credits ?? 0) + creditsAdded);
+
+        const written = this.repo.recordRecharge({
+          productId: line.product_id,
+          resaleLineId: line.resale_line_id,
+          source: input.source,
+          userId,
+          costUsd,
+          exchangeRate: rate,
+          today: day,
+          summary: `Line recharge: ${line.phone_number ?? line.name} (${sourceLabel(input.source)}) — cost +$${costUsd}`,
+          daysAdded,
+          creditsAdded,
+          prevCredits: line.credits ?? 0,
+          prevExpiry: line.validity_expires_at,
+          newCredits,
+          newExpiry,
+          mobileServiceItemId,
+          sourceCarrierLineId: sourceMovement?.carrierLineId,
+          legs,
+          sourceMovement,
+        });
+        inventoryLogger.info(
+          { productId: line.product_id, source: input.source, costUsd },
+          "For-sale line recharged",
+        );
+        return {
+          success: true as const,
+          data: {
+            transaction_id: written.transactionId,
+            recharge_id: written.rechargeId,
+            cost_usd: costUsd,
+            line: {
+              cost_usd: round2(line.cost_price_usd + costUsd),
+              price_usd: round2(line.selling_price_usd + costUsd),
+              validity_expires_at: newExpiry,
+              credits: newCredits,
+            },
+          },
+        };
+      });
+    } catch (error) {
+      inventoryLogger.error(
+        { error, productId: input.product_id },
+        "Failed to recharge for-sale line",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+}
+
+function fail(error: string): { success: false; error: string } {
+  return { success: false, error };
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function sourceLabel(source: RechargeResaleLineData["source"]): string {
+  return source === "DAYS" ? "days" : source === "CARD" ? "card" : "shop-line credit";
 }
 
 // =============================================================================

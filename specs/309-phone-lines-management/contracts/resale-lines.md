@@ -79,9 +79,8 @@ A `superRefine` enforces the per-source required fields. The actor
   — use Recharge line on the Phone Lines or Mobile Recharge page." This is
   the same position and style as the `isShopOwnLine` re-check (RR:975-983).
 - **Void/refund** (`transactions:void` / `refund`, both transports, no new
-  route). `LINE_RECHARGE` becomes voidable, and three refusals are added:
-  "Refund the sale of this line first.", "Undo the newer recharge of this
-  line first.", and, for a DAYS recharge whose source shop line has a newer
-  validity movement, the existing carrier-line LIFO refusal from
-  `CarrierLineRepository.reverseMovement`, worded "Undo the newer days sale on
-  that shop line first."
+  route). `LINE_RECHARGE` becomes voidable, and two refusals are added:
+  "Refund the sale of this line first." and "Undo the newer recharge of this
+  line first." A later days sale on the source shop line does NOT block the
+  undo: days taken from a shop line are added back onto its current expiry
+  (corrected 2026-10-13, verified by test).

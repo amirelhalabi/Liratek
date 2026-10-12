@@ -12,6 +12,8 @@ import type {
   ListResaleLinesQueryInput,
   SaveResaleLineInput,
   WriteOffResaleLineInput,
+  RechargeResaleLineInput,
+  ResaleLineRechargeResult,
   ResaleLineRow,
   ResaleLineEntity,
 } from "@liratek/core";
@@ -2023,6 +2025,10 @@ export type ApiAdapter = {
   saveResaleLine: (
     data: SaveResaleLineInput,
   ) => Promise<{ success: boolean; data?: ResaleLineEntity; error?: string }>;
+  /** Recharge a line held for sale; its cost is added to its cost and price. */
+  rechargeResaleLine: (
+    data: RechargeResaleLineInput,
+  ) => Promise<ResaleLineRechargeResult>;
   /** Admin: write off a LOST line held for sale (books its cost as a loss). */
   writeOffResaleLine: (
     data: WriteOffResaleLineInput,

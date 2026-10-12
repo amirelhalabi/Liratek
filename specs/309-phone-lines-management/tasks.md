@@ -201,12 +201,13 @@ description: "Task list for LIRA-309 Phone Lines Management"
 
 ### Tests for User Story 3 (write first, see them fail)
 
-- [ ] T035 [P] [US3] Write `packages/core/src/repositories/__tests__/StockBatchRepository.addToOpenBatchUnitCost.test.ts`:
+- [x] T035 [P] [US3] Write `packages/core/src/repositories/__tests__/StockBatchRepository.addToOpenBatchUnitCost.test.ts`:
+  > Delivered as (2026-10-13): T035–T039 were folded into ONE file, `packages/core/src/services/__tests__/ResaleLineService.recharge.test.ts` (15 tests, full create_db.sql DB). The separately named files do not exist. The batch-cost rule is tested through the service ("more than one unit" case).
   - adding 3 to the single open batch (`quantity_remaining = 1`) raises `unit_cost_usd` 15→18;
   - refused when there are 2 open batches or `quantity_remaining > 1`;
   - returns null and changes nothing when there is no batch (legacy);
   - a negative delta (reversal) lowers it.
-- [ ] T036 [P] [US3] Write `packages/core/src/services/__tests__/ResaleLineService.recharge.days.test.ts` (**C2, C3, C4, C11**). DAYS 30 days, cost $3, on an MTC line in stock:
+- [x] T036 [P] [US3] Write `packages/core/src/services/__tests__/ResaleLineService.recharge.days.test.ts` (**C2, C3, C4, C11**). DAYS 30 days, cost $3, on an MTC line in stock:
   - product 18/28, batch 18, line expiry +30 through `projectValidityExpiry`;
   - source shop line validity −30 and credits −3, with a `carrier_line_movements` row;
   - MTC drawer −3, zero expense rows;
@@ -216,30 +217,30 @@ description: "Task list for LIRA-309 Phone Lines Management"
   - sell it and assert `sale_items.cost_price_snapshot_usd = 18` and profit 10;
   - in a separate case, void before the sale and assert every field and drawer back to its prior snapshot (delta 0);
   - manual price edit 28→27, then void → 24.
-- [ ] T037 [P] [US3] Write `packages/core/src/services/__tests__/ResaleLineService.recharge.card.test.ts` (**C7, C10**):
+- [x] T037 [P] [US3] Write `packages/core/src/services/__tests__/ResaleLineService.recharge.card.test.ts` (**C7, C10**):
   - an iPick MTC card with `cost_lbp` 356,000 at rate 89,000: iPick drawer −356,000 LBP, c = 4, line credits + card credits, expiry + `validity_days`, MTC/Alfa drawer untouched;
   - void → every delta 0;
   - a carrier mismatch (Alfa card on an MTC line) is refused;
   - **(E1)** a card whose `cost_lbp` is 0 or empty is refused with "Enter what this recharge cost before saving.";
   - **(U2)** the iPick drawer movement is a payment leg linked to the `LINE_RECHARGE` transaction (assert by `transaction_id`).
-- [ ] T038 [P] [US3] Write `packages/core/src/services/__tests__/ResaleLineService.recharge.credit.test.ts` (**C8, C10**). 2 credits from the primary MTC shop line:
+- [x] T038 [P] [US3] Write `packages/core/src/services/__tests__/ResaleLineService.recharge.credit.test.ts` (**C8, C10**). 2 credits from the primary MTC shop line:
   - shop line credits −(2 + SMS fee) and MTC drawer −(2 + SMS fee);
   - for-sale line credits +2;
   - c = (2×`alfa_credit_cost_lbp` + fee×rate) ÷ rate;
   - **no** `SMS_Transfer_Fee` expense row;
   - void → every delta 0;
   - insufficient shop-line credit is refused with the existing message.
-- [ ] T039 [P] [US3] Write `packages/core/src/repositories/__tests__/TransactionRepository.lineRechargeReversal.test.ts` (**C5, C6**):
+- [x] T039 [P] [US3] Write `packages/core/src/repositories/__tests__/TransactionRepository.lineRechargeReversal.test.ts` (**C5, C6**):
   - void after the line is sold is refused with "Refund the sale of this line first.";
   - with two recharges, voiding the older first is refused with "Undo the newer recharge of this line first.";
   - newer then older both succeed;
   - a recharge on a LOST (BURNED) line is refused;
   - a recharge on a sold line is refused with "This line is not in stock."
-  - **(U1)** a DAYS recharge, then a later customer DAYS sale on the same source shop line: voiding the recharge is refused with the carrier-line LIFO refusal ("Undo the newer days sale on that shop line first."), and nothing changes. After voiding the later sale, the recharge void succeeds. A SHOP_LINE_CREDIT recharge followed by a credit-only movement on the shop line still voids, because there is no validity LIFO.
+  - **(U1, corrected 2026-10-13)** a DAYS recharge, then a later customer DAYS sale on the same source shop line: voiding the recharge SUCCEEDS. The recharge's days come back onto the shop line's current expiry and the later sale is kept (a sell reverses by arithmetic addback, `CarrierLineRepository.reverseMovement`).
 
 ### Implementation for User Story 3
 
-- [ ] T040 [US3] Register `LINE_RECHARGE` everywhere a transaction type must be classified:
+- [x] T040 [US3] Register `LINE_RECHARGE` everywhere a transaction type must be classified:
   - `packages/core/src/constants/transactionTypes.ts` (`TRANSACTION_TYPES`; **not** in `NON_REVERSIBLE_TRANSACTION_TYPES`);
   - label "Line recharge" in `packages/core/src/utils/transactionText.ts`;
   - `TRANSACTION_CASH_DIRECTION.LINE_RECHARGE = null` in `packages/core/src/utils/cashFlow.ts` (analogue `TELECOM_SELF_CHARGE`);
@@ -247,12 +248,12 @@ description: "Task list for LIRA-309 Phone Lines Management"
   - `ACTIONABLE_TYPES` in `frontend/src/features/audit/auditConstants.ts`.
 
   Typecheck passes; the exhaustive records compile.
-- [ ] T041 [US3] Add `addToOpenBatchUnitCost(productId, deltaUsd)` in `packages/core/src/repositories/StockBatchRepository.ts`, a guarded single UPDATE that checks `.run().changes`, returning `batchId` or null. T035 passes.
-- [ ] T042 [US3] Add to `ResaleLineRepository`:
+- [x] T041 [US3] Add `addToOpenBatchUnitCost(productId, deltaUsd)` in `packages/core/src/repositories/StockBatchRepository.ts`, a guarded single UPDATE that checks `.run().changes`, returning `batchId` or null. T035 passes.
+- [x] T042 [US3] Add to `ResaleLineRepository`:
   - `insertRecharge(row)`, `getLatestUnreversedForLine`, `markReversed` and `getByTransactionId`;
   - `applyCapitalization(productId, deltaUsd)`, which updates `products.cost_price_usd` and `selling_price_usd` by `+delta` inside the caller's transaction;
   - `setDetailsSnapshot(lineId, { validityExpiresAt, credits })`.
-- [ ] T043 [US3] Add the `rechargeResaleLineSchema` from `contracts/resale-lines.md` to `packages/core/src/validators/resaleLine.ts`:
+- [x] T043 [US3] Add the `rechargeResaleLineSchema` from `contracts/resale-lines.md` to `packages/core/src/validators/resaleLine.ts`:
   - `source: 'CARD' | 'SHOP_LINE_CREDIT' | 'DAYS'`;
   - `mobile_service_item_id` required for CARD, `credits > 0` required for SHOP_LINE_CREDIT, `days > 0` and `days_cost_usd > 0` required for DAYS, all through `superRefine`;
   - optional `source_carrier_line_id`;
@@ -260,7 +261,8 @@ description: "Task list for LIRA-309 Phone Lines Management"
   - optional `client_day`.
 
   Export from both entry points and `electron-app/schemas/index.ts`.
-- [ ] T044 [US3] Implement `ResaleLineService.recharge(input, userId)` in ONE DB transaction, run through **`ResaleLineRepository.withTransaction(...)`**, the repository pattern used by `WarrantyService` (`this.claims.withTransaction`, WarrantyService.ts:284). The service never calls `getDatabase()` (rule 13). Guards first:
+- [x] T044 [US3] Implement `ResaleLineService.recharge(input, userId)` in ONE DB transaction, run through **`ResaleLineRepository.withTransaction(...)`**, the repository pattern used by `WarrantyService` (`this.claims.withTransaction`, WarrantyService.ts:284). The service never calls `getDatabase()` (rule 13). Guards first:
+  > Owner decisions 2026-10-13: DAYS from a shop line with **no expiry** is refused ("Set the expiry of shop line X first"); DAYS needing more days than the shop line has is refused; SHOP_LINE_CREDIT is **allowed** when the shop line is low (like a credit sale). Not proven failing-first: the U1 test (undo succeeds) and the multi-unit test.
   - unsold, else "This line is not in stock.";
   - not LOST/BURNED, using `client_day ?? localDay()`;
   - carrier match;
@@ -281,25 +283,26 @@ description: "Task list for LIRA-309 Phone Lines Management"
   - `insertRecharge` with the `prev_*` snapshot.
 
   Reuse the existing movement and leg writers; never re-implement them. T036–T038 pass.
-- [ ] T045 [US3] Add the `_reverseResaleLineRecharge` step in `packages/core/src/repositories/TransactionRepository.ts`, keyed on `resale_line_recharges.transaction_id` and placed beside `_reverseCarrierLineMovements` (≈:9368) in the void and refund sequences. It:
+- [x] T045 [US3] Add the `_reverseResaleLineRecharge` step in `packages/core/src/repositories/TransactionRepository.ts`, keyed on `resale_line_recharges.transaction_id` and placed beside `_reverseCarrierLineMovements` (≈:9368) in the void and refund sequences. It:
   - refuses if the line has been sold (batch consumed or stock 0) with "Refund the sale of this line first.";
   - refuses if it is not `getLatestUnreversedForLine` with "Undo the newer recharge of this line first.";
   - otherwise applies `applyCapitalization(−c)` and `addToOpenBatchUnitCost(−c)`, restores the `prev_validity_expires_at`/`prev_credits` snapshot and calls `markReversed`.
 
   Drawer legs and shop-line movements are reversed by the existing generic steps. T039 passes, and C10 net-zero passes for all three sources.
-- [ ] T046 [US3] Wire `resale-lines:recharge` on every layer:
+- [x] T046 [US3] Wire `resale-lines:recharge` on every layer:
   - an IPC handler (any authenticated session, like `recharge:process`) with `validatePayload(RechargeResaleLineSchema)` and `userId` from the session;
   - preload and `electron.d.ts`;
   - `channelPolicy.ts` (classified like `recharge:process`);
   - REST `POST /api/resale-lines/:productId/recharge` (`authenticateJWT`, no extra role, `userId` from the JWT, client day from `X-Client-Day`/body);
   - `rechargeResaleLine` in `backendApi.ts`, `ElectronApiAdapter.ts` and `packages/ui/src/api/types.ts`.
-- [ ] T047 [US3] Create `frontend/src/features/recharge/components/ResaleLineRechargePanel.tsx`. It has three source tabs:
+- [x] T047 [US3] Create `frontend/src/features/recharge/components/ResaleLineRechargePanel.tsx`. It has three source tabs:
+  > Delivered as (2026-10-13): the panel lives in `frontend/src/features/phoneLines/components/ResaleLineRechargePanel.tsx` (test beside it), and a **Recharge** button on the Phone Lines page opens it. Phase 6 (T052) imports it from there.
   - Days: days, days cost (USD) and source shop line (default primary);
   - Shop-line credit: credits and source shop line, with the SMS fee preview;
   - Card: the iPick/Katsh card picker, loaded with the existing **`api.getActiveMobileServiceItems()`** (as `KatshForm.tsx:819` does) and filtered to provider iPick/Katsh, the line's carrier (`category` `mtc`/`alfa`) and `cost_lbp > 0`.
 
   It shows a live preview "Cost $15 → $18 · Price $25 → $28" and submits one payload. On success it shows the toast and refreshes the line. Add a test `ResaleLineRechargePanel.test.tsx` that asserts payload fields from the schema (rule 24).
-- [ ] T048 [US3] Add a release note line: you can now recharge a line you sell from Mobile Recharge (days, credit from your shop line, or an iPick/Katsh card). What it cost is added to the line's cost and selling price, so its profit stays the same, and voiding the recharge puts everything back.
+- [x] T048 [US3] Add a release note line: you can now recharge a line you sell from Mobile Recharge (days, credit from your shop line, or an iPick/Katsh card). What it cost is added to the line's cost and selling price, so its profit stays the same, and voiding the recharge puts everything back.
 
 **Checkpoint**: US3 money flow is proven net-zero per source and its profit is unchanged.
 

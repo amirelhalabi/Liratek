@@ -15,6 +15,7 @@ import {
   listResaleLinesQuerySchema,
   saveResaleLineSchema,
   writeOffResaleLineSchema,
+  rechargeResaleLineSchema,
   type ListResaleLinesQuery,
 } from "@liratek/core";
 import {
@@ -107,6 +108,44 @@ router.post(
           entity_id: String(req.body.product_id),
           summary: `Wrote off lost phone line (product #${req.body.product_id})`,
           metadata: { expense_id: result.data.expense_id },
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
+
+// POST /api/resale-lines/:productId/recharge — internal recharge of a line held
+// for sale (LIRA-309 US3); admin or staff, actor from the JWT.
+router.post(
+  "/:productId/recharge",
+  requireRole(["admin", "staff"]),
+  validateRequest(rechargeResaleLineSchema),
+  (req, res) => {
+    try {
+      if (Number(req.params.productId) !== req.body.product_id) {
+        res.json({
+          success: false,
+          error: "Product id in the path and body do not match.",
+        });
+        return;
+      }
+      const result = getResaleLineService().recharge(
+        req.body,
+        (req as AuthRequest).user!.userId,
+      );
+      if (result.success) {
+        auditRest(req as AuthRequest, {
+          action: "create",
+          entity_type: "resale_line",
+          entity_id: String(req.body.product_id),
+          summary: `Recharged line for sale (product #${req.body.product_id}, ${req.body.source})`,
+          metadata: {
+            transaction_id: result.data.transaction_id,
+            cost_usd: result.data.cost_usd,
+          },
         });
       }
       res.json(result);

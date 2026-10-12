@@ -20,6 +20,7 @@ import {
   ListResaleLinesQuerySchema,
   SaveResaleLineSchema,
   WriteOffResaleLineSchema,
+  RechargeResaleLineSchema,
 } from "../schemas/index.js";
 
 export function registerResaleLineHandlers(): void {
@@ -102,6 +103,39 @@ export function registerResaleLineHandlers(): void {
         success: false,
         error:
           error instanceof Error ? error.message : "Failed to write off the line",
+      };
+    }
+  });
+
+  // Recharge a line held for sale (LIRA-309 US3) — any signed-in user, like
+  // recharge:process (a cashier does this on Mobile Recharge).
+  ipcMain.handle("resale-lines:recharge", (event, data: unknown) => {
+    try {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(RechargeResaleLineSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = service.recharge(v.data, auth.userId);
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "resale_line",
+          entity_id: String(v.data.product_id),
+          summary: `Recharged line for sale (product #${v.data.product_id}, ${v.data.source})`,
+          metadata: {
+            transaction_id: result.data.transaction_id,
+            cost_usd: result.data.cost_usd,
+          },
+        });
+      }
+      return result;
+    } catch (error) {
+      inventoryLogger.error({ error }, "resale-lines:recharge failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to recharge the line",
       };
     }
   });

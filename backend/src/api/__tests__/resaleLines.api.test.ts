@@ -49,6 +49,7 @@ import {
   getResaleLineService,
   saveResaleLineSchema,
   writeOffResaleLineSchema,
+  rechargeResaleLineSchema,
 } from "@liratek/core";
 import resaleLinesRouter from "../resaleLines.js";
 
@@ -171,6 +172,47 @@ describe("Resale line REST routes (LIRA-309)", () => {
         .set("x-test-role", "staff")
         .send(WRITE_OFF);
       expect(res.status).toBe(403);
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("POST /api/resale-lines/:productId/recharge", () => {
+    const RECHARGE = rechargeResaleLineSchema.parse({
+      product_id: 5,
+      source: "DAYS",
+      days: 30,
+      days_cost_usd: 3,
+      exchange_rate: 89000,
+      client_day: "2026-10-13",
+    });
+
+    it("a cashier (staff) can recharge — payload + JWT user reach the service", async () => {
+      const spy = jest.spyOn(service, "recharge").mockReturnValue({
+        success: true,
+        data: {
+          transaction_id: 1,
+          recharge_id: 1,
+          cost_usd: 3,
+          line: { cost_usd: 18, price_usd: 28, validity_expires_at: "2026-11-14", credits: 0 },
+        },
+      });
+      const res = await request(app)
+        .post(`/api/resale-lines/5/recharge`)
+        .set("x-test-role", "staff")
+        .send({ ...RECHARGE, userId: 999 });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(spy).toHaveBeenCalledWith(RECHARGE, 7);
+    });
+
+    it("DAYS without a cost is refused with 200 and never reaches the service", async () => {
+      const spy = jest.spyOn(service, "recharge");
+      const res = await request(app)
+        .post(`/api/resale-lines/5/recharge`)
+        .set("x-test-role", "staff")
+        .send({ product_id: 5, source: "DAYS", days: 30 });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
       expect(spy).not.toHaveBeenCalled();
     });
   });

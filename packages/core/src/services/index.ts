@@ -402,6 +402,8 @@ export {
   resetResaleLineService,
   LINE_NUMBER_TAKEN_ERROR,
   type ResaleLineResult,
+  type ResaleLineRechargeResult,
+  type ResaleLineRechargeData,
 } from "./ResaleLineService.js";
 export type {
   CarrierLineResult,

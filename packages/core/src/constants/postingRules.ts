@@ -568,6 +568,23 @@ const TELECOM_RULES = {
       debt: NONE,
     },
   },
+  "LINE_RECHARGE/resale": {
+    transactionType: "LINE_RECHARGE",
+    mode: "Internal recharge of a phone line held for sale (LIRA-309)",
+    mapRef: "specs/309-phone-lines-management/research.md R3–R5, R7",
+    ledgers: {
+      // x = the source's drawer movement: the iPick/Katsh cost (LBP, card)
+      // or the carrier-drawer debit (USD, days / shop-line credit). The cost
+      // goes into the line's inventory value, never into a ledger.
+      drawers: {
+        post: "post",
+        lines: [{ role: "wallet", currency: "txn", amount: (i) => -i.x }],
+      },
+      supplier: NONE,
+      partner: NONE,
+      debt: NONE,
+    },
+  },
   "CARRIER_LINE_ADJUSTMENT/manual": {
     transactionType: "CARRIER_LINE_ADJUSTMENT",
     mode: "Shop line created / edited / toggled / archived by hand",

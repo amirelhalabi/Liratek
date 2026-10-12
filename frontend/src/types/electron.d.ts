@@ -59,6 +59,8 @@ import type {
   ListResaleLinesQueryInput,
   SaveResaleLineInput,
   WriteOffResaleLineInput,
+  RechargeResaleLineInput,
+  ResaleLineRechargeResult,
 } from "@liratek/core";
 
 /** LIRA-306 — the plain envelope the offline:* channels reply with. */
@@ -3745,6 +3747,7 @@ export interface ElectronAPI {
     getAllActive: () => Promise<{
       success: boolean;
       data?: CarrierLine[];
+    recharge: (data: RechargeResaleLineInput) => Promise<ResaleLineRechargeResult>;
       error?: string;
     }>;
     getAllAdmin: () => Promise<{

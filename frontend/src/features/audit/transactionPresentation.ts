@@ -93,6 +93,12 @@ export const TRANSACTION_PRESENTATION: Record<
     color: "text-slate-300",
     direction: TRANSACTION_CASH_DIRECTION.TELECOM_SELF_CHARGE,
   },
+  // LIRA-309 — internal recharge of a line held for sale (cost added to it).
+  LINE_RECHARGE: {
+    label: TRANSACTION_TYPE_LABELS.LINE_RECHARGE,
+    color: "text-slate-300",
+    direction: TRANSACTION_CASH_DIRECTION.LINE_RECHARGE,
+  },
   // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7): the shop BUYS credits back
   // from the customer and pays cash out — the opposite of a RECHARGE sale.
   TELECOM_CREDIT_BUYBACK: {

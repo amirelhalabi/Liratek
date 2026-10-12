@@ -23,6 +23,7 @@ import { localDay } from "@/shared/utils/localDay";
 import { Phone } from "lucide-react";
 import CarrierLinesManager from "@/features/settings/pages/Settings/CarrierLinesManager";
 import { LineStatusChip } from "@/features/phoneLines/components/LineStatusChip";
+import { ResaleLineRechargePanel } from "@/features/phoneLines/components/ResaleLineRechargePanel";
 import logger from "@/utils/logger";
 
 type Tab = "for-sale" | "shop";
@@ -55,6 +56,8 @@ export default function PhoneLines() {
   const [saving, setSaving] = useState(false);
   // LIRA-309 — the lost line awaiting the owner's write-off confirmation.
   const [writeOffRow, setWriteOffRow] = useState<ResaleLineRow | null>(null);
+  // LIRA-309 phase 5 — the line being recharged.
+  const [rechargeRow, setRechargeRow] = useState<ResaleLineRow | null>(null);
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async (includeSold: boolean) => {
@@ -229,6 +232,20 @@ export default function PhoneLines() {
             </div>
           )}
 
+          {rechargeRow && (
+            <ResaleLineRechargePanel
+              line={rechargeRow}
+              onCancel={() => setRechargeRow(null)}
+              onDone={() => {
+                setNotice(
+                  `Line ${rechargeRow.phone_number ?? ""} recharged — its cost and price went up by what it cost.`,
+                );
+                setRechargeRow(null);
+                void load(showSold);
+              }}
+            />
+          )}
+
           {writeOffRow && (
             <div className="border border-red-700/60 rounded-lg p-4 bg-red-950/30 space-y-3">
               <p className="text-sm text-slate-200">
@@ -304,6 +321,18 @@ export default function PhoneLines() {
                       {money(row.cost_price_usd)} / {money(row.selling_price_usd)}
                     </td>
                     <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap">
+                      {row.is_unsold === 1 && row.carrier && !isLost(row) && (
+                        <button
+                          onClick={() => {
+                            setNotice("");
+                            setEdit(null);
+                            setRechargeRow(row);
+                          }}
+                          className="px-2 py-0.5 bg-violet-900/40 hover:bg-violet-900/60 text-violet-200 rounded text-xs"
+                        >
+                          Recharge
+                        </button>
+                      )}
                       {isLost(row) && (
                         <button
                           onClick={() => {

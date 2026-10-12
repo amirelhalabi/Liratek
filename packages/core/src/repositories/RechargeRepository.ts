@@ -379,7 +379,7 @@ const ALFA_CREDIT_COST_RATE_FALLBACK_LBP = 85_000;
  * unusable value falls back to the named default rather than throwing inside a
  * money transaction.
  */
-function getAlfaCreditCostRateLbp(
+export function getAlfaCreditCostRateLbp(
   db: Database.Database,
   tenantId: number,
 ): number {

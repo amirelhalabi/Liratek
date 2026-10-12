@@ -18,6 +18,8 @@ import type {
   ListResaleLinesQueryInput,
   SaveResaleLineInput,
   WriteOffResaleLineInput,
+  RechargeResaleLineInput,
+  ResaleLineRechargeResult,
   ResaleLineRow,
   ResaleLineEntity,
 } from "@liratek/core";
@@ -7684,6 +7686,21 @@ export async function writeOffResaleLine(
         method: "POST",
         body: data,
       }),
+  );
+}
+
+/** Recharge a line held for sale (days / shop-line credit / iPick-Katsh
+ *  card); its cost is added to the line's cost and price (LIRA-309). */
+export async function rechargeResaleLine(
+  data: RechargeResaleLineInput,
+): Promise<ResaleLineRechargeResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().resaleLines.recharge(data),
+    async () =>
+      requestJson<ResaleLineRechargeResult>(
+        `/api/resale-lines/${data.product_id}/recharge`,
+        { method: "POST", body: data },
+      ),
   );
 }
 

@@ -16,6 +16,15 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { requestNow } from "../utils/requestNow.js";
 import { isPhoneLineCategoryName } from "../utils/phoneNumber.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { getStockBatchRepository } from "./StockBatchRepository.js";
+import { getCarrierLineRepository } from "./CarrierLineRepository.js";
+import { getServiceProviderRepository } from "./ServiceProviderRepository.js";
+import { getAlfaCreditCostRateLbp } from "./RechargeRepository.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import { getCarrierLineService } from "../services/CarrierLineService.js";
 
 export type ResaleLineCarrier = "mtc" | "alfa";
 
@@ -51,6 +60,70 @@ export interface ResaleLineRow {
   carrier: ResaleLineCarrier | null;
   credits: number;
   validity_expires_at: string | null;
+}
+
+export interface RechargeCardItem {
+  id: number;
+  provider: string;
+  category: string;
+  label: string;
+  cost_lbp: number;
+  credits: number | null;
+  validity_days: number | null;
+}
+
+export interface ResaleLineRechargeEntity {
+  id: number;
+  tenant_id: number;
+  transaction_id: number;
+  resale_line_id: number;
+  product_id: number;
+  source: "CARD" | "SHOP_LINE_CREDIT" | "DAYS";
+  days_added: number;
+  credits_added: number;
+  cost_usd: number;
+  source_carrier_line_id: number | null;
+  mobile_service_item_id: number | null;
+  prev_cost_usd: number;
+  prev_price_usd: number;
+  prev_validity_expires_at: string | null;
+  prev_credits: number;
+  batch_id: number | null;
+  is_reversed: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecordRechargeInput {
+  productId: number;
+  resaleLineId: number;
+  source: "CARD" | "SHOP_LINE_CREDIT" | "DAYS";
+  userId: number;
+  costUsd: number;
+  exchangeRate: number;
+  today: string;
+  summary: string;
+  daysAdded: number;
+  creditsAdded: number;
+  prevCredits: number;
+  prevExpiry: string | null;
+  newCredits: number;
+  newExpiry: string | null;
+  mobileServiceItemId?: number;
+  sourceCarrierLineId?: number;
+  legs: Array<{
+    method: string;
+    drawerName: string;
+    currency: "USD" | "LBP";
+    amount: number;
+    note: string;
+  }>;
+  sourceMovement?: {
+    carrierLineId: number;
+    creditsDelta: number;
+    validityDaysDelta: number;
+    reason: string;
+  };
 }
 
 export interface ListResaleLinesOptions {
@@ -208,6 +281,299 @@ export class ResaleLineRepository extends BaseRepository<ResaleLineEntity> {
         );
     }
     return this.getByProductId(productId)!;
+  }
+
+  // ---------------------------------------------------------------------------
+  // LIRA-309 US3 — internal recharge of a line held for sale
+  // ---------------------------------------------------------------------------
+
+  /** The shop's USD→LBP sell rate (fallback when the cashier sent none). */
+  getUsdSellRate(): number {
+    return getUsdLbpSellRate(this.db);
+  }
+
+  /** What $1 of transferred credit costs the shop, in LBP (the same setting a
+   *  credit sale's cost uses — `RechargeRepository.getAlfaCreditCostRateLbp`). */
+  getCreditCostRateLbp(): number {
+    return getAlfaCreditCostRateLbp(this.db, getCurrentTenantId());
+  }
+
+  /** An active iPick/Katsh MTC/Alfa card from the catalog. */
+  getCard(itemId: number): RechargeCardItem | null {
+    const tenantId = getCurrentTenantId();
+    return (
+      (this.db
+        .prepare(
+          `SELECT id, provider, category, label, cost_lbp, credits, validity_days
+             FROM mobile_service_items
+            WHERE tenant_id = ? AND id = ? AND is_active = 1`,
+        )
+        .get(tenantId, itemId) as RechargeCardItem | undefined) ?? null
+    );
+  }
+
+  /** The newest recharge of a line that has not been undone. */
+  getLatestActiveRecharge(resaleLineId: number): ResaleLineRechargeEntity | null {
+    const tenantId = getCurrentTenantId();
+    return (
+      (this.db
+        .prepare(
+          `SELECT * FROM resale_line_recharges
+            WHERE tenant_id = ? AND resale_line_id = ? AND is_reversed = 0
+            ORDER BY id DESC LIMIT 1`,
+        )
+        .get(tenantId, resaleLineId) as ResaleLineRechargeEntity | undefined) ??
+      null
+    );
+  }
+
+  getRechargeByTransactionId(transactionId: number): ResaleLineRechargeEntity | null {
+    const tenantId = getCurrentTenantId();
+    return (
+      (this.db
+        .prepare(
+          `SELECT * FROM resale_line_recharges
+            WHERE tenant_id = ? AND transaction_id = ?`,
+        )
+        .get(tenantId, transactionId) as ResaleLineRechargeEntity | undefined) ??
+      null
+    );
+  }
+
+  /**
+   * Write one internal recharge. Runs inside the caller's DB transaction
+   * (`withTransaction`). The service has already validated and computed the
+   * capitalized cost `costUsd`; this only posts what it was told:
+   *
+   * - one `LINE_RECHARGE` transaction (profit 0, no client);
+   * - the source's drawer legs, each a payments row tied to that transaction
+   *   so the generic `_reversePayments` undoes it;
+   * - for DAYS / SHOP_LINE_CREDIT, a movement on the source shop line tied to
+   *   the transaction (`_reverseCarrierLineMovements` undoes it);
+   * - `+costUsd` on the product's cost, price and open batch unit cost;
+   * - the line's new credits / expiry;
+   * - the `resale_line_recharges` row `_reverseResaleLineRecharge` reads.
+   */
+  recordRecharge(input: RecordRechargeInput): { transactionId: number; rechargeId: number } {
+    const tenantId = getCurrentTenantId();
+    const product = this.db
+      .prepare(
+        `SELECT cost_price_usd, selling_price_usd FROM products WHERE tenant_id = ? AND id = ?`,
+      )
+      .get(tenantId, input.productId) as
+      | { cost_price_usd: number; selling_price_usd: number }
+      | undefined;
+    if (!product) throw new Error("This line is not in stock.");
+
+    const transactionId = getTransactionRepository().createTransaction({
+      type: TRANSACTION_TYPES.LINE_RECHARGE,
+      source_table: "resale_lines",
+      source_id: input.resaleLineId,
+      user_id: input.userId,
+      amount_usd: -input.costUsd,
+      amount_lbp: 0,
+      profit_usd: 0,
+      profit_lbp: 0,
+      exchange_rate: input.exchangeRate,
+      summary: input.summary,
+      metadata_json: {
+        source: input.source,
+        product_id: input.productId,
+        cost_usd: input.costUsd,
+        days_added: input.daysAdded,
+        credits_added: input.creditsAdded,
+        ...(input.sourceCarrierLineId
+          ? { source_carrier_line_id: input.sourceCarrierLineId }
+          : {}),
+        ...(input.mobileServiceItemId
+          ? { mobile_service_item_id: input.mobileServiceItemId }
+          : {}),
+      },
+    });
+
+    for (const leg of input.legs) {
+      insertPaymentRow(this.db, {
+        transactionId,
+        method: leg.method,
+        drawerName: leg.drawerName,
+        currencyCode: leg.currency,
+        amount: leg.amount,
+        note: leg.note,
+        createdBy: input.userId,
+        tenantId,
+      });
+      applyDrawerDelta(this.db, {
+        drawerName: leg.drawerName,
+        currencyCode: leg.currency,
+        delta: leg.amount,
+        tenantId,
+      });
+    }
+
+    if (input.sourceMovement) {
+      const moved = getCarrierLineService().applyMovement({
+        carrierLineId: input.sourceMovement.carrierLineId,
+        creditsDelta: input.sourceMovement.creditsDelta,
+        validityDaysDelta: input.sourceMovement.validityDaysDelta,
+        reason: input.sourceMovement.reason,
+        transactionId,
+        today: input.today,
+      });
+      if (!moved.success) {
+        throw new Error(moved.error ?? "Could not update the shop line.");
+      }
+    }
+
+    this.applyCapitalization(input.productId, input.costUsd);
+    const batchId = getStockBatchRepository().addToOpenBatchUnitCost(
+      input.productId,
+      input.costUsd,
+    );
+
+    this.db
+      .prepare(
+        `UPDATE resale_lines
+            SET credits = ?, validity_expires_at = ?, updated_at = ?
+          WHERE tenant_id = ? AND id = ?`,
+      )
+      .run(
+        input.newCredits,
+        input.newExpiry,
+        requestNow(),
+        tenantId,
+        input.resaleLineId,
+      );
+
+    const now = requestNow();
+    const rechargeId = Number(
+      this.db
+        .prepare(
+          `INSERT INTO resale_line_recharges (
+             tenant_id, transaction_id, resale_line_id, product_id, source,
+             days_added, credits_added, cost_usd, source_carrier_line_id,
+             mobile_service_item_id, prev_cost_usd, prev_price_usd,
+             prev_validity_expires_at, prev_credits, batch_id, is_reversed,
+             created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        )
+        .run(
+          tenantId,
+          transactionId,
+          input.resaleLineId,
+          input.productId,
+          input.source,
+          input.daysAdded,
+          input.creditsAdded,
+          input.costUsd,
+          input.sourceMovement?.carrierLineId ?? null,
+          input.mobileServiceItemId ?? null,
+          product.cost_price_usd,
+          product.selling_price_usd,
+          input.prevExpiry,
+          input.prevCredits,
+          batchId,
+          now,
+          now,
+        ).lastInsertRowid,
+    );
+    return { transactionId, rechargeId };
+  }
+
+  /** `+deltaUsd` on a product's cost AND selling price (−delta to undo). */
+  private applyCapitalization(productId: number, deltaUsd: number): void {
+    const res = this.db
+      .prepare(
+        `UPDATE products
+            SET cost_price_usd = ROUND(COALESCE(cost_price_usd, 0) + ?, 2),
+                selling_price_usd = ROUND(COALESCE(selling_price_usd, 0) + ?, 2),
+                updated_at = ?
+          WHERE tenant_id = ? AND id = ?`,
+      )
+      .run(deltaUsd, deltaUsd, requestNow(), getCurrentTenantId(), productId);
+    if (res.changes !== 1) throw new Error("This line is not in stock.");
+  }
+
+  /**
+   * Rule-20 reversal owner for a `LINE_RECHARGE` (called by
+   * `TransactionRepository._reverseResaleLineRecharge`, inside the void's DB
+   * transaction). Refuses — throwing, so the whole void rolls back — when the
+   * line has been sold (its cost is now in a sale's cost of goods) or when a
+   * newer recharge of the same line is still active. Otherwise subtracts the
+   * recharge cost from cost, price and batch (by DELTA, so a later manual
+   * price edit is kept) and restores the line's credits / expiry.
+   */
+  reverseRecharge(transactionId: number): void {
+    const row = this.getRechargeByTransactionId(transactionId);
+    if (!row || row.is_reversed) return;
+    const tenantId = getCurrentTenantId();
+
+    const stock = this.db
+      .prepare(`SELECT stock_quantity FROM products WHERE tenant_id = ? AND id = ?`)
+      .get(tenantId, row.product_id) as { stock_quantity: number } | undefined;
+    const batch = row.batch_id
+      ? (this.db
+          .prepare(
+            `SELECT quantity_remaining FROM product_stock_batches WHERE tenant_id = ? AND id = ?`,
+          )
+          .get(tenantId, row.batch_id) as { quantity_remaining: number } | undefined)
+      : undefined;
+    const sold =
+      !stock ||
+      (stock.stock_quantity ?? 0) <= 0 ||
+      (row.batch_id !== null && (!batch || batch.quantity_remaining <= 0));
+    if (sold) throw new Error("Refund the sale of this line first.");
+
+    const latest = this.getLatestActiveRecharge(row.resale_line_id);
+    if (latest && latest.id !== row.id) {
+      throw new Error("Undo the newer recharge of this line first.");
+    }
+
+    this.applyCapitalization(row.product_id, -row.cost_usd);
+    if (row.batch_id !== null) {
+      this.db
+        .prepare(
+          `UPDATE product_stock_batches
+              SET unit_cost_usd = ROUND(unit_cost_usd - ?, 2)
+            WHERE tenant_id = ? AND id = ?`,
+        )
+        .run(row.cost_usd, tenantId, row.batch_id);
+    }
+    const now = requestNow();
+    this.db
+      .prepare(
+        `UPDATE resale_lines
+            SET credits = ?, validity_expires_at = ?, updated_at = ?
+          WHERE tenant_id = ? AND id = ?`,
+      )
+      .run(row.prev_credits, row.prev_validity_expires_at, now, tenantId, row.resale_line_id);
+    this.db
+      .prepare(
+        `UPDATE resale_line_recharges SET is_reversed = 1, updated_at = ?
+          WHERE tenant_id = ? AND id = ?`,
+      )
+      .run(now, tenantId, row.id);
+  }
+
+  /** The drawer an iPick/Katsh card's cost leaves (service-provider table,
+   *  with the historic names as fallback). */
+  providerDrawerName(provider: string): string {
+    try {
+      const sp = getServiceProviderRepository().getByCode(provider as never);
+      if (sp) return sp.drawer_name;
+    } catch {
+      // service_providers unavailable — fall back to the historic names.
+    }
+    return provider === "Katsh" ? "Katsh" : "iPick";
+  }
+
+  /** An active shop line of a carrier: the given one, else the primary. */
+  getSourceShopLine(
+    carrier: ResaleLineCarrier,
+    carrierLineId?: number,
+  ): { id: number; carrier: string; phone_number: string; credits: number; validity_expires_at: string | null; is_active: number } | null {
+    const repo = getCarrierLineRepository();
+    const line = carrierLineId ? repo.getById(carrierLineId) : repo.getPrimary(carrier);
+    return line ?? null;
   }
 }
 

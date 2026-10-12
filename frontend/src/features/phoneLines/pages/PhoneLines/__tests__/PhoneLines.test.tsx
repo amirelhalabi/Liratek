@@ -34,7 +34,15 @@ const mockApi = {
   getResaleLines: mockGetResaleLines,
   saveResaleLine: mockSaveResaleLine,
   writeOffResaleLine: mockWriteOffResaleLine,
+  // LIRA-309 phase 5 — the recharge panel's sources.
+  rechargeResaleLine: jest.fn(),
+  getAllActiveCarrierLines: jest.fn().mockResolvedValue([]),
+  getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
 };
+
+jest.mock("@/hooks/useSellRate", () => ({
+  useSellRate: () => ({ sellRate: 89000, buyRate: 89000, isLoading: false }),
+}));
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
@@ -190,5 +198,13 @@ describe("PhoneLines page (LIRA-309)", () => {
       client_day: localDay(),
     });
     expect(await screen.findByText(/written off/)).toBeTruthy();
+  });
+
+  it("offers Recharge on an in-stock line with a carrier (not on one with none) and opens the panel", async () => {
+    render(<PhoneLines />);
+    const row = await screen.findByTestId("resale-line-10");
+    expect(within(screen.getByTestId("resale-line-12")).queryByRole("button", { name: "Recharge" })).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "Recharge" }));
+    expect(await screen.findByText(/Recharge 03555101/)).toBeTruthy();
   });
 });

@@ -201,6 +201,37 @@ export class StockBatchRepository extends BaseRepository<StockBatchEntity> {
     );
   }
 
+  /**
+   * LIRA-309 — add `deltaUsd` to the unit cost of a product's ONE open batch
+   * (a line held for sale is stock 1). Used to capitalize an internal
+   * recharge (+c) and to undo it (−c). Returns the batch id, or null when
+   * the product has no open batch (legacy stock with no batch — the sale then
+   * falls back to `products.cost_price_usd`). Throws when more than one batch
+   * is open or the open batch holds more than one unit — refusing rather than
+   * spreading a per-unit cost over several units.
+   */
+  addToOpenBatchUnitCost(productId: number, deltaUsd: number): number | null {
+    const open = this.listOpenByProduct(productId);
+    if (open.length === 0) return null;
+    if (open.length > 1 || open[0].quantity_remaining > 1) {
+      throw new Error(
+        "This line has more than one unit in stock; fix its stock first.",
+      );
+    }
+    const res = this.execute(
+      `UPDATE product_stock_batches
+          SET unit_cost_usd = ROUND(unit_cost_usd + ?, 2)
+        WHERE id = ? AND tenant_id = ? AND quantity_remaining > 0`,
+      deltaUsd,
+      open[0].id,
+      getCurrentTenantId(),
+    );
+    if (res.changes !== 1) {
+      throw new Error("The line's stock changed while recharging; try again.");
+    }
+    return open[0].id;
+  }
+
   /** Only batches with stock left to consume, FIFO order. */
   listOpenByProduct(productId: number): StockBatchEntity[] {
     return this.query<StockBatchEntity>(

@@ -29,6 +29,8 @@ export const TRANSACTION_CASH_DIRECTION: Record<
   EXCHANGE: "both",
   WALLET_EXCHANGE: "both",
   TELECOM_SELF_CHARGE: null,
+  // LIRA-309 — internal: moves only the shop's own balances (like self-charge).
+  LINE_RECHARGE: null,
   TELECOM_CREDIT_BUYBACK: "out",
   DRAWER_TRANSFER: "both",
   RECHARGE: "in",

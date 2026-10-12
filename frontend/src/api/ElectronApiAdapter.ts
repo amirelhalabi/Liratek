@@ -12,6 +12,7 @@ import type {
   ListResaleLinesQueryInput,
   SaveResaleLineInput,
   WriteOffResaleLineInput,
+  RechargeResaleLineInput,
   // LIRA-306 — offline desktop fallback (desktop-only, E1; rule 21).
   DesktopPairInput,
   DesktopUnpairInput,
@@ -771,6 +772,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   saveResaleLine = (data: SaveResaleLineInput) => api.saveResaleLine(data);
   writeOffResaleLine = (data: WriteOffResaleLineInput) =>
     api.writeOffResaleLine(data);
+  rechargeResaleLine = (data: RechargeResaleLineInput) =>
+    api.rechargeResaleLine(data);
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking)

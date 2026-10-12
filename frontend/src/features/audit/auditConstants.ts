@@ -484,6 +484,9 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // has its own void hook in TransactionRepository (rules §11/§20). Absent
   // from NON_REVERSIBLE_TRANSACTION_TYPES per the LIRA-090 handoff spec.
   "TELECOM_SELF_CHARGE",
+  // LIRA-309 — internal recharge of a line held for sale; reversible via the
+  // generic path plus _reverseResaleLineRecharge (newest first, not once sold).
+  "LINE_RECHARGE",
   // TELECOM_CREDIT_BUYBACK (CARRIER_LINES_VALIDITY_PLAN.md Phase 6, D8): a
   // shop-line credit buy-back — reversible via the generic path (the
   // generic _reversePayments unwinds the drawer-delta leg and every payout

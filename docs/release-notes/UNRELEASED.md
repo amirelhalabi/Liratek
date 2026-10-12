@@ -199,6 +199,7 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 
 - Loto Ticket History now shows the total USD and total LBP of the ticket sales listed, following the date filter. Refunded tickets are left out.
 - Ticket sale: the Discount field is now saved. It comes out of the shop's commission (never more than the commission), and Loto is still owed the same. A Waive button fills it in one tap for a gap of up to 450,000 LBP.
+- Lines you sell: a new Recharge button on the Phone Lines page adds days or credit to a line you sell, taken from one of your shop lines or from an iPick/Katsh card. What it costs you is added to the line's cost and selling price, so its profit when sold stays the same. You can undo it from Transactions until the line is sold.
 - Settlement with Loto: when Loto pays you up to 450,000 LBP less than the settlement, Waive records the difference as a discount and the settlement goes through. There is no Waive when you are the one paying Loto. The Settle button now waits until the amount is covered.
 - Loto: a ticket's payment must now add up to its price. From now on, change kept as store credit
   is recorded on the customer's account.
