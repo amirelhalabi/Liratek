@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import { PageHeader, Select, useApi, DateRangeFilter } from "@liratek/ui";
 import { Clock, Eye, X, Check, AlertTriangle } from "lucide-react";
 import { DataTable, appEvents } from "@liratek/ui";
@@ -117,7 +117,7 @@ function todayISO(): string {
 const ALL_DRAWERS = "AGGREGATED";
 
 function drawerLabel(name: string): string {
-  if (name === ALL_DRAWERS) return "All drawers";
+  if (name === ALL_DRAWERS) return "Initial setup";
   return DRAWER_CONFIGS[name as DrawerType]?.label ?? name;
 }
 
@@ -426,9 +426,36 @@ export default function CheckpointTimeline() {
     }
   };
 
-  // A range of more than one day puts the day under each row's time; the
-  // details window always shows the full date.
+  // A range of more than one day shows which day each row belongs to: a
+  // heading row before each day while the table is in time order, else the
+  // day under each row's time (a heading would split apart once rows from
+  // different days interleave, e.g. sorted by drawer). The details window
+  // always shows the full date.
   const multiDay = filters.date_from !== filters.date_to;
+  // The table's visible order, as it reports it — the page cannot see the
+  // column the cashier sorted by, only the resulting order. Kept identical
+  // (same array) when nothing moved, so this never feeds a render loop.
+  const [visibleOrder, setVisibleOrder] = useState<TimelineRow[]>([]);
+  const onVisibleRowsChange = (rows: TimelineRow[]) =>
+    setVisibleOrder((prev) =>
+      prev.length === rows.length && prev.every((r, i) => r === rows[i])
+        ? prev
+        : rows,
+    );
+  const timeOf = (row: TimelineRow) => parseDbDate(row.created_at).getTime();
+  const isTimeOrdered = (rows: TimelineRow[]) =>
+    rows.every((r, i) => i === 0 || timeOf(rows[i - 1]) >= timeOf(r)) ||
+    rows.every((r, i) => i === 0 || timeOf(rows[i - 1]) <= timeOf(r));
+  const dayHeadings =
+    multiDay && visibleOrder.length > 0 && isTimeOrdered(visibleOrder);
+  const dayKey = (iso: string) => parseDbDate(iso).toLocaleDateString("en-CA");
+  const formatDayHeading = (iso: string) =>
+    parseDbDate(iso).toLocaleDateString("en-US", {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }) + (dayKey(iso) === todayISO() ? " · today" : "");
   const formatDay = (iso: string) =>
     parseDbDate(iso).toLocaleDateString("en-US", {
       month: "short",
@@ -440,14 +467,125 @@ export default function CheckpointTimeline() {
       month: "short",
       day: "numeric",
     });
-  const renderTimeCell = (iso: string) => (
+  const renderTimeCell = (iso: string, dayUnderTime: boolean) => (
     <td className="p-2 text-slate-300 font-mono">
       {formatTime(iso)}
-      {multiDay && (
-        <div className="text-[11px] text-slate-500">{formatDay(iso)}</div>
+      {dayUnderTime && (
+        <>
+          {" "}
+          <div className="text-[11px] text-slate-500">{formatDay(iso)}</div>
+        </>
       )}
     </td>
   );
+
+  // One timeline row (a checkpoint or a carrier-line adjustment) as a <tr>.
+  const renderLine = (row: TimelineRow, dayUnderTime: boolean) => {
+    // LIRA-252 wave 2 — a manual carrier-line drawer adjustment
+    // interleaved into the same timeline (time, actor, line,
+    // ±amount, reason) so the operator can see why the NEXT
+    // checkpoint's "expected" moved.
+    if (row.kind === "adjustment") {
+      const { adjustment } = row;
+      const meta = parseAdjustmentMeta(adjustment.metadata_json);
+      const lineDrawerLabel = meta.drawerName
+        ? drawerLabel(meta.drawerName)
+        : "—";
+      const signed = adjustment.amount_usd;
+      return (
+        <tr
+          key={`adjustment-${adjustment.id}`}
+          data-testid={`carrier-line-adjustment-row-${adjustment.id}`}
+          className="border-t border-slate-800 text-xs hover:bg-slate-700/50 transition-colors bg-violet-500/5"
+        >
+          {renderTimeCell(adjustment.created_at, dayUnderTime)}
+          <td className="p-2 text-slate-300">
+            <span className="inline-flex items-center gap-1">
+              {lineDrawerLabel}
+              <span className="text-[10px] uppercase tracking-wide text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">
+                Line edit
+              </span>
+            </span>
+            {meta.phoneNumber && (
+              <div className="text-[11px] text-slate-500 font-mono">
+                {meta.phoneNumber}
+              </div>
+            )}
+          </td>
+          <td className="p-2">
+            <span
+              className={`font-mono font-medium ${signed >= 0 ? "text-emerald-400" : "text-red-400"}`}
+            >
+              {signed >= 0 ? "+$" : "-$"}
+              {formatCurrencyAmount(Math.abs(signed), "USD")}
+            </span>
+          </td>
+          <td className="p-2 text-slate-300">{adjustment.user_name}</td>
+          <td className="p-2 text-slate-400 italic max-w-xs truncate">
+            {adjustment.summary || meta.reason || "—"}
+          </td>
+          <td className="p-2 text-right" />
+        </tr>
+      );
+    }
+
+    const checkpoint = row.checkpoint;
+    const diffs = getCheckpointDiffs(checkpoint);
+    const validityDiffs = getValidityDiffs(checkpoint);
+    return (
+      <tr
+        key={`checkpoint-${checkpoint.id}`}
+        className="border-t border-slate-800 text-xs hover:bg-slate-700/50 transition-colors"
+      >
+        {renderTimeCell(checkpoint.created_at, dayUnderTime)}
+        <td className="p-2 text-slate-300">
+          <span className="inline-flex items-center gap-1">
+            {drawerLabel(checkpoint.drawer_name)}
+            {checkpoint.drawer_name === ALL_DRAWERS && (
+              <span className="text-[10px] uppercase tracking-wide text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">
+                All drawers
+              </span>
+            )}
+          </span>
+        </td>
+        <td className="p-2">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-white font-mono font-medium">
+              {getAmountDisplay(checkpoint)}
+            </span>
+            {diffs.length > 0 || validityDiffs.length > 0 ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 font-mono">
+                <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                {getVarianceSummary(diffs, validityDiffs)}
+              </span>
+            ) : (
+              checkpoint.currencies.length > 0 && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
+                  <Check className="w-3 h-3 flex-shrink-0" />
+                  Balanced
+                </span>
+              )
+            )}
+          </div>
+        </td>
+        <td className="p-2 text-slate-300">{checkpoint.user_name}</td>
+        <td className="p-2 text-slate-400 italic max-w-xs truncate">
+          {checkpoint.notes || "—"}
+        </td>
+        <td className="p-2 text-right">
+          <div className="flex items-center justify-end gap-1">
+            <button
+              onClick={() => setViewCheckpoint(checkpoint)}
+              className="p-1.5 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
+              title="View details"
+            >
+              <Eye size={14} />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   const formatDateLabel = (iso: string) =>
     new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
@@ -615,105 +753,27 @@ export default function CheckpointTimeline() {
               }
               return "";
             }}
-            renderRow={(row) => {
-              // LIRA-252 wave 2 — a manual carrier-line drawer adjustment
-              // interleaved into the same timeline (time, actor, line,
-              // ±amount, reason) so the operator can see why the NEXT
-              // checkpoint's "expected" moved.
-              if (row.kind === "adjustment") {
-                const { adjustment } = row;
-                const meta = parseAdjustmentMeta(adjustment.metadata_json);
-                const lineDrawerLabel = meta.drawerName
-                  ? drawerLabel(meta.drawerName)
-                  : "—";
-                const signed = adjustment.amount_usd;
-                return (
-                  <tr
-                    key={`adjustment-${adjustment.id}`}
-                    data-testid={`carrier-line-adjustment-row-${adjustment.id}`}
-                    className="border-t border-slate-800 text-xs hover:bg-slate-700/50 transition-colors bg-violet-500/5"
-                  >
-                    {renderTimeCell(adjustment.created_at)}
-                    <td className="p-2 text-slate-300">
-                      <span className="inline-flex items-center gap-1">
-                        {lineDrawerLabel}
-                        <span className="text-[10px] uppercase tracking-wide text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">
-                          Line edit
-                        </span>
-                      </span>
-                      {meta.phoneNumber && (
-                        <div className="text-[11px] text-slate-500 font-mono">
-                          {meta.phoneNumber}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-2">
-                      <span
-                        className={`font-mono font-medium ${signed >= 0 ? "text-emerald-400" : "text-red-400"}`}
-                      >
-                        {signed >= 0 ? "+$" : "-$"}
-                        {formatCurrencyAmount(Math.abs(signed), "USD")}
-                      </span>
-                    </td>
-                    <td className="p-2 text-slate-300">
-                      {adjustment.user_name}
-                    </td>
-                    <td className="p-2 text-slate-400 italic max-w-xs truncate">
-                      {adjustment.summary || meta.reason || "—"}
-                    </td>
-                    <td className="p-2 text-right" />
-                  </tr>
-                );
-              }
-
-              const checkpoint = row.checkpoint;
-              const diffs = getCheckpointDiffs(checkpoint);
-              const validityDiffs = getValidityDiffs(checkpoint);
+            onVisibleRowsChange={onVisibleRowsChange}
+            // Export carries the day in the Time cell, never heading rows.
+            exportRow={(row) => renderLine(row, multiDay)}
+            renderRow={(row, index) => {
+              const line = renderLine(row, multiDay && !dayHeadings);
+              if (!dayHeadings || visibleOrder[index] !== row) return line;
+              const prev = visibleOrder[index - 1];
+              if (prev && dayKey(prev.created_at) === dayKey(row.created_at))
+                return line;
               return (
-                <tr
-                  key={`checkpoint-${checkpoint.id}`}
-                  className="border-t border-slate-800 text-xs hover:bg-slate-700/50 transition-colors"
-                >
-                  {renderTimeCell(checkpoint.created_at)}
-                  <td className="p-2 text-slate-300">
-                    {drawerLabel(checkpoint.drawer_name)}
-                  </td>
-                  <td className="p-2">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-white font-mono font-medium">
-                        {getAmountDisplay(checkpoint)}
-                      </span>
-                      {diffs.length > 0 || validityDiffs.length > 0 ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 font-mono">
-                          <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-                          {getVarianceSummary(diffs, validityDiffs)}
-                        </span>
-                      ) : (
-                        checkpoint.currencies.length > 0 && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
-                            <Check className="w-3 h-3 flex-shrink-0" />
-                            Balanced
-                          </span>
-                        )
-                      )}
-                    </div>
-                  </td>
-                  <td className="p-2 text-slate-300">{checkpoint.user_name}</td>
-                  <td className="p-2 text-slate-400 italic max-w-xs truncate">
-                    {checkpoint.notes || "—"}
-                  </td>
-                  <td className="p-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={() => setViewCheckpoint(checkpoint)}
-                        className="p-1.5 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-                        title="View details"
-                      >
-                        <Eye size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <Fragment key={`day-${dayKey(row.created_at)}-${index}`}>
+                  <tr data-testid="timeline-day-heading">
+                    <td
+                      colSpan={6}
+                      className="px-2 py-1.5 bg-slate-900/70 text-[11px] font-semibold uppercase tracking-wide text-slate-300"
+                    >
+                      {formatDayHeading(row.created_at)}
+                    </td>
+                  </tr>
+                  {line}
+                </Fragment>
               );
             }}
           />
@@ -730,6 +790,8 @@ export default function CheckpointTimeline() {
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-lg font-semibold text-white">
                   Checkpoint Details — {drawerLabel(viewCheckpoint.drawer_name)}
+                  {viewCheckpoint.drawer_name === ALL_DRAWERS &&
+                    " (all drawers)"}
                 </h2>
                 <button
                   onClick={() => setViewCheckpoint(null)}

@@ -111,9 +111,9 @@ The receipt header you typed in Settings now prints at the top of sale and repai
 - Checkpoint Timeline: a drawer counted at zero now shows $0.00 and how much is short. Before, it showed the expected amount and "Matched" — this also corrects how past zero counts are shown.
 - Checkpoint Timeline: an empty drawer counted at zero now shows "$0.00 + 0 LBP" and "Balanced" instead of "—" and "No amounts recorded".
 - Checkpoint Timeline: the amount column is now called "Counted", and each row says "Short $3.00", "Over $8.00" or "Balanced" instead of a plus or minus sign.
-- Checkpoint Timeline: when you pick more than one day, each row shows its day under the time, and the details window always shows the full date.
+- Checkpoint Timeline: when you pick more than one day, a heading shows each day above its rows (when you sort by another column, the day shows under each time instead), and the details window always shows the full date.
 - Checkpoint Timeline: in the details window, the title, time, user and notes stay at the top while you scroll the amounts.
-- Checkpoint Timeline: the starting drawer amounts row is now called "All drawers", shows how many drawers it covers instead of one combined total, and its details list the amounts under each drawer's name.
+- Checkpoint Timeline: the starting drawer amounts row is now called "Initial setup" with an "All drawers" tag, shows how many drawers it covers instead of one combined total, and its details list the amounts under each drawer's name.
 - Checkpoint Timeline is now for admins only. Staff who open its address are sent back to the home page.
 - Initial Drawer Amounts: adding a currency such as USDT to General and pressing Save Amounts now saves your amounts. If a save fails, you now see a message instead of a button stuck on "Saving…".
 

@@ -157,8 +157,16 @@ describe("Checkpoint Timeline — counted amounts", () => {
 });
 
 describe("Checkpoint Timeline — dates", () => {
-  it("shows the day on each row once the range covers more than one day, and always in the details", async () => {
+  // Three checkpoints on two days, the range widened to cover both. Sorted
+  // by drawer (Alfa, General, OMT_App) the days interleave: 12, 11, 12.
+  async function renderTwoDays() {
     serve([
+      checkpoint(3, "Alfa", "2026-10-12 08:00:00", "Alfa count", [
+        { currency_code: "USD", opening_amount: 20, physical_amount: 20 },
+      ]),
+      checkpoint(2, "OMT_App", "2026-10-12 17:00:00", "Evening OMT", [
+        { currency_code: "USD", opening_amount: 50, physical_amount: 50 },
+      ]),
       checkpoint(1, "General", "2026-10-11 09:10:00", "Morning count", [
         { currency_code: "USD", opening_amount: 200, physical_amount: 197 },
       ]),
@@ -173,11 +181,39 @@ describe("Checkpoint Timeline — dates", () => {
         expect.objectContaining({ date_from: "2026-10-11" }),
       ),
     );
+    await screen.findByText("Morning count");
+  }
 
-    const row = await rowWith("Morning count");
-    expect(row.textContent).toContain("Oct 11");
+  it("puts a heading row before each day while the rows are in time order", async () => {
+    await renderTwoDays();
 
-    const details = openDetails(row);
+    const headings = await screen.findAllByTestId("timeline-day-heading");
+    expect(headings.map((h) => h.textContent)).toEqual([
+      expect.stringContaining("Oct 12, 2026"),
+      expect.stringContaining("Oct 11, 2026"),
+    ]);
+    // The heading carries the day, so the row itself shows only the time.
+    expect((await rowWith("Morning count")).textContent).not.toContain(
+      "Oct 11",
+    );
+  });
+
+  it("drops the headings when sorted by something else, and shows the day under each time instead", async () => {
+    await renderTwoDays();
+    await screen.findAllByTestId("timeline-day-heading");
+
+    fireEvent.click(screen.getByText("Drawer"));
+
+    await waitFor(() =>
+      expect(screen.queryAllByTestId("timeline-day-heading")).toHaveLength(0),
+    );
+    expect((await rowWith("Morning count")).textContent).toContain("Oct 11");
+  });
+
+  it("always shows the full date in the details window", async () => {
+    await renderTwoDays();
+
+    const details = openDetails(await rowWith("Morning count"));
     expect(details.textContent).toContain("Oct 11, 2026");
   });
 });
@@ -228,6 +264,7 @@ describe("Checkpoint Timeline — the all-drawers setup checkpoint", () => {
 
     const row = await rowWith("Initial drawer amounts setup");
     expect(row.textContent).not.toContain("AGGREGATED");
+    expect(row.textContent).toContain("Initial setup");
     expect(row.textContent).toContain("All drawers");
     expect(row.textContent).toContain("2 drawers");
     expect(row.textContent).not.toContain("$20,000.00");
@@ -239,6 +276,9 @@ describe("Checkpoint Timeline — the all-drawers setup checkpoint", () => {
 
     const details = openDetails(await rowWith("Initial drawer amounts setup"));
     expect(details.textContent).not.toContain("AGGREGATED");
+    expect(details.textContent).toContain(
+      "Checkpoint Details — Initial setup (all drawers)",
+    );
     expect(within(details).getByText("General")).toBeTruthy();
     expect(within(details).getByText("OMT App")).toBeTruthy();
   });
