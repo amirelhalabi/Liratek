@@ -72,6 +72,8 @@ function createTestDb(): Database.Database {
       amount_lbp    REAL NOT NULL DEFAULT 0,
       profit_usd    REAL NOT NULL DEFAULT 0,
       profit_lbp    REAL NOT NULL DEFAULT 0,
+      extra_usd REAL NOT NULL DEFAULT 0,
+      extra_lbp REAL NOT NULL DEFAULT 0,
       exchange_rate REAL,
       client_id     INTEGER,
       client_name   TEXT,
@@ -366,6 +368,39 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
       .get() as { id: number; type: string };
     expect(txn.type).toBe("CHECKPOINT");
     expect(movement.transaction_id).toBe(txn.id);
+  });
+
+  // (b1) -----------------------------------------------------------------
+  // The single-drawer MTC/Alfa screen sends NO drawer amount (USD is the
+  // carrier drawers' only currency and it is filtered out), so the real
+  // payload is `amounts: []` plus the lines. The drawer row is appended
+  // from the line sum.
+  it("with NO drawer amount sent, appends the provider drawer row from the line sum", () => {
+    const line = lines.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+      credits: 40,
+    }, 1);
+    setBalance("MTC", "USD", 40);
+
+    const result = repo.createCheckpoint({
+      user_id: 1,
+      drawer_name: "MTC",
+      amounts: [],
+      carrier_lines: [{ carrier_line_id: line.id, counted_credits: 32.5 }],
+    });
+    expect(result.success).toBe(true);
+
+    expect(lines.getById(line.id)!.credits).toBeCloseTo(32.5, 6);
+    expect(balanceOf("MTC", "USD")).toBeCloseTo(32.5, 6);
+    const row = db
+      .prepare(
+        `SELECT opening_amount, physical_amount FROM daily_closing_amounts
+         WHERE closing_id = ? AND drawer_name = 'MTC' AND currency_code = 'USD'`,
+      )
+      .get(result.id) as { opening_amount: number; physical_amount: number };
+    expect(row.opening_amount).toBeCloseTo(40, 6);
+    expect(row.physical_amount).toBeCloseTo(32.5, 6);
   });
 
   // (b2) -----------------------------------------------------------------

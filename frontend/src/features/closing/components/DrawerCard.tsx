@@ -210,7 +210,10 @@ export function DrawerCard({
           </label>
           <DecimalInput
             id={fieldKey}
-            value={physical}
+            // Stored credits are sums of doubles and can carry float noise
+            // (705.3000000000001). Show cents, like the "Expected" line
+            // below; while focused the field shows what the operator typed.
+            value={Math.round(physical * 100) / 100}
             onChange={(n) => line.onCreditsChange(n ? String(n) : "")}
             allowNegative
             disabled={disabled}

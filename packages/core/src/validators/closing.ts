@@ -57,27 +57,36 @@ const checkpointCarrierLineSchema = z.object({
 // to its physical count via a delta to the payments journal + drawer_balances).
 // Shared by the REST route (rule 14). NO user_id — the actor is injected
 // server-side from the JWT, never trusted from the client.
-export const createCheckpointSchema = z.object({
-  drawer_name: z.string().min(1),
-  notes: z.string().max(1000).optional(),
-  report_path: z.string().optional(),
-  amounts: z
-    .array(checkpointAmountSchema)
-    .min(1, "At least one drawer amount is required"),
-  /** Optional — present only for the MTC/Alfa cards. */
-  carrier_lines: z.array(checkpointCarrierLineSchema).optional(),
-  /**
-   * The CLIENT's own local calendar day (`YYYY-MM-DD`), e.g. the browser's
-   * `localDay()`. The server cannot infer this: on web the process runs in
-   * whatever timezone the Fly machine boots in (UTC), not the shop's, so a
-   * checkpoint taken between 00:00-03:00 Beirut would otherwise be filed
-   * under the wrong (previous) UTC day. Optional so any existing caller that
-   * omits it keeps falling back to the server's own `localDay()`
-   * (`ClosingRepository.createCheckpoint`) — unchanged behaviour for
-   * desktop, where server-local IS shop-local.
-   */
-  closing_date: localDaySchema.optional(),
-});
+export const createCheckpointSchema = z
+  .object({
+    drawer_name: z.string().min(1),
+    notes: z.string().max(1000).optional(),
+    report_path: z.string().optional(),
+    /**
+     * May be EMPTY when `carrier_lines` is counted: the MTC/Alfa drawers hold
+     * USD only, the screen leaves that figure out, and the repository derives
+     * the drawer row from the SUM of the lines. The "at least one of the two"
+     * rule is the `.refine` below.
+     */
+    amounts: z.array(checkpointAmountSchema),
+    /** Optional — present only for the MTC/Alfa cards. */
+    carrier_lines: z.array(checkpointCarrierLineSchema).optional(),
+    /**
+     * The CLIENT's own local calendar day (`YYYY-MM-DD`), e.g. the browser's
+     * `localDay()`. The server cannot infer this: on web the process runs in
+     * whatever timezone the Fly machine boots in (UTC), not the shop's, so a
+     * checkpoint taken between 00:00-03:00 Beirut would otherwise be filed
+     * under the wrong (previous) UTC day. Optional so any existing caller that
+     * omits it keeps falling back to the server's own `localDay()`
+     * (`ClosingRepository.createCheckpoint`) — unchanged behaviour for
+     * desktop, where server-local IS shop-local.
+     */
+    closing_date: localDaySchema.optional(),
+  })
+  .refine((d) => d.amounts.length > 0 || (d.carrier_lines?.length ?? 0) > 0, {
+    message: "At least one drawer amount is required",
+    path: ["amounts"],
+  });
 
 /**
  * GET /api/closing/has-opening-balance-today query contract. The CLIENT's own

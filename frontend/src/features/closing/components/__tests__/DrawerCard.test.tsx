@@ -21,6 +21,36 @@ describe("DrawerCard", () => {
     expect(onAmountChange).toHaveBeenCalledWith("General", "USD", "1");
   });
 
+  // Stored credits are sums of doubles; the box must show cents, not the
+  // float noise (owner screenshot 2026-10-14: "705.3000000000001").
+  // Not proven failing-first: written after the fix.
+  it("shows a line's Credits rounded to cents, without float noise", () => {
+    render(
+      <DrawerCard
+        drawer="MTC"
+        currencies={[]}
+        getDisplayValue={() => ""}
+        onAmountChange={jest.fn()}
+        carrierLines={[
+          {
+            lineId: 1,
+            phoneNumber: "03924245",
+            label: null,
+            creditsValue: "705.3000000000001",
+            onCreditsChange: jest.fn(),
+            expectedCredits: 705.3000000000001,
+            countedExpiresAt: "2027-01-11",
+            expectedExpiresAt: "2027-01-11",
+            onExpiryChange: jest.fn(),
+            onResetExpiry: jest.fn(),
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByLabelText("Credits")).toHaveValue("705.3");
+  });
+
   // Carrier cards (MTC/Alfa) — one row per active SIM line (LIRA-252 item A):
   // the drawer amount is no longer a free-typed field, it's the SUM of every
   // line's own Credits input.
