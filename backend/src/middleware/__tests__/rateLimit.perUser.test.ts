@@ -229,6 +229,42 @@ describe("apiLimiter — per-user buckets for authenticated traffic (LIRA-282)",
   });
 });
 
+describe("apiLimiter — session restore is not starved by the user's own traffic", () => {
+  // A page RELOAD restores the session with GET /api/auth/me. Two browsers on
+  // one login share one per-user bucket, so when the other one had just spent
+  // it, the restore got 429 and the app showed the login page to a user whose
+  // session was perfectly valid. The flood cap still applies to it.
+  it("still answers GET /api/auth/me after the user's budget is spent", async () => {
+    const app = appWith(loadRateLimit().apiLimiter);
+    app.get("/api/auth/me", (_req, res) => res.status(200).json({ success: true }));
+    const a = tokenFor(1, 7);
+    await hit(app, USER_MAX, a);
+    expect((await hit(app, 1, a))[0]).toBe(429);
+
+    const me = await request(app)
+      .get("/api/auth/me")
+      .set("Authorization", `Bearer ${a}`);
+    expect(me.status).toBe(200);
+  });
+
+  it("keeps /api/auth/me under the per-IP flood cap", async () => {
+    const app = appWith(loadRateLimit().apiLimiter);
+    app.get("/api/auth/me", (_req, res) => res.status(200).json({ success: true }));
+    const statuses: number[] = [];
+    for (let i = 0; i <= FLOOD_MAX; i++) {
+      statuses.push(
+        (
+          await request(app)
+            .get("/api/auth/me")
+            .set("Authorization", `Bearer ${tokenFor(1, 7)}`)
+        ).status,
+      );
+    }
+    expect(statuses.slice(0, FLOOD_MAX)).toEqual(Array(FLOOD_MAX).fill(200));
+    expect(statuses[FLOOD_MAX]).toBe(429);
+  });
+});
+
 describe("authLimiter — login stays strictly per-IP (LIRA-282)", () => {
   it("does not split the login bucket by bearer token", async () => {
     const { authLimiter } = loadRateLimit();

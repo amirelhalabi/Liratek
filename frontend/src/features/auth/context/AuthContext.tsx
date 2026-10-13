@@ -15,6 +15,10 @@ import { localDay } from "@/shared/utils/localDay";
 import { consumeFreshSignIn } from "@/features/auth/utils/freshSignIn";
 import type { AccountPicture } from "@liratek/core";
 
+/** Web session restore: attempts before giving up on a non-401 failure. */
+const RESTORE_MAX_ATTEMPTS = 6;
+const RESTORE_RETRY_DELAY_MS = 5_000;
+
 interface User {
   id: number;
   username: string;
@@ -97,6 +101,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true; // Guard against double calls in StrictMode
 
+    // Only a 401 ends a session, and httpClient already signs out for it. Any
+    // other failure (429, network, 5xx) says nothing about the session, so
+    // retry instead of showing the login page with a valid token still
+    // stored. Seen when two browsers shared one login: the other one spent
+    // the per-user rate limit and every reload looked like a logout.
+    async function restoreWebSession(): Promise<Awaited<
+      ReturnType<typeof api.me>
+    > | null> {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await api.me();
+        } catch (error) {
+          const status = (error as { status?: unknown } | null)?.status;
+          if (status === 401 || attempt >= RESTORE_MAX_ATTEMPTS || !isMounted) {
+            logger.warn("Session restore failed", { error: String(error) });
+            return null;
+          }
+          logger.warn(
+            `Session restore failed (attempt ${attempt}), retrying`,
+            { error: String(error) },
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, RESTORE_RETRY_DELAY_MS),
+          );
+        }
+      }
+    }
+
     async function loadUser() {
       try {
         // Check if setup wizard needs to run (Electron only)
@@ -142,19 +174,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // which is what put a red /api/auth/me in the network tab of every
           // logged-out visitor to the login page, looking like a fault when
           // the app was working exactly as intended.
-          try {
-            const result = await api.me();
-            if (result.success && result.user) {
-              setUser(result.user);
-              // A boot right after a Google hand-off is a fresh sign-in:
-              // same post-sign-in step as login(). A plain refresh is not.
-              if (consumeFreshSignIn()) {
-                setFreshSignIn(true);
-                await checkOpeningBalance();
-              }
+          const result = await restoreWebSession();
+          if (!isMounted) {
+            return;
+          }
+          if (result?.success && result.user) {
+            setUser(result.user);
+            // A boot right after a Google hand-off is a fresh sign-in:
+            // same post-sign-in step as login(). A plain refresh is not.
+            if (consumeFreshSignIn()) {
+              setFreshSignIn(true);
+              await checkOpeningBalance();
             }
-          } catch {
-            // ignore
           }
         }
       } catch (error) {

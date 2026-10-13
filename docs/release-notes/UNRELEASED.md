@@ -42,3 +42,7 @@
 - Paying out (OMT/Whish receive, Binance cash-out, Exchange): the kept change is shown once, in the green "Change kept" line.
 - Debts, Settle Debt with some items ticked: one Remaining line shows what is left on the ticked items and the total.
 - Paying by wallet with a fee: one Grand Total line names the wallet fee.
+
+## 🌐 Web app
+
+- Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.

@@ -159,13 +159,24 @@ const anonymousIpLimiter = rateLimit({
   ),
 });
 
+/**
+ * A page reload restores the session with GET /api/auth/me. Browsers that
+ * share one login share one per-user bucket, so when another one had just
+ * spent it, the restore got a 429 and the reload showed the login page to a
+ * user whose session was valid. Exempt from the per-user bucket only; the
+ * per-IP flood cap still applies.
+ */
+function isSessionRestore(req: Request): boolean {
+  return req.method === "GET" && req.path === "/auth/me";
+}
+
 /** Bucket 2: authenticated traffic, per user. */
 const perUserLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: envLimit("API_USER_RATE_LIMIT_MAX", 200),
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (_req, res) => identityOf(res) === null,
+  skip: (req, res) => identityOf(res) === null || isSessionRestore(req),
   keyGenerator: (_req, res) => identityOf(res) ?? "",
   handler: rejectRateLimited("general API (per user)", "1 minute"),
 });
