@@ -616,13 +616,26 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // a claim: without one, a short payment still books Sale Debt from
         // the residual exactly as before (not every partial sale sends its
         // remainder as a leg).
+        //
+        // Owner 2026-10-13: the same check runs when change goes on the
+        // client's account (a CUSTOMER_ACCOUNT OUT leg) — that leg books
+        // credit, so it must equal the real overpay too, never an
+        // arbitrary amount the request names.
         let keptProfitUsd = 0;
         let keptProfitLbp = 0;
         const claimedKeptUsd = sale.kept_change_usd ?? 0;
         const claimedKeptLbp = sale.kept_change_lbp ?? 0;
+        const hasAccountChange =
+          !sale.deferPayment &&
+          paymentLines.some(
+            (l) =>
+              l.direction === "OUT" &&
+              l.method === "CUSTOMER_ACCOUNT" &&
+              Math.abs(l.amount) > 0,
+          );
         if (
           status === "completed" &&
-          (claimedKeptUsd > 0 || claimedKeptLbp > 0)
+          (claimedKeptUsd > 0 || claimedKeptLbp > 0 || hasAccountChange)
         ) {
           if (sale.deferPayment) {
             throw new BusinessRuleError(
@@ -1346,7 +1359,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             const amt = Math.abs(r.amount);
             if (amt <= 0) continue;
             if (r.method === "CUSTOMER_ACCOUNT") {
-              if (!sale.client_id) {
+              // finalClientId, not sale.client_id: a client created (or
+              // matched) from the checkout's name + phone above must get the
+              // credit too — the checkout offers the account for them.
+              if (!finalClientId) {
                 throw new Error(
                   "Client is required to return change as store credit",
                 );
@@ -1355,7 +1371,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               // sale back, never commit it without the customer's credit
               // (LIRA-258 / G13).
               getDebtService().addCreditOrThrow({
-                clientId: sale.client_id,
+                clientId: finalClientId,
                 amountUsd: r.currency_code === "USD" ? amt : 0,
                 amountLbp: r.currency_code === "LBP" ? amt : 0,
                 note: "Change returned",

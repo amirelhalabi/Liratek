@@ -1151,6 +1151,13 @@ export function TelecomForm({
                   {...(onReturnChange && !isCreditBuyback
                     ? { onReturnChange }
                     : {})}
+                  // Sale only (a buy-back is a payout): change not handed
+                  // back → store credit (OUT CUSTOMER_ACCOUNT leg). Active
+                  // only with a picked client (`hasClient` below); never in
+                  // a session, where the basket checkout owns the change.
+                  {...(onReturnChange && !isCreditBuyback && !activeSession
+                    ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
+                    : {})}
                   {...(onKeptChange ? { onKeptChange } : {})}
                   hasClient={!!telecomClientId}
                   // Charge flow: shortfall → debt on the resolved client.

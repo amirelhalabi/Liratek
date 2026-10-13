@@ -1484,7 +1484,8 @@ export default function MobileRecharge() {
       clientId: cryptoClientId,
       name: cryptoClientName,
       phone: cryptoClientPhone,
-      paymentLines: cryptoPaymentLines,
+      // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too.
+      paymentLines: [...cryptoPaymentLines, ...cryptoChangeLegs],
     });
     if (!clientResult.ok) {
       alert(clientResult.error);

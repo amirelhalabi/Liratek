@@ -22,6 +22,9 @@
  * Rule 24 — the cases below that relied on the empty start now press "To
  * account" first; the account-credit behaviour itself is unchanged.
  *
+ * 2026-10-13 (compact change box): "To account" is now the "Account" button
+ * (same testid); the return fields stay visible after it, just empty.
+ *
  * Both are opt-in props; other forms are unaffected.
  */
 
@@ -229,7 +232,7 @@ describe("answer 3 — a tick change keeps the payment lines; the last one absor
 });
 
 describe("answer 1 — change the cashier does not enter as returned is account credit", () => {
-  it('$84 due, $85 paid: the $1 starts as change to return; "To account" makes it a $1 CUSTOMER_ACCOUNT change leg', () => {
+  it('$84 due, $85 paid: the $1 starts as change to return; "Account" makes it a $1 CUSTOMER_ACCOUNT change leg', () => {
     const onChange = jest.fn<void, [PaymentLine[]]>();
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     render(
@@ -251,7 +254,10 @@ describe("answer 1 — change the cashier does not enter as returned is account 
       { method: "CASH", currencyCode: "USD", amount: 1 },
     ]);
     fireEvent.click(screen.getByTestId("change-destination-account"));
-    expect(screen.queryByTestId("return-usd")).toBeNull();
+    // 2026-10-13 compact change box — the fields stay on screen, just empty.
+    expect((screen.getByTestId("return-usd") as HTMLInputElement).value).toBe(
+      "",
+    );
     expect(shape(last(onReturnChange))).toEqual([
       { method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 1 },
     ]);

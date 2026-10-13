@@ -207,7 +207,7 @@ describe("Suppliers page — single-supplier settle payment reconciliation (LIRA
   // guarded (drawer −$150, ledger nets $100) is now closed server-side: the
   // extra is booked on the supplier's account. The UI's job is to send the
   // change the supplier hands back as an OUT leg (default), or no change
-  // leg at all when the cashier picks "To account".
+  // leg at all when the cashier taps "Account".
   it("an overpay is allowed: by default the $50 goes back as a CASH change (OUT) leg", async () => {
     renderPage();
     const { amountInput, submit } = await openSettleConfirm();
@@ -232,7 +232,7 @@ describe("Suppliers page — single-supplier settle payment reconciliation (LIRA
     ]);
   });
 
-  it("an overpay with 'To account': only the paid leg is sent — the $50 stays on the supplier's account", async () => {
+  it("an overpay with 'Account': only the paid leg is sent — the $50 stays on the supplier's account", async () => {
     renderPage();
     const { amountInput, submit } = await openSettleConfirm();
 

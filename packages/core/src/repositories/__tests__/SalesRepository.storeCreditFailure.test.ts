@@ -327,3 +327,85 @@ describe("SalesRepository — change kept as store credit (G13)", () => {
     ).toBe(stockBefore);
   });
 });
+
+// Owner 2026-10-13 — the POS change box can now put change the cashier does
+// not hand back on the client's account (a CUSTOMER_ACCOUNT OUT leg). The
+// server must check that leg against the real overpay: $15 cash on a $10
+// sale can put at most $5 on the account, never an arbitrary amount.
+describe("SalesRepository — change to the account is checked against the overpay", () => {
+  let db: Database.Database;
+  let repo: SalesRepository;
+
+  const resetSingletons = () => {
+    resetTransactionRepository();
+    resetDebtRepository();
+    resetDebtService();
+  };
+
+  beforeEach(() => {
+    db = createTestDb();
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
+    resetSingletons();
+    repo = new SalesRepository();
+  });
+
+  afterEach(() => {
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
+    db.close();
+    resetSingletons();
+    resetTenantContext();
+  });
+
+  const sell = (accountOut: number) =>
+    repo.processSale(
+      {
+        client_id: 1,
+        items: [{ product_id: 1, quantity: 1, price: 10 }],
+        total_amount: 10,
+        discount: 0,
+        final_amount: 10,
+        payment_usd: 15,
+        payment_lbp: 0,
+        exchange_rate: 90_000,
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 15 },
+          {
+            method: "CUSTOMER_ACCOUNT",
+            currency_code: "USD",
+            amount: accountOut,
+            direction: "OUT",
+          },
+        ],
+      },
+      1,
+    );
+
+  it("refuses an account leg above the overpay ($1000 on a $5 overpay) and moves nothing", () => {
+    const before = snapshotLedgers(db);
+    const res = sell(1000);
+    expect(res.success).toBe(false);
+    expectPostings(before, snapshotLedgers(db), {});
+  });
+
+  it("refuses an account leg BELOW the overpay with no cash change ($2 of a $5 overpay)", () => {
+    const before = snapshotLedgers(db);
+    const res = sell(2);
+    expect(res.success).toBe(false);
+    expectPostings(before, snapshotLedgers(db), {});
+  });
+
+  it("accepts exactly the overpay ($5) and books it as credit", () => {
+    const before = snapshotLedgers(db);
+    const res = sell(5);
+    expect(res.success).toBe(true);
+    expectPostings(before, snapshotLedgers(db), {
+      drawers: { "General|USD": 15 },
+      debt: { "1|USD": -5 },
+    });
+  });
+});

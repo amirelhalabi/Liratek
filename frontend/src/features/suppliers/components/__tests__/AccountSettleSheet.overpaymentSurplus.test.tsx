@@ -5,7 +5,7 @@
  * paying (or collecting) MORE than the ticked rows' net is allowed with NO
  * separate "Overpayment" field. The payment box's change section decides:
  * "Get change back" (default — the other side hands it back, an OUT leg) or
- * "To account" (no leg — the server books the extra on the account, opened
+ * the "Account" button (no leg — the server books the extra on the account, opened
  * as a credit row it never auto-applies). Any credit already sitting on the
  * account is surfaced so the operator knows it can be applied by leaving
  * the credit row ticked. Rule 24: the old surplus-field cases were rewritten
@@ -168,7 +168,7 @@ describe("AccountSettleSheet — overpayment (LIRA-203 → LIRA-315)", () => {
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 555 });
   });
 
-  it("PAY $1,275 on $1,225 with 'To account': sends the rows-only amount_usd, ONE paid leg of 1,275, no surplus field and no change leg", async () => {
+  it("PAY $1,275 on $1,225 with 'Account': sends the rows-only amount_usd, ONE paid leg of 1,275, no surplus field and no change leg", async () => {
     renderSheet([ROW_OMT, ROW_IPICK]);
     await screen.findAllByTestId("supplier-account-settle-row");
 

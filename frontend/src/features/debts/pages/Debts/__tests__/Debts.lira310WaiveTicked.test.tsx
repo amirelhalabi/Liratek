@@ -5,8 +5,9 @@
  * Repayment" modal, Waive covers ONLY the ticked items.
  *
  * Owner example: the client owes a $14 sale (unticked) and a $20 Loto
- * ticket (ticked) and pays $18.50. The sheet shows "Remaining on ticked
- * $1.50 [Waive]"; Waive puts $1.50 in Discount / Forgive; the repayment is
+ * ticket (ticked) and pays $18.50. The sheet's Remaining row shows "$1.50
+ * on ticked [Waive]" above the "$15.50 total" (one row since owner
+ * 2026-10-13 — the wording update is not proven failing-first); Waive puts $1.50 in Discount / Forgive; the repayment is
  * sent with a $1.50 discount and the Loto ticket as its only target, so the
  * ticket ends at $0 and the $14 sale stays owed (the server side of that —
  * the discount walking the same ticked targets — is pinned by
@@ -221,9 +222,10 @@ async function openWithLotoTicked() {
 it("owner example: $14 sale unticked, $20 Loto ticked, $18.50 paid → Waive $1.50 forgives the Loto ticket only", async () => {
   await openWithLotoTicked();
   typeAmount("18.5");
-  // "Remaining on ticked $1.50 [Waive]"
+  // One Remaining row: "$1.50 on ticked [Waive]" above "$15.50 total".
   await waitFor(() => expect(tickedRow()).toBeInTheDocument());
-  expect(tickedRow()!.textContent).toContain("Remaining on ticked");
+  expect(screen.getByTestId("remaining-row").contains(tickedRow())).toBe(true);
+  expect(tickedRow()!.textContent).toContain("on ticked");
   expect(tickedRow()!.textContent).toContain("1.50");
   expect(
     tickedRow()!.querySelector('[data-testid="waive-remaining"]'),

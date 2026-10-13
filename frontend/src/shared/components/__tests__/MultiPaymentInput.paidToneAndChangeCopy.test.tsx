@@ -151,7 +151,12 @@ describe("MultiPaymentInput — Paid figure is red only for a real problem", () 
   it("payout short by a few cents, kept automatically: not red, no warning icon", () => {
     renderMpi({ total: 101.12, direction: "payout", onKeptChange: jest.fn() });
     pay("101");
-    expect(screen.getByTestId("keep-change-summary")).toBeInTheDocument();
+    // 2026-10-13 — the payout keep is said by the green remaining row only
+    // (the separate note was removed). Not proven failing-first (rule 17).
+    expect(screen.getByTestId("remaining-row")).toHaveTextContent(
+      "Change kept (profit)",
+    );
+    expect(screen.queryByTestId("keep-change-summary")).not.toBeInTheDocument();
     const row = paidRow();
     expect(row.isRed).toBe(false);
     expect(row.hasWarningIcon).toBe(false);

@@ -14,6 +14,13 @@
  *    CUSTOMER_ACCOUNT change leg.
  *
  * Consumers that pass none of these are unchanged (every other MPI test).
+ *
+ * 2026-10-13 (owner, compact change box): Customer Account is no longer a
+ * return METHOD, so `defaultReturnMethod="CUSTOMER_ACCOUNT"` now falls back
+ * to Cash (the guard below). Change goes to the account through
+ * `unreturnedChangeTo="CUSTOMER_ACCOUNT"` + the change box's "Account"
+ * button instead; the two account-credit cases were rewritten to that path
+ * (not proven failing-first — rule 17).
  */
 
 import { render, fireEvent, screen } from "@testing-library/react";
@@ -37,6 +44,7 @@ function element(o: {
   onChange: jest.Mock<void, [PaymentLine[]]>;
   onReturnChange?: jest.Mock<void, [PaymentLine[]]>;
   defaultReturnMethod?: string;
+  unreturnedToAccount?: boolean;
 }) {
   return (
     <MultiPaymentInput
@@ -54,6 +62,9 @@ function element(o: {
       {...(o.fillKey !== undefined ? { fillKey: o.fillKey } : {})}
       {...(o.defaultReturnMethod
         ? { defaultReturnMethod: o.defaultReturnMethod }
+        : {})}
+      {...(o.unreturnedToAccount
+        ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
         : {})}
     />
   );
@@ -165,7 +176,7 @@ describe("MultiPaymentInput — fillTotals / fillKey (LIRA-308)", () => {
     expect(lastLines(onChange)[0].amount).toBe(0);
   });
 
-  it("above the whole debt with defaultReturnMethod CUSTOMER_ACCOUNT: the extra is a CUSTOMER_ACCOUNT change leg", () => {
+  it("guard: defaultReturnMethod CUSTOMER_ACCOUNT is no longer a return method — the extra defaults to a CASH change leg", () => {
     const onChange = jest.fn<void, [PaymentLine[]]>();
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     render(
@@ -179,6 +190,34 @@ describe("MultiPaymentInput — fillTotals / fillKey (LIRA-308)", () => {
       }),
     );
     fireEvent.change(amountInputs()[0], { target: { value: "131" } });
+    expect(lastLines(onReturnChange)).toEqual([
+      expect.objectContaining({
+        method: "CASH",
+        currencyCode: "USD",
+        amount: 16,
+        direction: "OUT",
+      }),
+    ]);
+    expect(
+      lastLines(onReturnChange).some((l) => l.method === "CUSTOMER_ACCOUNT"),
+    ).toBe(false);
+  });
+
+  it("above the whole debt with unreturnedChangeTo + Account: the extra is a CUSTOMER_ACCOUNT change leg", () => {
+    const onChange = jest.fn<void, [PaymentLine[]]>();
+    const onReturnChange = jest.fn<void, [PaymentLine[]]>();
+    render(
+      element({
+        totals: usd(115),
+        fillTotals: usd(115),
+        fillKey: 1,
+        onChange,
+        onReturnChange,
+        unreturnedToAccount: true,
+      }),
+    );
+    fireEvent.change(amountInputs()[0], { target: { value: "131" } });
+    fireEvent.click(screen.getByTestId("change-destination-account"));
     expect(lastLines(onReturnChange)).toEqual([
       expect.objectContaining({
         method: "CUSTOMER_ACCOUNT",
@@ -203,13 +242,14 @@ describe("MultiPaymentInput — fillTotals / fillKey (LIRA-308)", () => {
         exchangeRate={89_000}
         showDiscount={false}
         hasClient={true}
-        defaultReturnMethod="CUSTOMER_ACCOUNT"
+        unreturnedChangeTo="CUSTOMER_ACCOUNT"
         returnCurrencyFollowsTender={true}
         onChange={onChange}
         onReturnChange={onReturnChange}
       />,
     );
     fireEvent.change(amountInputs()[0], { target: { value: "700000" } });
+    fireEvent.click(screen.getByTestId("change-destination-account"));
     expect(lastLines(onReturnChange)).toEqual([
       expect.objectContaining({
         method: "CUSTOMER_ACCOUNT",

@@ -32,6 +32,11 @@ const paymentLineSchema = z.object({
   method: z.string().min(1),
   currency_code: z.string().min(1),
   amount: z.number(),
+  // Change-to-account (2026-10-13): the shared CheckoutModal sends change the
+  // cashier did not hand back as an OUT `CUSTOMER_ACCOUNT` leg. Without this
+  // key Zod stripped `direction` and the OUT leg arrived as IN (rule 23).
+  // Absent = IN (`partitionLegs`).
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 const maintenancePartSchema = z.object({

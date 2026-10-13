@@ -768,6 +768,16 @@ export function CryptoForm({
           {...(onReturnChange && cryptoType !== "RECEIVE"
             ? { onReturnChange }
             : {})}
+          // SEND only (a cash-out is a payout): change not handed back →
+          // store credit (OUT CUSTOMER_ACCOUNT leg). Same client rule as
+          // `hasClient`; never in a session (the basket owns the change).
+          {...(onReturnChange &&
+          cryptoType !== "RECEIVE" &&
+          !activeSession &&
+          (!!cryptoClientId ||
+            (!!cryptoClientName.trim() && !!cryptoClientPhone.trim()))
+            ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
+            : {})}
           {...(onKeptChange ? { onKeptChange } : {})}
           // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 — mode C's counter-flow
           // section: the customer's separately-paid fee, independent of the

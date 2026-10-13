@@ -10,14 +10,18 @@
  *   handed back emits NO leg — the server books the net, so it stays on the
  *   counterparty's balance by itself. Only real cash change is an OUT leg.
  *   Works for the shop payer too, with no `hasClient`.
- * - "Return change" / "To account" toggle; the fields start full.
+ * - The fields start full (the change is handed back). 2026-10-13 compact
+ *   change box: the "Return change" / "To account" toggle is gone — the
+ *   "Account" button empties the fields (whole change to the account) and
+ *   the "$" button (return-all-usd) refills them.
  * - `returnCurrencies` limits the cash return fields (a partner settlement's
  *   legs must all be in its currency).
  * - `payoutExcessToAccount` (Debts → Cash Out): paying out more than the
  *   total is not flagged as a problem; a note says it becomes debt.
  *
- * Rule 17: written after the fix — not proven failing-first. Not run yet
- * (owner asked for write-only on 2026-10-12).
+ * Rule 17: written after the fix — not proven failing-first. The
+ * 2026-10-13 updates (toggle → Account / "$" buttons) are likewise not
+ * proven failing-first.
  */
 
 import { render, fireEvent, screen } from "@testing-library/react";
@@ -68,21 +72,28 @@ describe("LIRA-313 — ACCOUNT_BALANCE (supplier / partner pages)", () => {
     );
   }
 
-  it("default is 'Return change': the full $50 is a cash OUT leg", () => {
+  it("default is to hand the change back: the full $50 is a cash OUT leg", () => {
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     render(supplierPay(onReturnChange));
     fireEvent.change(amountInput(), { target: { value: "150" } });
+    // 2026-10-13 — the Return/To-account toggle is gone; the Account button
+    // is not pressed by default and the fields hold the full change.
+    expect(screen.queryByTestId("change-destination")).toBeNull();
+    expect(screen.queryByTestId("change-destination-return")).toBeNull();
     expect(
       screen
-        .getByTestId("change-destination-return")
+        .getByTestId("change-destination-account")
         .getAttribute("aria-pressed"),
-    ).toBe("true");
+    ).toBe("false");
+    expect(screen.getByTestId<HTMLInputElement>("return-usd").value).toBe(
+      "50.00",
+    );
     expect(shape(last(onReturnChange))).toEqual([
       { method: "CASH", currencyCode: "USD", amount: 50, direction: "OUT" },
     ]);
   });
 
-  it("'To account' emits NO leg at all and says the $50 stays on the supplier's account", () => {
+  it("'Account' emits NO leg at all and says the $50 stays on the supplier's account", () => {
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     render(supplierPay(onReturnChange));
     fireEvent.change(amountInput(), { target: { value: "150" } });
@@ -110,12 +121,19 @@ describe("LIRA-313 — ACCOUNT_BALANCE (supplier / partner pages)", () => {
     );
   });
 
-  it("'Return change' after 'To account' refills the full change", () => {
+  it("'$' after 'Account' refills the full change in dollars", () => {
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
     render(supplierPay(onReturnChange));
     fireEvent.change(amountInput(), { target: { value: "150" } });
     fireEvent.click(screen.getByTestId("change-destination-account"));
-    fireEvent.click(screen.getByTestId("change-destination-return"));
+    // The fields stay on screen (just empty) after Account.
+    expect(screen.getByTestId<HTMLInputElement>("return-usd").value).toBe("");
+    fireEvent.click(screen.getByTestId("return-all-usd"));
+    expect(
+      screen
+        .getByTestId("change-destination-account")
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
     expect(shape(last(onReturnChange))).toEqual([
       { method: "CASH", currencyCode: "USD", amount: 50, direction: "OUT" },
     ]);

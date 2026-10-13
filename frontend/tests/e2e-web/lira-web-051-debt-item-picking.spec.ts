@@ -359,11 +359,12 @@ test("LIRA-308 owner answers: earlier balance as its own ticked line; unreturned
 
   // Answer 1: $131 paid, nothing returned → $1 account credit. LIRA-313
   // (owner decision 2026-10-12): the change now starts as "Return change"
-  // ($1 in the field); "To account" empties it.
+  // ($1 in the field); the "Account" button empties it (owner 2026-10-13:
+  // the toggle became one button and the field stays on screen, empty).
   await amount.fill("131");
   await expect(page.getByTestId("return-usd")).toHaveValue("1.00");
   await page.getByTestId("change-destination-account").click();
-  await expect(page.getByTestId("return-usd")).toHaveCount(0);
+  await expect(page.getByTestId("return-usd")).toHaveValue("");
   await expect(page.getByTestId("repay-goes-to")).toContainText(
     "Account credit$1",
   );

@@ -225,6 +225,15 @@ method. Payout: every payout leg must be a drawer method. Refusals open with
 one plain sentence for the cashier, followed by the technical detail in
 parentheses.
 
+**Change to the account (POS + Maintenance, 2026-10-13):** the shared
+CheckoutModal sends change the cashier did not hand back as one OUT
+`CUSTOMER_ACCOUNT` leg per currency (cash change stays `change_given_usd/lbp`).
+`SalesRepository` and `MaintenanceRepository.processPayments` book it as a
+`CREDIT_DEPOSIT` "Change returned" linked to the transaction (reversed by the
+generic void/refund), include it in the reconciliation's OUT side, refuse any
+other OUT leg method, and drop it on a session-basket (deferred) checkout.
+Guard: `MaintenanceRepository.changeToAccount.test.ts`.
+
 **Where it applies today:** customer — POS, Maintenance, session checkout,
 Custom Services (Debts repayment no longer keeps change: unreturned change is
 the customer's account credit — LIRA-308 owner answer 1, 2026-10-11; since

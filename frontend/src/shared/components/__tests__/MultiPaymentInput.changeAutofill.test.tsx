@@ -1,9 +1,10 @@
 /** @jest-environment jsdom */
 /**
  * MultiPaymentInput — "All in $" / "All in LBP" change autofill (LIRA-264,
- * owner 2026-10-06).
+ * owner 2026-10-06). Since the 2026-10-13 compact change box the buttons
+ * read "$" and "LBP" (same testids) and sit on the fields' line.
  *
- * Under each CASH change field of the Return/Change block sits a one-tap
+ * Next to the CASH change fields of the Return/Change block sits a one-tap
  * button: the USD one puts the WHOLE change due in dollars and zeroes LBP;
  * the LBP one puts the whole change in LBP (converted at the form's
  * effective rate) and zeroes USD. Rounding follows the change seed's own
@@ -73,9 +74,7 @@ function type(value: string): void {
 }
 
 /** The last OUT-leg set emitted, reduced to the money-relevant fields. */
-function lastLegs(
-  onReturnChange: jest.Mock<void, [PaymentLine[]]>,
-): Array<{
+function lastLegs(onReturnChange: jest.Mock<void, [PaymentLine[]]>): Array<{
   method: string;
   currencyCode: string;
   amount: number;
@@ -112,7 +111,12 @@ describe("MultiPaymentInput — change autofill (All in $ / All in LBP)", () => 
     expect(screen.getByTestId("return-lbp")).toHaveValue("430000");
     expect(screen.getByTestId("return-usd")).toHaveValue("0");
     expect(lastLegs(onReturnChange)).toEqual([
-      { method: "CASH", currencyCode: "LBP", amount: 430_000, direction: "OUT" },
+      {
+        method: "CASH",
+        currencyCode: "LBP",
+        amount: 430_000,
+        direction: "OUT",
+      },
     ]);
     expect(
       screen.queryByTestId("return-mismatch-warning"),

@@ -92,7 +92,10 @@ const allOutLegs = (m: jest.Mock<void, [PaymentLine[]]>) =>
   m.mock.calls.flatMap((c) => c[0]).filter((l) => l.direction === "OUT");
 
 describe('MultiPaymentInput payer="customer" (default) — regression guard', () => {
-  it.each([["explicit", "customer" as const], ["default", undefined]])(
+  it.each([
+    ["explicit", "customer" as const],
+    ["default", undefined],
+  ])(
     "%s: $7 due, $10 paid, $2 returned → $1 kept as profit with the existing copy",
     (_label, payer) => {
       const onKeptChange = jest.fn<void, [Kept]>();
@@ -108,7 +111,11 @@ describe('MultiPaymentInput payer="customer" (default) — regression guard', ()
       setReturn("2", "");
       expect(lastKept(onKeptChange)).toMatchObject({ usd: 1, lbp: 0 });
       expect(onReturnChange.mock.calls.at(-1)?.[0]).toEqual([
-        expect.objectContaining({ currencyCode: "USD", amount: 2, direction: "OUT" }),
+        expect.objectContaining({
+          currencyCode: "USD",
+          amount: 2,
+          direction: "OUT",
+        }),
       ]);
       expect(screen.getByTestId("keep-change-summary")).toHaveTextContent(
         "Keeping $1.00 | 90,000 LBP as profit — the rest is returned above.",
@@ -129,8 +136,13 @@ describe('MultiPaymentInput payer="payout"', () => {
     pay("101");
     expect(lastKept(onKeptChange)).toMatchObject({ usd: 0.12, lbp: 0 });
     expect(screen.getByText("Change kept (profit)")).toBeInTheDocument();
-    expect(screen.getByTestId("keep-change-summary")).toHaveTextContent(
-      "Keeping $0.12 | 10,800 LBP as profit.",
+    // 2026-10-13 (owner): the payout "Keeping X as profit." note under the
+    // green row is gone — the green "Change kept (profit)" row says it.
+    // Updated after the fix: not proven failing-first (rule 17).
+    expect(screen.queryByTestId("keep-change-summary")).not.toBeInTheDocument();
+    expect(screen.getByTestId("remaining-amount")).toHaveTextContent(/\$0\.12/);
+    expect(screen.getByTestId("remaining-amount")).toHaveTextContent(
+      /10,800 LBP/,
     );
   });
 
@@ -148,7 +160,12 @@ describe('MultiPaymentInput payer="payout"', () => {
   it('direction="payout" stays a working alias — regression guard', () => {
     const onKeptChange = jest.fn<void, [Kept]>();
     const onReturnChange = jest.fn<void, [PaymentLine[]]>();
-    renderMpi({ total: 101.12, direction: "payout", onKeptChange, onReturnChange });
+    renderMpi({
+      total: 101.12,
+      direction: "payout",
+      onKeptChange,
+      onReturnChange,
+    });
     pay("101");
     expect(lastKept(onKeptChange)).toMatchObject({ usd: 0.12 });
   });
@@ -180,7 +197,11 @@ describe('MultiPaymentInput payer="shop" (Expenses — the shop pays an outsider
     expect(lastKept(onKeptChange)).toMatchObject({ usd: 1, lbp: 0 });
     // The change the outsider hands back is still an opposite-direction leg.
     expect(onReturnChange.mock.calls.at(-1)?.[0]).toEqual([
-      expect.objectContaining({ currencyCode: "USD", amount: 2, direction: "OUT" }),
+      expect.objectContaining({
+        currencyCode: "USD",
+        amount: 2,
+        direction: "OUT",
+      }),
     ]);
     expect(screen.getByTestId("keep-change-summary")).toHaveTextContent(
       "Not returned: $1.00 | 90,000 LBP — added to the cost.",

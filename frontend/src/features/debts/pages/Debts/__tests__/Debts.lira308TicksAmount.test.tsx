@@ -322,14 +322,14 @@ it("6 — above the whole debt: Account credit in Goes to, sent as a Customer Ac
   await openSettle();
   await waitFor(() => expect(amountValue()).toBe("135"));
   typeAmount("151");
-  // LIRA-313 (owner decision 2026-10-12): the $16 starts as "Return change"
+  // LIRA-313 (owner decision 2026-10-12): the $16 starts handed back ("Return change")
   // — handed back from General, so only $34 stays there.
   await waitFor(() =>
     expect(screen.getByTestId("repay-goes-to").textContent).toContain(
       "General$34",
     ),
   );
-  // "To account" keeps the $16 as the customer's credit instead.
+  // the "Account" button (was "To account") keeps the $16 as the customer's credit instead.
   fireEvent.click(screen.getByTestId("change-destination-account"));
   await waitFor(() =>
     expect(screen.getByTestId("repay-goes-to").textContent).toContain(
@@ -419,7 +419,7 @@ it("6 + 9 — no itemised debt, LBP overpay: LBP account credit, shown in Goes t
   await waitFor(() => expect(amountValue()).toBe("600000"));
   typeAmount("700000");
   // LIRA-313 (owner decision 2026-10-12): the change starts as "Return
-  // change"; "To account" puts the whole overpay on the account.
+  // change"; the "Account" button puts the whole overpay on the account.
   fireEvent.click(await screen.findByTestId("change-destination-account"));
   await waitFor(() =>
     expect(screen.getByTestId("repay-goes-to").textContent).toContain(

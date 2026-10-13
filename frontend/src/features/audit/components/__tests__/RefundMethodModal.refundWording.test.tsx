@@ -11,8 +11,10 @@
  *   - when kept change is allowed, the subtitle says the refund may be a
  *     little short (up to the server's own cap, SHORTFALL_MAX — $5 /
  *     450,000 LBP inclusive since LIRA-310 — in the refund's currency) and the rest is kept as profit;
- *   - "Keeping $0.25 as profit." shows exactly ONCE (the payment form's
- *     payout mode already renders it — no duplicate line).
+ *   - the kept $0.25 is said exactly ONCE (no duplicate line). Since owner
+ *     2026-10-13 the payment form's payout mode says it only in its green
+ *     "Change kept (profit)" remaining row — the "Keeping $0.25 as profit."
+ *     note is gone (updated after that change: not proven failing-first).
  * Validation behaviour is unchanged (the existing keptChange suite pins it).
  *
  * Rule 17: written before the fix; the red run is in the task report.
@@ -81,12 +83,14 @@ describe("RefundMethodModal — refund wording", () => {
     expect(subtitle).not.toHaveTextContent(/profit/);
   });
 
-  it("$4.25 handed back as $4.00 shows 'Keeping $0.25 as profit.' exactly once", () => {
+  it("$4.25 handed back as $4.00 says the $0.25 is kept as profit exactly once", () => {
     renderModal([cashIn(4.25)], true);
     fireEvent.change(screen.getByTestId(/payment-amount-/), {
       target: { value: "4" },
     });
-    expect(screen.getAllByText(/Keeping \$0\.25 .*as profit/)).toHaveLength(1);
+    expect(screen.getAllByText("Change kept (profit)")).toHaveLength(1);
+    expect(screen.getByTestId("remaining-amount")).toHaveTextContent(/\$0\.25/);
+    expect(screen.queryByText(/Keeping .*as profit/)).not.toBeInTheDocument();
     expect(screen.getByText("Hand back")).toBeInTheDocument();
   });
 });

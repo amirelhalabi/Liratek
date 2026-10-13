@@ -71,7 +71,12 @@ function type(value: string): void {
 describe("MultiPaymentInput — payout kept change (automatic)", () => {
   it("owner example: $101 paid against $101.12 owed → the $0.12 shortfall is kept with no tap and no button", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderMpi({ total: 101.12, currency: "USD", direction: "payout", onKeptChange });
+    renderMpi({
+      total: 101.12,
+      currency: "USD",
+      direction: "payout",
+      onKeptChange,
+    });
 
     // Auto-filled with the full amount → nothing short, nothing kept.
     expect(onKeptChange).toHaveBeenLastCalledWith(null);
@@ -85,16 +90,28 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
     expect(kept?.exactLbp).toBe(0);
     expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
     expect(
-      within(screen.getByTestId("remaining-row")).getByText("Change kept (profit)"),
+      within(screen.getByTestId("remaining-row")).getByText(
+        "Change kept (profit)",
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("keep-change-summary")).toHaveTextContent(
-      "Keeping $0.12 | 10,680 LBP as profit.",
+    // 2026-10-13 (owner): the payout "Keeping X as profit." note under the
+    // green row is gone — the green "Change kept (profit)" row says it.
+    // Updated after the fix: not proven failing-first (rule 17).
+    expect(screen.queryByTestId("keep-change-summary")).not.toBeInTheDocument();
+    expect(screen.getByTestId("remaining-amount")).toHaveTextContent(/\$0\.12/);
+    expect(screen.getByTestId("remaining-amount")).toHaveTextContent(
+      /10,680 LBP/,
     );
   });
 
   it("clears the kept amount when the shortfall disappears (no stale 0.12 rides into the payload)", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderMpi({ total: 101.12, currency: "USD", direction: "payout", onKeptChange });
+    renderMpi({
+      total: 101.12,
+      currency: "USD",
+      direction: "payout",
+      onKeptChange,
+    });
     type("101");
     expect(onKeptChange.mock.calls.at(-1)?.[0]?.usd).toBe(0.12);
 
@@ -109,7 +126,12 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
 
   it("follows the shortfall live", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderMpi({ total: 101.12, currency: "USD", direction: "payout", onKeptChange });
+    renderMpi({
+      total: 101.12,
+      currency: "USD",
+      direction: "payout",
+      onKeptChange,
+    });
     type("101");
     type("100.5");
     expect(onKeptChange.mock.calls.at(-1)?.[0]?.usd).toBe(0.62);
@@ -119,26 +141,43 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
   // to $5 / 450,000 LBP, up to and including.
   it("keeps a shortfall of exactly $5.00 (the cap is inclusive)", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderMpi({ total: 101.12, currency: "USD", direction: "payout", onKeptChange });
+    renderMpi({
+      total: 101.12,
+      currency: "USD",
+      direction: "payout",
+      onKeptChange,
+    });
     type("96.12");
     expect(onKeptChange.mock.calls.at(-1)?.[0]?.usd).toBe(5);
   });
 
   it("nothing kept when the shortfall is over $5 (a real shortchange, not change) — 'Remaining to pay out'", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderMpi({ total: 101.12, currency: "USD", direction: "payout", onKeptChange });
+    renderMpi({
+      total: 101.12,
+      currency: "USD",
+      direction: "payout",
+      onKeptChange,
+    });
     type("96.11");
     expect(onKeptChange).not.toHaveBeenCalledWith(
       expect.objectContaining({ usd: expect.any(Number) }),
     );
     expect(
-      within(screen.getByTestId("remaining-row")).getByText("Remaining to pay out"),
+      within(screen.getByTestId("remaining-row")).getByText(
+        "Remaining to pay out",
+      ),
     ).toBeInTheDocument();
   });
 
   it("an OVERPAID payout keeps nothing and shows no Return/Change block", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderMpi({ total: 101.12, currency: "USD", direction: "payout", onKeptChange });
+    renderMpi({
+      total: 101.12,
+      currency: "USD",
+      direction: "payout",
+      onKeptChange,
+    });
     type("101.5");
     expect(screen.queryByTestId("keep-change-summary")).not.toBeInTheDocument();
     expect(screen.queryByTestId("return-change")).not.toBeInTheDocument();
@@ -149,7 +188,12 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
 
   it("LBP payout: reports the LBP leftover (within 450,000 LBP)", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderMpi({ total: 8_912_345, currency: "LBP", direction: "payout", onKeptChange });
+    renderMpi({
+      total: 8_912_345,
+      currency: "LBP",
+      direction: "payout",
+      onKeptChange,
+    });
     type("8900000");
     expect(onKeptChange).toHaveBeenLastCalledWith({
       usd: 0,
@@ -161,14 +205,24 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
 
   it("LBP payout: keeps exactly 450,000 LBP (the cap is inclusive)", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderMpi({ total: 8_912_345, currency: "LBP", direction: "payout", onKeptChange });
+    renderMpi({
+      total: 8_912_345,
+      currency: "LBP",
+      direction: "payout",
+      onKeptChange,
+    });
     type("8462345");
     expect(onKeptChange.mock.calls.at(-1)?.[0]?.lbp).toBe(450_000);
   });
 
   it("LBP payout: nothing kept over 450,000 LBP short", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
-    renderMpi({ total: 8_912_345, currency: "LBP", direction: "payout", onKeptChange });
+    renderMpi({
+      total: 8_912_345,
+      currency: "LBP",
+      direction: "payout",
+      onKeptChange,
+    });
     type("8462344");
     expect(onKeptChange).not.toHaveBeenCalledWith(
       expect.objectContaining({ lbp: expect.any(Number) }),
@@ -181,7 +235,9 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
     type("101");
     expect(screen.queryByTestId("keep-change-summary")).not.toBeInTheDocument();
     expect(
-      within(screen.getByTestId("remaining-row")).getByText("Remaining to pay out"),
+      within(screen.getByTestId("remaining-row")).getByText(
+        "Remaining to pay out",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -196,7 +252,7 @@ describe("MultiPaymentInput — payout kept change (automatic)", () => {
 });
 
 describe("PaymentSheet — direction pass-through", () => {
-  it("forwards direction=\"payout\" to the real MultiPaymentInput (the short leftover is kept)", () => {
+  it('forwards direction="payout" to the real MultiPaymentInput (the short leftover is kept)', () => {
     const onKeptChange = jest.fn();
     render(
       <PaymentSheet

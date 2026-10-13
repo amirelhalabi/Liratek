@@ -224,10 +224,15 @@ describe("MultiPaymentInput — Waive (LIRA-310)", () => {
  * Owner decision 2026-10-12 (LIRA-310 follow-up) — `waiveTotals`: Waive
  * measures the gap against these totals (the Debts sheet passes the TICKED
  * items' sum, net of its discount) instead of the whole amount owed. The
- * gap is shown on its own "Remaining on ticked" line, Waive sits inside that
- * line, and the whole-debt Remaining row keeps its figure without a Waive.
+ * gap is shown with its Waive, and the whole-debt figure is shown without one.
  * Owner example: $14 sale unticked + $20 Loto ticked, $18.50 paid →
- * Remaining $15.50, Remaining on ticked $1.50 [Waive].
+ * Remaining $1.50 on ticked [Waive], $15.50 total.
+ *
+ * 2026-10-13 (owner): the separate "Remaining on ticked" row said the same
+ * thing twice, so both figures now live in ONE remaining-row — the
+ * `remaining-ticked-row` span (ticked amount + "on ticked" + Waive) above
+ * the total (`remaining-amount` + "total"). Updated after the fix: not
+ * proven failing-first (rule 17).
  */
 describe("MultiPaymentInput — Waive against waiveTotals (ticked items only)", () => {
   const ticked = (amount: number, currency: "USD" | "LBP" = "USD") => [
@@ -242,18 +247,25 @@ describe("MultiPaymentInput — Waive against waiveTotals (ticked items only)", 
       waiveTotals: ticked(20),
     });
     pay("18.5");
-    // Whole-debt Remaining keeps showing $15.50, with no Waive inside it.
+    // ONE Remaining row holds both figures: $1.50 on ticked [Waive] and
+    // the whole-debt $15.50 total (with no Waive next to the total).
+    expect(screen.getAllByTestId("remaining-row")).toHaveLength(1);
     const remainingRow = screen.getByTestId("remaining-row");
-    expect(remainingRow.textContent).toContain("15.50");
-    expect(
-      remainingRow.querySelector('[data-testid="waive-remaining"]'),
-    ).toBeNull();
-    // Its own line: Remaining on ticked $1.50 [Waive].
     const row = tickedRow()!;
     expect(row).toBeInTheDocument();
-    expect(row.textContent).toContain("Remaining on ticked");
+    expect(remainingRow.contains(row)).toBe(true);
+    expect(screen.queryByText(/Remaining on ticked/)).toBeNull();
+    expect(row.textContent).toContain("on ticked");
     expect(row.textContent).toContain("1.50");
     expect(row.querySelector('[data-testid="waive-remaining"]')).not.toBeNull();
+    expect(
+      remainingRow.querySelectorAll('[data-testid="waive-remaining"]'),
+    ).toHaveLength(1);
+    const total = screen.getByTestId("remaining-amount");
+    expect(remainingRow.contains(total)).toBe(true);
+    expect(row.contains(total)).toBe(false);
+    expect(total.textContent).toContain("15.50");
+    expect(total.parentElement!.textContent).toContain("total");
     fireEvent.click(waive()!);
     expect(onWaive).toHaveBeenCalledTimes(1);
     const [amount, byCurrency] = onWaive.mock.calls[0];

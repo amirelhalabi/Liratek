@@ -177,12 +177,13 @@ test.describe("LIRA-107 / LIRA-308 answer 1 — unreturned change on a debt repa
     await amount.fill("700000");
 
     // The overpay surfaces Return/Change. LIRA-313 (owner decision
-    // 2026-10-12): the change starts as "Return change"; "To account" empties
-    // the fields, and the whole 100,000 goes to the customer's account (in
+    // 2026-10-12): the change starts handed back in full; the "Account"
+    // button empties the fields (owner 2026-10-13: they stay on screen,
+    // empty), and the whole 100,000 goes to the customer's account (in
     // LBP — the tender's currency), as LIRA-308 answer 1 booked it.
     await appPage.getByTestId("change-destination-account").click();
-    await expect(appPage.getByTestId("return-usd")).toHaveCount(0);
-    await expect(appPage.getByTestId("return-lbp")).toHaveCount(0);
+    await expect(appPage.getByTestId("return-usd")).toHaveValue("");
+    await expect(appPage.getByTestId("return-lbp")).toHaveValue("");
     await expect(
       appPage.getByTestId("change-to-account-summary"),
     ).toContainText("100,000 LBP");

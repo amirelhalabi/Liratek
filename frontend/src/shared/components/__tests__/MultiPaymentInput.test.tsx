@@ -1179,7 +1179,7 @@ describe("MultiPaymentInput", () => {
       ).not.toBeInTheDocument();
     });
 
-    it("'All in $' after a partial return restores the full return and clears the kept amount", () => {
+    it("'$' (return-all-usd) after a partial return restores the full return and clears the kept amount", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       renderOverpaid({ onKeptChange, onReturnChange });
@@ -1244,7 +1244,12 @@ describe("MultiPaymentInput", () => {
       }
     });
 
-    it("keeping only applies to a CASH return — a non-CASH method already routes its full leg to that method/account (e.g. CUSTOMER_ACCOUNT credit)", () => {
+    // 2026-10-13 (owner, compact change box): Customer Account is no longer
+    // a return METHOD (the change box's Account button does that job), so
+    // this case now hands the change back by OMT — still a non-CASH method
+    // whose full leg posts to it — and guards that CUSTOMER_ACCOUNT is not
+    // offered. Rewritten after the fix: not proven failing-first (rule 17).
+    it("keeping only applies to a CASH return — a non-CASH method (OMT) already routes its full leg to that method; CUSTOMER_ACCOUNT is not a return method", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       render(
@@ -1276,24 +1281,26 @@ describe("MultiPaymentInput", () => {
       );
 
       fireEvent.change(firstAmountInput(), { target: { value: "150" } });
-      const methodSelect = screen.getByTestId("return-method");
-      fireEvent.change(methodSelect, { target: { value: "CUSTOMER_ACCOUNT" } });
+      const methodSelect =
+        screen.getByTestId<HTMLSelectElement>("return-method");
+      expect(
+        Array.from(methodSelect.options).map((o) => o.value),
+      ).not.toContain("CUSTOMER_ACCOUNT");
+      fireEvent.change(methodSelect, { target: { value: "OMT" } });
 
       expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
       expect(
         screen.queryByTestId("keep-change-summary"),
       ).not.toBeInTheDocument();
       expect(onKeptChange).toHaveBeenLastCalledWith(null);
-      // The full $50 still routes to the account as a credit leg — unaffected.
+      // The full $50 routes to the OMT leg — nothing kept.
       const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
       expect(
         lastLegs.some(
-          (l) =>
-            l.method === "CUSTOMER_ACCOUNT" &&
-            l.amount === 50 &&
-            l.direction === "OUT",
+          (l) => l.method === "OMT" && l.amount === 50 && l.direction === "OUT",
         ),
       ).toBe(true);
+      expect(lastLegs.some((l) => l.method === "CUSTOMER_ACCOUNT")).toBe(false);
     });
   });
 

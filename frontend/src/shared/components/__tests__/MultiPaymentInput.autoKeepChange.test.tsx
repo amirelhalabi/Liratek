@@ -178,9 +178,27 @@ describe("MultiPaymentInput — automatic kept change (payment mode)", () => {
 
   describe("guard: an untouched seeded return keeps nothing", () => {
     it.each([
-      { name: "plain USD", total: 4.27, currency: "USD" as const, tender: "10", smart: false },
-      { name: "USD smart split", total: 4.27, currency: "USD" as const, tender: "10", smart: true },
-      { name: "LBP total", total: 425_000, currency: "LBP" as const, tender: "500000", smart: false },
+      {
+        name: "plain USD",
+        total: 4.27,
+        currency: "USD" as const,
+        tender: "10",
+        smart: false,
+      },
+      {
+        name: "USD smart split",
+        total: 4.27,
+        currency: "USD" as const,
+        tender: "10",
+        smart: true,
+      },
+      {
+        name: "LBP total",
+        total: 425_000,
+        currency: "LBP" as const,
+        tender: "500000",
+        smart: false,
+      },
     ])("$name", ({ total, currency, tender, smart }) => {
       const onKeptChange = jest.fn<void, [Kept]>();
       render(
@@ -247,7 +265,7 @@ describe("MultiPaymentInput — automatic kept change (payout mode)", () => {
     );
   }
 
-  it("(c) a shortfall under the cap is kept automatically — no tap, no pill, green note", () => {
+  it("(c) a shortfall under the cap is kept automatically — no tap, no pill, green remaining row", () => {
     const onKeptChange = jest.fn<void, [Kept]>();
     renderPayout(onKeptChange);
 
@@ -259,8 +277,12 @@ describe("MultiPaymentInput — automatic kept change (payout mode)", () => {
     expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
     const row = screen.getByTestId("remaining-row");
     expect(within(row).getByText("Change kept (profit)")).toBeInTheDocument();
-    expect(screen.getByTestId("keep-change-summary")).toHaveTextContent(
-      "Keeping $0.12 | 10,680 LBP as profit.",
+    // 2026-10-13 (owner): the payout "Keeping X as profit." note under the
+    // green row is gone — the green "Change kept (profit)" row says it.
+    // Updated after the fix: not proven failing-first (rule 17).
+    expect(screen.queryByTestId("keep-change-summary")).not.toBeInTheDocument();
+    expect(within(row).getByTestId("remaining-amount")).toHaveTextContent(
+      /\$0\.12/,
     );
   });
 

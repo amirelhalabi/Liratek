@@ -273,7 +273,9 @@ export function LotoPage() {
       // A partner ticket sends no payment legs at all (see `payments` below),
       // so evaluate the CUSTOMER_ACCOUNT requirement against what's actually
       // submitted — not against stale lines left over from before the toggle.
-      paymentLines: forPartner ? [] : paymentLines,
+      // Change put on the account is an OUT CUSTOMER_ACCOUNT leg, so it
+      // needs a real client just as much as an on-account charge does.
+      paymentLines: forPartner ? [] : [...paymentLines, ...returnLegs],
     });
     if (!clientResult.ok) {
       alert(clientResult.error);
@@ -713,6 +715,10 @@ export function LotoPage() {
                         !!clientId ||
                         (!!clientName.trim() && !!clientPhone.trim())
                       }
+                      // Change not handed back → store credit (OUT
+                      // CUSTOMER_ACCOUNT leg). The submit resolves/creates
+                      // the client from id or name+phone before saving.
+                      unreturnedChangeTo="CUSTOMER_ACCOUNT"
                       // Ticket sale (charge flow): shortfall → client debt.
                       autoDebtRemainder={
                         !!clientId ||

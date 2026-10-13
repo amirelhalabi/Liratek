@@ -1333,6 +1333,12 @@ export function SessionCheckoutModal({
                       payer="customer"
                       requiresClientForDebt={true}
                       hasClient={hasClient}
+                      // Change the cashier does not hand back becomes store
+                      // credit: one more OUT CUSTOMER_ACCOUNT leg, booked by
+                      // SessionPaymentService against the session client
+                      // (resolved from name+phone, the same rule `hasClient`
+                      // applies). Without a client the change is kept.
+                      unreturnedChangeTo="CUSTOMER_ACCOUNT"
                       paymentMethods={paymentMethodOptions}
                       currencies={currencies}
                       exchangeRate={exchangeRate}

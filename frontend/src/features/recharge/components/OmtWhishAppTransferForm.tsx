@@ -287,7 +287,8 @@ function OmtWhishAppTransferFormInner({
       clientId,
       name: activeClientName,
       phone: activeClientPhone,
-      paymentLines,
+      // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too.
+      paymentLines: [...paymentLines, ...changeLegs],
     });
     if (!clientResult.ok) {
       alert(clientResult.error);
@@ -1237,6 +1238,15 @@ function OmtWhishAppTransferFormInner({
           {...(serviceType === "RECEIVE"
             ? { payer: "payout" as const }
             : { onReturnChange: setReturnLegs })}
+          // SEND only (RECEIVE is a payout): change not handed back → store
+          // credit (OUT CUSTOMER_ACCOUNT leg). Same client rule as auto-debt;
+          // never in a session, where the basket checkout owns the change.
+          {...(serviceType === "SEND" &&
+          !activeSession &&
+          (!!clientId ||
+            (!!activeClientName.trim() && !!activeClientPhone.trim()))
+            ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
+            : {})}
           // A RECEIVE keeps change only where the server can book it: not
           // inside a session (the basket pays out) and not when credited to
           // the customer's account (credited in full).

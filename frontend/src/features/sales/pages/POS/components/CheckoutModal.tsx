@@ -425,10 +425,21 @@ export default function CheckoutModal({
   // is the same value the old changeGivenUSD/LBP state used to hold — just
   // derived instead of tracked, since MultiPaymentInput owns the return UI
   // and re-derives it from (payment lines) vs. (finalAmount) on its own.
-  const cashReturnUSD = returnLines
+  //
+  // Owner 2026-10-13: the change box can also put the change NOT handed
+  // back on the client's account (`unreturnedChangeTo` below) — that part
+  // arrives as one more CUSTOMER_ACCOUNT OUT leg, never as cash, so it is
+  // split off here: cash goes on change_given_*, the account leg goes in
+  // `payments` (sending a CASH OUT leg too would debit the drawer twice —
+  // SalesRepository posts both).
+  const cashReturnLines = returnLines.filter((l) => l.method === "CASH");
+  const accountReturnLines = returnLines.filter(
+    (l) => l.method === "CUSTOMER_ACCOUNT",
+  );
+  const cashReturnUSD = cashReturnLines
     .filter((l) => l.currencyCode === "USD")
     .reduce((sum, l) => sum + (l.amount || 0), 0);
-  const cashReturnLBP = returnLines
+  const cashReturnLBP = cashReturnLines
     .filter((l) => l.currencyCode === "LBP")
     .reduce((sum, l) => sum + (l.amount || 0), 0);
 
@@ -512,11 +523,15 @@ export default function CheckoutModal({
       // outright, so this must actually be empty, not just zeroed totals.
       payment_usd: forPartner ? 0 : paidUSD,
       payment_lbp: forPartner ? 0 : paidLBP,
-      // IN legs only — cashOnlyReturn={true} on MultiPaymentInput means
-      // change never needs an OUT leg here (see change_given_* below), and
-      // saveMaintenanceJob (Maintenance also renders this modal) has no
-      // OUT-leg handling, so this payload must stay IN-only for both.
-      payments: forPartner ? [] : toSnakeLegs(paymentLines),
+      // IN legs plus, at most, the change put on the client's account
+      // (CUSTOMER_ACCOUNT OUT). Cash change never travels as a leg — see
+      // change_given_* below. Both savers book the account leg as client
+      // credit linked to the transaction: SalesRepository.processSale and
+      // MaintenanceRepository.processPayments (Maintenance renders this
+      // modal too).
+      payments: forPartner
+        ? []
+        : toSnakeLegs(paymentLines, accountReturnLines),
       change_given_usd: forPartner ? 0 : cashReturnUSD,
       change_given_lbp: forPartner ? 0 : cashReturnLBP,
       // T3 keep-change: what the cashier did NOT hand back. A partial keep
@@ -1140,6 +1155,10 @@ export default function CheckoutModal({
                     showDiscount={false}
                     smartSplitOverpay={!isLbpTotal}
                     cashOnlyReturn={true}
+                    // Owner 2026-10-13: change not handed back goes on the
+                    // client's account when one is picked (name + phone);
+                    // otherwise it is kept as profit, as before.
+                    unreturnedChangeTo="CUSTOMER_ACCOUNT"
                     // LIRA-310: Waive adds the gap to this modal's discount,
                     // never past `maxDiscount` (Maintenance: labour); when the
                     // gap is bigger than the room left, Waive is hidden.

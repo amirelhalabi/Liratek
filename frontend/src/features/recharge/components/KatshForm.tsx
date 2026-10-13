@@ -1506,7 +1506,8 @@ function KatshFormInner({
       clientId,
       name: clientName,
       phone: clientPhone,
-      paymentLines,
+      // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too.
+      paymentLines: [...paymentLines, ...returnLegs],
     });
     if (!clientResult.ok) {
       alert(clientResult.error);
@@ -2326,6 +2327,13 @@ function KatshFormInner({
         autoDebtRemainder={
           !!clientId || (!!clientName.trim() && !!clientPhone.trim())
         }
+        // Change not handed back → store credit (OUT CUSTOMER_ACCOUNT leg,
+        // forwarded in `payments`). Same client rule as auto-debt; never in a
+        // session, where the basket checkout owns the change.
+        {...(!activeSession &&
+        (!!clientId || (!!clientName.trim() && !!clientPhone.trim()))
+          ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
+          : {})}
         paymentInputKey={paymentInputKey}
         initialPaymentMethod={initialPaymentMethod}
         onPaymentChange={(lines) => {

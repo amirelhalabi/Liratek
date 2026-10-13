@@ -4,7 +4,10 @@ import { requestNow } from "../utils/requestNow.js";
 import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
+  partitionLegs,
+  type PaymentDirection,
 } from "../utils/payments.js";
+import { getDebtService } from "../services/DebtService.js";
 import { maintenanceLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -142,6 +145,9 @@ export interface MaintenancePaymentLine {
   method: string;
   currency_code: string;
   amount: number;
+  /** Absent = IN. OUT is only accepted as `CUSTOMER_ACCOUNT` (change put on
+   *  the client's account as store credit) — see processPayments. */
+  direction?: PaymentDirection;
 }
 
 export interface MaintenanceJob {
@@ -672,6 +678,37 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     const partsPriceUsd = opts.partsPriceUsd ?? 0;
     const partsMarginUsd = opts.partsMarginUsd ?? 0;
 
+    // Rule 16: split once. IN legs feed every sum, drawer posting and the debt
+    // residual below exactly as before; OUT legs are change the cashier did
+    // not hand back. Cash change still arrives as changeUsd/changeLbp (never
+    // as an OUT leg), so the only OUT leg accepted is CUSTOMER_ACCOUNT —
+    // change put on the client's account as store credit (owner-approved
+    // 2026-10-13, same booking as SalesRepository). Any other OUT leg is
+    // refused: posting it as IN would credit the drawer with money that left.
+    const { inLegs, outLegs: rawOutLegs } = partitionLegs(paymentLines);
+    let accountOutLegs: MaintenancePaymentLine[] = [];
+    if (defer && rawOutLegs.length > 0) {
+      // Session basket: the basket checkout owns the payment AND its change —
+      // same reasoning as the kept-change drop below. Dropped, not refused
+      // (refusing would fail the whole basket checkout).
+      maintenanceLogger.warn(
+        { jobId, outLegs: rawOutLegs.length },
+        "Ignoring change-to-account legs on a session-basket maintenance checkout — the basket owns the payment",
+      );
+    } else if (!defer) {
+      for (const leg of rawOutLegs) {
+        if (leg.method !== "CUSTOMER_ACCOUNT") {
+          throw new Error(
+            `Change handed back must be entered as change given, not as a returned ${leg.method} line (Maintenance job #${jobId}: only CUSTOMER_ACCOUNT may be an OUT leg)`,
+          );
+        }
+      }
+      accountOutLegs = rawOutLegs.filter((l) => Math.abs(l.amount) > 0);
+      if (accountOutLegs.length > 0 && !opts.clientId) {
+        throw new Error("Client is required to return change as store credit");
+      }
+    }
+
     // G42 — kept change (payer = customer, docs/FEATURE_GUIDE.md §4.1). The
     // shared CheckoutModal sends the tender as IN legs, cash change as
     // changeUsd/changeLbp, and what the cashier did not hand back as
@@ -698,7 +735,14 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         { jobId, claimedKeptUsd, claimedKeptLbp },
         "Ignoring kept change on a session-basket maintenance checkout — the basket owns the payment",
       );
-    } else if (claimedKeptUsd > 0 || claimedKeptLbp > 0) {
+    } else if (
+      claimedKeptUsd > 0 ||
+      claimedKeptLbp > 0 ||
+      accountOutLegs.length > 0
+    ) {
+      // Also runs when change goes to the account: the credit is only booked
+      // once IN − cash change − account change − kept = what is owed, so a
+      // tampered OUT leg can never mint store credit.
       const cashChange = (
         [
           ["USD", Math.abs(opts.changeUsd || 0)],
@@ -719,14 +763,24 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         expected: isLbp
           ? { usd: partsPriceUsd, lbp: opts.finalAmount }
           : { usd: opts.finalAmount + partsPriceUsd, lbp: 0 },
-        inLegs: paymentLines.map(
+        inLegs: inLegs.map(
           (l): ReconciliationLeg => ({
             method: l.method,
             currencyCode: l.currency_code,
             amount: l.amount,
           }),
         ),
-        outLegs: cashChange,
+        outLegs: [
+          ...cashChange,
+          ...accountOutLegs.map(
+            (l): ReconciliationLeg => ({
+              method: l.method,
+              currencyCode: l.currency_code,
+              amount: Math.abs(l.amount),
+              direction: "OUT",
+            }),
+          ),
+        ],
         claimedKept: { usd: claimedKeptUsd, lbp: claimedKeptLbp },
         // The till's own rate (CheckoutModal sends the edited rate here).
         exchangeRate: opts.exchangeRate,
@@ -803,7 +857,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         // parts_price_usd/parts for the customer-facing total.
         final_amount: opts.finalAmount,
         currency: opts.currency ?? "USD",
-        payment_count: paymentLines.length,
+        payment_count: inLegs.length,
         parts_price_usd: partsPriceUsd,
         // PRICE only — never cost/margin; the receipt is built from this
         // metadata and must never leak the shop's cost.
@@ -877,7 +931,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     // change, and debt — skip them all here (the unified transaction row above is
     // still created so it can be linked + paid-state back-filled).
     if (!defer) {
-      for (const p of paymentLines) {
+      for (const p of inLegs) {
         if (!isDrawerAffectingMethod(p.method)) continue;
         const drawerName = paymentMethodToDrawerName(p.method);
         insertPayment.run(
@@ -929,11 +983,28 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
     }
 
+    // Change kept on the client's account: a store-credit deposit linked to
+    // this transaction, so the generic void/refund (`_cancelDebt`) reverses
+    // it (rule 20). Moves no drawer and writes no payments row. Throwing
+    // variant: a failed credit write rolls the whole checkout back.
+    for (const leg of accountOutLegs) {
+      const amt = Math.abs(leg.amount);
+      getDebtService().addCreditOrThrow({
+        clientId: opts.clientId!,
+        amountUsd: leg.currency_code === "USD" ? amt : 0,
+        amountLbp: leg.currency_code === "LBP" ? amt : 0,
+        note: "Change returned",
+        userId: createdBy,
+        transactionId: txnId,
+      });
+    }
+
     // Handle debt (partial payment)
-    // Sum drawer-affecting USD and LBP payments
+    // Sum drawer-affecting USD and LBP IN payments (an OUT leg is change,
+    // never "paid").
     let paidUsd = 0;
     let paidLbp = 0;
-    for (const p of paymentLines) {
+    for (const p of inLegs) {
       if (!isDrawerAffectingMethod(p.method)) continue;
       if (p.currency_code === "USD") paidUsd += p.amount;
       else if (p.currency_code === "LBP") paidLbp += p.amount;

@@ -396,6 +396,14 @@ export default function CustomServices() {
       alert("Please select a client for debt payment.");
       return;
     }
+    if (
+      !isForPartner &&
+      !clientId &&
+      returnLegs.some((l) => l.method === "CUSTOMER_ACCOUNT")
+    ) {
+      alert("Please select a client to put the change on their account.");
+      return;
+    }
     if (hasPartnerMode && !selectedPartnerId) {
       alert("Select a partner for this service.");
       return;
@@ -1459,6 +1467,16 @@ export default function CustomServices() {
                           // guard rejects debt legs without clientId (name-only
                           // would auto-split and then dead-end at that alert).
                           autoDebtRemainder={!!clientId}
+                          // Change not handed back → store credit (OUT
+                          // CUSTOMER_ACCOUNT leg). CustomServiceRepository
+                          // needs a saved client_id and creates none, and
+                          // "Save as client" may not run, so only a client
+                          // already picked qualifies.
+                          {...(clientId
+                            ? {
+                                unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const,
+                              }
+                            : {})}
                           paymentMethods={methods}
                           currencies={[
                             { code: "USD", symbol: "$" },

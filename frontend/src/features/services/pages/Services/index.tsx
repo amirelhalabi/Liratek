@@ -2529,6 +2529,18 @@ export default function Services() {
                     {...(serviceType === "RECEIVE"
                       ? { payer: "payout" as const }
                       : { onReturnChange: setReturnLegs })}
+                    // SEND only: change not handed back → store credit (OUT
+                    // CUSTOMER_ACCOUNT leg). Gated on name+phone — the only
+                    // input FinancialServiceRepository can always resolve or
+                    // create a client from (name-only matches by exact name,
+                    // phone-only resolves nothing).
+                    {...(serviceType === "SEND" &&
+                    canChargeToCustomerAccount({
+                      name: senderName,
+                      phone: senderPhone,
+                    })
+                      ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
+                      : {})}
                     {...(keptChangeApplies
                       ? {
                           onKeptChange: (

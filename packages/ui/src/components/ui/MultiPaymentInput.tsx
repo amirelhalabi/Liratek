@@ -1556,14 +1556,28 @@ export default function MultiPaymentInput({
   // When the shop only has cash as a payment method, the change is obviously cash —
   // show a simple currency toggle. Any non-cash method available surfaces the full
   // method picker regardless of what the customer selected.
+  // Owner 2026-10-13 — Customer Account is not a way to HAND BACK change:
+  // the change box's Account button (`unreturnedChangeTo`) is the one place
+  // change goes to an account, so the method list offers drawer methods only.
+  const returnMethodOptions = paymentMethods.filter(
+    (pm) => pm.code !== "CUSTOMER_ACCOUNT",
+  );
   const isCashOnlyPayment =
-    cashOnlyReturn || paymentMethods.every((pm) => pm.code === "CASH");
-  const effectiveReturnMethod = isCashOnlyPayment ? "CASH" : returnMethod;
+    cashOnlyReturn || returnMethodOptions.every((pm) => pm.code === "CASH");
+  const effectiveReturnMethod =
+    isCashOnlyPayment ||
+    !returnMethodOptions.some((pm) => pm.code === returnMethod)
+      ? "CASH"
+      : returnMethod;
   /** LIRA-308 answer 1 — change not entered as returned goes to the account. */
   const creditUnreturned =
     !!unreturnedChangeTo &&
     !isPayout &&
     (unreturnedChangeTo === "ACCOUNT_BALANCE" || hasClient);
+  /** Without an account, change left in the fields is KEPT (profit, or cost
+   *  when the shop pays) — only on pages that wire `onKeptChange`. The
+   *  change box's "Keep" button empties the fields for that. */
+  const canKeepUnreturned = !creditUnreturned && !isPayout && !!onKeptChange;
   // LIRA-313 — which CASH return fields exist (e.g. a partner settlement
   // can only take change back in its own currency).
   const allowReturnUSD = !returnCurrencies || returnCurrencies.includes("USD");
@@ -1683,17 +1697,13 @@ export default function MultiPaymentInput({
     setReturnAmountLBP(raw);
   };
 
-  // LIRA-313 — the change-box toggle. "To account" empties the return
-  // fields (the whole change goes to the account); "Return change" refills
-  // them with the full change due.
+  // LIRA-313 — the change box's Account (or Keep) button: empties the return
+  // fields, so the whole change goes to the account (or is kept). Typing or
+  // the $ / LBP buttons hand it back again.
   const handleChangeToAccount = () => {
     setChangeToAccount(true);
     setReturnAmountUSD("");
     setReturnAmountLBP("");
-  };
-  const handleReturnChange = () => {
-    setChangeToAccount(false);
-    seedFullSuggestedReturn(false);
   };
 
   // LIRA-264 (owner 2026-10-06) — "All in $" / "All in LBP": one tap puts
@@ -2756,46 +2766,48 @@ export default function MultiPaymentInput({
                   ? "Remaining to pay"
                   : "Remaining (Debt)"}
             </span>
-            <span className="flex items-center gap-2">
-              <span
-                data-testid="remaining-amount"
-                className={`flex items-center gap-1 font-mono font-bold ${payoutKeepActive ? "text-emerald-400" : "text-red-400"}`}
-              >
-                {renderDualAmount(effectiveTotalInTarget - totalPaid)}
+            {/* Owner decision 2026-10-12 — what is left on the TICKED items
+                (`waiveTotals`) when it differs from the whole Remaining;
+                Waive sits on that figure then, so it only forgives the
+                ticked items. One row, both figures (owner 2026-10-13: a
+                second "Remaining on ticked" row said the same thing twice). */}
+            {showTickedRemainingRow ? (
+              <span className="flex flex-col items-end gap-0.5">
+                <span
+                  data-testid="remaining-ticked-row"
+                  className="flex items-center gap-2"
+                >
+                  <span
+                    data-testid="remaining-ticked-amount"
+                    className="flex items-center gap-1 font-mono font-bold text-red-400"
+                  >
+                    {renderDualAmount(waiveShortfall)}
+                  </span>
+                  <span className="text-red-400/80">on ticked</span>
+                  {showWaiveButton && waiveButton}
+                </span>
+                <span className="flex items-center gap-1 text-[11px] text-red-400/70">
+                  <span
+                    data-testid="remaining-amount"
+                    className="flex items-center gap-1 font-mono"
+                  >
+                    {renderDualAmount(effectiveTotalInTarget - totalPaid)}
+                  </span>
+                  total
+                </span>
               </span>
-              {showWaiveButton && !showTickedRemainingRow && waiveButton}
-            </span>
-          </div>
-        )}
-        {/* Owner decision 2026-10-12 — what is left on the TICKED items
-            (`waiveTotals`) when it differs from the whole Remaining above;
-            Waive lives here then, so it only forgives the ticked items. */}
-        {showTickedRemainingRow && (
-          <div
-            data-testid="remaining-ticked-row"
-            className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md bg-red-500/10 border border-red-500/20"
-          >
-            <span className="text-red-400">Remaining on ticked</span>
-            <span className="flex items-center gap-2">
-              <span
-                data-testid="remaining-ticked-amount"
-                className="flex items-center gap-1 font-mono font-bold text-red-400"
-              >
-                {renderDualAmount(waiveShortfall)}
+            ) : (
+              <span className="flex items-center gap-2">
+                <span
+                  data-testid="remaining-amount"
+                  className={`flex items-center gap-1 font-mono font-bold ${payoutKeepActive ? "text-emerald-400" : "text-red-400"}`}
+                >
+                  {renderDualAmount(effectiveTotalInTarget - totalPaid)}
+                </span>
+                {showWaiveButton && waiveButton}
               </span>
-              {showWaiveButton && waiveButton}
-            </span>
+            )}
           </div>
-        )}
-        {/* Payout mode: the automatically kept leftover, in words (owner
-            decision 2026-10-06 — no button; the note says what happens). */}
-        {payoutKeepActive && (
-          <p
-            data-testid="keep-change-summary"
-            className="text-[11px] text-emerald-400 px-2"
-          >
-            Keeping {dualAmountText(remainingShortfall)} as profit.
-          </p>
         )}
         {/* LIRA-313 — payout above the total becomes the other side's debt. */}
         {isPayout &&
@@ -2811,162 +2823,168 @@ export default function MultiPaymentInput({
             </p>
           )}
 
-        {/* Return / Change (overpaid) — choose how to hand the change back */}
+        {/* Return / Change (overpaid). One compact box on every page (owner
+            2026-10-13), three rows:
+              1. label + change due + "hand back by" (Cash or a wallet);
+              2. CASH: $ and LBP fields with one-tap $ / LBP / Account (or
+                 Keep) buttons on the same line;
+              3. one line saying where the change NOT handed back goes.
+            Customer Account is no longer a return METHOD: the Account button
+            (and any change left in the fields) does that job, so the same
+            choice is never offered twice. */}
         {isOverpaid && (
           <div
             data-testid="return-change"
             className="px-2 py-2 rounded-md bg-amber-500/10 border border-amber-500/20 space-y-1.5"
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-amber-400 font-medium whitespace-nowrap">
-                {isFullKeepChange
-                  ? isShopPayer
-                    ? "Change not returned (cost)"
-                    : // Both fields cleared → the whole change is kept. Same
-                      // copy as the pre-LIRA-084 all-or-nothing keep (lira-107's
-                      // debt-repayment e2e asserts this exact label).
-                      "Change kept (profit)"
-                  : isShopPayer
-                    ? "Change to get back"
-                    : isCashOnlyPayment
-                      ? "Change to return"
-                      : "Return / Change"}
+              <span className="flex items-center gap-1.5 min-w-0 flex-wrap text-xs text-amber-400 font-medium">
+                <span className="whitespace-nowrap">
+                  {isFullKeepChange
+                    ? isShopPayer
+                      ? "Change not returned (cost)"
+                      : // Both fields cleared → the whole change is kept. Same
+                        // copy as the pre-LIRA-084 all-or-nothing keep
+                        // (lira-107's debt-repayment e2e asserts this label).
+                        "Change kept (profit)"
+                    : isShopPayer
+                      ? "Change to get back"
+                      : isCashOnlyPayment
+                        ? "Change to return"
+                        : "Return / Change"}
+                </span>
+                {/* LIRA-264 — the change due, always in both currencies. */}
+                <span
+                  data-testid="change-due"
+                  className="flex items-center gap-1 font-mono font-semibold text-amber-300 text-[11px]"
+                >
+                  <span className="sr-only">Change due</span>
+                  {renderDualAmount(overpaidTarget)}
+                </span>
               </span>
-              <div className="flex items-center gap-1.5">
-                {/* No "Keep change" button (owner decision 2026-10-06): an
-                    under-return is kept automatically — see `underReturnKept`.
-                    CASH-only: a non-CASH return method (OMT,
-                    CUSTOMER_ACCOUNT, …) posts its full leg to that
-                    method/account, so there is nothing to keep there. */}
-                {/* Method selector — only when non-cash methods are available */}
-                {!isCashOnlyPayment && (
-                  <select
-                    data-testid="return-method"
-                    value={returnMethod}
-                    onChange={(e) => setReturnMethod(e.target.value)}
-                    className="bg-slate-900 border border-amber-700/40 rounded-md px-1.5 py-0.5 text-amber-200 text-[11px] focus:outline-none focus:border-amber-500"
-                  >
-                    {paymentMethods.map((pm) => (
-                      <option key={pm.code} value={pm.code}>
-                        {pm.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+              {/* Hand back by — only when a non-cash drawer method exists. */}
+              {!isCashOnlyPayment && (
+                <select
+                  data-testid="return-method"
+                  aria-label="Hand back by"
+                  value={effectiveReturnMethod}
+                  onChange={(e) => setReturnMethod(e.target.value)}
+                  className="shrink-0 bg-slate-900 border border-amber-700/40 rounded-md px-1.5 py-0.5 text-amber-200 text-[11px] focus:outline-none focus:border-amber-500"
+                >
+                  {returnMethodOptions.map((pm) => (
+                    <option key={pm.code} value={pm.code}>
+                      {pm.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
-            {/* LIRA-264 — the change due, always in both currencies. */}
-            <div
-              data-testid="change-due"
-              className="flex items-center justify-between gap-2 text-[11px]"
-            >
-              <span className="text-amber-400/80">Change due</span>
-              <span className="flex items-center gap-1 font-mono font-semibold text-amber-300">
-                {renderDualAmount(overpaidTarget)}
-              </span>
-            </div>
-
-            {/* LIRA-313 (owner decisions 2026-10-12) — the change either goes
-                back, or stays on the account. "Return change" is the
-                default; a partial return sends the rest to the account. */}
-            {creditUnreturned && effectiveReturnMethod === "CASH" && (
-              <div
-                data-testid="change-destination"
-                className="flex gap-1.5"
-                role="group"
-                aria-label="What happens to the change"
-              >
-                <button
-                  type="button"
-                  data-testid="change-destination-return"
-                  aria-pressed={!changeToAccount}
-                  onClick={handleReturnChange}
-                  className={`flex-1 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
-                    !changeToAccount
-                      ? "bg-amber-500/30 border-amber-400 text-amber-100"
-                      : "bg-slate-900 border-amber-700/40 text-amber-300 hover:border-amber-500"
-                  }`}
-                >
-                  {isShopPayer ? "Get change back" : "Return change"}
-                </button>
-                <button
-                  type="button"
-                  data-testid="change-destination-account"
-                  aria-pressed={changeToAccount}
-                  onClick={handleChangeToAccount}
-                  className={`flex-1 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
-                    changeToAccount
-                      ? "bg-emerald-500/30 border-emerald-400 text-emerald-100"
-                      : "bg-slate-900 border-amber-700/40 text-amber-300 hover:border-amber-500"
-                  }`}
-                >
-                  To account
-                </button>
-              </div>
-            )}
-
-            {/* CASH: dual USD + LBP editable fields */}
-            {effectiveReturnMethod === "CASH" &&
-            !(creditUnreturned && changeToAccount) ? (
-              <div className="flex gap-2">
+            {/* CASH: $ + LBP fields and the one-tap buttons on one line. */}
+            {effectiveReturnMethod === "CASH" && (
+              <div className="flex items-center gap-1.5 flex-wrap">
                 {allowReturnUSD && (
-                  <div className="flex-1">
-                    <div className="relative">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
-                        $
-                      </span>
-                      <input
-                        data-testid="return-usd"
-                        type="text"
-                        inputMode="decimal"
-                        value={returnAmountUSD}
-                        onChange={(e) => handleReturnUSDChange(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
-                    {/* LIRA-264 — "All in $" / "All in LBP" autofill. */}
-                    <button
-                      type="button"
-                      data-testid="return-all-usd"
-                      onClick={handleReturnAllUSD}
-                      title="Give the whole change in dollars"
-                      className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
-                    >
-                      All in $
-                    </button>
+                  <div className="relative flex-1 min-w-[5.5rem]">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                      $
+                    </span>
+                    <input
+                      data-testid="return-usd"
+                      type="text"
+                      inputMode="decimal"
+                      aria-label="Change handed back in dollars"
+                      value={returnAmountUSD}
+                      onChange={(e) => {
+                        setChangeToAccount(false);
+                        handleReturnUSDChange(e.target.value);
+                      }}
+                      placeholder="0.00"
+                      className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                    />
                   </div>
                 )}
                 {allowReturnLBP && (
-                  <div className="flex-1">
-                    <div className="relative">
-                      <input
-                        data-testid="return-lbp"
-                        type="text"
-                        inputMode="numeric"
-                        value={returnAmountLBP}
-                        onChange={(e) => handleReturnLBPChange(e.target.value)}
-                        placeholder="0"
-                        className="w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
-                      />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
-                        LBP
-                      </span>
-                    </div>
+                  <div className="relative flex-1 min-w-[5.5rem]">
+                    <input
+                      data-testid="return-lbp"
+                      type="text"
+                      inputMode="numeric"
+                      aria-label="Change handed back in LBP"
+                      value={returnAmountLBP}
+                      onChange={(e) => {
+                        setChangeToAccount(false);
+                        handleReturnLBPChange(e.target.value);
+                      }}
+                      placeholder="0"
+                      className="w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                      LBP
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* LIRA-264 — hand the whole change back in one currency. */}
+                  {allowReturnUSD && (
+                    <button
+                      type="button"
+                      data-testid="return-all-usd"
+                      onClick={() => {
+                        setChangeToAccount(false);
+                        handleReturnAllUSD();
+                      }}
+                      title="Hand back the whole change in dollars"
+                      className="px-2 py-1 rounded-md text-[11px] font-semibold text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
+                    >
+                      $
+                    </button>
+                  )}
+                  {allowReturnLBP && (
                     <button
                       type="button"
                       data-testid="return-all-lbp"
-                      onClick={handleReturnAllLBP}
-                      title="Give the whole change in LBP"
-                      className="mt-1 w-full py-0.5 rounded-md text-[10px] font-medium text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
+                      onClick={() => {
+                        setChangeToAccount(false);
+                        handleReturnAllLBP();
+                      }}
+                      title="Hand back the whole change in LBP"
+                      className="px-2 py-1 rounded-md text-[11px] font-semibold text-amber-300 bg-slate-900 border border-amber-700/40 hover:border-amber-500 transition-colors"
                     >
-                      All in LBP
+                      LBP
                     </button>
-                  </div>
-                )}
+                  )}
+                  {/* LIRA-313 — nothing handed back: the whole change goes to
+                      the account. Without an account, the same tap keeps it
+                      (as profit, or as cost when the shop pays). */}
+                  {(creditUnreturned || canKeepUnreturned) && (
+                    <button
+                      type="button"
+                      data-testid={
+                        creditUnreturned
+                          ? "change-destination-account"
+                          : "change-keep-all"
+                      }
+                      aria-pressed={creditUnreturned && changeToAccount}
+                      onClick={handleChangeToAccount}
+                      title={
+                        creditUnreturned
+                          ? `Put the whole change on ${accountLabel ?? (unreturnedChangeTo === "ACCOUNT_BALANCE" ? "their account" : "the customer's account")}`
+                          : "Hand nothing back"
+                      }
+                      className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
+                        creditUnreturned
+                          ? changeToAccount
+                            ? "bg-emerald-500/30 border-emerald-400 text-emerald-100"
+                            : "bg-slate-900 border-emerald-700/50 text-emerald-300 hover:border-emerald-500"
+                          : "bg-slate-900 border-amber-700/40 text-amber-300 hover:border-amber-500"
+                      }`}
+                    >
+                      {creditUnreturned ? "Account" : "Keep"}
+                    </button>
+                  )}
+                </div>
               </div>
-            ) : null}
+            )}
 
             {/* Owner decision 2026-10-06 — whenever the change handed back
                 is less than the change due, say in green what is kept as
@@ -3059,19 +3077,19 @@ export default function MultiPaymentInput({
           </div>
         )}
 
-        {/* PM Fees & Grand Total */}
+        {/* PM fees: one Grand Total row that names the fee (owner
+            2026-10-13 — a separate "Wallet Surcharge" row was a third total). */}
         {showPmFee && totalPmFees > 0 && (
-          <div className="pt-1.5 mt-1 border-t border-violet-700/30 space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-violet-400">Wallet Surcharge</span>
-              <span className="font-mono text-violet-300">
-                +{fmtTarget(toDisplayCurrency(totalPmFees))}
-              </span>
-            </div>
-            <div className="flex justify-between text-sm">
+          <div className="pt-1.5 mt-1 border-t border-violet-700/30">
+            <div className="flex justify-between items-baseline gap-2 text-sm">
               <span className="text-white font-semibold">Grand Total</span>
-              <span className="font-mono text-white font-bold">
-                {fmtTarget(toDisplayCurrency(totalPaid + totalPmFees))}
+              <span className="flex items-baseline gap-1.5">
+                <span className="font-mono text-white font-bold">
+                  {fmtTarget(toDisplayCurrency(totalPaid + totalPmFees))}
+                </span>
+                <span className="text-[11px] text-violet-300">
+                  incl. {fmtTarget(toDisplayCurrency(totalPmFees))} wallet fee
+                </span>
               </span>
             </div>
           </div>

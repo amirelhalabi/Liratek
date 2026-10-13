@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   MultiPaymentInput,
   type Money,
+  type MultiPaymentInputProps,
   type MultiPaymentPayer,
   type PaymentLine,
   type VoucherOption,
@@ -74,6 +75,13 @@ export interface PaymentSheetProps {
    *  "customer" | "payout" | "shop" — see MultiPaymentPayer). Wins over
    *  `direction` when both are passed. */
   payer?: MultiPaymentPayer;
+  /** Pass-through to MultiPaymentInput's `unreturnedChangeTo`: change the
+   *  cashier does not hand back goes to the customer's account (one more
+   *  OUT CUSTOMER_ACCOUNT leg, via `onReturnChange`). Active only with
+   *  `hasClient` on a customer-pays sheet — pass it only where the save
+   *  resolves a real client and books that leg as credit. Never on a
+   *  payout / RECEIVE / buy-back sheet. */
+  unreturnedChangeTo?: MultiPaymentInputProps["unreturnedChangeTo"];
   onDiscountChange?: (discount: number) => void;
   /** LIRA-310 — pass-through to MultiPaymentInput's Waive. Leave unset on
    *  the recharge forms: with `showDiscount` + `maxDiscount` +
@@ -146,6 +154,7 @@ export function PaymentSheet({
   onKeptChange,
   direction,
   payer,
+  unreturnedChangeTo,
   onDiscountChange,
   onWaiveRemaining,
   waiveRemainingThreshold,
@@ -280,6 +289,7 @@ export function PaymentSheet({
               {...(onKeptChange ? { onKeptChange } : {})}
               {...(direction ? { direction } : {})}
               {...(payer ? { payer } : {})}
+              {...(unreturnedChangeTo ? { unreturnedChangeTo } : {})}
               requiresClientForDebt={requiresClientForDebt}
               hasClient={hasClient}
               autoDebtRemainder={autoDebtRemainder}
