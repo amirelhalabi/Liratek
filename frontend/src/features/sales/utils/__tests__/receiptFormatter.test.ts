@@ -1,6 +1,7 @@
 import {
   formatReceipt58mm,
   formatReceipt80mm,
+  getReceiptJSON,
   type ReceiptData,
 } from "../receiptFormatter";
 import { addMonthsIso } from "../dateMath";
@@ -283,5 +284,57 @@ describe("LIRA-296 P3 — the serial line uses the category's label", () => {
     void _omit;
     const old: ReceiptData = { ...base, items: [withoutLabel] };
     expect(formatReceipt58mm(old)).toContain("IMEI: SN-001");
+  });
+});
+
+/**
+ * LIRA-319 (owner 2026-10-13): an extra charge prints as its own
+ * "Extra +$X" line after the discount slot; the total includes it.
+ * Not proven failing-first (new field).
+ */
+describe("Receipt Formatter — extra charge (LIRA-319)", () => {
+  const sale: ReceiptData = {
+    shop_name: "Test Shop",
+    receipt_number: "RCP-7",
+    items: [{ name: "Cable", quantity: 1, price: 6, subtotal: 6 }],
+    subtotal: 6,
+    discount: 0,
+    extra: 1,
+    total: 7,
+    payment_usd: 7,
+    payment_lbp: 0,
+    change_usd: 0,
+    change_lbp: 0,
+    exchange_rate: 89500,
+    timestamp: "2026-10-13T10:00:00Z",
+    operator: "Staff",
+  };
+
+  it("58mm: Subtotal $6.00, Extra +$1.00, TOTAL $7.00 — no Discount line", () => {
+    const r = formatReceipt58mm(sale);
+    expect(r).toMatch(/Subtotal:\s+\$6\.00/);
+    expect(r).toMatch(/Extra:\s+\+\$1\.00/);
+    expect(r).toMatch(/TOTAL:\s+\$7\.00/);
+    expect(r).not.toContain("Discount:");
+    expect(r.indexOf("Extra:")).toBeLessThan(r.indexOf("TOTAL:"));
+  });
+
+  it("80mm: Extra +$1.00 between Subtotal and TOTAL DUE", () => {
+    const r = formatReceipt80mm(sale);
+    expect(r).toMatch(/Extra:\s+\+\$1\.00/);
+    expect(r.indexOf("Subtotal:")).toBeLessThan(r.indexOf("Extra:"));
+    expect(r.indexOf("Extra:")).toBeLessThan(r.indexOf("TOTAL DUE:"));
+  });
+
+  it("JSON summary carries the extra", () => {
+    const j = getReceiptJSON(sale) as { summary: { extra: number } };
+    expect(j.summary.extra).toBe(1);
+  });
+
+  it("no extra (omitted or 0) prints no Extra line", () => {
+    const { extra: _omit, ...without } = sale;
+    void _omit;
+    expect(formatReceipt58mm({ ...without, total: 6 })).not.toContain("Extra:");
+    expect(formatReceipt80mm({ ...sale, extra: 0 })).not.toContain("Extra:");
   });
 });

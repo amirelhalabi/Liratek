@@ -62,6 +62,8 @@ export const TRANSACTION_CASH_DIRECTION: Record<
   KEPT_CHANGE: null,
   // LIRA-310: profit-only, no money moves (the KEPT_CHANGE mirror).
   WAIVED_SHORTFALL: null,
+  // LIRA-319: profit-only basket row; the basket's legs carry the money.
+  EXTRA_CHARGE: null,
   WARRANTY_COST: null,
   SUPPLIER_PAYMENT: "dynamic",
   SUPPLIER_SETTLEMENT: "dynamic",

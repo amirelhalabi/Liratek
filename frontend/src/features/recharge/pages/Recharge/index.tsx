@@ -192,6 +192,11 @@ export default function MobileRecharge() {
   // re-checking the margin cap. The sheet re-emits 0 whenever it remounts or
   // its cap drops to 0 (form cleared), so this never outlives its sale.
   const [telecomDiscount, setTelecomDiscount] = useState(0);
+  // LIRA-319: the payment sheet's "+ Extra" (LBP — telecom sales are LBP),
+  // sent as its own `extra_lbp` with `price` unchanged. The sheet reports 0
+  // in discount mode and whenever it remounts, so this never outlives its
+  // sale; it is never sent on a buy-back or a session-basket item.
+  const [telecomExtra, setTelecomExtra] = useState(0);
 
   // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7) — single source of truth for
   // "is the typed phone number this carrier's own shop line", fetched ONCE
@@ -366,6 +371,10 @@ export default function MobileRecharge() {
   // shop's fee (the customer receives more): booked as `commission = fee −
   // discount` via cryptoAmounts — the helper CryptoForm sized the sheet with.
   const [cryptoDiscount, setCryptoDiscount] = useState(0);
+  // LIRA-319: the crypto sheet's "+ Extra" (USD — the Binance cash side),
+  // SEND only, outside a session. Sent as its own field; `checkoutTotal`
+  // and `commission` stay as without it.
+  const [cryptoExtra, setCryptoExtra] = useState(0);
   // Payment-Legs Integrity: the rate the crypto PaymentSheet is ACTUALLY
   // converting tender at (seeded buy rate, or the operator's edit of the
   // sheet's header field) — sent as tender_exchange_rate so the backend's
@@ -808,6 +817,9 @@ export default function MobileRecharge() {
     const discount = isBuyback ? 0 : telecomDiscount;
     const discountField = discount > 0 ? { discount } : {};
     const chargedPrice = price - discount;
+    // LIRA-319: a buy-back is a payout — never an extra.
+    const extra = isBuyback ? 0 : telecomExtra;
+    const extraField = extra > 0 ? { extra_lbp: extra } : {};
 
     const clientResult = await ensureRechargeClient({
       clientId: telecomClientId,
@@ -896,6 +908,7 @@ export default function MobileRecharge() {
         cost,
         price,
         ...discountField,
+        ...extraField,
         default_price_to_client: defaultPriceToClient,
         currency: "LBP",
         // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: derive from the pay sheet's
@@ -985,6 +998,7 @@ export default function MobileRecharge() {
       setReturnLegs([]);
       setKeptChange(null);
       setTelecomTransactionTime(undefined);
+      setTelecomExtra(0);
       loadFinancialData();
       loadDrawerBalances();
       // LIRA-250: `loadFinancialData` above reads the OMT/Whish/Binance
@@ -1035,6 +1049,7 @@ export default function MobileRecharge() {
     loadRechargeHistory,
     loadRechargeTodayStats,
     telecomDiscount,
+    telecomExtra,
   ]);
 
   const handleTopUpClick = useCallback(async () => {
@@ -1272,6 +1287,7 @@ export default function MobileRecharge() {
     setReturnLegs([]);
     setKeptChange(null);
     setTelecomTransactionTime(undefined);
+    setTelecomExtra(0);
   }, []);
 
   const handleAlfaGiftSubmit = useCallback(async () => {
@@ -1290,6 +1306,8 @@ export default function MobileRecharge() {
     const discountField =
       telecomDiscount > 0 ? { discount: telecomDiscount } : {};
     const chargedPrice = price - telecomDiscount;
+    // LIRA-319: same extra contract as handleTelecomSubmit (sale only).
+    const extraField = telecomExtra > 0 ? { extra_lbp: telecomExtra } : {};
 
     const clientResult = await ensureRechargeClient({
       clientId: telecomClientId,
@@ -1341,6 +1359,7 @@ export default function MobileRecharge() {
         cost,
         price,
         ...discountField,
+        ...extraField,
         currency: "LBP",
         // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: see handleTelecomSubmit's
         // identical comment above — derive from the sheet's legs, not the
@@ -1435,6 +1454,7 @@ export default function MobileRecharge() {
     exchangeRate,
     loadRechargeHistory,
     telecomDiscount,
+    telecomExtra,
     loadRechargeTodayStats,
   ]);
 
@@ -1543,6 +1563,7 @@ export default function MobileRecharge() {
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
       setCryptoDiscount(0);
+      setCryptoExtra(0);
       return;
     }
 
@@ -1580,6 +1601,10 @@ export default function MobileRecharge() {
         // Binance cash side is always dollars.
         ...(cryptoType === "SEND" && useCryptoStructuredPayments
           ? { checkoutTotal: { usd: sendCustomerPays, lbp: 0 } }
+          : {}),
+        // LIRA-319: the extra on a crypto SEND (never a cash-out).
+        ...(cryptoType === "SEND" && cryptoExtra > 0
+          ? { extra_usd: cryptoExtra }
           : {}),
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
           ? { cashoutMethod: derivedCashoutMethod }
@@ -1656,6 +1681,7 @@ export default function MobileRecharge() {
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
       setCryptoDiscount(0);
+      setCryptoExtra(0);
       setCryptoTransactionTime(undefined);
       loadBinanceData();
       loadDrawerBalances();
@@ -1684,6 +1710,7 @@ export default function MobileRecharge() {
     cryptoReturnLegs,
     cryptoKeptChange,
     cryptoDiscount,
+    cryptoExtra,
     cryptoPaidBy,
     cryptoTenderRate,
     exchangeRate,
@@ -1990,6 +2017,7 @@ export default function MobileRecharge() {
             }
             onEffectiveRateChange={setTelecomTenderRate}
             onDiscountChange={setTelecomDiscount}
+            onExtraChange={setTelecomExtra}
             giftTierKey={giftTierKey}
             setGiftTierKey={setGiftTierKey}
             giftAmountUsd={giftAmountUsd}
@@ -2210,6 +2238,7 @@ export default function MobileRecharge() {
             }}
             onReturnChange={setCryptoReturnLegs}
             onDiscountChange={setCryptoDiscount}
+            onExtraChange={setCryptoExtra}
             exchangeRate={exchangeRate}
             onExchangeRateChange={setCryptoTenderRate}
             onTransactionTimeChange={setCryptoTransactionTime}

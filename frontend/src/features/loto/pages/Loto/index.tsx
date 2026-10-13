@@ -73,6 +73,11 @@ export function LotoPage() {
   // LIRA-310: the payment input's Discount (and its Waive), in LBP — booked
   // and sent as `discount_lbp`; lowers the shop's commission profit only.
   const [discount, setDiscount] = useState(0);
+  // LIRA-319: the payment input's "+ Extra" (its other side), in LBP — the
+  // ticket's currency. Sent as `extra_lbp`; raises what the customer pays,
+  // never the commission or what LOTO is owed. Not offered in a session
+  // basket (the basket checkout owns it) or on a partner ticket.
+  const [extra, setExtra] = useState(0);
   const [clientId, setClientId] = useState<number | null>(null);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
@@ -131,6 +136,7 @@ export function LotoPage() {
     ? (parseFloat(saleAmount) || 0) * commissionRate
     : 0;
   const discountLbp = Math.round(discount);
+  const extraLbp = Math.round(extra);
 
   useEffect(() => {
     loadSettings();
@@ -358,6 +364,11 @@ export function LotoPage() {
       ...(!forPartner && !activeSession && discountLbp > 0
         ? { discount_lbp: discountLbp }
         : {}),
+      // LIRA-319: the extra, whole LBP. Same exclusions as the discount —
+      // the server refuses it on a partner or session-basket ticket.
+      ...(!forPartner && !activeSession && extraLbp > 0
+        ? { extra_lbp: extraLbp }
+        : {}),
       clientId: resolvedClientId,
       clientName: resolvedClientName,
       // PFT-R: routes the FULL sale amount to the selected partner's ledger
@@ -388,6 +399,7 @@ export function LotoPage() {
       setReturnLegs([]);
       setKeptChange(null);
       setDiscount(0);
+      setExtra(0);
       setClientId(null);
       setClientName("");
       setClientPhone("");
@@ -421,6 +433,7 @@ export function LotoPage() {
         setPaymentLines([]);
         setReturnLegs([]);
         setDiscount(0);
+        setExtra(0);
         setClientId(null);
         setClientName("");
         setClientPhone("");
@@ -697,6 +710,17 @@ export function LotoPage() {
                       showDiscount={!activeSession}
                       onDiscountChange={setDiscount}
                       maxDiscount={ticketCommission}
+                      // LIRA-319: "+ Extra" on the same line, capped at the
+                      // ticket itself; the payment line follows the new
+                      // total. Not in a session basket (FR-010).
+                      {...(!activeSession
+                        ? {
+                            onExtraChange: setExtra,
+                            maxExtra: saleAmount
+                              ? parseFloat(saleAmount) || 0
+                              : 0,
+                          }
+                        : {})}
                       showPmFee={false}
                       paymentMethods={methods}
                       currencies={[

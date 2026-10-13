@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extraChargeFields } from "./common.js";
 
 /**
  * Session checkout contract — the ONE basket payment envelope, shared by the
@@ -63,6 +64,11 @@ export const sessionCheckoutSchema = z
     // WAIVED_SHORTFALL profit-only sibling row (−waived).
     waived_usd: z.number().min(0).optional(),
     waived_lbp: z.number().min(0).optional(),
+    // LIRA-319: the ONE extra for the whole basket, in the basket's currency
+    // (owner decision: set at the session checkout, never on a basket item).
+    // Verified server-side against the basket's own charge and booked as an
+    // EXTRA_CHARGE row linked to the session (SessionCheckoutService).
+    ...extraChargeFields,
     userId: z.number().int(),
   })
   .passthrough();

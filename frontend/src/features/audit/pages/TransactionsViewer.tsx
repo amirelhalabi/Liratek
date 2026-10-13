@@ -67,6 +67,7 @@ import {
 import { ReceiptPreviewModal } from "@/shared/components/ReceiptPreviewModal";
 import { RefundMethodModal } from "../components/RefundMethodModal";
 import {
+  extraChargeText,
   isSwapTransactionType,
   REFUND_KEPT_CHANGE_TYPES,
   type RefundKeptChangeInput,
@@ -743,7 +744,18 @@ export default function TransactionsViewer({
     const modeLine = commissionAmount
       ? billsCommissionModeLine(row, commissionAmount, methodLabelByCode)
       : null;
-    if (legs.length === 0 && pooledLegs.length === 0 && !modeLine) {
+    // LIRA-319: the extra the customer was charged on top of the price.
+    // Originals only: a void/refund never repeats the sale's extra.
+    const extraText =
+      row.reverses_id == null && row.type !== "REFUND"
+        ? extraChargeText(row)
+        : null;
+    if (
+      legs.length === 0 &&
+      pooledLegs.length === 0 &&
+      !modeLine &&
+      !extraText
+    ) {
       return null;
     }
     return (
@@ -758,6 +770,14 @@ export default function TransactionsViewer({
           <div className="flex flex-col gap-0.5">
             {modeLine && (
               <div data-testid={`commission-mode-${row.id}`}>{modeLine}</div>
+            )}
+            {extraText && (
+              <div
+                data-testid={`extra-charge-${row.id}`}
+                className="text-amber-400/80"
+              >
+                Extra charged: {extraText}
+              </div>
             )}
             {buildPaymentDetailLines(
               legs.map((leg) => ({

@@ -66,7 +66,8 @@ export type ProfitRowClass =
   (typeof PROFIT_ROW_CLASS)[keyof typeof PROFIT_ROW_CLASS];
 
 /** `ProfitByModule.module` values that carry a profit stamp but NO
- *  revenue/cost pair at all (always 0/0) — see this file's own doc comment. */
+ *  revenue/cost pair at all (always 0/0) — see this file's own doc comment.
+ *  One exception: EXTRA_CHARGE (LIRA-319) has revenue = profit, cost 0. */
 const PROFIT_ONLY_MODULES: ReadonlySet<string> = new Set([
   "KEPT_CHANGE",
   "COUNTERPARTY_DISCOUNT",
@@ -78,6 +79,10 @@ const PROFIT_ONLY_MODULES: ReadonlySet<string> = new Set([
   "WARRANTY",
   // LIRA-310 follow-up — a basket Waive's own "Waived" line.
   "WAIVED",
+  // LIRA-319 — the "Extra charges" line. Its revenue equals its profit
+  // (the extra is takings with no cost), so the equation would only repeat
+  // the one figure; it renders as a single profit amount like the rows above.
+  "EXTRA_CHARGE",
 ]);
 
 /** `ProfitByModule.module` EXACT values whose revenue is a pass-through

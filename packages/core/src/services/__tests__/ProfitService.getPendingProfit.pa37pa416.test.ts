@@ -74,7 +74,7 @@ function createSchema(d: TestDb): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER DEFAULT 1, type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ACTIVE', source_table TEXT NOT NULL, source_id INTEGER NOT NULL,
       client_id INTEGER, client_name TEXT, client_phone TEXT,
-      profit_usd REAL DEFAULT 0, profit_lbp REAL DEFAULT 0, created_at TEXT, reverses_id INTEGER /* LIRA-258 / G17 */
+      profit_usd REAL DEFAULT 0, profit_lbp REAL DEFAULT 0, extra_usd REAL NOT NULL DEFAULT 0, extra_lbp REAL NOT NULL DEFAULT 0, created_at TEXT, reverses_id INTEGER /* LIRA-258 / G17 */
     );
     CREATE TABLE clients (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER DEFAULT 1, full_name TEXT, phone_number TEXT);
     CREATE TABLE partner_ledger (

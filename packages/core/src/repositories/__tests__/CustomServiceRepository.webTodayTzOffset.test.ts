@@ -88,7 +88,9 @@ function createSchema(d: Database.Database): void {
       source_id INTEGER,
       reverses_id INTEGER,
       profit_usd REAL DEFAULT 0,
-      profit_lbp REAL DEFAULT 0
+      profit_lbp REAL DEFAULT 0,
+      extra_usd REAL NOT NULL DEFAULT 0,
+      extra_lbp REAL NOT NULL DEFAULT 0
     );
     CREATE TABLE partner_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT, /* LIRA-305: read by the partner-netting fragments; production always has it */ partner_id INTEGER, tenant_id INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP,

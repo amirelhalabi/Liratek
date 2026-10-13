@@ -39,6 +39,8 @@ export const NON_REVERSIBLE_REASONS: Readonly<Record<string, string>> = {
     "Correct this from the Debts page with the opposite manual entry (Add Credit cancels Add Debt) — that corrects both the drawer and the client's balance.",
   KEPT_CHANGE:
     "Nothing to reverse on this row by itself — the kept change stays in the drawer either way. Void or refund the sale this change belongs to instead.",
+  EXTRA_CHARGE:
+    "Nothing to reverse on this row by itself — it only records the extra charged at checkout. Void or refund the customer's basket instead; that removes it too.",
   WAIVED_SHORTFALL:
     "Nothing to reverse on this row by itself — it only records the amount waived at checkout. Void or refund the customer's basket instead; that removes it too.",
   WARRANTY_COST:

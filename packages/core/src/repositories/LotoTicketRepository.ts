@@ -35,6 +35,13 @@ import {
 import { resolveKeptChange } from "./keptChange.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
+import {
+  DISCOUNT_AND_EXTRA_MESSAGE,
+  EXTRA_ABOVE_TOTAL_MESSAGE,
+  EXTRA_ON_SESSION_ITEM_MESSAGE,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+} from "../validators/common.js";
+import { LOTO_EXTRA_LBP_ONLY_MESSAGE } from "../validators/loto.js";
 
 function fmtPaymentMethod(method: string): string {
   return method.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -176,6 +183,14 @@ export interface LotoTicketCreate {
    *  unchanged. Refused on a deferred (session-cart) or partner ticket. */
   discount_usd?: number;
   discount_lbp?: number;
+  /** LIRA-319: the extra the cashier added on top of the ticket, in LBP
+   *  (the ticket's currency). The customer owes and pays `sale_amount +
+   *  extra_lbp`; the LOTO row's amount includes it, its profit stamp never
+   *  does (reported from `extra_lbp`), and LOTO is owed exactly what it is
+   *  owed without it. Refused with a discount, on a deferred (session-cart)
+   *  or partner ticket, in USD, or above the ticket itself. */
+  extra_usd?: number;
+  extra_lbp?: number;
   clientId?: number | null;
   clientName?: string | null;
   /**
@@ -294,6 +309,35 @@ export class LotoTicketRepository {
           );
         }
       }
+      // LIRA-319: the extra — refused here, server-side, whatever the caller
+      // (the schema refuses the same on both transports; the session
+      // checkout calls this method without it). Before any write.
+      const extraUsd = data.extra_usd ?? 0;
+      const extraLbp = data.extra_lbp ?? 0;
+      if (extraUsd < 0 || extraLbp < 0) {
+        throw new Error("The extra can't be negative.");
+      }
+      if (extraUsd > 0 || extraLbp > 0) {
+        if (data.deferPayment) {
+          throw new Error(EXTRA_ON_SESSION_ITEM_MESSAGE);
+        }
+        if (data.partnerMode === "FOR") {
+          throw new Error(NO_EXTRA_FOR_PARTNER_MESSAGE);
+        }
+        if (claimsDiscount) {
+          throw new Error(DISCOUNT_AND_EXTRA_MESSAGE);
+        }
+        if (extraUsd > 0 || ticketCurrency !== "LBP") {
+          throw new Error(LOTO_EXTRA_LBP_ONLY_MESSAGE);
+        }
+        if (extraLbp > data.sale_amount + 1e-9) {
+          throw new Error(EXTRA_ABOVE_TOTAL_MESSAGE);
+        }
+      }
+      // What the customer owes: the face value plus the extra. The legs,
+      // kept change and any on-account debt reconcile against THIS; the
+      // LOTO supplier and the commission stay on the face value.
+      const amountDueLbp = data.sale_amount + extraLbp;
       // Verified kept change / discount (filled in step 0 below).
       let keptUsd = 0;
       let keptLbp = 0;
@@ -338,7 +382,7 @@ export class LotoTicketRepository {
         const resolved = resolveKeptChange({
           payer: "customer",
           context: "Loto ticket",
-          expected: expectedTotalIn(data.sale_amount, ticketCurrency),
+          expected: expectedTotalIn(amountDueLbp, ticketCurrency),
           inLegs,
           outLegs,
           claimedKept: { usd: data.kept_change_usd, lbp: data.kept_change_lbp },
@@ -432,7 +476,11 @@ export class LotoTicketRepository {
         source_id: ticketId,
         user_id: data.userId,
         amount_usd: 0, // Loto is LBP only for now
-        amount_lbp: data.sale_amount,
+        // LIRA-319: includes the extra (what the customer owes); the profit
+        // stamp below never does — the extra is reported from extra_lbp.
+        amount_lbp: amountDueLbp,
+        extra_usd: 0,
+        extra_lbp: extraLbp,
         // Commission plus kept change (T3 KC-3, tender-native per currency),
         // minus the verified discount (LIRA-310 — profit only).
         profit_usd: keptUsd - verifiedDiscountUsd,
@@ -591,7 +639,7 @@ export class LotoTicketRepository {
       ) {
         // Legacy single-payment on account: the full ticket value is debt.
         if ((data.currency || "LBP") === "USD") debtUsd += data.sale_amount;
-        else debtLbp += data.sale_amount;
+        else debtLbp += amountDueLbp;
       } else if (
         !data.deferPayment &&
         !isForPartner &&
@@ -608,7 +656,7 @@ export class LotoTicketRepository {
           paymentMethod,
           drawerName,
           currency,
-          data.sale_amount,
+          amountDueLbp,
           data.note || txnSummary,
           data.userId,
         );
@@ -617,7 +665,7 @@ export class LotoTicketRepository {
         applyDrawerDelta(this.db, {
           drawerName,
           currencyCode: currency,
-          delta: data.sale_amount,
+          delta: amountDueLbp,
           tenantId,
         });
       }

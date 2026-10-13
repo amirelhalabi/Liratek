@@ -354,6 +354,11 @@ interface ProfitSummary {
    *  financial-service commission row's own off-currency kept change is not
    *  included here yet. Optional so an older cached payload doesn't crash. */
   kept_change?: { usd: number; lbp: number };
+  /** LIRA-319 — the "Extra charges" line: what cashiers added on top of a
+   *  price (net of refunded shares, voids dropped), per currency. ALREADY
+   *  folded into `totals` (gross revenue and gross profit) server-side —
+   *  visibility only. Optional so an older cached payload doesn't crash. */
+  extra_charges?: { usd: number; lbp: number };
   totals: {
     gross_revenue_usd: number;
     gross_revenue_lbp: number;
@@ -2365,6 +2370,53 @@ export default function Profits() {
                             className={`font-semibold ${profitClass(summary.waived.profit_lbp)}`}
                           >
                             {formatAmount(summary.waived.profit_lbp, "LBP")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+              {/* LIRA-319 (owner 2026-10-13) — Extra charges: what cashiers
+                  added on top of a price ("+ Extra" on the payment box's
+                  Discount line). Its own line, never inside any module's
+                  profit; already inside the totals — visibility only. */}
+              {summary.extra_charges &&
+                (summary.extra_charges.usd !== 0 ||
+                  summary.extra_charges.lbp !== 0) && (
+                  <div
+                    data-testid="overview-extra-charges-card"
+                    className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">
+                        Extra charges
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      {summary.extra_charges.usd !== 0 && (
+                        <div
+                          className="flex justify-between"
+                          data-testid="extra-charges-usd"
+                        >
+                          <span className="font-semibold">USD</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.extra_charges.usd)}`}
+                          >
+                            {formatAmount(summary.extra_charges.usd, "USD")}
+                          </span>
+                        </div>
+                      )}
+                      {summary.extra_charges.lbp !== 0 && (
+                        <div
+                          className="flex justify-between"
+                          data-testid="extra-charges-lbp"
+                        >
+                          <span className="font-semibold">LBP</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.extra_charges.lbp)}`}
+                          >
+                            {formatAmount(summary.extra_charges.lbp, "LBP")}
                           </span>
                         </div>
                       )}

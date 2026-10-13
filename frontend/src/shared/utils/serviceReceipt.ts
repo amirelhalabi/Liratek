@@ -34,6 +34,9 @@ export interface ServiceReceiptTxn {
   created_at: string;
   /** Parsed metadata_json (provider/service_type/amount/currency/commission/…). */
   metadata: Record<string, unknown> | null;
+  /** LIRA-319 — the extra charged on top of the amount (transaction columns). */
+  extra_usd?: number;
+  extra_lbp?: number;
 }
 
 /** A customer-facing payment leg (already filtered per lira-064 by the caller). */
@@ -223,12 +226,23 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
     r += line(label, fmtMoney(part.unit_price_usd * part.quantity, "USD"));
   }
 
+  // LIRA-319 — an extra the cashier added on top, in the sale's currency.
+  // Shown as its own line, then the total with it; 0 / absent prints nothing,
+  // so every receipt without an extra is unchanged.
+  const extraAmt =
+    currency === "LBP"
+      ? Number(txn.extra_lbp ?? 0)
+      : Number(txn.extra_usd ?? 0);
   // Amount + fee (customer-facing figures only — never cost/price/profit).
   if (amount) {
     if (discountAmt > 0 && listPrice > 0) {
       r += line("Price:", fmtMoney(listPrice, currency));
       r += line("Discount:", `-${fmtMoney(discountAmt, currency)}`);
       r += line("Total:", fmtMoney(amount, currency));
+    } else if (extraAmt > 0) {
+      r += line("Price:", fmtMoney(amount, currency));
+      r += line("Extra:", `+${fmtMoney(extraAmt, currency)}`);
+      r += line("Total:", fmtMoney(amount + extraAmt, currency));
     } else {
       r += line("Amount:", fmtMoney(amount, currency));
     }
@@ -314,6 +328,8 @@ export async function buildServiceReceiptTextByTransaction(
         client_phone: (t.client_phone as string) ?? null,
         created_at: String(t.created_at ?? new Date().toISOString()),
         metadata,
+        extra_usd: Number(t.extra_usd ?? 0),
+        extra_lbp: Number(t.extra_lbp ?? 0),
       },
       legs: legs ?? [],
     });

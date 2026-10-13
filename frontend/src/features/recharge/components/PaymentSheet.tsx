@@ -83,6 +83,13 @@ export interface PaymentSheetProps {
    *  payout / RECEIVE / buy-back sheet. */
   unreturnedChangeTo?: MultiPaymentInputProps["unreturnedChangeTo"];
   onDiscountChange?: (discount: number) => void;
+  /** LIRA-319 — pass-through to MultiPaymentInput's extra mode: the
+   *  "− Discount | + Extra" switch on the built-in line. Wire only on a
+   *  customer-pays SALE whose save sends `extra_*` (never a payout, a
+   *  buy-back, or an item going into a session basket). */
+  onExtraChange?: MultiPaymentInputProps["onExtraChange"];
+  /** LIRA-319 — pass-through cap on the extra (default: the sheet's total). */
+  maxExtra?: MultiPaymentInputProps["maxExtra"];
   /** LIRA-310 — pass-through to MultiPaymentInput's Waive. Leave unset on
    *  the recharge forms: with `showDiscount` + `maxDiscount` +
    *  `onDiscountChange` they get the built-in waive into their own discount.
@@ -156,6 +163,8 @@ export function PaymentSheet({
   payer,
   unreturnedChangeTo,
   onDiscountChange,
+  onExtraChange,
+  maxExtra,
   onWaiveRemaining,
   waiveRemainingThreshold,
   waiveRemainingMax,
@@ -302,6 +311,8 @@ export function PaymentSheet({
               showDiscount={showDiscount}
               {...(maxDiscount !== undefined ? { maxDiscount } : {})}
               {...(onDiscountChange ? { onDiscountChange } : {})}
+              {...(onExtraChange ? { onExtraChange } : {})}
+              {...(maxExtra !== undefined ? { maxExtra } : {})}
               {...(onWaiveRemaining ? { onWaiveRemaining } : {})}
               {...(waiveRemainingThreshold !== undefined
                 ? { waiveRemainingThreshold }

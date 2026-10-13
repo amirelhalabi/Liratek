@@ -65,7 +65,9 @@ function createSchema(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL, source_id INTEGER NOT NULL, user_id INTEGER, client_id INTEGER, client_name TEXT,
       client_phone TEXT, amount_usd REAL DEFAULT 0, amount_lbp REAL DEFAULT 0, profit_usd REAL DEFAULT 0,
-      profit_lbp REAL DEFAULT 0, reverses_id INTEGER, created_at TEXT
+      profit_lbp REAL DEFAULT 0, reverses_id INTEGER, created_at TEXT,
+      extra_usd REAL NOT NULL DEFAULT 0,
+      extra_lbp REAL NOT NULL DEFAULT 0
     );
 
     CREATE TABLE financial_services (
@@ -660,7 +662,7 @@ describe("ProfitRepository.getFinancialWaitingForRepaymentByCurrency — REAL WR
         source_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL DEFAULT 1,
         amount_usd REAL NOT NULL DEFAULT 0,
-        amount_lbp REAL NOT NULL DEFAULT 0,
+        amount_lbp REAL NOT NULL DEFAULT 0, extra_usd REAL NOT NULL DEFAULT 0, extra_lbp REAL NOT NULL DEFAULT 0,
         exchange_rate REAL,
         client_id INTEGER,
         client_name TEXT,

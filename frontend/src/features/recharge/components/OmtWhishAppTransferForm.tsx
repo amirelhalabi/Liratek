@@ -155,6 +155,10 @@ function OmtWhishAppTransferFormInner({
   const [cashoutMethod, setCashoutMethod] = useState("CASH");
   const [manualFee, setManualFee] = useState("");
   const [discount, setDiscount] = useState(0);
+  // LIRA-319 — the sheet's "+ Extra" (in the transfer currency) on a walk-in
+  // SEND. Sent as its own field; the fee, the commission and
+  // `checkoutTotal` stay as without it.
+  const [extraCharge, setExtraCharge] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [clientId, setClientId] = useState<number | null>(null);
   const [paymentInputKey, setPaymentInputKey] = useState(0);
@@ -277,6 +281,11 @@ function OmtWhishAppTransferFormInner({
     !activeSession &&
     !forPartner;
 
+  // LIRA-319 — never on a RECEIVE (a payout), inside a session (the
+  // session checkout takes it) or for a partner (no customer pays).
+  const extraOffered = serviceType === "SEND" && !activeSession && !forPartner;
+  const sendExtra = extraOffered ? extraCharge : 0;
+
   const handleSubmit = async () => {
     const finalSenderName = senderName.trim();
     const finalSenderPhone = senderPhone.trim();
@@ -371,8 +380,8 @@ function OmtWhishAppTransferFormInner({
       // LIRA-289 (rule 22): the body is built by the ONE shared builder the
       // phone app uses too. Each condition below is what this form used to
       // inline; the builder keeps the keys and values the server saw before.
-      const result = await api.addOMTTransaction(
-        buildWalletTransferPayload({
+      const result = await api.addOMTTransaction({
+        ...buildWalletTransferPayload({
           provider: activeProvider,
           serviceType,
           currency,
@@ -431,7 +440,13 @@ function OmtWhishAppTransferFormInner({
             : {}),
           ...(transactionTime !== undefined ? { transactionTime } : {}),
         }),
-      );
+        // LIRA-319: the extra rides its own field (walk-in SEND only).
+        ...(sendExtra > 0
+          ? currency === "LBP"
+            ? { extra_lbp: sendExtra }
+            : { extra_usd: sendExtra }
+          : {}),
+      });
 
       if (result.success) {
         // Link to active customer session
@@ -464,6 +479,7 @@ function OmtWhishAppTransferFormInner({
         setPaymentLines([]);
         setReturnLegs([]);
         setKeptChange(null);
+        setExtraCharge(0);
         setManualFee("");
         setFeeMode("SENDER");
         setFeePaymentLines([]);
@@ -1138,7 +1154,7 @@ function OmtWhishAppTransferFormInner({
             activeSession
               ? "Add to Cart"
               : // SEND: what the customer pays after the sheet's discount.
-                `Pay ${formatAmount(isAppWalletReceive ? totalAmount : customerPays, currency)}`
+                `Pay ${formatAmount(isAppWalletReceive ? totalAmount : customerPays + sendExtra, currency)}`
           }
           summary={[
             // Client details in the confirm step (A3)
@@ -1182,10 +1198,19 @@ function OmtWhishAppTransferFormInner({
                   },
                 ]
               : []),
+            ...(sendExtra > 0
+              ? [
+                  {
+                    label: "Extra",
+                    value: `+${formatAmount(sendExtra, currency)}`,
+                    color: "text-emerald-400",
+                  },
+                ]
+              : []),
             {
               label: isAppWalletReceive ? "Customer Receives" : "Total",
               value: formatAmount(
-                isAppWalletReceive ? totalAmount : customerPays,
+                isAppWalletReceive ? totalAmount : customerPays + sendExtra,
                 currency,
               ),
               ...(isAppWalletReceive ? { color: "text-emerald-400" } : {}),
@@ -1206,6 +1231,7 @@ function OmtWhishAppTransferFormInner({
           showDiscount={!(serviceType === "RECEIVE" && !!activeSession)}
           maxDiscount={shopProfit}
           onDiscountChange={setDiscount}
+          {...(extraOffered ? { onExtraChange: setExtraCharge } : {})}
           requiresClientForDebt={true}
           hasClient={
             !!clientId ||

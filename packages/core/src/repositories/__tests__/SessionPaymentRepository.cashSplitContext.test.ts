@@ -63,6 +63,8 @@ function createTestDb(): Database.Database {
       user_id      INTEGER NOT NULL DEFAULT 1,
       amount_usd   REAL NOT NULL DEFAULT 0,
       amount_lbp   REAL NOT NULL DEFAULT 0,
+      extra_usd REAL NOT NULL DEFAULT 0,
+      extra_lbp REAL NOT NULL DEFAULT 0,
       tenant_id    INTEGER NOT NULL DEFAULT 1,
       created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
     );

@@ -95,6 +95,10 @@ export type TransactionRow = {
   /** The session-basket analogue of `session_payments`, for the pooled
    *  CUSTOMER_ACCOUNT settlement of the basket (LIRA-201b). */
   session_account_payments?: TransactionPaymentLeg[];
+  /** LIRA-319 — the extra charge on this row (`transactions.extra_*`).
+   *  Optional for rows from an older backend. */
+  extra_usd?: number | null;
+  extra_lbp?: number | null;
   /**
    * LIRA-205 — net telecom credit returned to the shop on this transaction
    * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), in USD.

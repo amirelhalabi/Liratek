@@ -1312,6 +1312,9 @@ export const POSTING_RULE_EXCLUSIONS: Readonly<
   KEPT_CHANGE: "no-money",
   // LIRA-310: the session basket Waive sibling — the same shape (profit −waived).
   WAIVED_SHORTFALL: "no-money",
+  // LIRA-319: the session basket's extra-charge row — profit via extra_*
+  // only; the basket's payment legs carry the money (same shape as KEPT_CHANGE).
+  EXTRA_CHARGE: "no-money",
 
   // ── reversals: checked as "create + reverse nets to 0 on every ledger,
   //    per currency" (rule 20) in each module's reversal tests, not as a

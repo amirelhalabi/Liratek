@@ -56,6 +56,9 @@ export interface ReceiptData {
   items: ReceiptItem[];
   subtotal: number;
   discount: number;
+  /** LIRA-319: an extra charge added on top of the items (its own
+   *  "Extra +$X" line). `total` already includes it. Omitted/0 = none. */
+  extra?: number;
   total: number;
   /** Cash/wallet tender actually handed over — excludes on-account legs. */
   payment_usd: number;
@@ -182,9 +185,15 @@ export function formatReceipt58mm(data: ReceiptData): string {
     return label + " ".repeat(gap) + value + "\n";
   };
 
-  if (data.discount > 0) {
+  const extra = data.extra ?? 0;
+  if (data.discount > 0 || extra > 0) {
     receipt += fmtLine("Subtotal:", `${sym}${data.subtotal.toFixed(2)}`);
+  }
+  if (data.discount > 0) {
     receipt += fmtLine("Discount:", `-${sym}${data.discount.toFixed(2)}`);
+  }
+  if (extra > 0) {
+    receipt += fmtLine("Extra:", `+${sym}${extra.toFixed(2)}`);
   }
   receipt += fmtLine("TOTAL:", `${sym}${data.total.toFixed(2)}`);
 
@@ -335,6 +344,10 @@ export function formatReceipt80mm(data: ReceiptData): string {
     receipt +=
       padRight("Discount:", 46) + `-${sym}${data.discount.toFixed(2)}\n`;
   }
+  if ((data.extra ?? 0) > 0) {
+    receipt +=
+      padRight("Extra:", 46) + `+${sym}${(data.extra ?? 0).toFixed(2)}\n`;
+  }
   receipt += padRight("TOTAL DUE:", 46) + `${sym}${data.total.toFixed(2)}\n`;
   receipt +=
     padRight("(LBP Equivalent):", 46) +
@@ -398,6 +411,7 @@ export function getReceiptJSON(data: ReceiptData): Record<string, unknown> {
     summary: {
       subtotal: data.subtotal,
       discount: data.discount,
+      extra: data.extra ?? 0,
       total: data.total,
       total_lbp: data.total * data.exchange_rate,
     },

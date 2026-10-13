@@ -835,7 +835,50 @@ export interface TopupBuybackProfitRow {
  * paid in full via LBP — see `getSalesDetail`'s own doc comment).
  */
 export function saleTotalPaidUsdEquiv(alias: string): string {
-  return `(${alias}.paid_usd + COALESCE(${alias}.paid_lbp, 0) / COALESCE(NULLIF(${alias}.exchange_rate_snapshot, 0), 1))`;
+  return `(${alias}.paid_usd + COALESCE(${alias}.paid_lbp, 0) / COALESCE(NULLIF(${alias}.exchange_rate_snapshot, 0), 1) - ${saleExtraUsdEquiv(alias)})`;
+}
+
+/**
+ * LIRA-319 — the sale's NET extra (its SALE row's extra plus any REFUND /
+ * REFUND_UNDO share, via the ONE {@link extraChargeProfit} fragment), in USD
+ * at the sale's snapshot rate. `sales.final_amount_usd` EXCLUDES the extra
+ * while `sales.paid_usd` / `paid_lbp` are what the customer actually paid —
+ * extra included — so {@link saleTotalPaidUsdEquiv} takes it off the paid
+ * side: a $6 + $1 sale paid $6 reads $5 paid toward its $6, still owing $1
+ * (core agent finding, 2026-10-14), and a repayment of that $1 makes it fully
+ * paid. 0 on a database without the v212 columns. No bind params (reads the
+ * outer row's own `tenant_id`).
+ */
+function saleExtraUsdEquiv(alias: string): string {
+  const supported = salesExtraSupported();
+  if (!supported) return "0";
+  return `COALESCE((SELECT SUM(${extraChargeProfit("sxt", "usd", true)}
+                              + ${extraChargeProfit("sxt", "lbp", true)} / COALESCE(NULLIF(${alias}.exchange_rate_snapshot, 0), 1))
+                     FROM transactions sxt
+                     WHERE sxt.source_table = 'sales' AND sxt.source_id = ${alias}.id
+                       AND sxt.tenant_id = ${alias}.tenant_id), 0)`;
+}
+
+const salesExtraSupport = new WeakMap<object, boolean>();
+/** Same per-database memo shape as `hasMemberShares` (this fragment is a
+ *  free function with no repository `this` to cache on). */
+function salesExtraSupported(): boolean {
+  let db: Database.Database;
+  try {
+    db = getDatabase();
+  } catch {
+    return false;
+  }
+  const cached = salesExtraSupport.get(db);
+  if (cached !== undefined) return cached;
+  let ok = false;
+  try {
+    ok = hasExtraChargeColumns(db);
+  } catch {
+    ok = false;
+  }
+  salesExtraSupport.set(db, ok);
+  return ok;
 }
 
 /**
@@ -1967,6 +2010,72 @@ export function reattributedSettlementCommission(
  * today, not three; this comment previously kept describing the pre-merge
  * state.
  */
+/**
+ * LIRA-319 (research R2/R3, rule 14) — the ONE definition of "an extra counts
+ * as profit". A sale/service row's `amount_*` INCLUDES the extra the cashier
+ * added on top; its `profit_*` EXCLUDES it, so every module margin (and the
+ * SALE row's derived kept change) is unchanged. The extra is profit of its
+ * own, read from `transactions.extra_usd` / `extra_lbp`, per currency, never
+ * converted. REFUND / REFUND_UNDO rows carry the negated share, so a sum nets
+ * a refund to 0; a VOIDED original is dropped by the `status` check like
+ * every other profit row. Immediate recognition: no debt-pending or partner
+ * gate (the brief's "rows with status = 'ACTIVE'").
+ *
+ * Every Profits view that reports a total (Overview, By Module "Extra
+ * charges", its drill-down, By Date, By Cashier, By Client) and the session
+ * profit sums call these fragments and nothing else. `supported` is
+ * {@link hasExtraChargeColumns} — a hand-rolled jest schema without the v212
+ * columns reads 0. No bind params.
+ */
+export function extraChargeProfit(
+  alias: string,
+  currency: "usd" | "lbp",
+  supported: boolean,
+): string {
+  if (!supported) return "0";
+  return `(CASE WHEN ${alias}.status = 'ACTIVE' THEN COALESCE(${alias}.extra_${currency}, 0) ELSE 0 END)`;
+}
+
+/** LIRA-319 — a row that carries an extra (either currency) and counts as
+ *  profit; see {@link extraChargeProfit}. `0` (false) without the columns.
+ *  No bind params. */
+export function extraChargeRow(alias: string, supported: boolean): string {
+  if (!supported) return "0";
+  return `(${alias}.status = 'ACTIVE' AND (COALESCE(${alias}.extra_usd, 0) != 0 OR COALESCE(${alias}.extra_lbp, 0) != 0))`;
+}
+
+/** LIRA-319 — an extra-charge EVENT for `count`: a live row with a positive
+ *  extra (a refund's negated share is not a new event). No bind params. */
+export function extraChargeCountEligible(
+  alias: string,
+  supported: boolean,
+): string {
+  if (!supported) return "0";
+  return `(${alias}.status = 'ACTIVE' AND (COALESCE(${alias}.extra_usd, 0) > 0 OR COALESCE(${alias}.extra_lbp, 0) > 0))`;
+}
+
+/**
+ * LIRA-319 (owner decision 2026-10-14: "past days never change") — the day an
+ * extra is dated on: every row on its OWN `created_at`. A REFUND /
+ * REFUND_UNDO row's negated share therefore lands on the refund's day, never
+ * back on the original sale's day (same rule as a refund's kept change,
+ * {@link refundKeptChangeDay}). Used by every extra reader — Overview, By
+ * Module, its drill-down, By Date, By Cashier, By Client. No bind params.
+ */
+export function extraChargeDay(alias: string): string {
+  return `${alias}.created_at`;
+}
+
+/** LIRA-319 — v212 `transactions.extra_usd` present? Same shape as
+ *  {@link hasCommissionModelColumn}; shared by this repository's memoized
+ *  wrapper and `CustomerSessionRepository`'s session profit sums. */
+export function hasExtraChargeColumns(db: Database.Database): boolean {
+  const cols = db.prepare(`PRAGMA table_info(transactions)`).all() as {
+    name: string;
+  }[];
+  return cols.some((c) => c.name === "extra_usd");
+}
+
 /**
  * LIRA-310 follow-up (owner decision 2026-10-12) — the ONE definition of "is
  * this transactions row part of a session basket Waive" (rule 14): the
@@ -3978,6 +4087,15 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     return this._hasTransactionsMetadataColumnCache;
   }
 
+  private _hasExtraChargeColumnsCache: boolean | null = null;
+  /** LIRA-319 v212 — `transactions.extra_usd/_lbp` present? */
+  private _hasExtraChargeColumns(): boolean {
+    if (this._hasExtraChargeColumnsCache === null) {
+      this._hasExtraChargeColumnsCache = hasExtraChargeColumns(this.db);
+    }
+    return this._hasExtraChargeColumnsCache;
+  }
+
   private _hasMaintenanceWarrantyColumnCache: boolean | null = null;
   /** LIRA-296 v206 — `maintenance.warranty_claim_id` present? */
   private _hasMaintenanceWarrantyColumn(): boolean {
@@ -4501,6 +4619,58 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE t.status = 'ACTIVE'
           AND ${warrantyCostSource("t")}
           AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
+        ORDER BY t.created_at DESC, t.id DESC`,
+      )
+      .all(tenantId, fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
+  }
+
+  /**
+   * LIRA-319 (T025) — the "Extra charges" line: Σ `extra_usd` / `extra_lbp`
+   * over every row that counts ({@link extraChargeRow}: ACTIVE, any type —
+   * a module row, a session basket's EXTRA_CHARGE row, and the REFUND /
+   * REFUND_UNDO rows that give a share back), dated by
+   * {@link extraChargeDay}. Per currency, never converted. `count` = the
+   * charges themselves ({@link extraChargeCountEligible}).
+   */
+  getExtraChargeTotals(fromDt: string, toDt: string): TopupBuybackProfitRow {
+    const supported = this._hasExtraChargeColumns();
+    if (!supported) return { profit_usd: 0, profit_lbp: 0, count: 0 };
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(${extraChargeProfit("t", "usd", supported)}), 0) AS profit_usd,
+          COALESCE(SUM(${extraChargeProfit("t", "lbp", supported)}), 0) AS profit_lbp,
+          COALESCE(SUM(CASE WHEN ${extraChargeCountEligible("t", supported)} THEN 1 ELSE 0 END), 0) AS count
+        FROM transactions t
+        WHERE ${extraChargeRow("t", supported)}
+          AND ${dateRange(extraChargeDay("t"))}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, getCurrentTenantId()) as TopupBuybackProfitRow;
+  }
+
+  /** LIRA-319 (T025) — the Extra charges drill-down: one row per row
+   *  {@link getExtraChargeTotals} sums, the SAME fragments, so the listed
+   *  rows add up to the line exactly. `profit_*` here is the row's extra. */
+  getExtraChargeDetail(fromDt: string, toDt: string): ProfitOnlyDetailRow[] {
+    const supported = this._hasExtraChargeColumns();
+    if (!supported) return [];
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          COALESCE(c.full_name, t.client_name) AS counterpart_name,
+          COALESCE(c.phone_number, t.client_phone) AS counterpart_phone,
+          t.summary AS txn_type,
+          ${extraChargeProfit("t", "usd", supported)} AS profit_usd,
+          ${extraChargeProfit("t", "lbp", supported)} AS profit_lbp
+        FROM transactions t
+        LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
+        WHERE ${extraChargeRow("t", supported)}
+          AND ${dateRange(extraChargeDay("t"))}
           AND t.tenant_id = ?
         ORDER BY t.created_at DESC, t.id DESC`,
       )
@@ -6777,6 +6947,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     params.push(fromDt, toDt, tenantId); // daily_hold_money (t)
     params.push(fromDt, toDt, tenantId); // daily_refund_kept (t)
     params.push(fromDt, toDt, tenantId); // daily_warranty (t)
+    // LIRA-319 — the Extra charges line (extraChargeProfit, rule 14).
+    const hasExtra = this._hasExtraChargeColumns();
+    params.push(fromDt, toDt, tenantId); // daily_extra (t)
 
     return this.db
       .prepare(
@@ -7130,24 +7303,37 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${dateRange("t.created_at")}
             AND t.tenant_id = ?
           GROUP BY ${localDayExpr("t.created_at")}
+        ),
+        daily_extra AS (
+          -- LIRA-319 — the Extra charges line, the SAME fragments
+          -- getExtraChargeTotals uses (rule 14): revenue = profit = extra.
+          SELECT
+            ${localDayExpr(extraChargeDay("t"))} AS d,
+            COALESCE(SUM(${extraChargeProfit("t", "usd", hasExtra)}), 0) AS profit_usd,
+            COALESCE(SUM(${extraChargeProfit("t", "lbp", hasExtra)}), 0) AS profit_lbp
+          FROM transactions t
+          WHERE ${extraChargeRow("t", hasExtra)}
+            AND ${dateRange(extraChargeDay("t"))}
+            AND t.tenant_id = ?
+          GROUP BY ${localDayExpr(extraChargeDay("t"))}
         )
         SELECT
           dates.d AS date,
-          COALESCE(ds.revenue_usd, 0) + COALESCE(dc.revenue_usd, 0) + COALESCE(dr.revenue_usd, 0) + COALESCE(dcm.revenue_usd, 0) + COALESCE(dm.revenue_usd, 0) + COALESCE(dex.revenue_usd, 0) AS revenue_usd,
-          COALESCE(dc.revenue_lbp, 0) + COALESCE(dr.revenue_lbp, 0) + COALESCE(dcm.revenue_lbp, 0) + COALESCE(dm.revenue_lbp, 0) + COALESCE(dl.revenue_lbp, 0) AS revenue_lbp,
+          COALESCE(ds.revenue_usd, 0) + COALESCE(dc.revenue_usd, 0) + COALESCE(dr.revenue_usd, 0) + COALESCE(dcm.revenue_usd, 0) + COALESCE(dm.revenue_usd, 0) + COALESCE(dex.revenue_usd, 0) + COALESCE(dxc.profit_usd, 0) AS revenue_usd,
+          COALESCE(dc.revenue_lbp, 0) + COALESCE(dr.revenue_lbp, 0) + COALESCE(dcm.revenue_lbp, 0) + COALESCE(dm.revenue_lbp, 0) + COALESCE(dl.revenue_lbp, 0) + COALESCE(dxc.profit_lbp, 0) AS revenue_lbp,
           COALESCE(ds.cost_usd, 0) + COALESCE(dr.cost_usd, 0) + COALESCE(dcm.cost_usd, 0) + COALESCE(dm.cost_usd, 0) + COALESCE(dex.revenue_usd, 0) - COALESCE(dex.profit_usd, 0) AS cost_usd,
           COALESCE(dr.cost_lbp, 0) + COALESCE(dcm.cost_lbp, 0) + COALESCE(dm.cost_lbp, 0) AS cost_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) AS profit_usd,
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) + COALESCE(dxc.profit_usd, 0) AS profit_usd,
           -- PA-3.1: dsp.profit_lbp (a sale's LBP kept change) was missing
           -- from this column entirely. PA-2.2: dkc/ddisc/dbc/dtb are the
           -- four new sources above. LO-V1 (round 2): dl.profit_usd is loto's
           -- USD-side kept change (dc/dr already fold their own off-currency
           -- kept change unconditionally now — see each CTE's own comment).
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) AS profit_lbp,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) + COALESCE(dxc.profit_lbp, 0) AS profit_lbp,
           COALESCE(de.expenses_usd, 0) AS expenses_usd,
           COALESCE(de.expenses_lbp, 0) AS expenses_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) + COALESCE(dxc.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) + COALESCE(dxc.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
         FROM dates
         LEFT JOIN daily_sales ds ON ds.d = dates.d
         LEFT JOIN daily_sales_profit dsp ON dsp.d = dates.d
@@ -7166,6 +7352,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN daily_hold_money dhm ON dhm.d = dates.d
         LEFT JOIN daily_refund_kept drk ON drk.d = dates.d
         LEFT JOIN daily_warranty dwc ON dwc.d = dates.d
+        LEFT JOIN daily_extra dxc ON dxc.d = dates.d
         ORDER BY dates.d DESC`,
       )
       .all(...params) as ProfitByDateRow[];
@@ -8037,6 +8224,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * zeroes/negates correctly on its own.
    */
   getByUser(fromDt: string, toDt: string): ProfitByUserRow[] {
+    const hasExtra = this._hasExtraChargeColumns(); // LIRA-319
     const tenantId = getCurrentTenantId();
     // Owner decision 2026-10-07 — a REFUND row's kept change is summed on
     // the REFUND's own day (keptChangeProfitForKey), never on the original's
@@ -8287,10 +8475,32 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       toDt, // orphan NOT EXISTS dateRange(COALESCE(orig3.created_at, t3.created_at))
       tenantId, // orphan NOT EXISTS t3.tenant_id
     );
+    params.push(
+      tenantId, // LIRA-319 extra branch — LEFT JOIN users xu
+      fromDt,
+      toDt, // LIRA-319 extra branch — dateRange(extraChargeDay(xc))
+      tenantId, // LIRA-319 extra branch — xc.tenant_id
+    );
 
     return this.db
       .prepare(
         `SELECT * FROM (
+        -- LIRA-319 — one row per cashier across the three branches below
+        -- (main, orphan, Extra charges): the extra branch adds profit to a
+        -- cashier who already has a row, and gives one to a cashier whose
+        -- only activity is an extra (a session basket's EXTRA_CHARGE row).
+        SELECT
+          user_id,
+          MAX(username) AS username,
+          SUM(revenue_usd) AS revenue_usd,
+          SUM(revenue_lbp) AS revenue_lbp,
+          SUM(profit_usd) AS profit_usd,
+          SUM(profit_lbp) AS profit_lbp,
+          SUM(transaction_count) AS transaction_count,
+          SUM(recognized_transaction_count) AS recognized_transaction_count,
+          SUM(pending_profit_usd) AS pending_profit_usd,
+          SUM(pending_profit_lbp) AS pending_profit_lbp
+        FROM (
         SELECT
           -- A REFUND is attributed to the ORIGINAL seller (orig.user_id via
           -- reverses_id), not whoever clicked refund — so the seller's profit
@@ -8605,6 +8815,34 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE ${profitTxnRowMembership("t3", "orig3")}
             AND COALESCE(orig3.user_id, t3.user_id) IS k.user_id
         )
+        UNION ALL
+
+        -- LIRA-319 (owner decisions 2026-10-14) — Extra charges: every row
+        -- carrying an extra (a module row, a session basket's EXTRA_CHARGE
+        -- row, a refund's negated share), PROFIT only — never revenue —
+        -- credited to the row's own cashier on the row's own day
+        -- (extraChargeDay), the SAME fragments as getExtraChargeTotals
+        -- (rule 14), so By Cashier sums to the Overview's line. Only an
+        -- EXTRA_CHARGE-type row is a new event for the count; a module
+        -- row's extra is already counted with that row in the main branch.
+        SELECT
+          xc.user_id AS user_id,
+          COALESCE(xu.username, 'Unknown') AS username,
+          0 AS revenue_usd,
+          0 AS revenue_lbp,
+          COALESCE(SUM(${extraChargeProfit("xc", "usd", hasExtra)}), 0) AS profit_usd,
+          COALESCE(SUM(${extraChargeProfit("xc", "lbp", hasExtra)}), 0) AS profit_lbp,
+          0 AS transaction_count,
+          COALESCE(SUM(CASE WHEN xc.type NOT IN (${PROFIT_TXN_TYPES}) AND ${extraChargeCountEligible("xc", hasExtra)} THEN 1 ELSE 0 END), 0) AS recognized_transaction_count,
+          0 AS pending_profit_usd,
+          0 AS pending_profit_lbp
+        FROM transactions xc
+        LEFT JOIN users xu ON xu.id = xc.user_id AND xu.tenant_id = ?
+        WHERE ${extraChargeRow("xc", hasExtra)}
+          AND ${dateRange(extraChargeDay("xc"))}
+          AND xc.tenant_id = ?
+        GROUP BY xc.user_id
+        ) GROUP BY user_id
       ) WHERE NOT ${PROFIT_ATTRIBUTION_ROW_IS_EMPTY}
         ORDER BY profit_usd DESC`,
       )
@@ -8760,6 +8998,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     toDt: string,
     limit: number,
   ): ProfitByClientRow[] {
+    const hasExtra = this._hasExtraChargeColumns(); // LIRA-319
     const tenantId = getCurrentTenantId();
     // Owner decision 2026-10-07 — a REFUND row's kept change is summed on
     // the REFUND's own day (keptChangeProfitForKey), never on the original's
@@ -9007,12 +9246,32 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       fromDt,
       toDt, // orphan NOT EXISTS dateRange(COALESCE(orig3.created_at, t3.created_at))
       tenantId, // orphan NOT EXISTS t3.tenant_id
+      tenantId, // LIRA-319 extra branch — LEFT JOIN clients xcl
+      fromDt,
+      toDt, // LIRA-319 extra branch — dateRange(extraChargeDay(xc))
+      tenantId, // LIRA-319 extra branch — xc.tenant_id
       limit,
     );
 
     return this.db
       .prepare(
         `SELECT * FROM (
+        -- LIRA-319 — one row per client across the three branches below
+        -- (main, orphan, Extra charges) — see getByUser's identical wrapper.
+        -- A walk-in's key is its name, '' and NULL both reading 'Walk-in'.
+        SELECT
+          client_id,
+          MAX(client_name) AS client_name,
+          MAX(client_phone) AS client_phone,
+          SUM(revenue_usd) AS revenue_usd,
+          SUM(revenue_lbp) AS revenue_lbp,
+          SUM(profit_usd) AS profit_usd,
+          SUM(profit_lbp) AS profit_lbp,
+          SUM(transaction_count) AS transaction_count,
+          SUM(recognized_transaction_count) AS recognized_transaction_count,
+          SUM(pending_profit_usd) AS pending_profit_usd,
+          SUM(pending_profit_lbp) AS pending_profit_lbp
+        FROM (
         SELECT
           t.client_id,
           -- PA-3.9: a linked client's DISPLAY name/phone come from the
@@ -9288,6 +9547,33 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                   AND COALESCE(t3.client_name, orig3.client_name, '') = k.client_name_key)
             )
         )
+        UNION ALL
+
+        -- LIRA-319 (owner decisions 2026-10-14) — Extra charges, PROFIT
+        -- only, on each row's own day — see getByUser's identical branch.
+        -- A refund row with no client of its own falls back to its
+        -- original's walk-in name (keptChangeAttributedClientName).
+        SELECT
+          xc.client_id AS client_id,
+          COALESCE(xcl.full_name, NULLIF(MAX(${keptChangeAttributedClientName("xc")}), ''), 'Walk-in') AS client_name,
+          xcl.phone_number AS client_phone,
+          0 AS revenue_usd,
+          0 AS revenue_lbp,
+          COALESCE(SUM(${extraChargeProfit("xc", "usd", hasExtra)}), 0) AS profit_usd,
+          COALESCE(SUM(${extraChargeProfit("xc", "lbp", hasExtra)}), 0) AS profit_lbp,
+          0 AS transaction_count,
+          COALESCE(SUM(CASE WHEN xc.type NOT IN (${PROFIT_TXN_TYPES}) AND ${extraChargeCountEligible("xc", hasExtra)} THEN 1 ELSE 0 END), 0) AS recognized_transaction_count,
+          0 AS pending_profit_usd,
+          0 AS pending_profit_lbp
+        FROM transactions xc
+        LEFT JOIN clients xcl ON xcl.id = xc.client_id AND xcl.tenant_id = ?
+        WHERE ${extraChargeRow("xc", hasExtra)}
+          AND ${dateRange(extraChargeDay("xc"))}
+          AND xc.tenant_id = ?
+        GROUP BY CASE WHEN xc.client_id IS NOT NULL THEN xc.client_id END,
+                 CASE WHEN xc.client_id IS NULL THEN ${keptChangeAttributedClientName("xc")} END
+        ) GROUP BY CASE WHEN client_id IS NOT NULL THEN client_id END,
+                   CASE WHEN client_id IS NULL THEN COALESCE(NULLIF(client_name, ''), 'Walk-in') END
       ) WHERE NOT ${PROFIT_ATTRIBUTION_ROW_IS_EMPTY}
         ORDER BY profit_usd DESC
         LIMIT ?`,

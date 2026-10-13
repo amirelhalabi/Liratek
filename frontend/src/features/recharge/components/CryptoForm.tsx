@@ -70,6 +70,8 @@ interface CryptoFormProps {
   /** T3 keep-change opt-in (plumbed to PaymentSheet → MultiPaymentInput). */
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
   onDiscountChange?: (discount: number) => void;
+  /** LIRA-319 — the sheet's "+ Extra" on a walk-in SEND (USD). */
+  onExtraChange?: (extra: number) => void;
   exchangeRate: number;
   /** Payment-Legs Integrity: fires with the rate the PaymentSheet is
    *  ACTUALLY converting tender at (the seeded rate, or the operator's own
@@ -113,6 +115,7 @@ export function CryptoForm({
   onReturnChange,
   onKeptChange,
   onDiscountChange,
+  onExtraChange,
   exchangeRate,
   onExchangeRateChange,
   onTransactionTimeChange,
@@ -132,6 +135,9 @@ export function CryptoForm({
   // here to size the cash-out target and forwarded to the page, which books
   // `commission = fee − discount` from the same helper.
   const [discount, setDiscount] = useState(0);
+  // LIRA-319 — the sheet's extra, mirrored here for the sheet's own labels
+  // ("Pay $…" / "Customer Pays"); the page sends it.
+  const [extra, setExtra] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
@@ -211,6 +217,10 @@ export function CryptoForm({
     discount: activeSession ? 0 : discount,
   });
   const receiveDiscountOffered = !activeSession;
+  // LIRA-319 — an extra only on a walk-in SEND (a cash-out is a payout; a
+  // session's checkout takes the extra; a partner transfer has no sheet).
+  const extraOffered = cryptoType === "SEND" && !activeSession && !forPartner;
+  const sendExtra = extraOffered ? extra : 0;
 
   // PFT-3b direct submission for a "for partner" Binance transaction —
   // bypasses handleCryptoSubmit (the parent's normal path) and the
@@ -679,13 +689,13 @@ export function CryptoForm({
           subtitle={
             cryptoType === "RECEIVE"
               ? `Cash Out — Payout $${payout.toFixed(2)}`
-              : `Crypto — $${sendCustomerPays.toFixed(2)}`
+              : `Crypto — $${(sendCustomerPays + sendExtra).toFixed(2)}`
           }
           accentColor="bg-amber-600 hover:bg-amber-500 text-white"
           confirmLabel={
             cryptoType === "RECEIVE"
               ? `Confirm Cash Out $${payout.toFixed(2)}`
-              : `Pay $${sendCustomerPays.toFixed(2)}`
+              : `Pay $${(sendCustomerPays + sendExtra).toFixed(2)}`
           }
           summary={
             cryptoType === "RECEIVE"
@@ -733,9 +743,18 @@ export function CryptoForm({
                         },
                       ]
                     : []),
+                  ...(sendExtra > 0
+                    ? [
+                        {
+                          label: "Extra",
+                          value: `+$${sendExtra.toFixed(2)}`,
+                          color: "text-emerald-400",
+                        },
+                      ]
+                    : []),
                   {
                     label: "Customer Pays",
-                    value: `$${sendCustomerPays.toFixed(2)}`,
+                    value: `$${(sendCustomerPays + sendExtra).toFixed(2)}`,
                   },
                 ]
           }
@@ -753,6 +772,14 @@ export function CryptoForm({
             setDiscount(d);
             onDiscountChange?.(d);
           }}
+          {...(extraOffered
+            ? {
+                onExtraChange: (e: number) => {
+                  setExtra(e);
+                  onExtraChange?.(e);
+                },
+              }
+            : {})}
           requiresClientForDebt={true}
           hasClient={
             !!cryptoClientId ||

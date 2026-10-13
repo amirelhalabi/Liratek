@@ -14,7 +14,7 @@
  * (rule 24): kept change on a REFUND comes from core's own
  * `REFUND_KEPT_CHANGE_META` keys, never a hand-typed string.
  */
-import { REFUND_KEPT_CHANGE_META } from "@liratek/core";
+import { REFUND_KEPT_CHANGE_META, extraChargeText } from "@liratek/core";
 import type { TransactionPaymentLeg } from "../cashFlow";
 import { amountSortValue } from "../amountSort";
 import {
@@ -264,5 +264,65 @@ describe("amountSortValue — sorts on the figure the column shows", () => {
 
   it("a void sorts by its negated value", () => {
     expect(amountSortValue(saleVoid, 89000)).toBe(-4.25);
+  });
+});
+
+/**
+ * LIRA-319 (owner 2026-10-13) — a sale with an extra charge says so on its
+ * cash line: "paid $7.00 · extra +$1.00". The field names are the row
+ * type's own (`extra_usd` / `extra_lbp`, rule 24). Not proven failing-first
+ * (new field).
+ */
+describe("cashMovementLine — extra charge (LIRA-319)", () => {
+  it("a sale with extra_usd 1 appends 'extra +$1.00'", () => {
+    const r = row({ amount_usd: 7, extra_usd: 1, payments: [leg("in", 7)] });
+    expect(cashMovementLine(r)).toBe("paid $7.00 · extra +$1.00");
+  });
+
+  it("an LBP extra prints in LBP", () => {
+    const r = row({
+      amount_usd: 6,
+      extra_lbp: 10_000,
+      payments: [leg("in", 6)],
+    });
+    expect(cashMovementLine(r)).toBe("paid $6.00 · extra +10,000 LBP");
+  });
+
+  it("falls back to the sale metadata when the column is absent", () => {
+    const r = row({
+      amount_usd: 7,
+      payments: [leg("in", 7)],
+      metadata_json: JSON.stringify({ extra_usd: 1 }),
+    });
+    expect(cashMovementLine(r)).toBe("paid $7.00 · extra +$1.00");
+  });
+
+  it("extraChargeText: a REFUND with a negated share and the sale's inherited metadata shows no extra", () => {
+    const refund = row({
+      type: "REFUND",
+      amount_usd: -7,
+      reverses_id: 5,
+      extra_usd: -1,
+      extra_lbp: 0,
+      metadata_json: JSON.stringify({ extra_usd: 1 }),
+    });
+    expect(extraChargeText(refund)).toBeNull();
+    // A stored 0 is real too — the metadata is not consulted.
+    expect(
+      extraChargeText(
+        row({ extra_usd: 0, metadata_json: JSON.stringify({ extra_usd: 1 }) }),
+      ),
+    ).toBeNull();
+  });
+
+  it("a sale without an extra is unchanged, and a void never repeats it", () => {
+    expect(cashMovementLine(sale)).toBe("paid $5.00 · change $0.50");
+    const v = row({
+      amount_usd: -7,
+      reverses_id: 5,
+      extra_usd: 1,
+      payments: [leg("out", 7)],
+    });
+    expect(cashMovementLine(v)).not.toContain("extra");
   });
 });

@@ -497,11 +497,11 @@ test("lira-web-057 Custom Services page: a $2 discount typed in the payment box 
   await page.locator("#svc-price").fill("30");
 
   const mpi = page.getByTestId("multi-payment-input");
+  // LIRA-319: the Discount line now carries a "− Discount | + Extra" switch,
+  // so the label no longer sits beside the input — target the input itself.
   const discount = mpi
     .getByTestId("payment-summary")
-    .getByText("Discount", { exact: true })
-    .locator("..")
-    .locator("input");
+    .locator('input[aria-label="Discount"]');
   await discount.fill("2");
   await mpi.locator('[data-testid^="payment-amount-"]').first().fill("28");
 

@@ -38,6 +38,8 @@ export const MODULE_DETAIL_SUPPORTED_KEYS: ReadonlySet<string> = new Set([
   "WARRANTY",
   // LIRA-310 follow-up — a basket Waive's own "Waived" line.
   "WAIVED",
+  // LIRA-319 — the "Extra charges" line.
+  "EXTRA_CHARGE",
 ]);
 
 /** `RECHARGE_`/`FINANCIAL_SERVICE_` carry their carrier/provider suffix in

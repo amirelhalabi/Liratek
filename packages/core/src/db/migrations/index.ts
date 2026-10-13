@@ -364,6 +364,8 @@ export const MIGRATIONS: Migration[] = [
           user_id         INTEGER NOT NULL,
           amount_usd      REAL NOT NULL DEFAULT 0,
           amount_lbp      REAL NOT NULL DEFAULT 0,
+          extra_usd REAL NOT NULL DEFAULT 0,
+          extra_lbp REAL NOT NULL DEFAULT 0,
           exchange_rate   REAL,
           client_id       INTEGER,
           reverses_id     INTEGER,
@@ -14647,6 +14649,59 @@ CREATE INDEX IF NOT EXISTS idx_resale_line_recharges_line ON resale_line_recharg
 DROP TABLE IF EXISTS resale_line_recharges;
 DROP INDEX IF EXISTS idx_resale_lines_product;
 DROP TABLE IF EXISTS resale_lines;`);
+    },
+  },
+  {
+    version: 212,
+    name: "transactions_extra_charges",
+    description:
+      "LIRA-319: an extra amount the cashier adds on top of a sale's total " +
+      "(the opposite of a discount). Stored per currency on the unified " +
+      "transaction row: included in amount_usd/amount_lbp (what the customer " +
+      "pays), never in profit_usd/profit_lbp, and reported on its own as " +
+      "'Extra charges'. Existing rows read 0.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "transactions")) return;
+      for (const col of ["extra_usd", "extra_lbp"] as const) {
+        if (!columnExists(db, "transactions", col)) {
+          db.exec(
+            `ALTER TABLE transactions ADD COLUMN ${col} REAL NOT NULL DEFAULT 0;`,
+          );
+        }
+      }
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "transactions")) return;
+      for (const col of ["extra_lbp", "extra_usd"] as const) {
+        if (columnExists(db, "transactions", col)) {
+          db.exec(`ALTER TABLE transactions DROP COLUMN ${col};`);
+        }
+      }
+    },
+  },
+  {
+    version: 213,
+    name: "sales_extra_usd",
+    description:
+      "LIRA-319 (owner 2026-10-14): a POS sale saved as a draft keeps its " +
+      "extra charge and restores it on resume. A draft writes no " +
+      "transactions row, so the extra is kept on the sales row. POS sales " +
+      "are USD-priced, so USD only. Existing rows read 0.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "sales")) return;
+      if (!columnExists(db, "sales", "extra_usd")) {
+        db.exec(
+          `ALTER TABLE sales ADD COLUMN extra_usd REAL NOT NULL DEFAULT 0;`,
+        );
+      }
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "sales")) return;
+      if (columnExists(db, "sales", "extra_usd")) {
+        db.exec(`ALTER TABLE sales DROP COLUMN extra_usd;`);
+      }
     },
   },
 ];

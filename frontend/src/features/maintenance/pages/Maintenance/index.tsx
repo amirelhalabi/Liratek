@@ -440,6 +440,11 @@ export default function Maintenance() {
            *  `undefined` when the operator didn't keep anything. */
           kept_change_usd?: number | undefined;
           kept_change_lbp?: number | undefined;
+          /** LIRA-319: the extra charged on top of the total, in the job's
+           *  currency (typed from the save schema, rule 21). Absent when the
+           *  checkout carried none. */
+          extra_usd?: SaveMaintenanceJobPayload["extra_usd"];
+          extra_lbp?: SaveMaintenanceJobPayload["extra_lbp"];
         }
       | undefined;
     transactionTime?: string | undefined;
@@ -497,6 +502,14 @@ export default function Maintenance() {
                   kept_change_usd: params.checkout.kept_change_usd,
                   kept_change_lbp: params.checkout.kept_change_lbp,
                 }
+              : {}),
+            // LIRA-319: only present when there is an extra — a checkout
+            // without one sends exactly what it sent before.
+            ...((params.checkout.extra_usd ?? 0) > 0
+              ? { extra_usd: params.checkout.extra_usd }
+              : {}),
+            ...((params.checkout.extra_lbp ?? 0) > 0
+              ? { extra_lbp: params.checkout.extra_lbp }
               : {}),
           }
         : {}),
@@ -712,6 +725,16 @@ export default function Maintenance() {
         // ~519-522) — pass them through as-is (possibly undefined).
         kept_change_usd: paymentData.kept_change_usd,
         kept_change_lbp: paymentData.kept_change_lbp,
+        // LIRA-319: the modal's extra (extra_usd on a USD total, extra_lbp
+        // on an LBP one). Its `final_amount` excludes it, so `labourFinal`
+        // above is unaffected. Never on a session-basket item — the modal
+        // hides the switch there and the basket checkout takes the extra.
+        ...(activeSession
+          ? {}
+          : {
+              extra_usd: paymentData.extra_usd,
+              extra_lbp: paymentData.extra_lbp,
+            }),
       },
       transactionTime,
     });
@@ -1380,6 +1403,9 @@ export default function Maintenance() {
         <div className="fixed inset-0 z-[60]">
           <CheckoutModal
             allowKeepChange={true}
+            // LIRA-319: the "− Discount | + Extra" switch. The modal hides it
+            // in a customer session (addsToSessionBasket below).
+            allowExtraCharge={true}
             // LIRA-318: in a customer session this checkout only adds the
             // job to the session basket (handleCheckoutComplete), whose OUT
             // legs are dropped — so no "change to account" offer.

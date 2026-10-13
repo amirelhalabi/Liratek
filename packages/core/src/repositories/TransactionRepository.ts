@@ -173,6 +173,11 @@ export interface TransactionEntity extends BaseEntity {
   amount_lbp: number;
   profit_usd: number;
   profit_lbp: number;
+  /** LIRA-319 (v212, NOT NULL DEFAULT 0): the extra charged on this row,
+   *  included in amount_*, never in profit_*; negative on a REFUND row.
+   *  Optional only so hand-built test fixtures need not spell it. */
+  extra_usd?: number;
+  extra_lbp?: number;
   exchange_rate: number | null;
   client_id: number | null;
   client_name: string | null;
@@ -847,6 +852,11 @@ export interface CreateTransactionInput {
   amount_lbp: number;
   profit_usd?: number;
   profit_lbp?: number;
+  /** LIRA-319 — the extra the cashier added on top of the total, per
+   *  currency. Already INCLUDED in amount_*; never in profit_*. Reported as
+   *  "Extra charges". Negative on a REFUND row (the share given back). */
+  extra_usd?: number;
+  extra_lbp?: number;
   /** USD↔LBP rate stamp. Omit to snapshot the current market rate; pass an
    *  explicit null only to opt out of a rate stamp entirely. */
   exchange_rate?: number | null;
@@ -1262,6 +1272,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       "amount_lbp",
       "profit_usd",
       "profit_lbp",
+      // LIRA-319 (v212) — read so the generic refund can negate the extra.
+      "extra_usd",
+      "extra_lbp",
       "exchange_rate",
       "client_id",
       "client_name",
@@ -1310,9 +1323,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const result = this.execute(
       `INSERT INTO transactions
         (type, source_table, source_id, user_id, amount_usd, amount_lbp,
-         profit_usd, profit_lbp,
+         profit_usd, profit_lbp, extra_usd, extra_lbp,
          exchange_rate, client_id, client_name, client_phone, summary, metadata_json, device_id, created_at, tenant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       data.type,
       data.source_table,
       data.source_id,
@@ -1321,6 +1334,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       data.amount_lbp ?? 0,
       data.profit_usd ?? 0,
       data.profit_lbp ?? 0,
+      data.extra_usd ?? 0,
+      data.extra_lbp ?? 0,
       exchangeRate ?? null,
       data.client_id ?? null,
       data.client_name ?? null,
@@ -1566,6 +1581,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     >(
       `SELECT t.id, t.type, t.status, t.source_table, t.source_id,
               t.user_id, t.amount_usd, t.amount_lbp, t.profit_usd, t.profit_lbp,
+              t.extra_usd, t.extra_lbp,
               t.exchange_rate,
               ${DISPLAY_EXCHANGE_RATE_SQL} AS display_exchange_rate,
               t.client_id, t.client_phone,
@@ -2326,6 +2342,37 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         // `_assertNoPartialItemRefunds` and throw. Detect that state and
         // refund ONLY the remaining lines instead of the whole transaction.
         const original = this.findById(item.id);
+        // LIRA-319 — the basket extra: items refunded one by one already
+        // gave back their shares, so only the extra still unreturned goes
+        // back here (nothing left → skip; untouched → the plain refund).
+        if (original && original.type === TRANSACTION_TYPES.EXTRA_CHARGE) {
+          const state = this._sessionExtraState(sessionId);
+          const remainingUsd = state?.remainingUsd ?? 0;
+          const remainingLbp = state?.remainingLbp ?? 0;
+          if (remainingUsd <= 0 && remainingLbp <= 0) continue;
+          const refundId = this._refundTransactionInternal(item.id, userId, {
+            allowSessionMember: true,
+          });
+          const fullUsd = original.extra_usd ?? 0;
+          const fullLbp = original.extra_lbp ?? 0;
+          if (remainingUsd !== fullUsd || remainingLbp !== fullLbp) {
+            // The row has no legs of its own ("no-money"), so only its
+            // stamped amount/extra need to say "the remainder".
+            this.execute(
+              `UPDATE transactions SET amount_usd = ?, amount_lbp = ?, extra_usd = ?, extra_lbp = ?
+                WHERE id = ? AND tenant_id = ?`,
+              -remainingUsd,
+              -remainingLbp,
+              -remainingUsd,
+              -remainingLbp,
+              refundId,
+              tenantId,
+            );
+          }
+          reversedTransactionIds.push(item.id);
+          reversalIds.push(refundId);
+          continue;
+        }
         if (
           original &&
           original.source_table === "sales" &&
@@ -3711,13 +3758,15 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       status: TransactionStatus;
       source_table: string;
       source_id: number | null;
+      type: string;
     };
     const membersBySession = new Map<number, MemberRow[]>();
     for (const chunk of chunkIds(uniqueIds, SESSION_BATCH_CHUNK_SIZE)) {
       const placeholders = chunk.map(() => "?").join(", ");
       const rows = this.query<MemberRow>(
         `SELECT cst.session_id AS session_id, t.id AS id, t.status AS status,
-                t.source_table AS source_table, t.source_id AS source_id
+                t.source_table AS source_table, t.source_id AS source_id,
+                t.type AS type
          FROM customer_session_transactions cst
          JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
          WHERE cst.session_id IN (${placeholders}) AND cst.tenant_id = ? AND cst.transaction_type <> ?`,
@@ -3896,6 +3945,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       status: TransactionStatus;
       source_table: string;
       source_id: number | null;
+      /** LIRA-319 — only an EXTRA_CHARGE member needs the extra lookup. */
+      type?: string;
     }>,
     tenantId: number,
   ): Map<number, boolean> {
@@ -3926,6 +3977,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const needsSaleCheck: typeof members = [];
     for (const member of needsRefundCheck) {
       if (reversedIds.has(member.id)) {
+        result.set(member.id, true);
+      } else if (
+        member.type === TRANSACTION_TYPES.EXTRA_CHARGE &&
+        member.source_id != null &&
+        this._isFullyReturnedSessionExtra(member.id, member.source_id)
+      ) {
+        // LIRA-319: the basket extra, fully given back by item refunds.
         result.set(member.id, true);
       } else if (member.source_table === "sales" && member.source_id != null) {
         needsSaleCheck.push(member);
@@ -3960,6 +4018,23 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       result.set(member.id, remaining === 0);
     }
     return result;
+  }
+
+  /** LIRA-319 — is `memberId` the session's EXTRA_CHARGE member with every
+   *  cent of it already returned by item refunds (`_sessionExtraState`)?
+   *  Only an EXTRA_CHARGE row lives on `customer_sessions` with an extra,
+   *  so a KEPT_CHANGE/WAIVED_SHORTFALL member reads false here. */
+  private _isFullyReturnedSessionExtra(
+    memberId: number,
+    sessionId: number,
+  ): boolean {
+    const state = this._sessionExtraState(sessionId);
+    return (
+      !!state &&
+      state.id === memberId &&
+      state.remainingUsd <= 0 &&
+      state.remainingLbp <= 0
+    );
   }
 
   private _isSessionBasketMemberReversed(
@@ -4042,6 +4117,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     poolSplit: { usd: number; lbp: number };
     remainderUsd: number;
     remainderLbp: number;
+    /** LIRA-319 — this item's share of the basket extra, ALREADY INCLUDED
+     *  in `itemAmountUsd/Lbp` (so account-first, the pool split, the
+     *  money-back legs and the preview all carry it). Stamped as
+     *  `extra_* = −share` on the REFUND row. 0 when the basket has none. */
+    extraShareUsd: number;
+    extraShareLbp: number;
   } {
     const tenantId = getCurrentTenantId();
     const { sessionId, transactionId } = input;
@@ -4301,6 +4382,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       itemAmountUsd = Math.abs(original.amount_usd);
       itemAmountLbp = Math.abs(original.amount_lbp);
     }
+    // LIRA-319 (owner decision): the item gives back its share of the
+    // basket extra by its share of the basket charge — folded into the
+    // item amount here, ONCE, so every step below carries it (rule 14).
+    const extraShare = this._sessionItemExtraShare(
+      sessionId,
+      itemAmountUsd,
+      itemAmountLbp,
+      effectiveRate,
+    );
+    itemAmountUsd += extraShare.usd;
+    itemAmountLbp += extraShare.lbp;
     // The item's own native currency — used ONLY as the no-pool fallback
     // currency for `_splitAcrossPoolCurrencyMix` (finding #2), never again
     // for the amount itself.
@@ -4545,6 +4637,142 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       poolSplit,
       remainderUsd,
       remainderLbp,
+      extraShareUsd: extraShare.usd,
+      extraShareLbp: extraShare.lbp,
+    };
+  }
+
+  /**
+   * LIRA-319 — a session basket's EXTRA_CHARGE member (the ONE extra set at
+   * the session checkout) and how much of it is still unreturned: the
+   * original extra plus every session item refund's negated share (and any
+   * undo's re-charge), read from the rows themselves (`extra_*`), never
+   * re-derived. Null when the basket has no live extra.
+   */
+  private _sessionExtraState(sessionId: number): {
+    id: number;
+    extraUsd: number;
+    extraLbp: number;
+    rate: number | null;
+    remainingUsd: number;
+    remainingLbp: number;
+    /** Item value already refunded one by one (amount minus the share),
+     *  USD-equivalent at the extra row's rate. */
+    refundedItemValueUsdEq: number;
+  } | null {
+    const tenantId = getCurrentTenantId();
+    const row = this.queryOne<{
+      id: number;
+      extra_usd: number | null;
+      extra_lbp: number | null;
+      exchange_rate: number | null;
+    }>(
+      `SELECT t.id, t.extra_usd, t.extra_lbp, t.exchange_rate
+         FROM customer_session_transactions cst
+         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+        WHERE cst.session_id = ? AND cst.tenant_id = ?
+          AND t.type = ? AND t.status = 'ACTIVE' AND t.reverses_id IS NULL
+        ORDER BY t.id ASC LIMIT 1`,
+      sessionId,
+      tenantId,
+      TRANSACTION_TYPES.EXTRA_CHARGE,
+    );
+    if (!row) return null;
+    const extraUsd = row.extra_usd ?? 0;
+    const extraLbp = row.extra_lbp ?? 0;
+    if (extraUsd <= 0 && extraLbp <= 0) return null;
+    // Every item refund (REFUND, refundType sessionItem) and its undo
+    // (REFUND_UNDO, undoType sessionItem) written for this basket.
+    const returned = this.queryOne<{
+      extra_usd: number | null;
+      extra_lbp: number | null;
+      value_usd: number | null;
+      value_lbp: number | null;
+    }>(
+      `SELECT COALESCE(SUM(extra_usd), 0) AS extra_usd,
+              COALESCE(SUM(extra_lbp), 0) AS extra_lbp,
+              COALESCE(SUM(-amount_usd + extra_usd), 0) AS value_usd,
+              COALESCE(SUM(-amount_lbp + extra_lbp), 0) AS value_lbp
+         FROM transactions
+        WHERE tenant_id = ? AND status = 'ACTIVE'
+          AND type IN (?, ?)
+          AND json_valid(metadata_json)
+          AND CAST(json_extract(metadata_json, '$.sessionId') AS INTEGER) = ?
+          AND (json_extract(metadata_json, '$.refundType') = 'sessionItem'
+               OR json_extract(metadata_json, '$.undoType') = 'sessionItem')`,
+      tenantId,
+      TRANSACTION_TYPES.REFUND,
+      TRANSACTION_TYPES.REFUND_UNDO,
+      sessionId,
+    );
+    const rate = row.exchange_rate && row.exchange_rate > 0 ? row.exchange_rate : null;
+    const valueUsd = returned?.value_usd ?? 0;
+    const valueLbp = returned?.value_lbp ?? 0;
+    return {
+      id: row.id,
+      extraUsd,
+      extraLbp,
+      rate,
+      remainingUsd: Math.max(0, this._roundToUnit(extraUsd + (returned?.extra_usd ?? 0), 0.01)),
+      remainingLbp: Math.max(0, this._roundToUnit(extraLbp + (returned?.extra_lbp ?? 0), 1)),
+      refundedItemValueUsdEq: valueUsd + (rate ? valueLbp / rate : 0),
+    };
+  }
+
+  /**
+   * LIRA-319 — one basket item's share of the basket extra: the extra ×
+   * (the item's value ÷ the basket's item charge), both USD-equivalent at
+   * the rate the extra was booked at, per currency, rounded to a cent /
+   * whole LBP and capped at what is still unreturned. The item charge is
+   * every POSITIVE basket member link except the extra itself (and the
+   * item-refund links) — payout baskets never reach here
+   * (`_assertNoNettedPayoutMembers`). The refund that leaves no item value
+   * unrefunded takes the exact remainder, so the shares always add up to
+   * the extra (create + item refunds net to 0, rule 20).
+   */
+  private _sessionItemExtraShare(
+    sessionId: number,
+    itemValueUsd: number,
+    itemValueLbp: number,
+    fallbackRate: number,
+  ): { usd: number; lbp: number } {
+    const state = this._sessionExtraState(sessionId);
+    if (!state) return { usd: 0, lbp: 0 };
+    if (state.remainingUsd <= 0 && state.remainingLbp <= 0) {
+      return { usd: 0, lbp: 0 };
+    }
+    const rate = state.rate ?? (fallbackRate > 0 ? fallbackRate : 1);
+    const charge = this.queryOne<{ usd: number | null; lbp: number | null }>(
+      `SELECT COALESCE(SUM(CASE WHEN cst.amount_usd > 0 THEN cst.amount_usd ELSE 0 END), 0) AS usd,
+              COALESCE(SUM(CASE WHEN cst.amount_lbp > 0 THEN cst.amount_lbp ELSE 0 END), 0) AS lbp
+         FROM customer_session_transactions cst
+         JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = cst.tenant_id
+        WHERE cst.session_id = ? AND cst.tenant_id = ?
+          AND cst.transaction_type <> ?
+          AND t.type <> ?`,
+      sessionId,
+      getCurrentTenantId(),
+      SESSION_ITEM_REFUND_LINK_TYPE,
+      TRANSACTION_TYPES.EXTRA_CHARGE,
+    );
+    const chargeUsdEq = (charge?.usd ?? 0) + (charge?.lbp ?? 0) / rate;
+    const itemUsdEq = itemValueUsd + itemValueLbp / rate;
+    if (!(chargeUsdEq > 0) || !(itemUsdEq > 0)) return { usd: 0, lbp: 0 };
+    const isLast =
+      state.refundedItemValueUsdEq + itemUsdEq >= chargeUsdEq - 0.005;
+    if (isLast) {
+      return { usd: state.remainingUsd, lbp: state.remainingLbp };
+    }
+    const ratio = Math.min(1, itemUsdEq / chargeUsdEq);
+    return {
+      usd: Math.min(
+        state.remainingUsd,
+        this._roundToUnit(state.extraUsd * ratio, 0.01),
+      ),
+      lbp: Math.min(
+        state.remainingLbp,
+        this._roundToUnit(state.extraLbp * ratio, 1),
+      ),
     };
   }
 
@@ -4732,6 +4960,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       remainderUsd,
       remainderLbp,
       poolSplit,
+      extraShareUsd,
+      extraShareLbp,
     } = plan;
 
     // Validate the operator's chosen return leg(s), if any, BEFORE any row
@@ -4811,6 +5041,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           // + refund kept change (owner decision 2026-10-07), 0 when none.
           profit_usd: -lines.reduce((sum, l) => sum + l.profitUsd, 0) + keptUsd,
           profit_lbp: keptLbp,
+          // LIRA-319: the item's share of the basket extra (already inside
+          // itemAmount*), given back — "Extra charges" drops by it.
+          extra_usd: -extraShareUsd,
+          extra_lbp: -extraShareLbp,
           exchange_rate: original.exchange_rate,
           client_id: clientId,
           summary:
@@ -4896,6 +5130,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           },
           keptUsd > 0 || keptLbp > 0
             ? { usd: keptUsd, lbp: keptLbp }
+            : undefined,
+          // LIRA-319: the item's share of the basket extra.
+          extraShareUsd > 0 || extraShareLbp > 0
+            ? { usd: extraShareUsd, lbp: extraShareLbp }
             : undefined,
         );
         this._applyGenericItemReversal(
@@ -5055,7 +5293,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const refundTxn = db
       .prepare(
         `SELECT id, type, status, source_table, source_id, amount_usd, amount_lbp,
-                profit_usd, profit_lbp, exchange_rate, client_id, device_id, metadata_json
+                profit_usd, profit_lbp, extra_usd, extra_lbp, exchange_rate, client_id, device_id, metadata_json
          FROM transactions WHERE id = ? AND tenant_id = ?`,
       )
       .get(params.refundTransactionId, tenantId) as
@@ -5069,6 +5307,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           amount_lbp: number;
           profit_usd: number | null;
           profit_lbp: number | null;
+          /** LIRA-319 — the extra share the refund gave back (≤ 0). */
+          extra_usd: number | null;
+          extra_lbp: number | null;
           exchange_rate: number | null;
           client_id: number | null;
           device_id: string | null;
@@ -5228,6 +5469,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         amount_lbp: -refundTxn.amount_lbp,
         profit_usd: refundTxn.profit_usd != null ? -refundTxn.profit_usd : 0,
         profit_lbp: refundTxn.profit_lbp != null ? -refundTxn.profit_lbp : 0,
+        // LIRA-319: re-charge the extra share the refund gave back.
+        extra_usd: -(refundTxn.extra_usd ?? 0),
+        extra_lbp: -(refundTxn.extra_lbp ?? 0),
         exchange_rate: refundTxn.exchange_rate,
         client_id: refundTxn.client_id,
         summary: `UNDO SESSION ITEM REFUND: undoes refund #${params.refundTransactionId} (session #${sessionId})`,
@@ -5942,6 +6186,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
      *  currency, so the shop keeps it as profit and an undo/void of this
      *  row negates it with everything else. Omitted → plain negation. */
     kept?: { usd: number; lbp: number },
+    /** LIRA-319 — a session basket item refund's share of the basket extra
+     *  (`_planSessionItemRefund`'s `extraShare*`): ADDED to the negated
+     *  amount and the negated extra, so the row reads "item + its share of
+     *  the extra" given back. Omitted → plain negation (every other caller). */
+    extraShare?: { usd: number; lbp: number },
   ): number {
     const tenantId = getCurrentTenantId();
     let metadataStr = original.metadata_json;
@@ -5981,16 +6230,21 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       `INSERT INTO transactions
         (type, status, source_table, source_id, user_id,
          amount_usd, amount_lbp, exchange_rate, profit_usd, profit_lbp,
+         extra_usd, extra_lbp,
          client_id, reverses_id, summary, metadata_json, device_id, tenant_id, created_at)
-       VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       original.source_table,
       original.source_id,
       userId,
-      -original.amount_usd,
-      -original.amount_lbp,
+      -original.amount_usd - (extraShare?.usd ?? 0),
+      -original.amount_lbp - (extraShare?.lbp ?? 0),
       original.exchange_rate,
       kept ? -original.profit_usd + kept.usd : -original.profit_usd,
       kept ? -original.profit_lbp + kept.lbp : -original.profit_lbp,
+      // LIRA-319 (rule 20): the refund gives the whole extra back — its
+      // negation leaves "Extra charges" (Σ extra over ACTIVE rows) at 0.
+      -(original.extra_usd ?? 0) - (extraShare?.usd ?? 0),
+      -(original.extra_lbp ?? 0) - (extraShare?.lbp ?? 0),
       original.client_id,
       id,
       `REFUND: ${original.summary ?? original.type}`,

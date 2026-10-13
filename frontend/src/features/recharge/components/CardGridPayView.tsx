@@ -75,6 +75,9 @@ interface CardGridPayViewProps {
    *  the field. */
   onExchangeRateChange?: (rate: number) => void;
   onDiscountChange: (discount: number) => void;
+  /** LIRA-319 — the sheet's "+ Extra" (LBP), forwarded to the PaymentSheet.
+   *  Wire only when the caller sends `extra_lbp` on its submit payload. */
+  onExtraChange?: (extra: number) => void;
   clientName: string;
   onClientNameChange: (value: string) => void;
   transactionTime: string | undefined;
@@ -113,6 +116,7 @@ export function CardGridPayView({
   onKeptChange,
   onExchangeRateChange,
   onDiscountChange,
+  onExtraChange,
   clientName,
   onClientNameChange,
   transactionTime,
@@ -266,6 +270,7 @@ export function CardGridPayView({
         {...(onReturnChange ? { onReturnChange } : {})}
         {...(onKeptChange ? { onKeptChange } : {})}
         onDiscountChange={onDiscountChange}
+        {...(onExtraChange ? { onExtraChange } : {})}
         summary={[
           ...(selected && selected.valueUsd !== undefined
             ? [{ label: "Value", value: `$${selected.valueUsd}` }]

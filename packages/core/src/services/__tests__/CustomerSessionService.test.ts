@@ -78,6 +78,8 @@ describe("CustomerSessionService", () => {
         reverses_id INTEGER,
         profit_usd REAL NOT NULL DEFAULT 0,
         profit_lbp REAL NOT NULL DEFAULT 0,
+        extra_usd REAL NOT NULL DEFAULT 0,
+        extra_lbp REAL NOT NULL DEFAULT 0,
         summary TEXT,
         metadata_json TEXT,
         device_id TEXT,

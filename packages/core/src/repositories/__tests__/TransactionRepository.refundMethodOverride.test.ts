@@ -77,6 +77,8 @@ function createTestDb(): Database.Database {
       reverses_id INTEGER,
       profit_usd REAL NOT NULL DEFAULT 0,
       profit_lbp REAL NOT NULL DEFAULT 0,
+      extra_usd REAL NOT NULL DEFAULT 0,
+      extra_lbp REAL NOT NULL DEFAULT 0,
       summary TEXT,
       metadata_json TEXT,
       device_id TEXT,
@@ -154,6 +156,7 @@ function createTestDb(): Database.Database {
     CREATE TABLE sales (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       final_amount_usd REAL NOT NULL DEFAULT 0,
+      extra_usd REAL NOT NULL DEFAULT 0,
       paid_usd REAL NOT NULL DEFAULT 0,
       paid_lbp REAL DEFAULT 0,
       exchange_rate_snapshot REAL DEFAULT 0,

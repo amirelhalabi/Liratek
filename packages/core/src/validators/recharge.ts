@@ -4,12 +4,45 @@ import {
   positiveDecimalSchema,
   transactionTimeSchema,
   historyAllQuerySchema,
+  extraChargeFields,
+  hasExtraCharge,
+  discountAndExtraNotBoth,
+  extraNotBothRefineOptions,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+  EXTRA_ABOVE_TOTAL_MESSAGE,
 } from "./common.js";
 import { TOP_UP_PROVIDERS } from "../constants/rechargeProviders.js";
 
 /**
  * Recharge validation schemas (MTC, Alfa)
  */
+
+/** LIRA-319 — a credit buy-back is a payout: the shop pays, so no extra. */
+export const NO_EXTRA_ON_BUYBACK_MESSAGE =
+  "No extra on a credit buy-back — it is a payout, not a sale.";
+
+/** LIRA-319 — the extra is entered in the sale's own currency (owner
+ *  2026-10-13): `extra_lbp` on an LBP sale, `extra_usd` on a USD sale. */
+export const RECHARGE_EXTRA_CURRENCY_MESSAGE =
+  "The extra is in the sale's currency.";
+
+/**
+ * LIRA-319 — the extra a recharge payload carries, in its own currency, or
+ * `null` when it carries one in the OTHER currency (refused). Shared by the
+ * schema refine and `RechargeRepository.processRecharge` (rule 14).
+ */
+export function rechargeExtraInSaleCurrency(data: {
+  currency?: string | undefined;
+  extra_usd?: number | undefined;
+  extra_lbp?: number | undefined;
+}): number | null {
+  const currency = data.currency ?? "USD";
+  const usd = data.extra_usd ?? 0;
+  const lbp = data.extra_lbp ?? 0;
+  if (currency === "LBP") return usd !== 0 ? null : lbp;
+  if (currency === "USD") return lbp !== 0 ? null : usd;
+  return usd !== 0 || lbp !== 0 ? null : 0;
+}
 
 /**
  * THE single recharge-processing contract — shared by the desktop IPC handler
@@ -106,6 +139,11 @@ export const createRechargeSchema = z
     // returned) change per currency → added to the transaction's profit stamp.
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
+    // LIRA-319: the extra the cashier added on top of the sale, in the
+    // sale's currency. Optional with NO default (offline replay, research
+    // R4). `price` stays the sale price; the repository charges
+    // `price + extra` and keeps the extra out of the profit stamp.
+    ...extraChargeFields,
     transaction_time: transactionTimeSchema,
     /**
      * The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the frontend's
@@ -158,6 +196,29 @@ export const createRechargeSchema = z
         "paid_by_method cannot be Customer Account on a for-partner recharge — there is no customer owing, the partner owes",
       path: ["paid_by_method"],
     },
+  )
+  // LIRA-319 — refused before the write; `RechargeRepository.processRecharge`
+  // enforces the same (plus the session-basket item, which never passes
+  // through this schema).
+  .refine(
+    (data) => discountAndExtraNotBoth(data, data.discount),
+    extraNotBothRefineOptions,
+  )
+  .refine((data) => data.partnerMode !== "FOR" || !hasExtraCharge(data), {
+    message: NO_EXTRA_FOR_PARTNER_MESSAGE,
+    path: ["extra_usd"],
+  })
+  .refine((data) => data.type !== "CREDIT_BUYBACK" || !hasExtraCharge(data), {
+    message: NO_EXTRA_ON_BUYBACK_MESSAGE,
+    path: ["extra_usd"],
+  })
+  .refine((data) => rechargeExtraInSaleCurrency(data) !== null, {
+    message: RECHARGE_EXTRA_CURRENCY_MESSAGE,
+    path: ["extra_usd"],
+  })
+  .refine(
+    (data) => (rechargeExtraInSaleCurrency(data) ?? 0) <= data.price + 1e-9,
+    { message: EXTRA_ABOVE_TOTAL_MESSAGE, path: ["extra_usd"] },
   );
 
 export const getRechargeStockSchema = z.object({

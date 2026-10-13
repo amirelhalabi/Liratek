@@ -1108,7 +1108,8 @@ export interface ElectronAPI {
   // Sales
   sales: {
     process: (
-      saleData: import("@liratek/core").SaleRequest,
+      // Rule 21: the schema's input type (carries extra_usd/extra_lbp).
+      saleData: import("@liratek/core").SaleProcessPayload,
     ) => Promise<{
       success: boolean;
       id?: number;
@@ -1636,96 +1637,10 @@ export interface ElectronAPI {
      * both read them, per the owner's 2026-07-29 float-model decision) so the
      * two no longer drift if the `any` cast is ever removed.
      */
-    addTransaction: (data: {
-      provider:
-        | "OMT"
-        | "WHISH"
-        | "BOB"
-        | "OTHER"
-        | "iPick"
-        | "Katsh"
-        | "WHISH_APP"
-        | "OMT_APP"
-        | "BINANCE";
-      serviceType: "SEND" | "RECEIVE" | "BILL";
-      amount: number;
-      currency?: string;
-      commission?: number;
-      cost?: number;
-      price?: number;
-      paidByMethod?: string;
-      payments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-        voucherCode?: string;
-        direction?: "IN" | "OUT";
-      }>;
-      clientId?: number;
-      clientName?: string;
-      referenceNumber?: string;
-      phoneNumber?: string;
-      senderName?: string;
-      senderPhone?: string;
-      receiverName?: string;
-      receiverPhone?: string;
-      senderClientId?: number;
-      receiverClientId?: number;
-      omtServiceType?: string;
-      /** Fee charged by OMT (user-entered or auto-looked-up). No SEND-only
-       *  gate — a RECEIVE can carry this fee too (float model). */
-      omtFee?: number;
-      /** Fee charged by WHISH (user-entered). Same direction-agnostic note
-       *  as omtFee above. */
-      whishFee?: number;
-      profitRate?: number;
-      payFee?: boolean;
-      itemKey?: string;
-      itemCategory?: string;
-      note?: string;
-      /** true = fee already netted into amount/payout; false/omitted = fee
-       *  on top. Applies to SEND and RECEIVE alike. */
-      includingFees?: boolean;
-      paymentMethodFee?: number;
-      paymentMethodFeeRate?: number;
-      returnedCreditsUsd?: number;
-      /** LIRA-090 (v140): catalog item id — presence signals an Only-Days
-       *  telecom sale and drives the computed returned-credit default plus
-       *  the primary carrier-line movement. See spec §5.1/§8. */
-      mobileServiceItemId?: number;
-      /** LIRA-090 (v140): per-line returned-credits array for the walk-in
-       *  aggregated cart path (spec §6 bug 2 groundwork). One entry per
-       *  Only-Days line in the cart. */
-      telecomCreditReturns?: Array<{
-        itemCategory?: string;
-        mobileServiceItemId?: number;
-        returnedCreditsUsd?: number;
-      }>;
-      partnerId?: number;
-      partnerMode?: "THROUGH" | "FOR";
-      cashoutMethod?: string;
-      kept_change_usd?: number;
-      kept_change_lbp?: number;
-      transaction_time?: string;
-      deferPayment?: boolean;
-      checkoutTotal?: { usd: number; lbp: number };
-      tender_exchange_rate?: number;
-      split_group?: string;
-      split_role?: "carrier" | "sibling";
-      split_units?: number;
-      /** BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.2/§4 Phase C: operator-chosen
-       *  fee-collection legs for an OMT/WHISH system RECEIVE with a
-       *  fee-on-top (`includingFees` false, fee > 0). Real tender methods,
-       *  split allowed, CUSTOMER_ACCOUNT allowed (client-gated). Absent
-       *  entirely (not `[]`) falls back to the repository's legacy
-       *  single-leg synthesis on `cashoutMethod`. Never sent inside a
-       *  session (Phase F). */
-      feePayments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-      }>;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    // LIRA-319 (rule 21/12): core's schema input, never a hand copy.
+    addTransaction: (
+      data: import("@liratek/core").CreateFinancialServicePayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: (provider?: string, opts?: { all?: boolean }) => Promise<
       Array<{
         id: number;
@@ -1803,55 +1718,11 @@ export interface ElectronAPI {
         count: number;
       }>;
     }>;
-    process: (data: {
-      provider: "MTC" | "Alfa";
-      type:
-        | "CREDIT_TRANSFER"
-        | "VOUCHER"
-        | "DAYS"
-        | "ALFA_GIFT"
-        | "CREDIT_BUYBACK"
-        | "SHOP_LINE_USE";
-      amount: number;
-      cost: number;
-      price: number;
-      /** LIRA-185 #1: payment-sheet discount (sale currency); `price` stays
-       *  the list price, the server charges `price − discount`. */
-      discount?: number;
-      default_price_to_client?: number;
-      paid_by_method?: string;
-      phoneNumber?: string;
-      clientId?: number;
-      clientName?: string;
-      currency?: string;
-      note?: string;
-      /** Multi-payment legs — required (non-empty) for `type:
-       *  "CREDIT_BUYBACK"` (CARRIER_LINES_VALIDITY_PLAN.md Phase 6). Legs
-       *  without `direction` are IN (customer-paid / payout); `direction:
-       *  "OUT"` marks a change leg (CLAUDE.md rule 16). */
-      payments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-        voucherCode?: string;
-        direction?: "IN" | "OUT";
-      }>;
-      kept_change_usd?: number;
-      kept_change_lbp?: number;
-      partnerId?: number;
-      partnerMode?: "FOR";
-      transaction_time?: string;
-      /** Payment-Legs Integrity plan (false-reject fix): the rate the
-       *  payment sheet actually converted the customer's tender at — used
-       *  only for leg reconciliation, never the stamped exchange_rate. */
-      tender_exchange_rate?: number;
-      /** The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
-       *  frontend's `localDay()`) — fed to the DAYS-sale validity decrement,
-       *  the CREDIT_BUYBACK credit movement, and a redeemed GIFT_CARD
-       *  voucher's expiry check, all of which otherwise evaluate against the
-       *  server's day (untrustworthy on web). */
-      client_day?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    // Rule 21 (LIRA-319): the core schema's input type — incl. the extra
+    // charge (`extra_usd`/`extra_lbp`).
+    process: (
+      data: import("@liratek/core").CreateRechargePayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     topUpApp: (data: {
       provider:
         | "MTC"

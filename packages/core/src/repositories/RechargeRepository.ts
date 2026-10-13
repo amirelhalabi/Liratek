@@ -34,6 +34,17 @@ import {
 import { resolveKeptChange } from "./keptChange.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { applyRechargeDiscount } from "../utils/rechargeDiscount.js";
+import {
+  DISCOUNT_AND_EXTRA_MESSAGE,
+  EXTRA_ABOVE_TOTAL_MESSAGE,
+  EXTRA_ON_SESSION_ITEM_MESSAGE,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+} from "../validators/common.js";
+import {
+  NO_EXTRA_ON_BUYBACK_MESSAGE,
+  RECHARGE_EXTRA_CURRENCY_MESSAGE,
+  rechargeExtraInSaleCurrency,
+} from "../validators/recharge.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {
@@ -230,6 +241,17 @@ export interface RechargeData {
   partnerId?: number;
   /** Only "FOR" is valid for recharges — the partner analog of CUSTOMER_ACCOUNT. */
   partnerMode?: "FOR";
+  /**
+   * LIRA-319: the extra the cashier added on top of the sale, in the sale's
+   * currency. The customer owes and pays `price + extra` (legs, drawer,
+   * account debt); the RECHARGE row's amount includes it, its profit stamp
+   * never does (reported from `transactions.extra_*`). Never with a
+   * discount, on a credit buy-back, a for-partner sale or a session-basket
+   * item, and never above `price` — {@link RechargeRepository.processRecharge}
+   * refuses each.
+   */
+  extra_usd?: number;
+  extra_lbp?: number;
 }
 
 export interface RechargeEntity {
@@ -921,6 +943,34 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     id?: number;
     error?: string;
   } {
+    // LIRA-319: the extra is checked here, server-side, whatever the caller
+    // (the session checkout calls this without the schema). Before anything
+    // else — nothing may be written for a refused extra.
+    if ((input.extra_usd ?? 0) < 0 || (input.extra_lbp ?? 0) < 0) {
+      return { success: false, error: "The extra can't be negative." };
+    }
+    const extra = rechargeExtraInSaleCurrency(input);
+    if (extra === null) {
+      return { success: false, error: RECHARGE_EXTRA_CURRENCY_MESSAGE };
+    }
+    if (extra > 0) {
+      if (input.type === "CREDIT_BUYBACK") {
+        return { success: false, error: NO_EXTRA_ON_BUYBACK_MESSAGE };
+      }
+      if (input.deferPayment === true) {
+        return { success: false, error: EXTRA_ON_SESSION_ITEM_MESSAGE };
+      }
+      if (input.partnerMode === "FOR") {
+        return { success: false, error: NO_EXTRA_FOR_PARTNER_MESSAGE };
+      }
+      if ((input.discount ?? 0) > 0) {
+        return { success: false, error: DISCOUNT_AND_EXTRA_MESSAGE };
+      }
+      if (extra > input.price + 1e-9) {
+        return { success: false, error: EXTRA_ABOVE_TOTAL_MESSAGE };
+      }
+    }
+
     // LIRA-185 #1 (owner decision 2026-10-02): the payment sheet's Discount
     // lowers the price CHARGED. Normalized here, once, before any branch
     // reads `price`, so the recharges row, the transaction amount, leg
@@ -1087,13 +1137,26 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           sellRate,
           data.tender_exchange_rate,
         );
+        // LIRA-319: what the customer owes — the sale price plus the extra
+        // (sale currency). Every customer-money step below (legs, single-
+        // method fallback, account debt) uses this; the recharges row and
+        // the commission keep the sale price.
+        const amountDue = data.price + extra;
+        const extraTail =
+          extra > 0
+            ? ` (+${currency === "LBP" ? "" : "$"}${extra.toLocaleString()} extra)`
+            : "";
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE,
           source_table: "recharges",
           source_id: rechargeId,
           user_id: createdBy,
-          amount_usd: currency === "USD" ? data.price : 0,
-          amount_lbp: currency === "LBP" ? data.price : 0,
+          // LIRA-319: includes the extra; the profit stamp below never does
+          // (research R2).
+          amount_usd: currency === "USD" ? amountDue : 0,
+          amount_lbp: currency === "LBP" ? amountDue : 0,
+          extra_usd: currency === "USD" ? extra : 0,
+          extra_lbp: currency === "LBP" ? extra : 0,
           // GROSS commission (sale currency) + kept change (T3,
           // tender-native). The SMS fee no longer nets against this figure —
           // see the comment above `rechargeCommission`.
@@ -1110,7 +1173,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             data.partnerMode === "FOR" && data.partnerId
               ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
               : (clientName ?? null),
-          summary: `Recharge: ${data.provider} ${detail} — ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}`,
+          summary: `Recharge: ${data.provider} ${detail} — ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}${extraTail}`,
           metadata_json: {
             provider: data.provider,
             type: data.type,
@@ -1119,6 +1182,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             price: data.price,
             ...(discount > 0
               ? { discount, list_price: data.price + discount }
+              : {}),
+            ...(extra > 0
+              ? currency === "LBP"
+                ? { extra_lbp: extra }
+                : { extra_usd: extra }
               : {}),
             currency,
             paid_by: paidBy,
@@ -1252,7 +1320,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               usd: data.kept_change_usd,
               lbp: data.kept_change_lbp,
             },
-            expectedTotals: expectedTotalIn(data.price, currency),
+            expectedTotals: expectedTotalIn(amountDue, currency),
             exchangeRate: sellRate,
             tenderExchangeRate: data.tender_exchange_rate,
             context: `${data.provider} ${data.type} recharge`,
@@ -1306,14 +1374,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             paidBy,
             methodDrawerName,
             currency,
-            Math.abs(data.price),
+            Math.abs(amountDue),
             note,
             createdBy,
           );
           upsertBalanceDelta.run(
             methodDrawerName,
             currency,
-            Math.abs(data.price),
+            Math.abs(amountDue),
           );
         } else {
           hasDebt = true;
@@ -1612,9 +1680,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             }
           } else {
             // Single payment (backwards-compatible): the whole price is on
-            // account, in the recharge's own service currency.
-            if (currency === "USD") debtUsd = data.price;
-            else if (currency === "LBP") debtLbp = data.price;
+            // account, in the recharge's own service currency — plus the
+            // extra (LIRA-319, FR-015).
+            if (currency === "USD") debtUsd = amountDue;
+            else if (currency === "LBP") debtLbp = amountDue;
           }
           bookClientDebtCharge(this.db, {
             clientId: data.clientId,

@@ -28,6 +28,37 @@ export interface TransactionRowFields {
   account_payments?: TransactionPaymentLeg[];
   session_payments?: TransactionPaymentLeg[];
   session_account_payments?: TransactionPaymentLeg[];
+  /** LIRA-319: the extra charge stamped on the row (absent on older rows
+   *  and older servers — then read from `metadata_json`, else 0). */
+  extra_usd?: number | null;
+  extra_lbp?: number | null;
+}
+
+/** LIRA-319 — "+$1.00" / "+10,000 LBP" for a row's extra charge: the column
+ *  first, the sale metadata's `extra_usd`/`extra_lbp` as a fallback. Null
+ *  when the row has none. */
+export function extraChargeText(
+  row: Pick<TransactionRowFields, "extra_usd" | "extra_lbp" | "metadata_json">,
+  money: MoneyFormatter = formatCashMoney,
+): string | null {
+  let usd = Number(row.extra_usd ?? 0) || 0;
+  let lbp = Number(row.extra_lbp ?? 0) || 0;
+  // Metadata only when the columns are ABSENT (an older server): a stored 0
+  // or a negated refund share is the row's real value — a REFUND inherits
+  // the sale's metadata and must never read the sale's extra as its own.
+  if (row.extra_usd == null && row.extra_lbp == null && row.metadata_json) {
+    try {
+      const m = JSON.parse(row.metadata_json) as Record<string, unknown>;
+      if (typeof m.extra_usd === "number") usd = m.extra_usd;
+      if (typeof m.extra_lbp === "number") lbp = m.extra_lbp;
+    } catch {
+      // Malformed metadata: no extra to show.
+    }
+  }
+  const parts: string[] = [];
+  if (usd > 0) parts.push(money(usd, "USD"));
+  if (lbp > 0) parts.push(money(lbp, "LBP"));
+  return parts.length ? `+${parts.join(" + ")}` : null;
 }
 
 /**
@@ -163,6 +194,11 @@ export function cashMovementLine(
       row.reverses_id == null
         ? describeLegs(legs, CASH_WORDS.sale, ["in", "out"], money)
         : describeLegs(legs, CASH_WORDS.saleVoid, ["out", "in"], money);
+    // LIRA-319: the extra the customer was charged on top of the items.
+    if (row.reverses_id == null) {
+      const extra = extraChargeText(row, money);
+      if (extra) parts.push(`extra ${extra}`);
+    }
   } else if (row.type === "REFUND") {
     parts = describeLegs(legs, CASH_WORDS.refund, ["out", "in"], money);
     const kept = refundKeptChange(row.metadata_json, money);

@@ -119,6 +119,8 @@ export default function POS() {
     change_given_usd?: number;
     change_given_lbp?: number;
     discount_usd?: number;
+    /** LIRA-319 (v213): the draft's extra charge (USD — POS is USD-priced). */
+    extra_usd?: number;
     paid_usd?: number;
     paid_lbp?: number;
   };
@@ -465,6 +467,9 @@ export default function POS() {
           0,
         );
         const discount = pendingCheckoutData?.discount || 0;
+        // LIRA-319: keep the resumed draft's extra across autosaves — a
+        // re-save without it would clear it on the server.
+        const extra = pendingCheckoutData?.extra || 0;
         const saleRequest: SaleRequest = {
           status: "draft",
           id: currentDraftId,
@@ -473,6 +478,7 @@ export default function POS() {
           total_amount: totalAmount,
           discount,
           final_amount: totalAmount - discount,
+          ...(extra > 0 ? { extra_usd: extra } : {}),
           payment_usd: pendingCheckoutData?.paidUSD || 0,
           payment_lbp: pendingCheckoutData?.paidLBP || 0,
           client_id: pendingCheckoutData?.selectedClient?.id || null,
@@ -665,6 +671,8 @@ export default function POS() {
       clientSearchInput: draft.client_name || "",
       clientSearchSecondary: draft.client_phone || "",
       discount: draft.discount_usd || 0,
+      // LIRA-319 (v213): CheckoutModal reopens on the Extra side when > 0.
+      extra: draft.extra_usd || 0,
       paidUSD: draft.paid_usd || 0,
       paidLBP: draft.paid_lbp || 0,
       changeGivenUSD: draft.change_given_usd || 0,
@@ -697,7 +705,9 @@ export default function POS() {
             await linkTransaction({
               transactionType: "sale",
               transactionId: result.id,
-              amountUsd: saleRequest.final_amount || 0,
+              // LIRA-319: the SALE row's amount — price + extra.
+              amountUsd:
+                (saleRequest.final_amount || 0) + (paymentData.extra_usd ?? 0),
               amountLbp: 0, // Sales are tracked in USD
             });
           } catch (err) {
@@ -802,6 +812,9 @@ export default function POS() {
           serialLabelOf={serialLabelOf}
           allowKeepChange={true}
           allowForPartner={true}
+          // LIRA-319: "+ Extra" on the Discount line — this page sends the
+          // whole PaymentData (extra_usd / extra_lbp) to processSale.
+          allowExtraCharge={true}
           totalAmount={cartItems.reduce(
             (acc, item) => acc + item.retail_price * item.quantity,
             0,

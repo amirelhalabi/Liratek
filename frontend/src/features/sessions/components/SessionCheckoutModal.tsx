@@ -50,6 +50,8 @@ interface CheckoutSuccessState {
   customerPhone?: string | undefined;
   items: SessionReceiptItem[];
   legs: SessionReceiptLeg[];
+  /** LIRA-319 — the basket extra, per currency (absent when none). */
+  extra?: { usd: number; lbp: number };
 }
 
 interface SessionCheckoutModalProps {
@@ -284,6 +286,7 @@ export function SessionCheckoutModal({
       setRateEdited(false);
       setKeptChange(null);
       setWaived(null);
+      setExtraUsdEq(0);
       setCheckoutSuccess(null);
       setPayoutMethodOverride({});
       setChosenFirstMethod(null);
@@ -358,6 +361,16 @@ export function SessionCheckoutModal({
   const [waived, setWaived] = useState<{ usd: number; lbp: number } | null>(
     null,
   );
+  // LIRA-319 — the ONE extra for the whole basket, as the payment input
+  // reports it (USD, its totalAmountCurrency). An extra and a Waive never
+  // ride together ("a discount or an extra, not both"): typing an extra
+  // drops any waive, and the Waive is not offered while an extra is set.
+  const [extraUsdEq, setExtraUsdEq] = useState(0);
+  const handleExtraChange = (extra: number) => {
+    const value = extra > 0 ? extra : 0;
+    setExtraUsdEq(value);
+    if (value > 0) setWaived(null);
+  };
   const handleWaiveRemaining = (
     _amount: number,
     byCurrency: Array<{ currency: string; amount: number }>,
@@ -624,6 +637,7 @@ export function SessionCheckoutModal({
       setReturnLines((prev) => (prev.length === 0 ? prev : NO_LINES));
       setKeptChange(null);
       setWaived(null);
+      setExtraUsdEq(0);
     }
   }, [hasChargeToCollect]);
 
@@ -855,9 +869,22 @@ export function SessionCheckoutModal({
   const waivedUSD = waived
     ? waived.usd + (exchangeRate > 0 ? waived.lbp / exchangeRate : 0)
     : 0;
+  // LIRA-319: the extra is owed on top of the basket (the input adds it to
+  // its own total, so the gate must too).
+  const extraUSD = hasChargeToCollect ? extraUsdEq : 0;
   const isPaymentValid =
     combinedTotalUSD <= 0 ||
-    paidUSD + waivedUSD >= combinedTotalUSD - combinedTolerance;
+    paidUSD + waivedUSD >= combinedTotalUSD + extraUSD - combinedTolerance;
+  // LIRA-319 — the extra in the basket's currency (owner decision): an
+  // LBP-only basket books it in LBP (back from the input's USD at the same
+  // operator rate, whole LBP), every other basket in USD (cents).
+  const basketExtra = (() => {
+    if (!(extraUSD > 0)) return { usd: 0, lbp: 0 };
+    if (netChargeUsd <= 0 && netChargeLbp > 0 && exchangeRate > 0) {
+      return { usd: 0, lbp: Math.round(extraUSD * exchangeRate) };
+    }
+    return { usd: Math.round(extraUSD * 100) / 100, lbp: 0 };
+  })();
 
   // LIRA-310: a waive is only good for the gap it was taken on. When the
   // payment (or the basket) changes so the gap no longer equals the waived
@@ -865,9 +892,9 @@ export function SessionCheckoutModal({
   // full total is due again.
   useEffect(() => {
     if (!waived) return;
-    const gap = combinedTotalUSD - paidUSD;
+    const gap = combinedTotalUSD + extraUSD - paidUSD;
     if (Math.abs(gap - waivedUSD) > combinedTolerance) setWaived(null);
-  }, [waived, waivedUSD, combinedTotalUSD, paidUSD, combinedTolerance]);
+  }, [waived, waivedUSD, combinedTotalUSD, extraUSD, paidUSD, combinedTolerance]);
 
   if (!isOpen) return null;
   // Checkout closes the session (is_active = 0), so activeSession goes null
@@ -970,6 +997,10 @@ export function SessionCheckoutModal({
         ...(waived && hasChargeToCollect && waived.lbp > 0
           ? { waived_lbp: waived.lbp }
           : {}),
+        // LIRA-319: the basket extra, each currency only when > 0 (the
+        // schema has no default — an absent key means "no extra").
+        ...(basketExtra.usd > 0 ? { extra_usd: basketExtra.usd } : {}),
+        ...(basketExtra.lbp > 0 ? { extra_lbp: basketExtra.lbp } : {}),
         userId: user.id,
       });
 
@@ -1003,6 +1034,9 @@ export function SessionCheckoutModal({
             direction: l.direction,
             ...(l.kind ? { kind: l.kind } : {}),
           })),
+          ...(basketExtra.usd > 0 || basketExtra.lbp > 0
+            ? { extra: basketExtra }
+            : {}),
         };
         clearCart();
         await refreshActiveSessions();
@@ -1057,6 +1091,7 @@ export function SessionCheckoutModal({
       customerPhone: checkoutSuccess.customerPhone,
       items: checkoutSuccess.items,
       legs: checkoutSuccess.legs,
+      ...(checkoutSuccess.extra ? { extra: checkoutSuccess.extra } : {}),
     });
     await printReceipt({
       text,
@@ -1328,7 +1363,10 @@ export function SessionCheckoutModal({
                       onChange={handlePaymentLinesChange}
                       onReturnChange={setReturnLines}
                       onKeptChange={setKeptChange}
-                      onWaiveRemaining={handleWaiveRemaining}
+                      // LIRA-319: no Waive while an extra is set.
+                      {...(extraUSD > 0
+                        ? {}
+                        : { onWaiveRemaining: handleWaiveRemaining })}
                       // The customer pays the shop: change kept = profit.
                       payer="customer"
                       requiresClientForDebt={true}
@@ -1344,6 +1382,11 @@ export function SessionCheckoutModal({
                       exchangeRate={exchangeRate}
                       onRateChange={handleRateChange}
                       showDiscount={false}
+                      // LIRA-319 (owner decision): the basket takes ONE
+                      // extra, here at the checkout — an extra-only line
+                      // (no discount on a basket). The input adds it to
+                      // its total and reports it; capped at the basket.
+                      onExtraChange={handleExtraChange}
                       label="Payment"
                       initialMethod={chosenFirstMethod ?? initialMethod}
                       clientId={sessionClientId}

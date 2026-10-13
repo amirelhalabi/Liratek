@@ -174,3 +174,58 @@ export const refundExchangeRateQuerySchema = _buildRefundExchangeRateSchema(
   // unsafe runtime assumption.
   z.coerce.number() as unknown as z.ZodNumber,
 );
+
+/**
+ * LIRA-319 — the extra a cashier adds on top of a sale's total, per
+ * currency. Spread into each write schema's `z.object({...})` (before any
+ * `.refine`, so it works on zod 3 at runtime too). Optional with NO
+ * `.default()`: an offline event recorded before LIRA-319 has neither key and
+ * must stay replayable (`offline/schemaShape.ts` `isCompatible` refuses a
+ * server-only key that carries a default — research R4). Absent = no extra.
+ */
+export const extraChargeFields = {
+  extra_usd: z.number().nonnegative().optional(),
+  extra_lbp: z.number().nonnegative().optional(),
+};
+
+/** The one sentence every schema and repository uses (rule 14). */
+export const DISCOUNT_AND_EXTRA_MESSAGE =
+  "A sale can have a discount or an extra, not both.";
+
+/** LIRA-319 — refused on a for-partner sale (no customer pays an extra). */
+export const NO_EXTRA_FOR_PARTNER_MESSAGE = "No extra on a for-partner sale.";
+
+/** LIRA-319 — the extra may not exceed the pre-extra total (FR-006). */
+export const EXTRA_ABOVE_TOTAL_MESSAGE =
+  "The extra can't be more than the sale itself.";
+
+/** LIRA-319 — a session-basket item takes its extra at the checkout. */
+export const EXTRA_ON_SESSION_ITEM_MESSAGE =
+  "Add the extra at the session checkout.";
+
+/** True when the payload carries a positive extra in either currency. */
+export function hasExtraCharge(data: {
+  extra_usd?: number | undefined;
+  extra_lbp?: number | undefined;
+}): boolean {
+  return (data.extra_usd ?? 0) > 0 || (data.extra_lbp ?? 0) > 0;
+}
+
+/**
+ * LIRA-319 — "a discount or an extra, never both". `discount` is the
+ * schema's own discount amount(s) — each module names it differently, so the
+ * caller passes it. Use as
+ * `.refine((d) => discountAndExtraNotBoth(d, d.discount), extraNotBothRefineOptions)`.
+ */
+export function discountAndExtraNotBoth(
+  data: { extra_usd?: number | undefined; extra_lbp?: number | undefined },
+  discount: number | undefined | null,
+): boolean {
+  return !((discount ?? 0) > 0 && hasExtraCharge(data));
+}
+
+/** Refine options paired with `discountAndExtraNotBoth`. */
+export const extraNotBothRefineOptions = {
+  message: DISCOUNT_AND_EXTRA_MESSAGE,
+  path: ["extra_usd"],
+};

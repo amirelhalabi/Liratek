@@ -20,6 +20,7 @@ import {
 import { resolveKeptChange } from "./keptChange.js";
 import { BusinessRuleError } from "../utils/errors.js";
 import { normalizeMaintenancePhone } from "../validators/maintenance.js";
+import { EXTRA_ABOVE_TOTAL_MESSAGE } from "../validators/common.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import {
   restoreMaintenanceJobParts,
@@ -630,6 +631,13 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
        *  profit stamp. */
       keptChangeUsd?: number;
       keptChangeLbp?: number;
+      /** LIRA-319: the extra charged on top of labour + parts, in the job's
+       *  currency (`MaintenanceService.saveJob` has already refused an
+       *  extra on a session-basket job, with a discount or in the other
+       *  currency). Joins the amount, the kept-change reconcile and the debt
+       *  residual — never the profit stamp (research R2). */
+      extraUsd?: number;
+      extraLbp?: number;
       note?: string | null;
       /** LIRA-185 D9: the backdated time a checkout's own transaction/
        *  payment rows should carry — forwarded into `createTransaction`'s
@@ -677,6 +685,20 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     const profit = opts.profit ?? 0;
     const partsPriceUsd = opts.partsPriceUsd ?? 0;
     const partsMarginUsd = opts.partsMarginUsd ?? 0;
+    const extraUsd = opts.extraUsd ?? 0;
+    const extraLbp = opts.extraLbp ?? 0;
+
+    // LIRA-319 (FR-006): the extra may not exceed the pre-extra total — the
+    // checkout's own total in the job's currency (a USD job: labour + parts;
+    // an LBP job: the LBP labour, its USD parts being a separate total), the
+    // same cap the payment box applies. Before any write of this method;
+    // `saveJob`'s transaction rolls the job save back on a refusal.
+    const preExtraTotal = isLbp
+      ? opts.finalAmount
+      : opts.finalAmount + partsPriceUsd;
+    if ((isLbp ? extraLbp : extraUsd) > preExtraTotal + 1e-9) {
+      throw new BusinessRuleError(EXTRA_ABOVE_TOTAL_MESSAGE);
+    }
 
     // Rule 16: split once. IN legs feed every sum, drawer posting and the debt
     // residual below exactly as before; OUT legs are change the cashier did
@@ -760,9 +782,10 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         );
       const kept = resolveKeptChange({
         payer: "customer",
+        // LIRA-319: what the customer owes includes the extra.
         expected: isLbp
-          ? { usd: partsPriceUsd, lbp: opts.finalAmount }
-          : { usd: opts.finalAmount + partsPriceUsd, lbp: 0 },
+          ? { usd: partsPriceUsd + extraUsd, lbp: opts.finalAmount + extraLbp }
+          : { usd: opts.finalAmount + partsPriceUsd + extraUsd, lbp: extraLbp },
         inLegs: inLegs.map(
           (l): ReconciliationLeg => ({
             method: l.method,
@@ -809,13 +832,21 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         ? `Maintenance Job #${jobId}: ${displayLbpTotal.toLocaleString()} LBP + $${displayPartsUsd}`
         : `Maintenance Job #${jobId}: ${displayLbpTotal.toLocaleString()} LBP`
       : `Maintenance Job #${jobId}: $${displayUsdTotal}`;
+    // LIRA-319: the extra shows as its own tail after the price (the
+    // "Maintenance Job #N: $X" figure stays labour + parts).
+    const extraTail =
+      extraUsd > 0
+        ? ` (+$${Math.round(extraUsd * 100) / 100} extra)`
+        : extraLbp > 0
+          ? ` (+${Math.round(extraLbp).toLocaleString()} LBP extra)`
+          : "";
     const deviceLabel = opts.deviceName?.trim()
       ? ` — ${opts.deviceName.trim()}`
       : "";
     const issueLabel = opts.issueDescription?.trim()
       ? ` — ${truncateSummaryDetail(opts.issueDescription.trim())}`
       : "";
-    const summary = `${prefix}${deviceLabel}${issueLabel}`;
+    const summary = `${prefix}${extraTail}${deviceLabel}${issueLabel}`;
 
     // Create unified transaction row.
     //
@@ -831,8 +862,13 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       source_table: "maintenance",
       source_id: jobId,
       user_id: createdBy,
-      amount_usd: partsPriceUsd + (isLbp ? 0 : opts.finalAmount),
-      amount_lbp: isLbp ? opts.finalAmount : 0,
+      // LIRA-319: amounts include the extra (what the customer owes); the
+      // profit stamp below never does — the extra is reported from
+      // extra_usd/extra_lbp (research R2).
+      amount_usd: partsPriceUsd + (isLbp ? 0 : opts.finalAmount) + extraUsd,
+      amount_lbp: (isLbp ? opts.finalAmount : 0) + extraLbp,
+      extra_usd: extraUsd,
+      extra_lbp: extraLbp,
       // Margin: parts margin (always USD) + labour margin (job currency) +
       // kept change per its own currency (T3) — the server-checked amount
       // (G42), never the raw client claim.
@@ -867,6 +903,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
           unit_price_usd: p.unit_price_usd,
         })),
         ...(opts.warrantyUntil ? { warranty_until: opts.warrantyUntil } : {}),
+        ...(extraUsd > 0 || extraLbp > 0
+          ? { extra_usd: extraUsd, extra_lbp: extraLbp }
+          : {}),
       },
     });
 
@@ -1017,8 +1056,13 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     // Parts are always USD, so they can only be added in USD-equivalent
     // terms; labour is converted at the job's own exchange rate the same
     // way the old formula did.
+    // LIRA-319: the extra is owed too — a short or on-account checkout
+    // books it as debt with the rest.
     const owedUsdEquiv =
-      partsPriceUsd + (isLbp ? opts.finalAmount / rate : opts.finalAmount);
+      partsPriceUsd +
+      (isLbp ? opts.finalAmount / rate : opts.finalAmount) +
+      extraUsd +
+      extraLbp / rate;
     const paidUsdEquiv = paidUsd + paidLbp / rate;
     const residualUsd = owedUsdEquiv - paidUsdEquiv;
     // Threshold check in USD-equivalent (~5 cents) to ignore rounding dust.

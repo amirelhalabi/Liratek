@@ -238,6 +238,18 @@ export interface MultiPaymentInputProps {
   maxDiscount?: number;
   /** Callback when discount changes. Receives discount normalized to totalAmountCurrency. */
   onDiscountChange?: (discount: number) => void;
+  /** LIRA-319 (owner 2026-10-13) — enables extra mode on the built-in
+   *  Discount line: a "− Discount | + Extra" switch (or, with
+   *  `showDiscount={false}`, an extra-only line). In extra mode the amount
+   *  ADDS to what is owed, the row below reads "After Extra" and the payment
+   *  line follows the new total. Reports the extra normalized to
+   *  `totalAmountCurrency` (0 in discount mode; the discount reports 0 in
+   *  extra mode — a payment has one or the other). Never on a payout, and
+   *  not with `discountRow` (those pages own their line). */
+  onExtraChange?: (extra: number) => void;
+  /** LIRA-319 — cap on the extra, in totalAmountCurrency. Default: the
+   *  total before the extra. */
+  maxExtra?: number;
   /** LIRA-318 (owner 2026-10-13) — a page that keeps its OWN discount
    *  (POS / Maintenance checkout, Debts and Partners settle) renders its
    *  line here, built with `DiscountLine`, so every page shows one
@@ -592,6 +604,8 @@ export default function MultiPaymentInput({
   showDiscount = true,
   maxDiscount,
   onDiscountChange,
+  onExtraChange,
+  maxExtra,
   label,
   paidLabel = "Paid",
   initialMethod,
@@ -647,6 +661,8 @@ export default function MultiPaymentInput({
   const [clientVouchers, setClientVouchers] = useState<VoucherOption[]>([]);
   const [discountRaw, setDiscountRaw] = useState<string>("");
   const [discountCurrency, setDiscountCurrency] = useState<string>(currency);
+  // LIRA-319 — which side of the built-in line is active (see onExtraChange).
+  const [lineMode, setLineMode] = useState<"discount" | "extra">("discount");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>(
     seededLinesRef.current ?? [
       {
@@ -790,8 +806,14 @@ export default function MultiPaymentInput({
     discountCurrency,
     totalAmountCurrency,
   );
-  const clampedDiscount =
-    maxDiscount !== undefined
+  // LIRA-319 — extra mode on the built-in line: never on a payout, never
+  // when the page owns its line (`discountRow`). With the discount hidden
+  // the line is extra-only.
+  const extraAllowed = !!onExtraChange && !isPayout && !discountRow;
+  const isExtraMode = extraAllowed && (!showDiscount || lineMode === "extra");
+  const clampedDiscount = isExtraMode
+    ? 0
+    : maxDiscount !== undefined
       ? Math.min(discountNormalized, maxDiscount)
       : discountNormalized;
   // LIRA-269: on a payout the caller folds the discount into the total (see
@@ -799,12 +821,38 @@ export default function MultiPaymentInput({
   // field is only offered when the caller books it.
   const discountVisible = showDiscount && (!isPayout || !!onDiscountChange);
   const discountLowersTotal = !isPayout;
+  /** The built-in line is drawn: as a discount, or (LIRA-319) as an extra. */
+  const lineVisible = discountVisible || extraAllowed;
 
   // What is owed, per currency — the native composition callers provide.
   // Discount (normalized to totalAmountCurrency) is taken out of the buckets
   // largest-first.
   const baseTotals: Money[] = totalsProp ?? [];
+  // LIRA-319 — the extra, capped to `maxExtra` (default: the total before
+  // it), in totalAmountCurrency.
+  const extraCap =
+    maxExtra ??
+    baseTotals.reduce(
+      (sum, t) => sum + convertSafe(t.amount, t.currency, totalAmountCurrency),
+      0,
+    );
+  const clampedExtra = isExtraMode
+    ? Math.max(0, Math.min(discountNormalized, extraCap))
+    : 0;
   const effectiveTotals: Money[] = (() => {
+    if (clampedExtra > 0) {
+      // The extra is added in totalAmountCurrency's own bucket.
+      const hasBucket = baseTotals.some(
+        (t) => t.currency === totalAmountCurrency,
+      );
+      return hasBucket
+        ? baseTotals.map((t) =>
+            t.currency === totalAmountCurrency
+              ? { ...t, amount: t.amount + clampedExtra }
+              : t,
+          )
+        : [...baseTotals, { amount: clampedExtra, currency: totalAmountCurrency }];
+    }
     if (clampedDiscount <= 0 || !discountLowersTotal) return baseTotals;
     let discountLeft = clampedDiscount;
     return [...baseTotals]
@@ -897,6 +945,19 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clampedDiscount]);
 
+  // LIRA-319 — emit the extra to the parent (0 in discount mode).
+  useEffect(() => {
+    onExtraChange?.(clampedExtra);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clampedExtra]);
+
+  /** LIRA-319 — the switch: the amount typed for the other side is cleared,
+   *  so a payment never carries a discount and an extra together. */
+  const handleLineModeChange = (m: "discount" | "extra") => {
+    setLineMode(m);
+    setDiscountRaw("");
+  };
+
   // Update custom rate when exchange rate prop changes. Skipped once the
   // operator manually edits the rate field, so a deliberate typed rate isn't
   // reset when the caller's exchangeRate prop later changes (e.g. an async
@@ -958,6 +1019,7 @@ export default function MultiPaymentInput({
     effectiveRate,
     singleLineCurrency,
     clampedDiscount,
+    clampedExtra,
   ]);
 
   // LIRA-308 decision 9 — non-cash change follows a single-currency tender.
@@ -1402,6 +1464,7 @@ export default function MultiPaymentInput({
     paymentMethods,
     effectiveRate,
     clampedDiscount,
+    clampedExtra,
     totalsKey,
   ]);
 
@@ -1521,8 +1584,11 @@ export default function MultiPaymentInput({
   // Built-in path: no page handler → the gap goes into THIS component's own
   // discount, only where that discount is shown, lowers the total and is
   // booked by the page, and only when it still fits `maxDiscount`.
+  // LIRA-319: never in extra mode — Waive writes this same field, which
+  // there is the extra (it would raise the shortfall, not close it).
   const builtInWaive =
     !onWaiveRemaining &&
+    !isExtraMode &&
     discountVisible &&
     discountLowersTotal &&
     !!onDiscountChange &&
@@ -1532,7 +1598,11 @@ export default function MultiPaymentInput({
     !!onWaiveRemaining &&
     (waiveRemainingMax === undefined ||
       waiveShortfall <= waiveRemainingMax + matchTolerance);
-  const showWaiveButton = waiveEligible && (externalWaive || builtInWaive);
+  // LIRA-319: a page's own Waive is a discount — never with an extra.
+  const showWaiveButton =
+    waiveEligible &&
+    !(isExtraMode && clampedExtra > 0) &&
+    (externalWaive || builtInWaive);
 
   const handleWaive = () => {
     if (onWaiveRemaining) {
@@ -2693,16 +2763,42 @@ export default function MultiPaymentInput({
               </span>
             </div>
           )}
+        {/* LIRA-319 — the page's line added an extra: `totals` are above
+            the total before it. */}
+        {discountRow &&
+          totalBeforeDiscount &&
+          totalInTarget - sumInTarget(totalBeforeDiscount) > matchTolerance && (
+            <div
+              data-testid="after-page-extra"
+              className="flex justify-between text-xs pt-1 border-t border-amber-700/20"
+            >
+              <span className="text-amber-300 font-medium">After Extra</span>
+              <span className="font-mono text-amber-200 font-medium">
+                {fmtTarget(toDisplayCurrency(totalInTarget))}
+              </span>
+            </div>
+          )}
 
         {/* Discount — the shared DiscountLine (LIRA-318), so this line
             looks the same as the pages' own discount rows. */}
-        {discountVisible && !discountRow && (
+        {lineVisible && !discountRow && (
           <DiscountLine
-            label="Discount"
+            label={isExtraMode ? "Extra" : "Discount"}
+            {...(extraAllowed && showDiscount
+              ? {
+                  allowExtra: true,
+                  mode: lineMode,
+                  onModeChange: handleLineModeChange,
+                }
+              : {})}
             capNote={
-              maxDiscount !== undefined && discountNormalized > maxDiscount
-                ? `Capped to max (${fmtTarget(toDisplayCurrency(maxDiscount))})`
-                : undefined
+              isExtraMode
+                ? discountNormalized > extraCap + 1e-9
+                  ? `Capped to max (${fmtTarget(toDisplayCurrency(extraCap))})`
+                  : undefined
+                : maxDiscount !== undefined && discountNormalized > maxDiscount
+                  ? `Capped to max (${fmtTarget(toDisplayCurrency(maxDiscount))})`
+                  : undefined
             }
           >
             {isSplitMode && currencies.length > 1 && (
@@ -2733,7 +2829,7 @@ export default function MultiPaymentInput({
               <input
                 type="text"
                 inputMode="decimal"
-                aria-label="Discount"
+                aria-label={isExtraMode ? "Extra" : "Discount"}
                 value={discountRaw}
                 onChange={(e) => {
                   const raw = e.target.value.replace(/,/g, "");
@@ -2742,7 +2838,10 @@ export default function MultiPaymentInput({
                   }
                 }}
                 className={`${discountFieldClass(
-                  maxDiscount !== undefined && discountNormalized > maxDiscount,
+                  isExtraMode
+                    ? discountNormalized > extraCap + 1e-9
+                    : maxDiscount !== undefined &&
+                        discountNormalized > maxDiscount,
                 )} ${
                   ["$", "€", "£"].includes(getSymbol(discountCurrency))
                     ? "pl-5"
@@ -2770,6 +2869,19 @@ export default function MultiPaymentInput({
           <div className="flex justify-between text-xs pt-1 border-t border-emerald-700/20">
             <span className="text-emerald-300 font-medium">After Discount</span>
             <span className="font-mono text-emerald-200 font-medium">
+              {fmtTarget(toDisplayCurrency(effectiveTotalInTarget))}
+            </span>
+          </div>
+        )}
+
+        {/* LIRA-319 — after the built-in line's extra. */}
+        {isExtraMode && clampedExtra > 0 && (
+          <div
+            data-testid="after-page-extra"
+            className="flex justify-between text-xs pt-1 border-t border-amber-700/20"
+          >
+            <span className="text-amber-300 font-medium">After Extra</span>
+            <span className="font-mono text-amber-200 font-medium">
               {fmtTarget(toDisplayCurrency(effectiveTotalInTarget))}
             </span>
           </div>

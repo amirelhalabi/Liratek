@@ -626,6 +626,13 @@ export interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** LIRA-319 — the "Extra charges" line: what cashiers added on top of a
+   *  total (Σ `transactions.extra_usd` / `extra_lbp`, net of refunded
+   *  shares, voids dropped), per currency, never converted. See
+   *  {@link ProfitRepository.getExtraChargeTotals}. Not inside any module's
+   *  profit; FOLDED into `totals` below — gross revenue and gross profit
+   *  (the extra is real takings, with no cost). */
+  extra_charges: { usd: number; lbp: number };
   expenses: { total_usd: number; total_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;
@@ -1061,6 +1068,14 @@ export class ProfitService {
       // void negations) — profit-only, netted into gross.
       const warranty = this.repo.getWarrantyTotals(fromDt, toDt);
 
+      // LIRA-319 — the Extra charges line (outside every module's own
+      // profit), folded into gross revenue and gross profit below.
+      const extraTotals = this.repo.getExtraChargeTotals(fromDt, toDt);
+      const extraCharges = {
+        usd: extraTotals.profit_usd,
+        lbp: extraTotals.profit_lbp,
+      };
+
       // LIRA-272 — kept change on a refund of any module (sales included;
       // debt repayments stay in debtRepayments): only the kept part, on the
       // REFUND's own day (owner decision 2026-10-07 — `getSalesProfit`
@@ -1101,14 +1116,16 @@ export class ProfitService {
         custom.revenue_usd +
         maint.revenue_usd +
         exchange.revenue_usd +
-        mobileSvc.revenue_usd;
+        mobileSvc.revenue_usd +
+        extraCharges.usd;
       const grossRevenueLbp =
         finSvc.revenue_lbp +
         recharges.revenue_lbp +
         custom.revenue_lbp +
         maint.revenue_lbp +
         loto.revenue_lbp +
-        mobileSvc.revenue_lbp;
+        mobileSvc.revenue_lbp +
+        extraCharges.lbp;
       const totalCostUsd =
         sales.cost_usd +
         recharges.cost_usd +
@@ -1157,7 +1174,8 @@ export class ProfitService {
         holdMoney.profit_usd +
         waived.profit_usd +
         warranty.profit_usd +
-        refundKept.profit_usd;
+        refundKept.profit_usd +
+        extraCharges.usd;
       const grossProfitLbp =
         sales.profit_lbp +
         finSvc.commission_lbp +
@@ -1178,7 +1196,8 @@ export class ProfitService {
         holdMoney.profit_lbp +
         waived.profit_lbp +
         warranty.profit_lbp +
-        refundKept.profit_lbp;
+        refundKept.profit_lbp +
+        extraCharges.lbp;
 
       // LO-V1 / LO-R2 — additive visibility roll-up for the Kept Change card
       // (see ProfitSummary.kept_change's own doc comment); already inside
@@ -1234,6 +1253,7 @@ export class ProfitService {
         hold_money: holdMoney,
         waived,
         warranty,
+        extra_charges: extraCharges,
         expenses,
         totals: {
           gross_revenue_usd: grossRevenueUsd,
@@ -1547,6 +1567,29 @@ export class ProfitService {
         });
       }
 
+      // LIRA-319 — the Extra charges line, placed like Kept Change. Unlike
+      // the profit-only rows above (LO-V12), revenue = profit: the extra is
+      // real takings the module rows' revenue never includes (research R3),
+      // so Σ By Module revenue still equals the Overview's gross revenue.
+      const extraTotals = this.repo.getExtraChargeTotals(fromDt, toDt);
+      if (
+        extraTotals.profit_usd !== 0 ||
+        extraTotals.profit_lbp !== 0 ||
+        extraTotals.count > 0
+      ) {
+        results.push({
+          module: "EXTRA_CHARGE",
+          label: "Extra charges",
+          revenue_usd: extraTotals.profit_usd,
+          revenue_lbp: extraTotals.profit_lbp,
+          cost_usd: 0,
+          cost_lbp: 0,
+          profit_usd: extraTotals.profit_usd,
+          profit_lbp: extraTotals.profit_lbp,
+          count: extraTotals.count,
+        });
+      }
+
       const discountTotals = this.repo.getCounterpartyDiscountTotals(
         fromDt,
         toDt,
@@ -1751,6 +1794,11 @@ export class ProfitService {
       match: (key) => key === "WARRANTY",
       build: (_key, fromDt, toDt) =>
         this.buildWarrantyModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "EXTRA_CHARGE",
+      build: (_key, fromDt, toDt) =>
+        this.buildExtraChargeModuleDetail(fromDt, toDt),
     },
     {
       match: (key) => key === "TOPUP_BUYBACK",
@@ -2992,6 +3040,50 @@ export class ProfitService {
       module: "WARRANTY",
       counted,
       not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-319 (T026) — the Extra charges drill-down: every row that carries
+   * an extra (a charge, or a refund's negated share), always counted — the
+   * same rows {@link ProfitRepository.getExtraChargeTotals} sums, so the
+   * counted total reproduces the By Module row exactly.
+   */
+  private buildExtraChargeModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const counted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+    for (const r of this.repo.getExtraChargeDetail(fromDt, toDt)) {
+      counted.push({
+        id: r.id,
+        source: "extra_charge",
+        date: r.created_at,
+        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        detail: r.txn_type,
+        amount_usd: r.profit_usd,
+        amount_lbp: r.profit_lbp,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: 100,
+        counted_profit_usd: r.profit_usd,
+        counted_profit_lbp: r.profit_lbp,
+        reason: null,
+        fee_note: null,
+      });
+      countedProfitUsd += r.profit_usd;
+      countedProfitLbp += r.profit_lbp;
+    }
+    return {
+      module: "EXTRA_CHARGE",
+      counted,
+      not_counted: [],
       counted_total_profit_usd: countedProfitUsd,
       counted_total_profit_lbp: countedProfitLbp,
     };

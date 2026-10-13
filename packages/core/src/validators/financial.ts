@@ -5,6 +5,10 @@ import {
   currencyCodeSchema,
   transactionTimeSchema,
   historyAllQuerySchema,
+  extraChargeFields,
+  hasExtraCharge,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+  EXTRA_ON_SESSION_ITEM_MESSAGE,
 } from "./common.js";
 
 /**
@@ -74,6 +78,11 @@ const providerCodeSchema = z
  * refines keep firing — and keep being the right answer — for every other
  * case.
  */
+/** LIRA-319 — an extra is only for money the customer pays; a RECEIVE is a
+ *  payout (the shop pays), so it never takes one (FR-011). */
+export const NO_EXTRA_ON_PAYOUT_MESSAGE =
+  "No extra on a payout — the shop is paying, not being paid.";
+
 export const OMT_RECEIVE_NO_FEE_MESSAGE =
   "OMT RECEIVE never takes a fee from the customer — any provider fee is shown for the commission calculation only, never collected or deducted. Remove the fee amount, includingFees, and feePayments, then resubmit.";
 
@@ -214,6 +223,14 @@ export const createFinancialServiceSchema = z
     // T3 keep-change (KC-4): kept change per currency → profit stamp.
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
+    // LIRA-319: the extra the cashier added on top of what the customer
+    // owes (OMT/Whish send, Katsh/catalog cart carrier, crypto send, app
+    // transfer). Its own field — never folded into amount/price/fee/
+    // commission, so the provider fee, the commission and the supplier/
+    // partner ledgers stay exactly as without it. Optional, no default
+    // (offline replay, research R4). `checkoutTotal` stays the PRE-extra
+    // total; the repository adds the extra to every total it reconciles.
+    ...extraChargeFields,
     transaction_time: transactionTimeSchema,
     /**
      * Payment-Legs Integrity plan (Wave 8, owner decision 2026-07-18): the
@@ -474,7 +491,23 @@ export const createFinancialServiceSchema = z
         "feePayments requires a non-zero omtFee/whishFee/commission — there is no fee to collect",
       path: ["feePayments"],
     },
-  );
+  )
+  // LIRA-319 — where an extra may NOT go (the repository refuses the same,
+  // plus the cap and the currency, whatever the caller). A discount on these
+  // pages is folded into the price/fee on the client, so "discount or extra,
+  // not both" is enforced by the payment box, not here (spec assumptions).
+  .refine((data) => data.serviceType !== "RECEIVE" || !hasExtraCharge(data), {
+    message: NO_EXTRA_ON_PAYOUT_MESSAGE,
+    path: ["extra_usd"],
+  })
+  .refine((data) => data.partnerMode !== "FOR" || !hasExtraCharge(data), {
+    message: NO_EXTRA_FOR_PARTNER_MESSAGE,
+    path: ["extra_usd"],
+  })
+  .refine((data) => data.deferPayment !== true || !hasExtraCharge(data), {
+    message: EXTRA_ON_SESSION_ITEM_MESSAGE,
+    path: ["extra_usd"],
+  });
 
 // Query financial services history
 export const getFinancialServicesSchema = z.object({

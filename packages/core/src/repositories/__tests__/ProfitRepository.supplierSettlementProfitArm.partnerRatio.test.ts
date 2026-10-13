@@ -79,6 +79,8 @@ function createSchema(db: Database.Database): void {
       source_id INTEGER NOT NULL,
       profit_usd REAL DEFAULT 0,
       profit_lbp REAL DEFAULT 0,
+      extra_usd REAL NOT NULL DEFAULT 0,
+      extra_lbp REAL NOT NULL DEFAULT 0,
       created_at TEXT
     );
 

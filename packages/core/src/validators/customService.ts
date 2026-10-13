@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { transactionTimeSchema } from "./common.js";
+import {
+  transactionTimeSchema,
+  extraChargeFields,
+  hasExtraCharge,
+  discountAndExtraNotBoth,
+  extraNotBothRefineOptions,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+  EXTRA_ABOVE_TOTAL_MESSAGE,
+} from "./common.js";
 import { FULFILLMENT_STATUSES } from "../utils/insuranceFulfillment.js";
 import { WORK_STATUSES } from "../utils/customServiceWorkStatus.js";
 
@@ -30,6 +38,19 @@ export const createCustomServiceSchema = z
     kept_change_usd: z.coerce.number<number>().min(0).optional(),
     kept_change_lbp: z.coerce.number<number>().min(0).optional(),
     voucher_code: z.string().optional(),
+    // LIRA-319: the extra the cashier added on top of the selling price, in
+    // the service's own currency. Optional with NO default (offline replay,
+    // research R4). The custom_services row keeps the selling price; the
+    // extra lives on the unified transaction (amount includes it, profit
+    // does not).
+    ...extraChargeFields,
+    // LIRA-319: the payment sheet's discount (LIRA-310 US5), per currency.
+    // `price_usd`/`price_lbp` already arrive NET of it, so pricing never
+    // reads these — they exist only so the server can see that a discount
+    // was applied and refuse "a discount and an extra" on the same service
+    // (and stamp it on the row's metadata). Optional, no default (R4).
+    discount_usd: z.number().nonnegative().optional(),
+    discount_lbp: z.number().nonnegative().optional(),
     // Structured payment legs in the currency the customer ACTUALLY paid
     // (split payments, pay-in-other-currency, and change/return legs). Snake
     // case — the form serializes with toSnakeLegs.
@@ -167,7 +188,44 @@ export const createCustomServiceSchema = z
         "A payout needs both the amount that arrived (price) and the amount paid out (cost)",
       path: ["cost_usd"],
     },
+  )
+  // LIRA-319 — the repository enforces the same (the session checkout calls
+  // it without this schema); here they are refused before the write.
+  .refine(
+    (data) =>
+      discountAndExtraNotBoth(
+        data,
+        (data.discount_usd ?? 0) + (data.discount_lbp ?? 0),
+      ),
+    extraNotBothRefineOptions,
+  )
+  // No extra on either partner mode: FOR has no paying customer, and VIA
+  // (incl. a payout) is the partner's job — the owner keeps both out.
+  .refine((data) => data.partnerMode === undefined || !hasExtraCharge(data), {
+    message: NO_EXTRA_FOR_PARTNER_MESSAGE,
+    path: ["extra_usd"],
+  })
+  .refine((data) => !exceedsCustomServicePrice(data), {
+    message: EXTRA_ABOVE_TOTAL_MESSAGE,
+    path: ["extra_usd"],
+  });
+
+/**
+ * LIRA-319 FR-006 — the extra may not exceed the selling price, per
+ * currency (a service is priced in one currency; an extra in the other one
+ * is above its price of 0). Shared by the schema and the repository (rule 14).
+ */
+export function exceedsCustomServicePrice(data: {
+  price_usd?: number | undefined;
+  price_lbp?: number | undefined;
+  extra_usd?: number | undefined;
+  extra_lbp?: number | undefined;
+}): boolean {
+  return (
+    (data.extra_usd ?? 0) > (data.price_usd ?? 0) + 1e-9 ||
+    (data.extra_lbp ?? 0) > (data.price_lbp ?? 0) + 1e-9
   );
+}
 
 /**
  * The SERVER-side input of `CustomServiceService.addService` /

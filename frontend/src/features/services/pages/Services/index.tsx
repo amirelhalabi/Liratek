@@ -337,6 +337,19 @@ export default function Services() {
     lbp: number;
     payout: boolean;
   } | null>(null);
+  // LIRA-319 — the extra the cashier adds on top of a walk-in SEND (the
+  // payment box's extra-only line: no discount on a system transfer, see
+  // the MultiPaymentInput below). Never on a RECEIVE payout, a For-Partner
+  // transaction, or inside a session (the session checkout takes it).
+  // Sent as its own field, in the entry currency — never folded into the
+  // amount or the fee, so the provider fee and the supplier amount stay
+  // exactly as without it.
+  const [extraCharge, setExtraCharge] = useState(0);
+  const extraApplies =
+    serviceType === "SEND" && !activeSession && !forPartner;
+  // Bumped after a successful submit so the payment box remounts empty
+  // (its extra field is its own state).
+  const [paymentBoxNonce, setPaymentBoxNonce] = useState(0);
   const keptChangeApplies =
     !activeSession &&
     (serviceType === "SEND" ||
@@ -823,6 +836,8 @@ export default function Services() {
         setPayFee(false);
         setBinanceSupplier("");
         setPaymentLines([]);
+        setExtraCharge(0);
+        setPaymentBoxNonce((n) => n + 1);
         setReturnLegs([]);
         setKeptChange(null);
         setFeePaymentLines([]);
@@ -1206,6 +1221,12 @@ export default function Services() {
                     kept_change_lbp: keptChange.lbp,
                   }
                 : {}),
+              // LIRA-319: the extra rides its own field (walk-in SEND only).
+              ...(extraApplies && extraCharge > 0
+                ? currency === "LBP"
+                  ? { extra_lbp: extraCharge }
+                  : { extra_usd: extraCharge }
+                : {}),
               // Payment method fee — single non-cash SEND: pass explicit fields
               // Multi-payment: total PM fee derived from per-leg fees above (baked into amounts)
               ...(finalPmFee > 0
@@ -1409,6 +1430,8 @@ export default function Services() {
     returnLegs,
     keptChange,
     keptChangeApplies,
+    extraCharge,
+    extraApplies,
     feePaymentLines,
     includingFees,
     exchangeRate,
@@ -2401,7 +2424,12 @@ export default function Services() {
                   <MultiPaymentInput
                     // Remount on toggle so the seeded payment line re-opens in
                     // the newly selected currency (line currency is mount-only).
-                    key={currency}
+                    key={`${currency}-${paymentBoxNonce}`}
+                    // LIRA-319: an extra-only line on a walk-in SEND
+                    // (showDiscount stays false — see below).
+                    {...(extraApplies
+                      ? { onExtraChange: setExtraCharge }
+                      : {})}
                     // No discount on an OMT/Whish system transfer: the whole
                     // fee is owed to the provider and the shop's commission
                     // is only booked at settlement (Whish system: none), so

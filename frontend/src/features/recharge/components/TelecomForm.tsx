@@ -159,6 +159,10 @@ interface TelecomFormProps {
   /** Admin sees cost + profit margin on gift/voucher cards. */
   isAdmin?: boolean;
   onDiscountChange?: (discount: number) => void;
+  /** LIRA-319 — the sheet's "+ Extra" (sale currency, LBP). Offered on a
+   *  SALE only — never on a credit buy-back (a payout); the session basket
+   *  and the for-partner path never open the sheet. */
+  onExtraChange?: (extra: number) => void;
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
   /** T3 keep-change opt-in (plumbed to PaymentSheet → MultiPaymentInput). */
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
@@ -265,6 +269,7 @@ export function TelecomForm({
   setTelecomDaysCostUsd,
   isAdmin = false,
   onDiscountChange,
+  onExtraChange,
   onReturnChange,
   onKeptChange,
   onEffectiveRateChange,
@@ -629,6 +634,7 @@ export function TelecomForm({
           {...(onReturnChange ? { onReturnChange } : {})}
           {...(onKeptChange ? { onKeptChange } : {})}
           onDiscountChange={handleDiscountChange}
+          {...(onExtraChange ? { onExtraChange } : {})}
           clientName={telecomClientName}
           onClientNameChange={setTelecomClientName}
           transactionTime={transactionTime}
@@ -1148,6 +1154,10 @@ export function TelecomForm({
                   // ever — a small shortfall is kept as profit instead
                   // (processCreditBuyback verifies it).
                   {...(isCreditBuyback ? { payer: "payout" as const } : {})}
+                  // LIRA-319: "+ Extra" on a sale only — never a buy-back.
+                  {...(onExtraChange && !isCreditBuyback
+                    ? { onExtraChange }
+                    : {})}
                   {...(onReturnChange && !isCreditBuyback
                     ? { onReturnChange }
                     : {})}

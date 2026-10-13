@@ -49,6 +49,13 @@ import {
   type ReconciliationLeg,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import {
+  DISCOUNT_AND_EXTRA_MESSAGE,
+  EXTRA_ABOVE_TOTAL_MESSAGE,
+  EXTRA_ON_SESSION_ITEM_MESSAGE,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+} from "../validators/common.js";
+import { POS_EXTRA_USD_ONLY_MESSAGE } from "../validators/sale.js";
 import { LOW_STOCK_PREDICATE_SQL } from "./lowStockFragment.js";
 
 // =============================================================================
@@ -61,6 +68,9 @@ export interface SaleEntity {
   total_amount_usd: number;
   discount_usd: number;
   final_amount_usd: number;
+  /** LIRA-319 (v213): the sale's extra charge — kept so a draft restores
+   *  it. Excluded from final_amount_usd. Optional for hand-built fixtures. */
+  extra_usd?: number;
   paid_usd: number;
   paid_lbp: number;
   change_given_usd: number;
@@ -187,6 +197,13 @@ export interface SaleRequest {
    *  partial return does not hand the kept change back). */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /** LIRA-319: the extra the cashier added on top of `final_amount`. The
+   *  customer owes and pays `final_amount + extra_usd`; the SALE row's amount
+   *  includes it, its profit does not. POS sales are USD-priced, so
+   *  `extra_lbp` is refused. Never with a discount, a for-partner sale or a
+   *  deferred session item; never above `total_amount`. */
+  extra_usd?: number;
+  extra_lbp?: number;
   exchange_rate: number;
   drawer_name?: string;
   id?: number;
@@ -473,6 +490,36 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           );
         }
 
+        // LIRA-319: the extra is checked here, server-side, whatever the
+        // caller (the schema refuses the same on both transports; the
+        // session checkout calls this method without it). Before any write.
+        const extraUsd = sale.extra_usd ?? 0;
+        const extraLbp = sale.extra_lbp ?? 0;
+        if (extraUsd < 0 || extraLbp < 0) {
+          throw new BusinessRuleError("The extra can't be negative.");
+        }
+        if (extraLbp > 0) {
+          throw new BusinessRuleError(POS_EXTRA_USD_ONLY_MESSAGE);
+        }
+        if (extraUsd > 0) {
+          if (sale.deferPayment) {
+            throw new BusinessRuleError(EXTRA_ON_SESSION_ITEM_MESSAGE);
+          }
+          if (sale.partnerMode === "FOR") {
+            throw new BusinessRuleError(NO_EXTRA_FOR_PARTNER_MESSAGE);
+          }
+          if ((sale.discount ?? 0) > 0) {
+            throw new BusinessRuleError(DISCOUNT_AND_EXTRA_MESSAGE);
+          }
+          if (extraUsd > sale.total_amount + 1e-9) {
+            throw new BusinessRuleError(EXTRA_ABOVE_TOTAL_MESSAGE);
+          }
+        }
+        // What the customer owes: the sale's final amount plus the extra.
+        // Kept change, change-to-account and the debt residual reconcile
+        // against THIS, never `final_amount` alone.
+        const amountDueUsd = sale.final_amount + extraUsd;
+
         // LIRA-258 / G12: an existing sale id may only be a DRAFT being
         // resaved or completed. Re-running this method on a completed sale
         // used to re-book stock, FIFO, Sale Debt, FOR_POS and credits
@@ -666,7 +713,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           const kept = resolveKeptChange({
             payer: "customer",
             // POS sales are USD-priced.
-            expected: { usd: sale.final_amount, lbp: 0 },
+            // LIRA-319: price + extra — what the customer owes.
+            expected: { usd: amountDueUsd, lbp: 0 },
             inLegs: legs.inLegs.map(toLeg),
             outLegs: [...legs.outLegs.map(toLeg), ...cashChange],
             claimedKept: { usd: claimedKeptUsd, lbp: claimedKeptLbp },
@@ -686,6 +734,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           const updateStmt = db.prepare(`
             UPDATE ${tableName} SET
               client_id = ?, total_amount_usd = ?, discount_usd = ?, final_amount_usd = ?,
+              extra_usd = ?,
               paid_usd = ?, paid_lbp = ?, change_given_usd = ?, change_given_lbp = ?,
               exchange_rate_snapshot = ?, drawer_name = ?, status = ?, note = ?,
               created_at = COALESCE(?, created_at)
@@ -696,6 +745,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.total_amount,
             sale.discount,
             sale.final_amount,
+            // LIRA-319 (v213): a draft keeps its extra for resume; the
+            // payload is the truth, so a re-save without one clears it.
+            extraUsd,
             // Derived totals, NOT the raw legacy fields: paid_usd/paid_lbp mean
             // "actually paid" — the fully-paid profit gate reads them and debt
             // repayment backfills them. The raw client sums include DEBT /
@@ -728,10 +780,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           // INSERT New Sale
           const saleStmt = db.prepare(`
             INSERT INTO ${tableName} (
-              client_id, total_amount_usd, discount_usd, final_amount_usd,
+              client_id, total_amount_usd, discount_usd, final_amount_usd, extra_usd,
               paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot,
               drawer_name, status, note, created_at, updated_at, tenant_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `);
 
           const saleResult = saleStmt.run(
@@ -739,6 +791,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.total_amount,
             sale.discount,
             sale.final_amount,
+            // LIRA-319 (v213): kept so a draft restores it on resume.
+            extraUsd,
             // Derived totals — see the UPDATE branch note above.
             paymentUsd,
             paymentLbp,
@@ -846,7 +900,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const discountTail = discountLabel ? ` (${discountLabel})` : "";
         // One label for the unified transaction summary AND the debt-ledger
         // note — the Debts history and the audit row must read identically.
-        const saleLabel = `Sale #${saleId}: ${itemsLabel} — $${sale.final_amount}${discountTail}`;
+        // LIRA-319: an extra shows as its own tail, after the item price.
+        const extraTail = extraUsd > 0 ? ` (+$${extraUsd} extra)` : "";
+        const saleLabel = `Sale #${saleId}: ${itemsLabel} — $${sale.final_amount}${discountTail}${extraTail}`;
 
         // Process Items & Update Stock. This now runs BEFORE the unified
         // transaction row is created (below): FIFO consumption inside this
@@ -1220,8 +1276,13 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             // customer handed over lives in the payment legs below. Stamping
             // payment_lbp here double-counted the sale ($5 + 450,000 LBP) in the
             // audit view and inflated revenue_lbp in profit/session reports.
-            amount_usd: sale.final_amount,
+            // LIRA-319: includes the extra (what the customer owes); the
+            // profit stamp below never does — the extra is reported from
+            // extra_usd (research R2).
+            amount_usd: amountDueUsd,
             amount_lbp: 0,
+            extra_usd: extraUsd,
+            extra_lbp: 0,
             // Item margins − discount, plus any change the operator kept as
             // profit (T3 keep-change) — stamped per currency at create time so
             // the generic void's stamp negation reverses it symmetrically. By
@@ -1251,6 +1312,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               status,
               item_count: sale.items.length,
               items: saleItemDetails,
+              ...(extraUsd > 0 ? { extra_usd: extraUsd, extra_lbp: 0 } : {}),
             },
           };
 
@@ -1504,8 +1566,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             } else {
               // Use derived payment totals (accounts for new payment lines structure)
               const totalPaidUSD = paymentUsd + paymentLbp / sale.exchange_rate;
-              if (sale.final_amount - totalPaidUSD > 0.05) {
-                const remainder = sale.final_amount - totalPaidUSD;
+              // LIRA-319: the residual includes the extra.
+              if (amountDueUsd - totalPaidUSD > 0.05) {
+                const remainder = amountDueUsd - totalPaidUSD;
 
                 if (!finalClientId) {
                   throw new Error("Cannot create debt for anonymous client");
@@ -2079,7 +2142,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // reach is the point — nothing here needs it.
     const originalTxn = db
       .prepare(
-        `SELECT id, source_table, source_id, exchange_rate, client_id, device_id
+        `SELECT id, source_table, source_id, exchange_rate, client_id, device_id,
+                extra_usd, extra_lbp
          FROM transactions
          WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?`,
       )
@@ -2091,6 +2155,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           exchange_rate: number;
           client_id: number | null;
           device_id: string | null;
+          /** LIRA-319 — the extra lives on the SALE row, not on `sales`. */
+          extra_usd: number;
+          extra_lbp: number;
         }
       | undefined;
 
@@ -2198,12 +2265,13 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       // with `refundSessionBasketItem` via `_computeSaleItemRefundAmounts` —
       // see that method's doc for why the discount pro-ration uses
       // `lineShareOfSale` rather than `originalTxn.amount_usd`.
-      const { refundAmount, refundProfitUsd } =
+      const { refundAmount, refundProfitUsd, extraShareUsd } =
         this._computeSaleItemRefundAmounts(
           item,
           sale,
           lineShareOfSale,
           params.refundQuantity,
+          originalTxn.extra_usd ?? 0,
         );
 
       // 6. Create REFUND transaction for this item via TransactionRepository
@@ -2217,6 +2285,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // refund in currency-split reports.
         amount_usd: -refundAmount,
         amount_lbp: 0,
+        // LIRA-319: this item's share of the sale's extra (already inside
+        // refundAmount), server-computed; never in profit.
+        extra_usd: -extraShareUsd,
+        extra_lbp: 0,
         // Kept change (checked above) is ADDED to the negated item profit,
         // per currency — the same −original + kept stamp the whole-sale
         // refund writes, so "Undo refund" negates it with everything else.
@@ -2601,8 +2673,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     const refundTxn = db
       .prepare(
         `SELECT id, type, status, source_table, source_id, amount_usd,
-                profit_usd, profit_lbp, exchange_rate, client_id, device_id,
-                metadata_json
+                profit_usd, profit_lbp, extra_usd, extra_lbp, exchange_rate,
+                client_id, device_id, metadata_json
          FROM transactions WHERE id = ? AND tenant_id = ?`,
       )
       .get(params.refundTransactionId, tenantId) as
@@ -2616,6 +2688,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           profit_usd: number | null;
           /** Non-zero only when the refund kept LBP change (2026-10-07). */
           profit_lbp: number | null;
+          /** LIRA-319 — the extra share the refund gave back (≤ 0). */
+          extra_usd: number | null;
+          extra_lbp: number | null;
           exchange_rate: number | null;
           client_id: number | null;
           device_id: string | null;
@@ -2794,6 +2869,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         profit_usd: refundTxn.profit_usd != null ? -refundTxn.profit_usd : 0,
         // Both currencies: a refund that kept LBP change stamped it here.
         profit_lbp: refundTxn.profit_lbp ? -refundTxn.profit_lbp : 0,
+        // LIRA-319: re-charge the extra share the refund gave back.
+        extra_usd: -(refundTxn.extra_usd ?? 0),
+        extra_lbp: -(refundTxn.extra_lbp ?? 0),
         exchange_rate: refundTxn.exchange_rate,
         client_id: refundTxn.client_id,
         summary: `UNDO REFUND: ${refundQuantity}x product ${item.product_id} from Sale #${originalSaleId} (undoes refund #${params.refundTransactionId})`,
@@ -3002,7 +3080,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     sale: Pick<SaleEntity, "discount_usd">,
     lineShareOfSale: number,
     refundQuantity: number,
-  ): { refundAmount: number; refundProfitUsd: number } {
+    /** LIRA-319 — the SALE row's `extra_usd` (POS extras are USD-only). */
+    saleExtraUsd: number,
+  ): { refundAmount: number; refundProfitUsd: number; extraShareUsd: number } {
     // Adversarial-review fix (SESSION_ITEM_REFUND_PLAN.md finding #1,
     // BLOCKER): `refundAmount` used to be the GROSS pre-discount line value
     // (`sold_price_usd × qty`), while `refundProfitUsd` below already
@@ -3020,15 +3100,20 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // TransactionRepository.refundSessionBasketItem.test.ts's
     // "finding #1" case for the failing-first proof.
     const discountShareUsd = (sale.discount_usd || 0) * lineShareOfSale;
+    // LIRA-319: the item's share of the sale's extra, by the SAME line
+    // share the money-back scales the payments with (they include the
+    // extra), so the REFUND row's amount matches what goes back. A sale has
+    // a discount or an extra, never both. Never in profit (research R2).
+    const extraShareUsd = (saleExtraUsd || 0) * lineShareOfSale;
     const refundAmount =
-      item.sold_price_usd * refundQuantity - discountShareUsd;
+      item.sold_price_usd * refundQuantity - discountShareUsd + extraShareUsd;
     const grossMarginUsd = lineGrossMarginUsd(
       item.sold_price_usd,
       item.cost_price_snapshot_usd,
       refundQuantity,
     );
     const refundProfitUsd = grossMarginUsd - discountShareUsd;
-    return { refundAmount, refundProfitUsd };
+    return { refundAmount, refundProfitUsd, extraShareUsd };
   }
 
   /**
@@ -3356,11 +3441,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
     const originalTxn = db
       .prepare(
-        `SELECT id, client_id FROM transactions
+        `SELECT id, client_id, extra_usd FROM transactions
          WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?`,
       )
       .get(params.saleId, tenantId) as
-      | { id: number; client_id: number | null }
+      | { id: number; client_id: number | null; extra_usd: number }
       | undefined;
     if (!originalTxn) {
       throw new DatabaseError("No SALE transaction found for this sale");
@@ -3371,12 +3456,17 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       sale,
       params.refundQuantity,
     );
+    // LIRA-319: a session-basket SALE never carries its own extra
+    // (`processSale` refuses one under deferPayment — the basket's
+    // EXTRA_CHARGE row does), so this is 0 here; read it anyway so the
+    // shared formula has one input source.
     const { refundAmount, refundProfitUsd } =
       this._computeSaleItemRefundAmounts(
         item,
         sale,
         lineShareOfSale,
         params.refundQuantity,
+        originalTxn.extra_usd ?? 0,
       );
 
     return {
@@ -4248,15 +4338,28 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   getSaleWithCustomer(
     saleId: number,
   ):
-    | (SaleEntity & { client_name: string | null; client_phone: string | null })
+    | (SaleEntity & {
+        client_name: string | null;
+        client_phone: string | null;
+        /** LIRA-319 — the sale's extra charge, from its SALE transaction row. */
+        extra_usd: number;
+        extra_lbp: number;
+      })
     | null {
     const tenantId = getCurrentTenantId();
     const rows = this.query<
-      SaleEntity & { client_name: string | null; client_phone: string | null }
+      SaleEntity & {
+        client_name: string | null;
+        client_phone: string | null;
+        extra_usd: number;
+        extra_lbp: number;
+      }
     >(
       `SELECT s.*,
               COALESCE(c.full_name, t.client_name) AS client_name,
-              COALESCE(c.phone_number, t.client_phone) AS client_phone
+              COALESCE(c.phone_number, t.client_phone) AS client_phone,
+              COALESCE(t.extra_usd, 0) AS extra_usd,
+              COALESCE(t.extra_lbp, 0) AS extra_lbp
        FROM ${this.tableName} s
        LEFT JOIN clients c ON s.client_id = c.id AND c.tenant_id = ?
        LEFT JOIN transactions t

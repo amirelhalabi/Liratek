@@ -69,6 +69,9 @@ export interface SessionReceiptInput {
   customerPhone?: string | undefined;
   items: SessionReceiptItem[];
   legs: SessionReceiptLeg[];
+  /** LIRA-319 — the ONE extra set at the session checkout, per currency,
+   *  charged on top of the items (absent or 0 = no "Extra" line). */
+  extra?: { usd: number; lbp: number } | undefined;
   /** ISO timestamp — defaults to "now" (the moment checkout succeeded). */
   createdAt?: string | undefined;
 }
@@ -157,6 +160,13 @@ export function buildSessionCheckoutReceiptText(
   for (const [currency, total] of chargesByCurrency) {
     if (total === 0) continue;
     r += line("Charges:", fmtMoney(total, currency));
+  }
+  // LIRA-319 — the basket extra, on top of the item charges above.
+  if ((input.extra?.usd ?? 0) > 0) {
+    r += line("Extra:", `+${fmtMoney(input.extra!.usd, "USD")}`);
+  }
+  if ((input.extra?.lbp ?? 0) > 0) {
+    r += line("Extra:", `+${fmtMoney(input.extra!.lbp, "LBP")}`);
   }
   for (const [currency, total] of payoutsByCurrency) {
     if (total === 0) continue;

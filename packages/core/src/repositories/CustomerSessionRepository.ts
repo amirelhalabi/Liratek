@@ -6,6 +6,10 @@ import { requestNow } from "../utils/requestNow.js";
 // module (no other repository import), so importing it directly here never
 // risks a require cycle.
 import { isToday, localDayExpr } from "./reportingTimeFragments.js";
+import {
+  extraChargeProfit,
+  hasExtraChargeColumns,
+} from "./ProfitRepository.js";
 import { BusinessRuleError } from "../utils/errors.js";
 import {
   customServiceCartLineHasSellingPrice,
@@ -371,6 +375,34 @@ export class CustomerSessionRepository {
     return query.all(getCurrentTenantId(), limit, offset) as CustomerSession[];
   }
 
+  private _hasExtraChargeColumnsCache: boolean | null = null;
+
+  /**
+   * Per-session money/profit sums over the linked rows. LIRA-319 — profit
+   * also adds each linked transaction's extra through the ONE
+   * "extra counts as profit" fragment ({@link extraChargeProfit}, rule 14):
+   * a link row's own `profit_*` is the module margin, which never includes
+   * the extra. One bind param (`cst.tenant_id`), same as before.
+   */
+  private sessionTotalsSubquery(): string {
+    if (this._hasExtraChargeColumnsCache === null) {
+      this._hasExtraChargeColumnsCache = hasExtraChargeColumns(this.db);
+    }
+    const hasExtra = this._hasExtraChargeColumnsCache;
+    const extraJoin = hasExtra
+      ? `LEFT JOIN transactions xt ON xt.id = cst.unified_transaction_id AND xt.tenant_id = cst.tenant_id`
+      : "";
+    return `SELECT cst.session_id AS session_id,
+               SUM(cst.amount_usd) as total_usd,
+               SUM(cst.amount_lbp) as total_lbp,
+               SUM(cst.profit_usd) + SUM(${extraChargeProfit("xt", "usd", hasExtra)}) as total_profit_usd,
+               SUM(cst.profit_lbp) + SUM(${extraChargeProfit("xt", "lbp", hasExtra)}) as total_profit_lbp
+        FROM ${this.transactionsTableName} cst
+        ${extraJoin}
+        WHERE cst.tenant_id = ?
+        GROUP BY cst.session_id`;
+  }
+
   /**
    * Get sessions within a date range, with checkout/cart summary data
    */
@@ -409,14 +441,7 @@ export class CustomerSessionRepository {
         GROUP BY session_id
       ) cart ON cart.session_id = cs.id
       LEFT JOIN (
-        SELECT session_id,
-               SUM(amount_usd) as total_usd,
-               SUM(amount_lbp) as total_lbp,
-               SUM(profit_usd) as total_profit_usd,
-               SUM(profit_lbp) as total_profit_lbp
-        FROM ${this.transactionsTableName}
-        WHERE tenant_id = ?
-        GROUP BY session_id
+        ${this.sessionTotalsSubquery()}
       ) t ON t.session_id = cs.id
       WHERE ${localDayExpr("cs.started_at")} >= ?
         AND ${localDayExpr("cs.started_at")} <= ?
@@ -474,14 +499,7 @@ export class CustomerSessionRepository {
         GROUP BY session_id
       ) cart ON cart.session_id = cs.id
       LEFT JOIN (
-        SELECT session_id,
-               SUM(amount_usd) as total_usd,
-               SUM(amount_lbp) as total_lbp,
-               SUM(profit_usd) as total_profit_usd,
-               SUM(profit_lbp) as total_profit_lbp
-        FROM ${this.transactionsTableName}
-        WHERE tenant_id = ?
-        GROUP BY session_id
+        ${this.sessionTotalsSubquery()}
       ) t ON t.session_id = cs.id
       WHERE ${isToday("cs.started_at")}
         AND cs.tenant_id = ?

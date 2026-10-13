@@ -96,6 +96,10 @@ interface SaleDetail {
   total_amount_usd: number;
   discount_usd: number;
   final_amount_usd: number;
+  /** LIRA-319: the extra charged on top of the items, from the sale's
+   *  transaction row. Optional — absent on a server that does not send it
+   *  (and on every sale before the feature), read as 0. */
+  extra_usd?: number | null;
   paid_usd: number;
   paid_lbp: number;
   change_given_usd: number;
@@ -122,6 +126,8 @@ export default function SaleDetailModal({
   const { drawerAffectingMethods } = usePaymentMethods();
   const [sale, setSale] = useState<SaleDetail | null>(null);
   const [items, setItems] = useState<SaleItem[]>([]);
+  /** LIRA-319: the sale's extra charge (0 when none or not sent). */
+  const saleExtra = Math.max(0, Number(sale?.extra_usd ?? 0) || 0);
   const [loading, setLoading] = useState(true);
   const [refunding, setRefunding] = useState(false);
   const [loadingRefundPreview, setLoadingRefundPreview] = useState(false);
@@ -585,7 +591,9 @@ export default function SaleDetailModal({
       })),
       subtotal: sale.total_amount_usd,
       discount: sale.discount_usd,
-      total: sale.final_amount_usd,
+      // LIRA-319: "Extra +$X" on the reprint; the total includes it.
+      extra: saleExtra,
+      total: sale.final_amount_usd + saleExtra,
       payment_usd: sale.paid_usd,
       payment_lbp: sale.paid_lbp,
       change_usd: sale.change_given_usd ?? 0,
@@ -918,6 +926,15 @@ export default function SaleDetailModal({
                     <span>-${sale.discount_usd.toFixed(2)}</span>
                   </div>
                 )}
+                {saleExtra > 0 && (
+                  <div
+                    data-testid="sale-detail-extra"
+                    className="flex justify-between text-sm text-amber-400"
+                  >
+                    <span>Extra</span>
+                    <span>+${saleExtra.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm font-bold pt-2 border-t border-slate-700">
                   <span className="text-white">Total</span>
                   <span
@@ -927,7 +944,7 @@ export default function SaleDetailModal({
                         : "text-violet-400"
                     }
                   >
-                    ${sale.final_amount_usd.toFixed(2)}
+                    ${(sale.final_amount_usd + saleExtra).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-500">

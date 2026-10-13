@@ -33,7 +33,17 @@ import {
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { requestNow } from "../utils/requestNow.js";
 import { resolveKeptChange } from "./keptChange.js";
-import type { CreateCustomServiceInput } from "../validators/customService.js";
+import {
+  exceedsCustomServicePrice,
+  type CreateCustomServiceInput,
+} from "../validators/customService.js";
+import {
+  DISCOUNT_AND_EXTRA_MESSAGE,
+  EXTRA_ABOVE_TOTAL_MESSAGE,
+  EXTRA_ON_SESSION_ITEM_MESSAGE,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+  hasExtraCharge,
+} from "../validators/common.js";
 import {
   TERMINAL_FULFILLMENT_STATUS,
   type FulfillmentStatus,
@@ -66,7 +76,12 @@ import {
  * Defined once so the server reconciles against exactly what the page shows.
  */
 function customerAmountDue(data: CreateCustomServiceInput): ExpectedTotals {
-  return { usd: data.price_usd ?? 0, lbp: data.price_lbp ?? 0 };
+  // LIRA-319: plus the extra the cashier added (0 when none) — the customer
+  // owes and pays price + extra; the price itself is unchanged.
+  return {
+    usd: (data.price_usd ?? 0) + (data.extra_usd ?? 0),
+    lbp: (data.price_lbp ?? 0) + (data.extra_lbp ?? 0),
+  };
 }
 
 
@@ -364,6 +379,29 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         if (!isPayout && !data.deferPayment && !hasSellingPrice(data)) {
           throw new BusinessRuleError(NO_SELLING_PRICE_ERROR);
         }
+        // LIRA-319: the extra is checked here, server-side, whatever the
+        // caller (the schema refuses the same on both transports; the
+        // session checkout calls this method without it). Before any write.
+        if ((data.extra_usd ?? 0) < 0 || (data.extra_lbp ?? 0) < 0) {
+          throw new BusinessRuleError("The extra can't be negative.");
+        }
+        if (hasExtraCharge(data)) {
+          if (data.deferPayment) {
+            throw new BusinessRuleError(EXTRA_ON_SESSION_ITEM_MESSAGE);
+          }
+          if (isForPartner || isViaPartner) {
+            throw new BusinessRuleError(NO_EXTRA_FOR_PARTNER_MESSAGE);
+          }
+          if ((data.discount_usd ?? 0) > 0 || (data.discount_lbp ?? 0) > 0) {
+            throw new BusinessRuleError(DISCOUNT_AND_EXTRA_MESSAGE);
+          }
+          if (exceedsCustomServicePrice(data)) {
+            throw new BusinessRuleError(EXTRA_ABOVE_TOTAL_MESSAGE);
+          }
+        }
+        // What the customer owes: price + extra (the extra is 0 on every
+        // path the guards above leave it on: payout, partner, basket item).
+        const amountDue = customerAmountDue(data);
         let keptUsd = 0;
         let keptLbp = 0;
         if (!isPayout && !data.deferPayment) {
@@ -533,8 +571,13 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // TELECOM_CREDIT_BUYBACK stamps amount_usd/lbp from its own
           // payoutAmount, not the credits gained). The IN flow keeps its
           // existing price_usd/price_lbp (what the customer paid).
-          amount_usd: isPayout ? (data.cost_usd ?? 0) : (data.price_usd ?? 0),
-          amount_lbp: isPayout ? (data.cost_lbp ?? 0) : (data.price_lbp ?? 0),
+          // LIRA-319: the IN amount includes the extra (what the customer
+          // owes and pays); the profit stamp below never does — the extra
+          // is reported from extra_usd/extra_lbp (research R2).
+          amount_usd: isPayout ? (data.cost_usd ?? 0) : amountDue.usd,
+          amount_lbp: isPayout ? (data.cost_lbp ?? 0) : amountDue.lbp,
+          extra_usd: data.extra_usd ?? 0,
+          extra_lbp: data.extra_lbp ?? 0,
           // Margin plus the VERIFIED kept change (resolveKeptChange above;
           // 0 for a payout, a basket item or a partner service). Kept
           // lives inside this stamp, per currency, so the generic
@@ -568,6 +611,18 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             // reads this to pick the IN/OUT badge — direction alone can't be
             // read off the type or partner_mode.
             direction: isPayout ? "OUT" : "IN",
+            ...(hasExtraCharge(data)
+              ? {
+                  extra_usd: data.extra_usd ?? 0,
+                  extra_lbp: data.extra_lbp ?? 0,
+                }
+              : {}),
+            ...((data.discount_usd ?? 0) > 0 || (data.discount_lbp ?? 0) > 0
+              ? {
+                  discount_usd: data.discount_usd ?? 0,
+                  discount_lbp: data.discount_lbp ?? 0,
+                }
+              : {}),
           },
           transaction_time: data.transaction_time,
         });
@@ -863,12 +918,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             throw new Error("Cannot create debt without a client");
           }
 
-          // Debt ledger entry: customer owes the price
+          // Debt ledger entry: customer owes the price (+ the LIRA-319 extra)
           bookClientDebtCharge(this.db, {
             clientId: data.client_id,
             transactionType: "Custom Service Debt",
-            amountUsd: data.price_usd ?? 0,
-            amountLbp: data.price_lbp ?? 0,
+            amountUsd: amountDue.usd,
+            amountLbp: amountDue.lbp,
             transactionId: txnId,
             note: noteText,
             createdBy,
@@ -890,8 +945,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           bookClientDebtCharge(this.db, {
             clientId: voucher.client_id,
             transactionType: "Custom Service Debt",
-            amountUsd: data.price_usd ?? 0,
-            amountLbp: data.price_lbp ?? 0,
+            amountUsd: amountDue.usd,
+            amountLbp: amountDue.lbp,
             transactionId: txnId,
             note: noteText,
             createdBy,
@@ -900,14 +955,14 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         } else if (isDrawerAffectingMethod(paidBy)) {
           // Non-DEBT: customer pays now
           // Price inflow (USD)
-          if ((data.price_usd ?? 0) > 0) {
+          if (amountDue.usd > 0) {
             insertPayment.run(
               tenantId,
               txnId,
               paidBy,
               methodDrawerName,
               "USD",
-              Math.abs(data.price_usd!),
+              Math.abs(amountDue.usd),
               `${noteText} (price inflow)`,
               createdBy,
             );
@@ -915,19 +970,19 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               tenantId,
               methodDrawerName,
               "USD",
-              Math.abs(data.price_usd!),
+              Math.abs(amountDue.usd),
             );
           }
 
           // Price inflow (LBP)
-          if ((data.price_lbp ?? 0) > 0) {
+          if (amountDue.lbp > 0) {
             insertPayment.run(
               tenantId,
               txnId,
               paidBy,
               methodDrawerName,
               "LBP",
-              Math.abs(data.price_lbp!),
+              Math.abs(amountDue.lbp),
               `${noteText} (price inflow)`,
               createdBy,
             );
@@ -935,7 +990,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               tenantId,
               methodDrawerName,
               "LBP",
-              Math.abs(data.price_lbp!),
+              Math.abs(amountDue.lbp),
             );
           }
 

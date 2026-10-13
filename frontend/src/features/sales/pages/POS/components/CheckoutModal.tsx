@@ -29,6 +29,7 @@ import { DEFAULT_DRAWER_NAME as DRAWER_B } from "@/constants/checkout";
 import {
   receiptNumberFor,
   serialLabelFor,
+  type SaleProcessPayload,
   type SerialLabel,
 } from "@liratek/core";
 import {
@@ -45,7 +46,9 @@ import {
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
-} & {
+} & Pick<SaleProcessPayload, "extra_usd" | "extra_lbp"> & {
+  // LIRA-319: the extra-charge keys typed from the shared sale schema
+  // (rule 21) — never a hand-written copy.
   clientId?: number | null;
   paidUSD?: number;
   paidLBP?: number;
@@ -77,6 +80,13 @@ interface CheckoutModalProps {
    *  change box must not offer "put the change on the client's account" —
    *  that credit would never be booked. Default false. */
   addsToSessionBasket?: boolean;
+  /** LIRA-319 (owner 2026-10-13): offer the "− Discount | + Extra" switch on
+   *  the payment box's Discount line — the customer pays a little more than
+   *  the price; the extra is sent as `extra_usd` / `extra_lbp`. Opt-in: only
+   *  a host that forwards those fields to the server may turn it on (POS
+   *  does; Maintenance builds its own payload). Never offered on a partner
+   *  sale or when the job goes into a session basket. Default false. */
+  allowExtraCharge?: boolean;
   totalAmount: number;
   /**
    * Currency the total/discount/net are expressed in. Defaults to "USD".
@@ -142,6 +152,9 @@ export type CheckoutDraftData = {
    *  fields still restore fine (falls back to a normal, non-partner sale). */
   forPartner?: boolean;
   selectedPartnerId?: number | null;
+  /** LIRA-319: the extra charge on this checkout (in the total's currency).
+   *  Optional — drafts saved before it restore with no extra. */
+  extra?: number;
 };
 
 export default function CheckoutModal({
@@ -149,6 +162,7 @@ export default function CheckoutModal({
   allowKeepChange = false,
   allowForPartner = false,
   addsToSessionBasket = false,
+  allowExtraCharge = false,
   totalAmount,
   currency,
   extraTotals,
@@ -201,6 +215,39 @@ export default function CheckoutModal({
     setDiscountCapped(capped < v);
     setDiscount(capped);
   };
+  // LIRA-319 — the line's other side: an extra charge ADDED to the total.
+  // A sale has a discount OR an extra, never both (the server refuses both):
+  // switching sides clears the other amount.
+  const [lineMode, setLineMode] = useState<"discount" | "extra">("discount");
+  const [extra, setExtra] = useState(0);
+  const [extraCapped, setExtraCapped] = useState(false);
+  /** The extra may be taken here at all: the host opted in, and this is not
+   *  a partner sale nor a session-basket job (the session checkout takes
+   *  the extra there). */
+  const canExtra = allowExtraCharge && !forPartner && !addsToSessionBasket;
+  const isExtraMode = canExtra && lineMode === "extra";
+  /** The extra that is actually charged and sent. */
+  const appliedExtra = isExtraMode ? extra : 0;
+  const handleExtraChange = (v: number) => {
+    // Default cap (FR-006): never more than the sale itself (pre-extra).
+    const capped = Math.min(Math.max(0, v), totalAmount);
+    setExtraCapped(capped < v);
+    setExtra(capped);
+  };
+  const handleLineModeChange = (m: "discount" | "extra") => {
+    setLineMode(m);
+    setDiscount(0);
+    setDiscountCapped(false);
+    setExtra(0);
+    setExtraCapped(false);
+  };
+  // A partner sale never carries an extra: drop it when the toggle goes on.
+  useEffect(() => {
+    if (!forPartner) return;
+    setLineMode("discount");
+    setExtra(0);
+    setExtraCapped(false);
+  }, [forPartner]);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   const { allMethods: paymentMethodOptions } = usePaymentMethods();
@@ -344,6 +391,11 @@ export default function CheckoutModal({
       setClientSearch(draftData.clientSearchInput);
       setSecondaryInput(draftData.clientSearchSecondary);
       setDiscount(draftData.discount ?? 0);
+      // LIRA-319: a draft with an extra reopens on the Extra side.
+      const draftExtra = draftData.extra ?? 0;
+      setLineMode(draftExtra > 0 ? "extra" : "discount");
+      setExtra(draftExtra);
+      setExtraCapped(false);
       // PFT-2b: restore the "For Partner" toggle + selected partner so a
       // resumed for-partner order doesn't silently become a normal sale.
       setForPartner(draftData.forPartner ?? false);
@@ -412,6 +464,9 @@ export default function CheckoutModal({
     : isNewClientInfoComplete;
 
   const finalAmount = Math.max(0, totalAmount - (discount ?? 0));
+  // LIRA-319: what the customer is charged — the net price plus the extra.
+  // `finalAmount` stays the item total (the payload's `final_amount`).
+  const chargedAmount = finalAmount + appliedExtra;
   // LIRA-176 7a: amounts owed in a currency other than totalCurrency (e.g.
   // maintenance USD parts on an LBP-priced job), merged into the totals array
   // handed to MultiPaymentInput. Zero-amount entries filtered so an empty or
@@ -422,7 +477,7 @@ export default function CheckoutModal({
     (t) => t.amount !== 0,
   );
   const allTotals: Money[] = [
-    { amount: finalAmount, currency: totalCurrency },
+    { amount: chargedAmount, currency: totalCurrency },
     ...nonZeroExtraTotals,
   ];
   const hasMultipleCurrencyTotals = nonZeroExtraTotals.length > 0;
@@ -436,6 +491,9 @@ export default function CheckoutModal({
     discountCapped && maxDiscount != null
       ? `Capped to max (${fmtTotal(maxDiscount)})`
       : undefined;
+  const extraCapNote = extraCapped
+    ? `Capped to max (${fmtTotal(totalAmount)})`
+    : undefined;
   /** The discount field — rendered in the payment box (LIRA-318), or in the
    *  order summary for a partner sale, which has no payment box. */
   const discountField = (
@@ -448,6 +506,22 @@ export default function CheckoutModal({
         value={discount}
         onChange={handleDiscountChange}
         className={discountFieldClass(discountCapped)}
+        placeholder="0"
+      />
+    </div>
+  );
+  /** LIRA-319 — the same field on the Extra side of the line. */
+  const extraField = (
+    <div className="flex items-center gap-1">
+      <span className="text-amber-400 text-xs">
+        {isLbpTotal ? "LBP" : "$"}
+      </span>
+      <DecimalInput
+        data-testid="checkout-discount-input"
+        aria-label="Extra"
+        value={extra}
+        onChange={handleExtraChange}
+        className={discountFieldClass(extraCapped)}
         placeholder="0"
       />
     </div>
@@ -559,6 +633,15 @@ export default function CheckoutModal({
       final_amount: finalAmount,
       // Currency that total_amount/discount/final_amount are expressed in.
       currency: totalCurrency,
+      // LIRA-319: the extra, in the sale's currency (owner: USD total →
+      // extra_usd, LBP total → extra_lbp). Sent only when there is one, so
+      // a sale without it is byte-identical to before; never with a
+      // discount (switching sides clears the other) nor on a partner sale.
+      ...(appliedExtra > 0
+        ? isLbpTotal
+          ? { extra_lbp: appliedExtra }
+          : { extra_usd: appliedExtra }
+        : {}),
       // PFT-R: a FOR-partner sale takes NO counter payment at all — the
       // payment/amount section isn't even rendered in that mode (see below),
       // so send zero/empty payment fields explicitly rather than whatever is
@@ -607,7 +690,7 @@ export default function CheckoutModal({
     if (!forPartner) {
       // Block debt creation when DEBT payment method is disabled
       if (
-        !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
+        !isPaymentComplete(totalPaidInTotalCurrency, chargedAmount) &&
         !debtPaymentEnabled
       ) {
         appEvents.emit(
@@ -620,7 +703,7 @@ export default function CheckoutModal({
 
       // Validation: Debt requires a complete profile for new debts
       if (
-        !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
+        !isPaymentComplete(totalPaidInTotalCurrency, chargedAmount) &&
         !canCreateDebt
       ) {
         appEvents.emit(
@@ -722,7 +805,9 @@ export default function CheckoutModal({
       })),
       subtotal: totalAmount,
       discount: discount,
-      total: finalAmount,
+      // LIRA-319: its own "Extra +$X" line; the total includes it.
+      extra: appliedExtra,
+      total: chargedAmount,
       payment_usd: tenderUSD,
       payment_lbp: tenderLBP,
       on_account_usd: paidUSD - tenderUSD,
@@ -802,6 +887,7 @@ export default function CheckoutModal({
     items,
     totalAmount,
     discount,
+    appliedExtra,
     paidUSD,
     paidLBP,
     cashReturnUSD,
@@ -1010,6 +1096,7 @@ export default function CheckoutModal({
                           exchangeRate: effectiveExchangeRate,
                           forPartner,
                           selectedPartnerId,
+                          extra: appliedExtra,
                         })
                       }
                       className="p-1.5 text-slate-400 hover:text-violet-400 hover:bg-violet-500/10 rounded-lg transition-colors"
@@ -1067,6 +1154,15 @@ export default function CheckoutModal({
                     </div>
                   </div>
                 )}
+                {appliedExtra > 0 && (
+                  <div
+                    data-testid="checkout-summary-extra"
+                    className="flex justify-between text-amber-400"
+                  >
+                    <span>Extra</span>
+                    <span>+{fmtTotal(appliedExtra)}</span>
+                  </div>
+                )}
                 {hasMultipleCurrencyTotals ? (
                   <div className="border-t border-slate-700 pt-3 space-y-2">
                     {allTotals.map((t) => (
@@ -1090,13 +1186,13 @@ export default function CheckoutModal({
                         Net Total
                       </span>
                       <span className="text-2xl font-bold text-violet-400">
-                        {fmtTotal(finalAmount)}
+                        {fmtTotal(chargedAmount)}
                       </span>
                     </div>
                     <div className="text-right text-xs text-slate-500">
                       {isLbpTotal
-                        ? `≈ $${(finalAmount / effectiveExchangeRate).toFixed(2)} USD`
-                        : `≈ ${(finalAmount * effectiveExchangeRate).toLocaleString()} LBP`}
+                        ? `≈ $${(chargedAmount / effectiveExchangeRate).toFixed(2)} USD`
+                        : `≈ ${(chargedAmount * effectiveExchangeRate).toLocaleString()} LBP`}
                     </div>
                   </>
                 )}
@@ -1126,6 +1222,7 @@ export default function CheckoutModal({
                         exchangeRate: effectiveExchangeRate,
                         forPartner,
                         selectedPartnerId,
+                        extra: appliedExtra,
                       })
                     }
                     className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
@@ -1203,11 +1300,23 @@ export default function CheckoutModal({
                       <DiscountLine
                         label="Discount"
                         testId="checkout-discount-line"
-                        {...(discountCapNote
-                          ? { capNote: discountCapNote }
+                        {...(isExtraMode
+                          ? extraCapNote
+                            ? { capNote: extraCapNote }
+                            : {}
+                          : discountCapNote
+                            ? { capNote: discountCapNote }
+                            : {})}
+                        // LIRA-319: "− Discount | + Extra" (POS only).
+                        {...(canExtra
+                          ? {
+                              allowExtra: true,
+                              mode: lineMode,
+                              onModeChange: handleLineModeChange,
+                            }
                           : {})}
                       >
-                        {discountField}
+                        {isExtraMode ? extraField : discountField}
                       </DiscountLine>
                     }
                     totalBeforeDiscount={grossTotals}
@@ -1223,6 +1332,8 @@ export default function CheckoutModal({
                     // LIRA-310: Waive adds the gap to this modal's discount,
                     // never past `maxDiscount` (Maintenance: labour); when the
                     // gap is bigger than the room left, Waive is hidden.
+                    // LIRA-319: Waive is a discount — never on the Extra side.
+                    waiveDisabled={isExtraMode}
                     onWaiveRemaining={(amt) => {
                       setDiscountCapped(false);
                       setDiscount((d) =>
@@ -1246,7 +1357,7 @@ export default function CheckoutModal({
                   {!debtPaymentEnabled &&
                     !isPaymentComplete(
                       totalPaidInTotalCurrency,
-                      finalAmount,
+                      chargedAmount,
                     ) && (
                       <div className="text-xs text-orange-400 bg-orange-500/10 rounded px-3 py-2">
                         Debt is disabled. Full payment required to complete this

@@ -42,11 +42,15 @@ import type {
   // LIRA-296 — category update payload incl. warranty_months (rule 21).
   UpdateCategoryPayload,
   // LIRA-296 — the sale payload (per-line warranty_months, client_day).
-  SaleRequest,
+  SaleProcessPayload,
   // LIRA-256 — OMT statement covered commission types (core schema input).
   OmtCoveredTypesInput,
   // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
   SupplierCashflowPayload,
+  // LIRA-319 — the recharge sale payload incl. extra_usd/extra_lbp (rule 21).
+  CreateRechargePayload,
+  // LIRA-319 — the financial-service payload incl. extra_usd/extra_lbp (rule 21).
+  CreateFinancialServicePayload,
 } from "@liratek/core" with {
   "resolution-mode": "import",
 };
@@ -233,9 +237,10 @@ contextBridge.exposeInMainWorld("api", {
 
   // Sales
   sales: {
-    // LIRA-296 (rule 12/23): typed from core's SaleRequest — it carries the
-    // per-line `warranty_months` and the sale's `client_day`.
-    process: (saleData: SaleRequest) =>
+    // Rule 21: derived from core's saleProcessSchema input — it carries the
+    // per-line `warranty_months`, `client_day` (LIRA-296) and the extra
+    // charge `extra_usd`/`extra_lbp` (LIRA-319).
+    process: (saleData: SaleProcessPayload) =>
       ipcRenderer.invoke("sales:process", saleData),
     get: (saleId: number) => ipcRenderer.invoke("sales:get", saleId),
     getItems: (saleId: number) => ipcRenderer.invoke("sales:get-items", saleId),
@@ -539,110 +544,11 @@ contextBridge.exposeInMainWorld("api", {
 
   // OMT/Whish Financial Services
   omt: {
-    addTransaction: (data: {
-      provider:
-        | "OMT"
-        | "WHISH"
-        | "BOB"
-        | "OTHER"
-        | "iPick"
-        | "Katsh"
-        | "WHISH_APP"
-        | "OMT_APP"
-        | "BINANCE";
-      serviceType: "SEND" | "RECEIVE" | "BILL";
-      amount: number;
-      currency?: string;
-      commission?: number;
-      cost?: number;
-      price?: number;
-      paidByMethod?: string;
-      payments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-        voucherCode?: string;
-        direction?: "IN" | "OUT";
-      }>;
-      clientId?: number;
-      clientName?: string;
-      referenceNumber?: string;
-      phoneNumber?: string;
-      senderName?: string;
-      senderPhone?: string;
-      receiverName?: string;
-      receiverPhone?: string;
-      senderClientId?: number;
-      receiverClientId?: number;
-      omtServiceType?: string;
-      omtFee?: number;
-      whishFee?: number;
-      profitRate?: number;
-      payFee?: boolean;
-      itemKey?: string;
-      itemCategory?: string;
-      note?: string;
-      includingFees?: boolean;
-      paymentMethodFee?: number;
-      paymentMethodFeeRate?: number;
-      returnedCreditsUsd?: number;
-      partnerId?: number;
-      partnerMode?: "THROUGH" | "FOR";
-      cashoutMethod?: string;
-      transaction_time?: string;
-      deferPayment?: boolean;
-      /** Payment-Legs Integrity plan (Wave 8): full checkout total for a
-       *  multi-unit cart's legs-carrying CARRIER transaction (KatshForm /
-       *  FinancialForm). See CreateFinancialServiceData in @liratek/core. */
-      checkoutTotal?: { usd: number; lbp: number };
-      /** Payment-Legs Integrity plan (Wave 9): the rate MultiPaymentInput
-       *  actually converted the customer's tender at (may differ from the
-       *  transaction's stamped rate-of-record) — reconciliation uses this
-       *  when present. See CreateFinancialServiceData in @liratek/core. */
-      tender_exchange_rate?: number;
-      /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): identifies which
-       *  multi-unit split checkout this unit belongs to — sent with EVERY
-       *  unit (carrier and siblings alike) by KatshForm/FinancialForm.
-       *  Omitted on single-unit checkouts. See CreateFinancialServiceData
-       *  in @liratek/core. */
-      split_group?: string;
-      split_role?: "carrier" | "sibling";
-      split_units?: number;
-      /** BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.2/§4 Phase C: operator-chosen
-       *  fee-collection legs for an OMT/WHISH system RECEIVE with a
-       *  fee-on-top (`includingFees` false, fee > 0). Real tender methods,
-       *  split allowed, CUSTOMER_ACCOUNT allowed (client-gated). Σ must
-       *  equal the transaction's own fee — enforced server-side by a second
-       *  reconcileLegs call. Absent entirely (not `[]`) falls back to the
-       *  repository's legacy single-leg synthesis on `cashoutMethod`. Never
-       *  sent inside a session (the basket path doesn't wire fee collection
-       *  through yet — Phase F). See CreateFinancialServiceData in
-       *  @liratek/core. */
-      feePayments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-      }>;
-      /** Rule 12: the repository reads these (FinancialServiceRepository
-       *  folds them into the drawer credit and the profit stamp), and
-       *  electron.d.ts already declared them — this type was the only link
-       *  in the chain missing them. Overpayment the customer chose to leave
-       *  with the shop rather than take back as change. */
-      kept_change_usd?: number;
-      kept_change_lbp?: number;
-      /** LIRA-090 (v140) Only-Days fields — rule 12: must be present here
-       *  so the Zod schema (FinancialServiceSchema, now updated with these
-       *  three fields) does not strip them from the IPC payload and the
-       *  computed credit-return feature actually reaches the repository.
-       *  `returnedCreditsUsd` already existed above (scalar operator override).
-       *  See CreateFinancialServiceData in @liratek/core for the full contract. */
-      mobileServiceItemId?: number;
-      telecomCreditReturns?: Array<{
-        itemCategory?: string;
-        mobileServiceItemId?: number;
-        returnedCreditsUsd?: number;
-      }>;
-    }) => ipcRenderer.invoke("omt:add-transaction", data),
+    // LIRA-319 (rule 21/12): the payload IS core's schema input — the
+    // hand-written copy that lived here lacked extra_usd/extra_lbp (and drifted
+    // from the schema the handler validates with).
+    addTransaction: (data: CreateFinancialServicePayload) =>
+      ipcRenderer.invoke("omt:add-transaction", data),
     getHistory: (provider?: string, opts?: { all?: boolean }) =>
       ipcRenderer.invoke("omt:get-history", provider, opts),
     getAnalytics: (providers?: string[]) =>
@@ -662,57 +568,11 @@ contextBridge.exposeInMainWorld("api", {
     getTodayStats: (provider: "MTC" | "Alfa") =>
       ipcRenderer.invoke("recharge:get-today-stats", provider),
     getDrawerBalances: () => ipcRenderer.invoke("recharge:get-drawer-balances"),
-    process: (data: {
-      provider: "MTC" | "Alfa";
-      type:
-        | "CREDIT_TRANSFER"
-        | "VOUCHER"
-        | "DAYS"
-        | "ALFA_GIFT"
-        | "CREDIT_BUYBACK"
-        | "SHOP_LINE_USE";
-      amount: number;
-      cost: number;
-      price: number;
-      /** LIRA-185 #1: payment-sheet discount (sale currency); `price` stays
-       *  the list price, the server charges `price − discount`. */
-      discount?: number;
-      default_price_to_client?: number;
-      paid_by_method?: string;
-      phoneNumber?: string;
-      clientId?: number;
-      clientName?: string;
-      currency?: string;
-      note?: string;
-      /** Multi-payment legs — required (non-empty) for `type:
-       *  "CREDIT_BUYBACK"` (CARRIER_LINES_VALIDITY_PLAN.md Phase 6). Legs
-       *  without `direction` are IN (customer-paid / payout); `direction:
-       *  "OUT"` marks a change leg (CLAUDE.md rule 16). */
-      payments?: Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-        voucherCode?: string;
-        direction?: "IN" | "OUT";
-      }>;
-      kept_change_usd?: number;
-      kept_change_lbp?: number;
-      partnerId?: number;
-      partnerMode?: "FOR";
-      transaction_time?: string;
-      /** Payment-Legs Integrity plan (false-reject fix): the rate the
-       *  payment sheet actually converted the customer's tender at — used
-       *  only for leg reconciliation, never the stamped exchange_rate. */
-      tender_exchange_rate?: number;
-      /** The CLIENT's own local calendar day (`YYYY-MM-DD`, e.g. the
-       *  frontend's `localDay()`) — fed to the DAYS-sale validity decrement,
-       *  the CREDIT_BUYBACK credit movement, and a redeemed GIFT_CARD
-       *  voucher's expiry check, all of which otherwise evaluate against the
-       *  server's day (untrustworthy on web — Fly runs UTC, the shop is
-       *  Beirut UTC+3). Falls back to the server's own `localDay()` when
-       *  omitted. */
-      client_day?: string;
-    }) => ipcRenderer.invoke("recharge:process", data),
+    // Rule 21 (LIRA-319): derived from core's createRechargeSchema input —
+    // carries every key the handler validates, incl. the extra charge
+    // (`extra_usd`/`extra_lbp`), `discount`, `client_day` and the legs.
+    process: (data: CreateRechargePayload) =>
+      ipcRenderer.invoke("recharge:process", data),
     topUpApp: (data: {
       provider:
         | "MTC"

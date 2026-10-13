@@ -229,6 +229,11 @@ export const TRANSACTION_TYPES = {
    *  standalone profit-only row (amount 0, profit −waived), session-linked
    *  (kind "waived_shortfall"), swept by the basket void/refund. */
   WAIVED_SHORTFALL: "WAIVED_SHORTFALL",
+  /** LIRA-319 — a session basket's extra charge: a standalone profit-only
+   *  row (amount = extra, profit 0, extra_usd/lbp = extra), session-linked
+   *  like KEPT_CHANGE. No money of its own — the basket's payment legs carry
+   *  the tender. Single-sale extras live on the module's own row instead. */
+  EXTRA_CHARGE: "EXTRA_CHARGE",
   SUPPLIER_PAYMENT: "SUPPLIER_PAYMENT",
   SUPPLIER_SETTLEMENT: "SUPPLIER_SETTLEMENT",
   /** PFT-6b: a Partners-page settlement's money movement — the drawer leg
@@ -461,6 +466,11 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // standalone void would desync profit from money. Rule-20 reversal owner:
     // none needed (the kept cash physically stays in the drawer regardless).
     TRANSACTION_TYPES.KEPT_CHANGE,
+    // EXTRA_CHARGE (LIRA-319): a session basket's extra — no money of its own
+    // (the basket's payment legs carry it), so it is never voided or refunded
+    // on its own. Reversal owner: the basket's own void/refund (and the share
+    // returned by a basket item refund), like KEPT_CHANGE.
+    TRANSACTION_TYPES.EXTRA_CHARGE,
     // WAIVED_SHORTFALL (LIRA-310): the KEPT_CHANGE mirror (profit −waived,
     // no legs) — same reasoning; the basket void/refund owns it.
     TRANSACTION_TYPES.WAIVED_SHORTFALL,
@@ -643,6 +653,12 @@ export const SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES: ReadonlySet<Transac
     // LIRA-310: same as KEPT_CHANGE — the generic path zeroes its (negative)
     // profit (void: status; refund: keptChangeSource's REFUND branch).
     TRANSACTION_TYPES.WAIVED_SHORTFALL,
+    // LIRA-319: a session basket's EXTRA_CHARGE row (amount = profit-side
+    // extra, no legs). Void: status → VOIDED (leaves every extra/profit
+    // query). Refund: `_createRefundRow` negates `extra_*`; when items were
+    // already refunded one by one, `refundSessionBasket` gives back only the
+    // extra still unreturned (`_sessionExtraRemaining`).
+    TRANSACTION_TYPES.EXTRA_CHARGE,
   ]);
 
 /**

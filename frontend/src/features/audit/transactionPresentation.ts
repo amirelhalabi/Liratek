@@ -266,6 +266,9 @@ export const TRANSACTION_PRESENTATION: Record<
   // LIRA-310 — the basket Waive: the KEPT_CHANGE mirror (profit −waived,
   // amount 0), so no cash badge either.
   WAIVED_SHORTFALL: { label: TRANSACTION_TYPE_LABELS.WAIVED_SHORTFALL, color: "text-slate-300", direction: TRANSACTION_CASH_DIRECTION.WAIVED_SHORTFALL },
+  // LIRA-319 — a session basket's extra charge: profit-carrying, the
+  // basket's payment legs carry its money, so no cash badge of its own.
+  EXTRA_CHARGE: { label: TRANSACTION_TYPE_LABELS.EXTRA_CHARGE, color: "text-amber-300", direction: TRANSACTION_CASH_DIRECTION.EXTRA_CHARGE },
   // LIRA-296 — the cost of honouring a warranty (or a recovery offsetting
   // it): profit-only, no payment legs, no drawer — so no cash badge.
   WARRANTY_COST: {

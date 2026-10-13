@@ -46,6 +46,13 @@
 - The discount now sits in the same place on every payment window: one Discount line inside the payment box, under Total Amount. On the POS and Maintenance checkout it moved there from the order summary, and it says "Capped to max" when you type more than allowed.
 - Debts (Settle Debt) and Partners (Settle): the separate green Discount / Forgive box is gone. Forgiving is now a "Forgive (no cash)" line in the payment box, and typing an amount there no longer changes the payment you entered. A "Client will owe" (or "Partner will owe") line shows what is left after you confirm. To forgive part of it, lower the payment first.
 
+## ➕ Extra charges
+
+- You can now charge a little more than the price: on the payment window's Discount line, switch to "+ Extra" and type the amount. Example: a case priced $6 sold for $7 — the case stays at $6 and the $1 is recorded as an extra, in the drawer of the payment method used.
+- Works on the POS, Maintenance, Custom Services, Loto, MTC / Alfa sales, OMT / Whish send, Katsh, Binance send and at the customer session checkout (once for the whole basket). A sale has a discount or an extra, not both, and the extra can't be more than the sale itself.
+- Profits shows a new "Extra charges" line with everything charged extra, so item profits stay what they were.
+- Receipts show "Extra +$1.00" on its own line. Refunding one item gives back that item's share of the extra; voiding or refunding the whole sale gives it all back.
+
 ## 🌐 Web app
 
 - Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.
@@ -54,3 +61,7 @@
 
 - Checkpoint for MTC or Alfa alone: Save works again. It used to stop with "At least one drawer amount is required" and save nothing.
 - Checkpoint: the Credits box for each line now shows the amount rounded to cents (705.3), instead of a long number like 705.3000000000001.
+
+## 🛠️ Custom Services
+
+- The For Partner / Via Partner boxes now sit on one line, with the partner picker (and Pay out) neatly on the line below them. The picker used to float between the boxes, lower than them.

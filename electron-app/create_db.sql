@@ -385,6 +385,10 @@ CREATE TABLE IF NOT EXISTS transactions (
     reverses_id     INTEGER,
     profit_usd      REAL NOT NULL DEFAULT 0,
     profit_lbp      REAL NOT NULL DEFAULT 0,
+    -- v212 (LIRA-319): the extra the cashier added on top of the sale's
+    -- total. Part of amount_*, never of profit_*; reported as "Extra charges".
+    extra_usd       REAL NOT NULL DEFAULT 0,
+    extra_lbp       REAL NOT NULL DEFAULT 0,
     summary         TEXT,
     metadata_json   TEXT,
     device_id       TEXT,
@@ -674,6 +678,9 @@ CREATE TABLE IF NOT EXISTS sales (
     total_amount_usd DECIMAL(10, 2),
     discount_usd DECIMAL(10, 2) DEFAULT 0,
     final_amount_usd DECIMAL(10, 2),
+    -- LIRA-319 (v213): the extra charge, kept here so a DRAFT restores it
+    -- (a draft has no transactions row). final_amount_usd excludes it.
+    extra_usd REAL NOT NULL DEFAULT 0,
     paid_usd DECIMAL(10, 2) DEFAULT 0,
     paid_lbp DECIMAL(15, 2) DEFAULT 0,
     change_given_usd DECIMAL(10, 2) DEFAULT 0,
@@ -3067,4 +3074,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v210 (LIRA-306) adds the eight offline_* tables, declared above.
     (210, 'offline_events_model'),
     -- v211 (LIRA-309) adds resale_lines and resale_line_recharges, declared above.
-    (211, 'resale_lines');
+    (211, 'resale_lines'),
+    -- v212 (LIRA-319) adds transactions.extra_usd/extra_lbp, declared above.
+    (212, 'transactions_extra_charges'),
+    -- v213 (LIRA-319) adds sales.extra_usd (draft extra), declared above.
+    (213, 'sales_extra_usd');

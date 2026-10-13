@@ -59,6 +59,10 @@ export interface SellTicketData {
    *  the repository; lowers profit only. */
   discount_usd?: number;
   discount_lbp?: number;
+  /** LIRA-319: the extra on top of the ticket, in LBP — verified by the
+   *  repository; part of what the customer pays, never of the profit stamp. */
+  extra_usd?: number;
+  extra_lbp?: number;
   ticket_number?: string;
   sale_amount: number;
   commission_rate?: number;
@@ -189,6 +193,8 @@ export class LotoService {
         kept_change_lbp: data.kept_change_lbp,
         discount_usd: data.discount_usd,
         discount_lbp: data.discount_lbp,
+        extra_usd: data.extra_usd,
+        extra_lbp: data.extra_lbp,
         partnerId: data.partnerId,
         partnerMode: data.partnerMode,
       };

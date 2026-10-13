@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { localDayFormatSchema } from "./common.js";
+import {
+  localDayFormatSchema,
+  extraChargeFields,
+  hasExtraCharge,
+  discountAndExtraNotBoth,
+  extraNotBothRefineOptions,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+  EXTRA_ABOVE_TOTAL_MESSAGE,
+} from "./common.js";
 import { isWithinShortfallMax, SHORTFALL_MAX } from "./exchange.js";
 
 /**
@@ -13,6 +21,14 @@ import { isWithinShortfallMax, SHORTFALL_MAX } from "./exchange.js";
  * NOTE: no .transform() anywhere — it breaks validatePayload's generic
  * inference on the Electron side; is_winner is normalized in the handlers.
  */
+
+/**
+ * LIRA-319 — a loto ticket is LBP-native (amount_lbp = face value), so its
+ * extra is in LBP, the sale's currency. One sentence for the schema and the
+ * repository (rule 14).
+ */
+export const LOTO_EXTRA_LBP_ONLY_MESSAGE =
+  "A Loto ticket's extra is in LBP — enter it in LBP.";
 
 export const lotoSellSchema = z
   .object({
@@ -64,6 +80,11 @@ export const lotoSellSchema = z
     // is valid for Loto (the partner analog of CUSTOMER_ACCOUNT).
     partnerId: z.number().int().positive().optional(),
     partnerMode: z.enum(["FOR"]).optional(),
+    // LIRA-319: the extra the cashier added on top of the ticket, in LBP.
+    // Optional with no default (offline replay, research R4). The
+    // repository enforces the same refusals (the session checkout calls it
+    // without this schema).
+    ...extraChargeFields,
   })
   .refine(
     (data) =>
@@ -110,7 +131,29 @@ export const lotoSellSchema = z
         "A discount isn't allowed on a partner ticket. (partnerMode FOR books the full amount to the partner)",
       path: ["discount_lbp"],
     },
-  );
+  )
+  // LIRA-319 — the extra: never with a discount, never on a partner ticket,
+  // LBP only, and at most the ticket itself (FR-006).
+  .refine(
+    (data) =>
+      discountAndExtraNotBoth(
+        data,
+        (data.discount_lbp ?? 0) + (data.discount_usd ?? 0),
+      ),
+    extraNotBothRefineOptions,
+  )
+  .refine((data) => data.partnerMode !== "FOR" || !hasExtraCharge(data), {
+    message: NO_EXTRA_FOR_PARTNER_MESSAGE,
+    path: ["extra_lbp"],
+  })
+  .refine((data) => !((data.extra_usd ?? 0) > 0), {
+    message: LOTO_EXTRA_LBP_ONLY_MESSAGE,
+    path: ["extra_usd"],
+  })
+  .refine((data) => (data.extra_lbp ?? 0) <= data.sale_amount, {
+    message: EXTRA_ABOVE_TOTAL_MESSAGE,
+    path: ["extra_lbp"],
+  });
 
 export const lotoCashPrizeSchema = z.object({
   // Optional everywhere else in the flow: the UI submits without it, the

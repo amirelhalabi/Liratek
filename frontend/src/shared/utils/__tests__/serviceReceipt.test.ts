@@ -578,3 +578,56 @@ describe("buildServiceReceiptText — repair warranty (LIRA-296)", () => {
     expect(r).not.toContain("Covers the replaced part only.");
   });
 });
+
+// LIRA-319 — written after the receipt change: not proven failing-first.
+describe("buildServiceReceiptText — extra charge (LIRA-319)", () => {
+  it("prints Price, Extra and the Total with the extra", () => {
+    const r = build({
+      txn: {
+        id: 77,
+        type: "CUSTOM_SERVICE",
+        summary: null,
+        note: null,
+        client_name: null,
+        client_phone: null,
+        created_at: "2026-10-14T10:00:00Z",
+        metadata: { amount: 9, currency: "USD" },
+        extra_usd: 1,
+      },
+    });
+    expect(r).toMatch(/Price:.*\$9\.00/);
+    expect(r).toMatch(/Extra:.*\+\$1\.00/);
+    expect(r).toMatch(/Total:.*\$10\.00/);
+  });
+
+  it("an LBP sale prints its LBP extra; no extra keeps the single Amount line", () => {
+    const lbp = build({
+      txn: {
+        id: 78,
+        type: "LOTO",
+        summary: null,
+        note: null,
+        client_name: null,
+        client_phone: null,
+        created_at: "2026-10-14T10:00:00Z",
+        metadata: { amount: 100000, currency: "LBP" },
+        extra_lbp: 10000,
+      },
+    });
+    expect(lbp).toMatch(/Extra:.*\+10,000/);
+    const plain = build({
+      txn: {
+        id: 79,
+        type: "CUSTOM_SERVICE",
+        summary: null,
+        note: null,
+        client_name: null,
+        client_phone: null,
+        created_at: "2026-10-14T10:00:00Z",
+        metadata: { amount: 9, currency: "USD" },
+      },
+    });
+    expect(plain).toMatch(/Amount:/);
+    expect(plain).not.toMatch(/Extra:/);
+  });
+});

@@ -59,6 +59,8 @@ function makeDb(): Database.Database {
       source_id INTEGER NOT NULL,
       profit_usd REAL NOT NULL DEFAULT 0,
       profit_lbp REAL NOT NULL DEFAULT 0,
+      extra_usd REAL NOT NULL DEFAULT 0,
+      extra_lbp REAL NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);

@@ -6,7 +6,16 @@ import {
   refundExchangeRateSchema,
   clientDayInputSchema,
   localDayFormatSchema,
+  extraChargeFields,
+  hasExtraCharge,
+  discountAndExtraNotBoth,
+  extraNotBothRefineOptions,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
 } from "./common.js";
+
+/** LIRA-319 — POS sales are USD-priced, so their extra is too. */
+export const POS_EXTRA_USD_ONLY_MESSAGE =
+  "A POS sale's extra is in dollars — enter it in USD.";
 import { warrantyMonthsSchema } from "./productUnit.js";
 import {
   refundKeptChangeSchema,
@@ -86,6 +95,11 @@ export const saleProcessSchema = z
     // Explicit amounts (not a flag) so what the operator saw is what books.
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
+    // LIRA-319: the extra the cashier added on top of the total. Optional
+    // with no default (offline replay, research R4). POS sales are
+    // USD-priced, so only `extra_usd` is accepted (refine below); the key
+    // pair is shared with every other write schema (`extraChargeFields`).
+    ...extraChargeFields,
     exchange_rate: z.number().positive(),
     drawer_name: z.string().optional(),
     id: z.number().int().positive().optional(),
@@ -128,7 +142,18 @@ export const saleProcessSchema = z
         "payments cannot include a Customer Account leg on a for-partner sale — there is no customer owing, the partner owes",
       path: ["payments"],
     },
-  );
+  )
+  // LIRA-319 — the repository enforces the same three (the session checkout
+  // calls it without this schema); here they are refused before the write.
+  .refine((data) => discountAndExtraNotBoth(data, data.discount), extraNotBothRefineOptions)
+  .refine(
+    (data) => data.partnerMode !== "FOR" || !hasExtraCharge(data),
+    { message: NO_EXTRA_FOR_PARTNER_MESSAGE, path: ["extra_usd"] },
+  )
+  .refine((data) => !((data.extra_lbp ?? 0) > 0), {
+    message: POS_EXTRA_USD_ONLY_MESSAGE,
+    path: ["extra_lbp"],
+  });
 
 export type SaleProcessInput = z.infer<typeof saleProcessSchema>;
 

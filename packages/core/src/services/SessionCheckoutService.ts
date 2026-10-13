@@ -44,6 +44,11 @@ import {
   isCustomServiceCartChannel,
   NO_SELLING_PRICE_ERROR,
 } from "../utils/customServiceSellingPrice.js";
+import {
+  DISCOUNT_AND_EXTRA_MESSAGE,
+  EXTRA_ABOVE_TOTAL_MESSAGE,
+} from "../validators/common.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 export interface CheckoutCartItem {
   id: string;
@@ -95,6 +100,12 @@ export interface CheckoutRequest {
    *  capped at SHORTFALL_MAX, before anything is booked. */
   waived_usd?: number;
   waived_lbp?: number;
+  /** LIRA-319: the ONE extra for the whole basket, per currency → a
+   *  standalone EXTRA_CHARGE row linked with a POSITIVE amount, so the
+   *  basket charge includes it. Verified against the basket's own charge
+   *  (`resolveBasketExtra`) before anything is written. */
+  extra_usd?: number;
+  extra_lbp?: number;
   userId: number;
 }
 
@@ -373,6 +384,66 @@ export function isFeeOnTopReceiveItem(
   return isSessionPooledFeeReceive(formData);
 }
 
+/**
+ * LIRA-319 — verify the basket extra BEFORE any write. The extra sits on top
+ * of the basket's own charge (what the customer pays for the charge lines,
+ * `sessionBasketCustomerAmount` per line — the same figure the checkout
+ * totals use, rule 14) and may not exceed it (FR-006), compared at the
+ * basket rate when the currencies differ. It may not ride with a Waive —
+ * the basket's discount analogue ("a discount or an extra, not both").
+ * Returns the extra to book, or throws a plain-sentence refusal. Exported
+ * for its test.
+ */
+export function resolveBasketExtra(input: {
+  cartItems: CheckoutCartItem[];
+  extraUsd: number;
+  extraLbp: number;
+  waivedUsd: number;
+  waivedLbp: number;
+  exchangeRate: number | undefined;
+}): { usd: number; lbp: number } {
+  const usd = input.extraUsd > 0 ? input.extraUsd : 0;
+  const lbp = input.extraLbp > 0 ? input.extraLbp : 0;
+  if (usd === 0 && lbp === 0) return { usd: 0, lbp: 0 };
+  if (input.waivedUsd > 0 || input.waivedLbp > 0) {
+    throw new Error(DISCOUNT_AND_EXTRA_MESSAGE);
+  }
+  let chargeUsd = 0;
+  let chargeLbp = 0;
+  for (const item of input.cartItems) {
+    // Charge lines only (a payout line is the shop paying out, never what
+    // the extra sits on) — the same base the item-refund share divides by.
+    const amount = sessionBasketCustomerAmount(item);
+    if (!(amount > 0)) continue;
+    if (item.currency === "LBP") chargeLbp += amount;
+    else chargeUsd += amount;
+  }
+  const rate =
+    input.exchangeRate && input.exchangeRate > 0 ? input.exchangeRate : null;
+  const EPS = 0.000001;
+  if (rate == null) {
+    // No rate: only a same-currency comparison is possible.
+    const crossCurrency =
+      (lbp > 0 && Math.abs(chargeUsd) > EPS) ||
+      (usd > 0 && Math.abs(chargeLbp) > EPS);
+    if (crossCurrency) {
+      throw new Error(
+        "The extra can't be checked without the exchange rate. (Session checkout: an extra needs the exchange rate the basket was paid at)",
+      );
+    }
+    if (usd > chargeUsd + EPS || lbp > chargeLbp + EPS) {
+      throw new Error(EXTRA_ABOVE_TOTAL_MESSAGE);
+    }
+    return { usd, lbp };
+  }
+  const chargeUsdEq = chargeUsd + chargeLbp / rate;
+  const extraUsdEq = usd + lbp / rate;
+  if (!(chargeUsdEq > 0) || extraUsdEq > chargeUsdEq + EPS) {
+    throw new Error(EXTRA_ABOVE_TOTAL_MESSAGE);
+  }
+  return { usd, lbp };
+}
+
 /** Resolve the unified transactions.id for a just-created source record. */
 function resolveUnifiedTransactionId(
   sourceTable: string,
@@ -446,6 +517,8 @@ export class SessionCheckoutService {
         kept_change_lbp,
         waived_usd,
         waived_lbp,
+        extra_usd,
+        extra_lbp,
       } = request;
 
       if (!cartItems || cartItems.length === 0) {
@@ -501,6 +574,16 @@ export class SessionCheckoutService {
             "The waived amount can't be checked without the exchange rate. (Session checkout: waiving needs the exchange rate the basket was paid at)",
         };
       }
+
+      // LIRA-319: the basket extra, verified before anything is written.
+      const extra = resolveBasketExtra({
+        cartItems,
+        extraUsd: extra_usd ?? 0,
+        extraLbp: extra_lbp ?? 0,
+        waivedUsd: waived_usd ?? 0,
+        waivedLbp: waived_lbp ?? 0,
+        exchangeRate,
+      });
 
       const repo = getCustomerSessionRepository();
       const itemResults: CheckoutItemResult[] = [];
@@ -735,6 +818,62 @@ export class SessionCheckoutService {
               `Failed to process cart item "${item.label}" (${item.module}): ${err instanceof Error ? err.message : "Unknown error"}`,
             );
           }
+        }
+
+        // LIRA-319: the basket extra — ONE EXTRA_CHARGE row (amount = extra,
+        // profit 0, extra_* = extra; "Extra charges" reads extra_*), linked
+        // with a POSITIVE amount BEFORE the payment below so the basket
+        // charge it is checked against (getSessionCashSplitContext: kept
+        // change, waive, nothing-to-collect, PCD split) includes it. No legs
+        // of its own — the basket's payment legs carry the money ("no-money"
+        // posting rule, like KEPT_CHANGE). Reversal owner: the basket's own
+        // void/refund, and a basket item refund returns its share (rule 20).
+        if (extra.usd > 0 || extra.lbp > 0) {
+          const extraTxnId = getTransactionRepository().createTransaction({
+            type: TRANSACTION_TYPES.EXTRA_CHARGE,
+            source_table: "customer_sessions",
+            source_id: sessionId,
+            user_id: userId,
+            amount_usd: extra.usd,
+            amount_lbp: extra.lbp,
+            profit_usd: 0,
+            profit_lbp: 0,
+            extra_usd: extra.usd,
+            extra_lbp: extra.lbp,
+            ...cashierRateStamp(exchangeRate),
+            client_id: sessionClientId ?? null,
+            // Same reason as KEPT_CHANGE below (LIRA-230): no formData to
+            // inject the session's walk-in name into.
+            client_name: sessionCustomerName ?? null,
+            summary: `Extra (session checkout): ${[
+              extra.usd > 0 ? `$${extra.usd}` : null,
+              extra.lbp > 0 ? `${extra.lbp.toLocaleString()} LBP` : null,
+            ]
+              .filter(Boolean)
+              .join(" + ")}`,
+            metadata_json: {
+              session_id: sessionId,
+              extra_usd: extra.usd,
+              extra_lbp: extra.lbp,
+            },
+          });
+          repo.linkTransaction(
+            sessionId,
+            "extra_charge",
+            extraTxnId,
+            extra.usd,
+            extra.lbp,
+            0,
+            0,
+            extraTxnId,
+          );
+          checkoutTotalUsd += extra.usd;
+          checkoutTotalLbp += extra.lbp;
+          // The extra is profit (the Profits page's "Extra charges"); the
+          // Sessions page reads this stamp first, so it carries it too —
+          // matching the linked-rows total (extraChargeProfit).
+          checkoutProfitUsd += extra.usd;
+          checkoutProfitLbp += extra.lbp;
         }
 
         // AFTER all items (deferred mode): record the ONE customer payment for

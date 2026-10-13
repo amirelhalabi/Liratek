@@ -273,6 +273,39 @@ a For-Partner item contributes 0 to the basket's customer charge
 
 ---
 
+### 4.2 Extra charges (LIRA-319, owner decisions 2026-10-13)
+
+An extra is an amount the cashier adds ON TOP of a sale's total — the
+opposite of a discount ("− Discount | + Extra" switch on the payment box's
+Discount line, `DiscountLine` / MultiPaymentInput `onExtraChange`). It is
+stored on the unified row as `transactions.extra_usd` / `extra_lbp` (v212):
+
+- **In the amount, out of the profit stamp.** The row's `amount_*` includes
+  the extra (what the customer owes and pays), so payment legs, drawers,
+  client debt and the generic void move it with no extra code. `profit_*`
+  never includes it, so item / service margins stay honest. Profits reports
+  it as its own "Extra charges" row from `extra_*` through ONE fragment
+  (`extraChargeProfit` in ProfitRepository) — never read
+  `metadata_json.extra_*` for money (a full refund copies the original's
+  metadata).
+- **Module tables are unchanged** (`sales.final_amount_usd`, labour, loto
+  face value, recharge price, provider fee, commission, supplier / partner /
+  LOTO ledgers): the extra is shop money in the drawer of the customer's
+  payment method, never supplier money.
+- **Server rules** (shared messages in `validators/common.ts`): a discount OR
+  an extra, never both; not above the pre-extra total; not on for/via-partner
+  or payout rows, balance payments (Debts / Supplier / Partner settles) or a
+  session-basket ITEM (`deferPayment`); in the sale's currency. Schema fields
+  are optional with NO `.default()` (offline replay).
+- **Session basket:** one `EXTRA_CHARGE` row per basket (no-money, amount =
+  extra, profit 0, in `NON_REVERSIBLE_TRANSACTION_TYPES`), linked like
+  `KEPT_CHANGE`; reversed with the basket.
+- **Reversal (rule 20):** void — the original leaves profit queries; full
+  refund — the REFUND row carries `−extra`; item refund — the share by the
+  line's share of the sale (server-computed, `_computeSaleItemRefundAmounts`),
+  REFUND row `−share`; undo re-adds it. A refunded share lands on the refund's
+  own day.
+
 ## 5. Payment methods & CUSTOMER_ACCOUNT
 
 - The account gate requires **client name + phone** — use `canChargeToCustomerAccount`

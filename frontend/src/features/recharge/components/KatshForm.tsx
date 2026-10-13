@@ -711,6 +711,12 @@ function KatshFormInner({
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [discount, setDiscount] = useState(0);
+  // LIRA-319 — the extra from the payment box's "+ Extra" side, in the
+  // sheet's total currency (`billsCurrency`). Sent on its own field with the
+  // checkout's ONE carrier (the items call, else the first bill) — never
+  // folded into a price — and never in a session or for a partner (neither
+  // opens the sheet).
+  const [extraCharge, setExtraCharge] = useState(0);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   const [itemsReady, setItemsReady] = useState(false);
   // Bill card state (LBP default per spec)
@@ -1631,6 +1637,14 @@ function KatshFormInner({
       billsCurrency === "USD"
         ? { usd: checkoutTotalNative, lbp: 0 }
         : { usd: 0, lbp: checkoutTotalNative };
+    // LIRA-319 — `checkoutTotal` above stays pre-extra (the repository adds
+    // the extra to every total it reconciles).
+    const extraField =
+      extraCharge > 0
+        ? billsCurrency === "USD"
+          ? { extra_usd: extraCharge }
+          : { extra_lbp: extraCharge }
+        : {};
 
     // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): stamp ONE shared uuid
     // across every unit of a multi-unit checkout (the aggregated items SEND,
@@ -1762,6 +1776,8 @@ function KatshFormInner({
           ...(hasTelecomReturns
             ? { telecomCreditReturns: telecomCreditReturnsLines }
             : {}),
+          // LIRA-319: the items call is the checkout's carrier.
+          ...extraField,
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
           transaction_time: transactionTime,
@@ -1836,6 +1852,8 @@ function KatshFormInner({
                 }
               : {}),
             deferPayment: isCarrier ? undefined : true,
+            // LIRA-319: only the carrier bill (no items) takes the extra.
+            ...(isCarrier ? extraField : {}),
             // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — see the items
             // branch above for the full rationale.
             ...(useSplitGroup
@@ -1900,6 +1918,7 @@ function KatshFormInner({
       setExpandedKeys(new Set());
       setReturnLegs([]);
       setKeptChange(null);
+      setExtraCharge(0);
       setTransactionTime(undefined);
       const hasDebtPayment =
         paymentMethod === "CUSTOMER_ACCOUNT" ||
@@ -2322,6 +2341,11 @@ function KatshFormInner({
         showDiscount={totalItems > 0}
         maxDiscount={maxDiscount}
         onDiscountChange={setDiscount}
+        // LIRA-319: "− Discount | + Extra" (extra-only on a bills-only
+        // checkout, which has no discount). Walk-in only.
+        {...(!activeSession && !forPartner
+          ? { onExtraChange: setExtraCharge }
+          : {})}
         hasClient={!!clientId || (!!clientName.trim() && !!clientPhone.trim())}
         // Charge flow: shortfall → client debt (id, or name+phone to create).
         autoDebtRemainder={

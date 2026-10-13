@@ -87,6 +87,8 @@ function createTestDb(): Database.Database {
       amount_lbp    REAL NOT NULL DEFAULT 0,
       profit_usd    REAL NOT NULL DEFAULT 0,
       profit_lbp    REAL NOT NULL DEFAULT 0,
+      extra_usd REAL NOT NULL DEFAULT 0,
+      extra_lbp REAL NOT NULL DEFAULT 0,
       exchange_rate REAL,
       client_id     INTEGER,
       client_name   TEXT,

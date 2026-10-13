@@ -44,7 +44,7 @@ function createTestDb(): Database.Database {
       source_table TEXT NOT NULL, source_id INTEGER NOT NULL, user_id INTEGER NOT NULL DEFAULT 1,
       amount_usd REAL NOT NULL DEFAULT 0, amount_lbp REAL NOT NULL DEFAULT 0, exchange_rate REAL,
       client_id INTEGER, client_name TEXT, client_phone TEXT, reverses_id INTEGER,
-      profit_usd REAL NOT NULL DEFAULT 0, profit_lbp REAL NOT NULL DEFAULT 0, summary TEXT, metadata_json TEXT,
+      profit_usd REAL NOT NULL DEFAULT 0, profit_lbp REAL NOT NULL DEFAULT 0, extra_usd REAL NOT NULL DEFAULT 0, extra_lbp REAL NOT NULL DEFAULT 0, summary TEXT, metadata_json TEXT,
       device_id TEXT, tenant_id INTEGER DEFAULT 1, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

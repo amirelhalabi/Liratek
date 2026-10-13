@@ -15,7 +15,17 @@ import { addMonthsIso } from "../utils/dates.js";
 import { clientDay } from "../utils/requestDay.js";
 import { toErrorString } from "../utils/errors.js";
 import { maintenanceLogger } from "../utils/logger.js";
-import { normalizeMaintenancePhone } from "../validators/maintenance.js";
+import {
+  normalizeMaintenancePhone,
+  maintenanceDiscountOf,
+  maintenanceExtraInJobCurrency,
+  MAINTENANCE_EXTRA_CURRENCY_MESSAGE,
+} from "../validators/maintenance.js";
+import {
+  hasExtraCharge,
+  DISCOUNT_AND_EXTRA_MESSAGE,
+  EXTRA_ON_SESSION_ITEM_MESSAGE,
+} from "../validators/common.js";
 
 /**
  * A jobs-list row with its attached parts (LIRA-176 phase 6). `parts` is
@@ -61,6 +71,11 @@ export interface SaveJobParams {
   /** T3 keep-change (KC-3): kept change per currency → profit stamp. */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /** LIRA-319: the extra charged on top of the checkout total, in the job's
+   *  currency. Joins the MAINTENANCE row's amount (never its profit) and is
+   *  stamped on its `extra_usd`/`extra_lbp`. */
+  extra_usd?: number;
+  extra_lbp?: number;
   transaction_time?: string;
   /**
    * Session-basket deferred payment mode. When true, the job + its unified
@@ -114,6 +129,25 @@ export class MaintenanceService {
         }
         if (txTime > new Date()) {
           throw new Error("transaction_time cannot be in the future");
+        }
+      }
+
+      // LIRA-319: the extra rules both transports share, checked before any
+      // write (the schema refuses the same; the session basket calls this
+      // method without it). The cap needs the parts total and is checked in
+      // `processPayments`.
+      if ((params.extra_usd ?? 0) < 0 || (params.extra_lbp ?? 0) < 0) {
+        throw new Error("The extra can't be negative.");
+      }
+      if (hasExtraCharge(params)) {
+        if (params.deferPayment === true) {
+          throw new Error(EXTRA_ON_SESSION_ITEM_MESSAGE);
+        }
+        if (maintenanceDiscountOf(params) > 0) {
+          throw new Error(DISCOUNT_AND_EXTRA_MESSAGE);
+        }
+        if (!maintenanceExtraInJobCurrency(params)) {
+          throw new Error(MAINTENANCE_EXTRA_CURRENCY_MESSAGE);
         }
       }
 
@@ -290,6 +324,8 @@ export class MaintenanceService {
           changeLbp: params.change_given_lbp,
           keptChangeUsd: params.kept_change_usd,
           keptChangeLbp: params.kept_change_lbp,
+          extraUsd: params.extra_usd,
+          extraLbp: params.extra_lbp,
           note: params.note,
           // LIRA-185 D9: the SAME transaction_time that backdates the job
           // row (baseJobData.transaction_time above) also backdates its

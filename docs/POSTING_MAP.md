@@ -288,6 +288,7 @@ Generic path: `TransactionRepository._voidTransactionInternal` / `_refundTransac
 | Supplier settlement | `_reverseSupplierSettlement` + `_reverseCommissionAtSettlementRecords` | `transaction_id` / `source_id` |
 | Partner ledger (FOR_/THROUGH_) | `_reversePartnerLedger` (opposite-direction row, same type) | `reference_table/reference_id` |
 | Partner settlement / payment | `_reversePartnerSettlementLedger` + `_unwindPartnerSettlementCoverage` | `source_id` |
+| Extra charge (LIRA-319) | in `amount_*` + legs, so `_reversePayments` / `_cancelDebt`; REFUND / item-refund rows write `−extra_*`; basket `EXTRA_CHARGE` row reversed with the basket | `transactions.extra_*`, `reverses_id` |
 | Auto expense | `_cascadeExpenseSiblingVoid` | `expenses.source_ref_*` |
 | Profit | REFUND row negates; VOID sets original `VOIDED` | — |
 | Stock | `_restoreStock`, `_restoreCustomServiceStock`, `_restoreMaintenancePartsStock`, `_reverseSupplierStockIntake`, `_reverseProductUnits` | sale items / batch `transaction_id` |

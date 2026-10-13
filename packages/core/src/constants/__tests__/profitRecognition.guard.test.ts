@@ -567,6 +567,20 @@ const EXCLUDED_UNITS: Record<string, string> = {
     'as columns, same "expose the gate" shape as getRechargeDetail.\' ' +
     "Exact, explicit confirmation of this whole family's rationale from " +
     "the source itself.",
+  "ProfitRepository:getExtraChargeTotals:(query)":
+    "LIRA-319 (research R2/R3, lead brief: rows with status = 'ACTIVE') — " +
+    "the Extra charges line sums transactions.extra_usd/lbp through the ONE " +
+    "extraChargeProfit fragment. Immediate recognition by design: the extra " +
+    "is takings added on top at the counter, outside every module's own " +
+    "profit stamp; a VOIDED row leaves via status and a REFUND row carries " +
+    "the negated share. A debt/partner gate for it is an open owner question " +
+    "reported with LIRA-319, not an oversight.",
+  "ProfitRepository:getExtraChargeDetail:(query)":
+    "Row-level twin of getExtraChargeTotals (same fragments, same WHERE) — " +
+    "same reason, verbatim (rule 14).",
+  "ProfitRepository:getByDate:daily_extra":
+    "Per-day twin of getExtraChargeTotals (same fragments, same WHERE) — " +
+    "same reason, verbatim (rule 14).",
   "ProfitRepository:getWarrantyDetail:(query)":
     "LIRA-296 — the Warranty cost drill-down, same 'expose the gate' " +
     "Detail-family shape as getTopupBuybackDetail: it mirrors " +

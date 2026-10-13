@@ -5,7 +5,15 @@
  * Uses BaseRepository for common functionality.
  */
 import { BaseRepository } from "./BaseRepository.js";
-import { OMT_RECEIVE_NO_FEE_MESSAGE } from "../validators/financial.js";
+import {
+  OMT_RECEIVE_NO_FEE_MESSAGE,
+  NO_EXTRA_ON_PAYOUT_MESSAGE,
+} from "../validators/financial.js";
+import {
+  EXTRA_ABOVE_TOTAL_MESSAGE,
+  EXTRA_ON_SESSION_ITEM_MESSAGE,
+  NO_EXTRA_FOR_PARTNER_MESSAGE,
+} from "../validators/common.js";
 import {
   atSettlementCommission,
   embeddedCommission,
@@ -465,6 +473,16 @@ export interface CreateFinancialServiceData {
   /** T3 keep-change (KC-4): kept change per currency → profit stamp. */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /**
+   * LIRA-319 — the extra the cashier added on top of what the customer owes
+   * (a SEND / BILL / catalog checkout, never a RECEIVE payout). In the
+   * checkout currency only. Raises what the legs must cover and the row's
+   * `amount_*`; never the fee, commission, profit stamp or supplier/partner
+   * ledgers. `checkoutTotal` stays pre-extra. Refused on a for-partner
+   * transaction and on a deferred (session-basket / cart-sibling) unit.
+   */
+  extra_usd?: number;
+  extra_lbp?: number;
   transaction_time?: string;
   /**
    * Cashout method for RECEIVE transactions: how the shop pays the customer.
@@ -2027,6 +2045,153 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         }
       }
 
+      // Row amount before any LIRA-319 extra (hoisted above the extra
+      // checks, which cap the extra against it — rule 14, one formula).
+      //
+      // App-wallet SEND (OMT_APP / WHISH_APP): the row carries the TOTAL the
+      // customer is charged (transfer + fee), not the bare transfer. This
+      // matches recharge (row amount = customer-paid price) and app-wallet
+      // RECEIVE (data.amount is already the gross wallet inflow incl. fee) —
+      // a $20+$2-fee SEND used to read "↓ $20" in the table while the
+      // customer owed $22. Profit reports are unaffected (fsRevenue reads the
+      // financial_services row, not this amount). Binance is excluded: its
+      // `currency` is USDT so its amount fields are 0 and the summary carries
+      // the figure.
+      const isAppWalletSend =
+        (data.provider === "OMT_APP" || data.provider === "WHISH_APP") &&
+        data.serviceType === "SEND";
+
+      // D1.1 (owner decision 2026-08-29, "show the cash that crossed the
+      // counter"): a plain OMT/WHISH SEND's row must carry the GROSS the
+      // customer handed over — principal + the provider's customer fee `f`
+      // (`resolvedProviderFee`, resolved once above and reused here, rule 14
+      // — the SAME term the SEND cash leg's `totalCollected` and
+      // `grossOwedDelta`'s supplier-ledger booking below both use) — never
+      // the bare transfer principal alone. `useCostPriceFlow` is excluded:
+      // those rows stamp `price`, not `unifiedAmount`, a few lines down.
+      //
+      // Both fee modes reduce to the IDENTICAL expression, so no
+      // `includingFees` branch is needed here (mirrors the SEND branch's own
+      // `totalCollected` comment a few hundred lines down, which this must
+      // stay in lockstep with):
+      //   fee ON TOP  (customer hands x+f): `data.amount` IS the transfer
+      //     principal x (nothing pre-netted) → x + f = the gross handed over.
+      //   fee INCLUDED (customer hands x; transfer nets to x−f): the
+      //     frontend pre-nets `data.amount` to the transfer principal (x−f)
+      //     before this repository ever sees it → (x−f) + f = x = the gross
+      //     handed over.
+      // Worked example (x=100, f=5): fee-included → data.amount=95, row=100;
+      // fee-on-top → data.amount=100, row=105 — matching the ticket exactly.
+      //
+      // RECEIVE is DELIBERATELY left untouched here: the owner's "cash the
+      // customer handed over" language describes a SEND. A RECEIVE customer
+      // receives a payout and (fee-on-top only) hands over just the fee, not
+      // the transfer — grossing it up the same way would SHRINK a
+      // fee-included RECEIVE's row (net of the fee) instead of growing it, a
+      // materially different, un-requested change. Flagged as an open
+      // question in this ticket's report, not decided here.
+      const isPlainSystemSend =
+        (data.provider === "OMT" || data.provider === "WHISH") &&
+        data.serviceType === "SEND" &&
+        !useCostPriceFlow;
+      const unifiedAmount = isAppWalletSend
+        ? data.amount + Math.abs(commission)
+        : isPlainSystemSend
+          ? data.amount + resolvedProviderFee
+          : data.amount;
+
+      // ═══════════════════════════════════════════════════════════════════
+      // LIRA-319 — the extra charge. Its own field: it raises what the
+      // customer's legs must cover (every reconcile below adds it to the
+      // PRE-extra total the caller sent, `checkoutTotal` included), the
+      // single-payment drawer / debt fallbacks and the row's `amount_*`, and
+      // is stamped on `extra_usd/lbp`. It never touches `data.amount`,
+      // `price`, the provider fee or `commission`, so the profit stamp, the
+      // supplier ledger (`grossOwedDelta`) and the partner ledger
+      // (`partnerOwedDelta`) stay exactly what they are without it — the
+      // extra is shop money in the drawer of the method the customer used
+      // (FR-004). Checked here, before the first INSERT, so a refusal writes
+      // nothing.
+      // ═══════════════════════════════════════════════════════════════════
+      const extraUsd = data.extra_usd ?? 0;
+      const extraLbp = data.extra_lbp ?? 0;
+      if (extraUsd < 0 || extraLbp < 0) {
+        throw new BusinessRuleError("The extra can't be negative.");
+      }
+      const hasExtra = extraUsd > 0 || extraLbp > 0;
+      // The currency the customer settles this checkout in: the non-zero
+      // `checkoutTotal` bucket when the caller sent one, else the cash side
+      // (Binance's crypto is USDT; its cash side is USD).
+      const extraCashCurrency =
+        data.provider === "BINANCE" ? "USD" : currency;
+      const extraCurrency: "USD" | "LBP" | null = data.checkoutTotal
+        ? data.checkoutTotal.usd > 0 && !(data.checkoutTotal.lbp > 0)
+          ? "USD"
+          : data.checkoutTotal.lbp > 0 && !(data.checkoutTotal.usd > 0)
+            ? "LBP"
+            : null
+        : extraCashCurrency === "USD" || extraCashCurrency === "LBP"
+          ? extraCashCurrency
+          : null;
+      if (hasExtra) {
+        if (data.serviceType === "RECEIVE") {
+          throw new BusinessRuleError(NO_EXTRA_ON_PAYOUT_MESSAGE);
+        }
+        if (data.partnerMode === "FOR") {
+          throw new BusinessRuleError(NO_EXTRA_FOR_PARTNER_MESSAGE);
+        }
+        if (deferPayment) {
+          throw new BusinessRuleError(EXTRA_ON_SESSION_ITEM_MESSAGE);
+        }
+        if (!useCostPriceFlow && data.serviceType !== "SEND") {
+          throw new BusinessRuleError(
+            "An extra can only be added to a sale or a send.",
+          );
+        }
+        const hasInLegs = !!data.payments && data.payments.length > 0;
+        // Single-payment fallbacks post in the cash currency only, so with
+        // no legs the extra must be in it too.
+        const allowed = hasInLegs ? extraCurrency : extraCashCurrency;
+        const wrongCurrency =
+          (extraUsd > 0 && extraLbp > 0) ||
+          (allowed === "USD" && extraLbp > 0) ||
+          (allowed === "LBP" && extraUsd > 0) ||
+          (allowed !== "USD" && allowed !== "LBP" && allowed !== null);
+        if (wrongCurrency) {
+          throw new BusinessRuleError(
+            `The extra must be in ${allowed === "LBP" ? "LBP" : "USD"}, the currency of this payment.`,
+          );
+        }
+        // FR-006 cap: the extra may not exceed what the customer owes
+        // before it (same total the reconcile checks, pre-extra).
+        const rate = stampedExchangeRate > 0 ? stampedExchangeRate : 1;
+        const inExtraCurrency = (usd: number, lbp: number): number =>
+          extraUsd > 0 ? usd + lbp / rate : usd * rate + lbp;
+        const preExtraNative = useCostPriceFlow
+          ? price
+          : data.provider === "BINANCE"
+            ? Math.abs(data.amount) + Math.abs(commission)
+            : unifiedAmount;
+        const preExtraTotal = data.checkoutTotal
+          ? inExtraCurrency(data.checkoutTotal.usd, data.checkoutTotal.lbp)
+          : extraCashCurrency === "LBP"
+            ? inExtraCurrency(0, preExtraNative)
+            : inExtraCurrency(preExtraNative, 0);
+        const extraNative = extraUsd > 0 ? extraUsd : extraLbp;
+        const tolerance = extraUsd > 0 ? 1e-9 : 0.5;
+        if (extraNative > preExtraTotal + tolerance) {
+          throw new BusinessRuleError(EXTRA_ABOVE_TOTAL_MESSAGE);
+        }
+      }
+      /** The extra in one posting currency (0 for any other). */
+      const extraIn = (cur: string): number =>
+        cur === "USD" ? extraUsd : cur === "LBP" ? extraLbp : 0;
+      /** A PRE-extra expected total plus the extra, per currency. */
+      const withExtra = (t: { usd: number; lbp: number }) => ({
+        usd: t.usd + extraUsd,
+        lbp: t.lbp + extraLbp,
+      });
+
       const pmFee = data.paymentMethodFee ?? 0;
       const pmFeeRate = data.paymentMethodFeeRate ?? null;
 
@@ -2195,59 +2360,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         }
       }
 
-      // Create unified transaction row
-      //
-      // App-wallet SEND (OMT_APP / WHISH_APP): the row carries the TOTAL the
-      // customer is charged (transfer + fee), not the bare transfer. This
-      // matches recharge (row amount = customer-paid price) and app-wallet
-      // RECEIVE (data.amount is already the gross wallet inflow incl. fee) —
-      // a $20+$2-fee SEND used to read "↓ $20" in the table while the
-      // customer owed $22. Profit reports are unaffected (fsRevenue reads the
-      // financial_services row, not this amount). Binance is excluded: its
-      // `currency` is USDT so its amount fields are 0 and the summary carries
-      // the figure.
-      const isAppWalletSend =
-        (data.provider === "OMT_APP" || data.provider === "WHISH_APP") &&
-        data.serviceType === "SEND";
-
-      // D1.1 (owner decision 2026-08-29, "show the cash that crossed the
-      // counter"): a plain OMT/WHISH SEND's row must carry the GROSS the
-      // customer handed over — principal + the provider's customer fee `f`
-      // (`resolvedProviderFee`, resolved once above and reused here, rule 14
-      // — the SAME term the SEND cash leg's `totalCollected` and
-      // `grossOwedDelta`'s supplier-ledger booking below both use) — never
-      // the bare transfer principal alone. `useCostPriceFlow` is excluded:
-      // those rows stamp `price`, not `unifiedAmount`, a few lines down.
-      //
-      // Both fee modes reduce to the IDENTICAL expression, so no
-      // `includingFees` branch is needed here (mirrors the SEND branch's own
-      // `totalCollected` comment a few hundred lines down, which this must
-      // stay in lockstep with):
-      //   fee ON TOP  (customer hands x+f): `data.amount` IS the transfer
-      //     principal x (nothing pre-netted) → x + f = the gross handed over.
-      //   fee INCLUDED (customer hands x; transfer nets to x−f): the
-      //     frontend pre-nets `data.amount` to the transfer principal (x−f)
-      //     before this repository ever sees it → (x−f) + f = x = the gross
-      //     handed over.
-      // Worked example (x=100, f=5): fee-included → data.amount=95, row=100;
-      // fee-on-top → data.amount=100, row=105 — matching the ticket exactly.
-      //
-      // RECEIVE is DELIBERATELY left untouched here: the owner's "cash the
-      // customer handed over" language describes a SEND. A RECEIVE customer
-      // receives a payout and (fee-on-top only) hands over just the fee, not
-      // the transfer — grossing it up the same way would SHRINK a
-      // fee-included RECEIVE's row (net of the fee) instead of growing it, a
-      // materially different, un-requested change. Flagged as an open
-      // question in this ticket's report, not decided here.
-      const isPlainSystemSend =
-        (data.provider === "OMT" || data.provider === "WHISH") &&
-        data.serviceType === "SEND" &&
-        !useCostPriceFlow;
-      const unifiedAmount = isAppWalletSend
-        ? data.amount + Math.abs(commission)
-        : isPlainSystemSend
-          ? data.amount + resolvedProviderFee
-          : data.amount;
+      // Create unified transaction row — amount = `unifiedAmount` (defined
+      // above, before the LIRA-319 extra checks) + the extra.
 
       // D1 cutover (OWNER_NOTES_2026-09-21.md §2b) — a Whish system RECEIVE
       // fee, when the operator charges one, is the SHOP's own profit (unlike
@@ -2289,20 +2403,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         source_table: "financial_services",
         source_id: id,
         user_id: createdBy,
-        amount_usd: useCostPriceFlow
-          ? currency === "USD"
-            ? price
-            : 0
-          : currency === "USD"
-            ? unifiedAmount
-            : 0,
-        amount_lbp: useCostPriceFlow
-          ? currency === "LBP"
-            ? price
-            : 0
-          : currency === "LBP"
-            ? unifiedAmount
-            : 0,
+        // LIRA-319: plus the extra (what the customer owes and pays); the
+        // profit stamp below never includes it — it is reported from
+        // extra_usd/lbp (research R2).
+        amount_usd:
+          (useCostPriceFlow
+            ? currency === "USD"
+              ? price
+              : 0
+            : currency === "USD"
+              ? unifiedAmount
+              : 0) + extraUsd,
+        amount_lbp:
+          (useCostPriceFlow
+            ? currency === "LBP"
+              ? price
+              : 0
+            : currency === "LBP"
+              ? unifiedAmount
+              : 0) + extraLbp,
+        extra_usd: extraUsd,
+        extra_lbp: extraLbp,
         // Commission (service currency) + kept change (T3, tender-native).
         //
         // LIRA-158_COMMISSION_REPORTING_PLAN.md §1.1b / §2 (D14, option C) —
@@ -2469,6 +2590,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           paid_amount: paidAmount,
           paid_currency: paidCurrency,
           item_key: data.itemKey,
+          ...(hasExtra ? { extra_usd: extraUsd, extra_lbp: extraLbp } : {}),
           // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): multi-unit split
           // checkouts (KatshForm bills / FinancialForm catalog units) stamp
           // these so the generic void/refund guard can detect and block a
@@ -3249,10 +3371,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               usd: data.kept_change_usd,
               lbp: data.kept_change_lbp,
             },
-            expectedTotals: {
+            // LIRA-319: checkoutTotal is pre-extra; the legs cover both.
+            expectedTotals: withExtra({
               usd: data.checkoutTotal.usd,
               lbp: data.checkoutTotal.lbp,
-            },
+            }),
             exchangeRate: stampedExchangeRate,
             tenderExchangeRate: data.tender_exchange_rate,
             context: `${data.provider} ${data.serviceType} checkout`,
@@ -3341,7 +3464,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // (TransactionRepository._reversePayments), so adding one would
             // leave the drawer −pmFee after a void (rule 20).
             const paidByDrawer = paymentMethodToDrawerName(paidBy);
-            const customerPays = Math.abs(price) + pmFee;
+            // LIRA-319: plus the extra (posted in this currency — checked).
+            const customerPays = Math.abs(price) + pmFee + extraIn(currency);
             insertPayment.run(
               txnId,
               paidBy,
@@ -3359,11 +3483,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             if (!data.clientId) {
               throw new Error("Cannot create debt without a client");
             }
+            // LIRA-319: the client owes the extra too (FR-015).
             bookClientDebtCharge(this.db, {
               clientId: data.clientId,
               transactionType: "Service Debt",
-              amountUsd: currency === "USD" ? price : 0,
-              amountLbp: currency === "LBP" ? price : 0,
+              amountUsd: currency === "USD" ? price + extraUsd : 0,
+              amountLbp: currency === "LBP" ? price + extraLbp : 0,
               transactionId: txnId,
               note: serviceDebtNote(data),
               createdBy,
@@ -3495,7 +3620,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 usd: data.kept_change_usd,
                 lbp: data.kept_change_lbp,
               },
-              expectedTotals: data.checkoutTotal,
+              // LIRA-319: checkoutTotal is pre-extra (checked against
+              // amount + fee just above); the legs cover the extra too.
+              expectedTotals: withExtra(data.checkoutTotal),
               exchangeRate: stampedExchangeRate,
               tenderExchangeRate: data.tender_exchange_rate,
               context: `${data.provider} SEND`,
@@ -3578,10 +3705,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             } else {
               // Single-payment fallback: customer pays cryptoAmount + fee
               // (`fee` is already net of any discount — the same helper).
-              const cashTotal = walletSendAmounts({
-                walletOutflow: cryptoAmount,
-                fee,
-              }).customerPays;
+              // LIRA-319: plus the extra (in the cash currency — checked).
+              const cashTotal =
+                walletSendAmounts({
+                  walletOutflow: cryptoAmount,
+                  fee,
+                }).customerPays + extraIn(cashCurrency);
               if (paidBy === "CUSTOMER_ACCOUNT") {
                 const debtClientId = this.resolveBinanceDebtClient(data, txnId);
                 bookClientDebtCharge(this.db, {
@@ -3912,7 +4041,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 usd: data.kept_change_usd,
                 lbp: data.kept_change_lbp,
               },
-              expectedTotals: expectedTotalIn(totalCustomerPays, currency),
+              // LIRA-319: the legs cover the extra too.
+              expectedTotals: withExtra(
+                expectedTotalIn(totalCustomerPays, currency),
+              ),
               exchangeRate: stampedExchangeRate,
               tenderExchangeRate: data.tender_exchange_rate,
               context: `${data.provider} SEND`,
@@ -4110,8 +4242,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               bookClientDebtCharge(this.db, {
                 clientId: debtClientId,
                 transactionType: "Service Debt",
-                amountUsd: currency === "USD" ? totalCollected : 0,
-                amountLbp: currency === "LBP" ? totalCollected : 0,
+                // LIRA-319: the client owes the extra too (FR-015).
+                amountUsd: currency === "USD" ? totalCollected + extraUsd : 0,
+                amountLbp: currency === "LBP" ? totalCollected + extraLbp : 0,
                 transactionId: txnId,
                 note: `${data.provider} ${data.serviceType}${data.omtServiceType ? ` (${data.omtServiceType})` : ""} — $${data.amount}`,
                 createdBy,
@@ -4147,20 +4280,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 cashDrawerCtx,
               );
               if (isDrawerAffectingMethod(paidBy)) {
+                // LIRA-319: plus the extra (in this currency — checked).
+                const paidWithExtra = totalCustomerPays + extraIn(currency);
                 insertPayment.run(
                   txnId,
                   paidBy,
                   paidByDrawer,
                   currency,
-                  totalCustomerPays,
+                  paidWithExtra,
                   note,
                   createdBy,
                 );
-                upsertBalanceDelta.run(
-                  paidByDrawer,
-                  currency,
-                  totalCustomerPays,
-                );
+                upsertBalanceDelta.run(paidByDrawer, currency, paidWithExtra);
               }
             }
           }

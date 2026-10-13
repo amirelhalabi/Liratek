@@ -143,6 +143,11 @@ export function FinancialForm({
   const { buyRate, sellRate } = useSellRate();
   const [searchQuery, setSearchQuery] = useState("");
   const [discount, setDiscount] = useState(0);
+  // LIRA-319 — the extra from the payment box's "+ Extra" side (LBP, the
+  // sheet's total currency). Sent on its own field with the checkout's
+  // carrier only — never folded into a unit's price — and never in a
+  // session (the session checkout takes it) or for a partner (no sheet).
+  const [extraCharge, setExtraCharge] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [partnerId, setPartnerId] = useState<number | null>(null);
   // PFT-3b (Partner FOR-Transactions): a "for partner" order has NO walk-in
@@ -451,6 +456,11 @@ export function FinancialForm({
       keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
         ? { ...keptChange }
         : null;
+    // LIRA-319 — the extra rides the FIRST transaction too (the legs-
+    // carrying carrier; `checkoutTotal` stays pre-extra, the repository
+    // adds it). Siblings are deferPayment and may not carry one.
+    let extraPending =
+      (serviceType || "SEND") === "SEND" && extraCharge > 0 ? extraCharge : 0;
     // Payment legs book against exactly ONE carrier transaction — the first
     // unit; every other unit submits deferPayment (cost + commission only).
     // Attaching the same legs to all N unit calls multiplies the drawer
@@ -524,6 +534,13 @@ export function FinancialForm({
                   };
                 })()
               : {}),
+            ...(extraPending > 0
+              ? (() => {
+                  const e = extraPending;
+                  extraPending = 0;
+                  return { extra_lbp: e };
+                })()
+              : {}),
             clientId: resolvedClientId || undefined,
             clientName: clientName || undefined,
             itemKey: line.item.key,
@@ -581,6 +598,7 @@ export function FinancialForm({
       });
       setCart(new Map());
       setKeptChange(null);
+      setExtraCharge(0);
       setReturnLegs([]);
       setClientName("");
       setClientPhone("");
@@ -1143,6 +1161,12 @@ export function FinancialForm({
           showDiscount={true}
           maxDiscount={maxDiscount}
           onDiscountChange={setDiscount}
+          // LIRA-319: "− Discount | + Extra" on a walk-in sale only (a
+          // session or a partner order never opens this sheet; a RECEIVE is
+          // the shop paying out, never an extra).
+          {...(!activeSession && !forPartner && (serviceType || "SEND") === "SEND"
+            ? { onExtraChange: setExtraCharge }
+            : {})}
           onPaymentChange={(lines) => {
             setPaymentLines(lines);
             if (lines.length === 1) {

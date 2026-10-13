@@ -70,6 +70,8 @@ function createSchema(d: TestDb): void {
       client_phone TEXT,
       profit_usd REAL NOT NULL DEFAULT 0,
       profit_lbp REAL NOT NULL DEFAULT 0,
+      extra_usd REAL NOT NULL DEFAULT 0,
+      extra_lbp REAL NOT NULL DEFAULT 0,
       summary TEXT,
       reverses_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
