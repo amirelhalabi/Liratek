@@ -3,7 +3,7 @@
  * LIRA-310 (T010) — Waive on the partner Settle modal.
  *
  * Balance $100, $98 handed over → Remaining $2 → Waive puts the gap into the
- * bundled "Discount / Forgive" field, Remaining clears, Confirm stays
+ * "Forgive (no cash)" line in the payment box, Remaining clears, Confirm stays
  * enabled, and the settlement is sent with `discount.amount_usd = 2`.
  * The discount can never exceed the room after the settlement
  * (`capSettlementDiscount`): discount + gap = that room exactly.
@@ -79,11 +79,9 @@ function pay(amount: string) {
   fireEvent.change(input, { target: { value: amount } });
 }
 
+// LIRA-318 — the forgive field now lives inside the payment box.
 const discountInput = () =>
-  screen
-    .getByText("Discount / Forgive (USD)")
-    .closest("div.space-y-2")!
-    .querySelector("input") as HTMLInputElement;
+  screen.getByTestId("partner-settle-forgive-input") as HTMLInputElement;
 
 describe("Partners page — Waive (LIRA-310)", () => {
   beforeEach(() => {

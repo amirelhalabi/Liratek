@@ -1380,6 +1380,10 @@ export default function Maintenance() {
         <div className="fixed inset-0 z-[60]">
           <CheckoutModal
             allowKeepChange={true}
+            // LIRA-318: in a customer session this checkout only adds the
+            // job to the session basket (handleCheckoutComplete), whose OUT
+            // legs are dropped — so no "change to account" offer.
+            addsToSessionBasket={!!activeSession}
             totalAmount={
               currency === "USD"
                 ? (parseFloat(price) || 0) + partsPriceUsd

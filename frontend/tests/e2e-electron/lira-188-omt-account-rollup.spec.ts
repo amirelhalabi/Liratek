@@ -36,6 +36,12 @@
 import { test, expect, navigateTo } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 
+/** The page shows money to the cent, so a running total with a half cent
+ *  (e.g. 3025.705) is displayed as 3025.70 or 3025.71. Compare within half
+ *  a cent (+ float noise): a real wrong amount — a cent or more — still
+ *  fails, how a half cent is displayed does not. */
+const HALF_CENT = 0.0051;
+
 test.describe.configure({ retries: 0 });
 
 // Distinctive, non-round figures so identity matching by (source_name,
@@ -337,7 +343,18 @@ test.describe("LIRA-188 — OMT account rollup on the Suppliers page", () => {
           ),
         { timeout: 10_000 },
       )
-      .toBeCloseTo(afterOmt, 2);
+      .toBeGreaterThanOrEqual(afterOmt - HALF_CENT);
+    await expect
+      .poll(
+        async () =>
+          parseMoneyText(
+            await card
+              .getByTestId("supplier-account-subrow-balance-OMT")
+              .innerText(),
+          ),
+        { timeout: 10_000 },
+      )
+      .toBeLessThanOrEqual(afterOmt + HALF_CENT);
     await expect
       .poll(
         async () =>
@@ -348,7 +365,18 @@ test.describe("LIRA-188 — OMT account rollup on the Suppliers page", () => {
           ),
         { timeout: 10_000 },
       )
-      .toBeCloseTo(afterIpick, 2);
+      .toBeGreaterThanOrEqual(afterIpick - HALF_CENT);
+    await expect
+      .poll(
+        async () =>
+          parseMoneyText(
+            await card
+              .getByTestId("supplier-account-subrow-balance-iPick")
+              .innerText(),
+          ),
+        { timeout: 10_000 },
+      )
+      .toBeLessThanOrEqual(afterIpick + HALF_CENT);
   });
 
   test("Ledger Type column identifies each member, and the type filter narrows to one member", async ({

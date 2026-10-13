@@ -51,6 +51,8 @@ export type {
 export { ExportBar } from "./ExportBar";
 export type { ExportBarProps, ExportableTableProps } from "./ExportBar";
 export { DecimalInput } from "./DecimalInput";
+export { DiscountLine, discountFieldClass } from "./DiscountLine";
+export type { DiscountLineProps } from "./DiscountLine";
 export type { DecimalInputProps } from "./DecimalInput";
 export { SearchBar } from "./SearchBar";
 export type { SearchBarProps } from "./SearchBar";

@@ -6654,6 +6654,29 @@ Spec: `specs/309-phone-lines-management/` (spec, plan, research, data model, con
 
 **What users will notice:** a new Phone Lines page next to Mobile Recharge lists your shop lines and the lines you sell with credit, expiry and days left; you can enter a sold line's carrier, expiry and credit there or in the product form.
 
+## LIRA-318: One Discount / Forgive line in the payment box — BUILT, not committed (owner decisions 2026-10-13)
+
+From the "Every way to lower what is owed" artifact (Part 3): forms A (POS/Maintenance order-summary Discount), B (MultiPaymentInput's own Discount) and D (Debts/Partners green "Discount / Forgive" box) are one control in three places; Waive (C) already fed A and D. Owner decisions 2026-10-13: merge them into one line inside the payment box, under "Total Amount"; Debts keeps USD + LBP forgive fields; on Debts and Partners typing a forgive amount NEVER changes the payment entered. Kept separate: Write off (admin, no payment) and the session per-item commission discount.
+
+**Built:** new shared `DiscountLine` (packages/ui) — label, field(s), "Capped to max" note, optional reason; MultiPaymentInput's own Discount renders through it. MultiPaymentInput gains `discountRow` (a page's own line, rendered under Total Amount), `totalBeforeDiscount` + `afterDiscountLabel` (gross Total Amount, "After …" row), `discountMovesPayment` (false = the line fills to the gross total, a discount never moves it) and `owedLabel` ("Client will owe" / "Partner will owe", also shown at 0). Pages keep their own discount state, caps and payloads (no money change): POS/Maintenance checkout moves its field into the payment box (`checkout-discount-input` kept; partner-mode sale keeps it in the summary since it has no payment box) and now shows the cap; dead `OrderSummary.tsx` deleted. Debts: "Forgive (no cash)" $ + LBP + reason, `fillTotals` now gross, Waive measures ticked − forgive, cap note added. Partners: same, single currency, paper-only settle keeps the line in its old slot.
+
+**Tests:** new `MultiPaymentInput.discountRow` (15, not failing-first), `CheckoutModal.discountInPaymentBox` (5; 3 seen failing first), `Debts.lira318Forgive` (5; 3 seen failing first), `Partners.lira318ForgiveLine` (1 of 3 failing-first); Debts lira308/310 and Partners lira310 updated. 56 suites / 368 passed. Typecheck + lint clean. E2E not run (CheckoutModal.spec S54/S55 selectors kept).
+
+**Review follow-ups (2026-10-13, owner decisions):** Debts — while a forgive is applied, Confirm Payment is blocked when the payment covers more than ticked (or due) minus the forgive, with the hint "Lower the payment to $X to forgive $Y"; the excess no longer auto-ticks other items (guard tests seen failing first). Inside a customer session, Maintenance checkout, Loto and OMT/Whish send no longer offer the change box's Account button (the basket drops that leg; the session checkout books it). Keep / Account reset to "hand it all back" when a client is picked or removed, so one never silently becomes the other. Maintenance checkout into a session basket no longer offers Keep either (that save ignores kept change). Test fix: lira-188 compares the OMT/iPick sub-row balances within half a cent (the page shows cents; a half-cent running total failed one full run).
+
+**What users will notice:** every payment window has its discount in the same place, inside the payment box; Debts and Partners forgive with a "Forgive (no cash)" line there, which never changes the payment, and a "Client will owe" line shows what is left.
+
+## LIRA-317: Notes kept from deleted claude.ai artifacts — LOW, TODO (owner request 2026-10-13)
+
+The owner deleted the LiraTek claude.ai artifacts on 2026-10-13. An audit against the code at `aa622490` found three low-value items that existed only there. They are kept here so nothing is lost; none is a known bug.
+
+1. **Session row stripes (theme spec "Porcelain & Cosmic Navy", item F4).** The stripe values were re-tuned (`frontend/src/index.css:186-194`), but the comment still asks for one look at a real transaction list before they count as final. Nobody has recorded that check.
+2. **Three review notes on the payment form (canvas "MultiPaymentInput — all states").** All three still hold in the code, and each looks intended:
+   - The currency picker and a "$" inside the amount field both show (`packages/ui/src/components/ui/MultiPaymentInput.tsx:415-416,474,513`). The symbol shows only for $ € £.
+   - "Subtotal" and "Total Amount" both exist (`:2603,2612`), but they never show together: one shows with a provider fee, the other without.
+   - When an amount is capped, the "Capped to max" text and the red field border both show (`:2663,2686`).
+3. **Three root causes from the "LiraTek Posting Gaps" page are not named in `docs/POSTING_MAP.md` §8:** R5 (a drawer moves with no journal row), R6 (running it twice posts twice), R8 (payment lines not checked against the price). Every gap they explain is still listed in §7 (G8/G9, G7/G12, G14).
+
 ## LIRA-316: One compact change box; change not handed back goes on the client's account — BUILT (owner decisions 2026-10-13)
 
 Question that started it: a client owes $50, buys $14 and hands $30 ($16 meant for the debt). Tested on the test tenant (artifact "Buy and Pay Down Debt"): only the session checkout could do it in one payment; the POS change box was cash-only (`cashOnlyReturn`, because Maintenance shares the modal and its save had no OUT-leg handling).

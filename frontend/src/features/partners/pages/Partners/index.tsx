@@ -47,6 +47,8 @@ import {
   CounterpartySettleModal,
   PageHeader,
   DecimalInput,
+  DiscountLine,
+  discountFieldClass,
   Select,
   useApi,
   type PaymentLine,
@@ -481,6 +483,50 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   // debt, it's being forgiven).
   const nettedBalance = Math.max(0, balanceInCurrency - parsedDiscount);
 
+  // LIRA-318 — the one Forgive line, rendered inside the payment box (or
+  // below the paper-only amount). Same value, cap and payload as before.
+  const forgiveLine =
+    balanceInCurrency > 0 ? (
+      <DiscountLine
+        label="Forgive (no cash)"
+        testId="partner-settle-forgive"
+        // Typed above the room left after the payment: say what applies.
+        capNote={
+          discountClipped && maxDiscountInCurrency > 0
+            ? `Capped to max (${fmtCur(maxDiscountInCurrency)})`
+            : undefined
+        }
+        // No room at all (the payment covers the balance): the payment is
+        // never moved for a forgive (owner, LIRA-318) — say how to make room.
+        hint={
+          discountClipped && maxDiscountInCurrency <= 0 ? (
+            <span data-testid="partner-settle-discount-room-hint">
+              Lower the payment to forgive part of it.
+            </span>
+          ) : undefined
+        }
+        reason={
+          parsedDiscount > 0
+            ? {
+                value: discountReason,
+                onChange: setDiscountReason,
+                placeholder: "Reason (optional)...",
+                testId: "partner-settle-forgive-reason",
+              }
+            : undefined
+        }
+      >
+        <DecimalInput
+          value={requestedDiscountRaw}
+          onChange={(n) => setDiscountAmount(n ? String(n) : "")}
+          className={discountFieldClass(discountClipped)}
+          placeholder="0"
+          aria-label="Forgive amount"
+          data-testid="partner-settle-forgive-input"
+        />
+      </DiscountLine>
+    ) : null;
+
   async function handleSettle() {
     if (!isValid) {
       appEvents.emit("notification:show", "Enter a valid amount.", "error");
@@ -658,6 +704,20 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
           ? undefined
           : {
               totals: [{ amount: nettedBalance, currency }],
+              // LIRA-318 — one Forgive line inside the payment box: "Total
+              // Amount" shows the whole balance, "After Forgive" the net.
+              // Owner decision: a forgive never moves the payment amount.
+              ...(forgiveLine
+                ? {
+                    discountRow: forgiveLine,
+                    totalBeforeDiscount: [
+                      { amount: balanceInCurrency, currency },
+                    ],
+                    afterDiscountLabel: "After Forgive",
+                  }
+                : {}),
+              discountMovesPayment: false,
+              owedLabel: "Partner will owe",
               totalAmountCurrency: currency,
               currency,
               onChange: setSettleLines,
@@ -689,11 +749,10 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               ],
               exchangeRate,
               onExchangeRateChange: setPaymentRate,
-              // LIRA-310 — Waive puts the gap into the bundled discount
-              // below. MultiPaymentInput is fed the balance minus the
-              // (capped) discount, so discount + gap is exactly the room
-              // left after the settlement — capSettlementDiscount never
-              // clips it.
+              // LIRA-310 — Waive puts the gap into the Forgive line.
+              // MultiPaymentInput is fed the balance minus the (capped)
+              // discount, so discount + gap is exactly the room left after
+              // the settlement — capSettlementDiscount never clips it.
               onWaiveRemaining: (amount: number) => {
                 const next = parsedDiscount + amount;
                 setDiscountAmount(
@@ -706,52 +765,13 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               },
             }
       }
+      // Paper-only settle: no payment box, so the same line sits below.
       discountSlot={
-        // CQ-10: bundled discount — forgives part of what the partner
-        // owes, in the same currency as the settlement above.
-        balanceInCurrency > 0 && (
-          <div className="bg-emerald-950/20 border border-emerald-800/40 rounded-lg p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">
-                Discount / Forgive ({currency})
-              </span>
-              <span
-                className="text-[11px] text-emerald-400/70"
-                data-testid="partner-settle-discount-room-label"
-              >
-                {maxDiscountInCurrency > 0
-                  ? `Up to ${fmtCur(maxDiscountInCurrency)} (after settlement)`
-                  : "Lower the payment amount to make room for a discount"}
-              </span>
-            </div>
-            <DecimalInput
-              value={requestedDiscountRaw}
-              onChange={(n) => setDiscountAmount(n ? String(n) : "")}
-              className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-2 text-emerald-100 text-sm focus:outline-none focus:border-emerald-500"
-              placeholder="0.00"
-            />
-            {/* Only for the PARTIAL-room case — when there's no room at
-                all the label above already says so; this avoids repeating
-                the same guidance twice. */}
-            {discountClipped && maxDiscountInCurrency > 0 && (
-              <p
-                className="text-[11px] text-amber-400/90"
-                data-testid="partner-settle-discount-room-hint"
-              >
-                {`Only ${fmtCur(maxDiscountInCurrency)} will be applied — lower the payment amount above to free up more room.`}
-              </p>
-            )}
-            {parsedDiscount > 0 && (
-              <input
-                type="text"
-                value={discountReason}
-                onChange={(e) => setDiscountReason(e.target.value)}
-                className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-2 text-emerald-100 text-xs focus:outline-none focus:border-emerald-500"
-                placeholder="Reason (optional)..."
-              />
-            )}
+        useClientAccount && forgiveLine ? (
+          <div className="bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-1">
+            {forgiveLine}
           </div>
-        )
+        ) : undefined
       }
     >
       <div>

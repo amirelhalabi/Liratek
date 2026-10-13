@@ -6,6 +6,8 @@ import { X, User, Printer, Inbox, Pencil, Minus } from "lucide-react";
 import {
   canChargeToCustomerAccount,
   DecimalInput,
+  DiscountLine,
+  discountFieldClass,
   MultiPaymentInput,
   useApi,
   appEvents,
@@ -69,6 +71,12 @@ interface CheckoutModalProps {
    *  validation and the remainder would silently fall through to the
    *  client-debt branch instead of the partner's ledger. Default false. */
   allowForPartner?: boolean;
+  /** LIRA-318: true when completing this checkout adds it to an active
+   *  session's basket instead of saving it (Maintenance in a customer
+   *  session). The session checkout drops OUT legs (`deferPayment`), so the
+   *  change box must not offer "put the change on the client's account" —
+   *  that credit would never be booked. Default false. */
+  addsToSessionBasket?: boolean;
   totalAmount: number;
   /**
    * Currency the total/discount/net are expressed in. Defaults to "USD".
@@ -140,6 +148,7 @@ export default function CheckoutModal({
   items,
   allowKeepChange = false,
   allowForPartner = false,
+  addsToSessionBasket = false,
   totalAmount,
   currency,
   extraTotals,
@@ -183,6 +192,15 @@ export default function CheckoutModal({
 
   // Payment State
   const [discount, setDiscount] = useState(0);
+  // LIRA-318: true while the typed discount was above `maxDiscount` and got
+  // cut to it, so the line can say "Capped to max (…)" instead of clamping
+  // silently. The stored `discount` is always the clamped value.
+  const [discountCapped, setDiscountCapped] = useState(false);
+  const handleDiscountChange = (v: number) => {
+    const capped = maxDiscount != null ? Math.min(v, maxDiscount) : v;
+    setDiscountCapped(capped < v);
+    setDiscount(capped);
+  };
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   const { allMethods: paymentMethodOptions } = usePaymentMethods();
@@ -408,6 +426,32 @@ export default function CheckoutModal({
     ...nonZeroExtraTotals,
   ];
   const hasMultipleCurrencyTotals = nonZeroExtraTotals.length > 0;
+  // LIRA-318: the same totals BEFORE the discount — the payment box shows
+  // them as "Total Amount" and `allTotals` (net) as "After Discount".
+  const grossTotals: Money[] = [
+    { amount: totalAmount, currency: totalCurrency },
+    ...nonZeroExtraTotals,
+  ];
+  const discountCapNote =
+    discountCapped && maxDiscount != null
+      ? `Capped to max (${fmtTotal(maxDiscount)})`
+      : undefined;
+  /** The discount field — rendered in the payment box (LIRA-318), or in the
+   *  order summary for a partner sale, which has no payment box. */
+  const discountField = (
+    <div className="flex items-center gap-1">
+      <span className="text-emerald-400 text-xs">
+        {isLbpTotal ? "LBP" : "$"}
+      </span>
+      <DecimalInput
+        data-testid="checkout-discount-input"
+        value={discount}
+        onChange={handleDiscountChange}
+        className={discountFieldClass(discountCapped)}
+        placeholder="0"
+      />
+    </div>
+  );
   /** Format an amount in an arbitrary currency (used only on the
    *  multi-currency summary branch below — fmtTotal above stays the
    *  single-currency formatter for the byte-identical original case). */
@@ -529,9 +573,7 @@ export default function CheckoutModal({
       // credit linked to the transaction: SalesRepository.processSale and
       // MaintenanceRepository.processPayments (Maintenance renders this
       // modal too).
-      payments: forPartner
-        ? []
-        : toSnakeLegs(paymentLines, accountReturnLines),
+      payments: forPartner ? [] : toSnakeLegs(paymentLines, accountReturnLines),
       change_given_usd: forPartner ? 0 : cashReturnUSD,
       change_given_lbp: forPartner ? 0 : cashReturnLBP,
       // T3 keep-change: what the cashier did NOT hand back. A partial keep
@@ -1007,25 +1049,24 @@ export default function CheckoutModal({
                   <span>Subtotal</span>
                   <span>{fmtTotal(totalAmount)}</span>
                 </div>
-                <div className="flex justify-between items-center text-slate-400">
-                  <span>Discount</span>
-                  <div className="relative w-28">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">
-                      {isLbpTotal ? "LBP" : "$"}
-                    </span>
-                    <DecimalInput
-                      data-testid="checkout-discount-input"
-                      value={discount}
-                      onChange={(v) =>
-                        setDiscount(
-                          maxDiscount != null ? Math.min(v, maxDiscount) : v,
-                        )
-                      }
-                      className={`w-full bg-slate-800 border border-slate-700 rounded-xl ${isLbpTotal ? "pl-10" : "pl-7"} pr-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 text-right`}
-                      placeholder="0"
-                    />
+                {/* LIRA-318: the discount lives in the payment box; a
+                    partner sale has none, so its field stays here. */}
+                {forPartner && (
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span>Discount</span>
+                    <div className="flex items-center gap-2">
+                      {discountCapNote && (
+                        <span
+                          data-testid="discount-cap-note"
+                          className="text-[11px] text-red-400"
+                        >
+                          {discountCapNote}
+                        </span>
+                      )}
+                      {discountField}
+                    </div>
                   </div>
-                </div>
+                )}
                 {hasMultipleCurrencyTotals ? (
                   <div className="border-t border-slate-700 pt-3 space-y-2">
                     {allTotals.map((t) => (
@@ -1136,7 +1177,10 @@ export default function CheckoutModal({
                     // The customer pays the shop: kept change is shop
                     // profit (docs/FEATURE_GUIDE.md §4.1).
                     payer="customer"
-                    {...(allowKeepChange
+                    // Kept change is not offered when the job goes into a
+                    // session basket: that save ignores it (owner
+                    // 2026-10-13) — the session checkout keeps change.
+                    {...(allowKeepChange && !addsToSessionBasket
                       ? { onKeptChange: setKeptChange }
                       : {})}
                     requiresClientForDebt={true}
@@ -1153,20 +1197,38 @@ export default function CheckoutModal({
                     exchangeRate={exchangeRate}
                     onRateChange={handleRateChange}
                     showDiscount={false}
+                    // LIRA-318: the one Discount line, under "Total Amount".
+                    // `totals` stay net of it; the payment line follows it.
+                    discountRow={
+                      <DiscountLine
+                        label="Discount"
+                        testId="checkout-discount-line"
+                        {...(discountCapNote
+                          ? { capNote: discountCapNote }
+                          : {})}
+                      >
+                        {discountField}
+                      </DiscountLine>
+                    }
+                    totalBeforeDiscount={grossTotals}
                     smartSplitOverpay={!isLbpTotal}
                     cashOnlyReturn={true}
                     // Owner 2026-10-13: change not handed back goes on the
                     // client's account when one is picked (name + phone);
-                    // otherwise it is kept as profit, as before.
-                    unreturnedChangeTo="CUSTOMER_ACCOUNT"
+                    // otherwise it is kept as profit, as before. Never for
+                    // a session basket (LIRA-318): its OUT legs are dropped.
+                    {...(addsToSessionBasket
+                      ? {}
+                      : { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const })}
                     // LIRA-310: Waive adds the gap to this modal's discount,
                     // never past `maxDiscount` (Maintenance: labour); when the
                     // gap is bigger than the room left, Waive is hidden.
-                    onWaiveRemaining={(amt) =>
+                    onWaiveRemaining={(amt) => {
+                      setDiscountCapped(false);
                       setDiscount((d) =>
                         Math.min((d ?? 0) + amt, maxDiscount ?? Infinity),
-                      )
-                    }
+                      );
+                    }}
                     {...(maxDiscount != null
                       ? {
                           waiveRemainingMax: Math.max(

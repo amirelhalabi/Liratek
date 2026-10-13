@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { DecimalInput } from "./DecimalInput";
+import { DiscountLine, discountFieldClass } from "./DiscountLine";
 import { formatWithCommas } from "../../utils/number";
 import { roundLBPUp } from "../../config/denominations";
 import {
@@ -237,6 +238,29 @@ export interface MultiPaymentInputProps {
   maxDiscount?: number;
   /** Callback when discount changes. Receives discount normalized to totalAmountCurrency. */
   onDiscountChange?: (discount: number) => void;
+  /** LIRA-318 (owner 2026-10-13) — a page that keeps its OWN discount
+   *  (POS / Maintenance checkout, Debts and Partners settle) renders its
+   *  line here, built with `DiscountLine`, so every page shows one
+   *  Discount / Forgive line in the same place: under "Total Amount". The
+   *  page still owns the value, the cap and the payload, and passes `totals`
+   *  already net of it. Use with `showDiscount={false}`. */
+  discountRow?: ReactNode;
+  /** With `discountRow`: the total BEFORE the page's discount, per currency.
+   *  "Total Amount" shows it, and an "After …" row shows `totals` when they
+   *  differ. */
+  totalBeforeDiscount?: Money[];
+  /** Label of the after-discount row. Default "After Discount". */
+  afterDiscountLabel?: string;
+  /** LIRA-318 — false: a discount never moves the payment line (owner
+   *  decision for Debts and Partners: typing a forgive amount must not change
+   *  what the cashier entered as paid). The line auto-fills to the total
+   *  BEFORE the discount (`totalBeforeDiscount`), and `fillTotals`, when
+   *  given, must be gross too. Default true (the line follows the total). */
+  discountMovesPayment?: boolean;
+  /** LIRA-318 — label for what is still owed after this payment, e.g.
+   *  "Client will owe". Replaces "Remaining (Debt)" and also shows at 0
+   *  (not when overpaid — the change box covers that). Customer payer only. */
+  owedLabel?: string;
   /** Custom label for the header (defaults to "Payment") */
   label?: string;
   /** Label of the summary's total-of-lines figure (defaults to "Paid").
@@ -587,6 +611,11 @@ export default function MultiPaymentInput({
   waiveRemainingMax,
   waiveDisabled = false,
   waiveTotals,
+  discountRow,
+  totalBeforeDiscount,
+  afterDiscountLabel = "After Discount",
+  discountMovesPayment = true,
+  owedLabel,
   smartSplitOverpay = false,
   cashOnlyReturn = false,
   autoDebtRemainder = false,
@@ -831,7 +860,13 @@ export default function MultiPaymentInput({
     const { remaining } = allocatePayments(
       {
         // LIRA-308: fill to `fillTotals` when the caller gives one.
-        totals: fillTotals ?? effectiveTotals,
+        // LIRA-318: a discount that must not move the payment fills to the
+        // total before it.
+        totals:
+          fillTotals ??
+          (!discountMovesPayment && totalBeforeDiscount
+            ? totalBeforeDiscount
+            : effectiveTotals),
         payments: otherPayments,
         rates: internalRates,
         side,
@@ -888,6 +923,9 @@ export default function MultiPaymentInput({
   const fillTotalsKey = fillTotals
     ? fillTotals.map((t) => `${t.currency}:${t.amount}`).join("|")
     : null;
+  const grossTotalsKey = totalBeforeDiscount
+    ? totalBeforeDiscount.map((t) => `${t.currency}:${t.amount}`).join("|")
+    : null;
 
   // In single mode, auto-sync the line amount with the effective totals
   // (currency-aware). Skipped once the user manually edits the amount, so a
@@ -915,6 +953,7 @@ export default function MultiPaymentInput({
   }, [
     totalsKey,
     fillTotalsKey,
+    grossTotalsKey,
     isSplitMode,
     effectiveRate,
     singleLineCurrency,
@@ -1655,6 +1694,20 @@ export default function MultiPaymentInput({
   // cashier lowers them again. Together with `payer` in both kept keys this
   // makes the active mode re-report, so a stale kept never leaks. Skipped on
   // first mount and on re-renders with the same payer.
+  // LIRA-318 review — empty change fields mean "kept" without an account and
+  // "to the account" with one. When the account option appears or goes away
+  // (a client is picked or removed), never let one silently become the
+  // other: the change goes back to "hand it all back" and the cashier
+  // chooses again.
+  const prevCreditUnreturnedRef = useRef(creditUnreturned);
+  useEffect(() => {
+    if (prevCreditUnreturnedRef.current === creditUnreturned) return;
+    prevCreditUnreturnedRef.current = creditUnreturned;
+    setChangeToAccount(false);
+    if (isOverpaid) seedFullSuggestedReturn(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creditUnreturned]);
+
   const prevPayerRef = useRef(payer);
   useEffect(() => {
     if (prevPayerRef.current === payer) return;
@@ -2611,87 +2664,109 @@ export default function MultiPaymentInput({
           <div className="flex justify-between text-xs">
             <span className="text-slate-400">Total Amount</span>
             <span className="font-mono text-white">
-              {fmtTarget(toDisplayCurrency(totalInTarget))}
+              {fmtTarget(
+                toDisplayCurrency(
+                  totalBeforeDiscount
+                    ? sumInTarget(totalBeforeDiscount)
+                    : totalInTarget,
+                ),
+              )}
             </span>
           </div>
         )}
 
-        {/* Discount */}
-        {discountVisible && (
-          <div className="flex items-center justify-between gap-2 py-1">
-            <span className="text-xs text-emerald-400 font-medium">
-              Discount
-            </span>
-            <div className="flex items-center gap-1.5">
-              {isSplitMode && currencies.length > 1 && (
-                <select
-                  value={discountCurrency}
-                  onChange={(e) => setDiscountCurrency(e.target.value)}
-                  className="bg-slate-900 border border-emerald-700/40 rounded-md px-1.5 py-0.5 text-emerald-300 text-[11px] focus:outline-none focus:border-emerald-500"
-                >
-                  {currencies.map((curr) => (
-                    <option key={curr.code} value={curr.code}>
-                      {curr.code}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {!isSplitMode && (
-                <span className="text-[11px] text-emerald-400/60">
-                  {discountCurrency}
-                </span>
-              )}
-              <div className="relative">
-                {["$", "€", "£"].includes(getSymbol(discountCurrency)) && (
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">
-                    {getSymbol(discountCurrency)}
-                  </span>
-                )}
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={discountRaw}
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/,/g, "");
-                    if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
-                      setDiscountRaw(raw);
-                    }
-                  }}
-                  className={`w-24 bg-emerald-950/30 border rounded-md px-2 py-1 text-emerald-200 text-xs font-mono focus:outline-none focus:border-emerald-500 transition-colors ${
-                    maxDiscount !== undefined &&
-                    discountNormalized > maxDiscount
-                      ? "border-red-500"
-                      : "border-emerald-700/40"
-                  } ${
-                    ["$", "€", "£"].includes(getSymbol(discountCurrency))
-                      ? "pl-5"
-                      : "pl-2"
-                  }`}
-                  placeholder="0"
-                />
-              </div>
-              {/* Payout only: off the shop's fee — the customer gets more.
-                  Elsewhere the "After Discount" row below already shows the
-                  result, so the amount is not echoed here. */}
-              {discountAmount > 0 && !discountLowersTotal && (
-                <span className="font-mono text-emerald-400 text-xs">
-                  +{fmtTarget(toDisplayCurrency(clampedDiscount))}
-                </span>
-              )}
-              {/* Discount cap — inline beside the (red-bordered) field
-                  rather than on a row of its own. */}
-              {maxDiscount !== undefined &&
-                discountNormalized > maxDiscount && (
-                  <span className="text-[11px] text-red-400">
-                    Capped to max ({fmtTarget(toDisplayCurrency(maxDiscount))})
-                  </span>
-                )}
+        {/* LIRA-318 — the page's own Discount / Forgive line, then what is
+            left after it. */}
+        {discountRow}
+        {discountRow &&
+          totalBeforeDiscount &&
+          sumInTarget(totalBeforeDiscount) - totalInTarget > matchTolerance && (
+            <div
+              data-testid="after-page-discount"
+              className="flex justify-between text-xs pt-1 border-t border-emerald-700/20"
+            >
+              <span className="text-emerald-300 font-medium">
+                {afterDiscountLabel}
+              </span>
+              <span className="font-mono text-emerald-200 font-medium">
+                {fmtTarget(toDisplayCurrency(totalInTarget))}
+              </span>
             </div>
-          </div>
+          )}
+
+        {/* Discount — the shared DiscountLine (LIRA-318), so this line
+            looks the same as the pages' own discount rows. */}
+        {discountVisible && !discountRow && (
+          <DiscountLine
+            label="Discount"
+            capNote={
+              maxDiscount !== undefined && discountNormalized > maxDiscount
+                ? `Capped to max (${fmtTarget(toDisplayCurrency(maxDiscount))})`
+                : undefined
+            }
+          >
+            {isSplitMode && currencies.length > 1 && (
+              <select
+                value={discountCurrency}
+                onChange={(e) => setDiscountCurrency(e.target.value)}
+                aria-label="Discount currency"
+                className="bg-slate-900 border border-emerald-700/40 rounded-md px-1.5 py-0.5 text-emerald-300 text-[11px] focus:outline-none focus:border-emerald-500"
+              >
+                {currencies.map((curr) => (
+                  <option key={curr.code} value={curr.code}>
+                    {curr.code}
+                  </option>
+                ))}
+              </select>
+            )}
+            {!isSplitMode && (
+              <span className="text-[11px] text-emerald-400/60">
+                {discountCurrency}
+              </span>
+            )}
+            <div className="relative">
+              {["$", "€", "£"].includes(getSymbol(discountCurrency)) && (
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">
+                  {getSymbol(discountCurrency)}
+                </span>
+              )}
+              <input
+                type="text"
+                inputMode="decimal"
+                aria-label="Discount"
+                value={discountRaw}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/,/g, "");
+                  if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                    setDiscountRaw(raw);
+                  }
+                }}
+                className={`${discountFieldClass(
+                  maxDiscount !== undefined && discountNormalized > maxDiscount,
+                )} ${
+                  ["$", "€", "£"].includes(getSymbol(discountCurrency))
+                    ? "pl-5"
+                    : "pl-2"
+                }`}
+                placeholder="0"
+              />
+            </div>
+            {/* Payout only: off the shop's fee — the customer gets more.
+                Elsewhere the "After Discount" row below already shows the
+                result, so the amount is not echoed here. */}
+            {discountAmount > 0 && !discountLowersTotal && (
+              <span className="font-mono text-emerald-400 text-xs">
+                +{fmtTarget(toDisplayCurrency(clampedDiscount))}
+              </span>
+            )}
+          </DiscountLine>
         )}
 
         {/* After discount (a payout's total already includes it) */}
-        {discountVisible && discountLowersTotal && clampedDiscount > 0 && (
+        {discountVisible &&
+          !discountRow &&
+          discountLowersTotal &&
+          clampedDiscount > 0 && (
           <div className="flex justify-between text-xs pt-1 border-t border-emerald-700/20">
             <span className="text-emerald-300 font-medium">After Discount</span>
             <span className="font-mono text-emerald-200 font-medium">
@@ -2764,7 +2839,7 @@ export default function MultiPaymentInput({
                   : "Remaining to pay out"
                 : isShopPayer
                   ? "Remaining to pay"
-                  : "Remaining (Debt)"}
+                  : (owedLabel ?? "Remaining (Debt)")}
             </span>
             {/* Owner decision 2026-10-12 — what is left on the TICKED items
                 (`waiveTotals`) when it differs from the whole Remaining;
@@ -2809,6 +2884,22 @@ export default function MultiPaymentInput({
             )}
           </div>
         )}
+        {/* LIRA-318 — nothing left: say so in the same words. */}
+        {owedLabel &&
+          !isPayout &&
+          !isShopPayer &&
+          !isOverpaid &&
+          totalPaid >= effectiveTotalInTarget - matchTolerance && (
+            <div
+              data-testid="owed-after-row"
+              className="flex items-center justify-between gap-2 text-xs px-2 py-1"
+            >
+              <span className="text-slate-300 font-medium">{owedLabel}</span>
+              <span className="font-mono font-bold text-emerald-400">
+                {fmtTarget(toDisplayCurrency(0))}
+              </span>
+            </div>
+          )}
         {/* LIRA-313 — payout above the total becomes the other side's debt. */}
         {isPayout &&
           payoutExcessToAccount &&

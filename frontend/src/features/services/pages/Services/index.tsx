@@ -2534,7 +2534,11 @@ export default function Services() {
                     // input FinancialServiceRepository can always resolve or
                     // create a client from (name-only matches by exact name,
                     // phone-only resolves nothing).
+                    // Never in a session: the transfer joins the basket, the
+                    // server drops its OUT legs and the basket checkout owns
+                    // the change.
                     {...(serviceType === "SEND" &&
+                    !activeSession &&
                     canChargeToCustomerAccount({
                       name: senderName,
                       phone: senderPhone,

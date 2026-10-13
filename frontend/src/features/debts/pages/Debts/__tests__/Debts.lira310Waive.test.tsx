@@ -5,7 +5,7 @@
  *
  * The modal hides MultiPaymentInput's own discount (it cannot hold a mixed
  * USD + LBP figure), so the page takes the Waive itself: each currency's
- * part of what is left goes into the matching "Discount / Forgive" box
+ * part of what is left goes into the matching "Forgive (no cash)" field
  * (USD to cents, LBP whole) and is sent as the bundled repayment discount.
  * Repay mode only — a cash-out is a payout and never shows Waive.
  *
@@ -178,8 +178,11 @@ const amountInputs = () =>
 const amountValue = (i = 0) => amountInputs()[i]?.value.replace(/,/g, "");
 const typeAmount = (value: string, i = 0) =>
   fireEvent.change(amountInputs()[i], { target: { value } });
+// LIRA-318 — the "Forgive (no cash)" line inside the payment box.
 const discountBox = (label: "Amount (USD)" | "Amount (LBP)") =>
-  screen.getByText(label).parentElement!.querySelector("input")!;
+  screen.getByTestId(
+    label === "Amount (USD)" ? "debt-forgive-usd" : "debt-forgive-lbp",
+  ) as HTMLInputElement;
 const waive = () => screen.queryByTestId("waive-remaining");
 const confirm = () => screen.getByText("Confirm Payment") as HTMLButtonElement;
 const sent = () => addRepaymentSchema.parse(mockAddRepayment.mock.calls[0][0]);
@@ -217,7 +220,9 @@ it("adds to a discount already typed", async () => {
   fireEvent.click(await screen.findByText("Settle Debt"));
   await waitFor(() => expect(amountValue()).toBe("20"));
   fireEvent.change(discountBox("Amount (USD)"), { target: { value: "1" } });
-  await waitFor(() => expect(amountValue()).toBe("19"));
+  // LIRA-318 — a forgive amount never moves the payment.
+  await waitFor(() => expect(discountBox("Amount (USD)").value).toBe("1"));
+  expect(amountValue()).toBe("20");
   typeAmount("17");
   fireEvent.click(
     (await screen.findByTestId("waive-remaining")) as HTMLElement,

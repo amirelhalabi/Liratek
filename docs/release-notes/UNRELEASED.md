@@ -39,9 +39,12 @@
 - On the POS, Maintenance, customer sessions, Loto, OMT/Whish send and Mobile Recharge sales: when a client with a phone number is picked, change you don't hand back now goes on the client's account (it lowers their debt or becomes credit). Tap Account to put all of it there. Custom Services does the same for a saved client. With no client picked, it is kept as profit, as before.
 - POS: you can now put the change on the client's account in the same sale. Example: a client owes $50, buys $14 and pays $30. Hand back nothing and tap Account, and the client owes $34. No separate debt payment is needed.
 - "Customer Account" is no longer in the change method list; the Account button replaces it.
+- Inside a customer session, the Maintenance checkout, Loto and OMT/Whish send only hand change back; keeping it or putting it on the account happens at the session checkout, where it is booked.
 - Paying out (OMT/Whish receive, Binance cash-out, Exchange): the kept change is shown once, in the green "Change kept" line.
 - Debts, Settle Debt with some items ticked: one Remaining line shows what is left on the ticked items and the total.
 - Paying by wallet with a fee: one Grand Total line names the wallet fee.
+- The discount now sits in the same place on every payment window: one Discount line inside the payment box, under Total Amount. On the POS and Maintenance checkout it moved there from the order summary, and it says "Capped to max" when you type more than allowed.
+- Debts (Settle Debt) and Partners (Settle): the separate green Discount / Forgive box is gone. Forgiving is now a "Forgive (no cash)" line in the payment box, and typing an amount there no longer changes the payment you entered. A "Client will owe" (or "Partner will owe") line shows what is left after you confirm. To forgive part of it, lower the payment first.
 
 ## 🌐 Web app
 

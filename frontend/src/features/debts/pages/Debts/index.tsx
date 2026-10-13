@@ -35,7 +35,12 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { DataTable } from "@liratek/ui";
-import { type Money, type PaymentLine } from "@liratek/ui";
+import {
+  DiscountLine,
+  discountFieldClass,
+  type Money,
+  type PaymentLine,
+} from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
@@ -716,48 +721,149 @@ export default function Debts() {
   // Capped per currency at what is still due: items can add up to more
   // than the ledger balance (e.g. a separate account credit), and filling
   // above it would turn the difference into change/credit.
+  // LIRA-318 (owner 2026-10-13) — a forgive amount NEVER moves the payment:
+  // the amount fills to the GROSS ticked sum (capped at the gross due),
+  // while Waive measures the ticked gap NET of the forgive
+  // (`repayWaiveTotals`), so it still only closes what is left on the
+  // ticked items after it.
+  const repayTickedUsd = repayTickedItems.reduce((s, it) => s + it.openUsd, 0);
+  const repayTickedLbp = repayTickedItems.reduce((s, it) => s + it.openLbp, 0);
+  const repayTickedTotals = (
+    usd: number,
+    lbp: number,
+    capUsd: number,
+    capLbp: number,
+  ): Money[] =>
+    [
+      {
+        amount: Math.max(0, Math.min(capUsd, Math.round(usd * 100) / 100)),
+        currency: "USD",
+      },
+      {
+        amount: Math.max(0, Math.min(capLbp, Math.round(lbp))),
+        currency: "LBP",
+      },
+    ].filter((t) => t.amount > 0);
   const repayFillTotals = repayHasPicker
-    ? [
-        {
-          amount: Math.max(
-            0,
-            Math.min(
-              repayRemainingDueUsd,
-              Math.round(
-                (repayTickedItems.reduce((s, it) => s + it.openUsd, 0) -
-                  repayAppliedDiscountUsd) *
-                  100,
-              ) / 100,
-            ),
-          ),
-          currency: "USD",
-        },
-        {
-          amount: Math.max(
-            0,
-            Math.min(
-              repayRemainingDueLbp,
-              Math.round(
-                repayTickedItems.reduce((s, it) => s + it.openLbp, 0) -
-                  repayAppliedDiscountLbp,
-              ),
-            ),
-          ),
-          currency: "LBP",
-        },
-      ].filter((t) => t.amount > 0)
+    ? repayTickedTotals(repayTickedUsd, repayTickedLbp, dueUsd, dueLbp)
     : undefined;
+  const repayWaiveTotals = repayHasPicker
+    ? repayTickedTotals(
+        repayTickedUsd - repayAppliedDiscountUsd,
+        repayTickedLbp - repayAppliedDiscountLbp,
+        repayRemainingDueUsd,
+        repayRemainingDueLbp,
+      )
+    : undefined;
+  // LIRA-318 — what is due BEFORE the forgive ("Total Amount"; the payment
+  // fills to it). `totals` below stay net of the forgive.
+  const repayGrossTotals: Money[] = [
+    ...(dueUsd > 0 ? [{ amount: dueUsd, currency: "USD" }] : []),
+    ...(dueLbp > 0 ? [{ amount: dueLbp, currency: "LBP" }] : []),
+  ];
+  // A typed forgive above what is due in its currency is cut to it.
+  const repayForgiveOverUsd = repayDiscountUsdNum > dueUsd + 0.004;
+  const repayForgiveOverLbp = repayDiscountLbpNum > dueLbp + 0.5;
+  const repayForgiveCapNote =
+    repayForgiveOverUsd || repayForgiveOverLbp
+      ? `Capped to max (${[
+          repayForgiveOverUsd ? `$${dueUsd.toFixed(2)}` : "",
+          repayForgiveOverLbp
+            ? `${Math.round(dueLbp).toLocaleString()} LBP`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" + ")})`
+      : undefined;
+
+  // LIRA-318 (owner decision 2026-10-13, review follow-up) — the forgive
+  // never moves the payment, so a payment that already covers what is
+  // ticked (or the whole due, with no picker) plus a forgive would forgive
+  // money the client paid: the excess would tick unticked items or become
+  // change / account credit. Confirm is blocked then, with a hint naming the
+  // payment to type. Measured on what is TENDERED (change not netted out),
+  // through the same conversion as the reduction (`computeRepaymentReduction`
+  // — over-reduction lands on USD). A genuine overpay with no forgive is
+  // unaffected (LIRA-313 change box).
+  const repayForgiveApplied =
+    repayMode === "repay" &&
+    (repayAppliedDiscountUsd > 0.004 || repayAppliedDiscountLbp > 0.5);
+  const repayForgiveCapUsd = repayHasPicker
+    ? (repayWaiveTotals?.find((t) => t.currency === "USD")?.amount ?? 0)
+    : repayRemainingDueUsd;
+  const repayForgiveCapLbp = repayHasPicker
+    ? (repayWaiveTotals?.find((t) => t.currency === "LBP")?.amount ?? 0)
+    : repayRemainingDueLbp;
+  const repayForgiveBlocked = (() => {
+    if (!repayForgiveApplied) return false;
+    const rate = repayModalRate ?? EXCHANGE_RATE;
+    if (!(Number.isFinite(rate) && rate > 0)) return false;
+    const lines = repayPaymentLines.filter((l) => l.amount > 0);
+    const { reduceUsd } = computeRepaymentReduction({
+      paidUsd: lines
+        .filter((l) => l.currencyCode === "USD")
+        .reduce((s, l) => s + l.amount, 0),
+      paidLbp: lines
+        .filter((l) => l.currencyCode === "LBP")
+        .reduce((s, l) => s + l.amount, 0),
+      returnedUsd: 0,
+      returnedLbp: 0,
+      dueUsd: repayForgiveCapUsd,
+      dueLbp: repayForgiveCapLbp,
+      rate,
+    });
+    return reduceUsd - repayForgiveCapUsd > 0.005;
+  })();
+  const repayForgiveHint = (() => {
+    if (!repayForgiveBlocked) return undefined;
+    const rate = repayModalRate ?? EXCHANGE_RATE;
+    const fmtMix = (usd: number, lbp: number) =>
+      [
+        usd > 0.004 || lbp <= 0.5 ? `$${usd.toFixed(2)}` : "",
+        lbp > 0.5 ? `${Math.round(lbp).toLocaleString()} LBP` : "",
+      ]
+        .filter(Boolean)
+        .join(" + ");
+    const lineCcys = new Set(
+      repayPaymentLines.filter((l) => l.amount > 0).map((l) => l.currencyCode),
+    );
+    // In the payment's own currency when it is a single one.
+    const target =
+      lineCcys.size === 1 && lineCcys.has("LBP")
+        ? `${Math.round(repayForgiveCapLbp + repayForgiveCapUsd * rate).toLocaleString()} LBP`
+        : lineCcys.size === 1 && lineCcys.has("USD")
+          ? `$${(repayForgiveCapUsd + repayForgiveCapLbp / rate).toFixed(2)}`
+          : fmtMix(repayForgiveCapUsd, repayForgiveCapLbp);
+    return `Lower the payment to ${target} to forgive ${fmtMix(
+      repayAppliedDiscountUsd,
+      repayAppliedDiscountLbp,
+    )}.`;
+  })();
+
   const repayPlan = (() => {
     if (!repayHasPicker || repayTargets.length === 0) return null;
     const f = computeRepayFigures();
     if (!Number.isFinite(f.reduceUsd) || !Number.isFinite(f.reduceLbp)) {
       return null;
     }
+    // LIRA-318 — with a forgive, nothing beyond the ticked sum is fed to
+    // the plan, so the ticks never change by themselves (Confirm is blocked
+    // over it anyway — `repayForgiveBlocked`).
+    const fillUsd =
+      repayFillTotals?.find((t) => t.currency === "USD")?.amount ?? 0;
+    const fillLbp =
+      repayFillTotals?.find((t) => t.currency === "LBP")?.amount ?? 0;
+    const reductionUsd = f.reduceUsd + repayAppliedDiscountUsd;
+    const reductionLbp = f.reduceLbp + repayAppliedDiscountLbp;
     return planRepaymentTargets({
       items: repayOpenItems,
       ticked: repayTargets,
-      reductionUsd: f.reduceUsd + repayAppliedDiscountUsd,
-      reductionLbp: f.reduceLbp + repayAppliedDiscountLbp,
+      reductionUsd: repayForgiveApplied
+        ? Math.min(reductionUsd, fillUsd)
+        : reductionUsd,
+      reductionLbp: repayForgiveApplied
+        ? Math.min(reductionLbp, fillLbp)
+        : reductionLbp,
       rate: f.conversionRate,
     });
   })();
@@ -867,6 +973,9 @@ export default function Debts() {
 
   const handleProcessRepayment = async () => {
     if (!selectedClient) return;
+
+    // LIRA-318 — Confirm is disabled over this; never submit it anyway.
+    if (repayForgiveBlocked) return;
 
     const validLines = repayPaymentLines.filter((l) => l.amount > 0);
     if (validLines.length === 0) {
@@ -2405,7 +2514,7 @@ export default function Debts() {
         )}
 
         {/* Repayment Modal — CQ-11: shared CounterpartySettleModal
-            (MultiPaymentInput + Debts' own dual-currency discount row +
+            (MultiPaymentInput with Debts' own dual-currency forgive line +
             note + TransactionTimeOverride + footer), replacing the
             hand-rolled modal shell byte-for-byte in behavior. */}
         {showRepaymentModal && (
@@ -2419,7 +2528,12 @@ export default function Debts() {
               repayMode === "cashout" ? "Confirm Cash Out" : "Confirm Payment"
             }
             // LIRA-308 decision 3 — nothing ticked, nothing to confirm.
-            confirmDisabled={repayHasPicker && repayTargets.length === 0}
+            // LIRA-318 — or a forgive on top of a payment that already
+            // covers what is ticked / due.
+            confirmDisabled={
+              (repayHasPicker && repayTargets.length === 0) ||
+              repayForgiveBlocked
+            }
             beforeContent={
               repayHasPicker ? (
                 <DebtItemPicker
@@ -2440,8 +2554,9 @@ export default function Debts() {
               // re-derives the LBP figure through a USD scalar
               // (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md, MCP-3).
               // Repay mode feeds the DISCOUNT-ADJUSTED remaining due (CQ-10)
-              // — never the raw due — so "Remaining (Debt)" and the
-              // auto-filled amount already reflect a bundled discount.
+              // — never the raw due — so "Client will owe" reflects a
+              // bundled forgive; the amount fills to the gross due
+              // (`totalBeforeDiscount`, LIRA-318).
               totals: [
                 ...((repayMode === "cashout"
                   ? creditUsd
@@ -2512,19 +2627,107 @@ export default function Debts() {
                     returnCurrencyFollowsTender: true,
                     hasClient: true,
                     // Owner decision 2026-10-12 — Waive covers ONLY the
-                    // ticked items: its gap is measured against the same
-                    // ticked sum net of the discount (`repayFillTotals`),
-                    // so it never forgives an unticked item. No picker (no
-                    // itemised debt) keeps the whole-debt Waive.
-                    ...(repayFillTotals
+                    // ticked items: its gap is measured against the ticked
+                    // sum net of the forgive (`repayWaiveTotals`), so it
+                    // never forgives an unticked item. The amount fills to
+                    // the GROSS ticked sum (LIRA-318: forgive never moves
+                    // the payment). No picker (no itemised debt) keeps the
+                    // whole-debt Waive.
+                    ...(repayFillTotals && repayWaiveTotals
                       ? {
                           fillTotals: repayFillTotals,
                           fillKey: repayFillKey,
-                          waiveTotals: repayFillTotals,
+                          waiveTotals: repayWaiveTotals,
+                        }
+                      : {}),
+                    // LIRA-318 (owner 2026-10-13) — one "Forgive (no cash)"
+                    // line inside the payment box, under "Total Amount".
+                    // USD and LBP are kept apart (one scalar cannot hold a
+                    // mixed debt), each capped at what is due in it; the
+                    // backend re-validates. Typing it never moves the
+                    // payment; "Client will owe" shows what is left.
+                    ...(hasDebt
+                      ? {
+                          totalBeforeDiscount: repayGrossTotals,
+                          afterDiscountLabel: "After Forgive",
+                          discountMovesPayment: false,
+                          owedLabel: "Client will owe",
+                          discountRow: (
+                            <DiscountLine
+                              label="Forgive (no cash)"
+                              testId="debt-forgive-line"
+                              capNote={repayForgiveCapNote}
+                              hint={
+                                repayForgiveHint ? (
+                                  <span
+                                    data-testid="debt-forgive-blocked-hint"
+                                    className="text-amber-400"
+                                  >
+                                    {repayForgiveHint}
+                                  </span>
+                                ) : undefined
+                              }
+                              reason={{
+                                value: repayDiscountReason,
+                                onChange: setRepayDiscountReason,
+                                placeholder: "Reason (optional)...",
+                                testId: "debt-forgive-reason",
+                              }}
+                            >
+                              <span className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">
+                                  $
+                                </span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  data-testid="debt-forgive-usd"
+                                  aria-label="Forgive USD"
+                                  value={repayDiscountUsd}
+                                  onChange={(e) => {
+                                    const raw = e.target.value.replace(
+                                      /,/g,
+                                      "",
+                                    );
+                                    if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                                      setRepayDiscountUsd(raw);
+                                    }
+                                  }}
+                                  className={`${discountFieldClass(repayForgiveOverUsd)} pl-5`}
+                                  placeholder="0.00"
+                                />
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  data-testid="debt-forgive-lbp"
+                                  aria-label="Forgive LBP"
+                                  value={repayDiscountLbp}
+                                  onChange={(e) => {
+                                    const raw = e.target.value.replace(
+                                      /,/g,
+                                      "",
+                                    );
+                                    if (raw === "" || /^\d+$/.test(raw)) {
+                                      setRepayDiscountLbp(raw);
+                                    }
+                                  }}
+                                  className={discountFieldClass(
+                                    repayForgiveOverLbp,
+                                  )}
+                                  placeholder="0"
+                                />
+                                <span className="text-[11px] text-emerald-400/60">
+                                  LBP
+                                </span>
+                              </span>
+                            </DiscountLine>
+                          ),
                         }
                       : {}),
                     // LIRA-310 — Waive: each currency's part of what is
-                    // left goes into the matching "Discount / Forgive" box
+                    // left goes into the matching "Forgive (no cash)" field
                     // (USD to cents, LBP whole), on top of what is typed.
                     // The MPI discount stays hidden (one scalar cannot hold
                     // a mixed USD + LBP debt), so the page takes the waive.
@@ -2585,8 +2788,8 @@ export default function Debts() {
               showPmFee: false,
               // CQ-10: MultiPaymentInput's built-in discount is a single
               // scalar normalized to ONE target currency — it doesn't map
-              // cleanly onto a mixed USD+LBP debt position, so the compact
-              // "Discount / forgive" row (discountSlot below) replaces it
+              // cleanly onto a mixed USD+LBP debt position, so the page's own
+              // "Forgive (no cash)" line (`discountRow` above) replaces it
               // (repay mode only).
               showDiscount: false,
               // A cash-out must take money out of a drawer — account/gift
@@ -2609,74 +2812,6 @@ export default function Debts() {
                 ? { onKeptChange: setRepayKeptChange }
                 : {}),
             }}
-            discountSlot={
-              // CQ-10: bundled discount / forgive — repay mode only. Each
-              // currency is capped client-side at what's still due; the
-              // backend re-validates.
-              repayMode === "repay" &&
-              hasDebt && (
-                <div className="bg-emerald-950/20 border border-emerald-800/40 rounded-xl p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">
-                      Discount / Forgive
-                    </span>
-                    {(repayAppliedDiscountUsd > 0 ||
-                      repayAppliedDiscountLbp > 0) && (
-                      <span className="text-[11px] text-emerald-400/70">
-                        Remaining: ${repayRemainingDueUsd.toFixed(2)}
-                        {repayRemainingDueLbp > 0 &&
-                          ` + ${repayRemainingDueLbp.toLocaleString()} LBP`}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">
-                        Amount (USD)
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={repayDiscountUsd}
-                        onChange={(e) => {
-                          const raw = e.target.value.replace(/,/g, "");
-                          if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
-                            setRepayDiscountUsd(raw);
-                          }
-                        }}
-                        className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-1.5 text-emerald-100 text-sm font-mono focus:outline-none focus:border-emerald-500"
-                        placeholder="0.00"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">
-                        Amount (LBP)
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={repayDiscountLbp}
-                        onChange={(e) => {
-                          const raw = e.target.value.replace(/,/g, "");
-                          if (raw === "" || /^\d+$/.test(raw)) {
-                            setRepayDiscountLbp(raw);
-                          }
-                        }}
-                        className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-1.5 text-emerald-100 text-sm font-mono focus:outline-none focus:border-emerald-500"
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-                  <input
-                    type="text"
-                    value={repayDiscountReason}
-                    onChange={(e) => setRepayDiscountReason(e.target.value)}
-                    className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-1.5 text-emerald-100 text-xs focus:outline-none focus:border-emerald-500"
-                    placeholder="Reason (optional)..."
-                  />
-                </div>
-              )
-            }
           >
             {repayPreview && (
               <div

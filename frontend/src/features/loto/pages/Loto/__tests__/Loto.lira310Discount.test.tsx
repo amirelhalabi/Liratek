@@ -248,3 +248,36 @@ describe("LotoPage — the Discount / Waive is booked and sent (LIRA-310)", () =
     expect("discount_lbp" in formData).toBe(false);
   });
 });
+
+// LIRA-316 follow-up — in a session the ticket goes into the basket and the
+// server drops the item's OUT legs (deferPayment): the basket checkout owns
+// the change. So the item sheet must not offer change-to-account there.
+describe("LotoPage — change to account is not offered inside a session", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    lastPaymentProps = {};
+    mockActiveSession.current = null;
+    mockLotoSettingsGet.mockResolvedValue({ success: false });
+    mockLotoReport.mockResolvedValue({ success: false });
+    mockFetchClientVouchers.mockResolvedValue([]);
+  });
+
+  it("guard: outside a session, with a client, the account is offered", () => {
+    render(<LotoPage />);
+    enterSale();
+    fireEvent.click(screen.getByText("pick-client"));
+    expect(lastPaymentProps.hasClient).toBe(true);
+    expect(lastPaymentProps.unreturnedChangeTo).toBe("CUSTOMER_ACCOUNT");
+  });
+
+  it("in a session, even with a client, no unreturnedChangeTo is passed", () => {
+    mockActiveSession.current = { id: 9 };
+    render(<LotoPage />);
+    enterSale();
+    fireEvent.click(screen.getByText("pick-client"));
+    // Rule 28a: the sheet rendered with a client, so only the session gate
+    // can be what withholds the account.
+    expect(lastPaymentProps.hasClient).toBe(true);
+    expect(lastPaymentProps.unreturnedChangeTo).toBeUndefined();
+  });
+});

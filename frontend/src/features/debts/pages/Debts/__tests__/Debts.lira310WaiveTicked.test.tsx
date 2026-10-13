@@ -7,7 +7,7 @@
  * Owner example: the client owes a $14 sale (unticked) and a $20 Loto
  * ticket (ticked) and pays $18.50. The sheet's Remaining row shows "$1.50
  * on ticked [Waive]" above the "$15.50 total" (one row since owner
- * 2026-10-13 — the wording update is not proven failing-first); Waive puts $1.50 in Discount / Forgive; the repayment is
+ * 2026-10-13 — the wording update is not proven failing-first); Waive puts $1.50 in Forgive (no cash); the repayment is
  * sent with a $1.50 discount and the Loto ticket as its only target, so the
  * ticket ends at $0 and the $14 sale stays owed (the server side of that —
  * the discount walking the same ticked targets — is pinned by
@@ -199,8 +199,11 @@ const amountInputs = () =>
 const amountValue = (i = 0) => amountInputs()[i]?.value.replace(/,/g, "");
 const typeAmount = (value: string, i = 0) =>
   fireEvent.change(amountInputs()[i], { target: { value } });
+// LIRA-318 — the "Forgive (no cash)" line inside the payment box.
 const discountBox = (label: "Amount (USD)" | "Amount (LBP)") =>
-  screen.getByText(label).parentElement!.querySelector("input")!;
+  screen.getByTestId(
+    label === "Amount (USD)" ? "debt-forgive-usd" : "debt-forgive-lbp",
+  ) as HTMLInputElement;
 const waive = () => screen.queryByTestId("waive-remaining");
 const tickedRow = () => screen.queryByTestId("remaining-ticked-row");
 const confirm = () => screen.getByText("Confirm Payment") as HTMLButtonElement;

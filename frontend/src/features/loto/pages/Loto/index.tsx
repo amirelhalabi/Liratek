@@ -718,7 +718,12 @@ export function LotoPage() {
                       // Change not handed back → store credit (OUT
                       // CUSTOMER_ACCOUNT leg). The submit resolves/creates
                       // the client from id or name+phone before saving.
-                      unreturnedChangeTo="CUSTOMER_ACCOUNT"
+                      // Never in a session: the ticket joins the basket, the
+                      // server drops its OUT legs and the basket checkout
+                      // owns the change.
+                      {...(!activeSession
+                        ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
+                        : {})}
                       // Ticket sale (charge flow): shortfall → client debt.
                       autoDebtRemainder={
                         !!clientId ||
