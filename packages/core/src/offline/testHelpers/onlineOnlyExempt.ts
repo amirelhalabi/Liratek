@@ -21,6 +21,8 @@ export const ONLINE_ONLY_EXEMPT: Record<string, readonly OnlineOnlyExemption[]> 
     // reached from settleTransactions / settleAccount only
     { method: "_bookCommissionAtSettlement", channels: ["suppliers:settle-transactions", "suppliers:settle-account"] },
     { method: "_markFinancialServicesSettled", channels: ["suppliers:settle-transactions", "suppliers:settle-account"] },
+    // LIRA-315 — settlement overpay to the account; same two callers
+    { method: "_bookSettlementOverpay", channels: ["suppliers:settle-transactions", "suppliers:settle-account"] },
     { method: "recordSupplierCashflow", channels: ["suppliers:record-cashflow"] },
     // LIRA-310 — the shared bundled-discount writer: the supplier Pay, both
     // supplier settlements, and the two LOTO checkpoint settlements (all

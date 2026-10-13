@@ -341,6 +341,7 @@ const READ: readonly string[] = [
   "dashboard:get-profit-sales-chart",
   "database:isJoinInstallation",
   "database:resetPreview",
+  "db:get-expense-history",
   "db:get-setting",
   "db:get-settings",
   "db:get-today-expenses",

@@ -229,9 +229,7 @@ describe("TopUpModal — Whish App 'From Client' payout (LIRA-195)", () => {
     );
     fireEvent.change(amountInputs[0], { target: { value: "60" } });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /add payout line/i }),
-    );
+    fireEvent.click(screen.getByTestId("add-payment-line"));
     amountInputs = document.querySelectorAll<HTMLInputElement>(
       '[data-testid^="payment-amount-"]',
     );

@@ -162,21 +162,29 @@ function renderKatshForm() {
   );
 }
 
+// The catalog loads asynchronously ("Loading items..."); on a cold CI runner the
+// first render can take longer than findBy*'s 1s default.
+const LOAD = { timeout: 5000 };
+
 describe("KatshForm ItemCard — validity/credits (LIRA W6.b)", () => {
   it("shows '10d validity' for a card with validityDays set", async () => {
     renderKatshForm();
-    expect(await screen.findByText("10d validity")).toBeInTheDocument();
+    expect(
+      await screen.findByText("10d validity", {}, LOAD),
+    ).toBeInTheDocument();
   });
 
   it("shows the credit amount for a card with credits set", async () => {
     renderKatshForm();
-    expect(await screen.findByText("Credit only")).toBeInTheDocument();
-    expect(await screen.findByText("$1")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Credit only", {}, LOAD),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("$1", {}, LOAD)).toBeInTheDocument();
   });
 
   it("shows neither line for a card with no validity/credits", async () => {
     renderKatshForm();
     // "start" card renders (label present) but carries no validity/credit chip
-    expect(await screen.findByText("start")).toBeInTheDocument();
+    expect(await screen.findByText("start", {}, LOAD)).toBeInTheDocument();
   });
 });

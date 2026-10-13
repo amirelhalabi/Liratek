@@ -181,7 +181,7 @@ describe("OMTHandlers", () => {
       const handler = handlers.get("omt:get-history")!;
       const result = await handler({}, undefined);
 
-      expect(mockService.getHistory).toHaveBeenCalledWith(undefined);
+      expect(mockService.getHistory).toHaveBeenCalledWith(undefined, undefined);
       expect(result).toHaveLength(1);
       expect(result[0].provider).toBe("OMT");
     });
@@ -190,7 +190,14 @@ describe("OMTHandlers", () => {
       const handler = handlers.get("omt:get-history")!;
       await handler({}, "WHISH");
 
-      expect(mockService.getHistory).toHaveBeenCalledWith("WHISH");
+      expect(mockService.getHistory).toHaveBeenCalledWith("WHISH", undefined);
+    });
+
+    it("passes null (no date window) when opts.all is true", async () => {
+      const handler = handlers.get("omt:get-history")!;
+      await handler({}, "OMT", { all: true });
+
+      expect(mockService.getHistory).toHaveBeenCalledWith("OMT", null);
     });
   });
 
