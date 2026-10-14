@@ -33,6 +33,16 @@
   WhatsApp copy: `yarn release-notes:whatsapp unreleased` (or a version).
 -->
 
+## ✨ Highlights
+
+### Card sent to the wrong number
+Recharged an MTC or Alfa card onto the wrong number from iPick, Katsh or Whish App? Open the sale on the Transactions page and tap "Wrong number…". The sale stays as it is, because it is the recharge of the customer's right number. The wasted card is recorded as a loss, and the credits sent back lower that loss when they arrive.
+![The Wrong number window on a card sale](whats-new/1.35.0/wrong-number-sale.png)
+
+### Wrong number from Expenses
+Noticed it before saving the sale? On Expenses, pick the card and tick "Wrong number". It comes out of the iPick, Katsh or Whish App balance as a loss, and you can enter the credits sent back later from the Transactions page.
+![The Wrong number tick on Expenses](whats-new/1.35.0/wrong-number-expense.png)
+
 ## 💳 Payment window
 
 - The change box is smaller: one line shows the change due and how you hand it back (cash, or OMT / Whish / Binance), the next has the $ and LBP fields with quick $, LBP and Account buttons, and the last line says where any change you don't hand back goes.
