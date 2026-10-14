@@ -294,6 +294,39 @@ export function useLinesSection(opts: UseLinesSectionOptions) {
       }
     } else if (field !== "method") {
       next = syncLeftover(next);
+      // Split mode: the lines now come to less than owed and nothing puts
+      // the gap on the account yet → add the account leftover, tracked like
+      // single mode's (follows later edits, dropped when the gap closes or
+      // the client is unpicked). Only when the account is offered — never
+      // an automatic cash line (US1.3). A line the cashier edited by hand
+      // is an ACCOUNT line already or not tracked, so it is never touched.
+      const followAlive =
+        !!followIdRef.current &&
+        next.some((l) => l.id === followIdRef.current);
+      if (
+        accountOffered &&
+        !followAlive &&
+        !next.some((l) => l.method === ACCOUNT)
+      ) {
+        const remaining = totalAmount - sumExcept(next);
+        if (remaining > tol) {
+          const leftoverId = crypto.randomUUID();
+          followIdRef.current = leftoverId;
+          autoMethodIdsRef.current = new Set([
+            ...autoMethodIdsRef.current,
+            leftoverId,
+          ]);
+          next = [
+            ...next,
+            {
+              id: leftoverId,
+              method: ACCOUNT,
+              currencyCode: currency,
+              amount: optsRef.current.round(remaining, currency),
+            },
+          ];
+        }
+      }
     }
     emit(next);
   };

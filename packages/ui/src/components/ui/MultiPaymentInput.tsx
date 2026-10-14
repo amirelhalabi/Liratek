@@ -553,40 +553,54 @@ function PaymentLineRow({
         ))}
       </select>
 
-      {/* Currency — LIRA-321: a locked select also shows a small lock. */}
+      {/* Currency — LIRA-321: a locked currency is not a choice, so it is a
+          read-only field with a small lock, never a <select>. The app
+          stylesheet paints a dropdown caret on EVERY select and reserves
+          2.5rem for it, which cut "LBP" down to "LE" at this width. */}
       <div className="relative w-20 shrink-0">
-        {currencyLocked && (
-          <svg
-            data-testid={`${testIdPrefix}-lock-${lineId}`}
-            aria-hidden="true"
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+        {currencyLocked ? (
+          <>
+            <svg
+              data-testid={`${testIdPrefix}-lock-${lineId}`}
+              aria-hidden="true"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+            >
+              <rect x="4" y="11" width="16" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+            <input
+              type="text"
+              data-testid={`${testIdPrefix}-currency-${lineId}`}
+              aria-label="Currency"
+              value={currencyCode}
+              readOnly
+              disabled
+              title="Currency locked"
+              className={`w-full ${bg} border border-slate-600 rounded-lg pl-6 pr-1 ${py} text-white text-sm cursor-not-allowed`}
+            />
+          </>
+        ) : (
+          <select
+            data-testid={`${testIdPrefix}-currency-${lineId}`}
+            value={currencyCode}
+            onChange={(e) => onCurrencyChange(e.target.value)}
+            className={`w-full ${bg} border border-slate-600 rounded-lg px-2 ${py} text-white text-sm focus:outline-none ${focus} transition-colors`}
           >
-            <rect x="4" y="11" width="16" height="10" rx="2" />
-            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-          </svg>
+            {currencies.map((curr) => (
+              <option key={curr.code} value={curr.code}>
+                {curr.code}
+              </option>
+            ))}
+          </select>
         )}
-        <select
-          data-testid={`${testIdPrefix}-currency-${lineId}`}
-          value={currencyCode}
-          onChange={(e) => onCurrencyChange(e.target.value)}
-          disabled={currencyLocked}
-          title={currencyLocked ? "Currency locked" : undefined}
-          className={`w-full ${bg} border border-slate-600 rounded-lg ${currencyLocked ? "pl-6 pr-2" : "px-2"} ${py} text-white text-sm focus:outline-none ${focus} transition-colors disabled:opacity-60 disabled:cursor-not-allowed`}
-        >
-          {currencies.map((curr) => (
-            <option key={curr.code} value={curr.code}>
-              {curr.code}
-            </option>
-          ))}
-        </select>
       </div>
 
       {/* Amount — DecimalInput keeps the raw text while focused so decimal
@@ -2472,7 +2486,11 @@ export default function MultiPaymentInput({
           {!cf.accountOffered &&
             counterFlowAccountPossible &&
             ` — pick a client to put it on their account${
-              cf.canForgive ? ", or forgive it" : ""
+              cf.canForgive
+                ? ", or forgive it"
+                : cf.isSplit
+                  ? ", or press + Add line"
+                  : ""
             }`}
         </div>
       )}
@@ -2945,6 +2963,45 @@ export default function MultiPaymentInput({
             </span>
           </span>
         </div>
+
+        {/* LIRA-321 — payout screens: what the customer's side came to, so
+            the footer is not just the shop's "Total / Paid". Money-in
+            screens are unchanged. */}
+        {payoutCounterFlow && (
+          <div className="pt-1.5 border-t border-slate-700/40 space-y-1">
+            <div
+              data-testid="counter-flow-summary-paid"
+              className="flex justify-between text-xs"
+            >
+              <span className="text-slate-300 font-medium">Customer paid:</span>
+              <span className="font-mono text-emerald-400">
+                {fmtCf(cf.state.paid)}
+              </span>
+            </div>
+            {cf.state.owedToAccount > 0 && (
+              <div
+                data-testid="counter-flow-summary-owed"
+                className="flex justify-between text-xs text-amber-300"
+              >
+                <span className="font-medium">Client will owe:</span>
+                <span className="font-mono font-semibold">
+                  {fmtCf(cf.state.owedToAccount)}
+                </span>
+              </div>
+            )}
+            {cf.state.forgiven > 0 && (
+              <div
+                data-testid="counter-flow-summary-forgiven"
+                className="flex justify-between text-xs"
+              >
+                <span className="text-slate-300 font-medium">Forgiven:</span>
+                <span className="font-mono text-slate-200">
+                  {fmtCf(cf.state.forgiven)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Remaining (underpaid → debt) warning */}
         {totalPaid < effectiveTotalInTarget - matchTolerance && (

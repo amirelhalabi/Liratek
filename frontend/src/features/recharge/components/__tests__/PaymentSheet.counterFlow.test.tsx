@@ -234,4 +234,22 @@ describe("PaymentSheet — counterFlow pass-through (BIDIRECTIONAL_PAYMENT_LEGS_
       });
     });
   });
+
+  // LIRA-321 follow-up (seen live): the disabled Confirm read as an empty
+  // bar. index.css repaints the pair `bg-slate-600 text-slate-400` to the
+  // SAME colour in dark mode (--s-600 and --t-600 are both #3e4d7d), so the
+  // label vanished. Written before the fix (rule 17).
+  it("a disabled Confirm keeps its label readable (not the same colour as its background)", () => {
+    renderSheet({ confirmDisabled: true });
+    const btn = screen.getByRole("button", { name: "Pay $100.00" });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveTextContent("Pay $100.00");
+    const classes = btn.className.split(/\s+/);
+    expect(classes).not.toContain("text-transparent");
+    expect(
+      classes.includes("bg-slate-600") && classes.includes("text-slate-400"),
+    ).toBe(false);
+    // A visible, readable text colour on the disabled fill.
+    expect(classes).toContain("text-slate-300");
+  });
 });

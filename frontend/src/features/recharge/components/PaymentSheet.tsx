@@ -344,7 +344,9 @@ export function PaymentSheet({
             disabled={isSubmitting || confirmDisabled}
             className={`w-full py-3.5 rounded-xl font-bold text-base transition-all ${
               isSubmitting || confirmDisabled
-                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                ? // Not bg-slate-600 + text-slate-400: index.css paints that
+                  // pair the same colour in dark mode, so the label vanished.
+                  "bg-slate-700 text-slate-300 cursor-not-allowed"
                 : `${accentColor} shadow-lg`
             }`}
           >
