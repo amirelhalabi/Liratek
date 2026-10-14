@@ -55,6 +55,7 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { formatServiceAmount } from "@/features/custom-services/utils/formatServiceAmount";
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 
@@ -158,6 +159,9 @@ export default function CustomServices() {
   // LIRA-310 US5: the payment sheet's discount (typed, or added by its
   // built-in Waive), in the active currency. Lowers the price actually sent.
   const [csDiscount, setCsDiscount] = useState(0);
+  // LIRA-319: the payment sheet's extra ("+ Extra" side of the same line),
+  // in the active currency. Sent as its own field, never folded into price.
+  const [csExtra, setCsExtra] = useState(0);
 
   // LIRA-081 (PFT-R) / LIRA-154: partner involvement is now a 3-way mode,
   // not a boolean —
@@ -345,6 +349,7 @@ export default function CustomServices() {
     setReturnLegs([]);
     setKeptChange(null);
     setCsDiscount(0);
+    setCsExtra(0);
   }, [awaitingSellingPrice]);
   // LIRA-310 US5 — the discount is real: capped at the margin (price − cost)
   // in the active currency, so a service is never sold below its cost, and
@@ -368,6 +373,17 @@ export default function CustomServices() {
     currency === "LBP"
       ? Math.round(priceLbpVal - appliedCsDiscount)
       : priceLbpVal;
+  // LIRA-319 — the extra: only on an ordinary walk-in sale paid here. Never
+  // for a partner (FOR or VIA), a payout, or a session basket line (the
+  // basket takes its extra at the session checkout; the cart reuses this
+  // payload). Capped at the selling price (FR-006); the server refuses the
+  // same. Not part of the profit shown below — Profits reports it on its own.
+  const csExtraAllowed =
+    !hasPartnerMode && !isPayout && !activeSession && !awaitingSellingPrice;
+  const maxCsExtra = currency === "USD" ? priceUsdVal : priceLbpVal;
+  const appliedCsExtra = csExtraAllowed
+    ? Math.min(Math.max(0, csExtra), maxCsExtra)
+    : 0;
   const profitUsd = chargedPriceUsd - costUsdVal + (sentKeptChange?.usd ?? 0);
   const profitLbp = chargedPriceLbp - costLbpVal + (sentKeptChange?.lbp ?? 0);
 
@@ -484,6 +500,19 @@ export default function CustomServices() {
         // LIRA-310 US5: the price after the payment sheet's discount.
         price_usd: chargedPriceUsd,
         price_lbp: chargedPriceLbp,
+        // LIRA-319: the discount, so the server can refuse "discount and
+        // extra" (the price above is already net of it), and the extra as
+        // its own field in the active currency. Omitted when 0.
+        ...(appliedCsDiscount > 0
+          ? currency === "USD"
+            ? { discount_usd: appliedCsDiscount }
+            : { discount_lbp: appliedCsDiscount }
+          : {}),
+        ...(appliedCsExtra > 0
+          ? currency === "USD"
+            ? { extra_usd: Math.round(appliedCsExtra * 100) / 100 }
+            : { extra_lbp: Math.round(appliedCsExtra) }
+          : {}),
         paid_by: primaryMethod,
         ...(exchangeRateForPayload !== undefined
           ? { exchange_rate: exchangeRateForPayload }
@@ -1236,89 +1265,109 @@ export default function CustomServices() {
                     exclusive toggles sharing one `partnerMode` state (each
                     setting it to its own value turning on, and back to
                     "none" turning off — so checking one implicitly
-                    unchecks the other). Both reuse the shared, unmodified
+                    unchecks the other). Both reuse the shared
                     ForPartnerToggle component as plain boolean widgets;
                     the mode concept lives entirely here, not in the
-                    shared component (which stays untouched — it's boolean
-                    -only and shared by 6 other call sites). */}
-                <div className="flex flex-wrap items-start gap-6">
-                  {/* "For Partner" — no counter payment; the FULL price (per
+                    shared component (boolean-only, shared by other call
+                    sites). */}
+                {/* Two rows: the toggles on top, then the partner picker
+                    (shared by both toggles) and "Pay out" below them. Each
+                    ForPartnerToggle is told not to render its own selector,
+                    so the picker sits at one fixed spot instead of floating
+                    between the checkboxes. */}
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-6">
+                    {/* "For Partner" — no counter payment; the FULL price (per
                       currency) books to the selected partner's tab instead.
                       Hides the Payment Method section below. Unchanged from
                       pre-LIRA-154 behavior. */}
-                  <ForPartnerToggle
-                    testId="custom-service-for-partner-toggle"
-                    checked={isForPartner}
-                    onChange={(next) => {
-                      if (next) {
-                        setPartnerMode("FOR");
-                        setIsPayout(false);
-                        // Clear any lingering payment state so a leftover
-                        // leg from before toggling on is never submitted.
-                        setPaymentLines([]);
-                        setReturnLegs([]);
-                        setKeptChange(null);
-                      } else {
-                        setPartnerMode("none");
-                      }
-                    }}
-                    selectedPartnerId={selectedPartnerId}
-                    onPartnerChange={setSelectedPartnerId}
-                    checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                  />
-                  {/* "Via Partner" (LIRA-154) — the mirror of "For Partner":
+                    <ForPartnerToggle
+                      testId="custom-service-for-partner-toggle"
+                      showSelector={false}
+                      checked={isForPartner}
+                      onChange={(next) => {
+                        if (next) {
+                          setPartnerMode("FOR");
+                          setIsPayout(false);
+                          // Clear any lingering payment state so a leftover
+                          // leg from before toggling on is never submitted.
+                          setPaymentLines([]);
+                          setReturnLegs([]);
+                          setKeptChange(null);
+                        } else {
+                          setPartnerMode("none");
+                        }
+                      }}
+                      selectedPartnerId={selectedPartnerId}
+                      onPartnerChange={setSelectedPartnerId}
+                      checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    />
+                    {/* "Via Partner" (LIRA-154) — the mirror of "For Partner":
                       the partner performs the service, the walk-in customer
                       still pays US now via the normal Payment Method section
                       below (kept mounted — NOT cleared), and we owe the
                       partner the COST instead of the price. */}
-                  <ForPartnerToggle
-                    testId="custom-service-via-partner-toggle"
-                    label="Via Partner"
-                    checked={isViaPartner}
-                    onChange={(next) => {
-                      // Deliberately does NOT clear paymentLines/returnLegs/
-                      // keptChange — unlike FOR, VIA keeps the payment
-                      // section live and submitting, so clearing here would
-                      // wipe an operator's in-progress payment lines.
-                      setPartnerMode(next ? "VIA" : "none");
-                      // OWNER_NOTES_REMAINING_BUILD.md #16: "Pay out" is
-                      // ONLY valid under VIA — unchecking VIA must not leave
-                      // it stranded true for a "none"/FOR submission.
-                      if (!next) setIsPayout(false);
-                    }}
-                    selectedPartnerId={selectedPartnerId}
-                    onPartnerChange={setSelectedPartnerId}
-                    checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  />
-                  {/* OWNER_NOTES_REMAINING_BUILD.md #16 (Route A) — "Pay
+                    <ForPartnerToggle
+                      testId="custom-service-via-partner-toggle"
+                      showSelector={false}
+                      label="Via Partner"
+                      checked={isViaPartner}
+                      onChange={(next) => {
+                        // Deliberately does NOT clear paymentLines/returnLegs/
+                        // keptChange — unlike FOR, VIA keeps the payment
+                        // section live and submitting, so clearing here would
+                        // wipe an operator's in-progress payment lines.
+                        setPartnerMode(next ? "VIA" : "none");
+                        // OWNER_NOTES_REMAINING_BUILD.md #16: "Pay out" is
+                        // ONLY valid under VIA — unchecking VIA must not leave
+                        // it stranded true for a "none"/FOR submission.
+                        if (!next) setIsPayout(false);
+                      }}
+                      selectedPartnerId={selectedPartnerId}
+                      onPartnerChange={setSelectedPartnerId}
+                      checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    />
+                  </div>
+                  {(isForPartner || isViaPartner) && (
+                    <div className="flex flex-wrap items-center gap-6">
+                      <PartnerSelector
+                        required
+                        selectedPartnerId={selectedPartnerId}
+                        onSelect={setSelectedPartnerId}
+                      />
+                      {/* OWNER_NOTES_REMAINING_BUILD.md #16 (Route A) — "Pay
                       out": the Syria transfer OUT. Only shown once "Via
                       Partner" is on (the schema rejects direction "OUT"
                       without partnerMode "VIA"); NOT its own ForPartnerToggle
-                      — the partner is already selected by the toggle above,
+                      — the partner is already picked by the selector beside it,
                       this is a plain sub-checkbox that just flips direction. */}
-                  {isViaPartner && (
-                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        data-testid="custom-service-payout-toggle"
-                        checked={isPayout}
-                        onChange={(e) => {
-                          setIsPayout(e.target.checked);
-                          // A payout collects no payment legs (it PAYS the
-                          // recipient CASH from General, per owner decision)
-                          // — drop any leftover legs from before the toggle
-                          // was checked, mirroring the FOR toggle's own
-                          // clear-on-check above.
-                          if (e.target.checked) {
-                            setPaymentLines([]);
-                            setReturnLegs([]);
-                            setKeptChange(null);
-                          }
-                        }}
-                        className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                      />
-                      <span className="text-xs text-slate-400">Pay out</span>
-                    </label>
+                      {isViaPartner && (
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            data-testid="custom-service-payout-toggle"
+                            checked={isPayout}
+                            onChange={(e) => {
+                              setIsPayout(e.target.checked);
+                              // A payout collects no payment legs (it PAYS the
+                              // recipient CASH from General, per owner decision)
+                              // — drop any leftover legs from before the toggle
+                              // was checked, mirroring the FOR toggle's own
+                              // clear-on-check above.
+                              if (e.target.checked) {
+                                setPaymentLines([]);
+                                setReturnLegs([]);
+                                setKeptChange(null);
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                          />
+                          <span className="text-xs text-slate-400">
+                            Pay out
+                          </span>
+                        </label>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -1451,6 +1500,15 @@ export default function CustomServices() {
                           // discount) never sells below cost.
                           onDiscountChange={setCsDiscount}
                           maxDiscount={maxCsDiscount}
+                          // LIRA-319: "− Discount | + Extra" on the same line.
+                          // The extra is sent as extra_usd/extra_lbp; the
+                          // price stays the selling price.
+                          {...(csExtraAllowed
+                            ? {
+                                onExtraChange: setCsExtra,
+                                maxExtra: maxCsExtra,
+                              }
+                            : {})}
                           // The walk-in customer pays the shop: change they
                           // leave behind is shop profit (checked server-side
                           // by resolveKeptChange). Payout and FOR never render

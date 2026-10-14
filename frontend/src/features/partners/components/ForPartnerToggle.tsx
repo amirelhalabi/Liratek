@@ -69,6 +69,11 @@ export interface ForPartnerToggleProps {
    *  checkbox); pass "" for an inline flex-row layout (e.g. Katsh/Financial,
    *  which render the selector as a sibling flex item, not stacked). */
   selectorClassName?: string;
+  /** Render the PartnerSelector after the checkbox when checked. Default
+   *  true. Pass false when the caller places its own `<PartnerSelector>`
+   *  elsewhere in the layout (CustomServices puts it on a second row, below
+   *  both partner toggles). */
+  showSelector?: boolean;
 }
 
 export function ForPartnerToggle({
@@ -84,6 +89,7 @@ export function ForPartnerToggle({
   checkboxClassName = DEFAULT_CHECKBOX_CLASS,
   textClassName = DEFAULT_TEXT_CLASS,
   selectorClassName = DEFAULT_SELECTOR_CLASS,
+  showSelector = true,
 }: ForPartnerToggleProps) {
   return (
     <>
@@ -101,7 +107,7 @@ export function ForPartnerToggle({
         />
         <span className={textClassName}>{label}</span>
       </label>
-      {checked && (
+      {checked && showSelector && (
         <PartnerSelector
           required
           {...(autoSelectSingle !== undefined ? { autoSelectSingle } : {})}
