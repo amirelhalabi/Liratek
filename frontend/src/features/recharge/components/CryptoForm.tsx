@@ -703,7 +703,7 @@ export function CryptoForm({
               disabled={submitDisabled}
               className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
                 submitDisabled
-                  ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                  ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                   : "bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-500/20"
               }`}
             >

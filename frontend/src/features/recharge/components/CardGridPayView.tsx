@@ -229,7 +229,7 @@ export function CardGridPayView({
             disabled={!selected}
             className={`px-6 py-3 rounded-lg font-bold text-white transition-all flex items-center gap-2 ${
               !selected
-                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                 : theme.payButton
             }`}
           >

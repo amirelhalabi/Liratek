@@ -43,6 +43,14 @@ Recharged an MTC or Alfa card onto the wrong number from iPick, Katsh or Whish A
 Noticed it before saving the sale? On Expenses, pick the card and tick "Wrong number". It comes out of the iPick, Katsh or Whish App balance as a loss, and you can enter the credits sent back later from the Transactions page.
 ![The Wrong number tick on Expenses](whats-new/1.35.0/wrong-number-expense.png)
 
+### Customer pays part now, owes the rest
+On Exchange, the payment window now shows what the customer pays on top and what you pay out under it. Pick the client right there, type what they actually handed over, and the rest goes on their account by itself. "Client will owe" shows how much, and it appears on the Debts page.
+![Exchange: 87,600,000 LBP paid, 1,900,000 LBP on the client's account](whats-new/1.35.0/customer-pays-exchange.png)
+
+### Cash-outs paid in several ways
+On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for you: the transfer, plus the fee when the customer pays it separately. Split it across Whish, OMT and cash, or put part on the client's account.
+![Whish App cash-out: $90 by Whish, $5 fee in cash, $10 on the client's account](whats-new/1.35.0/customer-pays-whish-app.png)
+
 ## 💳 Payment window
 
 - The change box is smaller: one line shows the change due and how you hand it back (cash, or OMT / Whish / Binance), the next has the $ and LBP fields with quick $, LBP and Account buttons, and the last line says where any change you don't hand back goes.
@@ -59,6 +67,7 @@ Noticed it before saving the sale? On Expenses, pick the card and tick "Wrong nu
 - Binance cash-out: "Customer pays" now always shows what the customer sends you, filled in for you: the USDT by Binance, plus the fee in Cash when the customer pays the fee separately. You can split it, for example part in USDT by Binance and the rest in cash ($ or LBP), or leave the rest on the client's account in $ (1 USDT counts as $1), or forgive a small leftover. Changing who pays the fee updates the lines.
 - Exchange: the client name box now finds saved clients, and you can also pick or change the client right inside the payment window, without closing it. When you confirm the payout, "Customer pays — LBP" (or the currency you receive) shows the full amount. If the customer pays in $ or LBP and pays less, the rest goes on the picked client's account (it shows on the Debts page), or you can forgive a small leftover. When the customer pays in another currency (for example euros), they must pay the full amount: putting part on an account or forgiving it is not available yet. Confirm stays off until it adds up, and a client is needed to put money on an account. The Exchange history shows the client.
 - Debts (Settle Debt) and Partners (Settle): the separate green Discount / Forgive box is gone. Forgiving is now a "Forgive (no cash)" line in the payment box, and typing an amount there no longer changes the payment you entered. A "Client will owe" (or "Partner will owe") line shows what is left after you confirm. To forgive part of it, lower the payment first.
+- Dark mode: greyed-out buttons now show their text on the Mobile Recharge screens (MTC / Alfa, Katsh, Binance, Whish App / OMT App, card sales and money transfers) and on the OMT/Whish page. Before, a button that could not be pressed yet looked like an empty bar.
 
 ## ➕ Extra charges
 

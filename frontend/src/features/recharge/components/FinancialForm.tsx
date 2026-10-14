@@ -838,7 +838,7 @@ export function FinancialForm({
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                 totalItems === 0 ||
                 (forPartner && (isSubmittingPartner || !partnerId))
-                  ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                  ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                   : activeProvider === "WHISH_APP"
                     ? "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
                     : activeProvider === "OMT_APP"

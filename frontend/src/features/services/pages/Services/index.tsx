@@ -2757,7 +2757,7 @@ export default function Services() {
                 disabled={isSubmitting || feeSectionBlocksSubmit}
                 className={`w-full py-3.5 rounded-xl font-bold text-base shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${
                   isSubmitting || feeSectionBlocksSubmit
-                    ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                    ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                     : provider === "OMT"
                       ? "bg-[#ffde00] hover:bg-[#ffe933] text-black shadow-[#ffde00]/20"
                       : "bg-[#ff0a46] hover:bg-[#ff2d5e] text-white shadow-[#ff0a46]/20"

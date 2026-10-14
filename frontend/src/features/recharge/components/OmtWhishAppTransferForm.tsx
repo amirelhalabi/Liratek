@@ -1158,7 +1158,7 @@ function OmtWhishAppTransferFormInner({
               parseFloat(amount) <= 0 ||
               isSubmittingPartner ||
               (forPartner && !selectedPartnerId)
-                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                 : activeProvider === "OMT_APP"
                   ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
                   : "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"

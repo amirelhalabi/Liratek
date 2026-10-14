@@ -1405,7 +1405,7 @@ export function TelecomForm({
                   (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)) ||
                 (forPartner && (!telecomPrice || !selectedPartnerId)) ||
                 isBuybackBlockedBySession
-                  ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                  ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                   : `bg-${accent}-600 hover:bg-${accent}-500 text-white shadow-lg shadow-${accent}-500/20`
               }`}
               title={

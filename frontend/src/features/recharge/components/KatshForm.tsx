@@ -2035,7 +2035,7 @@ function KatshFormInner({
             className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
               (totalItems === 0 && pendingBills.length === 0) ||
               (forPartner && (!selectedPartnerId || isSubmittingPartner))
-                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                 : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20"
             }`}
           >
