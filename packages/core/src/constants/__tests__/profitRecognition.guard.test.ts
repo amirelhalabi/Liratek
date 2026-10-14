@@ -588,6 +588,13 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "the SUM, and exposes `debt_pending` (notDebtPending) as its own column " +
     "so ProfitService.buildWarrantyModuleDetail can list a pending row " +
     "under 'not counted' instead of dropping it.",
+  "ProfitRepository:getWrongNumberRecoveryDetail:(query)":
+    "LIRA-312 — the Wrong-number credits recovered drill-down, the same " +
+    "'expose the gate' Detail-family shape as getWarrantyDetail: it mirrors " +
+    "getWrongNumberRecoveryTotals (which gates on notDebtPending in its " +
+    "WHERE) minus the SUM, and exposes `debt_pending` (notDebtPending) as " +
+    "its own column so ProfitService.buildWrongNumberModuleDetail can list " +
+    "a pending row under 'not counted' instead of dropping it.",
 };
 
 describe("profit-recognition-gate drift guard (CQ-1, LIRA-098; LIRA-158 Phase 5)", () => {

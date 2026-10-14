@@ -568,6 +568,23 @@ const TELECOM_RULES = {
       debt: NONE,
     },
   },
+  "WRONG_NUMBER_CREDITS/line": {
+    transactionType: "WRONG_NUMBER_CREDITS",
+    mode: "Credits sent back after a wrong-number card recharge (LIRA-312)",
+    mapRef: "specs/312-wrong-number-recharge/research.md R4",
+    ledgers: {
+      // carrierUsd = x = the credits that arrived on the chosen shop line.
+      drawers: { post: "post", lines: [CARRIER_GAIN] },
+      supplier: NONE,
+      partner: NONE,
+      debt: NONE,
+    },
+    notes:
+      "Assumes the carrier drawer already equals Σ active line credits; if " +
+      "it has drifted, a `<drawer>_LINE_DRIFT` correction leg also posts " +
+      "(same as the credit buy-back). The recovery is a profit_lbp stamp " +
+      "(x × telecom_credit_sell_price_lbp), not a ledger posting.",
+  },
   "LINE_RECHARGE/resale": {
     transactionType: "LINE_RECHARGE",
     mode: "Internal recharge of a phone line held for sale (LIRA-309)",

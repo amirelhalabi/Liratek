@@ -1785,6 +1785,32 @@ contextBridge.exposeInMainWorld("api", {
       client_day?: string;
     }) => ipcRenderer.invoke("resale-lines:recharge", data),
   },
+
+  // LIRA-312 — a MTC/Alfa card recharged onto the wrong number.
+  wrongNumbers: {
+    list: (query?: {
+      id?: number;
+      sale_transaction_id?: number;
+      expense_transaction_id?: number;
+      status?: "WAITING" | "PARTLY_RECOVERED" | "RECOVERED" | "VOIDED";
+    }) => ipcRenderer.invoke("wrong-numbers:list", query ?? {}),
+    record: (data: {
+      provider: "iPick" | "Katsh" | "WHISH_APP";
+      mobile_service_item_id: number;
+      wrong_number: string;
+      right_number?: string;
+      sale_transaction_id?: number;
+      credits_received?: { amount_usd: number; carrier_line_id: number };
+      expense_date: string;
+      note?: string;
+    }) => ipcRenderer.invoke("wrong-numbers:record", data),
+    credits: (data: {
+      wrong_number_card_id: number;
+      amount_usd: number;
+      carrier_line_id: number;
+      client_day?: string;
+    }) => ipcRenderer.invoke("wrong-numbers:credits", data),
+  },
   carrierLines: {
     getActiveByCarrier: (carrier: "alfa" | "mtc") =>
       ipcRenderer.invoke("carrier-lines:get-active-by-carrier", carrier),

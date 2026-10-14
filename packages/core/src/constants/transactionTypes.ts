@@ -68,6 +68,16 @@ export const TRANSACTION_TYPES = {
    *  CUSTOMER_ACCOUNT payout leg) are all type-agnostic and between them
    *  reverse every side effect this type can write. */
   TELECOM_CREDIT_BUYBACK: "TELECOM_CREDIT_BUYBACK",
+  /** LIRA-312 — credits sent back after a MTC/Alfa card was recharged onto
+   *  the wrong number (`wrong_number_cards`). The chosen shop line and its
+   *  carrier drawer go up by the credits (+X USD); `profit_lbp` is stamped at
+   *  the resold-credit price so it nets against the wrong-number expense
+   *  (the loss). Written only by `WrongNumberRepository.insertCreditsReceived`.
+   *  Reversible via the generic void (deliberately ABSENT from
+   *  NON_REVERSIBLE_TRANSACTION_TYPES): `_reversePayments` (drawer leg) +
+   *  `_reverseCarrierLineMovements` (the line credit); the profit stamp drops
+   *  with `status='VOIDED'`. */
+  WRONG_NUMBER_CREDITS: "WRONG_NUMBER_CREDITS",
   /** Primary Cash Drawer plan §8.6 (2026-07-30), superseding the owner's
    *  2026-07-29 float-model verdict: a GENERIC, bidirectional cash transfer
    *  between any two of the shop's own drawers — General ↔ the primary cash

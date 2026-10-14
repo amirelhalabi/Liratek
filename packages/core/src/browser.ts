@@ -307,6 +307,16 @@ export type {
   ResaleLineRechargeResult,
   ResaleLineRechargeData,
 } from "./services/ResaleLineService.js";
+// LIRA-312 — wrong-number card records (types only: erased, nothing bundled).
+export type {
+  WrongNumberCardRow,
+  WrongNumberCreditEntry,
+} from "./repositories/WrongNumberRepository.js";
+export type {
+  WrongNumberResult,
+  RecordWrongNumberResultData,
+  WrongNumberCreditsResultData,
+} from "./services/WrongNumberService.js";
 
 // LIRA-252 wave 2 — the manual carrier-line (MTC/Alfa) drawer-adjustment
 // read shape (`ClosingRepository.getCarrierLineAdjustments`), derived by the

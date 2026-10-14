@@ -275,6 +275,9 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "vouchers",
   "wallet_exchanges",
   "warranty_claims",
+  // LIRA-312 v214 — wrong-number card records (their expense and credits
+  // transactions are wiped with them).
+  "wrong_number_cards",
 ];
 
 /**

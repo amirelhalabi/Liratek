@@ -6654,6 +6654,22 @@ Spec: `specs/309-phone-lines-management/` (spec, plan, research, data model, con
 
 **What users will notice:** a new Phone Lines page next to Mobile Recharge lists your shop lines and the lines you sell with credit, expiry and days left; you can enter a sold line's carrier, expiry and credit there or in the product form.
 
+## LIRA-312: Wrong-number card recharge — BUILT, not committed (owner decisions 2026-10-12; built 2026-10-14 on branch `lira-312-wrong-number`)
+
+Spec: `specs/312-wrong-number-recharge/` (spec, plan, research, data model, contract, quickstart, tasks).
+
+**Owner decisions 2026-10-12 (binding):**
+1. Noticed before the sale is saved: record it from Expenses (use an iPick/Katsh/Whish App MTC/Alfa card, tick "Wrong number").
+2. Noticed after the sale is saved: "Wrong number…" on the sale in Transactions. It is NOT a refund — the sale stays and counts as the recharge of the right number; the wasted card is a stock-use expense (the loss) from the provider balance.
+3. Credits sent back are typed as they arrived on the chosen shop line (no SMS-fee math), now or later, in parts, up to what the card carried. Shop line and MTC/Alfa drawer go up; the loss goes down at the resold-credit price (`telecom_credit_sell_price_lbp`, 100,000 per $1). Days are not priced separately.
+4. Cashiers and admins record wrong numbers and credits; only admins undo (void: credits first, then the expense).
+
+**Built (2026-10-14):** migration **v214** `wrong_number_cards` (v212/v213 were taken by LIRA-319); `WRONG_NUMBER_CREDITS` transaction type (reversible by the generic void/refund — drawer leg + shop-line movement; profit stamp drops); `WrongNumberRepository`/`WrongNumberService`; expense-void guard "Undo the credits received first." in `_assertReversible` (also covers deleting the expense from the Expenses page); Profits "Wrong-number credits recovered" line on Overview, By Module (+ drill-down), By Date and By Cashier/By Client (count only, never revenue); IPC `wrong-numbers:list/record/credits` + REST `/api/wrong-numbers` (online-only); Transactions "Wrong number…" / "Credits…" dialog; Expenses "Wrong number" tick.
+
+**Tests (2026-10-14):** core — record (15), credits (9), undo guard (3), Profits (6), migration v214 (5). Failing-first: the undo guard (W8), the Profits line, the By Cashier revenue fix, and the record refusals for a Katsh bill, a Whish App wallet transfer and a card with no credit set were seen red first; the rest of the record/credits suites were written after the service (NOT proven failing-first). IPC role gate (8), REST routes (8), frontend action/panel (17), Expenses tick (3), Profits page (3) — written after their code. "Wrong number…" shows only on catalog card sales (a SEND with a catalog cost — `isWrongNumberCardSale`, one rule for the button and the server). Web e2e `lira-web-060-wrong-number.spec.ts` written, NOT YET RUN (owner asks before e2e). Full suites not yet run.
+
+**What users will notice:** on the Transactions page an iPick/Katsh/Whish App card sale has "Wrong number…" to record the wasted card as a loss and enter the credits sent back; Expenses has a "Wrong number" tick for an MTC/Alfa card; Profits shows "Wrong-number credits recovered".
+
 ## LIRA-320: Basket refund after an undone item refund leaves money in General — BUG, TODO (found 2026-10-14)
 
 Found by the LIRA-319 session-basket work (probe, no extra involved): refund one item of a customer session basket, undo that item refund, then refund the whole basket — the General drawer ends up over by the undone refund's amount (+$6 in the probe). The pooled basket reversal still subtracts the undone refund's share. Not caused by LIRA-319; not yet reproduced in the app or guarded by a test.

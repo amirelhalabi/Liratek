@@ -106,6 +106,13 @@ export const TRANSACTION_PRESENTATION: Record<
     color: "text-slate-300",
     direction: TRANSACTION_CASH_DIRECTION.TELECOM_CREDIT_BUYBACK,
   },
+  // LIRA-312 — credits sent back after a wrong-number card: the shop line
+  // and its carrier drawer go up.
+  WRONG_NUMBER_CREDITS: {
+    label: TRANSACTION_TYPE_LABELS.WRONG_NUMBER_CREDITS,
+    color: "text-purple-400",
+    direction: TRANSACTION_CASH_DIRECTION.WRONG_NUMBER_CREDITS,
+  },
   // Primary Cash Drawer plan §8.6: a same-shop transfer between two of our
   // own drawers — one leg each way, hence "both".
   DRAWER_TRANSFER: { label: TRANSACTION_TYPE_LABELS.DRAWER_TRANSFER, color: "text-slate-300", direction: TRANSACTION_CASH_DIRECTION.DRAWER_TRANSFER},

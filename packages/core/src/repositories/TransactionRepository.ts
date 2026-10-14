@@ -77,6 +77,10 @@ import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { restoreMaintenanceJobParts } from "./maintenancePartsStock.js";
 import { restoreExpenseStock } from "./expenseStock.js";
 import {
+  UNDO_CREDITS_FIRST_ERROR,
+  activeWrongNumberCreditsSql,
+} from "./wrongNumberSql.js";
+import {
   REFUND_KEPT_CHANGE_META,
   REFUND_KEPT_CHANGE_TYPES,
   type TransactionTypeFilterInput,
@@ -6472,6 +6476,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         entityId: original.id,
       });
     }
+    this._assertWrongNumberCreditsUndone(original);
     // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): a row stamped with
     // `split_group` is one unit of a multi-unit split-payment checkout
     // (KatshForm bills / FinancialForm catalog units) — the customer's full
@@ -6517,6 +6522,46 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           { entityId: original.id },
         );
       }
+    }
+  }
+
+  /**
+   * LIRA-312 (research R6) — undo order for a wrong-number card. Its loss is
+   * a stock-use expense (EXPENSE_IPICK/KATSH/WHISH_APP) linked from
+   * `wrong_number_cards`; credits received for it reduce that loss. Undoing
+   * the expense while those entries are still active would leave recovered
+   * credit booked against a loss that no longer exists, so it is refused
+   * until every entry has been undone first. Only the three catalog
+   * stock-expense types can carry a record, so other voids skip the lookup.
+   */
+  private _assertWrongNumberCreditsUndone(original: TransactionEntity): void {
+    if (
+      original.type !== TRANSACTION_TYPES.EXPENSE_IPICK &&
+      original.type !== TRANSACTION_TYPES.EXPENSE_KATSH &&
+      original.type !== TRANSACTION_TYPES.EXPENSE_WHISH_APP
+    ) {
+      return;
+    }
+    if (!this.tableExists("wrong_number_cards")) return;
+    const tenantId = getCurrentTenantId();
+    const record = this.queryOne<{ id: number }>(
+      `SELECT id FROM wrong_number_cards
+       WHERE tenant_id = ? AND expense_transaction_id = ?`,
+      tenantId,
+      original.id,
+    );
+    if (!record) return;
+    const active = this.queryOne<{ id: number }>(
+      `SELECT t.id FROM transactions t
+       WHERE t.tenant_id = ? AND ${activeWrongNumberCreditsSql("t")}
+       LIMIT 1`,
+      tenantId,
+      record.id,
+    );
+    if (active) {
+      throw new DatabaseError(UNDO_CREDITS_FIRST_ERROR, {
+        entityId: original.id,
+      });
     }
   }
 

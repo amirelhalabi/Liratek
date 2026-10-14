@@ -14704,6 +14704,42 @@ DROP TABLE IF EXISTS resale_lines;`);
       }
     },
   },
+  {
+    version: 214,
+    name: "wrong_number_cards",
+    description:
+      "LIRA-312: a MTC/Alfa card recharged onto the wrong number from " +
+      "iPick/Katsh/Whish App. The wasted card is a stock-use expense (the " +
+      "loss); this row links that expense (and, when marked from a saved " +
+      "sale, the sale) and snapshots the card, so credits sent back can be " +
+      "entered later as WRONG_NUMBER_CREDITS transactions " +
+      "(source_table='wrong_number_cards').",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS wrong_number_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    expense_id INTEGER NOT NULL REFERENCES expenses(id),
+    expense_transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id),
+    sale_transaction_id INTEGER REFERENCES transactions(id),
+    provider TEXT NOT NULL CHECK(provider IN ('iPick', 'Katsh', 'WHISH_APP')),
+    carrier TEXT NOT NULL CHECK(carrier IN ('mtc', 'alfa')),
+    mobile_service_item_id INTEGER NOT NULL REFERENCES mobile_service_items(id),
+    card_label TEXT NOT NULL,
+    card_cost_lbp REAL NOT NULL CHECK(card_cost_lbp > 0),
+    card_credit_usd REAL NOT NULL CHECK(card_credit_usd >= 0),
+    wrong_number TEXT NOT NULL,
+    right_number TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_wrong_number_cards_sale ON wrong_number_cards(tenant_id, sale_transaction_id);`);
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_wrong_number_cards_sale;
+DROP TABLE IF EXISTS wrong_number_cards;`);
+    },
+  },
 ];
 
 /**

@@ -17,6 +17,16 @@ import type {
   ResaleLineRow,
   ResaleLineEntity,
 } from "@liratek/core";
+// LIRA-312 — wrong-number card recharges (schema-derived payloads, rule 21).
+import type {
+  ListWrongNumbersQueryInput,
+  RecordWrongNumberInput,
+  WrongNumberCreditsInput,
+  WrongNumberCardRow,
+  WrongNumberResult,
+  RecordWrongNumberResultData,
+  WrongNumberCreditsResultData,
+} from "@liratek/core";
 // LIRA-306 — offline desktop fallback controls (desktop-only, E1; rule 21).
 import type {
   DesktopPairInput,
@@ -2033,6 +2043,22 @@ export type ApiAdapter = {
   writeOffResaleLine: (
     data: WriteOffResaleLineInput,
   ) => Promise<{ success: boolean; data?: { expense_id: number }; error?: string }>;
+
+  // ---------------------------------------------------------------------------
+  // Wrong-number cards (LIRA-312)
+  // ---------------------------------------------------------------------------
+  /** Raw list of wrong-number card records with their totals. */
+  getWrongNumbers: (
+    query?: ListWrongNumbersQueryInput,
+  ) => Promise<WrongNumberCardRow[]>;
+  /** Record a card recharged onto the wrong number (its cost is a loss). */
+  recordWrongNumber: (
+    data: RecordWrongNumberInput,
+  ) => Promise<WrongNumberResult<RecordWrongNumberResultData>>;
+  /** Credits sent back for a wrong-number card, on a chosen shop line. */
+  recordWrongNumberCredits: (
+    data: WrongNumberCreditsInput,
+  ) => Promise<WrongNumberResult<WrongNumberCreditsResultData>>;
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only)

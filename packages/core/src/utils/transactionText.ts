@@ -76,6 +76,7 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string | null> = {
   TELECOM_SELF_CHARGE: null,
   LINE_RECHARGE: "Line recharge",
   TELECOM_CREDIT_BUYBACK: null,
+  WRONG_NUMBER_CREDITS: "Credits recovered",
   DRAWER_TRANSFER: null,
   RECHARGE: null,
   CARRIER_LINE_ADJUSTMENT: "Line Adjustment",

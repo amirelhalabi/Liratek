@@ -67,6 +67,10 @@ import {
 import { ReceiptPreviewModal } from "@/shared/components/ReceiptPreviewModal";
 import { RefundMethodModal } from "../components/RefundMethodModal";
 import {
+  WrongNumberDialog,
+  type WrongNumberDialogTarget,
+} from "@/features/wrongNumbers/components/WrongNumberDialog";
+import {
   extraChargeText,
   isSwapTransactionType,
   REFUND_KEPT_CHANGE_TYPES,
@@ -333,6 +337,9 @@ export default function TransactionsViewer({
 
   // LIRA-078: the modal that lets the operator choose the refund's return
   // method(s), open for at most one row at a time.
+  // LIRA-312 — the open "Wrong number…" / "Credits…" dialog, if any.
+  const [wrongNumberTarget, setWrongNumberTarget] =
+    useState<WrongNumberDialogTarget | null>(null);
   const [refundModalRow, setRefundModalRow] = useState<TransactionRow | null>(
     null,
   );
@@ -695,6 +702,7 @@ export default function TransactionsViewer({
       onRefundSessionBasket: handleRefundSessionBasket,
       onRefundSessionItem: handleRefundSessionItem,
       onUndoRefund: handleUndoRefund,
+      onWrongNumber: setWrongNumberTarget,
     }),
     [
       handlePrintReceipt,
@@ -1030,6 +1038,13 @@ export default function TransactionsViewer({
           return withLegDetail(row, buildTr(row, row.session_id));
         }}
       />
+      {wrongNumberTarget && (
+        <WrongNumberDialog
+          target={wrongNumberTarget}
+          onClose={() => setWrongNumberTarget(null)}
+          onChanged={load}
+        />
+      )}
       {refundModalRow && (
         <RefundMethodModal
           legs={refundModalRow.payments ?? []}

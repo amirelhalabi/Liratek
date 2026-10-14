@@ -154,6 +154,8 @@ function makeFakeRepo(overrides: FakeOverrides = {}): ProfitRepository {
     getExtraChargeTotals: () => zeroTopupBuyback,
     getWaivedShortfallProfit: () => zeroTopupBuyback,
     getWarrantyTotals: () => zeroTopupBuyback,
+    // LIRA-312 — wrong-number credits recovered (none in these fixtures).
+    getWrongNumberRecoveryTotals: () => zeroTopupBuyback,
     // LIRA-272 — refund kept change on a module refund (profit-only).
     getRefundKeptChangeProfit: () => zeroTopupBuyback,
     getExpenseTotals: () => zeroExpense,

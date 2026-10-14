@@ -77,6 +77,8 @@ const PROFIT_ONLY_MODULES: ReadonlySet<string> = new Set([
   "HOLD_MONEY",
   // LIRA-296 — the Warranty cost line (no revenue/cost pair).
   "WARRANTY",
+  // LIRA-312 — the Wrong-number credits recovered line (no revenue/cost pair).
+  "WRONG_NUMBER",
   // LIRA-310 follow-up — a basket Waive's own "Waived" line.
   "WAIVED",
   // LIRA-319 — the "Extra charges" line. Its revenue equals its profit

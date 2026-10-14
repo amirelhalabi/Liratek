@@ -2462,6 +2462,25 @@ export function warrantyCostCountEligible(alias: string): string {
 }
 
 /**
+ * LIRA-312 (owner decision 2026-10-12) — the ONE "is this row recovered
+ * wrong-number credit" predicate: a WRONG_NUMBER_CREDITS entry, stamped
+ * `profit_lbp = credits × the resold-credit price`, that is not a void's
+ * reversal row and has not been refunded. A void flips the entry to VOIDED
+ * (its reversal row carries no profit), a refund leaves it ACTIVE with a
+ * REFUND row pointing back — both drop it here (rule 20). Feeds the
+ * recovery totals/detail, By Date and the By Cashier/By Client event count.
+ */
+export function wrongNumberRecoverySource(alias: string): string {
+  return `${alias}.type = '${TRANSACTION_TYPES.WRONG_NUMBER_CREDITS}'
+    AND ${alias}.reverses_id IS NULL
+    AND NOT EXISTS (SELECT 1 FROM transactions wnr
+                    WHERE wnr.reverses_id = ${alias}.id
+                      AND wnr.type = '${TRANSACTION_TYPES.REFUND}'
+                      AND wnr.status = 'ACTIVE'
+                      AND wnr.tenant_id = ${alias}.tenant_id)`;
+}
+
+/**
  * LCC-V7 (Round 2, rule 14) — the payment-method-fee recognition predicate
  * (PA-2.6): real money kept at the counter the instant it's charged,
  * regardless of whether the underlying transfer's OWN stamp has settled —
@@ -3438,8 +3457,9 @@ const SALE_LEDGER_TYPES_SQL = `'${TRANSACTION_TYPES.SALE}', ${REFUND_ADJUSTMENT_
 
 // LIRA-296: WARRANTY_COST (a claim's cost / recovery and its void's
 // negation) — profit-only, 0 revenue (its amount is always 0).
+// LIRA-312: WRONG_NUMBER_CREDITS — recovered credit, profit-only (LBP stamp).
 const PROFIT_TXN_TYPES =
-  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'REFUND_UNDO', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP', 'WARRANTY_COST', " +
+  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'REFUND_UNDO', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT', 'RECHARGE_TOPUP', 'WARRANTY_COST', 'WRONG_NUMBER_CREDITS', " +
   HOLD_MONEY_PROFIT_TYPES_SQL;
 
 /**
@@ -4618,6 +4638,63 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
         WHERE t.status = 'ACTIVE'
           AND ${warrantyCostSource("t")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
+        ORDER BY t.created_at DESC, t.id DESC`,
+      )
+      .all(tenantId, fromDt, toDt, tenantId) as ProfitOnlyDetailRow[];
+  }
+
+  /**
+   * LIRA-312 — the "Wrong-number credits recovered" line: Σ the LBP stamp of
+   * every live credits entry ({@link wrongNumberRecoverySource}), dated by
+   * the entry's own day. Profit-only; it nets against the wrong-number
+   * expense (which lowers net profit like every expense). Gated by
+   * {@link notDebtPending} like every PROFIT_TXN_TYPES row (an entry is never
+   * a debt charge, so the gate always passes) so this and By Cashier agree.
+   */
+  getWrongNumberRecoveryTotals(
+    fromDt: string,
+    toDt: string,
+  ): TopupBuybackProfitRow {
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
+          COUNT(*) AS count
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND ${wrongNumberRecoverySource("t")}
+          AND ${notDebtPending("t.id")}
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, getCurrentTenantId()) as TopupBuybackProfitRow;
+  }
+
+  /** LIRA-312 — the recovery drill-down: one row per live credits entry, the
+   *  SAME source/gates as {@link getWrongNumberRecoveryTotals}. */
+  getWrongNumberRecoveryDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitOnlyDetailRow[] {
+    const tenantId = getCurrentTenantId();
+    return this.db
+      .prepare(
+        `SELECT
+          t.id AS id,
+          t.created_at AS created_at,
+          COALESCE(c.full_name, t.client_name) AS counterpart_name,
+          COALESCE(c.phone_number, t.client_phone) AS counterpart_phone,
+          t.summary AS txn_type,
+          t.profit_usd AS profit_usd,
+          t.profit_lbp AS profit_lbp,
+          CASE WHEN ${notDebtPending("t.id")} THEN 0 ELSE 1 END AS debt_pending
+        FROM transactions t
+        LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
+        WHERE t.status = 'ACTIVE'
+          AND ${wrongNumberRecoverySource("t")}
           AND ${dateRange("t.created_at")}
           AND t.tenant_id = ?
         ORDER BY t.created_at DESC, t.id DESC`,
@@ -6947,6 +7024,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     params.push(fromDt, toDt, tenantId); // daily_hold_money (t)
     params.push(fromDt, toDt, tenantId); // daily_refund_kept (t)
     params.push(fromDt, toDt, tenantId); // daily_warranty (t)
+    params.push(fromDt, toDt, tenantId); // daily_wrong_number (t)
     // LIRA-319 — the Extra charges line (extraChargeProfit, rule 14).
     const hasExtra = this._hasExtraChargeColumns();
     params.push(fromDt, toDt, tenantId); // daily_extra (t)
@@ -7304,6 +7382,21 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND t.tenant_id = ?
           GROUP BY ${localDayExpr("t.created_at")}
         ),
+        daily_wrong_number AS (
+          -- LIRA-312 — the Wrong-number credits recovered line, the SAME
+          -- fragment getWrongNumberRecoveryTotals uses (rule 14).
+          SELECT
+            ${localDayExpr("t.created_at")} AS d,
+            COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+            COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+          FROM transactions t
+          WHERE t.status = 'ACTIVE'
+            AND ${wrongNumberRecoverySource("t")}
+            AND ${notDebtPending("t.id")}
+            AND ${dateRange("t.created_at")}
+            AND t.tenant_id = ?
+          GROUP BY ${localDayExpr("t.created_at")}
+        ),
         daily_extra AS (
           -- LIRA-319 — the Extra charges line, the SAME fragments
           -- getExtraChargeTotals uses (rule 14): revenue = profit = extra.
@@ -7323,17 +7416,17 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(dc.revenue_lbp, 0) + COALESCE(dr.revenue_lbp, 0) + COALESCE(dcm.revenue_lbp, 0) + COALESCE(dm.revenue_lbp, 0) + COALESCE(dl.revenue_lbp, 0) + COALESCE(dxc.profit_lbp, 0) AS revenue_lbp,
           COALESCE(ds.cost_usd, 0) + COALESCE(dr.cost_usd, 0) + COALESCE(dcm.cost_usd, 0) + COALESCE(dm.cost_usd, 0) + COALESCE(dex.revenue_usd, 0) - COALESCE(dex.profit_usd, 0) AS cost_usd,
           COALESCE(dr.cost_lbp, 0) + COALESCE(dcm.cost_lbp, 0) + COALESCE(dm.cost_lbp, 0) AS cost_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) + COALESCE(dxc.profit_usd, 0) AS profit_usd,
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) + COALESCE(dwn.profit_usd, 0) + COALESCE(dxc.profit_usd, 0) AS profit_usd,
           -- PA-3.1: dsp.profit_lbp (a sale's LBP kept change) was missing
           -- from this column entirely. PA-2.2: dkc/ddisc/dbc/dtb are the
           -- four new sources above. LO-V1 (round 2): dl.profit_usd is loto's
           -- USD-side kept change (dc/dr already fold their own off-currency
           -- kept change unconditionally now — see each CTE's own comment).
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) + COALESCE(dxc.profit_lbp, 0) AS profit_lbp,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) + COALESCE(dwn.profit_lbp, 0) + COALESCE(dxc.profit_lbp, 0) AS profit_lbp,
           COALESCE(de.expenses_usd, 0) AS expenses_usd,
           COALESCE(de.expenses_lbp, 0) AS expenses_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) + COALESCE(dxc.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
-          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) + COALESCE(dxc.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) + COALESCE(dkc.profit_usd, 0) + COALESCE(ddisc.profit_usd, 0) + COALESCE(dbc.profit_usd, 0) + COALESCE(dtb.profit_usd, 0) + COALESCE(dhm.profit_usd, 0) + COALESCE(drk.profit_usd, 0) + COALESCE(dl.profit_usd, 0) + COALESCE(dwc.profit_usd, 0) + COALESCE(dwn.profit_usd, 0) + COALESCE(dxc.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
+          COALESCE(dsp.profit_lbp, 0) + COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) + COALESCE(dkc.profit_lbp, 0) + COALESCE(ddisc.profit_lbp, 0) + COALESCE(dbc.profit_lbp, 0) + COALESCE(dtb.profit_lbp, 0) + COALESCE(dhm.profit_lbp, 0) + COALESCE(drk.profit_lbp, 0) + COALESCE(dwc.profit_lbp, 0) + COALESCE(dwn.profit_lbp, 0) + COALESCE(dxc.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
         FROM dates
         LEFT JOIN daily_sales ds ON ds.d = dates.d
         LEFT JOIN daily_sales_profit dsp ON dsp.d = dates.d
@@ -7352,6 +7445,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN daily_hold_money dhm ON dhm.d = dates.d
         LEFT JOIN daily_refund_kept drk ON drk.d = dates.d
         LEFT JOIN daily_warranty dwc ON dwc.d = dates.d
+        LEFT JOIN daily_wrong_number dwn ON dwn.d = dates.d
         LEFT JOIN daily_extra dxc ON dxc.d = dates.d
         ORDER BY dates.d DESC`,
       )
@@ -8580,6 +8674,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- Hold Money: a pickup's amount is the customer's own money
             -- handed back, never takings — profit-only (kept change).
             WHEN ${holdMoneyProfitSource("t")} THEN 0
+            -- LIRA-312: credits recovered for a wrong-number card (and its
+            -- void / refund rows) land on the shop's own line — never takings.
+            WHEN t.source_table = 'wrong_number_cards' THEN 0
             ELSE t.amount_usd * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_usd,
           -- PA-1.2/PA-1.7: revenue_lbp rebuilt as revenue_usd's structural
@@ -8604,6 +8701,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- Hold Money: a pickup's amount is the customer's own money
             -- handed back, never takings — profit-only (kept change).
             WHEN ${holdMoneyProfitSource("t")} THEN 0
+            -- LIRA-312: credits recovered for a wrong-number card (and its
+            -- void / refund rows) land on the shop's own line — never takings.
+            WHEN t.source_table = 'wrong_number_cards' THEN 0
             ELSE t.amount_lbp * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_lbp,
           SUM(CASE
@@ -8714,6 +8814,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             WHEN ${holdMoneyProfitSource("t")} THEN (CASE WHEN ${holdMoneyCountEligible("t")} THEN 1 ELSE 0 END)
             -- LIRA-296: only a live warranty-cost row is an event.
             WHEN ${warrantyCostSource("t")} THEN (CASE WHEN ${warrantyCostCountEligible("t")} THEN 1 ELSE 0 END)
+            -- LIRA-312: only a live credits entry is an event.
+            WHEN t.type = '${TRANSACTION_TYPES.WRONG_NUMBER_CREDITS}' THEN (CASE WHEN ${wrongNumberRecoverySource("t")} THEN 1 ELSE 0 END)
             WHEN NOT ${notDebtPending("t.id")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN 1 ELSE 0 END
@@ -9323,6 +9425,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- Hold Money: a pickup's amount is the customer's own money
             -- handed back, never takings — profit-only (kept change).
             WHEN ${holdMoneyProfitSource("t")} THEN 0
+            -- LIRA-312: credits recovered for a wrong-number card (and its
+            -- void / refund rows) land on the shop's own line — never takings.
+            WHEN t.source_table = 'wrong_number_cards' THEN 0
             ELSE t.amount_usd * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_usd,
           -- PA-1.2/PA-1.7: revenue_lbp rebuilt as revenue_usd's exact
@@ -9347,6 +9452,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             -- Hold Money: a pickup's amount is the customer's own money
             -- handed back, never takings — profit-only (kept change).
             WHEN ${holdMoneyProfitSource("t")} THEN 0
+            -- LIRA-312: credits recovered for a wrong-number card (and its
+            -- void / refund rows) land on the shop's own line — never takings.
+            WHEN t.source_table = 'wrong_number_cards' THEN 0
             ELSE t.amount_lbp * ${txnPartnerCoverageRatio("t")}
           END) AS revenue_lbp,
           SUM(CASE
@@ -9431,6 +9539,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             WHEN ${holdMoneyProfitSource("t")} THEN (CASE WHEN ${holdMoneyCountEligible("t")} THEN 1 ELSE 0 END)
             -- LIRA-296: only a live warranty-cost row is an event.
             WHEN ${warrantyCostSource("t")} THEN (CASE WHEN ${warrantyCostCountEligible("t")} THEN 1 ELSE 0 END)
+            -- LIRA-312: only a live credits entry is an event.
+            WHEN t.type = '${TRANSACTION_TYPES.WRONG_NUMBER_CREDITS}' THEN (CASE WHEN ${wrongNumberRecoverySource("t")} THEN 1 ELSE 0 END)
             WHEN NOT ${notDebtPending("t.id")} THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN ${fsStampRecognized("fs", this._hasCommissionModelColumn())} THEN 1 ELSE 0 END

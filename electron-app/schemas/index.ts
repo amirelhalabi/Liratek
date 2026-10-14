@@ -190,6 +190,13 @@ import {
   type ListResaleLinesQuery,
   type SaveResaleLineData,
   type WriteOffResaleLineData,
+  // LIRA-312 — wrong-number card recharges (packages/core/src/validators/wrongNumber.ts).
+  listWrongNumbersQuerySchema,
+  recordWrongNumberSchema,
+  wrongNumberCreditsSchema,
+  type ListWrongNumbersQuery,
+  type RecordWrongNumberData,
+  type WrongNumberCreditsData,
   registerProductUnitsSchema,
   productUnitsForProductSchema,
   listProductUnitsSchema,
@@ -1152,6 +1159,18 @@ export const WriteOffResaleLineSchema =
   writeOffResaleLineSchema as unknown as z.ZodSchema<WriteOffResaleLineData>;
 export const RechargeResaleLineSchema =
   rechargeResaleLineSchema as unknown as z.ZodSchema<RechargeResaleLineData>;
+
+// =============================================================================
+// Wrong-number cards (LIRA-312)
+// =============================================================================
+
+// Shared with backend/src/api/wrongNumbers.ts (rule 14).
+export const ListWrongNumbersQuerySchema =
+  listWrongNumbersQuerySchema as unknown as z.ZodSchema<ListWrongNumbersQuery>;
+export const RecordWrongNumberSchema =
+  recordWrongNumberSchema as unknown as z.ZodSchema<RecordWrongNumberData>;
+export const WrongNumberCreditsSchema =
+  wrongNumberCreditsSchema as unknown as z.ZodSchema<WrongNumberCreditsData>;
 
 // =============================================================================
 // Product Units (LIRA-143 phase 5 — phone IMEI units & warranty)

@@ -49,6 +49,8 @@ export * from "./walletExchange.js";
 export * from "./exchangeLot.js";
 export * from "./productUnit.js";
 export * from "./resaleLine.js";
+// LIRA-312: wrong-number card recharges and credits sent back.
+export * from "./wrongNumber.js";
 // Primary Cash Drawer plan §8.6: `systemFloatTopup.ts`
 // (createSystemFloatTopupSchema/systemFloatDrawerNameSchema) is retired and
 // replaced by the generic drawerTransfer.ts contract below — nothing else in

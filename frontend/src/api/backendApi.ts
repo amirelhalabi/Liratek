@@ -23,6 +23,16 @@ import type {
   ResaleLineRow,
   ResaleLineEntity,
 } from "@liratek/core";
+// LIRA-312 — wrong-number card recharges (schema-derived payloads, rule 21).
+import type {
+  ListWrongNumbersQueryInput,
+  RecordWrongNumberInput,
+  WrongNumberCreditsInput,
+  WrongNumberCardRow,
+  WrongNumberResult,
+  RecordWrongNumberResultData,
+  WrongNumberCreditsResultData,
+} from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
 // LIRA-306 — offline desktop fallback controls (desktop-only, E1; rule 21).
@@ -7699,6 +7709,64 @@ export async function rechargeResaleLine(
     async () =>
       requestJson<ResaleLineRechargeResult>(
         `/api/resale-lines/${data.product_id}/recharge`,
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+// =============================================================================
+// Wrong-number cards (LIRA-312)
+// =============================================================================
+
+/** Wrong-number card records with their totals — raw rows (reads return the
+ *  raw shape). Filter by sale / expense transaction or record id. */
+export async function getWrongNumbers(
+  query: ListWrongNumbersQueryInput = {},
+): Promise<WrongNumberCardRow[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().wrongNumbers.list(query);
+      return res.success ? (res.data ?? []) : [];
+    },
+    async () => {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(query)) {
+        if (v !== undefined && v !== null) params.set(k, String(v));
+      }
+      const qs = params.toString();
+      const res = await requestJson<{
+        success: boolean;
+        data?: WrongNumberCardRow[];
+      }>(`/api/wrong-numbers${qs ? `?${qs}` : ""}`);
+      return res.success ? (res.data ?? []) : [];
+    },
+  );
+}
+
+/** Record a card recharged onto the wrong number: its cost becomes a loss
+ *  (stock-use expense); the sale, if any, stays as it is. */
+export async function recordWrongNumber(
+  data: RecordWrongNumberInput,
+): Promise<WrongNumberResult<RecordWrongNumberResultData>> {
+  return ipcOrHttp(
+    async () => getElectronApi().wrongNumbers.record(data),
+    async () =>
+      requestJson<WrongNumberResult<RecordWrongNumberResultData>>(
+        "/api/wrong-numbers",
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+/** Credits sent back for a wrong-number card, on a chosen shop line. */
+export async function recordWrongNumberCredits(
+  data: WrongNumberCreditsInput,
+): Promise<WrongNumberResult<WrongNumberCreditsResultData>> {
+  return ipcOrHttp(
+    async () => getElectronApi().wrongNumbers.credits(data),
+    async () =>
+      requestJson<WrongNumberResult<WrongNumberCreditsResultData>>(
+        `/api/wrong-numbers/${data.wrong_number_card_id}/credits`,
         { method: "POST", body: data },
       ),
   );

@@ -24,7 +24,13 @@ import {
   type TransactionType,
 } from "@liratek/core";
 import { isReceiptableRow } from "../receiptGating";
-import { isReversibleRow } from "../actionGating";
+import {
+  isReversibleRow,
+  isWrongNumberEligible,
+  wrongNumberRecordTarget,
+  wrongNumberSaleProvider,
+} from "../actionGating";
+import type { WrongNumberDialogTarget } from "@/features/wrongNumbers/components/WrongNumberDialog";
 import { getNonReversibleReason } from "../nonReversibleReasons";
 import { parseMetaSafe } from "../auditConstants";
 import { formatPaymentLegs } from "../cashFlow";
@@ -382,6 +388,9 @@ export interface RowActionHandlers {
   onRefundSessionItem: (row: TransactionRow) => void;
   /** LIRA-147 — admin-only undo of a standalone per-item refund. */
   onUndoRefund: (row: TransactionRow) => void;
+  /** LIRA-312 — "Wrong number…" on a card sale, "Credits…" on a credits
+   *  entry or a wrong-number expense. */
+  onWrongNumber: (target: WrongNumberDialogTarget) => void;
 }
 
 export function ActionsCell({
@@ -455,6 +464,37 @@ export function ActionsCell({
             Print
           </button>
         )}
+        {/* LIRA-312 — not a refund: the sale stays as it is (it becomes the
+            right number's recharge), so this is offered next to Void/Refund
+            and on a session basket member too. */}
+        {isWrongNumberEligible(row) && (
+          <button
+            onClick={() =>
+              handlers.onWrongNumber({
+                kind: "sale",
+                saleTransactionId: row.id,
+                provider: wrongNumberSaleProvider(row)!,
+                saleText: row.summary,
+              })
+            }
+            title="The card went to the wrong number — record the wasted card as a loss and the credits sent back"
+            className="px-1.5 py-0.5 text-[10px] rounded bg-violet-900/70 text-violet-200 hover:bg-violet-900/40 hover:text-violet-300 transition-colors"
+          >
+            Wrong number…
+          </button>
+        )}
+        {(() => {
+          const target = wrongNumberRecordTarget(row);
+          return target ? (
+            <button
+              onClick={() => handlers.onWrongNumber(target)}
+              title="Credits sent back for this wrong-number card"
+              className="px-1.5 py-0.5 text-[10px] rounded bg-violet-900/70 text-violet-200 hover:bg-violet-900/40 hover:text-violet-300 transition-colors"
+            >
+              Credits…
+            </button>
+          ) : null;
+        })()}
         {isReversibleRow(row) ? (
           splitGroup ? (
             // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): this row is one

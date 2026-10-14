@@ -405,6 +405,15 @@ export {
   type ResaleLineRechargeResult,
   type ResaleLineRechargeData,
 } from "./ResaleLineService.js";
+// LIRA-312 — wrong-number card recharges.
+export {
+  WrongNumberService,
+  getWrongNumberService,
+  resetWrongNumberService,
+  type WrongNumberResult,
+  type RecordWrongNumberResultData,
+  type WrongNumberCreditsResultData,
+} from "./WrongNumberService.js";
 export type {
   CarrierLineResult,
   ApplyMovementInput,

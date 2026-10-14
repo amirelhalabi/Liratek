@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import { Plus, History, Package, X } from "lucide-react";
-import type {
-  CreateExpenseRequest,
-  CreateStockExpenseInput,
+import {
+  STOCK_EXPENSE_CATALOG_PROVIDERS,
+  type CreateExpenseRequest,
+  type CreateStockExpenseInput,
+  type RecordWrongNumberInput,
 } from "@liratek/core";
 import {
   appEvents,
@@ -111,6 +113,11 @@ export default function Expenses() {
   // item's cost).
   const [stockPick, setStockPick] = useState<StockPick | null>(null);
   const [stockQty, setStockQty] = useState("1");
+  // LIRA-312 — "Wrong number": an MTC/Alfa card recharged onto the wrong
+  // number (before the sale was saved). Recorded as a wrong-number card so
+  // the credits sent back can be entered later from Transactions.
+  const [wrongNumberTick, setWrongNumberTick] = useState(false);
+  const [wrongNumber, setWrongNumber] = useState("");
 
   useEffect(() => {
     loadTodayExpenses();
@@ -165,7 +172,45 @@ export default function Expenses() {
     setPaymentFormKey((k) => k + 1);
     setStockPick(null);
     setStockQty("1");
+    setWrongNumberTick(false);
+    setWrongNumber("");
     setTransactionTime(undefined);
+  };
+
+  // LIRA-312 — record a wrong-number card from the Expenses page (path A).
+  // ONE payload, typed by the core schema's input (rules 21, 22).
+  const handleAddWrongNumber = async (pick: StockPick) => {
+    if (pick.source === "INVENTORY") return;
+    if (!wrongNumber.trim()) {
+      alert("Please enter the wrong number.");
+      return;
+    }
+    const payload: RecordWrongNumberInput = {
+      provider: STOCK_EXPENSE_CATALOG_PROVIDERS[pick.source] as RecordWrongNumberInput["provider"],
+      mobile_service_item_id: pick.item_id,
+      wrong_number: wrongNumber.trim(),
+      expense_date: formData.expense_date.slice(0, 10),
+      ...(formData.description.trim()
+        ? { note: formData.description.trim() }
+        : {}),
+    };
+    try {
+      const result = await api.recordWrongNumber(payload);
+      if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          "Wrong number recorded — enter the credits sent back from Transactions",
+          "success",
+        );
+        resetForm();
+        loadTodayExpenses();
+      } else {
+        alert("Error: " + result.error);
+      }
+    } catch (error) {
+      logger.error("Operation failed", { error });
+      alert(getApiErrorMessage(error, "Failed to record the wrong number"));
+    }
   };
 
   // LIRA-262 — record using an item from stock. ONE payload (rule 22), typed
@@ -205,6 +250,10 @@ export default function Expenses() {
   };
 
   const handleAddExpense = async () => {
+    if (stockPick && stockPick.carrier && wrongNumberTick) {
+      await handleAddWrongNumber(stockPick);
+      return;
+    }
     if (stockPick) {
       await handleAddStockExpense(stockPick);
       return;
@@ -390,6 +439,8 @@ export default function Expenses() {
                       onClick={() => {
                         setStockPick(null);
                         setStockQty("1");
+                        setWrongNumberTick(false);
+                        setWrongNumber("");
                       }}
                       className="text-slate-400 hover:text-white transition-colors"
                     >
@@ -410,7 +461,9 @@ export default function Expenses() {
                       step={1}
                       value={stockQty}
                       onChange={(e) => setStockQty(e.target.value)}
-                      className="w-24 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:border-orange-500 outline-none"
+                      // LIRA-312 — a wrong number is always one card.
+                      disabled={wrongNumberTick}
+                      className="w-24 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:border-orange-500 outline-none disabled:opacity-50"
                     />
                     <span className="text-xs text-slate-400">
                       Approx. cost{" "}
@@ -424,6 +477,42 @@ export default function Expenses() {
                       ? "Comes out of stock at its cost. No cash moves."
                       : `Comes out of the ${stockPick.sourceLabel} balance at its cost. No cash moves.`}
                   </p>
+                  {stockPick.carrier && (
+                    <div className="space-y-2" data-testid="expense-wrong-number">
+                      <label className="flex items-center gap-2 text-sm text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={wrongNumberTick}
+                          onChange={(e) => {
+                            setWrongNumberTick(e.target.checked);
+                            if (e.target.checked) setStockQty("1");
+                          }}
+                        />
+                        Wrong number — this card was recharged onto the wrong number
+                      </label>
+                      {wrongNumberTick && (
+                        <div>
+                          <label
+                            htmlFor="expense-wrong-number"
+                            className="text-xs text-slate-400 block mb-1"
+                          >
+                            Wrong number
+                          </label>
+                          <input
+                            id="expense-wrong-number"
+                            inputMode="tel"
+                            value={wrongNumber}
+                            onChange={(e) => setWrongNumber(e.target.value)}
+                            className="w-48 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:border-orange-500 outline-none"
+                          />
+                          <p className="text-xs text-slate-400 mt-1">
+                            One card. Credits sent back can be entered later
+                            from the Transactions page.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <StockUsePicker
@@ -587,10 +676,14 @@ export default function Expenses() {
             </div>
           </div>
 
-          <TransactionTimeOverride
-            value={transactionTime}
-            onChange={setTransactionTime}
-          />
+          {/* LIRA-312 — a wrong-number card is recorded on its expense day;
+              the backdate override does not apply to it, so it is hidden. */}
+          {!(stockPick?.carrier && wrongNumberTick) && (
+            <TransactionTimeOverride
+              value={transactionTime}
+              onChange={setTransactionTime}
+            />
+          )}
 
           <button
             onClick={handleAddExpense}

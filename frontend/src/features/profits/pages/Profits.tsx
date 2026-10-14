@@ -343,6 +343,15 @@ interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** LIRA-312 — credits sent back after a wrong-number card, valued at the
+   *  resold-credit price (LBP). Already inside gross; it offsets the
+   *  wrong-number expense. Optional so an older cached payload doesn't
+   *  crash the page. */
+  wrong_number_recovery?: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   /** LO-V1 (round 2, OWNER_NOTES_2026-09-21.md §6) — the shop's total
    *  OTHER-currency kept change across recharges, mobile services and loto
    *  (`recharges.kept_change_usd/_lbp` + `mobile_services.kept_change_usd/
@@ -2196,6 +2205,50 @@ export default function Profits() {
                             className={`font-semibold ${profitClass(summary.warranty.profit_lbp)}`}
                           >
                             {formatAmount(summary.warranty.profit_lbp, "LBP")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+              {/* LIRA-312 — credits sent back after a card was recharged onto
+                  the wrong number. The wasted card is an expense; what came
+                  back is counted here at the resold-credit price. */}
+              {summary.wrong_number_recovery &&
+                (summary.wrong_number_recovery.count > 0 ||
+                  summary.wrong_number_recovery.profit_usd !== 0 ||
+                  summary.wrong_number_recovery.profit_lbp !== 0) && (
+                  <div
+                    data-testid="overview-wrong-number-card"
+                    className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">
+                        Wrong-number credits recovered
+                      </span>
+                      <span className="text-xs bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full">
+                        {summary.wrong_number_recovery.count} entries
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      {summary.wrong_number_recovery.profit_usd !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">USD</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.wrong_number_recovery.profit_usd)}`}
+                          >
+                            {formatAmount(summary.wrong_number_recovery.profit_usd, "USD")}
+                          </span>
+                        </div>
+                      )}
+                      {summary.wrong_number_recovery.profit_lbp !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">LBP</span>
+                          <span
+                            className={`font-semibold ${profitClass(summary.wrong_number_recovery.profit_lbp)}`}
+                          >
+                            {formatAmount(summary.wrong_number_recovery.profit_lbp, "LBP")}
                           </span>
                         </div>
                       )}

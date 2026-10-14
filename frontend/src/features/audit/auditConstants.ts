@@ -299,6 +299,8 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       // already names MTC vs Alfa), matching the single-option granularity
       // of "Discount"/"Checkpoint" below.
       { label: "Line Adjustment", type: "CARRIER_LINE_ADJUSTMENT" },
+      // LIRA-312 — credits sent back after a wrong-number card recharge.
+      { label: "Credits recovered", type: "WRONG_NUMBER_CREDITS" },
     ],
   },
   {
@@ -493,6 +495,10 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // leg; _reverseCarrierLineMovements unwinds the credits gain). Absent
   // from core's NON_REVERSIBLE_TRANSACTION_TYPES.
   "TELECOM_CREDIT_BUYBACK",
+  // LIRA-312 — credits received for a wrong-number card; reversible via the
+  // generic path (_reversePayments + _reverseCarrierLineMovements). Absent
+  // from core's NON_REVERSIBLE_TRANSACTION_TYPES.
+  "WRONG_NUMBER_CREDITS",
   // SUPPLIER_STOCK_INTAKE_PLAN.md rule 20 — voiding this transaction is the
   // named reversal owner for the supplier_ledger STOCK_INTAKE row AND the
   // cost batch it created (TransactionRepository soft-voids the ledger row

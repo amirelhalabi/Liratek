@@ -626,6 +626,15 @@ export interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** LIRA-312 (owner decision 2026-10-12) — credits sent back after a
+   *  wrong-number card, valued at the resold-credit price (LBP). See
+   *  {@link ProfitRepository.getWrongNumberRecoveryTotals}. Profit-only,
+   *  NETTED into `totals` below; it offsets the wrong-number expense. */
+  wrong_number_recovery: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   /** LIRA-319 — the "Extra charges" line: what cashiers added on top of a
    *  total (Σ `transactions.extra_usd` / `extra_lbp`, net of refunded
    *  shares, voids dropped), per currency, never converted. See
@@ -1068,6 +1077,13 @@ export class ProfitService {
       // void negations) — profit-only, netted into gross.
       const warranty = this.repo.getWarrantyTotals(fromDt, toDt);
 
+      // LIRA-312 — credits recovered from wrong-number cards (LBP stamp at
+      // the resold-credit price) — profit-only, netted into gross.
+      const wrongNumberRecovery = this.repo.getWrongNumberRecoveryTotals(
+        fromDt,
+        toDt,
+      );
+
       // LIRA-319 — the Extra charges line (outside every module's own
       // profit), folded into gross revenue and gross profit below.
       const extraTotals = this.repo.getExtraChargeTotals(fromDt, toDt);
@@ -1174,6 +1190,7 @@ export class ProfitService {
         holdMoney.profit_usd +
         waived.profit_usd +
         warranty.profit_usd +
+        wrongNumberRecovery.profit_usd +
         refundKept.profit_usd +
         extraCharges.usd;
       const grossProfitLbp =
@@ -1196,6 +1213,7 @@ export class ProfitService {
         holdMoney.profit_lbp +
         waived.profit_lbp +
         warranty.profit_lbp +
+        wrongNumberRecovery.profit_lbp +
         refundKept.profit_lbp +
         extraCharges.lbp;
 
@@ -1253,6 +1271,7 @@ export class ProfitService {
         hold_money: holdMoney,
         waived,
         warranty,
+        wrong_number_recovery: wrongNumberRecovery,
         extra_charges: extraCharges,
         expenses,
         totals: {
@@ -1686,6 +1705,29 @@ export class ProfitService {
         });
       }
 
+      // LIRA-312 — ONE "Wrong-number credits recovered" line.
+      const wrongNumberTotals = this.repo.getWrongNumberRecoveryTotals(
+        fromDt,
+        toDt,
+      );
+      if (
+        wrongNumberTotals.profit_usd !== 0 ||
+        wrongNumberTotals.profit_lbp !== 0 ||
+        wrongNumberTotals.count > 0
+      ) {
+        results.push({
+          module: "WRONG_NUMBER",
+          label: "Wrong-number credits recovered",
+          revenue_usd: 0,
+          revenue_lbp: 0,
+          cost_usd: 0,
+          cost_lbp: 0,
+          profit_usd: wrongNumberTotals.profit_usd,
+          profit_lbp: wrongNumberTotals.profit_lbp,
+          count: wrongNumberTotals.count,
+        });
+      }
+
       // PA-4.21: margin_pct/margin_converted, computed once per row here
       // (not at every push site above — rule 14).
       const buyRate = this.getLbpBuyRate();
@@ -1794,6 +1836,11 @@ export class ProfitService {
       match: (key) => key === "WARRANTY",
       build: (_key, fromDt, toDt) =>
         this.buildWarrantyModuleDetail(fromDt, toDt),
+    },
+    {
+      match: (key) => key === "WRONG_NUMBER",
+      build: (_key, fromDt, toDt) =>
+        this.buildWrongNumberModuleDetail(fromDt, toDt),
     },
     {
       match: (key) => key === "EXTRA_CHARGE",
@@ -3038,6 +3085,56 @@ export class ProfitService {
     }
     return {
       module: "WARRANTY",
+      counted,
+      not_counted: notCounted,
+      counted_total_profit_usd: countedProfitUsd,
+      counted_total_profit_lbp: countedProfitLbp,
+    };
+  }
+
+  /**
+   * LIRA-312 — the Wrong-number credits recovered drill-down: every live
+   * credits entry — the same rows
+   * {@link ProfitRepository.getWrongNumberRecoveryTotals} sums.
+   */
+  private buildWrongNumberModuleDetail(
+    fromDt: string,
+    toDt: string,
+  ): ProfitModuleDetail {
+    const counted: ProfitModuleDetailRow[] = [];
+    const notCounted: ProfitModuleDetailRow[] = [];
+    let countedProfitUsd = 0;
+    let countedProfitLbp = 0;
+    for (const r of this.repo.getWrongNumberRecoveryDetail(fromDt, toDt)) {
+      const pending = r.debt_pending === 1;
+      const row: ProfitModuleDetailRow = {
+        id: r.id,
+        source: "wrong_number",
+        date: r.created_at,
+        counterpart: r.counterpart_name || r.counterpart_phone || "Walk-in",
+        detail: r.txn_type,
+        amount_usd: 0,
+        amount_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: r.profit_usd,
+        profit_lbp: r.profit_lbp,
+        counted_pct: pending ? 0 : 100,
+        counted_profit_usd: pending ? 0 : r.profit_usd,
+        counted_profit_lbp: pending ? 0 : r.profit_lbp,
+        reason: null,
+        fee_note: null,
+      };
+      if (pending) {
+        notCounted.push(row);
+      } else {
+        counted.push(row);
+        countedProfitUsd += r.profit_usd;
+        countedProfitLbp += r.profit_lbp;
+      }
+    }
+    return {
+      module: "WRONG_NUMBER",
       counted,
       not_counted: notCounted,
       counted_total_profit_usd: countedProfitUsd,

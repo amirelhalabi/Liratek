@@ -13,6 +13,10 @@ import type {
   SaveResaleLineInput,
   WriteOffResaleLineInput,
   RechargeResaleLineInput,
+  // LIRA-312 — wrong-number card recharges.
+  ListWrongNumbersQueryInput,
+  RecordWrongNumberInput,
+  WrongNumberCreditsInput,
   // LIRA-306 — offline desktop fallback (desktop-only, E1; rule 21).
   DesktopPairInput,
   DesktopUnpairInput,
@@ -774,6 +778,16 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.writeOffResaleLine(data);
   rechargeResaleLine = (data: RechargeResaleLineInput) =>
     api.rechargeResaleLine(data);
+
+  // ---------------------------------------------------------------------------
+  // Wrong-number cards (LIRA-312)
+  // ---------------------------------------------------------------------------
+  getWrongNumbers = (query?: ListWrongNumbersQueryInput) =>
+    api.getWrongNumbers(query);
+  recordWrongNumber = (data: RecordWrongNumberInput) =>
+    api.recordWrongNumber(data);
+  recordWrongNumberCredits = (data: WrongNumberCreditsInput) =>
+    api.recordWrongNumberCredits(data);
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking)

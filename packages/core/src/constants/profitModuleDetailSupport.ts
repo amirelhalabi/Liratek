@@ -36,6 +36,8 @@ export const MODULE_DETAIL_SUPPORTED_KEYS: ReadonlySet<string> = new Set([
   "TOPUP_BUYBACK",
   // LIRA-296 — the Warranty cost line.
   "WARRANTY",
+  // LIRA-312 — the Wrong-number credits recovered line.
+  "WRONG_NUMBER",
   // LIRA-310 follow-up — a basket Waive's own "Waived" line.
   "WAIVED",
   // LIRA-319 — the "Extra charges" line.

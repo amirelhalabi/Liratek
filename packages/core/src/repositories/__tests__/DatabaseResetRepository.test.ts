@@ -240,7 +240,9 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
          (tenant_id, type, from_currency, to_currency, amount_in, amount_out, rate)
        VALUES (?, 'BUY', 'USD', 'LBP', 1, 1, 1)`,
     ).run(tenantId);
-    db.prepare(`INSERT INTO expenses (tenant_id) VALUES (?)`).run(tenantId);
+    const expenseId = db
+      .prepare(`INSERT INTO expenses (tenant_id) VALUES (?)`)
+      .run(tenantId).lastInsertRowid as number;
     const holdMoneyId = db
       .prepare(
         `INSERT INTO hold_money (tenant_id, client_name) VALUES (?, 'Fixture')`,
@@ -281,10 +283,19 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
       `INSERT INTO maintenance_status_history (tenant_id, maintenance_id, to_status)
        VALUES (?, ?, 'Received')`,
     ).run(tenantId, maintenanceId);
+    const mobileItemId = db
+      .prepare(
+        `INSERT INTO mobile_service_items (tenant_id, provider, category, subcategory, label)
+         VALUES (?, 'mtc', 'recharge', 'credit', 'Fixture')`,
+      )
+      .run(tenantId).lastInsertRowid as number;
+    // LIRA-312 v214 — a wrong-number card record on the fixture expense.
     db.prepare(
-      `INSERT INTO mobile_service_items (tenant_id, provider, category, subcategory, label)
-       VALUES (?, 'mtc', 'recharge', 'credit', 'Fixture')`,
-    ).run(tenantId);
+      `INSERT INTO wrong_number_cards
+         (tenant_id, expense_id, expense_transaction_id, provider, carrier,
+          mobile_service_item_id, card_label, card_cost_lbp, card_credit_usd, wrong_number)
+       VALUES (?, ?, ?, 'iPick', 'alfa', ?, 'Alfa 7.58', 770000, 7.58, '03111111')`,
+    ).run(tenantId, expenseId, txnId, mobileItemId);
     db.prepare(
       `INSERT INTO partner_ledger (tenant_id, partner_id, transaction_type, amount, direction)
        VALUES (?, ?, 'TEST', 1, 'DEBIT')`,

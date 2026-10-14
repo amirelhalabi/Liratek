@@ -178,6 +178,19 @@ export {
   type ResaleLineEntity,
   type ResaleLineRow,
 } from "./ResaleLineRepository.js";
+// LIRA-312 — wrong-number card recharges.
+export {
+  WrongNumberRepository,
+  getWrongNumberRepository,
+  resetWrongNumberRepository,
+  type WrongNumberCardEntity,
+  type WrongNumberCardRow,
+  type WrongNumberCreditEntry,
+} from "./WrongNumberRepository.js";
+export {
+  activeWrongNumberCreditsSql,
+  UNDO_CREDITS_FIRST_ERROR,
+} from "./wrongNumberSql.js";
 export type {
   ProductUnitStatus,
   ProductUnitEntity,

@@ -160,6 +160,9 @@ const ONLINE_ONLY: readonly string[] = [
   "resale-lines:recharge",
   "resale-lines:save",
   "resale-lines:write-off",
+  // LIRA-312 — money writes, rare: online only.
+  "wrong-numbers:record",
+  "wrong-numbers:credits",
   "users:create",
   "users:set-password",
   "users:set-active",
@@ -449,6 +452,7 @@ const READ: readonly string[] = [
   "reports:overdue-debts",
   "reports:revenue-by-module",
   "resale-lines:list",
+  "wrong-numbers:list",
   "sales:get",
   "sales:get-by-date-range",
   "sales:get-dashboard-stats",

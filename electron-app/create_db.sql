@@ -666,6 +666,28 @@ CREATE TABLE IF NOT EXISTS resale_line_recharges (
 );
 CREATE INDEX IF NOT EXISTS idx_resale_line_recharges_line ON resale_line_recharges(tenant_id, resale_line_id, is_reversed, id);
 
+-- LIRA-312 (v214): a card recharged onto the wrong number. Links the
+-- stock-use expense (the loss) and, from a saved sale, the sale; credits
+-- sent back are WRONG_NUMBER_CREDITS transactions pointing here.
+CREATE TABLE IF NOT EXISTS wrong_number_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    expense_id INTEGER NOT NULL REFERENCES expenses(id),
+    expense_transaction_id INTEGER NOT NULL UNIQUE REFERENCES transactions(id),
+    sale_transaction_id INTEGER REFERENCES transactions(id),
+    provider TEXT NOT NULL CHECK(provider IN ('iPick', 'Katsh', 'WHISH_APP')),
+    carrier TEXT NOT NULL CHECK(carrier IN ('mtc', 'alfa')),
+    mobile_service_item_id INTEGER NOT NULL REFERENCES mobile_service_items(id),
+    card_label TEXT NOT NULL,
+    card_cost_lbp REAL NOT NULL CHECK(card_cost_lbp > 0),
+    card_credit_usd REAL NOT NULL CHECK(card_credit_usd >= 0),
+    wrong_number TEXT NOT NULL,
+    right_number TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_wrong_number_cards_sale ON wrong_number_cards(tenant_id, sale_transaction_id);
+
 -- =============================================================================
 -- 3. Transactional Tables
 -- =============================================================================
@@ -3078,4 +3100,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v212 (LIRA-319) adds transactions.extra_usd/extra_lbp, declared above.
     (212, 'transactions_extra_charges'),
     -- v213 (LIRA-319) adds sales.extra_usd (draft extra), declared above.
-    (213, 'sales_extra_usd');
+    (213, 'sales_extra_usd'),
+    -- v214 (LIRA-312) adds wrong_number_cards, declared above.
+    (214, 'wrong_number_cards');

@@ -22,6 +22,9 @@ export interface StockPick {
   currency: "USD" | "LBP";
   /** Inventory only — units on hand. */
   stock?: number;
+  /** LIRA-312 — set on an MTC/Alfa card (Katsh / iPick / Whish App catalog
+   *  item with a cost): such a card can be recorded as a wrong number. */
+  carrier?: "mtc" | "alfa";
 }
 
 const SOURCE_LABELS: Record<StockExpenseSource, string> = {
@@ -74,6 +77,11 @@ export function StockUsePicker({
     for (const item of items ?? []) {
       const source = SOURCE_BY_PROVIDER.get(item.provider);
       if (!source) continue;
+      const category = item.category.toLowerCase();
+      const carrier =
+        (category === "mtc" || category === "alfa") && Number(item.cost_lbp) > 0
+          ? category
+          : undefined;
       picks.push({
         key: `${source}-${item.id}`,
         source,
@@ -84,6 +92,7 @@ export function StockUsePicker({
         sourceLabel: SOURCE_LABELS[source],
         unitCost: Number(item.cost_lbp) || 0,
         currency: "LBP",
+        ...(carrier ? { carrier } : {}),
       });
     }
     catalogRef.current = picks;

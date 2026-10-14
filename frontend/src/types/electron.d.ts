@@ -61,6 +61,14 @@ import type {
   WriteOffResaleLineInput,
   RechargeResaleLineInput,
   ResaleLineRechargeResult,
+  // LIRA-312 — wrong-number card recharges.
+  ListWrongNumbersQueryInput,
+  RecordWrongNumberInput,
+  WrongNumberCreditsInput,
+  WrongNumberCardRow,
+  WrongNumberResult,
+  RecordWrongNumberResultData,
+  WrongNumberCreditsResultData,
 } from "@liratek/core";
 
 /** LIRA-306 — the plain envelope the offline:* channels reply with. */
@@ -3588,6 +3596,21 @@ export interface ElectronAPI {
     sendNow: () => Promise<{ success: boolean; data?: { sent: number; waiting: number }; error?: string }>;
     openWebApp: () => Promise<OfflineEnvelope>;
     installUpdate: () => Promise<OfflineEnvelope>;
+  };
+
+  /** LIRA-312 — must match preload.ts's `wrongNumbers` binding. */
+  wrongNumbers: {
+    list: (query?: ListWrongNumbersQueryInput) => Promise<{
+      success: boolean;
+      data?: WrongNumberCardRow[];
+      error?: string;
+    }>;
+    record: (
+      data: RecordWrongNumberInput,
+    ) => Promise<WrongNumberResult<RecordWrongNumberResultData>>;
+    credits: (
+      data: WrongNumberCreditsInput,
+    ) => Promise<WrongNumberResult<WrongNumberCreditsResultData>>;
   };
 
   /** LIRA-309 — must match preload.ts's `resaleLines` binding. */

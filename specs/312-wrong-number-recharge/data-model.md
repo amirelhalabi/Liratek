@@ -1,6 +1,6 @@
 # Data Model: Wrong-Number Card Recharge (LIRA-312)
 
-Migration **v212**: re-check the last entry at build time. It goes into both
+Migration **v214** (built 2026-10-14; planned as v212, which LIRA-319 took): re-check the last entry at build time. It goes into both
 `migrations/index.ts` and `create_db.sql`, with a `down()`. Reset Data wipes
 the table, and the new table is appended to `OFFLINE_ID_TABLES`.
 
