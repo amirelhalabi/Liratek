@@ -8,6 +8,14 @@ import { BaseRepository } from "./BaseRepository.js";
 import {
   OMT_RECEIVE_NO_FEE_MESSAGE,
   NO_EXTRA_ON_PAYOUT_MESSAGE,
+  CUSTOMER_PAYMENTS_ONLY_ON_APP_RECEIVE_MESSAGE,
+  CUSTOMER_PAYMENTS_WITH_FEE_PAYMENTS_MESSAGE,
+  CUSTOMER_PAYMENTS_PARTNER_MESSAGE,
+  CUSTOMER_PAYMENTS_SESSION_MESSAGE,
+  CUSTOMER_PAYMENTS_REQUIRED_MESSAGE,
+  CUSTOMER_PAYMENTS_FEE_MODE_MESSAGE,
+  CUSTOMER_PAYMENTS_PROVIDERS,
+  hasCustomerPayments,
 } from "../validators/financial.js";
 import {
   EXTRA_ABOVE_TOTAL_MESSAGE,
@@ -59,6 +67,7 @@ import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  bookCustomerLegs,
   assertPartnerIdRequired,
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
@@ -68,6 +77,7 @@ import {
   type ReconciliationLeg,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { bookForgivenShortfallSibling } from "./forgivenShortfall.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import {
   walletReceiveAmounts,
@@ -388,6 +398,30 @@ export interface CreateFinancialServiceData {
     currencyCode: string;
     amount: number;
   }>;
+  /**
+   * LIRA-321 — every line of the "Customer pays" section on a walk-in
+   * WHISH_APP / OMT_APP / BINANCE RECEIVE (transfer and fee lines alike).
+   * When present, it replaces the single provider inflow row and
+   * `bookFeeCollectionLegs`: the lines are booked by `bookCustomerLegs`
+   * against the transfer (+ the fee when `feeCollectedSeparately`). A line
+   * paid into the provider's own wallet is stored with method = the
+   * provider code (WHISH_APP / OMT_APP / BINANCE). On BINANCE the Binance
+   * line is in USDT and the other lines in USD/LBP. Never with
+   * `feePayments`, a partner, a session item, or a cost/price checkout.
+   */
+  customerPayments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+  }>;
+  /** LIRA-321 — forgiven part of the customer's lines, in the cash
+   *  currency (Binance: USD); capped by `isWithinShortfallMax`, booked as a
+   *  WAIVED_SHORTFALL sibling (`bookForgivenShortfallSibling`, FR-012) —
+   *  never taken off this row's profit stamp. */
+  customer_waived_amount?: number;
+  /** LIRA-321 — with `customerPayments`: the fee is paid over the counter
+   *  (one of the lines) and the payout is the full amount (mode C). */
+  feeCollectedSeparately?: boolean;
   clientId?: number;
   clientName?: string;
   referenceNumber?: string;
@@ -1953,9 +1987,44 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.serviceType === "RECEIVE" &&
         (Math.abs(calculatedCommission) > 0 ||
           data.includingFees === true ||
+          data.feeCollectedSeparately === true ||
           (data.feePayments && data.feePayments.length > 0))
       ) {
         throw new Error(OMT_RECEIVE_NO_FEE_MESSAGE);
+      }
+
+      // LIRA-321 — "Customer pays" lines. Same rule as `feePayments` just
+      // below: refused here, before every dispatch branch, wherever no branch
+      // books them — never silently dropped. Only a walk-in WHISH_APP /
+      // OMT_APP / BINANCE RECEIVE (the wallet-transfer branch) books them.
+      if (hasCustomerPayments(data)) {
+        if (data.feePayments && data.feePayments.length > 0) {
+          throw new Error(CUSTOMER_PAYMENTS_WITH_FEE_PAYMENTS_MESSAGE);
+        }
+        if (data.partnerId) {
+          throw new Error(CUSTOMER_PAYMENTS_PARTNER_MESSAGE);
+        }
+        if (data.deferPayment === true) {
+          throw new Error(CUSTOMER_PAYMENTS_SESSION_MESSAGE);
+        }
+        if (
+          data.serviceType !== "RECEIVE" ||
+          !CUSTOMER_PAYMENTS_PROVIDERS.includes(data.provider) ||
+          useCostPriceFlow
+        ) {
+          throw new Error(CUSTOMER_PAYMENTS_ONLY_ON_APP_RECEIVE_MESSAGE);
+        }
+        if (
+          data.feeCollectedSeparately === true &&
+          data.includingFees === true
+        ) {
+          throw new Error(CUSTOMER_PAYMENTS_FEE_MODE_MESSAGE);
+        }
+      } else if (
+        (data.customer_waived_amount ?? 0) > 0 ||
+        data.feeCollectedSeparately === true
+      ) {
+        throw new Error(CUSTOMER_PAYMENTS_REQUIRED_MESSAGE);
       }
 
       // ═══════════════════════════════════════════════════════════════════
@@ -2122,8 +2191,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // The currency the customer settles this checkout in: the non-zero
       // `checkoutTotal` bucket when the caller sent one, else the cash side
       // (Binance's crypto is USDT; its cash side is USD).
-      const extraCashCurrency =
-        data.provider === "BINANCE" ? "USD" : currency;
+      const extraCashCurrency = data.provider === "BINANCE" ? "USD" : currency;
       const extraCurrency: "USD" | "LBP" | null = data.checkoutTotal
         ? data.checkoutTotal.usd > 0 && !(data.checkoutTotal.lbp > 0)
           ? "USD"
@@ -2397,6 +2465,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         isThroughSecondary && data.serviceType === "SEND"
           ? resolvedProviderFee
           : 0;
+
+      // LIRA-321: the part of the customer's lines the shop forgave, in the
+      // cash currency. FR-012 / rule 14: booked as its own WAIVED_SHORTFALL
+      // sibling by the shared writer (`bookForgivenShortfallSibling`, the
+      // same row Exchange books) right after `bookCustomerLegs` verifies it
+      // (cap, never more than what is missing) — NOT taken off this row's
+      // profit stamp, so the fee profit stays the full fee and the forgive
+      // shows on the Profits "Waived" line. Reversal owner (rule 20): the
+      // parent's void/refund cascade (`_cascadeWaivedShortfallSiblingVoid`).
+      const customerWaived = hasCustomerPayments(data)
+        ? Math.max(0, data.customer_waived_amount ?? 0)
+        : 0;
 
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.FINANCIAL_SERVICE,
@@ -3750,19 +3830,133 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             }
           } else {
             // ─── RECEIVE ─────────────────────────────────────────────────────
-            // 1. Credit Binance drawer (USDT): crypto arrives in the shop's account
-            insertPayment.run(
-              txnId,
-              data.provider,
-              systemDrawer, // "Binance" / "OMT_App" / "Whish_App"
-              cryptoCurrency,
-              cryptoAmount,
-              isBINANCE
-                ? `Crypto received from customer`
-                : `Received into ${systemDrawer} wallet`,
-              createdBy,
-            );
-            upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
+            // LIRA-321: "Customer pays" lines (walk-in WHISH_APP / OMT_APP /
+            // BINANCE only — the guard near the top refuses every other shape). They
+            // replace step 1's single inflow row below AND the mode-C fee
+            // legs: the fee, when paid over the counter, is one of the lines.
+            const customerLines = hasCustomerPayments(data)
+              ? data.customerPayments!
+              : null;
+            if (customerLines) {
+              // The provider's own wallet method (Whish wallet on Whish App,
+              // OMT wallet on OMT App, Binance on Binance). A line paid there
+              // is the transfer landing in the shop's wallet: same drawer and
+              // same stored method (the provider code) as the single row it
+              // replaces (research R7). Every other line keeps its own
+              // method and drawer.
+              const ownWalletMethod =
+                data.provider === "WHISH_APP"
+                  ? "WHISH"
+                  : data.provider === "OMT_APP"
+                    ? "OMT"
+                    : "BINANCE";
+              const isOwnWallet = (leg: ReconciliationLeg) =>
+                leg.method === ownWalletMethod;
+              // Binance (T043): the Binance drawer holds USDT and the cash
+              // drawers USD/LBP, and each line posts in its OWN currency —
+              // so a Binance line in USD would open Binance|USD and a cash
+              // line in USDT General|USDT. Refused before any write.
+              if (isBINANCE) {
+                for (const leg of customerLines) {
+                  const isUsdt = leg.currencyCode === cryptoCurrency;
+                  if (isOwnWallet(leg) && !isUsdt) {
+                    throw new Error(
+                      `The Binance line must be in USDT. (BINANCE RECEIVE: Binance line in ${leg.currencyCode})`,
+                    );
+                  }
+                  if (
+                    !isOwnWallet(leg) &&
+                    leg.method !== "CUSTOMER_ACCOUNT" &&
+                    isUsdt
+                  ) {
+                    throw new Error(
+                      `Only the Binance line can be in USDT — enter ${leg.method} in USD or LBP. (BINANCE RECEIVE: ${leg.method} line in USDT)`,
+                    );
+                  }
+                  // US4.4: a Binance shortfall is owed in USD (1 USDT = $1),
+                  // never as an LBP debt.
+                  if (
+                    leg.method === "CUSTOMER_ACCOUNT" &&
+                    leg.currencyCode !== "USD" &&
+                    !isUsdt
+                  ) {
+                    throw new Error(
+                      `On a Binance cash-out the amount left on the client's account is in USD. (BINANCE RECEIVE: account line in ${leg.currencyCode})`,
+                    );
+                  }
+                }
+              }
+              const { forgiven } = bookCustomerLegs(this.db, {
+                legs: customerLines,
+                // D1: OMT App never has a fee (refused above), so this is the
+                // transfer alone there. Binance: USD, the USDT line counted
+                // 1:1 (`comparisonCurrency`), a USDT shortfall owed in USD.
+                expected: {
+                  amount:
+                    cryptoAmount +
+                    (data.feeCollectedSeparately === true ? fee : 0),
+                  currency: cashCurrency,
+                },
+                // The rate the sheet converted the lines at (tender, when
+                // sent — the RECEIVE sheet uses the buy rate), else the
+                // server rate: the same rate the payout reconcile uses.
+                rate: recordExchangeRate,
+                debtType: "Service Debt",
+                clientId: resolvedPrimaryClientId ?? null,
+                transactionId: txnId,
+                drawerFor: (leg) =>
+                  isOwnWallet(leg)
+                    ? systemDrawer
+                    : paymentMethodToDrawerName(leg.method),
+                storedMethodFor: (leg) =>
+                  isOwnWallet(leg) ? data.provider : leg.method,
+                waived: customerWaived,
+                tenantId,
+                createdBy,
+                note: `Received from customer (${data.provider} RECEIVE)`,
+                context: `${data.provider} RECEIVE`,
+              });
+              if (forgiven > 0) {
+                // FR-012 — the shared writer (forgivenShortfall.ts), same
+                // row the Exchange screen books.
+                bookForgivenShortfallSibling({
+                  parentTxnId: txnId,
+                  forgiven,
+                  currency: cashCurrency,
+                  usdPerUnit: 1,
+                  exchangeRate: recordExchangeRate,
+                  clientId: resolvedPrimaryClientId ?? null,
+                  clientName: data.clientName ?? null,
+                  userId: createdBy,
+                  label:
+                    data.provider === "BINANCE"
+                      ? "Binance"
+                      : data.provider === "WHISH_APP"
+                        ? "Whish App"
+                        : "OMT App",
+                  metadata: { financial_service_id: id },
+                  transactionTime: data.transaction_time,
+                });
+              }
+            } else {
+              // 1. Credit Binance drawer (USDT): crypto arrives in the shop's account
+              insertPayment.run(
+                txnId,
+                data.provider,
+                systemDrawer, // "Binance" / "OMT_App" / "Whish_App"
+                cryptoCurrency,
+                cryptoAmount,
+                isBINANCE
+                  ? `Crypto received from customer`
+                  : `Received into ${systemDrawer} wallet`,
+                createdBy,
+              );
+              upsertBalanceDelta.run(
+                systemDrawer,
+                cryptoCurrency,
+                cryptoAmount,
+              );
+            }
 
             // 2. Cash payout: shop pays customer (cryptoAmount - fee) in cash
             //    — or, for app wallets AND BINANCE, the FULL cryptoAmount
@@ -3785,10 +3979,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             //    loto-prize pattern. Self-posting here too would double-debit
             //    the till (and for app wallets it DID, since their cart items
             //    always netted into the pooled totals pre-Phase-F).
+            // LIRA-321: with "Customer pays" lines the mode is stated
+            // (`feeCollectedSeparately`), since the fee line travels inside
+            // `customerPayments`, not `feePayments`.
             const isFeeCollectedSeparately =
               (isAppWallet || isBINANCE) &&
-              !!data.feePayments &&
-              data.feePayments.length > 0;
+              ((!!data.feePayments && data.feePayments.length > 0) ||
+                (customerLines !== null &&
+                  data.feeCollectedSeparately === true));
             // LIRA-269: ONE definition shared with the payout sheets. `fee`
             // here is the page's `commission`, already net of any sheet
             // discount (the discount comes off the shop's fee, so the
@@ -3816,7 +4014,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // `partnerId` combinations are already excluded by the
             // createTransaction guard before `feePayments` can be non-empty
             // here, so no extra gate is needed for those.
-            if (isFeeCollectedSeparately && !deferPayment) {
+            // LIRA-321: skipped when `customerPayments` carries the fee line
+            // (already booked by `bookCustomerLegs` above).
+            if (isFeeCollectedSeparately && !deferPayment && !customerLines) {
               bookFeeCollectionLegs({
                 feePayments: data.feePayments!,
                 feeAmount: fee,

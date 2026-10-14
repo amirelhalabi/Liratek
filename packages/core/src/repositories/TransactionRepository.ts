@@ -4709,7 +4709,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       TRANSACTION_TYPES.REFUND_UNDO,
       sessionId,
     );
-    const rate = row.exchange_rate && row.exchange_rate > 0 ? row.exchange_rate : null;
+    const rate =
+      row.exchange_rate && row.exchange_rate > 0 ? row.exchange_rate : null;
     const valueUsd = returned?.value_usd ?? 0;
     const valueLbp = returned?.value_lbp ?? 0;
     return {
@@ -4717,8 +4718,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       extraUsd,
       extraLbp,
       rate,
-      remainingUsd: Math.max(0, this._roundToUnit(extraUsd + (returned?.extra_usd ?? 0), 0.01)),
-      remainingLbp: Math.max(0, this._roundToUnit(extraLbp + (returned?.extra_lbp ?? 0), 1)),
+      remainingUsd: Math.max(
+        0,
+        this._roundToUnit(extraUsd + (returned?.extra_usd ?? 0), 0.01),
+      ),
+      remainingLbp: Math.max(
+        0,
+        this._roundToUnit(extraLbp + (returned?.extra_lbp ?? 0), 1),
+      ),
       refundedItemValueUsdEq: valueUsd + (rate ? valueLbp / rate : 0),
     };
   }
@@ -5605,7 +5612,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   private _voidTransactionInternal(
     id: number,
     userId: number,
-    opts: { allowSplitGroupMember?: boolean; allowSessionMember?: boolean },
+    opts: {
+      allowSplitGroupMember?: boolean;
+      allowSessionMember?: boolean;
+      /** LIRA-321 — set ONLY by `_cascadeWaivedShortfallSiblingVoid`: lets
+       *  the parent's void/refund reach its own WAIVED_SHORTFALL sibling. */
+      allowParentOwnedWaivedSibling?: boolean;
+    },
   ): number {
     const original = this.findById(id);
     if (!original) {
@@ -5726,6 +5739,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // v166-linked flow) booked as this transaction's own side effect. No-op
       // when there is none, or on a legacy (pre-v166) row with no link.
       this._cascadeExpenseSiblingVoid(original, userId);
+
+      // 5c3. LIRA-321, rule 20 — void the WAIVED_SHORTFALL sibling an
+      // exchange or cash-out booked for a forgiven "Customer pays" leftover
+      // (any parent type — matched by source_id). No-op when
+      // there is none.
+      this._cascadeWaivedShortfallSiblingVoid(original, userId);
 
       // 5d. LIRA-085 — if this transaction IS a PARTNER_SETTLEMENT/
       // PARTNER_PAYMENT, restore its own partner_ledger row (+ any bundled
@@ -6351,6 +6370,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // transfer fee expense sibling. See voidTransaction's identical step.
     this._cascadeExpenseSiblingVoid(original, userId);
 
+    // 4c3. LIRA-321, rule 20 — the forgiven-leftover WAIVED_SHORTFALL
+    // sibling. See voidTransaction's identical step.
+    this._cascadeWaivedShortfallSiblingVoid(original, userId);
+
     // 4d. LIRA-085 — PARTNER_SETTLEMENT/PARTNER_PAYMENT ledger + coverage
     // restore. See voidTransaction's identical step.
     this._reversePartnerSettlementLedger(original, userId);
@@ -6450,6 +6473,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     opts: {
       allowSplitGroupMember?: boolean;
       allowSessionMember?: boolean;
+      allowParentOwnedWaivedSibling?: boolean;
     } = {},
   ): void {
     if (NON_REVERSIBLE_TRANSACTION_TYPES.has(original.type)) {
@@ -6462,8 +6486,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // two types with a dedicated basket-only owner, not to session
       // membership in general.
       const bypassable =
-        opts.allowSessionMember &&
-        SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES.has(original.type);
+        (opts.allowSessionMember &&
+          SESSION_BASKET_BYPASSABLE_NON_REVERSIBLE_TYPES.has(original.type)) ||
+        // LIRA-321: a WAIVED_SHORTFALL a non-session flow wrote for its
+        // forgiven leftover is owned by that parent — reachable only from
+        // the parent's own cascade, never by a standalone void/refund.
+        (opts.allowParentOwnedWaivedSibling === true &&
+          original.type === TRANSACTION_TYPES.WAIVED_SHORTFALL);
       if (!bypassable) {
         throw new DatabaseError(
           `${original.type} transactions cannot be voided or refunded — reverse them from their own module`,
@@ -7495,6 +7524,37 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       if (!siblingTxn) continue;
       this._voidTransactionInternal(siblingTxn.id, userId, {
         allowSplitGroupMember: true,
+      });
+    }
+  }
+
+  /**
+   * LIRA-321, rule 20 — reversal owner of the WAIVED_SHORTFALL sibling a
+   * non-session flow writes for a forgiven leftover (Exchange, Whish App /
+   * OMT App / Binance cash-out "Customer pays" — all through the shared
+   * `bookForgivenShortfallSibling`, forgivenShortfall.ts). The sibling
+   * is linked to its PARENT unified row (`source_table = 'transactions'`,
+   * `source_id` = parent id) and is NON_REVERSIBLE on its own, so the
+   * parent's void AND refund both void it here: VOIDED drops its −forgiven
+   * profit from every ACTIVE profit sum, and it moves no money, so nothing
+   * else needs undoing. Session-basket waive rows link to
+   * `customer_sessions` and never match. No-op when there is none.
+   */
+  private _cascadeWaivedShortfallSiblingVoid(
+    original: TransactionEntity,
+    userId: number,
+  ): void {
+    const siblings = this.query<{ id: number }>(
+      `SELECT id FROM transactions
+        WHERE type = ? AND source_table = 'transactions' AND source_id = ?
+          AND status = 'ACTIVE' AND reverses_id IS NULL AND tenant_id = ?`,
+      TRANSACTION_TYPES.WAIVED_SHORTFALL,
+      original.id,
+      getCurrentTenantId(),
+    );
+    for (const sibling of siblings) {
+      this._voidTransactionInternal(sibling.id, userId, {
+        allowParentOwnedWaivedSibling: true,
       });
     }
   }

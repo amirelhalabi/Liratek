@@ -532,6 +532,14 @@ contextBridge.exposeInMainWorld("api", {
       // Payout keep-change (owner decision 2026-10-06) — exchangeSubmitSchema.
       kept_change_usd?: number;
       kept_change_lbp?: number;
+      // LIRA-321 "Customer pays" (money in) — exchangeSubmitSchema.
+      clientId?: number;
+      customerPayments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>;
+      customer_waived_amount?: number;
     }) => ipcRenderer.invoke("exchange:add-transaction", data),
     getHistory: (opts?: { all?: boolean }) =>
       ipcRenderer.invoke("exchange:get-history", opts),

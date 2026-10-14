@@ -39,7 +39,10 @@ interface StubSheetProps {
   open: boolean;
   totalAmount: number;
   showDiscount?: boolean;
-  counterFlow?: { totalAmount: number };
+  counterFlow?: {
+    totalAmount: number;
+    seedLines?: Array<{ method: string; currencyCode: string; amount: number }>;
+  };
   onDiscountChange?: (d: number) => void;
   onPaymentChange: (lines: unknown[]) => void;
   onConfirm: () => void;
@@ -204,13 +207,25 @@ describe("OmtWhishAppTransferForm — a RECEIVE discount raises what the custome
     expect(parsed.payments?.[0]?.amount).toBeCloseTo(100.4, 9);
   });
 
-  it("customer pays the fee separately: payout stays $100, the fee to collect drops to $0.60", async () => {
+  // LIRA-321 (US3): the "Customer pays" section now holds the transfer line
+  // as well as the fee line, so its total is transfer + fee (it used to be
+  // the fee alone). The fee line itself still drops to $0.60.
+  it("customer pays the fee separately: payout stays $100, the fee line drops to $0.60", async () => {
     renderReceive100(true);
     await screen.findByTestId("stub-payment-sheet");
-    expect(mockSheet.last?.counterFlow?.totalAmount).toBe(1);
+    expect(mockSheet.last?.counterFlow?.totalAmount).toBe(101);
+    expect(mockSheet.last?.counterFlow?.seedLines?.[1]).toEqual({
+      method: "CASH",
+      currencyCode: "USD",
+      amount: 1,
+    });
 
     fireEvent.click(screen.getByTestId("stub-discount"));
     expect(mockSheet.last?.totalAmount).toBe(100);
-    expect(mockSheet.last?.counterFlow?.totalAmount).toBeCloseTo(0.6, 9);
+    expect(mockSheet.last?.counterFlow?.totalAmount).toBeCloseTo(100.6, 9);
+    expect(mockSheet.last?.counterFlow?.seedLines?.[1]?.amount).toBeCloseTo(
+      0.6,
+      9,
+    );
   });
 });

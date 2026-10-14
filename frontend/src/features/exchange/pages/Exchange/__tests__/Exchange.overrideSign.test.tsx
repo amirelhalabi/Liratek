@@ -51,6 +51,8 @@ function marketRateToUsdPerUnitMock(rate: number, isStronger: 1 | -1): number {
 
 jest.mock("@liratek/core", () => ({
   TAKE_USD: -1,
+  // LIRA-321: the page reads the forgive cap for the "Customer pays" section.
+  SHORTFALL_MAX: { USD: 5, LBP: 450_000 },
   // LIRA-213 #20 — the typeable "Customer Gets" reverse calc. Unused by this
   // suite's scenarios (it never types into the target box), so a trivial
   // stub is enough to keep the module import from resolving to `undefined`.

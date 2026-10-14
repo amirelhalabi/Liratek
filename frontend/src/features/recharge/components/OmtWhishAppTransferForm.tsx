@@ -8,6 +8,7 @@ import {
   hasNewClientInfo,
   Select,
   type PaymentLine,
+  type LinesSectionState,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -27,7 +28,7 @@ import {
 } from "@/features/partners/components/ForPartnerToggle";
 import { ensureRechargeClient } from "../utils/ensureClient";
 import { calculateOmtWhishAppFees } from "../utils/omtWhishAppFees";
-import { buildWalletTransferPayload } from "@liratek/core";
+import { buildWalletTransferPayload, SHORTFALL_MAX } from "@liratek/core";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { WalletExchangePanel } from "./WalletExchangePanel";
 
@@ -144,10 +145,10 @@ function OmtWhishAppTransferFormInner({
   );
   const includingFees = feeMode === "DEDUCTED";
   const feeCollectedSeparately = feeMode === "SEPARATE";
-  // Phase D counter-flow lines: the customer's fee-repayment legs, entirely
-  // independent of `paymentLines` (the shop's payout) — never merged into
-  // it, mirrors Services/index.tsx's `feePaymentLines` (Phase C).
-  const [feePaymentLines, setFeePaymentLines] = useState<PaymentLine[]>([]);
+  // LIRA-321: the "Customer pays" lines on a RECEIVE — what the customer
+  // hands over (the transfer, plus the fee when paid separately). Entirely
+  // independent of `paymentLines` (the shop's payout) — never merged into it.
+  const [customerLines, setCustomerLines] = useState<PaymentLine[]>([]);
   // Bug 6 (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2): how the shop pays the
   // customer out on a RECEIVE — synced from the single payout line's method
   // (mirrors Services/index.tsx) so a non-cash payout no longer silently
@@ -269,17 +270,47 @@ function OmtWhishAppTransferFormInner({
     discount: activeSession ? 0 : discount,
   });
 
-  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C/D: whether the fee counter-
-  // flow section (and, on submit, the feePayments leg set) is offered at all
-  // — mirrors Services/index.tsx's showFeeCounterFlow/feeCounterFlowActive
-  // gate. No walk-in fee to collect for a partner transfer or inside a
-  // session basket (§6bis finding 1 / §2 bug 1's territory).
-  const showFeeCounterFlow =
+  // LIRA-321 (US3): on every RECEIVE the customer's side is its own
+  // "Customer pays" section — the transfer line (this app's own wallet) plus,
+  // on Whish App with the fee paid over the counter, a Cash fee line. Not for
+  // a partner transfer (no walk-in customer) or inside a session (the basket
+  // checkout collects the payment); the server refuses both.
+  const showCustomerSection =
     serviceType === "RECEIVE" &&
-    feeCollectedSeparately &&
-    providerFee > 0 &&
     !activeSession &&
-    !forPartner;
+    !forPartner &&
+    walletAmount > 0;
+  // The fee is one of the customer's lines only on Whish App (OMT App RECEIVE
+  // takes no fee, D1 — the server refuses the flag there).
+  const feeLineSeparate =
+    showCustomerSection &&
+    activeProvider === "WHISH_APP" &&
+    feeCollectedSeparately &&
+    providerFee > 0;
+  // The provider's own wallet: method WHISH on Whish App, OMT on OMT App.
+  const ownWalletMethod = activeProvider === "WHISH_APP" ? "WHISH" : "OMT";
+  const customerSeedLines = [
+    { method: ownWalletMethod, currencyCode: currency, amount: walletAmount },
+    ...(feeLineSeparate && feeToCollect > 0
+      ? [{ method: "CASH", currencyCode: currency, amount: feeToCollect }]
+      : []),
+  ];
+  // What the server checks the lines against: transfer + fee (after the
+  // discount) when the fee is paid separately, else the transfer.
+  const customerTotal = walletAmount + (feeLineSeparate ? feeToCollect : 0);
+  // The section's balance; Confirm waits while it is over, short, or owes to
+  // an account with no client.
+  const [customerSectionState, setCustomerSectionState] =
+    useState<LinesSectionState | null>(null);
+  const customerSectionBlocksSubmit =
+    showCustomerSection &&
+    customerSectionState !== null &&
+    (customerSectionState.overpaid ||
+      customerSectionState.needsClient ||
+      !customerSectionState.balanced);
+  const sentCustomerLines = showCustomerSection
+    ? customerLines.filter((l) => l.amount > 0)
+    : [];
 
   // LIRA-319 — never on a RECEIVE (a payout), inside a session (the
   // session checkout takes it) or for a partner (no customer pays).
@@ -296,8 +327,9 @@ function OmtWhishAppTransferFormInner({
       clientId,
       name: activeClientName,
       phone: activeClientPhone,
-      // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too.
-      paymentLines: [...paymentLines, ...changeLegs],
+      // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too,
+      // and so does a "Customer pays" account line (LIRA-321).
+      paymentLines: [...paymentLines, ...changeLegs, ...sentCustomerLines],
     });
     if (!clientResult.ok) {
       alert(clientResult.error);
@@ -363,7 +395,8 @@ function OmtWhishAppTransferFormInner({
       setKeptChange(null);
       setManualFee("");
       setFeeMode("SENDER");
-      setFeePaymentLines([]);
+      setCustomerLines([]);
+      setCustomerSectionState(null);
       setCashoutMethod("CASH");
       // LIRA-248: same reset as the non-session completion path below — a
       // session basket add is also "a completed transaction" for this form.
@@ -426,12 +459,17 @@ function OmtWhishAppTransferFormInner({
                   | "BINANCE",
               }
             : {}),
-          // Mode C fee legs, only when the counter-flow was shown (Phase D).
-          ...(showFeeCounterFlow
+          // LIRA-321: the customer's side as `customerPayments` (never
+          // `feePayments`), with the fee mode stated and any forgiven part.
+          ...(sentCustomerLines.length > 0
             ? {
-                feePayments: toCamelLegs(
-                  feePaymentLines.filter((l) => l.amount > 0),
-                ),
+                customerPayments: sentCustomerLines.map((l) => ({
+                  method: l.method,
+                  currencyCode: l.currencyCode,
+                  amount: l.amount,
+                })),
+                feeCollectedSeparately: feeLineSeparate,
+                customerWaivedAmount: customerSectionState?.forgiven ?? 0,
               }
             : {}),
           // T3 keep-change: only when it belongs to this direction.
@@ -482,7 +520,8 @@ function OmtWhishAppTransferFormInner({
         setExtraCharge(0);
         setManualFee("");
         setFeeMode("SENDER");
-        setFeePaymentLines([]);
+        setCustomerLines([]);
+        setCustomerSectionState(null);
         setCashoutMethod("CASH");
         setTransactionTime(undefined);
         // LIRA-248: an operator-edited sheet rate must not carry over to the
@@ -1143,6 +1182,7 @@ function OmtWhishAppTransferFormInner({
           onClose={() => setShowPaymentSheet(false)}
           onConfirm={handleSubmit}
           isSubmitting={isSubmitting}
+          confirmDisabled={customerSectionBlocksSubmit}
           title={activeSession ? "Add to Cart" : "Confirm Payment"}
           subtitle={`${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"} ${serviceType === "SEND" ? "Send" : "Receive"} — ${formatAmount(parsedAmount, currency)}`}
           accentColor={
@@ -1291,20 +1331,21 @@ function OmtWhishAppTransferFormInner({
                       : null,
                   ),
               })}
-          // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D: mode C's
-          // counter-flow section — the customer's separately-paid fee,
-          // independent of the payout lines above. Absent (modes A/B, no
-          // fee, a partner transfer, or a session) renders nothing extra —
-          // zero impact on those payloads.
-          {...(showFeeCounterFlow
+          // LIRA-321 (US3): the "Customer pays" section — the transfer
+          // line (+ the fee line when paid separately on Whish App),
+          // independent of the payout lines above. Two seed lines open it
+          // in split mode; one keeps it single. The sheet unmounts when
+          // closed, so a fee-mode change re-seeds it on the next open.
+          {...(showCustomerSection
             ? {
                 counterFlow: {
-                  label: "Customer pays — fee",
-                  // Fee after the discount (LIRA-269) — what the server
-                  // reconciles the fee legs against (`commission`).
-                  totalAmount: feeToCollect,
+                  label: "Customer pays",
+                  totalAmount: customerTotal,
                   currency,
-                  onChange: setFeePaymentLines,
+                  seedLines: customerSeedLines,
+                  maxForgive: SHORTFALL_MAX[currency],
+                  onChange: setCustomerLines,
+                  onStateChange: setCustomerSectionState,
                   paymentMethods: allPaymentMethods.filter(
                     (pm) => pm.code !== "GIFT_CARD",
                   ),

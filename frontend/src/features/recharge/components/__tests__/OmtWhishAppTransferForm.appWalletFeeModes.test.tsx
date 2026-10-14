@@ -372,13 +372,13 @@ describe("OmtWhishAppTransferForm — Phase D app-wallet fee modes", () => {
     expect(payload.feePayments).toBeUndefined();
   });
 
-  // (d) mode C (Customer pays separately, NEW): the wallet receives the bare
-  // amount, the payout is the FULL amount, and the fee is collected via a
-  // separate feePayments leg — proven failing-first: pre-change there is no
-  // `fee-mode-separate` testid to click and no `counterFlow` prop ever
-  // reaches PaymentSheet, so this test cannot even drive the scenario on
-  // the old form.
-  it("mode C (Customer pays separately): wallet=bare, payout=full, feePayments=[{CASH,...,fee}], cashoutMethod synced", async () => {
+  // (d) mode C (Customer pays separately). LIRA-321 (US3) replaced the
+  // fee-only counter-flow with the "Customer pays" section: the fee is now a
+  // line of `customerPayments` next to the transfer line, and `feePayments`
+  // is never sent. This test used to assert `feePayments` and the label
+  // "Customer pays — fee"; it is kept as a guard that the old shape is gone
+  // (rule 24). Wallet = bare amount and payout = full amount are unchanged.
+  it("mode C (Customer pays separately): wallet=bare, payout=full, fee rides customerPayments — no feePayments", async () => {
     renderForm("WHISH_APP");
     switchToReceive();
     typeAmount("100");
@@ -388,13 +388,15 @@ describe("OmtWhishAppTransferForm — Phase D app-wallet fee modes", () => {
     fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
     await screen.findByTestId("stub-payment-sheet");
 
-    // The counter-flow section is offered — seeded label + total.
+    // The section is offered, under its new name.
     expect(screen.getByTestId("stub-counter-flow-label")).toHaveTextContent(
-      "Customer pays — fee",
+      "Customer pays",
     );
 
     window.__stubPayoutAmount = 100; // mode C payout = the FULL entered amount
     fireEvent.click(screen.getByTestId("stub-inject-payout"));
+    // The stub hands the section's whole total back as ONE cash line
+    // ($100 transfer + $1 fee).
     fireEvent.click(screen.getByTestId("stub-inject-fee"));
     fireEvent.click(screen.getByTestId("stub-confirm"));
 
@@ -415,13 +417,12 @@ describe("OmtWhishAppTransferForm — Phase D app-wallet fee modes", () => {
         amount: 100, // payout = FULL amount (NOT 99 like mode B)
       }),
     ]);
-    expect(payload.feePayments).toEqual([
-      expect.objectContaining({
-        method: "CASH",
-        currencyCode: "USD",
-        amount: 1,
-      }),
+    // Guard: the old fee-only leg set is never sent.
+    expect(payload.feePayments).toBeUndefined();
+    expect(payload.customerPayments).toEqual([
+      { method: "CASH", currencyCode: "USD", amount: 101 },
     ]);
+    expect(payload.feeCollectedSeparately).toBe(true);
     expect(payload.cashoutMethod).toBe("OMT"); // bug 6: synced from the payout line
   });
 

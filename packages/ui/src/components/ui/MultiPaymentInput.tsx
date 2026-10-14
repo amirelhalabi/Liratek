@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { DecimalInput } from "./DecimalInput";
 import { DiscountLine, discountFieldClass } from "./DiscountLine";
+import { SplitToggle } from "./SplitToggle";
+import { useLinesSection, type LinesSectionState } from "./useLinesSection";
 import { formatWithCommas } from "../../utils/number";
 import { roundLBPUp } from "../../config/denominations";
 import {
@@ -377,6 +379,26 @@ export interface MultiPaymentInputProps {
          *  supplies its own validated predicate). */
         requiresClient?: boolean;
         hasClient?: boolean;
+        // ── LIRA-321 (contracts/payment-box.md) ──
+        /** Pre-filled lines; default = one CASH line at totalAmount.
+         *  2+ lines ⇒ the section opens in split mode. */
+        seedLines?: Array<{
+          method: string;
+          currencyCode: string;
+          amount: number;
+        }>;
+        /** Locks every line to `currency` (select disabled) and, on payout
+         *  screens, titles the section "Customer pays — <CUR>". */
+        lockCurrency?: boolean;
+        /** Largest shortfall the cashier may forgive (Forgive control). */
+        maxForgive?: number;
+        /** The section's balance, reported whenever it changes. Pages gate
+         *  Confirm on `overpaid || needsClient || !balanced`. */
+        onStateChange?: (state: LinesSectionState) => void;
+        /** The currencies this section's lines may use. Defaults to the
+         *  sheet's `currencies`. Binance cash-out adds USDT here only, so
+         *  the shop's payout lines stay USD/LBP. */
+        currencies?: Currency[];
       }
     | undefined;
   /** When false, hides the Split toggle entirely — the form can never enter
@@ -474,6 +496,8 @@ interface PaymentLineRowProps {
   removeDisabled?: boolean;
   /** data-testid for the row itself (the counter-flow lines carry one). */
   rowTestId?: string;
+  /** LIRA-321: the currency select is disabled (lockCurrency). */
+  currencyLocked?: boolean;
 }
 
 /**
@@ -499,6 +523,7 @@ function PaymentLineRow({
   onRemove,
   removeDisabled = false,
   rowTestId,
+  currencyLocked = false,
 }: PaymentLineRowProps) {
   const large = size === "large";
   const bg = large ? "bg-slate-800/80" : "bg-slate-900";
@@ -528,19 +553,41 @@ function PaymentLineRow({
         ))}
       </select>
 
-      {/* Currency */}
-      <select
-        data-testid={`${testIdPrefix}-currency-${lineId}`}
-        value={currencyCode}
-        onChange={(e) => onCurrencyChange(e.target.value)}
-        className={`w-20 ${bg} border border-slate-600 rounded-lg px-2 ${py} text-white text-sm focus:outline-none ${focus} transition-colors`}
-      >
-        {currencies.map((curr) => (
-          <option key={curr.code} value={curr.code}>
-            {curr.code}
-          </option>
-        ))}
-      </select>
+      {/* Currency — LIRA-321: a locked select also shows a small lock. */}
+      <div className="relative w-20 shrink-0">
+        {currencyLocked && (
+          <svg
+            data-testid={`${testIdPrefix}-lock-${lineId}`}
+            aria-hidden="true"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+          >
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+        )}
+        <select
+          data-testid={`${testIdPrefix}-currency-${lineId}`}
+          value={currencyCode}
+          onChange={(e) => onCurrencyChange(e.target.value)}
+          disabled={currencyLocked}
+          title={currencyLocked ? "Currency locked" : undefined}
+          className={`w-full ${bg} border border-slate-600 rounded-lg ${currencyLocked ? "pl-6 pr-2" : "px-2"} ${py} text-white text-sm focus:outline-none ${focus} transition-colors disabled:opacity-60 disabled:cursor-not-allowed`}
+        >
+          {currencies.map((curr) => (
+            <option key={curr.code} value={curr.code}>
+              {curr.code}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {/* Amount — DecimalInput keeps the raw text while focused so decimal
           points survive typing (a controlled fmtNum/parseNum round-trip ate
@@ -2277,119 +2324,45 @@ export default function MultiPaymentInput({
   };
 
   // ── Counter-flow (opposite-direction) lines ────────────────────────────────
-  // Entirely independent of the main payment-lines state above: its own
-  // touched-tracking and split flag, never read by totalPaid/hasDebt/PM-fee.
-  // Seeded with ONE CASH line at counterFlow.totalAmount the instant the prop
-  // is supplied (or its totalAmount/currency change) — unless the operator
-  // already edited a line (touched) or built a manual split.
-  const counterFlowTouchedRef = useRef(false);
-  const [counterFlowSplitMode, setCounterFlowSplitMode] = useState(false);
-  const [counterFlowLines, setCounterFlowLines] = useState<PaymentLine[]>([]);
-
-  useEffect(() => {
-    if (!counterFlow) return;
-    if (counterFlowTouchedRef.current || counterFlowSplitMode) return;
-    const already =
-      counterFlowLines.length === 1 &&
-      counterFlowLines[0].currencyCode === counterFlow.currency &&
-      counterFlowLines[0].amount === counterFlow.totalAmount;
-    const next: PaymentLine[] = already
-      ? counterFlowLines
-      : [
-          {
-            id: counterFlowLines[0]?.id ?? crypto.randomUUID(),
-            method: counterFlowLines[0]?.method ?? "CASH",
-            currencyCode: counterFlow.currency,
-            amount: counterFlow.totalAmount,
-          },
-        ];
-    if (!already) setCounterFlowLines(next);
-    // Always notify the parent, even when unchanged, so its state matches
-    // what is on screen from the first render (mirrors the main single-mode
-    // auto-sync effect above).
-    counterFlow.onChange(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [counterFlow?.totalAmount, counterFlow?.currency, counterFlowSplitMode]);
-
-  /** Outstanding remainder (in counterFlow.currency) across the counter-flow
-   *  lines, excluding one line (used to prefill a freshly added split line). */
-  const counterFlowRemaining = (excludeId?: string): number => {
-    if (!counterFlow) return 0;
-    const paid = counterFlowLines
-      .filter((l) => l.id !== excludeId)
-      .reduce(
-        (sum, l) =>
-          sum +
-          convertSafe(l.amount || 0, l.currencyCode, counterFlow.currency),
-        0,
-      );
-    return Math.max(0, counterFlow.totalAmount - paid);
-  };
-
-  const addCounterFlowLine = () => {
-    if (!counterFlow) return;
-    counterFlowTouchedRef.current = true;
-    setCounterFlowSplitMode(true);
-    // LIRA-321: what the customer did not pay goes on their account by
-    // default — CUSTOMER_ACCOUNT whenever this section offers it, i.e. the
-    // page's own client check passed (counterFlow.hasClient).
-    const remaining = counterFlowRemaining();
-    const leftoverToAccount =
-      remaining > 0 &&
-      counterFlowMethods.some((pm) => pm.code === "CUSTOMER_ACCOUNT");
-    const next = [
-      ...counterFlowLines,
-      {
-        id: crypto.randomUUID(),
-        method: leftoverToAccount ? "CUSTOMER_ACCOUNT" : "CASH",
-        currencyCode: counterFlow.currency,
-        amount: remaining,
-      },
-    ];
-    setCounterFlowLines(next);
-    counterFlow.onChange(next);
-  };
-
-  const removeCounterFlowLine = (id: string) => {
-    if (!counterFlow || counterFlowLines.length <= 1) return;
-    const next = counterFlowLines.filter((l) => l.id !== id);
-    setCounterFlowLines(next);
-    counterFlow.onChange(next);
-  };
-
-  const updateCounterFlowLine = (
-    id: string,
-    field: keyof PaymentLine,
-    value: string | number,
-  ) => {
-    if (!counterFlow) return;
-    counterFlowTouchedRef.current = true;
-    const next = counterFlowLines.map((line) => {
-      if (line.id !== id) return line;
-      const updated = { ...line, [field]: value };
-      if (field === "currencyCode" && value !== line.currencyCode) {
-        const newCurr = value as string;
-        updated.amount = roundForCurrency({
-          amount: convertSafe(line.amount, line.currencyCode, newCurr),
-          currency: newCurr,
-        }).amount;
-      }
-      return updated;
-    });
-    setCounterFlowLines(next);
-    counterFlow.onChange(next);
-  };
-
+  // Entirely independent of the main payment-lines state above: never read
+  // by totalPaid/hasDebt/PM-fee. LIRA-321: single/split, leftover line,
+  // Forgive and the balance report live in useLinesSection (research R1).
+  //
   // CUSTOMER_ACCOUNT is removed from the counter-flow method list when the
   // caller's own validated charge predicate says no (requiresClient && no
   // client) — mirrors canChargeToCustomerAccount-grade gating used elsewhere.
-  const counterFlowMethods = (
-    counterFlow?.paymentMethods ?? paymentMethods
-  ).filter(
+  const counterFlowCallerMethods = counterFlow?.paymentMethods ?? paymentMethods;
+  // Could picking a client offer the account at all? False when the caller
+  // never lists CUSTOMER_ACCOUNT (e.g. Exchange paid in EUR, owner decision
+  // 2026-10-14) — the hint must not then say "pick a client".
+  const counterFlowAccountPossible = counterFlowCallerMethods.some(
+    (pm) => pm.code === "CUSTOMER_ACCOUNT",
+  );
+  const counterFlowMethods = counterFlowCallerMethods.filter(
     (pm) =>
       pm.code !== "CUSTOMER_ACCOUNT" ||
       !(counterFlow?.requiresClient && !counterFlow?.hasClient),
   );
+  const cf = useLinesSection({
+    enabled: !!counterFlow,
+    totalAmount: counterFlow?.totalAmount ?? 0,
+    currency: counterFlow?.currency ?? currency,
+    ...(counterFlow?.seedLines ? { seedLines: counterFlow.seedLines } : {}),
+    methods: counterFlowMethods,
+    hasClient: !!counterFlow?.hasClient,
+    ...(counterFlow?.maxForgive !== undefined
+      ? { maxForgive: counterFlow.maxForgive }
+      : {}),
+    convert: convertSafe,
+    round: (amount, curr) =>
+      roundForCurrency({ amount, currency: curr }).amount,
+    ...(counterFlow ? { onChange: counterFlow.onChange } : {}),
+    ...(counterFlow?.onStateChange
+      ? { onStateChange: counterFlow.onStateChange }
+      : {}),
+  });
+  // LIRA-321 payout layout: "Customer pays" (IN) above "Shop pays" (OUT).
+  const payoutCounterFlow = isPayout && !!counterFlow;
 
   // Every reason this sheet needs a client, shown together at the bottom.
   // Same conditions the three separate messages used before.
@@ -2413,17 +2386,139 @@ export default function MultiPaymentInput({
     clientNeededReasons.push("Select a client to use a voucher.");
   }
 
+  const cfCurrency = counterFlow?.currency ?? currency;
+  const fmtCf = (n: number) =>
+    `${formatWithCommas(String(cfCurrency === "LBP" ? Math.round(n) : Math.round(n * 100) / 100))} ${cfCurrency}`;
+  const counterFlowSection = counterFlow ? (
+    <div
+      data-testid="counter-flow-section"
+      className={`${
+        payoutCounterFlow ? "border-b" : "border-t"
+      } border-slate-700/40 px-4 py-3 space-y-2`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-slate-200 tracking-wide">
+          {payoutCounterFlow
+            ? counterFlow.lockCurrency
+              ? `Customer pays — ${cfCurrency}`
+              : "Customer pays"
+            : counterFlow.label}
+        </span>
+        <span
+          data-testid="direction-chip-customer-pays"
+          className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-700/30 text-emerald-300 border border-emerald-600/40"
+        >
+          {payoutCounterFlow ? "IN" : "Customer pays"}
+        </span>
+        <div className="flex-1" />
+        <SplitToggle
+          active={cf.isSplit}
+          onClick={cf.toggleSplit}
+          testId="counter-flow-split-toggle"
+        />
+      </div>
+
+      {/* One list for both modes — line 1 keeps its key and position when
+          single flips to split, so its input keeps focus mid-typing. */}
+      {cf.lines.map((line) => (
+        <PaymentLineRow
+          key={line.id}
+          rowTestId={`counter-flow-line-${line.id}`}
+          testIdPrefix="counter-flow"
+          lineId={line.id}
+          method={line.method}
+          currencyCode={line.currencyCode}
+          amount={line.amount}
+          methods={counterFlowMethods}
+          currencies={counterFlow.currencies ?? currencies}
+          symbol={
+            counterFlow.currencies?.find((c) => c.code === line.currencyCode)
+              ?.symbol ?? getSymbol(line.currencyCode)
+          }
+          size={cf.isSplit ? "compact" : "large"}
+          accent="emerald"
+          currencyLocked={!!counterFlow.lockCurrency}
+          onMethodChange={(v) => cf.updateLine(line.id, "method", v)}
+          onCurrencyChange={(v) => cf.updateLine(line.id, "currencyCode", v)}
+          onAmountChange={(n) => cf.updateLine(line.id, "amount", n)}
+          {...(cf.isSplit
+            ? {
+                onRemove: () => cf.removeLine(line.id),
+                removeDisabled: cf.lines.length === 1,
+              }
+            : {})}
+        />
+      ))}
+
+      {cf.isSplit && (
+        <button
+          type="button"
+          data-testid="counter-flow-add-split"
+          onClick={cf.addLine}
+          className="w-full py-1.5 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
+        >
+          + Add line
+        </button>
+      )}
+
+      {cf.state.unaccounted > 0 && (
+        <div
+          data-testid="counter-flow-unaccounted"
+          className="text-xs text-amber-300"
+        >
+          Still to settle: {fmtCf(cf.state.unaccounted)}
+          {/* No account offered (no client): say how to settle it — the
+              section never fills the gap with cash by itself (US1.3). */}
+          {!cf.accountOffered &&
+            counterFlowAccountPossible &&
+            ` — pick a client to put it on their account${
+              cf.canForgive ? ", or forgive it" : ""
+            }`}
+        </div>
+      )}
+
+      {cf.canForgive && (
+        <button
+          type="button"
+          data-testid="counter-flow-forgive"
+          onClick={cf.toggleForgive}
+          className={`w-full py-1.5 rounded-xl text-xs font-medium border transition-all ${
+            cf.forgiveOn
+              ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+              : "bg-slate-800 text-slate-300 border-slate-600 hover:text-slate-100 hover:border-slate-500"
+          }`}
+        >
+          {cf.forgiveOn
+            ? `Forgiven ${fmtCf(cf.state.forgiven)} — undo`
+            : `Forgive ${fmtCf(cf.shortfall)}`}
+        </button>
+      )}
+
+      {cf.state.overpaid && (
+        <div
+          data-testid="counter-flow-overpaid"
+          className="text-xs text-red-400"
+        >
+          More than the customer owes — lower a line.
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div
       data-testid="multi-payment-input"
       className="bg-slate-900/50 border border-slate-700/50 rounded-2xl overflow-hidden"
     >
+      {/* LIRA-321: on payout screens "Customer pays" (IN) comes first. */}
+      {payoutCounterFlow && counterFlowSection}
+
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700/40">
         <span className="text-sm font-semibold text-slate-200 tracking-wide shrink-0">
           {/* Split state is shown on the Split toggle alone ("Split
               Active") — the title no longer repeats it. */}
-          {label || "Payment"}
+          {payoutCounterFlow ? "Shop pays" : label || "Payment"}
         </span>
         {/* Direction chip — only when a counter-flow section is active
             (owner decision #10 area, BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4
@@ -2434,7 +2529,7 @@ export default function MultiPaymentInput({
             data-testid="direction-chip-you-pay"
             className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 border border-slate-600"
           >
-            You pay
+            {payoutCounterFlow ? "OUT" : "You pay"}
           </span>
         )}
 
@@ -2461,46 +2556,11 @@ export default function MultiPaymentInput({
         </div>
 
         {allowSplit && (
-          <button
-            type="button"
-            data-testid="split-toggle"
+          <SplitToggle
+            active={isSplitMode}
             onClick={toggleSplitMode}
-            className={`shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
-              isSplitMode
-                ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
-                : "bg-slate-800 text-slate-400 border border-slate-600 hover:text-slate-200 hover:border-slate-500"
-            }`}
-          >
-            {isSplitMode ? (
-              <>
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
-                </svg>
-                Split Active
-              </>
-            ) : (
-              <>
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M16 3h5v5M4 20L21 3" />
-                </svg>
-                Split
-              </>
-            )}
-          </button>
+            testId="split-toggle"
+          />
         )}
       </div>
 
@@ -2652,62 +2712,9 @@ export default function MultiPaymentInput({
       </div>
 
       {/* Counter-flow (opposite-direction) section — OPT-IN, owner decision
-          #2: ONE card, a direction per line, never a second form. */}
-      {counterFlow && (
-        <div
-          data-testid="counter-flow-section"
-          className="border-t border-slate-700/40 px-4 py-3 space-y-2"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-slate-200 tracking-wide">
-              {counterFlow.label}
-            </span>
-            <span
-              data-testid="direction-chip-customer-pays"
-              className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-700/30 text-emerald-300 border border-emerald-600/40"
-            >
-              Customer pays
-            </span>
-          </div>
-
-          {counterFlowLines.map((line) => (
-            <PaymentLineRow
-              key={line.id}
-              rowTestId={`counter-flow-line-${line.id}`}
-              testIdPrefix="counter-flow"
-              lineId={line.id}
-              method={line.method}
-              currencyCode={line.currencyCode}
-              amount={line.amount}
-              methods={counterFlowMethods}
-              currencies={currencies}
-              symbol={getSymbol(line.currencyCode)}
-              size="compact"
-              accent="emerald"
-              onMethodChange={(v) =>
-                updateCounterFlowLine(line.id, "method", v)
-              }
-              onCurrencyChange={(v) =>
-                updateCounterFlowLine(line.id, "currencyCode", v)
-              }
-              onAmountChange={(n) =>
-                updateCounterFlowLine(line.id, "amount", n)
-              }
-              onRemove={() => removeCounterFlowLine(line.id)}
-              removeDisabled={counterFlowLines.length === 1}
-            />
-          ))}
-
-          <button
-            type="button"
-            data-testid="counter-flow-add-split"
-            onClick={addCounterFlowLine}
-            className="w-full py-1.5 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
-          >
-            + Add line
-          </button>
-        </div>
-      )}
+          #2: ONE card, a direction per line, never a second form. Below the
+          main lines everywhere except payout screens (rendered above). */}
+      {!payoutCounterFlow && counterFlowSection}
 
       {/* Summary */}
       <div

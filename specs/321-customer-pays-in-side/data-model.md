@@ -27,12 +27,13 @@ One row per non-account customer line, positive amount, in the line's drawer and
 ### Client debt (`debt_ledger`, existing)
 | Screen | `transaction_type` | Amount columns | Linked by |
 | --- | --- | --- | --- |
-| Exchange | `'Exchange Debt'` (new, added to `MODULE_DEBT_TRANSACTION_TYPES`) | `amount_usd` or `amount_lbp`; a EUR/other shortfall is converted to USD at the exchange's own rate | `transaction_id` = unified transaction id |
+| Exchange | `'Exchange Debt'` (new, added to `MODULE_DEBT_TRANSACTION_TYPES`) | `amount_usd` or `amount_lbp`, only when the customer pays in USD or LBP; owing/forgiving on a EUR/other `fromCurrency` is refused for now (owner 2026-10-14 — the lot would oversell) | `transaction_id` = unified transaction id |
 | App receive / Binance | `'Service Debt'` (existing) | USD/LBP; a USDT shortfall counts 1:1 as USD | same |
 
 Written once per transaction per currency by `bookClientDebtCharge` (30-day due date). Reversal owner: generic `_cancelDebt` on void and refund.
 
 ### Forgiven shortfall
+On screen it is "Forgive"; in code and payloads it is "waived" (`customer_waived_amount`, `WAIVED_SHORTFALL`) — same thing.
 Recorded with the existing LIRA-310 `WAIVED_SHORTFALL` profit-only row (writer in `repositories/keptChange.ts`), amount = forgiven part, capped by `isWithinShortfallMax`. Reversal owner: the existing LIRA-310 path (confirm in tasks, rule 20).
 
 ### Exchange transaction (`exchange_transactions` + unified `transactions`)

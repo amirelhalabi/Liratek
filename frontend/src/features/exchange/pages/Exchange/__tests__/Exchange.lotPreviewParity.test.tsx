@@ -26,6 +26,8 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 jest.mock("@liratek/core", () => ({
   TAKE_USD: -1,
+  // LIRA-321: the page reads the forgive cap for the "Customer pays" section.
+  SHORTFALL_MAX: { USD: 5, LBP: 450_000 },
   calculateAmountInForTarget: jest.fn(() => 0),
   isLotTrackedCurrency: (code: string) => !["USD", "LBP"].includes(code),
   convertFromUSD: (usd: number) => ({ amountOut: usd * 89_000, rate: 89_000 }),

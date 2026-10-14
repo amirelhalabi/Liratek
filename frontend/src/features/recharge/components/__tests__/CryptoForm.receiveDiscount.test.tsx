@@ -31,7 +31,10 @@ interface SheetProps {
   showDiscount?: boolean;
   maxDiscount?: number;
   onDiscountChange?: (d: number) => void;
-  counterFlow?: { totalAmount: number };
+  counterFlow?: {
+    totalAmount: number;
+    seedLines?: Array<{ method: string; currencyCode: string; amount: number }>;
+  };
 }
 const mockSheetProps: { last?: SheetProps } = {};
 jest.mock("../PaymentSheet", () => ({
@@ -134,7 +137,7 @@ function Harness({
   const [feeIncluded, setFeeIncluded] = useState(false);
   const [feeCollectedSeparately, setFeeCollectedSeparately] =
     useState(separately);
-  const [, setFeePaymentLines] = useState<PaymentLine[]>([]);
+  const [, setCustomerLines] = useState<PaymentLine[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
   return (
@@ -158,8 +161,9 @@ function Harness({
       setFeeIncluded={setFeeIncluded}
       feeCollectedSeparately={feeCollectedSeparately}
       setFeeCollectedSeparately={setFeeCollectedSeparately}
-      onFeePaymentLinesChange={setFeePaymentLines}
-      feePaymentMethods={FEE_PAYMENT_METHODS}
+      onCustomerLinesChange={setCustomerLines}
+      onCustomerForgivenChange={jest.fn()}
+      customerPaymentMethods={FEE_PAYMENT_METHODS}
       handleCryptoSubmit={jest.fn()}
       isSubmitting={false}
       binanceTransactions={[]}
@@ -190,12 +194,19 @@ describe("CryptoForm — a discount on the cash-out raises what the customer rec
     expect(onDiscountChangeSpy).toHaveBeenLastCalledWith(0.5);
   });
 
-  it("customer pays the fee separately: payout stays $100, the fee to collect drops to $1.50", () => {
+  // LIRA-321 (US4): the "Customer pays" section now holds the USDT line AND
+  // the fee line, so its total is USDT + fee; the discount still shrinks
+  // only the fee line.
+  it("customer pays the fee separately: payout stays $100, the fee line drops to $1.50", () => {
     render(<Harness separately />);
-    expect(mockSheetProps.last?.counterFlow?.totalAmount).toBe(2);
+    expect(mockSheetProps.last?.counterFlow?.totalAmount).toBe(102);
     act(() => mockSheetProps.last?.onDiscountChange?.(0.5));
     expect(mockSheetProps.last?.totalAmount).toBe(100);
-    expect(mockSheetProps.last?.counterFlow?.totalAmount).toBe(1.5);
+    expect(mockSheetProps.last?.counterFlow?.totalAmount).toBe(101.5);
+    expect(mockSheetProps.last?.counterFlow?.seedLines).toEqual([
+      { method: "BINANCE", currencyCode: "USDT", amount: 100 },
+      { method: "CASH", currencyCode: "USD", amount: 1.5 },
+    ]);
   });
 
   it("inside a customer session the cash-out sheet offers no discount (the basket books none)", () => {

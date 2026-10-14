@@ -116,7 +116,7 @@ function Harness({
   const [cryptoFee, setCryptoFee] = useState("1");
   const [feeIncluded, setFeeIncluded] = useState(false);
   const [feeCollectedSeparately, setFeeCollectedSeparately] = useState(false);
-  const [, setFeePaymentLines] = useState<PaymentLine[]>([]);
+  const [, setCustomerLines] = useState<PaymentLine[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
   return (
@@ -140,8 +140,9 @@ function Harness({
       setFeeIncluded={setFeeIncluded}
       feeCollectedSeparately={feeCollectedSeparately}
       setFeeCollectedSeparately={setFeeCollectedSeparately}
-      onFeePaymentLinesChange={setFeePaymentLines}
-      feePaymentMethods={FEE_PAYMENT_METHODS}
+      onCustomerLinesChange={setCustomerLines}
+      onCustomerForgivenChange={jest.fn()}
+      customerPaymentMethods={FEE_PAYMENT_METHODS}
       handleCryptoSubmit={jest.fn()}
       isSubmitting={false}
       binanceTransactions={[]}

@@ -182,18 +182,21 @@ test.describe("LIRA-136 — Binance mode C (customer pays separately), UI-driven
       .getByRole("button", { name: "Confirm Cash Out", exact: true })
       .click();
 
-    // The counter-flow card ("Customer pays — Binance fee") renders inside
-    // the sheet the instant mode C + fee>0 + !forPartner — auto-seeded with
-    // ONE CASH line at the fee. Switch it to the OMT wallet so the fee lands
-    // somewhere observably different from the CASH payout drawer.
+    // The "Customer pays" card renders inside the sheet on every walk-in
+    // cash-out. LIRA-321 (US4): in mode C it is seeded with TWO lines — the
+    // USDT line (Binance) and a CASH line at the fee. Switch the fee line
+    // (the second) to the OMT wallet so the fee lands somewhere observably
+    // different from the CASH payout drawer.
     const counterFlowSection = appPage.getByTestId("counter-flow-section");
     await expect(counterFlowSection).toBeVisible({ timeout: 10_000 });
+    // LIRA-321: a cash-out is a payout screen — the section is titled plain
+    // "Customer pays" with an IN chip (the page's own label is not shown).
     await expect(
-      appPage.getByText("Customer pays — Binance fee"),
-    ).toBeVisible();
-    const feeMethodSelect = counterFlowSection.locator(
-      '[data-testid^="counter-flow-method-"]',
-    );
+      counterFlowSection.getByTestId("direction-chip-customer-pays"),
+    ).toHaveText("IN");
+    const feeMethodSelect = counterFlowSection
+      .locator('[data-testid^="counter-flow-method-"]')
+      .nth(1);
     await expect(feeMethodSelect).toBeVisible();
     await feeMethodSelect.selectOption("OMT");
 

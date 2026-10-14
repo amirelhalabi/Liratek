@@ -57,7 +57,7 @@ Same-currency comparison is done directly when every leg is in the expected curr
 - When `customerPayments[]` is present (and not For-Partner), replace the lump with `bookCustomerLegs` against `{ amountIn, fromCurrency }`, `debtType: 'Exchange Debt'`, `rate` = the exchange's own fromCurrency→USD rate (leg-1 rate when via USD, the direct rate when the target is USD). Absent → today's lump (old clients, FR-017).
 - `'Exchange Debt'` added to `MODULE_DEBT_TRANSACTION_TYPES` (`constants/transactionTypes.ts:699-706`), so the generic void/refund `_cancelDebt` (TransactionRepository 8417-8475) cancels it and repayment FIFO covers it (feeds `SERVICE_DEBT_COVERAGE_TYPES` / `REPAYMENT_COVERABLE_DEBT_TYPES`). The guard test `moduleDebtTypes.guard.test.ts` requires the literal at the call site.
 
-**Exchange screen limits.** The sheet opens only when the target is USD or LBP (`Exchange/index.tsx:725-726`, unchanged). A EUR source with a USD/LBP target works: legs stay EUR (locked), any shortfall is owed in USD.
+**Exchange screen limits.** The sheet opens only when the target is USD or LBP (`Exchange/index.tsx:725-726`, unchanged). Owner decision 2026-10-14: owing and forgiving are blocked when the customer pays in any currency other than USD/LBP (EUR, USDT…), because the exchange position code records the full amount as bought while the drawer only got what was paid; the customer pays such exchanges in full (`exchangeCustomerCanOwe` in `validators/exchange.ts`, also enforced in the repository).
 
 ## R6. Profit
 
@@ -84,3 +84,19 @@ Same-currency comparison is done directly when every leg is in the expected curr
 ## R9. Tests to extend
 
 Core: `ExchangeRepository.splitPayout/keptChange/forPartner`, `TransactionRepository.exchangeLotReversal`, `FinancialServiceRepository.appWalletTransfer/binance/receiveFeeLegs/receiveFeeCutoverD1`, `TransactionRepository.refundFeeOnTopReceive/walletCashoutVoid`, `moduleDebtTypes.guard`, offline bindings for exchange and financial. Frontend: `MultiPaymentInput.test.tsx` (counterFlow 1628-1857; chip tests gain `payer="payout"`), `PaymentSheet.counterFlow.test.tsx:56-67`, `Exchange.splitPayout`, `OmtWhishAppTransferForm.appWalletFeeModes`, `Recharge.cryptoFeeCollectedSeparately`. Web e2e: `lira-web-022-exchange-submit-parity`, `lira-web-017`; there is **no** web e2e for app-wallet or Binance receive yet (new ones needed, rule 19). Desktop e2e (not run on the owner's Mac): lira-101, lira-136, lira-134.
+
+## §13 map (T001)
+
+FEATURE_GUIDE §13 items this feature touches, per screen. Items not listed (3 IN/OUT badge, 8 supplier/partner ledger, 11 sessions, 12 audit viewer) are unchanged: no new transaction type, no new supplier sibling, payout side untouched.
+
+| §13 item | Exchange | Whish App receive | OMT App receive | Binance cash-out |
+| --- | --- | --- | --- | --- |
+| 1 Schema/plumbing | v215 `exchange_transactions.client_id` (both files); `clientId` + `customerPaymentsField` on both exchange schemas, preload, `CreateExchangeData`, offline binding (rule 23 key diff) | `customerPaymentsField` on `createFinancialServiceSchema` (RECEIVE, app/Binance only) | same, transfer only (D1: no fee) | same |
+| 4 Payment legs | IN lump replaced by `bookCustomerLegs` against `{amountIn, fromCurrency}`; lines locked to `fromCurrency`; payout `payments[]` and kept change unchanged | inflow single provider row replaced by `bookCustomerLegs` against transfer + fee (when paid separately); own-wallet line keeps method = `WHISH_APP` (internal leg) | against transfer only; own-wallet line method = `OMT_APP` | against transfer + fee; Binance line in USDT, method = `BINANCE`; USDT 1:1 as USD |
+| 5 Drawers | each line to its drawer in `fromCurrency` (was General only) | Whish_App / OMT_App / General per line | same | Binance (USDT) / General per line |
+| 6 Client propagation | NEW: `clientId` UI → IPC/REST → repo → `createTransaction({client_id})` + `exchange_transactions.client_id` | already propagated; required when an account line exists | same | same |
+| 7 CUSTOMER_ACCOUNT | NEW `'Exchange Debt'`, one row per currency; non-USD/LBP owed as USD at the exchange rate | `'Service Debt'` (existing) | `'Service Debt'` | `'Service Debt'`, USDT shortfall as USD |
+| 9 Void path | generic: `_reversePayments` negates every line; `_cancelDebt` once `'Exchange Debt'` is in `MODULE_DEBT_TRANSACTION_TYPES`; forgiven part via LIRA-310 `WAIVED_SHORTFALL` reversal | generic, no new code (several inflow rows reverse like one) | same | same |
+| 10 Profits | unchanged amounts; counts at once (no debt gate on exchange) — owner check | `Service Debt` holds the profit until repaid (DBT-1), as a fee owed does today | same | same |
+| 13 E2E guard | extend `lira-web-022` (delta + identity) | new web e2e needed (none exists) | new web e2e needed | new web e2e needed |
+| 15 Legs vs amount | `bookCustomerLegs` refuses overpay, uncovered short, account line without client, forgive over cap, non-drawer methods (GIFT_CARD) — one predicate for check and post | same helper | same | same |

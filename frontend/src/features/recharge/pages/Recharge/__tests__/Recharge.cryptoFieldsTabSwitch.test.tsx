@@ -7,7 +7,8 @@
  * `finAnalytics`, `finTransactions`) but, pre-fix, touched none of the 13
  * `crypto*` fields that only a *successful submit* used to clear
  * (`cryptoAmount`, `cryptoFeeIncluded`, `cryptoFeeCollectedSeparately`,
- * `cryptoFeePaymentLines`, `cryptoPaymentLines`, `cryptoReturnLegs`,
+ * `cryptoCustomerLines` (was `cryptoFeePaymentLines` before LIRA-321),
+ * `cryptoPaymentLines`, `cryptoReturnLegs`,
  * `cryptoKeptChange`, `cryptoClientId`, `cryptoClientName`,
  * `cryptoClientPhone`, `cryptoFee`, `cryptoDescription`,
  * `cryptoTransactionTime` — see the submit-path resets at ~1242-1254 and the
@@ -32,15 +33,14 @@
  * `cryptoAmount`/`feeIncluded`/`feeCollectedSeparately`/`cryptoClientId` are
  * real props CryptoForm receives from the parent (index.tsx ~1646-1698) — the
  * stub below just renders them so the test can assert on them directly.
- * `cryptoFeePaymentLines`/`cryptoPaymentLines`/`cryptoReturnLegs` are never
+ * `cryptoCustomerLines`/`cryptoPaymentLines`/`cryptoReturnLegs` are never
  * handed back down to CryptoForm as values (only their setters are, via
- * `onFeePaymentLinesChange`/`onPaymentLinesChange`/`onReturnChange`), so
+ * `onCustomerLinesChange`/`onPaymentLinesChange`/`onReturnChange`), so
  * their resets are proven indirectly through `handleCryptoSubmit`'s
- * assembled payload: mode C only forwards `feePayments` when
- * `cryptoFeeCollectedSeparately && fee > 0` (index.tsx ~1201-1207), so
- * re-arming that toggle after the round-trip WITHOUT re-injecting fee lines
- * must produce an EMPTY `feePayments`, not the stale OMT leg injected before
- * switching away. Likewise `payments` is only sent when
+ * assembled payload: a cash-out only forwards `customerPayments` when it
+ * holds lines, so re-arming mode C after the round-trip WITHOUT re-injecting
+ * the customer lines must send NO `customerPayments`, not the stale lines
+ * injected before switching away. Likewise `payments` is only sent when
  * `useCryptoStructuredPayments` (`cryptoPaymentLines.length > 0 ||
  * cryptoReturnLegs.length > 0`, index.tsx ~1093-1094) is true, so re-
  * submitting WITHOUT re-injecting any leg must produce an UNDEFINED
@@ -122,7 +122,7 @@ jest.mock("../../../components", () => ({
     setCryptoClientId,
     onPaymentLinesChange,
     onReturnChange,
-    onFeePaymentLinesChange,
+    onCustomerLinesChange,
     handleCryptoSubmit,
   }: {
     cryptoAmount: string;
@@ -138,7 +138,7 @@ jest.mock("../../../components", () => ({
     setCryptoClientId: (v: number | null) => void;
     onPaymentLinesChange: (lines: PaymentLine[]) => void;
     onReturnChange: (lines: PaymentLine[]) => void;
-    onFeePaymentLinesChange: (lines: PaymentLine[]) => void;
+    onCustomerLinesChange: (lines: PaymentLine[]) => void;
     handleCryptoSubmit: () => void;
   }) => (
     <div data-testid="stub-crypto-form">
@@ -197,10 +197,11 @@ jest.mock("../../../components", () => ({
         }
       />
       <button
-        data-testid="crypto-inject-fee-payment"
+        data-testid="crypto-inject-customer-lines"
         onClick={() =>
-          onFeePaymentLinesChange([
-            { id: "F1", method: "OMT", currencyCode: "USD", amount: 2 },
+          onCustomerLinesChange([
+            { id: "C1", method: "BINANCE", currencyCode: "USDT", amount: 100 },
+            { id: "F1", method: "CASH", currencyCode: "USD", amount: 2 },
           ] as PaymentLine[])
         }
       />
@@ -318,13 +319,15 @@ describe("Recharge page — [activeProvider] reset effect clears stale crypto* f
     ).toBe("false");
   });
 
-  it("switching away and back also clears the stale cryptoFeePaymentLines — proven via handleCryptoSubmit's feePayments", async () => {
+  // LIRA-321 (US4): the fee lines now travel inside the "Customer pays"
+  // lines (`customerPayments`); the reset guard follows them there.
+  it("switching away and back also clears the stale customer lines — proven via handleCryptoSubmit's customerPayments", async () => {
     await renderPage();
 
     fireEvent.click(screen.getByTestId("select-binance"));
     await screen.findByTestId("stub-crypto-form");
 
-    // Arm mode C and dirty cryptoFeePaymentLines — deliberately no submit,
+    // Arm mode C and dirty the customer lines — deliberately no submit,
     // so this isolates the tab-switch reset from the (already-correct)
     // submit-path reset.
     fireEvent.click(screen.getByTestId("crypto-switch-receive"));
@@ -337,7 +340,7 @@ describe("Recharge page — [activeProvider] reset effect clears stale crypto* f
     fireEvent.click(
       screen.getByTestId("crypto-toggle-fee-collected-separately"),
     );
-    fireEvent.click(screen.getByTestId("crypto-inject-fee-payment"));
+    fireEvent.click(screen.getByTestId("crypto-inject-customer-lines"));
 
     // Round-trip away and back.
     fireEvent.click(screen.getByTestId("select-mtc"));
@@ -348,8 +351,8 @@ describe("Recharge page — [activeProvider] reset effect clears stale crypto* f
     await screen.findByTestId("stub-crypto-form");
 
     // feeCollectedSeparately came back reset (covered by the sibling test
-    // too) — re-arm it for a fresh mode-C submit, WITHOUT re-injecting a fee
-    // payment line this time.
+    // too) — re-arm it for a fresh mode-C submit, WITHOUT re-injecting the
+    // customer lines this time.
     expect(
       screen.getByTestId("crypto-fee-collected-separately-value").textContent,
     ).toBe("false");
@@ -371,9 +374,10 @@ describe("Recharge page — [activeProvider] reset effect clears stale crypto* f
       string,
       unknown
     >;
-    // Pre-fix: cryptoFeePaymentLines still held the OMT leg injected before
-    // switching away, so feePayments would carry that stale leg here.
-    expect(payload.feePayments).toEqual([]);
+    // Without the reset, the lines injected before switching away would
+    // ride along here as `customerPayments`.
+    expect(payload.customerPayments).toBeUndefined();
+    expect(payload.feePayments).toBeUndefined();
   });
 
   it("switching away from Binance and back resets cryptoClientId", async () => {

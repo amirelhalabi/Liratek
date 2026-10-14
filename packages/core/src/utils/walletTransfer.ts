@@ -238,8 +238,20 @@ export interface WalletTransferPayloadInput {
   payments?: WalletTransferLeg[];
   /** The rate the payment legs were converted at; sent whenever legs are sent. */
   tenderExchangeRate?: number;
-  /** RECEIVE mode C: the customer's separate fee legs. */
+  /** RECEIVE mode C: the customer's separate fee legs. Superseded by
+   *  `customerPayments` (LIRA-321) — dropped when that is sent. Kept for
+   *  callers that still send the old shape. */
   feePayments?: WalletTransferLeg[];
+  /** LIRA-321 — RECEIVE only: what the customer hands over (the transfer
+   *  line, plus the fee line when the fee is paid over the counter).
+   *  Sent only when non-empty; never together with `feePayments`. */
+  customerPayments?: CreateFinancialServicePayload["customerPayments"];
+  /** LIRA-321 — the forgiven part of the customer's side ("Forgive"). */
+  customerWaivedAmount?: CreateFinancialServicePayload["customer_waived_amount"];
+  /** LIRA-321 — with `customerPayments`: the fee is one of the lines, so the
+   *  server expects transfer + fee. Whish App only (the server refuses it on
+   *  OMT App, D1). */
+  feeCollectedSeparately?: boolean;
   /** RECEIVE only: how the shop pays the customer out. */
   cashoutMethod?: "CASH" | "CUSTOMER_ACCOUNT" | "OMT" | "WHISH" | "BINANCE";
   /** Kept change that joins the profit stamp, when it applies to this direction. */
@@ -258,6 +270,12 @@ export function buildWalletTransferPayload(
 ): CreateFinancialServicePayload {
   const { provider, serviceType, currency, fees } = input;
   const hasLegs = input.payments !== undefined;
+  const customerPayments =
+    serviceType === "RECEIVE" &&
+    input.customerPayments &&
+    input.customerPayments.length > 0
+      ? input.customerPayments
+      : undefined;
   return {
     provider,
     serviceType,
@@ -278,7 +296,19 @@ export function buildWalletTransferPayload(
       ? { cashoutMethod: input.cashoutMethod }
       : {}),
     includingFees: input.includingFees,
-    ...(input.feePayments ? { feePayments: input.feePayments } : {}),
+    ...(customerPayments
+      ? {
+          customerPayments,
+          ...(input.feeCollectedSeparately
+            ? { feeCollectedSeparately: true }
+            : {}),
+          ...(input.customerWaivedAmount && input.customerWaivedAmount > 0
+            ? { customer_waived_amount: input.customerWaivedAmount }
+            : {}),
+        }
+      : input.feePayments
+        ? { feePayments: input.feePayments }
+        : {}),
     // SEND only: the customer-owed total AFTER the discount, which the
     // repository reconciles the legs against.
     ...(serviceType === "SEND" && hasLegs

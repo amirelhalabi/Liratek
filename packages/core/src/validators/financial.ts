@@ -10,6 +10,7 @@ import {
   NO_EXTRA_FOR_PARTNER_MESSAGE,
   EXTRA_ON_SESSION_ITEM_MESSAGE,
 } from "./common.js";
+import { customerPaymentsField } from "./customerLegs.js";
 
 /**
  * Financial services validation schemas (OMT, WHISH, iPick, Katsh, Binance, etc.)
@@ -85,6 +86,36 @@ export const NO_EXTRA_ON_PAYOUT_MESSAGE =
 
 export const OMT_RECEIVE_NO_FEE_MESSAGE =
   "OMT RECEIVE never takes a fee from the customer — any provider fee is shown for the commission calculation only, never collected or deducted. Remove the fee amount, includingFees, and feePayments, then resubmit.";
+
+/**
+ * LIRA-321 — "Customer pays" lines on a payout (specs/321-customer-pays-in-
+ * side/contracts/write-payloads.md). One wording per refusal, shared by this
+ * schema and the repository's own authoritative guards (rule 14).
+ */
+export const CUSTOMER_PAYMENTS_PROVIDERS: readonly string[] = [
+  "WHISH_APP",
+  "OMT_APP",
+  "BINANCE",
+];
+export const CUSTOMER_PAYMENTS_ONLY_ON_APP_RECEIVE_MESSAGE =
+  "customerPayments is only for a Whish App, OMT App or Binance cash-out (RECEIVE).";
+export const CUSTOMER_PAYMENTS_WITH_FEE_PAYMENTS_MESSAGE =
+  "customerPayments already holds the fee line — do not send feePayments with it.";
+export const CUSTOMER_PAYMENTS_PARTNER_MESSAGE =
+  "customerPayments cannot be used on a partner transaction — there is no walk-in customer paying.";
+export const CUSTOMER_PAYMENTS_SESSION_MESSAGE =
+  "customerPayments is not supported in a session basket — the basket checkout collects the payment.";
+export const CUSTOMER_PAYMENTS_REQUIRED_MESSAGE =
+  "customer_waived_amount and feeCollectedSeparately need customerPayments.";
+export const CUSTOMER_PAYMENTS_FEE_MODE_MESSAGE =
+  "feeCollectedSeparately cannot be used with includingFees — the fee is either paid separately or deducted from the payout, not both.";
+
+/** True when a payload carries at least one "Customer pays" line. */
+export function hasCustomerPayments(data: {
+  customerPayments?: ReadonlyArray<unknown> | null;
+}): boolean {
+  return !!data.customerPayments && data.customerPayments.length > 0;
+}
 
 // OMT/WHISH Money Transfer & iPick/Katsh/WishApp/Binance services
 export const createFinancialServiceSchema = z
@@ -231,6 +262,22 @@ export const createFinancialServiceSchema = z
     // (offline replay, research R4). `checkoutTotal` stays the PRE-extra
     // total; the repository adds the extra to every total it reconciles.
     ...extraChargeFields,
+    // LIRA-321: every line of the "Customer pays" section on a Whish App /
+    // OMT App / Binance cash-out (transfer and fee lines alike), plus the
+    // forgiven part. Replaces the single provider inflow row; the payout
+    // (`payments`, `cashoutMethod`, kept change) is unchanged. Balance rules
+    // (no overpay; a shortfall only on the client's account or a capped
+    // forgive) are the repository's (`bookCustomerLegs`).
+    ...customerPaymentsField,
+    /**
+     * LIRA-321: with `customerPayments`, says the customer pays the fee over
+     * the counter (mode C — the fee is one of the lines, the payout is the
+     * full amount). Before LIRA-321 a non-empty `feePayments` said this; the
+     * lines now travel in `customerPayments`, so the mode is stated, never
+     * guessed from the lines' total. Same name as `calculateOmtWhishAppFees`'s
+     * input. Never on OMT App (D1: no fee).
+     */
+    feeCollectedSeparately: z.boolean().optional(),
     transaction_time: transactionTimeSchema,
     /**
      * Payment-Legs Integrity plan (Wave 8, owner decision 2026-07-18): the
@@ -507,7 +554,66 @@ export const createFinancialServiceSchema = z
   .refine((data) => data.deferPayment !== true || !hasExtraCharge(data), {
     message: EXTRA_ON_SESSION_ITEM_MESSAGE,
     path: ["extra_usd"],
-  });
+  })
+  // LIRA-321 — where "Customer pays" lines may go. The repository refuses
+  // the same (it is the authoritative layer: internal callers skip Zod).
+  .refine(
+    (data) =>
+      !hasCustomerPayments(data) ||
+      (data.serviceType === "RECEIVE" &&
+        CUSTOMER_PAYMENTS_PROVIDERS.includes(data.provider)),
+    {
+      message: CUSTOMER_PAYMENTS_ONLY_ON_APP_RECEIVE_MESSAGE,
+      path: ["customerPayments"],
+    },
+  )
+  .refine(
+    (data) =>
+      !hasCustomerPayments(data) ||
+      !(data.feePayments && data.feePayments.length > 0),
+    {
+      message: CUSTOMER_PAYMENTS_WITH_FEE_PAYMENTS_MESSAGE,
+      path: ["customerPayments"],
+    },
+  )
+  .refine((data) => !hasCustomerPayments(data) || !data.partnerId, {
+    message: CUSTOMER_PAYMENTS_PARTNER_MESSAGE,
+    path: ["customerPayments"],
+  })
+  .refine((data) => !hasCustomerPayments(data) || data.deferPayment !== true, {
+    message: CUSTOMER_PAYMENTS_SESSION_MESSAGE,
+    path: ["customerPayments"],
+  })
+  .refine(
+    (data) =>
+      hasCustomerPayments(data) ||
+      (!((data.customer_waived_amount ?? 0) > 0) &&
+        data.feeCollectedSeparately !== true),
+    {
+      message: CUSTOMER_PAYMENTS_REQUIRED_MESSAGE,
+      path: ["customerPayments"],
+    },
+  )
+  .refine(
+    (data) =>
+      !(data.feeCollectedSeparately === true && data.includingFees === true),
+    {
+      message: CUSTOMER_PAYMENTS_FEE_MODE_MESSAGE,
+      path: ["feeCollectedSeparately"],
+    },
+  )
+  .refine(
+    (data) =>
+      !(
+        data.provider === "OMT_APP" &&
+        data.serviceType === "RECEIVE" &&
+        data.feeCollectedSeparately === true
+      ),
+    {
+      message: OMT_RECEIVE_NO_FEE_MESSAGE,
+      path: ["feeCollectedSeparately"],
+    },
+  );
 
 // Query financial services history
 export const getFinancialServicesSchema = z.object({

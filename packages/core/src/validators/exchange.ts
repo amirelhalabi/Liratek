@@ -5,6 +5,7 @@ import {
   transactionTimeSchema,
   historyAllQuerySchema,
 } from "./common.js";
+import { customerPaymentsField } from "./customerLegs.js";
 
 /**
  * Exchange/currency validation schemas
@@ -63,6 +64,99 @@ const keptChangeFields = {
   kept_change_lbp: z.number().nonnegative().optional(),
 };
 
+/**
+ * LIRA-321 — "Customer pays" keys shared by both exchange schemas below (one
+ * definition, rule 23: a key missing from ONE schema is silently stripped on
+ * whichever transport uses it). `customerPayments` are the lines the customer
+ * hands over (money in), `customer_waived_amount` the forgiven leftover, and
+ * `clientId` the client a CUSTOMER_ACCOUNT line is booked to. The balance
+ * rules (no overpay; a shortfall covered by an account line or a capped
+ * forgive) are enforced server-side by `bookCustomerLegs`.
+ */
+const customerPaysFields = {
+  clientId: z.number().int().positive().optional(),
+  ...customerPaymentsField,
+};
+
+/**
+ * LIRA-321 follow-up (owner decision 2026-10-14) — the ONE rule (rule 14)
+ * for whether the customer may owe (a CUSTOMER_ACCOUNT line) or be forgiven
+ * part of what they hand over on an exchange: only when they pay in USD or
+ * LBP. For any other currency (EUR, USDT, …) the exchange's lot/position
+ * code records the full `amountIn` as bought while the drawer only got what
+ * was paid (100 EUR lot vs 95 EUR in the drawer), so a later sale would
+ * oversell. Blocked until that is fixed. Shared by both schemas below and by
+ * `ExchangeRepository.createTransaction` (offline replay skips the schemas).
+ */
+export function exchangeCustomerCanOwe(fromCurrency: string): boolean {
+  return fromCurrency === "USD" || fromCurrency === "LBP";
+}
+
+/** The plain message for the rule above — same text on every path. */
+export function exchangeOwingBlockedMessage(fromCurrency: string): string {
+  return `Owing or forgiving isn't available yet when the customer pays in ${fromCurrency} — take the full amount.`;
+}
+
+/** The four "Customer pays" refines both exchange schemas apply. */
+function refineCustomerPays(
+  data: {
+    fromCurrency: string;
+    // `| undefined` so the frontend's exactOptionalPropertyTypes accepts
+    // zod's inferred optionals (tests import this module directly).
+    partnerMode?: "FOR" | undefined;
+    clientId?: number | undefined;
+    customerPayments?:
+      | Array<{ method: string; currencyCode: string }>
+      | undefined;
+    customer_waived_amount?: number | undefined;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  const lines = data.customerPayments;
+  const hasCustomerPays =
+    (lines !== undefined && lines.length > 0) ||
+    (data.customer_waived_amount ?? 0) > 0;
+  if (!hasCustomerPays) return;
+  if (data.partnerMode === "FOR") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "A partner exchange takes no money from a customer — remove the customer's payment lines.",
+      path: ["customerPayments"],
+    });
+  }
+  (lines ?? []).forEach((line, i) => {
+    if (line.currencyCode !== data.fromCurrency) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `The customer pays in ${data.fromCurrency} only on this exchange.`,
+        path: ["customerPayments", i, "currencyCode"],
+      });
+    }
+  });
+  if (
+    (lines ?? []).some((l) => l.method === "CUSTOMER_ACCOUNT") &&
+    !data.clientId
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Choose a client to put part of the payment on their account.",
+      path: ["clientId"],
+    });
+  }
+  if (!exchangeCustomerCanOwe(data.fromCurrency)) {
+    const owes = (lines ?? []).some((l) => l.method === "CUSTOMER_ACCOUNT");
+    const forgives = (data.customer_waived_amount ?? 0) > 0;
+    if (owes || forgives) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: exchangeOwingBlockedMessage(data.fromCurrency),
+        path: [owes ? "customerPayments" : "customer_waived_amount"],
+      });
+    }
+  }
+}
+
 export const createExchangeSchema = z
   .object({
     fromCurrency: currencyCodeSchema,
@@ -99,10 +193,12 @@ export const createExchangeSchema = z
      *  (lira-095 — reconcile at the till's rate, not the server rate). */
     tender_exchange_rate: z.number().positive().optional(),
     ...keptChangeFields,
+    ...customerPaysFields,
   })
   .refine((data) => data.fromCurrency !== data.toCurrency, {
     message: "From and To currencies must be different",
-  });
+  })
+  .superRefine(refineCustomerPays);
 
 /**
  * Full exchange-submit contract (EXCHANGE_LOT_SETTLEMENT.md "Named
@@ -180,8 +276,10 @@ export const exchangeSubmitSchema = z
       .optional(),
     tender_exchange_rate: z.number().positive().optional(),
     ...keptChangeFields,
+    ...customerPaysFields,
   })
   .superRefine((data, ctx) => {
+    refineCustomerPays(data, ctx);
     // A cross exchange (viaCurrency set) needs a USD anchor for its
     // internal "from -> USD -> to" passthrough — mirrors
     // `ExchangeRepository._crossUsdNotional`'s anchor priority: when

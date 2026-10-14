@@ -341,14 +341,17 @@ export default function MobileRecharge() {
   const [cryptoFeeIncluded, setCryptoFeeIncluded] = useState(false);
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 — Binance mode C ("Customer
   // pays separately"): the wallet receives the bare amount, the payout
-  // stays FULL, and the fee is collected back from the customer via a
-  // dedicated feePayments leg set — additive to cryptoFeeIncluded, mutually
-  // exclusive at the UI layer (CryptoForm's radio group never sets both).
+  // stays FULL, and the fee is collected over the counter — additive to
+  // cryptoFeeIncluded, mutually exclusive at the UI layer (CryptoForm's
+  // radio group never sets both).
   const [cryptoFeeCollectedSeparately, setCryptoFeeCollectedSeparately] =
     useState(false);
-  const [cryptoFeePaymentLines, setCryptoFeePaymentLines] = useState<
+  // LIRA-321 (US4): a cash-out's "Customer pays" lines (the USDT line plus
+  // the fee line when paid separately) and the part the cashier forgave.
+  const [cryptoCustomerLines, setCryptoCustomerLines] = useState<
     PaymentLine[]
   >([]);
+  const [cryptoCustomerForgiven, setCryptoCustomerForgiven] = useState(0);
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [cryptoClientName, setCryptoClientName] = useState("");
   const [cryptoClientPhone, setCryptoClientPhone] = useState("");
@@ -511,7 +514,8 @@ export default function MobileRecharge() {
     setCryptoAmount("");
     setCryptoFeeIncluded(false);
     setCryptoFeeCollectedSeparately(false);
-    setCryptoFeePaymentLines([]);
+    setCryptoCustomerLines([]);
+    setCryptoCustomerForgiven(0);
     setCryptoPaymentLines([]);
     setCryptoReturnLegs([]);
     setCryptoKeptChange(null);
@@ -1500,12 +1504,26 @@ export default function MobileRecharge() {
     const derivedCashoutMethod =
       paidByMethod === "CUSTOMER_ACCOUNT" ? "CUSTOMER_ACCOUNT" : "CASH";
 
+    // LIRA-321 (US4): the cash-out's "Customer pays" lines. CryptoForm shows
+    // that section on every walk-in cash-out (never in a session — the
+    // basket collects the payment there — and a partner transaction never
+    // reaches this handler). Zero-amount lines are not sent.
+    const sentCustomerLines =
+      cryptoType === "RECEIVE" && !activeSession
+        ? cryptoCustomerLines.filter((l) => l.amount > 0)
+        : [];
+
     const clientResult = await ensureRechargeClient({
       clientId: cryptoClientId,
       name: cryptoClientName,
       phone: cryptoClientPhone,
-      // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too.
-      paymentLines: [...cryptoPaymentLines, ...cryptoChangeLegs],
+      // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too,
+      // and so does a "Customer pays" account line (LIRA-321).
+      paymentLines: [
+        ...cryptoPaymentLines,
+        ...cryptoChangeLegs,
+        ...sentCustomerLines,
+      ],
     });
     if (!clientResult.ok) {
       alert(clientResult.error);
@@ -1558,7 +1576,8 @@ export default function MobileRecharge() {
       setCryptoFee("");
       setCryptoFeeIncluded(false);
       setCryptoFeeCollectedSeparately(false);
-      setCryptoFeePaymentLines([]);
+      setCryptoCustomerLines([]);
+    setCryptoCustomerForgiven(0);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
@@ -1609,18 +1628,23 @@ export default function MobileRecharge() {
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
           ? { cashoutMethod: derivedCashoutMethod }
           : {}),
-        // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 — mode C's operator-
-        // chosen fee-collection legs. Sent ONLY when the customer pays the
-        // fee separately on a fee-on-top RECEIVE — absent entirely (not [])
-        // for modes A/B, SEND, a zero fee, a partner transfer (routed via
-        // handleForPartnerSubmit, which never reaches this payload), or a
-        // session (cryptoFeeCollectedSeparately is force-reset by CryptoForm
-        // whenever activeSession is true, so this branch never fires there).
-        ...(cryptoType === "RECEIVE" && cryptoFeeCollectedSeparately && fee > 0
+        // LIRA-321 (US4): the customer's side as `customerPayments` (never
+        // `feePayments`) — the USDT line plus the fee line when the fee is
+        // paid separately — with the fee mode stated and any forgiven part
+        // (USD). Absent for SEND, a session and a partner transaction.
+        ...(sentCustomerLines.length > 0
           ? {
-              feePayments: toCamelLegs(
-                cryptoFeePaymentLines.filter((l) => l.amount > 0),
-              ),
+              customerPayments: sentCustomerLines.map((l) => ({
+                method: l.method,
+                currencyCode: l.currencyCode,
+                amount: l.amount,
+              })),
+              ...(cryptoFeeCollectedSeparately && commission > 0
+                ? { feeCollectedSeparately: true }
+                : {}),
+              customer_waived_amount: cryptoCustomerForgiven,
+              // An LBP cash line converts at the till's rate.
+              tender_exchange_rate: cryptoTenderRate ?? exchangeRate,
             }
           : {}),
         // T3 keep-change: kept amounts join the profit stamp.
@@ -1676,7 +1700,8 @@ export default function MobileRecharge() {
       setCryptoFee("");
       setCryptoFeeIncluded(false);
       setCryptoFeeCollectedSeparately(false);
-      setCryptoFeePaymentLines([]);
+      setCryptoCustomerLines([]);
+    setCryptoCustomerForgiven(0);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
@@ -1700,7 +1725,8 @@ export default function MobileRecharge() {
     cryptoAmount,
     cryptoFeeIncluded,
     cryptoFeeCollectedSeparately,
-    cryptoFeePaymentLines,
+    cryptoCustomerLines,
+    cryptoCustomerForgiven,
     cryptoClientName,
     cryptoClientPhone,
     cryptoClientId,
@@ -2191,13 +2217,16 @@ export default function MobileRecharge() {
             setFeeIncluded={setCryptoFeeIncluded}
             feeCollectedSeparately={cryptoFeeCollectedSeparately}
             setFeeCollectedSeparately={setCryptoFeeCollectedSeparately}
-            onFeePaymentLinesChange={setCryptoFeePaymentLines}
-            // Mode C's counter-flow fee is collected via ANY payment method
-            // in the system (owner decision Q1) — the UNFILTERED list, minus
+            onCustomerLinesChange={setCryptoCustomerLines}
+            onCustomerForgivenChange={setCryptoCustomerForgiven}
+            // The "Customer pays" lines take ANY payment method in the
+            // system (owner decision Q1) — the UNFILTERED list, minus
             // GIFT_CARD (the server hard-rejects it). Deliberately NOT the
             // `paymentMethods` prop below, which is the PAYOUT method list,
             // restricted to CASH/CUSTOMER_ACCOUNT for a RECEIVE payout.
-            feePaymentMethods={methods.filter((pm) => pm.code !== "GIFT_CARD")}
+            customerPaymentMethods={methods.filter(
+              (pm) => pm.code !== "GIFT_CARD",
+            )}
             handleCryptoSubmit={handleCryptoSubmit}
             // A cash-out keeps change only where the server can book it:
             // not inside a session (the basket pays out) and not when it is

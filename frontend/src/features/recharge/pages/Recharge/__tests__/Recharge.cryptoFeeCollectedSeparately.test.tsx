@@ -22,10 +22,17 @@
  * `payload.feePayments` would read `undefined` instead of the injected leg.
  * Confirmed by stashing the Recharge/index.tsx changes and re-running this
  * file.
+ *
+ * LIRA-321 (US4) rewrote the premise: the fee is no longer its own
+ * `feePayments` set — it is one of the cash-out's "Customer pays" lines
+ * (`customerPayments`, next to the USDT line) with `feeCollectedSeparately`
+ * stated. The first test is now the guard that `feePayments` is NOT sent
+ * (rule 24); field names are checked through the core schema.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { PaymentLine } from "@liratek/ui";
+import { createFinancialServiceSchema } from "@liratek/core";
 import MobileRecharge from "../index";
 
 const mockAddOMTTransaction = jest
@@ -77,7 +84,7 @@ jest.mock("../../../components", () => ({
     setCryptoType,
     setFeeCollectedSeparately,
     onPaymentLinesChange,
-    onFeePaymentLinesChange,
+    onCustomerLinesChange,
     handleCryptoSubmit,
   }: {
     cryptoAmount: string;
@@ -87,7 +94,7 @@ jest.mock("../../../components", () => ({
     setCryptoType: (t: "SEND" | "RECEIVE") => void;
     setFeeCollectedSeparately: (v: boolean) => void;
     onPaymentLinesChange: (lines: PaymentLine[]) => void;
-    onFeePaymentLinesChange: (lines: PaymentLine[]) => void;
+    onCustomerLinesChange: (lines: PaymentLine[]) => void;
     handleCryptoSubmit: () => void;
   }) => (
     <div data-testid="stub-crypto-form">
@@ -118,9 +125,10 @@ jest.mock("../../../components", () => ({
         }
       />
       <button
-        data-testid="crypto-inject-fee-payment"
+        data-testid="crypto-inject-customer-lines"
         onClick={() =>
-          onFeePaymentLinesChange([
+          onCustomerLinesChange([
+            { id: "C1", method: "BINANCE", currencyCode: "USDT", amount: 100 },
             { id: "F1", method: "OMT", currencyCode: "USD", amount: 2 },
           ] as PaymentLine[])
         }
@@ -194,7 +202,7 @@ describe("Recharge page — Binance mode C (Customer pays separately)", () => {
     mockAddOMTTransaction.mockClear();
   });
 
-  it("sends the BARE amount (no fee added) and feePayments from the fee counter-flow lines", async () => {
+  it("sends the BARE amount (no fee added) and the fee line inside customerPayments — never feePayments", async () => {
     await renderPage();
 
     fireEvent.click(screen.getByTestId("select-binance"));
@@ -211,7 +219,7 @@ describe("Recharge page — Binance mode C (Customer pays separately)", () => {
       screen.getByTestId("crypto-toggle-fee-collected-separately"),
     );
     fireEvent.click(screen.getByTestId("crypto-inject-payout"));
-    fireEvent.click(screen.getByTestId("crypto-inject-fee-payment"));
+    fireEvent.click(screen.getByTestId("crypto-inject-customer-lines"));
     fireEvent.click(screen.getByTestId("crypto-confirm"));
 
     await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
@@ -220,17 +228,19 @@ describe("Recharge page — Binance mode C (Customer pays separately)", () => {
       unknown
     >;
 
-    expect(payload.serviceType).toBe("RECEIVE");
+    const parsed = createFinancialServiceSchema.safeParse(payload);
+    if (!parsed.success) throw new Error(JSON.stringify(parsed.error.issues));
+    const data = parsed.data;
+    expect(data.serviceType).toBe("RECEIVE");
     // Wallet receives the BARE amount — NOT 102 (mode A's fee-on-top).
-    expect(payload.amount).toBe(100);
-    expect(payload.commission).toBe(2);
-    expect(payload.feePayments).toEqual([
-      expect.objectContaining({
-        method: "OMT",
-        currencyCode: "USD",
-        amount: 2,
-      }),
+    expect(data.amount).toBe(100);
+    expect(data.commission).toBe(2);
+    expect(data.customerPayments).toEqual([
+      { method: "BINANCE", currencyCode: "USDT", amount: 100 },
+      { method: "OMT", currencyCode: "USD", amount: 2 },
     ]);
+    expect(data.feeCollectedSeparately).toBe(true);
+    expect("feePayments" in payload).toBe(false);
   });
 
   it("modes A/B (feeCollectedSeparately=false) never send feePayments — regression, byte-identical to before this feature", async () => {
@@ -260,6 +270,7 @@ describe("Recharge page — Binance mode C (Customer pays separately)", () => {
     expect(payload.amount).toBe(102);
     expect(payload.commission).toBe(2);
     expect(payload.feePayments).toBeUndefined();
+    expect(payload.feeCollectedSeparately).toBeUndefined();
   });
 
   it("feeCollectedSeparately=true with a zero fee never sends feePayments (S2-style guard mirrors the repository's own reject-on-zero-fee rule)", async () => {
@@ -287,5 +298,6 @@ describe("Recharge page — Binance mode C (Customer pays separately)", () => {
 
     expect(payload.amount).toBe(100);
     expect(payload.feePayments).toBeUndefined();
+    expect(payload.feeCollectedSeparately).toBeUndefined();
   });
 });

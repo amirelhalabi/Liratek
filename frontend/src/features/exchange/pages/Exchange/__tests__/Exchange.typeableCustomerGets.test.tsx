@@ -60,6 +60,8 @@ function marketRateToUsdPerUnitMock(rate: number, isStronger: 1 | -1): number {
 // `calculateExchange` itself.
 jest.mock("@liratek/core", () => ({
   TAKE_USD: -1,
+  // LIRA-321: the page reads the forgive cap for the "Customer pays" section.
+  SHORTFALL_MAX: { USD: 5, LBP: 450_000 },
   isLotTrackedCurrency: (code: string) => !["USD", "LBP"].includes(code),
   convertFromUSD: (usd: number) => ({
     amountOut: usd * mockLbpBuyRate,

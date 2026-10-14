@@ -131,6 +131,7 @@ export {
 } from "./ExchangeRepository.js";
 export type {
   ExchangeTransactionEntity,
+  ExchangeHistoryEntity,
   CreateExchangeData,
   CreateExchangeResult,
 } from "./ExchangeRepository.js";
@@ -895,6 +896,13 @@ export {
   LEG_RECONCILIATION_EPSILON_USD,
   applyDrawerDelta,
   insertPaymentRow,
+  // LIRA-321: "Customer pays" lines on payout screens.
+  bookCustomerLegs,
+  CUSTOMER_LEGS_OVERPAID_MESSAGE,
+  CUSTOMER_LEGS_SHORT_MESSAGE,
+  CUSTOMER_LEGS_NEEDS_CLIENT_MESSAGE,
+  CUSTOMER_LEGS_FORGIVE_TOO_MUCH_MESSAGE,
+  CUSTOMER_LEGS_FORGIVE_OVER_CAP_MESSAGE,
 } from "./moneyPosting.js";
 export type {
   ReconciliationLeg,
@@ -903,7 +911,15 @@ export type {
   ReconcileLegsInput,
   ApplyDrawerDeltaInput,
   InsertPaymentRowInput,
+  BookCustomerLegsInput,
+  BookCustomerLegsResult,
 } from "./moneyPosting.js";
+// LIRA-321 FR-012: the one writer of a forgiven "Customer pays" leftover.
+export {
+  bookForgivenShortfallSibling,
+  forgivenShortfallProfit,
+} from "./forgivenShortfall.js";
+export type { ForgivenShortfallSiblingInput } from "./forgivenShortfall.js";
 
 // Stock Batch Repository (Supplier Stock Intake — FIFO cost batches)
 export {

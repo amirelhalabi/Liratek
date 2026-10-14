@@ -63,6 +63,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE exchange_transactions (
+      client_id INTEGER, -- v215 (LIRA-321)
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,

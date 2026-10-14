@@ -86,6 +86,13 @@ describe("MODULE_DEBT_TRANSACTION_TYPES — reversal-symmetry guard (rule 20)", 
     expect(dead).toEqual([]);
   });
 
+  // LIRA-321 (T017): an Exchange shortfall put on the client's account books
+  // 'Exchange Debt'. The generic void/refund (_cancelDebt) and the repayment
+  // FIFO (REPAYMENT_COVERABLE_DEBT_TYPES) must both own it.
+  it("'Exchange Debt' is whitelisted (generic reversal + repayment coverage own it)", () => {
+    expect(MODULE_DEBT_TRANSACTION_TYPES).toContain("Exchange Debt");
+  });
+
   it("no type is both whitelisted and excluded", () => {
     const both = MODULE_DEBT_TRANSACTION_TYPES.filter(
       (t) => t in EXCLUDED_DEBT_TYPES,

@@ -140,4 +140,98 @@ describe("PaymentSheet — counterFlow pass-through (BIDIRECTIONAL_PAYMENT_LEGS_
       );
     }
   });
+
+  // LIRA-321 (T009): the sheet gates Confirm on the page's verdict and
+  // forwards the new "Customer pays" fields to the real MultiPaymentInput.
+  describe("LIRA-321 — confirmDisabled and the new counterFlow fields", () => {
+    it("confirmDisabled disables the Confirm button; without it Confirm stays enabled", () => {
+      const { rerender } = renderSheet({ confirmLabel: "Confirm" });
+      expect(screen.getByRole("button", { name: "Confirm" })).toBeEnabled();
+      rerender(
+        <PaymentSheet
+          open
+          onClose={jest.fn()}
+          onConfirm={jest.fn()}
+          totalAmount={100}
+          totalAmountCurrency="USD"
+          currency="USD"
+          paymentMethods={PAYMENT_METHODS}
+          onPaymentChange={jest.fn()}
+          confirmLabel="Confirm"
+          confirmDisabled
+        />,
+      );
+      expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
+    });
+
+    it("forwards seedLines, lockCurrency and onStateChange to MultiPaymentInput", () => {
+      const onStateChange = jest.fn();
+      renderSheet({
+        payer: "payout",
+        counterFlow: {
+          label: "Customer pays — fee",
+          totalAmount: 105,
+          currency: "USD",
+          onChange: jest.fn(),
+          seedLines: [
+            { method: "CASH", currencyCode: "USD", amount: 100 },
+            { method: "CASH", currencyCode: "USD", amount: 5 },
+          ],
+          lockCurrency: true,
+          onStateChange,
+        },
+      });
+
+      expect(
+        document.querySelectorAll('[data-testid^="counter-flow-line-"]'),
+      ).toHaveLength(2);
+      for (const sel of Array.from(
+        document.querySelectorAll<HTMLSelectElement>(
+          '[data-testid^="counter-flow-currency-"]',
+        ),
+      )) {
+        expect(sel).toBeDisabled();
+      }
+      expect(onStateChange.mock.calls.at(-1)?.[0]).toMatchObject({
+        paid: 105,
+        balanced: true,
+      });
+      // Payout labels (contracts/payment-box.md).
+      expect(screen.getByTestId("direction-chip-you-pay")).toHaveTextContent(
+        "OUT",
+      );
+      expect(
+        screen.getByTestId("direction-chip-customer-pays"),
+      ).toHaveTextContent("IN");
+      expect(screen.getByText("Customer pays — USD")).toBeInTheDocument();
+    });
+
+    it("forwards maxForgive — a small shortfall can be forgiven", () => {
+      const onStateChange = jest.fn();
+      renderSheet({
+        counterFlow: {
+          label: "Customer pays — fee",
+          totalAmount: 5,
+          currency: "USD",
+          onChange: jest.fn(),
+          maxForgive: 5,
+          onStateChange,
+        },
+      });
+      const amount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="counter-flow-amount-"]',
+      ) as HTMLInputElement;
+      fireEvent.change(amount, { target: { value: "3" } });
+      const section = screen.getByTestId("counter-flow-section");
+      const removes = section.querySelectorAll<HTMLButtonElement>(
+        'button[title="Remove"]',
+      );
+      fireEvent.click(removes[removes.length - 1]);
+      fireEvent.click(screen.getByTestId("counter-flow-forgive"));
+      expect(onStateChange.mock.calls.at(-1)?.[0]).toMatchObject({
+        forgiven: 2,
+        balanced: true,
+      });
+    });
+  });
 });

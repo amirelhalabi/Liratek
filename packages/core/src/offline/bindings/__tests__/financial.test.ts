@@ -58,6 +58,7 @@ function seed(db: Database.Database): void {
       (1, 'General', 'USD', 1000), (1, 'General', 'LBP', 90000000),
       (1, 'OMT_System', 'USD', 1000), (1, 'OMT_System', 'LBP', 90000000),
       (1, 'OMT_App', 'USD', 1000), (1, 'OMT_App', 'LBP', 90000000),
+      (1, 'Whish_App', 'USD', 1000),
       (1, 'MTC', 'USD', 500), (1, 'iPick', 'LBP', 50000000);
     INSERT INTO carrier_lines (id, tenant_id, carrier, phone_number, label, credits, validity_expires_at, is_active, is_primary)
       VALUES (1, 1, 'mtc', '03123456', 'Shop MTC', 500, '2099-01-01', 1, 1);
@@ -88,6 +89,22 @@ const omt = (p: Record<string, unknown>) =>
 const CASES: Array<[string, ParityCase]> = [
   ["omt:add-transaction OMT SEND, USD cash", omt({ ...SEED_SEND, amount: 100, commission: 2, payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }], senderName: "Rami", receiverName: "Ziad" })],
   ["omt:add-transaction OMT SEND paid in LBP", omt({ ...SEED_SEND, amount: 10, commission: 0, payments: [{ method: "CASH", currencyCode: "LBP", amount: 900000 }] })],
+  // LIRA-321 T034a (FR-017): a queued Whish App receive whose customer paid
+  // in several lines, part on the client's account, replays to the same
+  // wallet/cash deltas and Service Debt as an online save.
+  [
+    "omt:add-transaction Whish App RECEIVE, customer pays Whish + Cash fee + account",
+    omt({
+      provider: "WHISH_APP", serviceType: "RECEIVE", amount: 100, currency: "USD", commission: 5, whishFee: 5,
+      includingFees: false, feeCollectedSeparately: true, clientId: 7, cashoutMethod: "CASH",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+      customerPayments: [
+        { method: "WHISH", currencyCode: "USD", amount: 90 },
+        { method: "CASH", currencyCode: "USD", amount: 5 },
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 10 },
+      ],
+    }),
+  ],
   ["omt:add-transaction OMT RECEIVE, cash out", omt({ provider: "OMT", serviceType: "RECEIVE", amount: 40, currency: "USD", commission: 0, cashoutMethod: "CASH", payments: [{ method: "CASH", currencyCode: "USD", amount: 40 }] })],
   [
     "financial:self-charge-telecom-item",
@@ -124,6 +141,8 @@ describe("financial services bindings (T082)", () => {
       "returnedCreditsUsd", "partnerId", "partnerMode", "cashoutMethod", "transaction_time", "deferPayment",
       "checkoutTotal", "tender_exchange_rate", "split_group", "split_role", "split_units", "feePayments",
       "kept_change_usd", "kept_change_lbp", "mobileServiceItemId", "telecomCreditReturns",
+      // LIRA-321: the "Customer pays" lines on an app-wallet RECEIVE.
+      "customerPayments", "customer_waived_amount", "feeCollectedSeparately",
     ];
     const shape = (createFinancialServiceSchema as unknown as { shape: Record<string, unknown> }).shape;
     expect(PRELOAD_KEYS.filter((k) => !(k in shape))).toEqual([]);
@@ -135,6 +154,18 @@ describe("financial services bindings (T082)", () => {
     expect(run.replay.outcome).toMatchObject({ status: "booked" });
     expect(run.replay.state).toEqual(run.online.state);
     expect(run.replay.offTime).toEqual([]);
+  });
+
+  it("LIRA-321 T034a — the replayed Whish App receive books the customer's lines and the Service Debt", async () => {
+    const pc = CASES.find(([n]) => n.startsWith("omt:add-transaction Whish App RECEIVE, customer pays"))![1];
+    const run = await runParity(pc);
+    expect(run.replay.outcome).toMatchObject({ status: "booked" });
+    const money = (run.replay.state as { money: { debt: unknown[]; payments: Array<{ method: string; drawer_name: string; amount: number }> } }).money;
+    expect(money.debt).toEqual([{ client_id: 7, transaction_type: "Service Debt", amount_usd: 10, amount_lbp: 0 }]);
+    expect(money.payments.filter((p) => p.drawer_name === "Whish_App" && p.amount !== 0)).toEqual([
+      expect.objectContaining({ method: "WHISH_APP", amount: 90 }),
+    ]);
+    expect(run.replay.state).toEqual(run.online.state);
   });
 
   it("financial:update-metadata — editedBy is the event actor's username", async () => {

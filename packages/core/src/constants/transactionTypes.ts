@@ -703,6 +703,10 @@ export const MODULE_DEBT_TRANSACTION_TYPES: readonly string[] = [
   "Custom Service Debt",
   "Loto Debt",
   "Maintenance Debt",
+  // LIRA-321: the part of an exchange the customer did not hand over, put on
+  // their account (ExchangeRepository "Customer pays"). Generic reversal +
+  // repayment FIFO coverage own it, like every other module charge.
+  "Exchange Debt",
 ];
 
 /**

@@ -10,6 +10,7 @@ import {
   ExchangeRepository,
   getExchangeRepository,
   type ExchangeTransactionEntity,
+  type ExchangeHistoryEntity,
   type CreateExchangeData,
   ExchangeLotRepository,
   getExchangeLotRepository,
@@ -67,7 +68,7 @@ export type ExchangeResult = ExchangeOpResult;
  * see `attachLotSummaries`'s doc). Reuses `SourceSummary`/`SettlerSummary`
  * verbatim (rule 14) rather than re-declaring the same shape here.
  */
-export type ExchangeHistoryRow = ExchangeTransactionEntity & {
+export type ExchangeHistoryRow = ExchangeHistoryEntity & {
   lot_summary: SourceSummary | null;
   settler_summary: SettlerSummary | null;
 };
@@ -85,6 +86,10 @@ export interface AddExchangeInput {
   /** Split payout — see CreateExchangeData.payments for the full contract. */
   payments?: CreateExchangeData["payments"];
   tender_exchange_rate?: number;
+  /** LIRA-321 "Customer pays" — see CreateExchangeData for the contract. */
+  clientId?: CreateExchangeData["clientId"];
+  customerPayments?: CreateExchangeData["customerPayments"];
+  customer_waived_amount?: CreateExchangeData["customer_waived_amount"];
 }
 
 // =============================================================================
@@ -160,6 +165,11 @@ export class ExchangeService {
         partnerMode: input.partnerMode,
         payments: input.payments,
         tender_exchange_rate: input.tender_exchange_rate,
+        // LIRA-321 (rule 23): createExchangeSchema accepts these, so this
+        // hand-built object must forward them or they are silently dropped.
+        clientId: input.clientId,
+        customerPayments: input.customerPayments,
+        customer_waived_amount: input.customer_waived_amount,
       };
 
       const {
@@ -293,7 +303,7 @@ export class ExchangeService {
    * lot feature must not make the pre-existing history read fragile.
    */
   private attachLotSummaries(
-    rows: ExchangeTransactionEntity[],
+    rows: ExchangeHistoryEntity[],
   ): ExchangeHistoryRow[] {
     if (rows.length === 0) return [];
 

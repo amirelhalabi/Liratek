@@ -27,6 +27,9 @@ export type {
   TransactionType,
   VoucherOption,
 } from "./MultiPaymentInput";
+export { SplitToggle } from "./SplitToggle";
+export type { SplitToggleProps } from "./SplitToggle";
+export type { LinesSectionState, LinesSectionSeed } from "./useLinesSection";
 export { default as TopUpModal } from "./TopUpModal";
 export type {
   TopUpModalProps,

@@ -33,6 +33,13 @@ function createTestDb(): Database.Database {
   const db = new Database(":memory:");
 
   db.exec(`
+    -- LIRA-321 (T025): getHistory LEFT JOINs the picked client's name.
+    CREATE TABLE clients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      full_name TEXT NOT NULL
+    );
+
     CREATE TABLE users (
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,6 +49,7 @@ function createTestDb(): Database.Database {
     INSERT INTO users (id, username, role) VALUES (1, 'Admin', 'admin');
 
     CREATE TABLE exchange_transactions (
+      client_id INTEGER, -- v215 (LIRA-321)
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
@@ -1053,6 +1061,9 @@ describe("ExchangeRepository.createTransaction() — lot settlement wiring (EXCH
           "leg2_profit_usd",
           "via_currency",
           "client_name",
+          // LIRA-321 (T025): the picked client and its name, by design.
+          "client_id",
+          "client_full_name",
           "note",
           "created_at",
           "created_by",

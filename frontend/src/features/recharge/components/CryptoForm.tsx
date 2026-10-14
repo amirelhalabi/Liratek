@@ -7,6 +7,7 @@ import {
   useApi,
   appEvents,
   type PaymentLine,
+  type LinesSectionState,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -25,6 +26,7 @@ import {
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { cryptoAmounts } from "../utils/cryptoAmounts";
+import { SHORTFALL_MAX } from "@liratek/core";
 
 interface CryptoFormProps {
   activeConfig: ProviderConfig | undefined;
@@ -48,12 +50,18 @@ interface CryptoFormProps {
    *  the RECEIVE fee separately (any method), independent of the payout. */
   feeCollectedSeparately: boolean;
   setFeeCollectedSeparately: (val: boolean) => void;
-  onFeePaymentLinesChange: (lines: PaymentLine[]) => void;
-  /** UNFILTERED payment methods (minus GIFT_CARD) for the fee counter-flow
-   *  ONLY — the customer can pay the fee via any method in the system
+  /** LIRA-321 (US4): the cash-out's "Customer pays" lines — the USDT line
+   *  (Binance) plus the fee line when the fee is paid separately. The page
+   *  sends them as `customerPayments`. */
+  onCustomerLinesChange: (lines: PaymentLine[]) => void;
+  /** LIRA-321: the part of the customer's side the cashier forgave (USD);
+   *  the page sends it as `customer_waived_amount`. */
+  onCustomerForgivenChange: (forgiven: number) => void;
+  /** UNFILTERED payment methods (minus GIFT_CARD) for the "Customer pays"
+   *  section ONLY — the customer can pay via any method in the system
    *  (owner decision), unlike `paymentMethods` below, which is the payout
    *  method list restricted for a RECEIVE. */
-  feePaymentMethods: Array<{
+  customerPaymentMethods: Array<{
     code: string;
     label: string;
     drawer_name?: string;
@@ -102,8 +110,9 @@ export function CryptoForm({
   setFeeIncluded,
   feeCollectedSeparately,
   setFeeCollectedSeparately,
-  onFeePaymentLinesChange,
-  feePaymentMethods,
+  onCustomerLinesChange,
+  onCustomerForgivenChange,
+  customerPaymentMethods,
   handleCryptoSubmit,
   isSubmitting,
   binanceTransactions,
@@ -138,6 +147,13 @@ export function CryptoForm({
   // LIRA-319 — the sheet's extra, mirrored here for the sheet's own labels
   // ("Pay $…" / "Customer Pays"); the page sends it.
   const [extra, setExtra] = useState(0);
+  // LIRA-321: the "Customer pays" section's balance (onStateChange).
+  const [customerSectionState, setCustomerSectionState] =
+    useState<LinesSectionState | null>(null);
+  const handleCustomerSectionState = (s: LinesSectionState) => {
+    setCustomerSectionState(s);
+    onCustomerForgivenChange(s.forgiven);
+  };
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
@@ -217,6 +233,41 @@ export function CryptoForm({
     discount: activeSession ? 0 : discount,
   });
   const receiveDiscountOffered = !activeSession;
+
+  // LIRA-321 (US4): on a walk-in cash-out the customer's side is its own
+  // "Customer pays" section — the USDT line (Binance) plus, when the fee is
+  // "Customer pays separately", a Cash fee line in USD. Not for a partner
+  // transaction (no walk-in customer) or inside a session (the basket
+  // checkout collects the payment); the server refuses both.
+  const showCustomerSection =
+    cryptoType === "RECEIVE" &&
+    !activeSession &&
+    !forPartner &&
+    receiveUsdt > 0;
+  const feeLineSeparate =
+    showCustomerSection && feeCollectedSeparately && feeToCollect > 0;
+  // The USDT line's method must be selectable even if the shop turned the
+  // Binance payment method off in Settings.
+  const customerSectionMethods = customerPaymentMethods.some(
+    (pm) => pm.code === "BINANCE",
+  )
+    ? customerPaymentMethods
+    : [{ code: "BINANCE", label: "Binance" }, ...customerPaymentMethods];
+  const customerSeedLines = [
+    { method: "BINANCE", currencyCode: "USDT", amount: receiveUsdt },
+    ...(feeLineSeparate
+      ? [{ method: "CASH", currencyCode: "USD", amount: feeToCollect }]
+      : []),
+  ];
+  // What the server checks the lines against, in USD (1 USDT = $1): the
+  // USDT amount, plus the fee (after the discount) when paid separately.
+  const customerTotal = receiveUsdt + (feeLineSeparate ? feeToCollect : 0);
+  const customerSectionBlocksSubmit =
+    showCustomerSection &&
+    customerSectionState !== null &&
+    (customerSectionState.overpaid ||
+      customerSectionState.needsClient ||
+      !customerSectionState.balanced);
   // LIRA-319 — an extra only on a walk-in SEND (a cash-out is a payout; a
   // session's checkout takes the extra; a partner transfer has no sheet).
   const extraOffered = cryptoType === "SEND" && !activeSession && !forPartner;
@@ -683,6 +734,9 @@ export function CryptoForm({
           onClose={() => setShowPaymentSheet(false)}
           onConfirm={handleCryptoSubmit}
           isSubmitting={isSubmitting}
+          // LIRA-321: Confirm waits while the "Customer pays" section is
+          // over, short, or owes to an account with no client.
+          confirmDisabled={customerSectionBlocksSubmit}
           title={
             cryptoType === "RECEIVE" ? "Confirm Cash Out" : "Confirm Payment"
           }
@@ -806,23 +860,28 @@ export function CryptoForm({
             ? { unreturnedChangeTo: "CUSTOMER_ACCOUNT" as const }
             : {})}
           {...(onKeptChange ? { onKeptChange } : {})}
-          // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 — mode C's counter-flow
-          // section: the customer's separately-paid fee, independent of the
-          // payout lines above. Absent (modes A/B, no fee, a partner
-          // transaction, or a session) renders nothing extra.
-          {...(cryptoType === "RECEIVE" &&
-          feeCollectedSeparately &&
-          fee > 0 &&
-          !forPartner
+          // LIRA-321 (US4): the "Customer pays" section — the USDT line
+          // (+ the fee line when paid separately), independent of the payout
+          // lines. Two seed lines open it in split mode; one keeps it
+          // single. Counted in USD (1 USDT = $1), so a leftover line is USD.
+          {...(showCustomerSection
             ? {
                 counterFlow: {
-                  label: `Customer pays — Binance fee`,
-                  // Fee after the discount — what the server reconciles the
-                  // fee legs against (`commission`, LIRA-269).
-                  totalAmount: feeToCollect,
+                  label: "Customer pays",
+                  totalAmount: customerTotal,
                   currency: "USD",
-                  onChange: onFeePaymentLinesChange,
-                  paymentMethods: feePaymentMethods,
+                  seedLines: customerSeedLines,
+                  maxForgive: SHORTFALL_MAX.USD,
+                  // USDT for the Binance line, USD/LBP for cash — this
+                  // section only; the payout lines stay USD/LBP.
+                  currencies: [
+                    { code: "USDT", symbol: "USDT" },
+                    { code: "USD", symbol: "$" },
+                    { code: "LBP", symbol: "LBP" },
+                  ],
+                  onChange: onCustomerLinesChange,
+                  onStateChange: handleCustomerSectionState,
+                  paymentMethods: customerSectionMethods,
                   requiresClient: true,
                   hasClient:
                     !!cryptoClientId ||

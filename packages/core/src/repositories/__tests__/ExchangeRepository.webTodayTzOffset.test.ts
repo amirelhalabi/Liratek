@@ -46,6 +46,7 @@ let BOUNDARY_TX_UTC: string;
 function createSchema(d: Database.Database): void {
   d.exec(`
     CREATE TABLE exchange_transactions (
+      client_id INTEGER, -- v215 (LIRA-321)
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,

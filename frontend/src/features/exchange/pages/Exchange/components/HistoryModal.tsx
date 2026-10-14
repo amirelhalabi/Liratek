@@ -59,6 +59,10 @@ type ExchangeTx = {
   edited_by?: string | null;
   edited_at?: string | null;
   client_name?: string | null;
+  /** LIRA-321: the saved client the exchange is linked to (its current
+   *  name), projected by ExchangeRepository.getHistory. */
+  client_id?: number | null;
+  client_full_name?: string | null;
   note?: string | null;
   lot_summary?: LotSourceSummary | null;
   settler_summary?: LotSettlerSummary | null;
@@ -502,6 +506,23 @@ export function HistoryModal({
                             />
                           )}
                         </div>
+                        {/* LIRA-321 (FR-014): who the exchange was for —
+                            the linked client's name, else the typed one. */}
+                        {(tx.client_full_name ?? tx.client_name) && (
+                          <div
+                            data-testid={`exchange-history-client-${tx.id}`}
+                            className={`mt-1 text-xs truncate max-w-[14rem] ${
+                              tx.client_id
+                                ? "text-violet-300"
+                                : "text-slate-400"
+                            }`}
+                            title={
+                              tx.client_id ? "Linked client" : "Typed name"
+                            }
+                          >
+                            {tx.client_full_name ?? tx.client_name}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm font-bold text-emerald-400 text-right font-mono">
                         {Number(tx.amount_in).toLocaleString()}{" "}

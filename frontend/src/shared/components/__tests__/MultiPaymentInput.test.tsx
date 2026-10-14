@@ -1632,15 +1632,24 @@ describe("MultiPaymentInput", () => {
     // ("Customer pays"), in the SAME card. Proven failing-first (rule 17):
     // before the `counterFlow` prop existed, none of these testids/chips
     // rendered and the extra onChange was never called.
-    function renderWithCounterFlow(opts: {
+    interface CounterFlowRenderOpts {
       counterFlowOnChange: jest.Mock;
       totalAmount?: number;
       currency?: string;
       requiresClient?: boolean;
       hasClient?: boolean;
-    }) {
-      const mainOnChange = jest.fn();
-      const utils = render(
+      // LIRA-321 additions
+      payer?: "payout";
+      label?: string;
+      seedLines?: Array<{ method: string; currencyCode: string; amount: number }>;
+      lockCurrency?: boolean;
+      maxForgive?: number;
+      onStateChange?: jest.Mock;
+      /** Counter-flow method list (default PAYMENT_METHODS). */
+      counterFlowMethods?: Array<{ code: string; label: string }>;
+    }
+    function counterFlowElement(opts: CounterFlowRenderOpts, mainOnChange: jest.Mock) {
+      return (
         <MultiPaymentInput
           totals={[{ amount: 100, currency: "USD" }]}
           currency="USD"
@@ -1652,18 +1661,34 @@ describe("MultiPaymentInput", () => {
           exchangeRate={EXCHANGE_RATE}
           showDiscount={false}
           onChange={mainOnChange}
+          {...(opts.payer ? { payer: opts.payer } : {})}
+          {...(opts.label !== undefined ? { label: opts.label } : {})}
           counterFlow={{
             label: "Customer pays — OMT fee",
             totalAmount: opts.totalAmount ?? 5,
             currency: opts.currency ?? "USD",
             onChange: opts.counterFlowOnChange,
-            paymentMethods: PAYMENT_METHODS,
+            paymentMethods: opts.counterFlowMethods ?? PAYMENT_METHODS,
             requiresClient: opts.requiresClient ?? true,
             hasClient: opts.hasClient ?? false,
+            ...(opts.seedLines ? { seedLines: opts.seedLines } : {}),
+            ...(opts.lockCurrency ? { lockCurrency: true } : {}),
+            ...(opts.maxForgive !== undefined
+              ? { maxForgive: opts.maxForgive }
+              : {}),
+            ...(opts.onStateChange
+              ? { onStateChange: opts.onStateChange }
+              : {}),
           }}
-        />,
+        />
       );
-      return { ...utils, mainOnChange };
+    }
+    function renderWithCounterFlow(opts: CounterFlowRenderOpts) {
+      const mainOnChange = jest.fn();
+      const utils = render(counterFlowElement(opts, mainOnChange));
+      const rerenderWith = (next: Partial<CounterFlowRenderOpts>) =>
+        utils.rerender(counterFlowElement({ ...opts, ...next }, mainOnChange));
+      return { ...utils, mainOnChange, rerenderWith };
     }
 
     it("does not render the section or either chip when counterFlow is absent (regression)", () => {
@@ -1682,16 +1707,21 @@ describe("MultiPaymentInput", () => {
 
     it("renders the section, both direction chips, and seeds one CASH line at totalAmount", () => {
       const counterFlowOnChange = jest.fn();
-      renderWithCounterFlow({ counterFlowOnChange, totalAmount: 5 });
+      // LIRA-321: payout screens read OUT / IN (testids unchanged).
+      renderWithCounterFlow({
+        counterFlowOnChange,
+        totalAmount: 5,
+        payer: "payout",
+      });
 
       expect(screen.getByTestId("counter-flow-section")).toBeInTheDocument();
       expect(screen.getByTestId("direction-chip-you-pay")).toHaveTextContent(
-        "You pay",
+        "OUT",
       );
       expect(
         screen.getByTestId("direction-chip-customer-pays"),
-      ).toHaveTextContent("Customer pays");
-      expect(screen.getByText("Customer pays — OMT fee")).toBeInTheDocument();
+      ).toHaveTextContent("IN");
+      expect(screen.getByText("Customer pays")).toBeInTheDocument();
 
       const amountInput = document.querySelector<HTMLInputElement>(
         '[data-testid^="counter-flow-amount-"]',
@@ -1750,7 +1780,10 @@ describe("MultiPaymentInput", () => {
       expect(mainLastLines[0].amount).toBe(100);
     });
 
-    it("adds a split counter-flow line prefilled with the remainder", () => {
+    it("does NOT add a CASH leftover by itself when less is typed and the account is not offered (LIRA-321 safety; was: auto CASH leftover)", () => {
+      // Rule 24 rewrite: this used to assert an auto-added CASH leftover of 3.
+      // That line booked cash the customer never handed over and let the
+      // section balance — now nothing is added and the shortfall stays open.
       const counterFlowOnChange = jest.fn();
       renderWithCounterFlow({ counterFlowOnChange, totalAmount: 5 });
 
@@ -1759,19 +1792,16 @@ describe("MultiPaymentInput", () => {
       )!;
       fireEvent.change(amountInput, { target: { value: "2" } });
 
-      fireEvent.click(screen.getByTestId("counter-flow-add-split"));
-
       const lines = document.querySelectorAll(
         '[data-testid^="counter-flow-line-"]',
       );
-      expect(lines).toHaveLength(2);
+      expect(lines).toHaveLength(1);
 
       const lastLines = counterFlowOnChange.mock.calls.at(
         -1,
       )?.[0] as PaymentLine[];
-      expect(lastLines).toHaveLength(2);
+      expect(lastLines).toHaveLength(1);
       expect(lastLines[0]).toMatchObject({ amount: 2 });
-      expect(lastLines[1]).toMatchObject({ amount: 3 }); // 5 - 2 remainder
     });
 
     it("disables CUSTOMER_ACCOUNT in the counter-flow method list when requiresClient && !hasClient", () => {
@@ -1818,6 +1848,11 @@ describe("MultiPaymentInput", () => {
           '[data-testid^="counter-flow-amount-"]',
         )!;
         fireEvent.change(amountInput, { target: { value: typed } });
+        // LIRA-321: a fully paid section stays in single mode, which has no
+        // "+ Add line" — the cashier turns Split on first.
+        if (!screen.queryByTestId("counter-flow-add-split")) {
+          fireEvent.click(screen.getByTestId("counter-flow-split-toggle"));
+        }
         fireEvent.click(screen.getByTestId("counter-flow-add-split"));
         return counterFlowOnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
       }
@@ -1847,6 +1882,522 @@ describe("MultiPaymentInput", () => {
           hasClient: true,
         });
         expect(lines[1]).toMatchObject({ method: "CASH", amount: 0 });
+      });
+    });
+
+    // LIRA-321 (T008) — the "Customer pays" section becomes a real money-in
+    // side: single vs split mode, its own Split button, a leftover line,
+    // balance reporting, a currency lock, Forgive, and the payout layout.
+    describe("Customer pays section — single/split, balance, payout layout (LIRA-321)", () => {
+      type CfState = {
+        paid: number;
+        owedToAccount: number;
+        forgiven: number;
+        balanced: boolean;
+        overpaid: boolean;
+        needsClient: boolean;
+        unaccounted: number;
+      };
+      const section = () => screen.getByTestId("counter-flow-section");
+      const cfLines = () =>
+        Array.from(
+          document.querySelectorAll('[data-testid^="counter-flow-line-"]'),
+        );
+      const cfAmountInputs = () =>
+        Array.from(
+          document.querySelectorAll<HTMLInputElement>(
+            '[data-testid^="counter-flow-amount-"]',
+          ),
+        );
+      const cfMethodSelects = () =>
+        Array.from(
+          document.querySelectorAll<HTMLSelectElement>(
+            '[data-testid^="counter-flow-method-"]',
+          ),
+        );
+      const lastState = (m: jest.Mock): CfState =>
+        m.mock.calls.at(-1)?.[0] as CfState;
+      const typeFirst = (value: string) =>
+        fireEvent.change(cfAmountInputs()[0], { target: { value } });
+
+      it("(a) one seed line opens in single mode — no '+ Add line', no remove ×", () => {
+        renderWithCounterFlow({ counterFlowOnChange: jest.fn() });
+        expect(cfLines()).toHaveLength(1);
+        expect(
+          screen.queryByTestId("counter-flow-add-split"),
+        ).not.toBeInTheDocument();
+        expect(within(section()).queryByTitle("Remove")).toBeNull();
+        expect(
+          screen.getByTestId("counter-flow-split-toggle"),
+        ).toHaveTextContent("Split");
+      });
+
+      it("(b) two seedLines open in split mode with both lines", () => {
+        const counterFlowOnChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange,
+          totalAmount: 105,
+          seedLines: [
+            { method: "OMT", currencyCode: "USD", amount: 100 },
+            { method: "CASH", currencyCode: "USD", amount: 5 },
+          ],
+        });
+        expect(cfLines()).toHaveLength(2);
+        expect(screen.getByTestId("counter-flow-add-split")).toBeInTheDocument();
+        expect(
+          screen.getByTestId("counter-flow-split-toggle"),
+        ).toHaveTextContent("Split Active");
+        expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
+          expect.objectContaining({ method: "OMT", amount: 100 }),
+          expect.objectContaining({ method: "CASH", amount: 5 }),
+        ]);
+      });
+
+      it("(c) typing less in single mode switches to split and adds the leftover as CUSTOMER_ACCOUNT when offered", () => {
+        const counterFlowOnChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange,
+          totalAmount: 50,
+          hasClient: true,
+        });
+        typeFirst("30");
+        expect(cfLines()).toHaveLength(2);
+        expect(screen.getByTestId("counter-flow-add-split")).toBeInTheDocument();
+        expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
+          expect.objectContaining({ method: "CASH", amount: 30 }),
+          expect.objectContaining({ method: "CUSTOMER_ACCOUNT", amount: 20 }),
+        ]);
+      });
+
+      it("(c) the auto leftover keeps following the first line while untouched (account offered)", () => {
+        const counterFlowOnChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange,
+          totalAmount: 50,
+          requiresClient: true,
+          hasClient: true,
+        });
+        typeFirst("1"); // first keystroke
+        typeFirst("12"); // second keystroke
+        expect(cfLines()).toHaveLength(2);
+        expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
+          expect.objectContaining({ method: "CASH", amount: 12 }),
+          expect.objectContaining({ method: "CUSTOMER_ACCOUNT", amount: 38 }),
+        ]);
+      });
+
+      // LIRA-321 safety fix — with no client (CUSTOMER_ACCOUNT not offered)
+      // the section used to auto-add a CASH leftover, balance itself, and
+      // turn Confirm on: the drawer would book cash never handed over
+      // (spec US1.3 / US2.6). Now nothing is added and the gap stays open.
+      it("(l) no client: typing less stays single, adds NO cash line, and reports the gap", () => {
+        const counterFlowOnChange = jest.fn();
+        const onStateChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange,
+          onStateChange,
+          totalAmount: 50,
+          requiresClient: true,
+          hasClient: false,
+          maxForgive: 5,
+        });
+        typeFirst("30");
+        expect(cfLines()).toHaveLength(1);
+        expect(
+          screen.queryByTestId("counter-flow-add-split"),
+        ).not.toBeInTheDocument();
+        expect(
+          screen.getByTestId("counter-flow-split-toggle"),
+        ).not.toHaveTextContent("Split Active");
+        expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
+          expect.objectContaining({ method: "CASH", amount: 30 }),
+        ]);
+        expect(lastState(onStateChange)).toMatchObject({
+          paid: 30,
+          owedToAccount: 0,
+          balanced: false,
+          unaccounted: 20,
+        });
+        const hint = screen.getByTestId("counter-flow-unaccounted");
+        expect(hint).toHaveTextContent(
+          /Still to settle: 20(\.00)? USD — pick a client to put it on their account$/,
+        );
+        expect(hint).not.toHaveTextContent(/forgive/i);
+      });
+
+      it("(l) then picking a client adds the CUSTOMER_ACCOUNT leftover and balances", () => {
+        const counterFlowOnChange = jest.fn();
+        const onStateChange = jest.fn();
+        const { rerenderWith } = renderWithCounterFlow({
+          counterFlowOnChange,
+          onStateChange,
+          totalAmount: 50,
+          requiresClient: true,
+          hasClient: false,
+        });
+        typeFirst("30");
+        rerenderWith({ hasClient: true });
+        expect(cfLines()).toHaveLength(2);
+        expect(
+          screen.getByTestId("counter-flow-split-toggle"),
+        ).toHaveTextContent("Split Active");
+        expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
+          expect.objectContaining({ method: "CASH", amount: 30 }),
+          expect.objectContaining({ method: "CUSTOMER_ACCOUNT", amount: 20 }),
+        ]);
+        expect(lastState(onStateChange)).toMatchObject({
+          paid: 30,
+          owedToAccount: 20,
+          balanced: true,
+          unaccounted: 0,
+        });
+      });
+
+      it("(l) unpicking the client drops the auto account line — never turns it into cash", () => {
+        const counterFlowOnChange = jest.fn();
+        const onStateChange = jest.fn();
+        const { rerenderWith } = renderWithCounterFlow({
+          counterFlowOnChange,
+          onStateChange,
+          totalAmount: 50,
+          requiresClient: true,
+          hasClient: true,
+        });
+        typeFirst("30");
+        expect(cfLines()).toHaveLength(2);
+        rerenderWith({ hasClient: false });
+        expect(cfLines()).toHaveLength(1);
+        expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
+          expect.objectContaining({ method: "CASH", amount: 30 }),
+        ]);
+        expect(lastState(onStateChange)).toMatchObject({
+          paid: 30,
+          balanced: false,
+          unaccounted: 20,
+        });
+      });
+
+      it("(l) no client, shortfall within maxForgive: the hint offers to forgive", () => {
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          totalAmount: 50,
+          requiresClient: true,
+          hasClient: false,
+          maxForgive: 5,
+        });
+        typeFirst("47");
+        expect(cfLines()).toHaveLength(1);
+        expect(screen.getByTestId("counter-flow-unaccounted")).toHaveTextContent(
+          /Still to settle: 3(\.00)? USD — pick a client to put it on their account, or forgive it$/,
+        );
+        expect(screen.getByTestId("counter-flow-forgive")).toBeInTheDocument();
+      });
+
+      // Owner decision 2026-10-14: a caller that offers no account at all
+      // (Exchange when the customer pays in EUR) must not tell the cashier
+      // to pick a client — picking one would change nothing.
+      it("(l) no account in the caller's methods: the hint never says 'pick a client'", () => {
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          totalAmount: 50,
+          requiresClient: true,
+          hasClient: false,
+          counterFlowMethods: PAYMENT_METHODS.filter(
+            (m) => m.code !== "CUSTOMER_ACCOUNT",
+          ),
+        });
+        typeFirst("30");
+        const hint = screen.getByTestId("counter-flow-unaccounted");
+        expect(hint).toHaveTextContent(/Still to settle: 20(\.00)? USD$/);
+        expect(hint).not.toHaveTextContent(/pick a client/);
+      });
+
+      it("(l) with the account offered, the hint carries no 'pick a client' wording", () => {
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          totalAmount: 50,
+          requiresClient: true,
+          hasClient: true,
+        });
+        typeFirst("30");
+        // Cashier turns the auto account leftover into cash and lowers it.
+        fireEvent.change(cfMethodSelects()[1], { target: { value: "CASH" } });
+        fireEvent.change(cfAmountInputs()[1], { target: { value: "10" } });
+        const hint = screen.getByTestId("counter-flow-unaccounted");
+        expect(hint).toHaveTextContent(/Still to settle: 10(\.00)? USD$/);
+      });
+
+      it("(d) counter-flow-split-toggle switches single ↔ split; back to single re-seeds one full line", () => {
+        const counterFlowOnChange = jest.fn();
+        renderWithCounterFlow({ counterFlowOnChange, totalAmount: 5 });
+        const toggle = () => screen.getByTestId("counter-flow-split-toggle");
+
+        fireEvent.click(toggle());
+        expect(toggle()).toHaveTextContent("Split Active");
+        expect(screen.getByTestId("counter-flow-add-split")).toBeInTheDocument();
+        typeFirst("2"); // in split mode: no auto-leftover, just one line of 2
+        fireEvent.click(screen.getByTestId("counter-flow-add-split"));
+        expect(cfLines()).toHaveLength(2);
+
+        fireEvent.click(toggle());
+        expect(toggle()).not.toHaveTextContent("Split Active");
+        expect(cfLines()).toHaveLength(1);
+        expect(
+          screen.queryByTestId("counter-flow-add-split"),
+        ).not.toBeInTheDocument();
+        expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
+          expect.objectContaining({ currencyCode: "USD", amount: 5 }),
+        ]);
+      });
+
+      it("(e) onStateChange — exact amount is balanced", () => {
+        const onStateChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          totalAmount: 5,
+          onStateChange,
+        });
+        expect(lastState(onStateChange)).toEqual({
+          paid: 5,
+          owedToAccount: 0,
+          forgiven: 0,
+          balanced: true,
+          overpaid: false,
+          needsClient: false,
+          unaccounted: 0,
+        });
+      });
+
+      it("(e) onStateChange — short with an account line is balanced and reports owedToAccount", () => {
+        const onStateChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          totalAmount: 50,
+          hasClient: true,
+          onStateChange,
+        });
+        typeFirst("30");
+        expect(lastState(onStateChange)).toMatchObject({
+          paid: 30,
+          owedToAccount: 20,
+          balanced: true,
+          overpaid: false,
+          needsClient: false,
+          unaccounted: 0,
+        });
+      });
+
+      it("(e) onStateChange — more than the total is overpaid, never auto-corrected", () => {
+        const onStateChange = jest.fn();
+        const counterFlowOnChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange,
+          totalAmount: 5,
+          onStateChange,
+        });
+        typeFirst("8");
+        expect(lastState(onStateChange)).toMatchObject({
+          paid: 8,
+          balanced: false,
+          overpaid: true,
+        });
+        expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
+          expect.objectContaining({ amount: 8 }),
+        ]);
+      });
+
+      it("(e) onStateChange — an account line with no client needs a client", () => {
+        const onStateChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          totalAmount: 50,
+          requiresClient: false, // CUSTOMER_ACCOUNT offered without a client
+          hasClient: false,
+          onStateChange,
+        });
+        typeFirst("30");
+        expect(lastState(onStateChange)).toMatchObject({
+          owedToAccount: 20,
+          needsClient: true,
+        });
+      });
+
+      it("(f) lockCurrency disables every currency select and new lines use the section currency", () => {
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          totalAmount: 450000,
+          currency: "LBP",
+          lockCurrency: true,
+        });
+        fireEvent.click(screen.getByTestId("counter-flow-split-toggle"));
+        fireEvent.click(screen.getByTestId("counter-flow-add-split"));
+        const selects = Array.from(
+          document.querySelectorAll<HTMLSelectElement>(
+            '[data-testid^="counter-flow-currency-"]',
+          ),
+        );
+        expect(selects).toHaveLength(2);
+        for (const sel of selects) {
+          expect(sel).toBeDisabled();
+          expect(sel.value).toBe("LBP");
+        }
+        // Each locked select shows a small lock icon; unlocked rows do not.
+        expect(
+          document.querySelectorAll('[data-testid^="counter-flow-lock-"]'),
+        ).toHaveLength(2);
+        expect(
+          document.querySelectorAll('[data-testid^="payment-lock-"]'),
+        ).toHaveLength(0);
+      });
+
+      it("(g) payout: Customer pays sits above Shop pays, with OUT / IN chips and the plain title", () => {
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          payer: "payout",
+          label: "Cashout",
+        });
+        const youPay = screen.getByTestId("direction-chip-you-pay");
+        expect(
+          section().compareDocumentPosition(youPay) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        expect(
+          section().compareDocumentPosition(
+            screen.getByTestId("payment-summary"),
+          ) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        expect(screen.getByText("Shop pays")).toBeInTheDocument();
+        expect(screen.queryByText("Cashout")).not.toBeInTheDocument();
+        expect(youPay).toHaveTextContent("OUT");
+        expect(
+          screen.getByTestId("direction-chip-customer-pays"),
+        ).toHaveTextContent("IN");
+        expect(
+          within(section()).getByText("Customer pays"),
+        ).toBeInTheDocument();
+        expect(
+          screen.queryByText("Customer pays — OMT fee"),
+        ).not.toBeInTheDocument();
+      });
+
+      it("(g) payout + lockCurrency: title reads 'Customer pays — LBP'", () => {
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          payer: "payout",
+          totalAmount: 450000,
+          currency: "LBP",
+          lockCurrency: true,
+        });
+        expect(
+          within(section()).getByText("Customer pays — LBP"),
+        ).toBeInTheDocument();
+      });
+
+      it("(h) not a payout: header still reads 'Payment' and the section keeps its own label", () => {
+        renderWithCounterFlow({ counterFlowOnChange: jest.fn() });
+        expect(screen.getByText("Payment")).toBeInTheDocument();
+        expect(screen.queryByText("Shop pays")).not.toBeInTheDocument();
+        expect(screen.getByText("Customer pays — OMT fee")).toBeInTheDocument();
+        expect(screen.getByTestId("direction-chip-you-pay")).toHaveTextContent(
+          "You pay",
+        );
+        // Section stays below the main lines on money-in screens.
+        expect(
+          screen
+            .getByTestId("direction-chip-you-pay")
+            .compareDocumentPosition(section()) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      });
+
+      /** Short by 2 with nothing covering it: type 3 of 5 with no client
+       *  (no account offered, so no leftover line is added). */
+      function leaveShortfallOf2(opts: Partial<CounterFlowRenderOpts>) {
+        const onStateChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange: jest.fn(),
+          totalAmount: 5,
+          onStateChange,
+          ...opts,
+        });
+        typeFirst("3");
+        expect(cfLines()).toHaveLength(1);
+        return onStateChange;
+      }
+
+      it("(i) a shortfall within maxForgive can be forgiven and is reported in `forgiven`", () => {
+        const onStateChange = leaveShortfallOf2({ maxForgive: 5 });
+        expect(lastState(onStateChange)).toMatchObject({
+          paid: 3,
+          forgiven: 0,
+          balanced: false,
+          unaccounted: 2,
+        });
+        fireEvent.click(screen.getByTestId("counter-flow-forgive"));
+        expect(lastState(onStateChange)).toMatchObject({
+          paid: 3,
+          forgiven: 2,
+          balanced: true,
+          unaccounted: 0,
+        });
+      });
+
+      it("(i) no Forgive control when the shortfall is above maxForgive", () => {
+        leaveShortfallOf2({ maxForgive: 1 });
+        expect(
+          screen.queryByTestId("counter-flow-forgive"),
+        ).not.toBeInTheDocument();
+      });
+
+      it("(j) while short, 'Still to settle' shows the amount and onStateChange reports `unaccounted`", () => {
+        const onStateChange = leaveShortfallOf2({});
+        expect(screen.getByTestId("counter-flow-unaccounted")).toHaveTextContent(
+          /Still to settle: 2(\.00)? USD/,
+        );
+        expect(lastState(onStateChange).unaccounted).toBe(2);
+      });
+
+      it("(k) with the account offered from the start, typing less auto-adds the account leftover (unchanged)", () => {
+        const counterFlowOnChange = jest.fn();
+        const onStateChange = jest.fn();
+        renderWithCounterFlow({
+          counterFlowOnChange,
+          onStateChange,
+          totalAmount: 50,
+          requiresClient: true,
+          hasClient: true,
+        });
+        typeFirst("30");
+        expect(cfMethodSelects()[1].value).toBe("CUSTOMER_ACCOUNT");
+        expect(lastState(onStateChange)).toMatchObject({
+          paid: 30,
+          owedToAccount: 20,
+          balanced: true,
+        });
+      });
+
+      it("(k) a line the cashier added with '+ Add line' keeps its method when a client is picked (was: auto leftover CASH → account)", () => {
+        // Rule 24 rewrite: the premise (an auto CASH leftover with no client)
+        // no longer exists. A manual line is explicit — it keeps CASH, and no
+        // extra account line appears because nothing is left unsettled.
+        const counterFlowOnChange = jest.fn();
+        const { rerenderWith } = renderWithCounterFlow({
+          counterFlowOnChange,
+          totalAmount: 50,
+          requiresClient: true,
+          hasClient: false,
+        });
+        typeFirst("30");
+        fireEvent.click(screen.getByTestId("counter-flow-split-toggle"));
+        fireEvent.click(screen.getByTestId("counter-flow-add-split"));
+        expect(cfMethodSelects()[1].value).toBe("CASH");
+        rerenderWith({ hasClient: true });
+        expect(cfLines()).toHaveLength(2);
+        expect(cfMethodSelects()[1].value).toBe("CASH");
+        expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
+          expect.objectContaining({ method: "CASH", amount: 30 }),
+          expect.objectContaining({ method: "CASH", amount: 20 }),
+        ]);
       });
     });
   });

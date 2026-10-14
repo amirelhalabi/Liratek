@@ -51,6 +51,9 @@ export * from "./productUnit.js";
 export * from "./resaleLine.js";
 // LIRA-312: wrong-number card recharges and credits sent back.
 export * from "./wrongNumber.js";
+// LIRA-321: "Customer pays" lines on payout screens. This barrel is
+// re-exported by BOTH entry points (index.ts and browser.ts).
+export * from "./customerLegs.js";
 // Primary Cash Drawer plan §8.6: `systemFloatTopup.ts`
 // (createSystemFloatTopupSchema/systemFloatDrawerNameSchema) is retired and
 // replaced by the generic drawerTransfer.ts contract below — nothing else in

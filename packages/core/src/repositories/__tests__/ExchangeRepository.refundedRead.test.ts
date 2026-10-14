@@ -28,6 +28,7 @@ function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
     CREATE TABLE exchange_transactions (
+      client_id INTEGER, -- v215 (LIRA-321)
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id        INTEGER,
       type             TEXT NOT NULL,
@@ -53,6 +54,12 @@ function createTestDb(): Database.Database {
       edited_at        TEXT DEFAULT NULL,
       is_refunded      INTEGER DEFAULT 0,
       refunded_at      TEXT DEFAULT NULL
+    );
+    -- LIRA-321 (T025): getHistory LEFT JOINs the picked client's name.
+    CREATE TABLE clients (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
+      full_name TEXT NOT NULL
     );
   `);
   return db;

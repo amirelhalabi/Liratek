@@ -144,8 +144,9 @@ describe("CryptoForm — Binance history re-mapping preserves is_refunded/refund
         setFeeIncluded={noop}
         feeCollectedSeparately={false}
         setFeeCollectedSeparately={noop}
-        onFeePaymentLinesChange={noop}
-        feePaymentMethods={[]}
+        onCustomerLinesChange={noop}
+        onCustomerForgivenChange={noop}
+        customerPaymentMethods={[]}
         handleCryptoSubmit={noop}
         isSubmitting={false}
         binanceTransactions={[REFUNDED_BINANCE_TX, LIVE_BINANCE_TX]}

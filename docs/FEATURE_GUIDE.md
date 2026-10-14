@@ -306,6 +306,67 @@ stored on the unified row as `transactions.extra_usd` / `extra_lbp` (v212):
   REFUND row `−share`; undo re-adds it. A refunded share lands on the refund's
   own day.
 
+### 4.3 "Customer pays" — the money-in side of payout screens (LIRA-321)
+
+Exchange, Whish App / OMT App receive and Binance cash-out pay money OUT
+(`payments[]`, `cashoutMethod`, kept change — all unchanged). What the customer
+hands over is the IN side, sent as **`customerPayments[]`** — every "Customer
+pays" line, the fee line included (`{ method, currencyCode, amount }`, no
+`direction`). One fragment, `customerPaymentsField` / `customerLegSchema`
+(`validators/customerLegs.ts`), spread into both exchange schemas and
+`createFinancialServiceSchema`; it also carries `customer_waived_amount` ("Forgive"
+on screen = "waived" in code).
+
+- **Never together with `feePayments[]`** (schema refine). `feePayments` stays
+  accepted, untouched, for old clients and offline replay; on financial services
+  `customerPayments` is RECEIVE-only on `WHISH_APP` / `OMT_APP` / `BINANCE`, not
+  For-Partner, not in a session basket. `feeCollectedSeparately: true` states
+  that the fee is one of the lines (expected = transfer + fee); OMT App never
+  takes a fee (D1), so its expected total is the transfer. Exchange: every line
+  is in `fromCurrency`, refused in For-Partner mode, and carries `clientId`
+  (v215 `exchange_transactions.client_id`, also stamped on the unified row).
+- **One writer: `bookCustomerLegs`** (`moneyPosting.ts`), the same predicate for
+  the check and the posting (§13 item 15). It refuses **before any write**:
+  an OUT leg, a non-drawer method other than `CUSTOMER_ACCOUNT` (e.g. GIFT_CARD),
+  an account line with no client, mixing two non-USD currencies, **overpay**
+  (lines above the total are never accepted), a shortfall not covered by an
+  account line or forgive, and a forgive above `SHORTFALL_MAX` ($5 / 450,000 LBP,
+  `isWithinShortfallMax`). Then each drawer line posts its own drawer/wallet
+  (`drawerFor`), and the account lines book once as `'<Module> Debt'` via
+  `bookClientDebtCharge` — **`'Exchange Debt'`** (new, in
+  `MODULE_DEBT_TRANSACTION_TYPES`) or `'Service Debt'`. **USDT counts 1:1 as USD;
+  any other currency (EUR…) is owed as its USD equivalent** at the screen's rate.
+- **Provider's own wallet stays internal.** On an app/Binance receive a line paid
+  into the provider's own wallet is stored with the provider code
+  (`storedMethodFor`: WHISH → `WHISH_APP`, OMT → `OMT_APP`, `BINANCE`) so it
+  remains an `INTERNAL_LEG_METHODS` leg, exactly like the single inflow row it
+  replaces. Other lines (Cash, another wallet) keep their own method and drawer.
+- **Forgive** is recorded by the shared `bookForgivenShortfallSibling`
+  (`forgivenShortfall.ts`): one LIRA-310 `WAIVED_SHORTFALL` row, amount 0, profit
+  −forgiven, linked to the parent unified row, `is_auto` (rule 26).
+- **Reversal owners (rule 20):** drawer lines — generic `_reversePayments`; account
+  lines — generic `_cancelDebt` (both debt types are whitelisted); the forgive
+  sibling — `TransactionRepository._cascadeWaivedShortfallSiblingVoid` on the
+  parent's void AND refund. Create + refund nets to 0 per currency.
+- **Profit:** amounts never change because something is owed. An exchange counts
+  at once; a receive with a `'Service Debt'` waits for repayment (DBT-1).
+- **UI rule — no automatic cash leftover without a client** (`useLinesSection`,
+  packages/ui). Typing less than the total adds an account leftover line ONLY
+  when the account is offered (client picked); otherwise no line is added (a
+  cash one would balance on money never handed over), the gap stays unaccounted
+  and Confirm stays off. Overpay is never auto-corrected; the server stays
+  authoritative.
+- **Guards:** core — `validators/__tests__/{customerLegs,exchange.customerPayments,financial.customerPayments}.test.ts`,
+  `moneyPosting.bookCustomerLegs`, `ExchangeRepository.customerPayments`,
+  `FinancialServiceRepository.{receiveCustomerPayments,binanceCustomerPayments}`,
+  `TransactionRepository.{exchangeCustomerPaysReversal,receiveCustomerPaysReversal}`,
+  `DebtRepository.exchangeDebtRepayment`, `ProfitRepository.exchangeDebt`,
+  `v215.exchangeClientId`, `moduleDebtTypes.guard`; frontend —
+  `Exchange.customerPays`, `HistoryModal.linkedClient`,
+  `OmtWhishAppTransferForm.customerPays`, `Recharge.binanceCustomerPays`; web e2e —
+  `lira-web-061` (exchange), `lira-web-062` (Whish App receive), `lira-web-064`
+  (Binance receive).
+
 ## 5. Payment methods & CUSTOMER_ACCOUNT
 
 - The account gate requires **client name + phone** — use `canChargeToCustomerAccount`
@@ -1094,6 +1155,8 @@ Copy this into your task when building any flow that moves money:
    Return/Change output end-to-end.
    Kept change: declare `payer` on the form and call `resolveKeptChange` in the
    repository (§4.1) — never hand-roll it.
+   Payout screen with a money-in side: send it as `customerPayments[]` (never with
+   `feePayments`) and book it with `bookCustomerLegs` (§4.3) — never a lump inflow.
 5. **Drawers** (§7): correct drawer per leg, per currency; app-wallet rule if a wallet
    is involved.
 6. **Client propagation** (§6): UI → IPC → handler → repo → `createTransaction({client_id})`;

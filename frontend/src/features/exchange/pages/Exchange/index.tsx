@@ -16,8 +16,10 @@ import {
   roundForCurrency,
   ConfirmModal,
   type PaymentLine,
+  type LinesSectionState,
 } from "@liratek/ui";
 import { PaymentSheet } from "@/features/recharge/components/PaymentSheet";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -35,6 +37,7 @@ import {
   computeOverrideLegProfitUsd,
   convertFromUSD,
   TAKE_USD,
+  SHORTFALL_MAX,
   isLotTrackedCurrency,
   type CurrencyRate,
   type CurrencyExchangeResult,
@@ -354,6 +357,10 @@ export default function Exchange() {
   } = useExchangeCurrencyList();
   const [showRatesModal, setShowRatesModal] = useState(false);
   const [clientName, setClientName] = useState("");
+  // LIRA-321: the saved client picked from the autocomplete (rule 11). Typing
+  // a name by hand clears it — the typed name still travels as clientName.
+  const [clientId, setClientId] = useState<number | null>(null);
+  const [clientPhone, setClientPhone] = useState("");
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   // LIRA-081 (PFT-R): "For Partner" — the partner stands in for the walk-in
@@ -389,6 +396,13 @@ export default function Exchange() {
     usd: number;
     lbp: number;
   } | null>(null);
+  // LIRA-321 "Customer pays — <fromCurrency>" (IN) section of the payout
+  // sheet: the lines the customer hands over (a short one leaves a leftover
+  // on the client's account) and the section's balance, which gates Confirm.
+  const [customerLines, setCustomerLines] = useState<PaymentLine[]>([]);
+  const [customerState, setCustomerState] = useState<LinesSectionState | null>(
+    null,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { methods: allPaymentMethods } = usePaymentMethods();
 
@@ -725,6 +739,71 @@ export default function Exchange() {
   const canSplitPayout =
     !forPartner && (toCurrency === "USD" || toCurrency === "LBP");
 
+  // LIRA-321 — "Customer pays — <fromCurrency>" on the payout sheet (only
+  // reached when canSplitPayout, so never in For-Partner mode). One CASH
+  // line at amountIn, locked to fromCurrency; drawer methods plus the
+  // client's account (never a gift card — the server refuses non-drawer
+  // legs). Memoised so the section sees stable identities (rule 25).
+  const customerSeedLines = useMemo(
+    () => [{ method: "CASH", currencyCode: fromCurrency, amount: amountIn }],
+    [fromCurrency, amountIn],
+  );
+  // Owner decision 2026-10-14: the customer may owe or be forgiven only when
+  // paying in USD or LBP (mirrors core's exchangeCustomerCanOwe, which the
+  // schemas and the writer enforce). Any other currency — EUR… — is paid in
+  // full: no account line, no Forgive, Confirm off until balanced.
+  const customerCanOwe = fromCurrency === "USD" || fromCurrency === "LBP";
+  const customerPaymentMethods = useMemo(() => {
+    const drawer = allPaymentMethods
+      .filter(
+        (m) =>
+          m.affects_drawer === 1 &&
+          m.code !== "GIFT_CARD" &&
+          m.code !== "CUSTOMER_ACCOUNT",
+      )
+      .map((m) => ({ code: m.code, label: m.label }));
+    const account = allPaymentMethods.find(
+      (m) => m.code === "CUSTOMER_ACCOUNT",
+    );
+    return [
+      ...(drawer.length > 0 ? drawer : [{ code: "CASH", label: "Cash" }]),
+      ...(customerCanOwe
+        ? [
+            {
+              code: "CUSTOMER_ACCOUNT",
+              label: account?.label ?? "Customer Account",
+            },
+          ]
+        : []),
+    ];
+  }, [allPaymentMethods, customerCanOwe]);
+  // The forgive cap is per currency (USD/LBP only — the same SHORTFALL_MAX
+  // the server checks with isWithinShortfallMax).
+  const customerMaxForgive =
+    fromCurrency === "USD" || fromCurrency === "LBP"
+      ? SHORTFALL_MAX[fromCurrency]
+      : undefined;
+  // LIRA-321 (owner decision 2026-10-14): ONE pair of client handlers shared
+  // by the page's client field and the client row inside the payment
+  // window, so both read and write the same clientId / name / phone.
+  const handleClientNameChange = (v: string) => {
+    setClientName(v);
+    setClientId(null);
+    setClientPhone("");
+  };
+  const handleClientSelect = (c: { id: number; phone_number?: string | null }) => {
+    setClientId(c.id);
+    setClientPhone(c.phone_number || "");
+  };
+  // Confirm stays off while the customer's side does not add up, adds up to
+  // more than owed, or puts money on an account with no client picked. The
+  // server check stays authoritative.
+  const customerConfirmBlocked =
+    customerState !== null &&
+    (customerState.overpaid ||
+      customerState.needsClient ||
+      !customerState.balanced);
+
   // Sync amountOut with effectiveResult
   useEffect(() => {
     if (effectiveResult) {
@@ -1049,6 +1128,21 @@ export default function Exchange() {
       return;
     }
 
+    // LIRA-321 — the customer's lines ride only with the payout sheet (the
+    // `lines` path), never in For-Partner mode. Zero lines are dropped and
+    // each line is mapped to the schema's own keys (no UI ids).
+    const onSheet = lines !== undefined && !forPartner;
+    const customerPayments = onSheet
+      ? customerLines
+          .filter((l) => l.amount > 0)
+          .map((l) => ({
+            method: l.method,
+            currencyCode: l.currencyCode,
+            amount: l.amount,
+          }))
+      : [];
+    const customerWaived = onSheet ? (customerState?.forgiven ?? 0) : 0;
+
     try {
       const leg1 = effectiveResult.legs[0];
       const leg2 = effectiveResult.legs[1];
@@ -1076,6 +1170,13 @@ export default function Exchange() {
         transaction_time: transactionTime,
         ...(forPartner && selectedPartnerId
           ? { partnerId: selectedPartnerId, partnerMode: "FOR" as const }
+          : {}),
+        // LIRA-321 (rule 11): the picked client travels on every walk-in
+        // exchange; a CUSTOMER_ACCOUNT line is booked to it.
+        ...(!forPartner && clientId ? { clientId } : {}),
+        ...(customerPayments.length > 0 ? { customerPayments } : {}),
+        ...(customerWaived > 0
+          ? { customer_waived_amount: customerWaived }
           : {}),
         // Split payout: the sheet's lines (IN legs, cash-only v1) + the rate
         // it actually converted at — the repository reconciles hard-reject
@@ -1139,6 +1240,10 @@ export default function Exchange() {
         setLastEditedSide("in");
         setLastTypedTarget(null);
         setClientName("");
+        setClientId(null);
+        setClientPhone("");
+        setCustomerLines([]);
+        setCustomerState(null);
         setCalcResult(null);
         setLotPreview(null);
         setTransactionTime(undefined);
@@ -1866,17 +1971,34 @@ export default function Exchange() {
                   the Partners page.
                 </ForPartnerNotice>
               )}
+              {/* LIRA-321: the shared client picker (saved client → id +
+                  name + phone). A typed name with no pick still travels as
+                  clientName; only a picked client can carry an account
+                  line. */}
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                <label
+                  htmlFor="exchange-client-name"
+                  className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                >
                   Client Name (Optional)
                 </label>
-                <input
-                  type="text"
+                <ClientAutocompleteInput
+                  id="exchange-client-name"
                   value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
+                  onChange={handleClientNameChange}
+                  onClientSelect={handleClientSelect}
+                  showDebtBadge
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
                   placeholder="Walk-in Client"
                 />
+                {clientId !== null && (
+                  <div
+                    data-testid="exchange-linked-client"
+                    className="mt-1 text-xs text-emerald-300"
+                  >
+                    Linked client{clientPhone ? ` · ${clientPhone}` : ""}
+                  </div>
+                )}
               </div>
 
               <TransactionTimeOverride
@@ -1891,6 +2013,8 @@ export default function Exchange() {
                   // partner mode and exotic targets keep the direct submit.
                   if (canSplitPayout) {
                     setPayoutLines([]);
+                    setCustomerLines([]);
+                    setCustomerState(null);
                     setPayoutKept(null);
                     setPayoutTenderRate(undefined);
                     setPayoutSheetKey((k) => k + 1);
@@ -1968,6 +2092,7 @@ export default function Exchange() {
         onClose={() => setShowPayoutSheet(false)}
         onConfirm={() => void handleProcess(payoutLines)}
         isSubmitting={isSubmitting}
+        confirmDisabled={customerConfirmBlocked}
         title="Confirm Payout"
         {...(effectiveResult
           ? {
@@ -2015,7 +2140,55 @@ export default function Exchange() {
         onPaymentChange={setPayoutLines}
         direction="payout"
         onKeptChange={setPayoutKept}
-      />
+        {...(canSplitPayout && fromCurrency && amountIn > 0
+          ? {
+              counterFlow: {
+                label: "Customer pays",
+                totalAmount: amountIn,
+                currency: fromCurrency,
+                lockCurrency: true,
+                seedLines: customerSeedLines,
+                onChange: setCustomerLines,
+                onStateChange: setCustomerState,
+                paymentMethods: customerPaymentMethods,
+                requiresClient: true,
+                hasClient: clientId !== null,
+                ...(customerMaxForgive !== undefined
+                  ? { maxForgive: customerMaxForgive }
+                  : {}),
+              },
+            }
+          : {})}
+      >
+        {/* LIRA-321 (owner decision 2026-10-14): pick or change the client
+            without leaving the payment window — the same picker and state
+            as the page's client field, so "Still to settle … pick a client"
+            is settled right here. Never on a partner exchange. */}
+        {!forPartner && (
+          <div data-testid="exchange-sheet-client">
+            <label
+              htmlFor="exchange-sheet-client-name"
+              className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1"
+            >
+              Client
+            </label>
+            <ClientAutocompleteInput
+              id="exchange-sheet-client-name"
+              value={clientName}
+              onChange={handleClientNameChange}
+              onClientSelect={handleClientSelect}
+              showDebtBadge
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors"
+              placeholder="Walk-in Client"
+            />
+            {clientId !== null && (
+              <div className="mt-1 text-xs text-emerald-300">
+                Linked client{clientPhone ? ` · ${clientPhone}` : ""}
+              </div>
+            )}
+          </div>
+        )}
+      </PaymentSheet>
 
       {/* Your Rates — configured buy/sell spreads + stamped-profit preview */}
       {showRatesModal && (

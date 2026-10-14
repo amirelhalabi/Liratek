@@ -14740,6 +14740,34 @@ CREATE INDEX IF NOT EXISTS idx_wrong_number_cards_sale ON wrong_number_cards(ten
 DROP TABLE IF EXISTS wrong_number_cards;`);
     },
   },
+  {
+    version: 215,
+    name: "exchange_transactions_client_id",
+    description:
+      "LIRA-321: the client picked on the Exchange screen is saved with the " +
+      "exchange (exchange_transactions.client_id, optional). It is required " +
+      "when part of what the customer pays goes on their account (an " +
+      "'Exchange Debt'). Existing rows read NULL.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "exchange_transactions")) return;
+      if (!columnExists(db, "exchange_transactions", "client_id")) {
+        db.exec(
+          `ALTER TABLE exchange_transactions ADD COLUMN client_id INTEGER NULL REFERENCES clients(id);`,
+        );
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_exchange_transactions_client_id ON exchange_transactions(tenant_id, client_id);`,
+      );
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "exchange_transactions")) return;
+      db.exec(`DROP INDEX IF EXISTS idx_exchange_transactions_client_id;`);
+      if (columnExists(db, "exchange_transactions", "client_id")) {
+        db.exec(`ALTER TABLE exchange_transactions DROP COLUMN client_id;`);
+      }
+    },
+  },
 ];
 
 /**

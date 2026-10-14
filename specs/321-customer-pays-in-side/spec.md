@@ -21,9 +21,12 @@
 - Q: Single / split behaviour? → A: Exactly like the shop-pays section: single = one line, no "+ Add line", no remove ×; its own Split toggle that behaves like the shop-pays one; typing less than owed in single mode switches to split and adds the leftover line; opens in split mode when two things are owed.
 - Q: Must it balance? → A: Yes. The leftover line defaults to Customer Account (the customer owes it) when a client is linked; Forgive is available within $5 / 450,000 LBP.
 - Q: Naming? → A: The shop-pays section header changes from "Payment" to "Shop pays" with tag OUT (was "YOU PAY"); the customer section gets tag IN (was "CUSTOMER PAYS"). On Exchange the title is "Customer pays — <currency>" and its currency is locked to the currency being exchanged; on every other screen the title is plain "Customer pays" and the currency is free.
-- Q: A shortfall on a USDT (Binance) or EUR (Exchange) line — client debts hold only USD and LBP? → A: The customer owes the USD equivalent, at the rate shown on the sheet. (Owner, 2026-10-14.)
+- Q: A shortfall on a USDT (Binance) or EUR (Exchange) line — client debts hold only USD and LBP? → A: The customer owes the USD equivalent, at the exchange's own rate to USD (the rate on the sheet). (Owner, 2026-10-14.)
+- Q: EUR owing? → A: Blocked for now (owner 2026-10-14). On an exchange where the customer pays in anything other than USD or LBP, there is no Customer Account line and no Forgive — the customer pays in full. The exchange lot records the full amount as bought while the drawer only gets what was paid, so a later sale would oversell; the USD-equivalent rule above stays for USDT on Binance only.
+- Q: Where is the client picked on Exchange? → A: Also inside the payment window: a client row under the Summary, sharing the page's client field, so "Still to settle … pick a client" is settled without closing the sheet. Hidden for a partner exchange. (Owner, 2026-10-14.)
 - Q: Can "Customer pays" add up to more than is owed? → A: No, it is blocked. Extra money goes through the existing change box. (Owner, 2026-10-14.)
 - Q: Customer session baskets? → A: Out of scope for now. (Owner, 2026-10-14.)
+- Q: Whish ↓ header "Cashout" on payout screens with a customer section? → A: Becomes "Shop pays", like every payout screen. (Owner, 2026-10-14.)
 - Q: How much does a customer owe when short on USDT? → A: 1 USDT = $1 (no USDT rate in the app; same convention as the Binance payout). (Owner, 2026-10-14.)
 - Q: Whish ↓ system receive beyond the fee? → A: Nothing. The customer never takes more than was sent; a wanted advance is a separate debt on the Debts page. Whish ↓ stays fee-only. (Owner, 2026-10-14.)
 - Q: Order of the two sections? → A: "Customer pays" (IN) on top, "Shop pays" (OUT) below it. Order on screen only: every amount, line, total, check and saved payload stays exactly as with the old order. (Owner, 2026-10-14.)
@@ -56,15 +59,15 @@ On every payout screen the payment box shows two clearly named sections: "Shop p
 
 **Why this priority**: This is the shared foundation every screen in Stories 1, 3 and 4 stands on. Building it once keeps the screens consistent and is the only way the cashier learns one behaviour, not four.
 
-**Independent Test**: On the existing Whish/OMT App receive with "fee paid separately", check the section names and tags, the two pre-filled lines, the split behaviour, and that the box refuses to save while the customer side does not balance.
+**Independent Test**: On the existing Whish App receive with "fee paid separately" (fee line only until Story 3 adds the transfer line), check the section names, tags and order, single/split behaviour, the leftover line, and that Confirm stays disabled while the customer side does not balance.
 
 **Acceptance Scenarios**:
 
 1. **Given** a payout screen, **When** the payment box opens, **Then** the customer's section (tag IN) is on top and the shop's section, titled "Shop pays" with tag OUT, is below it.
 2. **Given** a screen where the customer owes only one thing, **When** the box opens, **Then** "Customer pays" is in single mode with one line, no "+ Add line" and no remove ×.
 3. **Given** a screen where the customer owes the amount and a separately paid fee, **When** the box opens, **Then** "Customer pays" opens in split mode with two lines — the amount with its usual method and the fee in Cash.
-4. **Given** single mode, **When** the cashier types less than owed, **Then** the section switches to split and adds a leftover line for the difference.
-5. **Given** a leftover line and a linked client, **When** it is added, **Then** its method defaults to Customer Account; **Given** no client, **Then** it defaults to the screen's usual method and the cashier may Forgive up to $5 / 450,000 LBP.
+4. **Given** single mode and a linked client, **When** the cashier types less than owed, **Then** the section switches to split and adds a Customer Account leftover line for the difference.
+5. **Given** single mode and **no** client, **When** the cashier types less than owed, **Then** no line is added, saving stays blocked, and the screen reads "Still to settle: <amount> — pick a client to put it on their account" (", or forgive it" when within $5 / 450,000 LBP); picking a client then adds the Customer Account leftover line.
 6. **Given** the customer side does not add up to what is owed (after Customer Account and Forgive), **When** the cashier tries to save, **Then** saving is blocked with a message saying how much is still unaccounted for.
 7. **Given** a money-in screen such as the POS checkout, **When** its payment box opens, **Then** its header and tags are unchanged — the "Shop pays / OUT" naming appears only on payout screens.
 
@@ -102,7 +105,7 @@ A customer cashes out USDT through the shop's Binance account. "Customer pays" i
 1. **Given** a 100 USDT cash-out paid as $100 cash with a $2 fee paid separately, **When** nothing is changed, **Then** Binance wallet +100 USDT and USD cash −98.
 2. **Given** the same, **When** the customer pays 80 USDT by Binance + $20 Cash for the transfer + $2 Cash fee, **Then** Binance wallet +80 USDT and USD cash −78.
 3. **Given** a linked client, **When** the customer pays 80 USDT by Binance + $2 Cash fee and leaves $20 on Customer Account, **Then** Binance wallet +80 USDT, USD cash −98, client owes $20.
-4. **Given** a linked client and a 100 USDT cash-out, **When** the customer sends 80 USDT by Binance and nothing else for the transfer, **Then** the leftover line is Customer Account for $20 (the USD equivalent of 20 USDT at the sheet's rate) and the client owes $20.
+4. **Given** a linked client and a 100 USDT cash-out, **When** the customer sends 80 USDT by Binance and nothing else for the transfer, **Then** the leftover line is Customer Account for $20 (20 USDT counted as $20, 1 USDT = $1) and the client owes $20.
 
 ---
 
@@ -131,10 +134,10 @@ Decided by the owner (2026-10-14): Whish ↓ stays fee-only. The customer collec
 ### Edge Cases
 
 - **For-Partner exchange**: there is no walk-in customer handing over money, so the whole "Customer pays" section is hidden — not only Customer Account.
-- **Exchange from a currency other than USD/LBP (e.g. EUR)**: the customer section is locked to EUR; a shortfall is owed as its USD equivalent at the rate on the sheet (client debts are kept in USD or LBP only).
+- **Exchange from a currency other than USD/LBP (e.g. EUR)**: the customer section is locked to EUR and the customer pays in full — no Customer Account line, no Forgive; Confirm stays off until the lines add up. The server refuses an account line or a forgiven amount with "Owing or forgiving isn't available yet when the customer pays in EUR — take the full amount." (Blocked for now, owner 2026-10-14: the exchange lot would record 100 EUR bought while the drawer got 95, so selling later would oversell.)
 - **Overpaying**: the customer side cannot add up to more than is owed; giving change stays on the existing change flow.
 - **Shortfall above the Forgive limit and no client**: saving is blocked until a client is picked or the customer pays more.
-- **Client picked after the leftover line was added**: the leftover line switches to Customer Account unless the cashier already changed its method.
+- **Client picked after typing less**: the Customer Account leftover line is added then. A line the cashier added with "+ Add line" keeps its method; removing the client removes the auto-added account line again (it never becomes cash).
 - **Fee switched from "paid separately" to "deducted" or "sender pays"**: the fee line disappears and the section returns to single mode if only the amount is owed.
 - **Customer session basket**: the separately-paid fee option is already hidden inside a session; this feature does not change session checkout, and Exchange is not a session item.
 - **Desktop offline**: an exchange or cash-out with a debt recorded while offline gives the same drawers, wallets and debt after it syncs.
@@ -149,10 +152,10 @@ Decided by the owner (2026-10-14): Whish ↓ stays fee-only. The customer collec
 - **FR-003**: "Customer pays" MUST hold everything the customer owes for the transaction: the main amount and, when the fee is paid separately, the fee.
 - **FR-004**: "Customer pays" MUST be pre-filled with one line per owed thing, each in its usual method (see FR-013), never one combined line.
 - **FR-005**: "Customer pays" MUST behave like "Shop pays" for single/split: single = one line, no "+ Add line", no remove ×; the same Split toggle; opening in split when two things are owed.
-- **FR-006**: Typing less than owed on the single line MUST switch to split and add a leftover line for the difference.
-- **FR-007**: A leftover line MUST default to Customer Account when a client is linked; Forgive MUST be available up to $5 / 450,000 LBP.
+- **FR-006**: Typing less than owed on the single line MUST switch to split and add a Customer Account leftover line for the difference when Customer Account is available (client linked). With no client it MUST NOT add any line — the shortfall stays unsettled and blocks saving.
+- **FR-007**: The section MUST never fill a shortfall with Cash by itself. With no client, "Still to settle" MUST tell the cashier to pick a client (or forgive, when within the limit); Forgive MUST be available up to $5 / 450,000 LBP.
 - **FR-008**: The transaction MUST NOT save unless the customer lines plus any amount owed plus any amount forgiven equal what the customer owes, per currency.
-- **FR-009**: Customer Account MUST be offered only with a linked client and never in For-Partner mode. The debt is always booked in USD or LBP: a shortfall in any other currency (EUR, USDT) is booked as its USD equivalent at the rate shown on the sheet.
+- **FR-009**: Customer Account MUST be offered only with a linked client and never in For-Partner mode. The debt is always booked in USD or LBP: a USDT shortfall (Binance) is booked as its USD equivalent at the exchange's own rate to USD (1 USDT = $1). **Note (owner 2026-10-14):** on Exchange, owing and forgiving are blocked when the customer pays in any currency other than USD or LBP (schemas and writer refuse it) until the exchange lot is booked at the amount actually received.
 - **FR-010**: The shop-pays side MUST keep refusing Customer Account on an exchange payout (an exchange payout is always real money).
 - **FR-011**: Each customer line MUST put its money in the drawer or wallet of its method and currency; a Customer Account line MUST record a debt for the linked client; a forgiven amount MUST be recorded as forgiven.
 - **FR-012**: Owing MUST NOT change the transaction's profit amount; the fee stays shop profit. A forgiven shortfall is booked the same way forgiving is booked everywhere else (the existing "waived" profit line), so it lowers profit by the forgiven amount.
@@ -195,7 +198,7 @@ On cash-out and exchange screens the payment box now shows "Shop pays" and "Cust
 
 ## Assumptions
 
-- Client debts exist only in USD and LBP, so a shortfall on a EUR (Exchange) or USDT (Binance) line is owed as its USD equivalent at the rate shown on the sheet (owner decision 2026-10-14).
+- Client debts exist only in USD and LBP, so a shortfall on a USDT (Binance) line is owed as its USD equivalent at the exchange's own rate to USD (the rate on the sheet) (owner decision 2026-10-14). A EUR (or other non-USD/LBP) Exchange cannot be owed or forgiven for now (owner decision 2026-10-14).
 - The customer side never exceeds what is owed; change is handled by the existing change flow.
 - Session baskets are out of scope; session checkout is unchanged.
 - The Forgive limit is the shop-wide one already used elsewhere ($5 / 450,000 LBP).

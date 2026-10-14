@@ -47,6 +47,7 @@ import {
 import { isDrawerAffectingMethod } from "../utils/payments.js";
 import { requestNow } from "../utils/requestNow.js";
 import { TENDER_RATE_BAND_PCT } from "../constants/tenderRateBand.js";
+import { isWithinShortfallMax } from "../validators/exchange.js";
 
 // Re-exported for every existing caller/test that imports the band constant
 // from THIS module (its home before LIRA-240) — the constant itself now
@@ -1020,3 +1021,300 @@ export function postPayoutLegs(input: PostPayoutLegsInput): void {
 // db/connection.js, so a value export of it from browser.ts would break the
 // renderer at load. Re-export removed from this module's callers below;
 // import it from "../utils/formatMoney.js" instead.
+
+// ─────────────────────────────────────────────────────────────────────────
+// LIRA-321 — "Customer pays": the money-in side of a payout screen
+// (specs/321-customer-pays-in-side/research.md R4)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// ONE writer for "the customer's lines → drawers + client debt" on Exchange
+// and the app-wallet / Binance receives (rule 14). Unlike `reconcileLegs`
+// (exact match, USD/LBP only) it accepts a SHORT payment when the gap is
+// covered by CUSTOMER_ACCOUNT lines or a forgiven amount within the shared
+// shortfall cap, refuses any overpay, and handles one third currency (EUR…)
+// and USDT. Every check runs before the first write, so a refusal inside the
+// caller's `db.transaction(...)` leaves nothing behind.
+//
+// Deliberately NOT done here (caller-owned):
+//  - the forgiven part's WAIVED_SHORTFALL profit row (keptChange.ts imports
+//    from this module — calling it back would be a cycle). The caller books
+//    `forgiven` and owns that row's reversal (rule 20);
+//  - choosing the stored method of a line paid into the provider's OWN
+//    wallet (R7) — the caller passes `storedMethodFor`; the line itself keeps
+//    its real payment method so the method checks still apply;
+//  - `bookFeeCollectionLegs` (FinancialServiceRepository) is untouched: old
+//    `feePayments` keep replaying through it unchanged.
+
+/** Plain cashier-facing first sentences (stable substrings for callers/tests). */
+export const CUSTOMER_LEGS_OVERPAID_MESSAGE =
+  "The customer's lines are more than the total.";
+export const CUSTOMER_LEGS_SHORT_MESSAGE =
+  "The customer's lines are less than the total — put the rest on the client's account or forgive it.";
+export const CUSTOMER_LEGS_NEEDS_CLIENT_MESSAGE =
+  "Choose a client to put part of the payment on their account.";
+export const CUSTOMER_LEGS_FORGIVE_TOO_MUCH_MESSAGE =
+  "The amount to forgive is more than what is missing.";
+export const CUSTOMER_LEGS_FORGIVE_OVER_CAP_MESSAGE =
+  "The amount to forgive is above the limit ($5 / 450,000 LBP).";
+
+/** Same-currency rounding tolerance: cents, or whole LBP. */
+function sameCurrencyTolerance(currency: string): number {
+  return currency === "LBP" ? 0.5 : 0.005;
+}
+
+/** USDT counts 1:1 as USD for every comparison and for the debt (R4). */
+function comparisonCurrency(currency: string): string {
+  return currency === "USDT" ? "USD" : currency;
+}
+
+export interface BookCustomerLegsInput {
+  /** The customer's IN lines (method, currency, amount > 0). An OUT-direction
+   *  (change) line is refused: this section has no change. */
+  legs: ReconciliationLeg[];
+  /** What the customer owes the shop, in the screen's own currency
+   *  (Exchange: amountIn in fromCurrency; app receive: transfer + fee). */
+  expected: { amount: number; currency: string };
+  /**
+   * Conversion rate. Its meaning depends on which non-USD currency the call
+   * involves — only ONE non-USD currency is allowed per call (USDT counts as
+   * USD), so only one meaning ever applies:
+   *  - LBP: LBP per 1 USD (e.g. 89,500) — `usd = lbp / rate`;
+   *  - any other currency (EUR…): USD per 1 unit (e.g. 1.1) —
+   *    `usd = amount × rate`. Callers holding an "units per USD" rate for an
+   *    is_stronger = 1 currency must invert it first.
+   * Unused when every line and the total are in USD/USDT.
+   */
+  rate: number;
+  /** debt_ledger.transaction_type for account lines. Pass a quoted
+   *  '<Module> Debt' literal at the call site (moduleDebtTypes.guard). */
+  debtType: string;
+  clientId?: number | null;
+  transactionId: number;
+  /** Drawer a non-account line posts to (callers map method → drawer). */
+  drawerFor: (leg: ReconciliationLeg) => string;
+  /**
+   * Method stored on a non-account line's payment row; defaults to the
+   * line's own method. The checks above always read the line's OWN method
+   * (a real payment method such as WHISH). An app receive stores a line paid
+   * into the provider's own wallet as the provider code (WHISH → WHISH_APP on
+   * Whish App, OMT → OMT_APP on OMT App), which is not a payment method but
+   * keeps the row an internal leg exactly like the single inflow row it
+   * replaces (research R7).
+   */
+  storedMethodFor?: (leg: ReconciliationLeg) => string;
+  /** Forgiven shortfall, in `expected.currency`. */
+  waived?: number;
+  tenantId: number;
+  createdBy?: number | null;
+  /** Note stamped on payment and debt rows. */
+  note?: string | null;
+  /** Label appended to refusal messages (e.g. "Exchange", "WHISH_APP RECEIVE"). */
+  context?: string;
+}
+
+export interface BookCustomerLegsResult {
+  /** Non-account lines, in `expected.currency` terms (converted at `rate`
+   *  when the lines mix currencies; USDT 1:1 as USD). */
+  paid: number;
+  /** Booked to the client's account, per debt currency (a third currency is
+   *  owed as its USD equivalent). */
+  owed: { usd: number; lbp: number };
+  /** Forgiven part, in `expected.currency` (= the `waived` input, or 0).
+   *  The caller records it (WAIVED_SHORTFALL). */
+  forgiven: number;
+}
+
+export function bookCustomerLegs(
+  db: Database.Database,
+  input: BookCustomerLegsInput,
+): BookCustomerLegsResult {
+  const {
+    legs,
+    expected,
+    rate,
+    debtType,
+    clientId,
+    transactionId,
+    drawerFor,
+    tenantId,
+    createdBy,
+    note,
+  } = input;
+  const waived = input.waived ?? 0;
+  const ctx = input.context ?? "Customer pays";
+  const fail = (plain: string, detail: string): never => {
+    throw new Error(`${plain} (${ctx}: ${detail})`);
+  };
+
+  // ── 1. Shape checks ────────────────────────────────────────────────────
+  if (!legs || legs.length === 0) {
+    fail("The customer has no payment lines.", "no customer lines");
+  }
+  if (!(expected.amount > 0) || !Number.isFinite(expected.amount)) {
+    fail("The total to collect is not valid.", `expected ${expected.amount}`);
+  }
+  if (!Number.isFinite(waived) || waived < 0) {
+    fail("The amount to forgive is not valid.", `waived ${waived}`);
+  }
+  for (const leg of legs) {
+    if (leg.direction === "OUT") {
+      fail(
+        "Change cannot be given back in the customer's lines.",
+        "OUT-direction leg",
+      );
+    }
+    if (!(leg.amount > 0) || !Number.isFinite(leg.amount)) {
+      fail("A payment line has no amount.", `${leg.method} ${leg.amount}`);
+    }
+    if (
+      leg.method !== "CUSTOMER_ACCOUNT" &&
+      !isDrawerAffectingMethod(leg.method)
+    ) {
+      fail(
+        `${leg.method} cannot be used here — use a drawer method or the client's account.`,
+        `${leg.method} moves no drawer`,
+      );
+    }
+  }
+  const accountLegs = legs.filter((l) => l.method === "CUSTOMER_ACCOUNT");
+  const drawerLegs = legs.filter((l) => l.method !== "CUSTOMER_ACCOUNT");
+  if (accountLegs.length > 0 && !clientId) {
+    fail(CUSTOMER_LEGS_NEEDS_CLIENT_MESSAGE, "account line with no client");
+  }
+
+  // ── 2. Currencies: at most ONE non-USD currency (USDT = USD) ───────────
+  const expectedCur = comparisonCurrency(expected.currency);
+  const curs = new Set<string>([
+    expectedCur,
+    ...legs.map((l) => comparisonCurrency(l.currencyCode)),
+  ]);
+  const foreign = [...curs].filter((c) => c !== "USD");
+  if (foreign.length > 1) {
+    fail(
+      "The customer's lines mix currencies that cannot be added together.",
+      `currencies ${[...curs].join("/")}`,
+    );
+  }
+  const other = foreign[0];
+  const needsRate = other !== undefined && curs.size > 1;
+  if (needsRate && (!Number.isFinite(rate) || !(rate > 0))) {
+    fail("The exchange rate is missing.", `rate ${rate}`);
+  }
+  // Value of `amount` in `cur` as USD (only called when cur is USD or `other`).
+  const toUsd = (amount: number, cur: string): number => {
+    const c = comparisonCurrency(cur);
+    if (c === "USD") return amount;
+    return c === "LBP" ? amount / rate : amount * rate;
+  };
+  const allSame = curs.size === 1;
+  // Totals in a common unit: the expected currency itself when every line is
+  // in it, else USD-equivalent.
+  const inUnit = (amount: number, cur: string): number =>
+    allSame ? amount : toUsd(amount, cur);
+  const sumOf = (ls: ReconciliationLeg[]): number =>
+    ls.reduce((s, l) => s + inUnit(l.amount, l.currencyCode), 0);
+
+  const expectedU = inUnit(expected.amount, expected.currency);
+  const waivedU = inUnit(waived, expected.currency);
+  const paidU = sumOf(drawerLegs);
+  const owedU = sumOf(accountLegs);
+  const tol = allSame
+    ? sameCurrencyTolerance(expectedCur)
+    : LEG_RECONCILIATION_EPSILON_USD;
+
+  // ── 3. Forgive cap (in USD/LBP terms; a third currency via USD) ────────
+  if (waived > 0) {
+    const capOk =
+      expectedCur === "USD" || expectedCur === "LBP"
+        ? isWithinShortfallMax(waived, expectedCur)
+        : Number.isFinite(rate) &&
+          rate > 0 &&
+          isWithinShortfallMax(toUsd(waived, expectedCur), "USD");
+    if (!capOk) {
+      fail(
+        CUSTOMER_LEGS_FORGIVE_OVER_CAP_MESSAGE,
+        `forgive ${waived} ${expected.currency}`,
+      );
+    }
+  }
+
+  // ── 4. Balance: lines + forgive must equal the total, never exceed it ──
+  const diff = paidU + owedU + waivedU - expectedU;
+  if (paidU + owedU - expectedU > tol || diff > tol) {
+    fail(
+      waived > 0 && paidU + owedU - expectedU <= tol
+        ? CUSTOMER_LEGS_FORGIVE_TOO_MUCH_MESSAGE
+        : CUSTOMER_LEGS_OVERPAID_MESSAGE,
+      `lines ${(paidU + owedU).toFixed(2)} + forgive ${waivedU.toFixed(2)} vs total ${expectedU.toFixed(2)}`,
+    );
+  }
+  if (diff < -tol) {
+    fail(
+      CUSTOMER_LEGS_SHORT_MESSAGE,
+      `lines ${(paidU + owedU).toFixed(2)} + forgive ${waivedU.toFixed(2)} vs total ${expectedU.toFixed(2)}`,
+    );
+  }
+
+  // ── 5. Writes ──────────────────────────────────────────────────────────
+  for (const leg of drawerLegs) {
+    const drawerName = drawerFor(leg);
+    insertPaymentRow(db, {
+      transactionId,
+      method: input.storedMethodFor ? input.storedMethodFor(leg) : leg.method,
+      drawerName,
+      currencyCode: leg.currencyCode,
+      amount: leg.amount,
+      note: note ?? null,
+      createdBy: createdBy ?? null,
+      tenantId,
+    });
+    applyDrawerDelta(db, {
+      drawerName,
+      currencyCode: leg.currencyCode,
+      delta: leg.amount,
+      tenantId,
+    });
+  }
+
+  let owedUsd = 0;
+  let owedLbp = 0;
+  for (const leg of accountLegs) {
+    const c = comparisonCurrency(leg.currencyCode);
+    if (c === "LBP") owedLbp += leg.amount;
+    else owedUsd += toUsd(leg.amount, leg.currencyCode);
+  }
+  if (clientId && owedUsd > 0) {
+    bookClientDebtCharge(db, {
+      clientId,
+      transactionType: debtType,
+      amountUsd: owedUsd,
+      amountLbp: 0,
+      transactionId,
+      note: note ?? null,
+      createdBy: createdBy ?? null,
+      tenantId,
+    });
+  }
+  if (clientId && owedLbp > 0) {
+    bookClientDebtCharge(db, {
+      clientId,
+      transactionType: debtType,
+      amountUsd: 0,
+      amountLbp: owedLbp,
+      transactionId,
+      note: note ?? null,
+      createdBy: createdBy ?? null,
+      tenantId,
+    });
+  }
+
+  // `paid` is reported in the expected currency's own terms.
+  const paid = allSame
+    ? paidU
+    : expectedCur === "USD"
+      ? paidU
+      : expectedCur === "LBP"
+        ? paidU * rate
+        : paidU / rate;
+  return { paid, owed: { usd: owedUsd, lbp: owedLbp }, forgiven: waived };
+}

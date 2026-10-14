@@ -1540,6 +1540,12 @@ export interface ElectronAPI {
       // Payout keep-change (owner decision 2026-10-06) — exchangeSubmitSchema.
       kept_change_usd?: number;
       kept_change_lbp?: number;
+      // LIRA-321 "Customer pays" — exchangeSubmitSchema (rule 12): the
+      // linked client, the customer's lines (fromCurrency only) and the
+      // forgiven leftover.
+      clientId?: number;
+      customerPayments?: Array<import("@liratek/core").CustomerLegInput>;
+      customer_waived_amount?: number;
     }) => Promise<{
       success: boolean;
       id?: number;

@@ -16,8 +16,10 @@ import {
   reconcileLegs,
   expectedTotalIn,
   resolveStampedExchangeRate,
+  bookCustomerLegs,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { bookForgivenShortfallSibling } from "./forgivenShortfall.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import {
@@ -36,6 +38,10 @@ import { marketRateToUsdPerUnit } from "../utils/lotMarketRate.js";
 // module (no other repository import), so importing it directly here never
 // risks a require cycle.
 import { isToday } from "./reportingTimeFragments.js";
+import {
+  exchangeCustomerCanOwe,
+  exchangeOwingBlockedMessage,
+} from "../validators/exchange.js";
 
 // =============================================================================
 // Entity Types
@@ -60,6 +66,8 @@ export interface ExchangeTransactionEntity {
   leg2_profit_usd: number | null;
   via_currency: string | null;
   client_name: string | null;
+  /** LIRA-321 (v215): the client picked on the Exchange screen, if any. */
+  client_id: number | null;
   note: string | null;
   created_at: string;
   created_by: number | null;
@@ -75,6 +83,15 @@ export interface ExchangeTransactionEntity {
   is_refunded: number;
   refunded_at: string | null;
 }
+
+/**
+ * LIRA-321 (T025, FR-014) — a history row: the stored columns plus the
+ * linked client's current name from `clients` (`client_name` stays the
+ * free text typed on the screen). NULL when no client was picked.
+ */
+export type ExchangeHistoryEntity = ExchangeTransactionEntity & {
+  client_full_name: string | null;
+};
 
 export interface CreateExchangeData {
   fromCurrency: string;
@@ -144,6 +161,28 @@ export interface CreateExchangeData {
    */
   kept_change_usd?: number;
   kept_change_lbp?: number;
+  /**
+   * LIRA-321 — the client picked on the Exchange screen. Saved on
+   * `exchange_transactions.client_id` and the unified row (rule 11);
+   * required when a `customerPayments` line is CUSTOMER_ACCOUNT.
+   */
+  clientId?: number;
+  /**
+   * LIRA-321 "Customer pays" — the lines the customer hands over for
+   * `amountIn` (money IN), every one in `fromCurrency`. Absent → the single
+   * CASH lump of `amountIn` exactly as before (FR-018). A CUSTOMER_ACCOUNT
+   * line becomes an 'Exchange Debt'; a leftover may instead be forgiven
+   * (`customer_waived_amount`, capped). Never with `partnerMode: "FOR"`.
+   * Booked by `bookCustomerLegs` (moneyPosting.ts).
+   */
+  customerPayments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+  }>;
+  /** LIRA-321 — the forgiven leftover, in `fromCurrency` (on screen:
+   *  "Forgive"). Recorded as a WAIVED_SHORTFALL sibling row. */
+  customer_waived_amount?: number;
 }
 
 /**
@@ -214,6 +253,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       "leg2_profit_usd",
       "via_currency",
       "client_name",
+      "client_id",
       "note",
       "created_at",
       "created_by",
@@ -275,6 +315,16 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // Guarded before any row is written (throwing rolls back everything).
       const kept = this._resolvePayoutKeptChange(data, isForPartner);
 
+      // LIRA-321 "Customer pays": guarded before any row is written. The
+      // schema refuses the same shapes, but an offline replay and scripted
+      // callers reach here without it, so the writer enforces them too.
+      const customerLegs = data.customerPayments ?? [];
+      const usesCustomerPays =
+        customerLegs.length > 0 || (data.customer_waived_amount ?? 0) > 0;
+      if (usesCustomerPays) {
+        this._assertCustomerPaysShape(data, isForPartner);
+      }
+
       // Auto-register currencies that don't exist (e.g. API currencies like GBP, AED)
       const ensureCurrency = this.db.prepare(
         `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id)
@@ -313,13 +363,13 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             amount_in, amount_out, rate, base_rate, profit_usd,
             leg1_rate, leg1_market_rate, leg1_profit_usd,
             leg2_rate, leg2_market_rate, leg2_profit_usd,
-            via_currency, client_name, note, tenant_id, created_at
+            via_currency, client_name, client_id, note, tenant_id, created_at
           ) VALUES (
             ?, ?, ?,
             ?, ?, ?, ?, ?,
             ?, ?, ?,
             ?, ?, ?,
-            ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?
           )`,
         )
         .run(
@@ -339,6 +389,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           data.leg2ProfitUsd ?? null,
           data.viaCurrency ?? null,
           data.clientName ?? null,
+          data.clientId ?? null,
           note,
           tenantId,
           data.transaction_time ?? requestNow(),
@@ -476,6 +527,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // EUR → USD or USD → EUR already handled by the USD cases above.
       // EUR → LBP or LBP → EUR handled by LBP cases above.
 
+      const exchangeSummary = `Exchange: ${formatMoneyAmount(data.amountIn, data.fromCurrency)} → ${formatMoneyAmount(data.amountOut, data.toCurrency)}${data.viaCurrency ? ` (via ${data.viaCurrency})` : ""}`;
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.EXCHANGE,
         source_table: "exchange_transactions",
@@ -499,7 +551,9 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // badge never disagree on the same number — a live row showed
         // "→ 10146000 LBP" beside a badge of "10,146,000 LBP" (owner
         // report 2026-09-12).
-        summary: `Exchange: ${formatMoneyAmount(data.amountIn, data.fromCurrency)} → ${formatMoneyAmount(data.amountOut, data.toCurrency)}${data.viaCurrency ? ` (via ${data.viaCurrency})` : ""}`,
+        // LIRA-321 (rule 11): the picked client reaches the unified row too.
+        client_id: data.clientId ?? null,
+        summary: exchangeSummary,
         metadata_json: {
           type,
           from_currency: data.fromCurrency,
@@ -544,7 +598,46 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // Inflow: customer gives fromCurrency → shop drawer increases.
       // LIRA-081: skipped entirely in for-partner mode — there is no walk-in
       // customer handing over cash; the partner owes it instead (booked below).
-      if (!isForPartner) {
+      if (!isForPartner && usesCustomerPays) {
+        // LIRA-321 "Customer pays": the customer's own lines replace the
+        // lump — each drawer line posts to its own drawer, a
+        // CUSTOMER_ACCOUNT line becomes an 'Exchange Debt' on the client, a
+        // forgiven leftover (capped) is recorded below. Refusals (overpay,
+        // uncovered shortfall, account line with no client, forgive over
+        // the cap) throw before the first write and roll everything back.
+        const customerRate = this._customerPaysUsdRate(data);
+        const { forgiven } = bookCustomerLegs(this.db, {
+          legs: customerLegs,
+          expected: { amount: data.amountIn, currency: data.fromCurrency },
+          rate: customerRate,
+          debtType: "Exchange Debt",
+          clientId: data.clientId ?? null,
+          transactionId: txnId,
+          drawerFor: (leg) => paymentMethodToDrawerName(leg.method),
+          waived: data.customer_waived_amount ?? 0,
+          tenantId,
+          createdBy,
+          note: note ?? exchangeSummary,
+          context: "Exchange",
+        });
+        if (forgiven > 0) {
+          // FR-012 — the shared writer (forgivenShortfall.ts), same row
+          // the Whish App / OMT App / Binance cash-outs book.
+          bookForgivenShortfallSibling({
+            parentTxnId: txnId,
+            forgiven,
+            currency: data.fromCurrency,
+            usdPerUnit: customerRate,
+            exchangeRate: rate,
+            clientId: data.clientId ?? null,
+            clientName: data.clientName ?? null,
+            userId: createdBy,
+            label: "exchange",
+            metadata: { exchange_id: id },
+            transactionTime: data.transaction_time,
+          });
+        }
+      } else if (!isForPartner) {
         const fromDelta = Math.abs(data.amountIn);
         insertPaymentRow(this.db, {
           transactionId: txnId,
@@ -615,7 +708,10 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         const owed = expectedTotalIn(Math.abs(data.amountOut), data.toCurrency);
         reconcileLegs({
           inLegs: payoutLegs,
-          expectedTotals: { usd: owed.usd - kept.usd, lbp: owed.lbp - kept.lbp },
+          expectedTotals: {
+            usd: owed.usd - kept.usd,
+            lbp: owed.lbp - kept.lbp,
+          },
           // Fallback rate only, used when `tenderExchangeRate` is absent —
           // the stamped `rate` is the from→to exchange rate (possibly
           // EUR-per-USD etc.), NOT a USD↔LBP rate, so the server sell rate
@@ -727,6 +823,90 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           : {}),
       };
     })();
+  }
+
+  /**
+   * LIRA-321 — the "Customer pays" shapes the writer refuses before any row
+   * is written (the schema refuses the same; this covers offline replay and
+   * scripted callers): never on a partner exchange, every line in
+   * `fromCurrency` (the section is locked to the currency handed over), and
+   * no owing/forgiving unless that currency is USD or LBP.
+   */
+  private _assertCustomerPaysShape(
+    data: CreateExchangeData,
+    isForPartner: boolean,
+  ): void {
+    if (isForPartner) {
+      throw new Error(
+        "A partner exchange takes no money from a customer — remove the customer's payment lines. (Exchange: customerPayments with partnerMode FOR)",
+      );
+    }
+    for (const line of data.customerPayments ?? []) {
+      if (line.currencyCode !== data.fromCurrency) {
+        throw new Error(
+          `The customer pays in ${data.fromCurrency} only on this exchange. (Exchange: customer line currency ${line.currencyCode} ≠ ${data.fromCurrency})`,
+        );
+      }
+    }
+    // Owner decision 2026-10-14: no owing / forgiving unless the customer
+    // pays in USD or LBP (the lot would record more than the drawer got).
+    if (
+      !exchangeCustomerCanOwe(data.fromCurrency) &&
+      ((data.customerPayments ?? []).some(
+        (l) => l.method === "CUSTOMER_ACCOUNT",
+      ) ||
+        (data.customer_waived_amount ?? 0) > 0)
+    ) {
+      throw new Error(
+        `${exchangeOwingBlockedMessage(data.fromCurrency)} (Exchange: owing/forgive with fromCurrency ${data.fromCurrency})`,
+      );
+    }
+  }
+
+  /**
+   * LIRA-321 — this exchange's own fromCurrency→USD rate, in the direction
+   * `bookCustomerLegs` expects: LBP per 1 USD for LBP, USD per 1 unit for
+   * any other non-USD currency (EUR…). Derived from the exchange's own
+   * amounts, so it cannot be read in the wrong orientation and needs no
+   * `exchange_rates` row (a feed-only currency has none):
+   *  - target USD (direct): amountOut / amountIn — exactly the trade's rate;
+   *  - target LBP (via USD): the USD value of the payout at the LBP leg's
+   *    own rate, amountOut / leg2Rate, per unit of amountIn;
+   *  - any other pair (the sheet never offers it): leg-1 decoded through the
+   *    currency's rate row, else NaN — refused below only if a debt or
+   *    forgive actually needs it.
+   * For LBP the value is informational: every line is LBP and the debt and
+   * forgive cap are kept in LBP, so `bookCustomerLegs` never converts.
+   */
+  private _customerPaysUsdRate(data: CreateExchangeData): number {
+    const from = data.fromCurrency;
+    if (from === "USD" || from === "USDT") return 1;
+    let rate = Number.NaN;
+    if (from === "LBP") {
+      rate =
+        data.toCurrency === "USD" || data.toCurrency === "USDT"
+          ? data.amountIn / data.amountOut
+          : data.leg1Rate;
+    } else if (data.toCurrency === "USD" || data.toCurrency === "USDT") {
+      rate = data.amountOut / data.amountIn;
+    } else if (data.toCurrency === "LBP" && (data.leg2Rate ?? 0) > 0) {
+      rate = data.amountOut / (data.leg2Rate as number) / data.amountIn;
+    } else {
+      rate =
+        this._usdPerUnitFromExecutedRate(data.leg1Rate, from) ?? Number.NaN;
+    }
+    const needsRate =
+      from !== "LBP" &&
+      ((data.customerPayments ?? []).some(
+        (l) => l.method === "CUSTOMER_ACCOUNT",
+      ) ||
+        (data.customer_waived_amount ?? 0) > 0);
+    if (needsRate && !(Number.isFinite(rate) && rate > 0)) {
+      throw new Error(
+        `The ${from} → USD rate of this exchange is missing, so the customer's balance can't be worked out. (Exchange: no usable ${from}/USD rate)`,
+      );
+    }
+    return rate;
   }
 
   /**
@@ -1112,15 +1292,23 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    * Get recent exchange history (last N transactions; `null` = every row,
    * for the History window)
    */
-  getHistory(limit: number | null = 50): ExchangeTransactionEntity[] {
-    const sql = `SELECT ${this.getColumns()} FROM exchange_transactions
-         WHERE tenant_id = ?
-         ORDER BY created_at DESC`;
+  getHistory(limit: number | null = 50): ExchangeHistoryEntity[] {
+    // LIRA-321 (T025): + the picked client's name (LEFT JOIN — most
+    // exchanges have no client). Columns are qualified for the join.
+    const cols = this.getColumns()
+      .split(", ")
+      .map((c) => `et.${c}`)
+      .join(", ");
+    const sql = `SELECT ${cols}, c.full_name AS client_full_name
+         FROM exchange_transactions et
+         LEFT JOIN clients c ON c.id = et.client_id AND c.tenant_id = et.tenant_id
+         WHERE et.tenant_id = ?
+         ORDER BY et.created_at DESC`;
     return (
       limit === null
         ? this.db.prepare(sql).all(getCurrentTenantId())
         : this.db.prepare(`${sql} LIMIT ?`).all(getCurrentTenantId(), limit)
-    ) as ExchangeTransactionEntity[];
+    ) as ExchangeHistoryEntity[];
   }
 
   /**

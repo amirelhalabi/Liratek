@@ -122,15 +122,12 @@ export interface PaymentSheetProps {
    * (prop absent): renders exactly as today — zero impact on existing
    * consumers of this sheet.
    */
-  counterFlow?: {
-    label: string;
-    totalAmount: number;
-    currency: string;
-    onChange: (lines: PaymentLine[]) => void;
-    paymentMethods?: PaymentMethod[];
-    requiresClient?: boolean;
-    hasClient?: boolean;
-  };
+  // Derived from MultiPaymentInput's own prop so the two cannot drift
+  // (LIRA-321 adds seedLines / lockCurrency / maxForgive / onStateChange).
+  counterFlow?: NonNullable<MultiPaymentInputProps["counterFlow"]>;
+  /** LIRA-321: disables Confirm (with `isSubmitting`). Pages set it from the
+   *  "Customer pays" section's onStateChange; the server stays authoritative. */
+  confirmDisabled?: boolean;
 }
 
 export function PaymentSheet({
@@ -175,6 +172,7 @@ export function PaymentSheet({
   fetchClientVouchers,
   children,
   counterFlow,
+  confirmDisabled = false,
 }: PaymentSheetProps) {
   useModalFocusFix(open);
   const [visible, setVisible] = useState(false);
@@ -343,9 +341,9 @@ export function PaymentSheet({
               onConfirm();
               onClose();
             }}
-            disabled={isSubmitting}
+            disabled={isSubmitting || confirmDisabled}
             className={`w-full py-3.5 rounded-xl font-bold text-base transition-all ${
-              isSubmitting
+              isSubmitting || confirmDisabled
                 ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                 : `${accentColor} shadow-lg`
             }`}

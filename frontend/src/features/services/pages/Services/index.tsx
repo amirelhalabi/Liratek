@@ -32,7 +32,11 @@ import {
   canChargeToCustomerAccount,
 } from "@liratek/ui";
 import { DataTable, DateRangeFilter } from "@liratek/ui";
-import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import {
+  MultiPaymentInput,
+  type PaymentLine,
+  type LinesSectionState,
+} from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { StatsCards } from "../../components/StatsCards";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
@@ -358,6 +362,9 @@ export default function Services() {
   // collecting a customer-paid fee-on-top on an OMT/WHISH system RECEIVE.
   // Independent of paymentLines (the shop's payout) — never merged into it.
   const [feePaymentLines, setFeePaymentLines] = useState<PaymentLine[]>([]);
+  // LIRA-321: the "Customer pays" section's balance (onStateChange).
+  const [feeSectionState, setFeeSectionState] =
+    useState<LinesSectionState | null>(null);
   const isSplitPayment = paymentLines.length > 1;
   // Direction-agnostic (float model, owner-confirmed 2026-07-29): SEND nets
   // the fee out of what the customer pays; RECEIVE nets it out of the payout.
@@ -521,6 +528,15 @@ export default function Services() {
     renderWhishFee > 0 &&
     !activeSession &&
     !forPartner;
+  // LIRA-321: Confirm waits while the customer's side is over, short, or
+  // owes to an account with no client. Only while the section is shown —
+  // a stale report from an earlier RECEIVE must not block a SEND.
+  const feeSectionBlocksSubmit =
+    showFeeCounterFlow &&
+    feeSectionState !== null &&
+    (feeSectionState.overpaid ||
+      feeSectionState.needsClient ||
+      !feeSectionState.balanced);
 
   // The render-time SEND total: what the customer pays on a walk-in SEND,
   // AND (LIRA-258) what the partner owes the shop on a For-Partner SEND —
@@ -873,6 +889,9 @@ export default function Services() {
   );
 
   const handleSubmit = useCallback(async () => {
+    // LIRA-321: the voice auto-submit calls this directly, past the
+    // disabled button — refuse while the customer's side does not balance.
+    if (feeSectionBlocksSubmit) return;
     // Validate: client name + phone required when debt is used (single or split)
     // A For-Partner transaction has no payment section at all (LIRA-258 /
     // PFT-3b) and sends no legs, so a stale Customer Account pick made
@@ -1433,6 +1452,7 @@ export default function Services() {
     extraCharge,
     extraApplies,
     feePaymentLines,
+    feeSectionBlocksSubmit,
     includingFees,
     exchangeRate,
     effectiveRate,
@@ -2606,6 +2626,7 @@ export default function Services() {
                             totalAmount: renderWhishFee,
                             currency,
                             onChange: setFeePaymentLines,
+                            onStateChange: setFeeSectionState,
                             paymentMethods: allPaymentMethods.filter(
                               (pm) => pm.code !== "GIFT_CARD",
                             ),
@@ -2733,9 +2754,9 @@ export default function Services() {
               />
               <button
                 onClick={handleSubmit}
-                disabled={isSubmitting}
+                disabled={isSubmitting || feeSectionBlocksSubmit}
                 className={`w-full py-3.5 rounded-xl font-bold text-base shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${
-                  isSubmitting
+                  isSubmitting || feeSectionBlocksSubmit
                     ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                     : provider === "OMT"
                       ? "bg-[#ffde00] hover:bg-[#ffe933] text-black shadow-[#ffde00]/20"

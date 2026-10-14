@@ -1133,10 +1133,14 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
     edited_by        TEXT DEFAULT NULL,
     edited_at        TEXT DEFAULT NULL,
     is_refunded INTEGER DEFAULT 0,
-    refunded_at TEXT DEFAULT NULL
+    refunded_at TEXT DEFAULT NULL,
+    -- v215 (LIRA-321): the client picked on the Exchange screen (optional;
+    -- required when part of the customer's payment goes on their account).
+    client_id        INTEGER NULL REFERENCES clients(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_exchange_transactions_tenant_id ON exchange_transactions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_exchange_transactions_client_id ON exchange_transactions(tenant_id, client_id);
 
 -- =============================================================================
 -- Exchange Lot Settlement (v156, EXCHANGE_LOT_SETTLEMENT.md Phase 1 — schema only)
@@ -3102,4 +3106,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v213 (LIRA-319) adds sales.extra_usd (draft extra), declared above.
     (213, 'sales_extra_usd'),
     -- v214 (LIRA-312) adds wrong_number_cards, declared above.
-    (214, 'wrong_number_cards');
+    (214, 'wrong_number_cards'),
+    -- v215 (LIRA-321) adds exchange_transactions.client_id + its index,
+    -- declared above.
+    (215, 'exchange_transactions_client_id');

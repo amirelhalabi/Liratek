@@ -365,6 +365,7 @@ function createTestDb(): Database.Database {
     INSERT INTO exchange_rates (tenant_id, to_code, buy_rate, sell_rate, market_rate) VALUES (1, 'LBP', 89000, 90000, 89500);
 
     CREATE TABLE exchange_transactions (
+      client_id INTEGER, -- v215 (LIRA-321)
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER DEFAULT 1,
       type TEXT CHECK(type IN ('BUY', 'SELL')) NOT NULL,

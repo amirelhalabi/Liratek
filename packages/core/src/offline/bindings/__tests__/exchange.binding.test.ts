@@ -93,6 +93,47 @@ describe("exchange bindings (T090)", () => {
     closeDb(off.db);
   });
 
+  // LIRA-321 T019a (FR-017): a queued exchange whose customer paid part now
+  // and owes the rest replays to the same drawers and the same Exchange Debt
+  // as the online save. Not vacuous: the online run must book the debt.
+  it("customerPayments + clientId: replay == online, incl. the Exchange Debt", async () => {
+    const clientSeed = `INSERT INTO clients (id, tenant_id, full_name, phone_number) VALUES (9101, 1, 'Owes Client', '70999111');`;
+    const owe: Step[] = [
+      {
+        channel: "exchange:add-transaction",
+        payload: {
+          fromCurrency: "LBP",
+          toCurrency: "USD",
+          amountIn: 89500000,
+          amountOut: 1000,
+          leg1Rate: 89500,
+          leg1MarketRate: 89000,
+          leg1ProfitUsd: 5.62,
+          totalProfitUsd: 5.62,
+          clientId: 9101,
+          customerPayments: [
+            { method: "CASH", currencyCode: "LBP", amount: 87600000 },
+            { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 1900000 },
+          ],
+        },
+      },
+    ];
+    const on = await runOnline({ bindingsModule: MOD, exportName: NAME, seedSql: clientSeed, steps: owe });
+    expect(on.results[0].success).toBe(true);
+    expect(
+      on.db
+        .prepare(`SELECT client_id, amount_lbp FROM debt_ledger WHERE transaction_type = 'Exchange Debt'`)
+        .all(),
+    ).toEqual([{ client_id: 9101, amount_lbp: 1900000 }]);
+    const expected = tableState(on.db, [...TABLES]);
+    closeDb(on.db);
+
+    const off = await runReplay({ bindingsModule: MOD, exportName: NAME, seedSql: clientSeed, steps: owe });
+    expect(off.outcomes.map((o) => o.status)).toEqual(["booked"]);
+    expect(tableState(off.db, [...TABLES])).toEqual(expected);
+    closeDb(off.db);
+  });
+
   it("update-metadata is credited to the event's actor, never a payload field", async () => {
     const off = await runReplay({ bindingsModule: MOD, exportName: NAME, seedSql, steps, actorUserId: 2 });
     const row = off.db.prepare(`SELECT edited_by, note FROM exchange_transactions WHERE note = 'edited offline'`).get();
