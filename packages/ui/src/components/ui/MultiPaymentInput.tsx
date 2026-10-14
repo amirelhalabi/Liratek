@@ -2330,13 +2330,20 @@ export default function MultiPaymentInput({
     if (!counterFlow) return;
     counterFlowTouchedRef.current = true;
     setCounterFlowSplitMode(true);
+    // LIRA-321: what the customer did not pay goes on their account by
+    // default — CUSTOMER_ACCOUNT whenever this section offers it, i.e. the
+    // page's own client check passed (counterFlow.hasClient).
+    const remaining = counterFlowRemaining();
+    const leftoverToAccount =
+      remaining > 0 &&
+      counterFlowMethods.some((pm) => pm.code === "CUSTOMER_ACCOUNT");
     const next = [
       ...counterFlowLines,
       {
         id: crypto.randomUUID(),
-        method: "CASH",
+        method: leftoverToAccount ? "CUSTOMER_ACCOUNT" : "CASH",
         currencyCode: counterFlow.currency,
-        amount: counterFlowRemaining(),
+        amount: remaining,
       },
     ];
     setCounterFlowLines(next);

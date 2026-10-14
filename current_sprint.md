@@ -6670,6 +6670,16 @@ Spec: `specs/312-wrong-number-recharge/` (spec, plan, research, data model, cont
 
 **What users will notice:** on the Transactions page an iPick/Katsh/Whish App card sale has "Wrong number…" to record the wasted card as a loss and enter the credits sent back; Expenses has a "Wrong number" tick for an MTC/Alfa card; Profits shows "Wrong-number credits recovered".
 
+## LIRA-321: "Customer pays" becomes the money-in side of payout screens — IN PROGRESS (owner decisions 2026-10-14)
+
+Spec: `specs/321-customer-pays-in-side/spec.md`. Proposal with mocks: https://claude.ai/artifact/2EznUMNFMzPTC4inbQS7r4. On payout screens (Exchange, Whish/OMT App receive, Binance cash-out, OMT/Whish Whish ↓) the payment sheet's existing "Customer pays" section holds everything the customer owes (main amount + separate fee, auto-filled as two lines), works single or split like "Shop pays", and a shortfall goes on the client's account as a debt. Trigger: exchange $1,000 at 89,500, customer pays 87,600,000 LBP, owes 1,900,000 LBP. Labels: "Payment" → "Shop pays" (OUT), "Customer pays" (IN); Exchange shows "Customer pays — LBP" with the IN currency locked. Customer pays (IN) shows above Shop pays (OUT), order only. Owner decisions 2026-10-14: a USDT/EUR shortfall is owed as its USD equivalent; customer lines can't exceed what is owed; sessions out of scope; Whish ↓ stays fee-only (a wanted advance is a separate debt on the Debts page).
+
+**Plan (2026-10-14):** `specs/321-customer-pays-in-side/plan.md` (+ research, data-model, contracts, quickstart). Phases: 1 foundation (payment box single/split IN section above Shop pays, `customerPayments[]` schema fragment, `bookCustomerLegs`), 2 Exchange (v215 `exchange_transactions.client_id`, client picker, `Exchange Debt`), 3 Whish App → OMT App (transfer only, D1 no fee) → Binance. Next: `/speckit-tasks`.
+
+**Step 1 built (2026-10-14):** in the existing fee section, "+ Add line" starts the leftover as Customer Account whenever the section offers that method (the page's client check passes: name + phone, or a saved client), Cash otherwise, and Cash when nothing is left. `MultiPaymentInput.addCounterFlowLine`. Guard: `MultiPaymentInput.test.tsx` "leftover line method" (3 tests; the account case seen failing first, then passing). Frontend + ui typecheck clean; root `yarn lint` 0 errors (9 old warnings). ESLint does not cover `packages/ui` (its lint script is `tsc` only). Not run: the rest of the MultiPaymentInput file, page suites, e2e (lira-136 drives the fee section but never presses "+ Add line").
+
+**What users will notice:** when the customer pays only part of a separately paid fee (Whish receive, Whish App receive, Binance cash-out) and the client's name and phone are filled in, "+ Add line" puts the rest on the client's account by itself.
+
 ## LIRA-320: Basket refund after an undone item refund leaves money in General — BUG, TODO (found 2026-10-14)
 
 Found by the LIRA-319 session-basket work (probe, no extra involved): refund one item of a customer session basket, undo that item refund, then refund the whole basket — the General drawer ends up over by the undone refund's amount (+$6 in the probe). The pooled basket reversal still subtracts the undone refund's share. Not caused by LIRA-319; not yet reproduced in the app or guarded by a test.

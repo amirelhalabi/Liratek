@@ -1803,6 +1803,52 @@ describe("MultiPaymentInput", () => {
       const optionValues = Array.from(methodSelect.options).map((o) => o.value);
       expect(optionValues).toContain("CUSTOMER_ACCOUNT");
     });
+
+    // LIRA-321 step 1 — the leftover a customer did not pay goes on their
+    // account by default. Before this, "+ Add line" always started the
+    // leftover as CASH and the cashier had to switch it by hand.
+    describe("leftover line method (LIRA-321 step 1)", () => {
+      function addLeftoverAfterTyping(
+        typed: string,
+        opts: { requiresClient: boolean; hasClient: boolean },
+      ): PaymentLine[] {
+        const counterFlowOnChange = jest.fn();
+        renderWithCounterFlow({ counterFlowOnChange, totalAmount: 5, ...opts });
+        const amountInput = document.querySelector<HTMLInputElement>(
+          '[data-testid^="counter-flow-amount-"]',
+        )!;
+        fireEvent.change(amountInput, { target: { value: typed } });
+        fireEvent.click(screen.getByTestId("counter-flow-add-split"));
+        return counterFlowOnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      }
+
+      it("starts the leftover as CUSTOMER_ACCOUNT when a client is linked", () => {
+        const lines = addLeftoverAfterTyping("3", {
+          requiresClient: true,
+          hasClient: true,
+        });
+        expect(lines[1]).toMatchObject({
+          method: "CUSTOMER_ACCOUNT",
+          amount: 2,
+        });
+      });
+
+      it("keeps the leftover as CASH when no client is linked", () => {
+        const lines = addLeftoverAfterTyping("3", {
+          requiresClient: true,
+          hasClient: false,
+        });
+        expect(lines[1]).toMatchObject({ method: "CASH", amount: 2 });
+      });
+
+      it("keeps a new line as CASH when nothing is left over", () => {
+        const lines = addLeftoverAfterTyping("5", {
+          requiresClient: true,
+          hasClient: true,
+        });
+        expect(lines[1]).toMatchObject({ method: "CASH", amount: 0 });
+      });
+    });
   });
 
   // ── Tender-rate sanity warning (LIRA-240, owner decision 2026-09-28) ──

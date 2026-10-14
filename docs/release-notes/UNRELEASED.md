@@ -54,6 +54,7 @@ Noticed it before saving the sale? On Expenses, pick the card and tick "Wrong nu
 - Debts, Settle Debt with some items ticked: one Remaining line shows what is left on the ticked items and the total.
 - Paying by wallet with a fee: one Grand Total line names the wallet fee.
 - The discount now sits in the same place on every payment window: one Discount line inside the payment box, under Total Amount. On the POS and Maintenance checkout it moved there from the order summary, and it says "Capped to max" when you type more than allowed.
+- OMT/Whish page (Whish receive), Whish App receive and Binance cash-out, when the customer pays the fee separately: if they pay only part of it and the client's name and phone are filled in, "+ Add line" now puts the rest on the client's account by itself. Before, the new line started as Cash and you had to change it.
 - Debts (Settle Debt) and Partners (Settle): the separate green Discount / Forgive box is gone. Forgiving is now a "Forgive (no cash)" line in the payment box, and typing an amount there no longer changes the payment you entered. A "Client will owe" (or "Partner will owe") line shows what is left after you confirm. To forgive part of it, lower the payment first.
 
 ## ➕ Extra charges
