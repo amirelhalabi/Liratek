@@ -3109,4 +3109,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (214, 'wrong_number_cards'),
     -- v215 (LIRA-321) adds exchange_transactions.client_id + its index,
     -- declared above.
-    (215, 'exchange_transactions_client_id');
+    (215, 'exchange_transactions_client_id'),
+    -- v216 adds the Whish App catalog items to shops that already have a
+    -- catalog (data only, no schema). A fresh install gets them from the
+    -- starting catalog seed instead.
+    (216, 'whish_app_catalog_additions');

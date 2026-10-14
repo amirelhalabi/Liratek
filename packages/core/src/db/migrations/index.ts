@@ -14,6 +14,7 @@ import {
   TELECOM_CREDIT_COST_RATE_LBP,
   TELECOM_DAYS_SELL_PRICE_LBP,
 } from "../../utils/telecomCredit.js";
+import { V216_WHISH_APP_ITEMS } from "./data/v216WhishAppCatalog.js";
 
 /**
  * Does this database have that table?
@@ -14415,7 +14416,8 @@ CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created ON idempotency_keys(crea
         }
       }
     },
-  },  {
+  },
+  {
     version: 210,
     name: "offline_events_model",
     description:
@@ -14768,7 +14770,145 @@ DROP TABLE IF EXISTS wrong_number_cards;`);
       }
     },
   },
+  {
+    version: 216,
+    name: "whish_app_catalog_additions",
+    description:
+      "Adds the Whish App catalog crawled from the Whish app on 2026-10-14 " +
+      "(frozen copy in data/v216WhishAppCatalog.ts: alfa 1.22, alfa data bundles, mtc validity, " +
+      "internet, gaming, gift cards, streaming, international telecom, ACTC) " +
+      "to every shop that already has a mobile-services catalog. A new shop " +
+      "gets the same items from the starting catalog instead, so a shop with " +
+      "an EMPTY catalog is left alone: inserting into it would make the " +
+      "frontend seed think it is already seeded. Never changes an existing " +
+      "item or price; only adds what is missing. cost_lbp = Whish's LBP " +
+      "price, sell_lbp = cost (owner rule 2026-10-10).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      addWhishAppCatalogAdditions(db);
+    },
+    down(db: Database.Database) {
+      removeWhishAppCatalogAdditions(db);
+    },
+  },
 ];
+
+/** Flatten v216's frozen Whish App items into one row per item. */
+function whishAppAdditionRows(): Array<{
+  category: string;
+  subcategory: string;
+  label: string;
+  cost: number;
+  sell: number;
+  credits: number | null;
+}> {
+  const out = [];
+  for (const [category, subs] of Object.entries(V216_WHISH_APP_ITEMS)) {
+    for (const [subcategory, items] of Object.entries(subs)) {
+      for (const [label, item] of Object.entries(items)) {
+        out.push({
+          category,
+          subcategory,
+          label,
+          cost: Number(item.cost),
+          sell: Number(item.sell),
+          credits: item.credits ?? null,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * v216 up: add the missing WHISH_APP items to every shop whose catalog is
+ * already seeded. Idempotent (an item already present is skipped, whatever
+ * its price), and a shop with no catalog rows at all is skipped entirely.
+ * Exported for its own test only.
+ */
+export function addWhishAppCatalogAdditions(db: Database.Database): number {
+  if (!tableExists(db, "mobile_service_items")) return 0;
+  const tenants = db
+    .prepare(`SELECT DISTINCT tenant_id FROM mobile_service_items`)
+    .all() as Array<{ tenant_id: number | null }>;
+  const exists = db.prepare(
+    `SELECT 1 FROM mobile_service_items
+      WHERE tenant_id IS ? AND provider = 'WHISH_APP'
+        AND category = ? AND subcategory = ? AND label = ?`,
+  );
+  const maxSort = db.prepare(
+    `SELECT COALESCE(MAX(sort_order), -1) AS m FROM mobile_service_items
+      WHERE tenant_id IS ? AND provider = 'WHISH_APP' AND category = ?`,
+  );
+  // credits (v135) is set only for the alfa 1.22 card; older test schemas
+  // without the column still get the rest of the row.
+  const hasCredits = columnExists(db, "mobile_service_items", "credits");
+  const insert = db.prepare(
+    hasCredits
+      ? `INSERT INTO mobile_service_items
+           (tenant_id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, credits)
+         VALUES (?, 'WHISH_APP', ?, ?, ?, ?, ?, ?, 1, ?)`
+      : `INSERT INTO mobile_service_items
+           (tenant_id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active)
+         VALUES (?, 'WHISH_APP', ?, ?, ?, ?, ?, ?, 1)`,
+  );
+  const rows = whishAppAdditionRows();
+  let added = 0;
+  const run = db.transaction(() => {
+    for (const { tenant_id } of tenants) {
+      const nextSort = new Map<string, number>();
+      for (const r of rows) {
+        if (exists.get(tenant_id, r.category, r.subcategory, r.label)) continue;
+        if (!nextSort.has(r.category)) {
+          const { m } = maxSort.get(tenant_id, r.category) as { m: number };
+          nextSort.set(r.category, m + 1);
+        }
+        const sort = nextSort.get(r.category) as number;
+        nextSort.set(r.category, sort + 1);
+        const values = [
+          tenant_id,
+          r.category,
+          r.subcategory,
+          r.label,
+          r.cost,
+          r.sell,
+          sort,
+        ];
+        insert.run(...(hasCredits ? [...values, r.credits] : values));
+        added++;
+      }
+    }
+  });
+  run();
+  return added;
+}
+
+/**
+ * v216 down: remove the added items that are still exactly as v216 wrote
+ * them (same cost and sell) and that nothing references. An item the shop
+ * repriced or already sold through a wrong-number / resale-line record stays.
+ */
+export function removeWhishAppCatalogAdditions(db: Database.Database): void {
+  if (!tableExists(db, "mobile_service_items")) return;
+  const refs: string[] = [];
+  for (const t of ["wrong_number_cards", "resale_line_recharges"]) {
+    if (tableExists(db, t) && columnExists(db, t, "mobile_service_item_id")) {
+      refs.push(
+        `AND id NOT IN (SELECT mobile_service_item_id FROM ${t} WHERE mobile_service_item_id IS NOT NULL)`,
+      );
+    }
+  }
+  const del = db.prepare(
+    `DELETE FROM mobile_service_items
+      WHERE provider = 'WHISH_APP' AND category = ? AND subcategory = ? AND label = ?
+        AND cost_lbp = ? AND sell_lbp = ? ${refs.join(" ")}`,
+  );
+  db.transaction(() => {
+    for (const r of whishAppAdditionRows()) {
+      del.run(r.category, r.subcategory, r.label, r.cost, r.sell);
+    }
+  })();
+}
 
 /**
  * v209 back-fill (LIRA-304, research D12). For every basket charge still

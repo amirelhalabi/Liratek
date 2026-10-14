@@ -303,9 +303,10 @@ describe("mobileServices — Only-Days credits seed (TELECOM_DAYS_COST_PLAN.md �
         checked++;
       }
     }
-    // Plan §1.1: 8 on iPick (incl. the iPick-only "1.22") + 7 on Katsh + 7 on
-    // WHISH_APP = 22.
-    expect(checked).toBe(22);
+    // Plan §1.1: 8 on iPick + 7 on Katsh + 8 on WHISH_APP = 23. "1.22" is on
+    // iPick and, since the 2026-10-14 Whish app crawl, on WHISH_APP too (the
+    // Whish app sells it); Katsh does not carry it.
+    expect(checked).toBe(23);
   });
 
   it("every mtc Prepaid combo card (the 7 face values that bundle validity days) carries BOTH credits and validity_days", () => {
@@ -388,8 +389,8 @@ describe("mobileServices — Only-Days credits seed (TELECOM_DAYS_COST_PLAN.md �
     }
   });
 
-  it("exactly 49 items in the whole catalog carry a credits field (22 alfa + 21 mtc combo + 6 pre-existing mtc 1/1.67)", () => {
+  it("exactly 50 items in the whole catalog carry a credits field (23 alfa + 21 mtc combo + 6 pre-existing mtc 1/1.67)", () => {
     const leaves = collectCreditsLeaves();
-    expect(leaves.length).toBe(49);
+    expect(leaves.length).toBe(50);
   });
 });

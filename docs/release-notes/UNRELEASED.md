@@ -79,6 +79,7 @@ Noticed it before saving the sale? On Expenses, pick the card and tick "Wrong nu
 - Credits sent back for a wrong number: enter what arrived and on which shop line, now or later, in one or more parts. The shop line and the MTC / Alfa balance go up, and the loss goes down by the price of $1 of resold credit (Settings → Mobile Services). Example: a 770,000 LBP card with $6.68 back leaves a 102,000 LBP loss.
 - To undo, an admin voids the credits first, then the wrong-number expense.
 - Card pictures on many more items: when you pick an item for iPick, Katsh or Whish App, more tiles now show the real card. That includes the Alfa 1.22, 4.5 and 10 cards; the MTC 10, Smart, Super and Start SOS cards; Alfa data bundles; MTC validity; PlayStation, PUBG, Free Fire, Roblox, Steam, Razer, Nintendo, Xbox and Blizzard cards; and Terranet, Mobi and Wise packages. Items with no known card keep showing their name as before.
+- Whish App: the Bills list now has everything the Whish app sells in LBP, not only the Alfa and MTC prepaid cards. That includes the Alfa 1.22 card, Alfa data bundles (Mobile Internet, Broadband, Alfa Go, Weekly, Boosters, Surf & Talk, Weekender), MTC validity days, internet (Terranet, Mobi, Wise, Connect), gaming, gift cards, streaming, DU / Etisalat / STC pins and ACTC tickets. Each new item starts with its selling price equal to its cost; change it in Settings → Mobile Services. Items you already had keep their prices.
 
 ## 🧾 Expenses
 
