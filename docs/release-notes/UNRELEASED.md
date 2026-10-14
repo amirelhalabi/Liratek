@@ -75,6 +75,7 @@ Noticed it before saving the sale? On Expenses, pick the card and tick "Wrong nu
 - Card recharged onto the wrong number: on the Transactions page, an iPick, Katsh or Whish App card sale now has a "Wrong number…" button. Pick the card that was sent and type the wrong and the right number. The sale stays as it is (it counts as the recharge of the right number), and the wasted card is recorded as a loss from the iPick / Katsh / Whish App balance.
 - Credits sent back for a wrong number: enter what arrived and on which shop line, now or later, in one or more parts. The shop line and the MTC / Alfa balance go up, and the loss goes down by the price of $1 of resold credit (Settings → Mobile Services). Example: a 770,000 LBP card with $6.68 back leaves a 102,000 LBP loss.
 - To undo, an admin voids the credits first, then the wrong-number expense.
+- Card pictures on many more items: when you pick an item for iPick, Katsh or Whish App, more tiles now show the real card. That includes the Alfa 1.22, 4.5 and 10 cards; the MTC 10, Smart, Super and Start SOS cards; Alfa data bundles; MTC validity; PlayStation, PUBG, Free Fire, Roblox, Steam, Razer, Nintendo, Xbox and Blizzard cards; and Terranet, Mobi and Wise packages. Items with no known card keep showing their name as before.
 
 ## 🧾 Expenses
 
