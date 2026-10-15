@@ -8,6 +8,12 @@
  * later from the record.
  *
  * Used from the Transactions page ("Wrong number…" on a card sale).
+ *
+ * LIRA-325: from a sale, the card is LOCKED to the one the sale sold (we know
+ * what we sold) whenever the server can read it from the sale; otherwise
+ * (an older sale, a card no longer in the catalog, a cart of several
+ * different cards) the operator picks it, as before. The wrong number itself
+ * is optional.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -15,7 +21,7 @@ import {
   type CarrierLineEntity,
   type MobileServiceItemEntity,
 } from "@liratek/ui";
-import type { RecordWrongNumberInput } from "@liratek/core";
+import type { RecordWrongNumberInput, WrongNumberCardItem } from "@liratek/core";
 import { localDay } from "@/shared/utils/localDay";
 import logger from "@/utils/logger";
 import type { WrongNumberProviderCode } from "@/features/audit/actionGating";
@@ -49,6 +55,8 @@ export function WrongNumberPanel({
   const [cards, setCards] = useState<MobileServiceItemEntity[]>([]);
   const [lines, setLines] = useState<CarrierLineEntity[]>([]);
   const [cardId, setCardId] = useState<number | null>(null);
+  /** The card the sale sold, when the server could tell (LIRA-325). */
+  const [soldCard, setSoldCard] = useState<WrongNumberCardItem | null>(null);
   const [wrongNumber, setWrongNumber] = useState("");
   const [rightNumber, setRightNumber] = useState("");
   const [creditsCame, setCreditsCame] = useState(false);
@@ -61,16 +69,22 @@ export function WrongNumberPanel({
     let cancelled = false;
     (async () => {
       try {
-        const [items, active] = await Promise.all([
+        const [items, active, sold] = await Promise.all([
           apiRef.current.getActiveMobileServiceItems(),
           apiRef.current.getAllActiveCarrierLines(),
+          saleTransactionId !== undefined
+            ? apiRef.current
+                .getWrongNumberSaleCard(saleTransactionId)
+                .catch(() => null)
+            : Promise.resolve(null),
         ]);
         if (cancelled) return;
         const own = (Array.isArray(items) ? items : []).filter((i) =>
           isWrongNumberCard(i, provider),
         );
         setCards(own);
-        setCardId(defaultCardFor(own, saleText)?.id ?? null);
+        setSoldCard(sold);
+        setCardId(sold ? sold.id : (defaultCardFor(own, saleText)?.id ?? null));
         setLines(Array.isArray(active) ? active : []);
       } catch (err) {
         logger.error("Failed to load wrong-number cards", err);
@@ -79,9 +93,12 @@ export function WrongNumberPanel({
     return () => {
       cancelled = true;
     };
-  }, [provider, saleText]);
+  }, [provider, saleText, saleTransactionId]);
 
-  const card = cards.find((c) => c.id === cardId) ?? null;
+  const card: Pick<
+    WrongNumberCardItem,
+    "id" | "category" | "label" | "cost_lbp" | "credits"
+  > | null = soldCard ?? cards.find((c) => c.id === cardId) ?? null;
   const carrier = card ? card.category.toLowerCase() : null;
   const carrierLines = useMemo(
     () => lines.filter((l) => l.carrier === carrier && l.is_active === 1),
@@ -101,10 +118,6 @@ export function WrongNumberPanel({
       setError("Pick the MTC or Alfa card that was sent.");
       return;
     }
-    if (!wrongNumber.trim()) {
-      setError("Enter the wrong number.");
-      return;
-    }
     if (saleTransactionId !== undefined && !rightNumber.trim()) {
       setError("Enter the customer's right number.");
       return;
@@ -118,7 +131,8 @@ export function WrongNumberPanel({
     const payload: RecordWrongNumberInput = {
       provider,
       mobile_service_item_id: card.id,
-      wrong_number: wrongNumber.trim(),
+      // Optional (LIRA-325): sent only when typed.
+      ...(wrongNumber.trim() ? { wrong_number: wrongNumber.trim() } : {}),
       expense_date: localDay(),
       ...(rightNumber.trim() ? { right_number: rightNumber.trim() } : {}),
       ...(saleTransactionId !== undefined
@@ -157,6 +171,21 @@ export function WrongNumberPanel({
         {PROVIDER_LABELS[provider]} balance.
       </p>
 
+      {soldCard ? (
+        <div>
+          <span className="text-xs text-slate-400 block mb-1">
+            Card that was sent
+          </span>
+          <p
+            data-testid="wrong-number-locked-card"
+            className="text-sm text-white bg-slate-800/60 border border-slate-700 rounded px-3 py-1.5"
+          >
+            {carrierLabel(soldCard.category)} {soldCard.label} —{" "}
+            {lbp(soldCard.cost_lbp)}
+            <span className="text-slate-400"> · from this sale</span>
+          </p>
+        </div>
+      ) : (
       <div>
         <label htmlFor="wn-card" className="text-xs text-slate-400 block mb-1">
           Card that was sent
@@ -176,12 +205,21 @@ export function WrongNumberPanel({
             </option>
           ))}
         </select>
+        {saleTransactionId !== undefined && (
+          <p
+            data-testid="wrong-number-pick-hint"
+            className="text-xs text-slate-500 mt-1"
+          >
+            Pick the card that was sent.
+          </p>
+        )}
       </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label htmlFor="wn-wrong" className="text-xs text-slate-400 block mb-1">
-            Wrong number (recharged by mistake)
+            Wrong number (optional)
           </label>
           <input
             id="wn-wrong"

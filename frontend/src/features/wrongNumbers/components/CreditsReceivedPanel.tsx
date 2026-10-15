@@ -124,7 +124,7 @@ export function CreditsReceivedPanel({
           {PROVIDER_LABELS[record.provider]} {carrierLabel(record.carrier)}{" "}
           {record.card_label}
           <div className="text-xs text-slate-400">
-            Wrong number {record.wrong_number}
+            Wrong number {record.wrong_number ?? "—"}
             {record.right_number ? ` · right number ${record.right_number}` : ""}
           </div>
         </div>

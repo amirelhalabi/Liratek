@@ -316,6 +316,7 @@ export type {
 } from "./services/ResaleLineService.js";
 // LIRA-312 — wrong-number card records (types only: erased, nothing bundled).
 export type {
+  WrongNumberCardItem,
   WrongNumberCardRow,
   WrongNumberCreditEntry,
 } from "./repositories/WrongNumberRepository.js";

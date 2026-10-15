@@ -784,6 +784,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   getWrongNumbers = (query?: ListWrongNumbersQueryInput) =>
     api.getWrongNumbers(query);
+  getWrongNumberSaleCard = (saleTransactionId: number) =>
+    api.getWrongNumberSaleCard(saleTransactionId);
   recordWrongNumber = (data: RecordWrongNumberInput) =>
     api.recordWrongNumber(data);
   recordWrongNumberCredits = (data: WrongNumberCreditsInput) =>

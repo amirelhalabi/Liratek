@@ -48,6 +48,36 @@ export function catalogCartNote(
     .join(", ");
 }
 
+/** The suffix the web adds to an Only-Days line in the note. */
+const ONLY_DAYS_NOTE_SUFFIX = " [Only Days]";
+
+/**
+ * LIRA-325 — the inverse of `catalogCartNote` (kept next to it so the format
+ * is defined in one place, rule 14): each entry's item name
+ * (`formatCatalogItemName`) and quantity, with the " [Only Days]" suffix
+ * dropped. A walk-in cart writes no item key, so its note is the only record
+ * of what was sold. A name that itself contains ", " splits wrongly and then
+ * simply matches no catalog item — callers treat that as "unknown".
+ */
+export function parseCatalogCartNote(
+  note: string | null | undefined,
+): { name: string; quantity: number }[] {
+  if (!note || !note.trim()) return [];
+  return note
+    .split(", ")
+    .map((raw) => {
+      let entry = raw.trim();
+      if (entry.endsWith(ONLY_DAYS_NOTE_SUFFIX.trim())) {
+        entry = entry.slice(0, -ONLY_DAYS_NOTE_SUFFIX.trim().length).trim();
+      }
+      const qty = / x(\d+)$/.exec(entry);
+      return qty
+        ? { name: entry.slice(0, qty.index).trim(), quantity: Number(qty[1]) }
+        : { name: entry, quantity: 1 };
+    })
+    .filter((e) => e.name.length > 0);
+}
+
 /**
  * USD to ask for an LBP amount at `rate` LBP per USD, rounded to the cent —
  * the same arithmetic as the web's payment sheet (`lbp × (1 / rate)`, then

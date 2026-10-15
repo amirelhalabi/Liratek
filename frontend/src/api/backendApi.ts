@@ -32,6 +32,7 @@ import type {
   WrongNumberResult,
   RecordWrongNumberResultData,
   WrongNumberCreditsResultData,
+  WrongNumberCardItem,
 } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
 import type { SessionCheckoutPayload } from "@liratek/core";
@@ -7739,6 +7740,29 @@ export async function getWrongNumbers(
         data?: WrongNumberCardRow[];
       }>(`/api/wrong-numbers${qs ? `?${qs}` : ""}`);
       return res.success ? (res.data ?? []) : [];
+    },
+  );
+}
+
+/** LIRA-325 — the MTC/Alfa card a sale sold, or null when it cannot be told
+ *  (an older sale, a card removed from the catalog, a cart of several
+ *  different cards) — the panel then lets the operator pick. Raw shape. */
+export async function getWrongNumberSaleCard(
+  saleTransactionId: number,
+): Promise<WrongNumberCardItem | null> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().wrongNumbers.saleCard({
+        sale_transaction_id: saleTransactionId,
+      });
+      return res.success ? (res.data ?? null) : null;
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: WrongNumberCardItem | null;
+      }>(`/api/wrong-numbers/sale-card/${saleTransactionId}`);
+      return res.success ? (res.data ?? null) : null;
     },
   );
 }

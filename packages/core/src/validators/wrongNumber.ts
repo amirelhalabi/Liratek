@@ -61,6 +61,25 @@ const phoneSchema = z
     "Enter a phone number",
   );
 
+/**
+ * The wrong number is OPTIONAL (LIRA-325, owner 2026-10-16: record it without
+ * typing it). Missing, null or blank → null; anything typed must still be a
+ * phone number. A trim/nullish/transform chain (not `z.preprocess`) keeps the
+ * input type `string | null | undefined` for the derived payload types
+ * (rule 21).
+ */
+const optionalPhoneSchema = z
+  .string()
+  .trim()
+  .max(30)
+  .nullish()
+  .transform((v) => (v ? v : null))
+  .refine(
+    (v) =>
+      v === null || (isPhoneShapedTerm(v) && normalizeLebanesePhone(v).length >= 7),
+    "Enter a phone number",
+  );
+
 /** USD credit amounts arrive with at most cents. */
 const creditsUsdSchema = z
   .number()
@@ -77,7 +96,8 @@ export const recordWrongNumberSchema = z
     provider: wrongNumberProviderSchema,
     /** The MTC/Alfa card of that provider that was sent to the wrong number. */
     mobile_service_item_id: z.number().int().positive(),
-    wrong_number: phoneSchema,
+    /** Optional (LIRA-325): null when not entered. */
+    wrong_number: optionalPhoneSchema,
     /** The customer's real number (required on a saved sale). */
     right_number: phoneSchema.optional(),
     /** Path B: the ACTIVE card sale this wrong recharge belongs to. */
@@ -134,3 +154,16 @@ export type ListWrongNumbersQueryInput = z.input<
   typeof listWrongNumbersQuerySchema
 >;
 export type ListWrongNumbersQuery = z.output<typeof listWrongNumbersQuerySchema>;
+
+/** LIRA-325 — the card a sale sold (the whole IPC arg; on REST the id is a
+ *  path segment, coerced). */
+export const wrongNumberSaleCardQuerySchema = z.object({
+  sale_transaction_id: z.coerce.number().int().positive(),
+});
+
+export type WrongNumberSaleCardQueryInput = z.input<
+  typeof wrongNumberSaleCardQuerySchema
+>;
+export type WrongNumberSaleCardQuery = z.output<
+  typeof wrongNumberSaleCardQuerySchema
+>;

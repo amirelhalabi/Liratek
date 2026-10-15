@@ -18,7 +18,9 @@
  * card label, a fresh shop line, the sale's own id) and every money check is
  * a DELTA snapshotted around its action.
  *
- * NOT YET RUN (owner asks before e2e runs).
+ * LIRA-325 (second test): the card comes from the sale — the panel shows it
+ * locked, the server refuses another card for that sale — and the wrong
+ * number may be left out.
  */
 import type { Page } from "@playwright/test";
 import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
@@ -225,5 +227,95 @@ test.describe.serial("lira-web-060 wrong-number card recharge", () => {
 
     const list = await getJson(page, auth, `/api/wrong-numbers?id=${recordId}`);
     expect(list.data[0].status).toBe("VOIDED");
+  });
+
+  test("LIRA-325 — the sold card is locked and enforced; the wrong number is optional", async ({
+    page,
+  }) => {
+    const auth = await authOf(page);
+    const stamp = Date.now().toString().slice(-6);
+
+    const newCard = async (label: string) => {
+      const r = await postJson(page, auth, "/api/mobile-service-items", {
+        provider: "iPick",
+        category: "alfa",
+        subcategory: "Prepaid",
+        label,
+        cost_lbp: CARD_COST,
+        sell_lbp: CARD_PRICE,
+        credits: CARD_CREDIT,
+        validity_days: 30,
+      });
+      expect(r.success, JSON.stringify(r)).toBeTruthy();
+      return r.data.id as number;
+    };
+    const label = `L325 Alfa ${stamp}`;
+    const cardId = await newCard(label);
+    const otherCardId = await newCard(`L325 Other ${stamp}`);
+
+    // The walk-in cart (no item key — the card is read from the note).
+    const sale = await postJson(page, auth, "/api/services/transactions", {
+      provider: "iPick",
+      serviceType: "SEND",
+      amount: CARD_PRICE,
+      cost: CARD_COST,
+      currency: "LBP",
+      commission: CARD_PRICE - CARD_COST,
+      paidByMethod: "CASH",
+      payments: [{ method: "CASH", currencyCode: "LBP", amount: CARD_PRICE }],
+      checkoutTotal: { usd: 0, lbp: CARD_PRICE },
+      note: `alfa: ${label} (Prepaid)`,
+    });
+    expect(sale.success, JSON.stringify(sale)).toBeTruthy();
+    const saleTxnId = (
+      (await getJson(page, auth, `/api/transactions/by-source/financial_services/${sale.id}`))
+        .transaction as { id: number }
+    ).id;
+
+    // The read path names the sold card.
+    const soldCard = await getJson(page, auth, `/api/wrong-numbers/sale-card/${saleTxnId}`);
+    expect(soldCard.data).toMatchObject({ id: cardId, label });
+
+    // The panel shows it locked (no dropdown).
+    await page.goto("/#/audit");
+    const row = page.locator("tr", { hasText: label }).first();
+    await row.getByRole("button", { name: "Wrong number…" }).click();
+    const dialog = page.getByRole("dialog", { name: "Wrong number" });
+    await expect(dialog.getByTestId("wrong-number-locked-card")).toContainText(
+      `Alfa ${label} — ${CARD_COST.toLocaleString()} LBP · from this sale`,
+    );
+    await expect(dialog.locator("#wn-card")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    // Another card for this sale is refused; nothing booked.
+    const ipickBefore = await drawer(page, auth, "iPick", "lbp");
+    const refused = await postJson(page, auth, "/api/wrong-numbers", {
+      provider: "iPick",
+      mobile_service_item_id: otherCardId,
+      right_number: `03 222 ${stamp.slice(-3)}`,
+      sale_transaction_id: saleTxnId,
+      expense_date: isoDay(0),
+    });
+    expect(refused.success).toBe(false);
+    expect(String(refused.error)).toContain(`This sale was for Alfa ${label}`);
+    expect(await drawer(page, auth, "iPick", "lbp")).toBe(ipickBefore);
+
+    // The sold card, no wrong number typed: recorded; it reads back null.
+    const recorded = await postJson(page, auth, "/api/wrong-numbers", {
+      provider: "iPick",
+      mobile_service_item_id: cardId,
+      right_number: `03 222 ${stamp.slice(-3)}`,
+      sale_transaction_id: saleTxnId,
+      expense_date: isoDay(0),
+    });
+    expect(recorded.success, JSON.stringify(recorded)).toBeTruthy();
+    expect((await drawer(page, auth, "iPick", "lbp")) - ipickBefore).toBe(-CARD_COST);
+    const list = await getJson(page, auth, `/api/wrong-numbers?id=${recorded.data.id}`);
+    expect(list.data[0]).toMatchObject({ wrong_number: null, mobile_service_item_id: cardId });
+
+    // Clean up (rule 15 — leave nothing active behind): undo the loss.
+    const undo = await postJson(page, auth, `/api/transactions/${recorded.data.expense_transaction_id}/void`);
+    expect(undo.success, JSON.stringify(undo)).toBeTruthy();
+    expect(await drawer(page, auth, "iPick", "lbp")).toBe(ipickBefore);
   });
 });

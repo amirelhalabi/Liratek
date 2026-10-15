@@ -185,6 +185,7 @@ export {
   getWrongNumberRepository,
   resetWrongNumberRepository,
   type WrongNumberCardEntity,
+  type WrongNumberCardItem,
   type WrongNumberCardRow,
   type WrongNumberCreditEntry,
 } from "./WrongNumberRepository.js";

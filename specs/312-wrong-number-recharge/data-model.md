@@ -19,7 +19,7 @@ the table, and the new table is appended to `OFFLINE_ID_TABLES`.
 | card_label | TEXT NOT NULL | snapshot, e.g. "Alfa 7.58" |
 | card_cost_lbp | REAL NOT NULL | > 0, snapshot of the expense amount |
 | card_credit_usd | REAL NOT NULL | ≥ 0, cap for recoveries |
-| wrong_number | TEXT NOT NULL | stored with `normalizeLineNumber` |
+| wrong_number | TEXT NOT NULL | stored with `normalizeLineNumber`; optional since LIRA-325 — stored as `''` when not entered (no migration: the column stays NOT NULL) and read back as `NULL` (`NULLIF(wrong_number, '')`, one helper in the repository) |
 | right_number | TEXT NULL | path B only; ≠ wrong_number (compared with `isSameLebanesePhone`) |
 | created_at / updated_at | DATETIME | |
 

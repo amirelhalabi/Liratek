@@ -181,14 +181,11 @@ export default function Expenses() {
   // ONE payload, typed by the core schema's input (rules 21, 22).
   const handleAddWrongNumber = async (pick: StockPick) => {
     if (pick.source === "INVENTORY") return;
-    if (!wrongNumber.trim()) {
-      alert("Please enter the wrong number.");
-      return;
-    }
     const payload: RecordWrongNumberInput = {
       provider: STOCK_EXPENSE_CATALOG_PROVIDERS[pick.source] as RecordWrongNumberInput["provider"],
       mobile_service_item_id: pick.item_id,
-      wrong_number: wrongNumber.trim(),
+      // Optional (LIRA-325): sent only when typed.
+      ...(wrongNumber.trim() ? { wrong_number: wrongNumber.trim() } : {}),
       expense_date: formData.expense_date.slice(0, 10),
       ...(formData.description.trim()
         ? { note: formData.description.trim() }
@@ -496,7 +493,7 @@ export default function Expenses() {
                             htmlFor="expense-wrong-number"
                             className="text-xs text-slate-400 block mb-1"
                           >
-                            Wrong number
+                            Wrong number (optional)
                           </label>
                           <input
                             id="expense-wrong-number"

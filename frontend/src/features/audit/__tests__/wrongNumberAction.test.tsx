@@ -28,8 +28,10 @@ import { WrongNumberPanel } from "@/features/wrongNumbers/components/WrongNumber
 const mockRecordWrongNumber = jest.fn();
 const mockGetActiveMobileServiceItems = jest.fn();
 const mockGetAllActiveCarrierLines = jest.fn();
+const mockGetWrongNumberSaleCard = jest.fn();
 const mockApi = {
   recordWrongNumber: mockRecordWrongNumber,
+  getWrongNumberSaleCard: mockGetWrongNumberSaleCard,
   getActiveMobileServiceItems: mockGetActiveMobileServiceItems,
   getAllActiveCarrierLines: mockGetAllActiveCarrierLines,
 };
@@ -195,6 +197,8 @@ describe("WrongNumberPanel (LIRA-312)", () => {
       success: true,
       data: { id: 5, expense_transaction_id: 6, status: "PARTLY_RECOVERED", remaining_loss_lbp: 102000 },
     });
+    // Default: the sale's card cannot be told → the operator picks (LIRA-325).
+    mockGetWrongNumberSaleCard.mockResolvedValue(null);
   });
 
   it("defaults to the card named in the sale and lists only that provider's MTC/Alfa cards", async () => {
@@ -255,5 +259,73 @@ describe("WrongNumberPanel (LIRA-312)", () => {
     fireEvent.click(screen.getByRole("button", { name: /record wrong number/i }));
     expect(await screen.findByText("Enter the customer's right number.")).toBeInTheDocument();
     expect(mockRecordWrongNumber).not.toHaveBeenCalled();
+  });
+
+  // LIRA-325 — the card comes from the sale; the wrong number is optional.
+  // Rule 17 note: written after the panel change, so NOT proven failing-first.
+  describe("LIRA-325", () => {
+    const soldAlfa = {
+      id: 2,
+      provider: "iPick",
+      category: "alfa",
+      subcategory: "Prepaid",
+      label: "7.58",
+      cost_lbp: 770000,
+      credits: 7.58,
+    };
+
+    it("from a sale whose card is known: the card is shown locked, no dropdown, and that card is sent", async () => {
+      mockGetWrongNumberSaleCard.mockResolvedValue(soldAlfa);
+      render(
+        <WrongNumberPanel provider="iPick" saleTransactionId={40} saleText={null} onDone={jest.fn()} onCancel={jest.fn()} />,
+      );
+      const locked = await screen.findByTestId("wrong-number-locked-card");
+      expect(locked).toHaveTextContent("Alfa 7.58 — 770,000 LBP · from this sale");
+      expect(mockGetWrongNumberSaleCard).toHaveBeenCalledWith(40);
+      expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("wrong-number-pick-hint")).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText(/right number/i), { target: { value: "03 222 333" } });
+      fireEvent.click(screen.getByRole("button", { name: /record wrong number/i }));
+      await waitFor(() => expect(mockRecordWrongNumber).toHaveBeenCalledTimes(1));
+      expect(mockRecordWrongNumber.mock.calls[0][0]).toMatchObject({
+        mobile_service_item_id: 2,
+        sale_transaction_id: 40,
+      });
+    });
+
+    it("from a sale whose card cannot be told: the dropdown, with a quiet 'pick the card' hint", async () => {
+      render(
+        <WrongNumberPanel provider="iPick" saleTransactionId={40} saleText={null} onDone={jest.fn()} onCancel={jest.fn()} />,
+      );
+      await screen.findByLabelText(/card that was sent/i);
+      expect(await screen.findByTestId("wrong-number-pick-hint")).toHaveTextContent(
+        "Pick the card that was sent.",
+      );
+      expect(screen.queryByTestId("wrong-number-locked-card")).not.toBeInTheDocument();
+    });
+
+    it("from Expenses (no sale): the dropdown as before, no sale lookup, no hint", async () => {
+      render(<WrongNumberPanel provider="iPick" onDone={jest.fn()} onCancel={jest.fn()} />);
+      await screen.findByLabelText(/card that was sent/i);
+      expect(mockGetWrongNumberSaleCard).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("wrong-number-pick-hint")).not.toBeInTheDocument();
+    });
+
+    it("records without the wrong number — no 'Enter the wrong number.' error", async () => {
+      mockGetWrongNumberSaleCard.mockResolvedValue(soldAlfa);
+      render(
+        <WrongNumberPanel provider="iPick" saleTransactionId={40} saleText={null} onDone={jest.fn()} onCancel={jest.fn()} />,
+      );
+      await screen.findByTestId("wrong-number-locked-card");
+      fireEvent.change(screen.getByLabelText(/right number/i), { target: { value: "03 222 333" } });
+      fireEvent.click(screen.getByRole("button", { name: /record wrong number/i }));
+      await waitFor(() => expect(mockRecordWrongNumber).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText("Enter the wrong number.")).not.toBeInTheDocument();
+      const payload = mockRecordWrongNumber.mock.calls[0][0];
+      expect(payload).not.toHaveProperty("wrong_number");
+      // The schema reads the missing number as null (rule 24: its own names).
+      expect(recordWrongNumberSchema.parse(payload)).toEqual({ ...payload, wrong_number: null });
+    });
   });
 });

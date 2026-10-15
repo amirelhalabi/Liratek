@@ -16,6 +16,7 @@ import {
   getWrongNumberService,
   recordWrongNumberSchema,
   wrongNumberCreditsSchema,
+  wrongNumberSaleCardQuerySchema,
 } from "@liratek/core";
 import { isAuthenticated, requireRole } from "../../session";
 import { audit } from "../auditHelper";
@@ -55,6 +56,7 @@ const CREDITS = wrongNumberCreditsSchema.parse({
 describe("wrong-numbers:* IPC handlers (LIRA-312)", () => {
   const service = {
     list: jest.fn(),
+    getSaleCard: jest.fn(),
     recordWrongNumber: jest.fn(),
     recordCreditsReceived: jest.fn(),
   };
@@ -104,7 +106,9 @@ describe("wrong-numbers:* IPC handlers (LIRA-312)", () => {
   it("an invalid payload is refused before the service", async () => {
     const result = (await handlers.get("wrong-numbers:record")!(event, {
       ...RECORD,
-      wrong_number: "",
+      // LIRA-325: blank is now "not entered" — something typed must still
+      // be a phone number.
+      wrong_number: "not a number",
     })) as { success: boolean };
     expect(result.success).toBe(false);
     expect(service.recordWrongNumber).not.toHaveBeenCalled();
@@ -127,5 +131,48 @@ describe("wrong-numbers:* IPC handlers (LIRA-312)", () => {
       error: "Not authenticated",
     });
     expect(service.list).not.toHaveBeenCalled();
+  });
+
+  // LIRA-325 — written after the handler change, NOT proven failing-first.
+  it("record without the wrong number: null reaches the service, the audit leaves it out", async () => {
+    const { wrong_number: _omit, ...body } = RECORD;
+    service.recordWrongNumber.mockReturnValue({ success: true, data: { id: 5, expense_transaction_id: 9 } });
+    await handlers.get("wrong-numbers:record")!(event, body);
+    expect(service.recordWrongNumber).toHaveBeenCalledWith(
+      recordWrongNumberSchema.parse(body),
+      7,
+    );
+    expect(recordWrongNumberSchema.parse(body).wrong_number).toBeNull();
+    expect((audit as jest.Mock).mock.calls[0][1].summary).toBe("Wrong number (iPick card)");
+  });
+
+  it("sale-card returns the sale's card (signed-in, id validated)", async () => {
+    const card = { id: 2, provider: "iPick", category: "alfa", subcategory: "Prepaid", label: "7.58", cost_lbp: 770000, credits: 7.58 };
+    service.getSaleCard.mockReturnValue(card);
+    expect(
+      await handlers.get("wrong-numbers:sale-card")!(
+        event,
+        wrongNumberSaleCardQuerySchema.parse({ sale_transaction_id: 40 }),
+      ),
+    ).toEqual({ success: true, data: card });
+    expect(service.getSaleCard).toHaveBeenCalledWith(40);
+
+    service.getSaleCard.mockReturnValue(null);
+    expect(await handlers.get("wrong-numbers:sale-card")!(event, { sale_transaction_id: 41 })).toEqual({
+      success: true,
+      data: null,
+    });
+
+    const bad = (await handlers.get("wrong-numbers:sale-card")!(event, { sale_transaction_id: -1 })) as {
+      success: boolean;
+    };
+    expect(bad.success).toBe(false);
+
+    (isAuthenticated as jest.Mock).mockReturnValue(false);
+    expect(await handlers.get("wrong-numbers:sale-card")!(event, { sale_transaction_id: 40 })).toEqual({
+      success: false,
+      error: "Not authenticated",
+    });
+    expect(service.getSaleCard).toHaveBeenCalledTimes(2);
   });
 });

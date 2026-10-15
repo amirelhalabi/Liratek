@@ -14,6 +14,7 @@
 import {
   getWrongNumberRepository,
   withTotals,
+  type WrongNumberCardItem,
   type WrongNumberCardRow,
   type WrongNumberCarrier,
   type WrongNumberRepository,
@@ -27,6 +28,10 @@ import {
   normalizeLineNumber,
 } from "../utils/phoneNumber.js";
 import { expenseLogger } from "../utils/logger.js";
+import {
+  formatCatalogItemName,
+  parseCatalogCartNote,
+} from "../utils/catalogSale.js";
 import type { CatalogStockExpenseSource } from "../constants/transactionTypes.js";
 import {
   WRONG_NUMBER_EXPENSE_CATEGORY,
@@ -43,6 +48,17 @@ export { WRONG_NUMBER_EXPENSE_CATEGORY } from "../validators/wrongNumber.js";
 /** Refused when the credits entries would exceed what the card carried. */
 export function tooMuchCreditError(cardCreditUsd: number): string {
   return `That is more credit than the card carried ($${cardCreditUsd}).`;
+}
+
+/** Refused when a sale's own card is known and another card was sent
+ *  (LIRA-325: we sold it, so we know what we sold). */
+export function soldCardMismatchError(cardName: string): string {
+  return `This sale was for ${cardName} — record the wrong number for that card.`;
+}
+
+/** "Alfa 7.58" — the carrier and the card's label. */
+function cardDisplayName(card: Pick<WrongNumberCardItem, "category" | "label">): string {
+  return `${card.category.toLowerCase() === "mtc" ? "MTC" : "Alfa"} ${card.label}`;
 }
 
 export { UNDO_CREDITS_FIRST_ERROR } from "../repositories/wrongNumberSql.js";
@@ -103,6 +119,54 @@ export class WrongNumberService {
   }
 
   /**
+   * LIRA-325 — the MTC/Alfa card an ACTIVE card sale sold, or null when it
+   * cannot be told for sure (the operator then picks, as before).
+   *
+   * - A per-unit row (Whish App, session carts, partner orders) names its
+   *   card by `item_key`.
+   * - The walk-in Katsh/iPick cart writes no key; its note lists the cart
+   *   (`catalogCartNote`). It resolves only when every entry names the SAME
+   *   card ("x2" of one card is still one card); two different cards are
+   *   ambiguous.
+   * - Exactly one active catalog card must match; none (removed from the
+   *   catalog, an older sale) or several → null.
+   */
+  getSaleCard(saleTransactionId: number): WrongNumberCardItem | null {
+    const sale = this.repo.getSale(saleTransactionId);
+    const meta = readMeta(sale?.metadata_json ?? null);
+    if (
+      !sale ||
+      sale.type !== "FINANCIAL_SERVICE" ||
+      sale.is_reversed === 1 ||
+      !isWrongNumberCardSale(meta)
+    ) {
+      return null;
+    }
+    return this.resolveSoldCard(sale.id, meta.provider);
+  }
+
+  private resolveSoldCard(
+    saleTransactionId: number,
+    provider: WrongNumberProvider,
+  ): WrongNumberCardItem | null {
+    const ref = this.repo.getSaleCatalogRef(saleTransactionId);
+    if (!ref) return null;
+    if (ref.item_key) {
+      const byKey = this.repo.findCardItemsByKey(provider, ref.item_key);
+      if (byKey.length === 1) return byKey[0];
+    }
+    const names = new Set(
+      parseCatalogCartNote(ref.note).map((e) => e.name.toLowerCase()),
+    );
+    if (names.size !== 1) return null;
+    const [name] = [...names];
+    const matches = this.repo
+      .listCardItems(provider)
+      .filter((c) => formatCatalogItemName(c).toLowerCase() === name);
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  /**
    * Record a wrong-number card (path A from Expenses, path B from a saved
    * sale). Books the card's cost as a stock-use expense from the provider
    * balance (the loss) and links it in `wrong_number_cards`. When credits
@@ -148,14 +212,27 @@ export class WrongNumberService {
             );
           }
           saleTransactionId = sale.id;
+          // LIRA-325: the card comes from the sale when it can be read
+          // from it; another card is refused, never silently swapped.
+          const sold = this.resolveSoldCard(sale.id, input.provider);
+          if (sold && sold.id !== card.id) {
+            throw new Refusal(soldCardMismatchError(cardDisplayName(sold)));
+          }
         }
+        // The wrong number is optional (LIRA-325); FR-004 applies only
+        // when both numbers were entered.
+        const wrongNumber = input.wrong_number
+          ? normalizeLineNumber(input.wrong_number)
+          : null;
         if (input.right_number !== undefined) {
-          if (isSameLebanesePhone(input.right_number, input.wrong_number)) {
+          if (
+            input.wrong_number &&
+            isSameLebanesePhone(input.right_number, input.wrong_number)
+          ) {
             throw new Refusal("The right number is the same as the wrong one.");
           }
           rightNumber = normalizeLineNumber(input.right_number);
         }
-        const wrongNumber = normalizeLineNumber(input.wrong_number);
 
         const note = input.note?.trim();
         const expenseId = this.expenseRepo.createStockExpense(
@@ -164,7 +241,7 @@ export class WrongNumberService {
             item_id: card.id,
             quantity: 1,
             category: WRONG_NUMBER_EXPENSE_CATEGORY,
-            description: `Wrong number ${wrongNumber} — ${card.label}${note ? ` — ${note}` : ""}`,
+            description: `Wrong number${wrongNumber ? ` ${wrongNumber}` : ""} — ${card.label}${note ? ` — ${note}` : ""}`,
             expense_date: input.expense_date,
           },
           userId,

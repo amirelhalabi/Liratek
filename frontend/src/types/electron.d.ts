@@ -75,6 +75,8 @@ import type {
   WrongNumberResult,
   RecordWrongNumberResultData,
   WrongNumberCreditsResultData,
+  WrongNumberCardItem,
+  WrongNumberSaleCardQueryInput,
 } from "@liratek/core";
 
 /** LIRA-306 — the plain envelope the offline:* channels reply with. */
@@ -3570,6 +3572,12 @@ export interface ElectronAPI {
     list: (query?: ListWrongNumbersQueryInput) => Promise<{
       success: boolean;
       data?: WrongNumberCardRow[];
+      error?: string;
+    }>;
+    /** LIRA-325 — the card a sale sold (data: null when unknown). */
+    saleCard: (query: WrongNumberSaleCardQueryInput) => Promise<{
+      success: boolean;
+      data?: WrongNumberCardItem | null;
       error?: string;
     }>;
     record: (

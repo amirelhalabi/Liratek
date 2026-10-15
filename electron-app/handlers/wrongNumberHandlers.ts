@@ -20,6 +20,7 @@ import {
   ListWrongNumbersQuerySchema,
   RecordWrongNumberSchema,
   WrongNumberCreditsSchema,
+  WrongNumberSaleCardQuerySchema,
 } from "../schemas/index.js";
 
 function errMessage(error: unknown, fallback: string): string {
@@ -46,6 +47,27 @@ export function registerWrongNumberHandlers(): void {
     }
   });
 
+  // LIRA-325 — the card a sale sold (null when it cannot be told).
+  ipcMain.handle("wrong-numbers:sale-card", (event, query: unknown) => {
+    try {
+      if (!isAuthenticated(event.sender.id)) {
+        return { success: false, error: "Not authenticated" };
+      }
+      const v = validatePayload(WrongNumberSaleCardQuerySchema, query);
+      if (!v.ok) return { success: false, error: v.error };
+      return {
+        success: true,
+        data: service.getSaleCard(v.data.sale_transaction_id),
+      };
+    } catch (error) {
+      expenseLogger.error({ error }, "wrong-numbers:sale-card failed");
+      return {
+        success: false,
+        error: errMessage(error, "Failed to load the sale's card"),
+      };
+    }
+  });
+
   ipcMain.handle("wrong-numbers:record", (event, data: unknown) => {
     try {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
@@ -60,7 +82,7 @@ export function registerWrongNumberHandlers(): void {
           action: "create",
           entity_type: "wrong_number_card",
           entity_id: String(result.data.id),
-          summary: `Wrong number ${v.data.wrong_number} (${v.data.provider} card)`,
+          summary: `Wrong number${v.data.wrong_number ? ` ${v.data.wrong_number}` : ""} (${v.data.provider} card)`,
           metadata: {
             expense_transaction_id: result.data.expense_transaction_id,
             sale_transaction_id: v.data.sale_transaction_id ?? null,

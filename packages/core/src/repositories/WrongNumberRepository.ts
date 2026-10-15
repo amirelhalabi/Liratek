@@ -53,7 +53,9 @@ export interface WrongNumberCardEntity {
   card_label: string;
   card_cost_lbp: number;
   card_credit_usd: number;
-  wrong_number: string;
+  /** Optional (LIRA-325): null when it was not entered. Stored as '' (the
+   *  column is NOT NULL) and read back as null — `WRONG_NUMBER_READ_SQL`. */
+  wrong_number: string | null;
   right_number: string | null;
   created_at: string;
   updated_at: string;
@@ -82,9 +84,17 @@ export interface WrongNumberCardItem {
   id: number;
   provider: string;
   category: string;
+  subcategory: string;
   label: string;
   cost_lbp: number;
   credits: number | null;
+}
+
+/** What a sale row says it sold (LIRA-325): the per-unit `item_key` and/or
+ *  the walk-in cart's `note`, from its `financial_services` row. */
+export interface WrongNumberSaleCatalogRef {
+  item_key: string | null;
+  note: string | null;
 }
 
 /** The fields of a sale row the service checks. */
@@ -105,7 +115,8 @@ export interface InsertWrongNumberCardInput {
   cardLabel: string;
   cardCostLbp: number;
   cardCreditUsd: number;
-  wrongNumber: string;
+  /** null when not entered (stored as ''). */
+  wrongNumber: string | null;
   rightNumber: string | null;
 }
 
@@ -136,7 +147,7 @@ export class WrongNumberRepository extends BaseRepository<WrongNumberCardEntity>
       "card_label",
       "card_cost_lbp",
       "card_credit_usd",
-      "wrong_number",
+      `${wrongNumberReadSql("")} AS wrong_number`,
       "right_number",
       "created_at",
       "updated_at",
@@ -156,7 +167,7 @@ export class WrongNumberRepository extends BaseRepository<WrongNumberCardEntity>
   getCardItem(itemId: number, provider: string): WrongNumberCardItem | null {
     const row = this.db
       .prepare(
-        `SELECT id, provider, category, label, cost_lbp, credits
+        `SELECT ${CARD_ITEM_COLUMNS}
            FROM mobile_service_items
           WHERE tenant_id = ? AND id = ? AND provider = ? AND is_active = 1`,
       )
@@ -164,8 +175,60 @@ export class WrongNumberRepository extends BaseRepository<WrongNumberCardEntity>
       | WrongNumberCardItem
       | undefined;
     if (!row) return null;
-    const carrier = row.category.toLowerCase();
-    return carrier === "mtc" || carrier === "alfa" ? row : null;
+    return isCarrierCard(row) ? row : null;
+  }
+
+  /** Every active MTC/Alfa card of `provider` with a cost (LIRA-325:
+   *  matched against a walk-in cart's note). */
+  listCardItems(provider: string): WrongNumberCardItem[] {
+    const rows = this.db
+      .prepare(
+        `SELECT ${CARD_ITEM_COLUMNS}
+           FROM mobile_service_items
+          WHERE tenant_id = ? AND provider = ? AND is_active = 1
+          ORDER BY sort_order, id`,
+      )
+      .all(getCurrentTenantId(), provider) as WrongNumberCardItem[];
+    return rows.filter(isRecordableCard);
+  }
+
+  /**
+   * The active MTC/Alfa cards (with a cost) of `provider` whose catalog key equals
+   * `itemKey` (LIRA-325). The key is written by the Mobile Recharge forms as
+   * `provider/category/subcategory/label` (`MobileServiceItemsContext`'s
+   * `ServiceItem.key`) — it is built here from each row rather than split,
+   * because a label may itself contain "/".
+   */
+  findCardItemsByKey(provider: string, itemKey: string): WrongNumberCardItem[] {
+    const rows = this.db
+      .prepare(
+        `SELECT ${CARD_ITEM_COLUMNS}
+           FROM mobile_service_items
+          WHERE tenant_id = ? AND provider = ? AND is_active = 1
+            AND provider || '/' || category || '/' || subcategory || '/' || label = ?`,
+      )
+      .all(getCurrentTenantId(), provider, itemKey) as WrongNumberCardItem[];
+    return rows.filter(isRecordableCard);
+  }
+
+  /** What a FINANCIAL_SERVICE sale row recorded about its items (its
+   *  `financial_services` row), or null when it has none. */
+  getSaleCatalogRef(transactionId: number): WrongNumberSaleCatalogRef | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT f.item_key, f.note
+             FROM transactions t
+             JOIN financial_services f
+               ON f.id = t.source_id AND f.tenant_id = t.tenant_id
+            WHERE t.tenant_id = ? AND t.id = ?
+              AND t.type = 'FINANCIAL_SERVICE'
+              AND t.source_table = 'financial_services'`,
+        )
+        .get(getCurrentTenantId(), transactionId) as
+        | WrongNumberSaleCatalogRef
+        | undefined) ?? null
+    );
   }
 
   /** The sale row a path-B record links to (with "already reversed"). */
@@ -300,7 +363,8 @@ export class WrongNumberRepository extends BaseRepository<WrongNumberCardEntity>
         `SELECT w.id, w.tenant_id, w.expense_id, w.expense_transaction_id,
                 w.sale_transaction_id, w.provider, w.carrier,
                 w.mobile_service_item_id, w.card_label, w.card_cost_lbp,
-                w.card_credit_usd, w.wrong_number, w.right_number,
+                w.card_credit_usd, ${wrongNumberReadSql("w.")} AS wrong_number,
+                w.right_number,
                 w.created_at, w.updated_at,
                 CASE WHEN e.id IS NULL OR ${reversedSql("e")} THEN 1 ELSE 0 END
                   AS expense_reversed
@@ -345,7 +409,8 @@ export class WrongNumberRepository extends BaseRepository<WrongNumberCardEntity>
           input.cardLabel,
           input.cardCostLbp,
           input.cardCreditUsd,
-          input.wrongNumber,
+          // NOT NULL column: '' means "not entered" (read back as null).
+          input.wrongNumber ?? "",
           input.rightNumber,
           now,
           now,
@@ -382,7 +447,7 @@ export class WrongNumberRepository extends BaseRepository<WrongNumberCardEntity>
       profit_usd: 0,
       profit_lbp: recoveredLbp,
       exchange_rate: getUsdLbpSellRate(this.db),
-      summary: `Credits recovered: +$${x} on ${carrierLabel} line ${line.phone_number} (wrong number ${record.wrong_number}, ${record.card_label})`,
+      summary: `Credits recovered: +$${x} on ${carrierLabel} line ${line.phone_number} (${record.wrong_number ? `wrong number ${record.wrong_number}, ` : "wrong-number card "}${record.card_label})`,
       metadata_json: {
         carrier,
         carrier_line_id: line.id,
@@ -457,6 +522,30 @@ export class WrongNumberRepository extends BaseRepository<WrongNumberCardEntity>
 
     return transactionId;
   }
+}
+
+/** The catalog columns of a wrong-number card. */
+const CARD_ITEM_COLUMNS =
+  "id, provider, category, subcategory, label, cost_lbp, credits";
+
+/** Only MTC/Alfa cards can be recorded as a wrong number. */
+function isCarrierCard(row: { category: string }): boolean {
+  const carrier = row.category.toLowerCase();
+  return carrier === "mtc" || carrier === "alfa";
+}
+
+/** A sold card the record could accept (LIRA-325): MTC/Alfa with a cost —
+ *  a costless one would be refused, so it must not lock the panel. */
+function isRecordableCard(row: { category: string; cost_lbp: number }): boolean {
+  return isCarrierCard(row) && row.cost_lbp > 0;
+}
+
+/**
+ * The wrong number as read back — '' (not entered; the column is NOT NULL)
+ * becomes null. Defined once (rule 14); `a` is the table alias with its dot.
+ */
+function wrongNumberReadSql(a: string): string {
+  return `NULLIF(${a}wrong_number, '')`;
 }
 
 /** Derived totals and status (data-model.md). */

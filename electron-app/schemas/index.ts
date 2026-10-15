@@ -194,9 +194,11 @@ import {
   listWrongNumbersQuerySchema,
   recordWrongNumberSchema,
   wrongNumberCreditsSchema,
+  wrongNumberSaleCardQuerySchema,
   type ListWrongNumbersQuery,
   type RecordWrongNumberData,
   type WrongNumberCreditsData,
+  type WrongNumberSaleCardQuery,
   registerProductUnitsSchema,
   productUnitsForProductSchema,
   listProductUnitsSchema,
@@ -1171,6 +1173,8 @@ export const RecordWrongNumberSchema =
   recordWrongNumberSchema as unknown as z.ZodSchema<RecordWrongNumberData>;
 export const WrongNumberCreditsSchema =
   wrongNumberCreditsSchema as unknown as z.ZodSchema<WrongNumberCreditsData>;
+export const WrongNumberSaleCardQuerySchema =
+  wrongNumberSaleCardQuerySchema as unknown as z.ZodSchema<WrongNumberSaleCardQuery>;
 
 // =============================================================================
 // Product Units (LIRA-143 phase 5 — phone IMEI units & warranty)

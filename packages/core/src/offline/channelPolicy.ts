@@ -453,6 +453,7 @@ const READ: readonly string[] = [
   "reports:revenue-by-module",
   "resale-lines:list",
   "wrong-numbers:list",
+  "wrong-numbers:sale-card",
   "sales:get",
   "sales:get-by-date-range",
   "sales:get-dashboard-stats",

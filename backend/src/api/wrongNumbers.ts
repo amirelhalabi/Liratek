@@ -16,6 +16,7 @@ import {
   listWrongNumbersQuerySchema,
   recordWrongNumberSchema,
   wrongNumberCreditsSchema,
+  wrongNumberSaleCardQuerySchema,
   type ListWrongNumbersQuery,
 } from "@liratek/core";
 import {
@@ -46,6 +47,32 @@ router.get("/", validateQuery(listWrongNumbersQuerySchema), (req, res) => {
   }
 });
 
+// GET /api/wrong-numbers/sale-card/:saleTransactionId — LIRA-325: the card
+// a sale sold (data: null when it cannot be told). Static prefix, so it never
+// collides with the `/:id/credits` route.
+router.get("/sale-card/:saleTransactionId", (req, res) => {
+  try {
+    const parsed = wrongNumberSaleCardQuerySchema.safeParse({
+      sale_transaction_id: req.params.saleTransactionId,
+    });
+    if (!parsed.success) {
+      res.json({
+        success: false,
+        error: parsed.error.issues[0]?.message ?? "Invalid sale id",
+      });
+      return;
+    }
+    res.json({
+      success: true,
+      data: getWrongNumberService().getSaleCard(
+        parsed.data.sale_transaction_id,
+      ),
+    });
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
 // POST /api/wrong-numbers — record a wrong-number card (admin, staff).
 router.post(
   "/",
@@ -62,7 +89,7 @@ router.post(
           action: "create",
           entity_type: "wrong_number_card",
           entity_id: String(result.data.id),
-          summary: `Wrong number ${req.body.wrong_number} (${req.body.provider} card)`,
+          summary: `Wrong number${req.body.wrong_number ? ` ${req.body.wrong_number}` : ""} (${req.body.provider} card)`,
           metadata: {
             expense_transaction_id: result.data.expense_transaction_id,
             sale_transaction_id: req.body.sale_transaction_id ?? null,

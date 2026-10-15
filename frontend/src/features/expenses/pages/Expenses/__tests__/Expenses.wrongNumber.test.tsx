@@ -110,7 +110,7 @@ describe("Expenses — Wrong number tick (LIRA-312)", () => {
     await pick("alfa · Prepaid · Alfa 7.58");
 
     fireEvent.click(screen.getByLabelText(/wrong number — this card/i));
-    fireEvent.change(screen.getByLabelText(/^wrong number$/i), {
+    fireEvent.change(screen.getByLabelText(/^wrong number \(optional\)$/i), {
       target: { value: "03 111 111" },
     });
     fireEvent.click(screen.getByRole("button", { name: /record expense/i }));
@@ -129,6 +129,20 @@ describe("Expenses — Wrong number tick (LIRA-312)", () => {
       wrong_number: "03 111 111",
     });
     expect(payload).not.toHaveProperty("sale_transaction_id");
+  });
+
+  // LIRA-325 — written after the change, NOT proven failing-first (rule 17).
+  it("ticked without typing the wrong number: recorded anyway (it is optional)", async () => {
+    render(<Expenses />);
+    await waitFor(() => expect(mockGetTodayExpenses).toHaveBeenCalledTimes(1));
+    await pick("alfa · Prepaid · Alfa 7.58");
+    fireEvent.click(screen.getByLabelText(/wrong number — this card/i));
+    fireEvent.click(screen.getByRole("button", { name: /record expense/i }));
+
+    await waitFor(() => expect(mockRecordWrongNumber).toHaveBeenCalledTimes(1));
+    const payload = mockRecordWrongNumber.mock.calls[0][0];
+    expect(payload).not.toHaveProperty("wrong_number");
+    expect(recordWrongNumberSchema.parse(payload).wrong_number).toBeNull();
   });
 
   it("without the tick, the same card keeps today's stock-use flow", async () => {

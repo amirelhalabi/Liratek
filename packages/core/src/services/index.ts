@@ -410,6 +410,7 @@ export {
   WrongNumberService,
   getWrongNumberService,
   resetWrongNumberService,
+  soldCardMismatchError,
   type WrongNumberResult,
   type RecordWrongNumberResultData,
   type WrongNumberCreditsResultData,

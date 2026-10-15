@@ -1778,10 +1778,12 @@ contextBridge.exposeInMainWorld("api", {
       expense_transaction_id?: number;
       status?: "WAITING" | "PARTLY_RECOVERED" | "RECOVERED" | "VOIDED";
     }) => ipcRenderer.invoke("wrong-numbers:list", query ?? {}),
+    saleCard: (query: { sale_transaction_id: number }) =>
+      ipcRenderer.invoke("wrong-numbers:sale-card", query),
     record: (data: {
       provider: "iPick" | "Katsh" | "WHISH_APP";
       mobile_service_item_id: number;
-      wrong_number: string;
+      wrong_number?: string | null;
       right_number?: string;
       sale_transaction_id?: number;
       credits_received?: { amount_usd: number; carrier_line_id: number };

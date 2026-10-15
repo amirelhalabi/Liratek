@@ -49,6 +49,7 @@ import {
   getWrongNumberService,
   recordWrongNumberSchema,
   wrongNumberCreditsSchema,
+  wrongNumberSaleCardQuerySchema,
 } from "@liratek/core";
 import wrongNumbersRouter from "../wrongNumbers.js";
 
@@ -174,6 +175,53 @@ describe("Wrong-number REST routes (LIRA-312)", () => {
         .send(CREDITS);
       expect(res.body.success).toBe(false);
       expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  // LIRA-325 — written after the route change, NOT proven failing-first.
+  describe("LIRA-325", () => {
+    it("GET /sale-card/:id — the sale's card, or null; the id is validated", async () => {
+      const card = { id: 2, provider: "iPick", category: "alfa", subcategory: "Prepaid", label: "7.58", cost_lbp: 770000, credits: 7.58 };
+      const spy = jest.spyOn(service, "getSaleCard").mockReturnValue(card);
+      const res = await request(app)
+        .get("/api/wrong-numbers/sale-card/40")
+        .set("x-test-role", "staff");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, data: card });
+      expect(spy).toHaveBeenCalledWith(
+        wrongNumberSaleCardQuerySchema.parse({ sale_transaction_id: "40" }).sale_transaction_id,
+      );
+
+      spy.mockReturnValue(null);
+      const none = await request(app)
+        .get("/api/wrong-numbers/sale-card/41")
+        .set("x-test-role", "staff");
+      expect(none.body).toEqual({ success: true, data: null });
+
+      const bad = await request(app)
+        .get("/api/wrong-numbers/sale-card/abc")
+        .set("x-test-role", "staff");
+      expect(bad.status).toBe(200);
+      expect(bad.body.success).toBe(false);
+      expect(spy).toHaveBeenCalledTimes(2);
+
+      const anon = await request(app).get("/api/wrong-numbers/sale-card/40");
+      expect(anon.status).toBe(401);
+    });
+
+    it("POST without the wrong number reaches the service as null", async () => {
+      const spy = jest.spyOn(service, "recordWrongNumber").mockReturnValue({
+        success: true,
+        data: { id: 5, expense_transaction_id: 9, status: "WAITING", remaining_loss_lbp: 770000 },
+      });
+      const { wrong_number: _omit, ...body } = RECORD;
+      const res = await request(app)
+        .post("/api/wrong-numbers")
+        .set("x-test-role", "staff")
+        .send(body);
+      expect(res.body.success).toBe(true);
+      expect(spy).toHaveBeenCalledWith(recordWrongNumberSchema.parse(body), 7);
+      expect(spy.mock.calls[0][0].wrong_number).toBeNull();
     });
   });
 });

@@ -26,6 +26,7 @@ import type {
   WrongNumberResult,
   RecordWrongNumberResultData,
   WrongNumberCreditsResultData,
+  WrongNumberCardItem,
 } from "@liratek/core";
 // LIRA-306 — offline desktop fallback controls (desktop-only, E1; rule 21).
 import type {
@@ -2063,6 +2064,10 @@ export type ApiAdapter = {
   getWrongNumbers: (
     query?: ListWrongNumbersQueryInput,
   ) => Promise<WrongNumberCardRow[]>;
+  /** LIRA-325 — the MTC/Alfa card a sale sold, or null when unknown. */
+  getWrongNumberSaleCard: (
+    saleTransactionId: number,
+  ) => Promise<WrongNumberCardItem | null>;
   /** Record a card recharged onto the wrong number (its cost is a loss). */
   recordWrongNumber: (
     data: RecordWrongNumberInput,
