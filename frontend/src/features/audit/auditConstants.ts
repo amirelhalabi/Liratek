@@ -235,7 +235,7 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     ],
   },
   {
-    group: "Financial — App",
+    group: "OMT App",
     options: [
       {
         label: "OMT App Send",
@@ -251,6 +251,11 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         service_type: "RECEIVE",
         paid_via_drawer: "OMT_App",
       },
+    ],
+  },
+  {
+    group: "Whish App",
+    options: [
       {
         label: "Whish App Send",
         type: "FINANCIAL_SERVICE",
@@ -274,8 +279,20 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         has_item_key: true,
         paid_via_drawer: "Whish_App",
       },
-      { label: "iPick", type: "FINANCIAL_SERVICE", provider: "iPick" },
-      { label: "Katsh", type: "FINANCIAL_SERVICE", provider: "Katsh" },
+    ],
+  },
+  // One-option groups show as a plain item (no header) in the filter list.
+  {
+    group: "iPick",
+    options: [{ label: "iPick", type: "FINANCIAL_SERVICE", provider: "iPick" }],
+  },
+  {
+    group: "Katsh",
+    options: [{ label: "Katsh", type: "FINANCIAL_SERVICE", provider: "Katsh" }],
+  },
+  {
+    group: "Binance",
+    options: [
       {
         label: "Binance Send",
         type: "FINANCIAL_SERVICE",
@@ -415,21 +432,26 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     ],
   },
   {
-    group: "Other",
+    group: "Expenses",
     options: [
-      { label: "Sale", type: "SALE" },
-      { label: "Exchange", type: "EXCHANGE" },
-      { label: "Custom Service", type: "CUSTOM_SERVICE" },
-      { label: "Maintenance", type: "MAINTENANCE" },
       { label: "Expense", type: "EXPENSE" },
-      // LIRA-296 — reveals the auto WARRANTY_COST rows (hidden by default).
-      { label: "Warranty Cost", type: "WARRANTY_COST" },
       // LIRA-262 — "the shop used its own stock" expenses, one type per
       // source. Manual (never is_auto), so visible by default too.
       { label: "Expense · Stock", type: "EXPENSE_INVENTORY" },
       { label: "Expense · Katsh", type: "EXPENSE_KATSH" },
       { label: "Expense · iPick", type: "EXPENSE_IPICK" },
       { label: "Expense · Whish App", type: "EXPENSE_WHISH_APP" },
+      // LIRA-296 — reveals the auto WARRANTY_COST rows (hidden by default).
+      { label: "Warranty Cost", type: "WARRANTY_COST" },
+    ],
+  },
+  {
+    group: "Other",
+    options: [
+      { label: "Sale", type: "SALE" },
+      { label: "Exchange", type: "EXCHANGE" },
+      { label: "Custom Service", type: "CUSTOM_SERVICE" },
+      { label: "Maintenance", type: "MAINTENANCE" },
       { label: "Debt Repayment", type: "DEBT_REPAYMENT" },
       // LIRA-080: the paper (no-cash) Accounts-page "Add Credit / Debt" entry.
       // Its cash-moved siblings (CREDIT_CASH_IN/DEBT_CASH_OUT) have no filter

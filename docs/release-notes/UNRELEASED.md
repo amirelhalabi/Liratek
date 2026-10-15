@@ -125,4 +125,5 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 ## 🧾 Transactions
 
+- The type filter on Audit & Transactions is now grouped: OMT App, Whish App, Binance, Recharge, Drawer & Top-ups, Loto, Suppliers, Partners, Expenses and Other open and close, and the box next to a group ticks or clears everything in it. Nothing ticked still means all types.
 - On Transactions, filtering by an OMT App, Whish App or Binance type now also shows other transactions paid through that wallet: for example a repair or sale paid with OMT Wallet, a refund paid back by OMT Wallet, or a customer session paid by it. Transactions of that wallet's other types (for example OMT App Recv when you picked OMT App Send) still show only under their own filter.

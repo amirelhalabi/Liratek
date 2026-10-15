@@ -8,6 +8,7 @@ import {
   ACTION_OPTIONS,
   ENTITY_TYPE_OPTIONS,
   ALL_FILTER_OPTIONS,
+  FILTER_GROUPS,
 } from "../auditConstants";
 
 type TabKey = "audit" | "transactions";
@@ -21,6 +22,11 @@ const inputClass =
 // (FILTER_GROUPS never changes at runtime) so it's safe to hand straight to
 // MultiSelect's `options` prop without re-deriving it every render.
 const TYPE_FILTER_LABELS = ALL_FILTER_OPTIONS.map((o) => o.label);
+// The same options, in their FILTER_GROUPS sections, for the grouped list.
+const TYPE_FILTER_GROUPS = FILTER_GROUPS.map((g) => ({
+  label: g.group,
+  options: g.options.map((o) => o.label),
+}));
 
 export default function AuditPage() {
   const [active, setActive] = useState<TabKey>("transactions");
@@ -99,6 +105,8 @@ export default function AuditPage() {
                 values={txSelectedFilters}
                 onChange={setTxSelectedFilters}
                 options={TYPE_FILTER_LABELS}
+                groups={TYPE_FILTER_GROUPS}
+                optionsClassName="min-w-[18rem] max-h-[70vh]"
               />
               <DateRangeFilter
                 from={txFrom}
