@@ -74,20 +74,88 @@ function extractNumber(label: string): number {
   return match ? parseFloat(match[1]) : NaN;
 }
 
+/**
+ * Words that name a plan type rather than a product line: Terranet's "Open
+ * Speed" (OS) cards sit with the plain DSL cards of the same line.
+ */
+const LINE_QUALIFIERS = new Set(["OS", "OPEN", "SPEED"]);
+
+/**
+ * The product line of an item: the words in front of its first number, minus
+ * the provider's own name and plan-type qualifiers. "TERR ARMY DSL 8MB" and
+ * "ARMY DSL OS 120GB" → "ARMY DSL"; "FIBER 300MB 400GB" → "FIBER"; a label
+ * that starts with its number ("4MB 100GB", "7.58") → "" (the plain line).
+ */
+function productLine(label: string, subcategory: string): string {
+  const head = label.split(/\d/)[0].toUpperCase();
+  const sub = subcategory.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const words = head.split(/[^A-Z+]+/).filter(Boolean);
+  // drop a leading provider name ("TERR" of Terranet, "MOBI", "PSN"…)
+  if (words.length > 0 && sub.startsWith(words[0])) words.shift();
+  return words.filter((w) => !LINE_QUALIFIERS.has(w)).join(" ");
+}
+
+/**
+ * Every number in a label, in order, with data sizes in GB (500MB → 0.5) so
+ * "500MB" sorts before "1.5GB". Speeds ("4 MBPS") are left as written.
+ */
+function sizeKey(label: string): number[] {
+  const out: number[] = [];
+  for (const m of label.matchAll(/(\d+(?:\.\d+)?)\s*(MB|GB)?(?![A-Z])/gi)) {
+    const n = parseFloat(m[1]);
+    out.push(m[2]?.toUpperCase() === "MB" ? n / 1000 : n);
+  }
+  return out;
+}
+
+function compareSizes(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return a.length - b.length;
+}
+
+/**
+ * Inside one subcategory: cards of the same product line stay together, lines
+ * in the order they first appear in the catalog (sort_order), then by size.
+ * Labels with no number (mtc "start", "smart"…) keep their catalog order after
+ * the numbered ones of their line.
+ */
 function sortItemsWithinSubcategory(items: ServiceItem[]): ServiceItem[] {
+  const lineOrder = new Map<string, number>();
+  for (const item of items) {
+    const line = productLine(item.label, item.subcategory);
+    const seen = lineOrder.get(line);
+    if (seen === undefined || item.sortOrder < seen) {
+      lineOrder.set(line, item.sortOrder);
+    }
+  }
   return [...items].sort((a, b) => {
+    const lineA = productLine(a.label, a.subcategory);
+    const lineB = productLine(b.label, b.subcategory);
+    if (lineA !== lineB) {
+      return (
+        lineOrder.get(lineA)! - lineOrder.get(lineB)! ||
+        lineA.localeCompare(lineB)
+      );
+    }
     const numA = extractNumber(a.label);
     const numB = extractNumber(b.label);
     const aIsNum = !isNaN(numA);
     const bIsNum = !isNaN(numB);
-    if (aIsNum && bIsNum) return numA - numB;
+    if (aIsNum && bIsNum) {
+      return (
+        compareSizes(sizeKey(a.label), sizeKey(b.label)) ||
+        a.sortOrder - b.sortOrder
+      );
+    }
     if (aIsNum && !bIsNum) return -1;
     if (!aIsNum && bIsNum) return 1;
     return a.sortOrder - b.sortOrder;
   });
 }
 
-function sortItems(items: ServiceItem[]): ServiceItem[] {
+export function sortItems(items: ServiceItem[]): ServiceItem[] {
   const groups = new Map<string, ServiceItem[]>();
   const groupMinOrder = new Map<string, number>();
 
