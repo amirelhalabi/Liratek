@@ -308,6 +308,8 @@ describe("useTransactionRows", () => {
         provider: "WHISH_APP",
         service_type: "SEND",
         has_item_key: false,
+        // LIRA-323 — wallet options carry their drawer.
+        paid_via_drawer: "Whish_App",
       },
       {
         type: "FINANCIAL_SERVICE",

@@ -36,18 +36,22 @@
 ## ✨ Highlights
 
 ### Card sent to the wrong number
+
 Recharged an MTC or Alfa card onto the wrong number from iPick, Katsh or Whish App? Open the sale on the Transactions page and tap "Wrong number…". The sale stays as it is, because it is the recharge of the customer's right number. The wasted card is recorded as a loss, and the credits sent back lower that loss when they arrive.
 ![The Wrong number window on a card sale](whats-new/1.35.0/wrong-number-sale.png)
 
 ### Wrong number from Expenses
+
 Noticed it before saving the sale? On Expenses, pick the card and tick "Wrong number". It comes out of the iPick, Katsh or Whish App balance as a loss, and you can enter the credits sent back later from the Transactions page.
 ![The Wrong number tick on Expenses](whats-new/1.35.0/wrong-number-expense.png)
 
 ### Customer pays part now, owes the rest
+
 On Exchange, the payment window now shows what the customer pays on top and what you pay out under it. Pick the client right there, type what they actually handed over, and the rest goes on their account by itself. "Client will owe" shows how much, and it appears on the Debts page.
 ![Exchange: 87,600,000 LBP paid, 1,900,000 LBP on the client's account](whats-new/1.35.0/customer-pays-exchange.png)
 
 ### Cash-outs paid in several ways
+
 On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for you: the transfer, plus the fee when the customer pays it separately. Split it across Whish, OMT and cash, or put part on the client's account.
 ![Whish App cash-out: $90 by Whish, $5 fee in cash, $10 on the client's account](whats-new/1.35.0/customer-pays-whish-app.png)
 
@@ -115,3 +119,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 ## 🛠️ Custom Services
 
 - The For Partner / Via Partner boxes now sit on one line, with the partner picker (and Pay out) neatly on the line below them. The picker used to float between the boxes, lower than them.
+
+## 🧾 Transactions
+
+- On Transactions, filtering by an OMT App, Whish App or Binance type now also shows other transactions paid through that wallet: for example a repair or sale paid with OMT Wallet, a refund paid back by OMT Wallet, or a customer session paid by it. Transactions of that wallet's other types (for example OMT App Recv when you picked OMT App Send) still show only under their own filter.

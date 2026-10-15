@@ -43,6 +43,10 @@ import {
 } from "../constants/sessionPayoutMember.js";
 import { partnerObligationHeadRowSql } from "../constants/partnerObligation.js";
 import { isAuditOnlyPaymentMethod } from "../constants/auditOnlyPaymentMethods.js";
+import {
+  PAID_VIA_DRAWER_OWN_TUPLES,
+  type PaidViaDrawer,
+} from "../constants/paidViaDrawer.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
 import { requestNow } from "../utils/requestNow.js";
@@ -942,6 +946,48 @@ function buildTypeTupleConditions(
   return conditions;
 }
 
+/**
+ * LIRA-323 — the "paid through this wallet" half of a `paid_via_drawer`
+ * tuple: TRUE when the row (or, for a session-basket member, its basket)
+ * has at least one payment leg in `drawer` that is VISIBLE in payment
+ * detail, AND the row is not one of that wallet's own option rows
+ * (`PAID_VIA_DRAWER_OWN_TUPLES` — those show only through their own tuple).
+ *
+ * "Visible" is `customerCashLegSql` — the SQL mirror of `isInternalLegJs`,
+ * i.e. exactly the legs `_attachPaymentLegs` puts in `payments` /
+ * `session_payments` (rule 14: same constants, never re-listed). The leg
+ * link mirrors `_attachPaymentLegs` too: the row's own legs
+ * (`transaction_id`) plus its session basket's legs (`session_id`, via the
+ * `cst` join getRecent already has). Both IN and OUT legs count.
+ *
+ * The own-tuple exclusion is wrapped in IFNULL: a row of the right type but
+ * with no `provider` key makes json_extract NULL, and `NOT (… AND NULL)`
+ * would silently drop it. Params are pushed in SQL text order.
+ */
+function buildPaidViaDrawerCondition(
+  drawer: PaidViaDrawer,
+  tenantId: number,
+  params: unknown[],
+): string {
+  // Uncorrelated IN (SELECT …): SQLite evaluates each subquery ONCE per
+  // query, not once per candidate row — `payments` has no index on
+  // `transaction_id`, so a correlated EXISTS scanned every tenant payment for
+  // every transaction (measured with EXPLAIN QUERY PLAN, 2026-10-15).
+  const visibleDrawerLegs = (linkCol: string) => `SELECT pv.${linkCol}
+        FROM payments pv
+        WHERE pv.tenant_id = ?
+          AND pv.drawer_name = ?
+          AND pv.${linkCol} IS NOT NULL
+          AND ${customerCashLegSql("pv")}`;
+  params.push(tenantId, drawer, tenantId, drawer);
+  const ownGroups = PAID_VIA_DRAWER_OWN_TUPLES[drawer]
+    .map((tuple) => buildTypeTupleConditions(tuple, params))
+    .map((tupleConditions) => `(${tupleConditions.join(" AND ")})`);
+  return `((t.id IN (${visibleDrawerLegs("transaction_id")})
+        OR cst.session_id IN (${visibleDrawerLegs("session_id")}))
+      AND NOT IFNULL((${ownGroups.join(" OR ")}), 0))`;
+}
+
 export interface DailySummary {
   date: string;
   total_usd: number;
@@ -1539,9 +1585,20 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // (the group is dropped entirely if every tuple turns out empty).
     if (filters?.typeFilters && filters.typeFilters.length > 0) {
       const orGroups = filters.typeFilters
-        .map((tuple) => buildTypeTupleConditions(tuple, params))
-        .filter((tupleConditions) => tupleConditions.length > 0)
-        .map((tupleConditions) => `(${tupleConditions.join(" AND ")})`);
+        .map((tuple) => {
+          const tupleConditions = buildTypeTupleConditions(tuple, params);
+          if (tupleConditions.length === 0) return null;
+          const own = `(${tupleConditions.join(" AND ")})`;
+          // LIRA-323 — a wallet option also matches rows paid through its
+          // drawer (params pushed AFTER the tuple's own, in SQL text order).
+          if (!tuple.paid_via_drawer) return own;
+          return `(${own} OR ${buildPaidViaDrawerCondition(
+            tuple.paid_via_drawer,
+            tenantId,
+            params,
+          )})`;
+        })
+        .filter((group): group is string => group !== null);
       if (orGroups.length > 0) {
         conditions.push(`(${orGroups.join(" OR ")})`);
       }
@@ -7123,7 +7180,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * coverage would keep counting against a row this void reopens. No-op for
    * every other type and for a legacy whole-row settlement (no coverage).
    */
-  private _assertSettlementIsNewestOnItsRows(original: TransactionEntity): void {
+  private _assertSettlementIsNewestOnItsRows(
+    original: TransactionEntity,
+  ): void {
     if (original.type !== "SUPPLIER_SETTLEMENT") return;
     if (!this._hasSettlementCoverageTable()) return;
     const later = this.queryOne<{ id: number; created_at: string }>(
@@ -7167,7 +7226,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     if (!original.source_table || original.source_id == null) return;
     const tenantId = getCurrentTenantId();
     const ledgerIds: number[] = [];
-    if (original.source_table === "supplier_ledger") ledgerIds.push(original.source_id);
+    if (original.source_table === "supplier_ledger")
+      ledgerIds.push(original.source_id);
     if (this._supplierLedgerHasSourceRefColumns()) {
       for (const r of this.query<{ id: number }>(
         `SELECT id FROM supplier_ledger
@@ -7189,7 +7249,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }
     }
     const fsId =
-      original.source_table === "financial_services" ? original.source_id : null;
+      original.source_table === "financial_services"
+        ? original.source_id
+        : null;
     if (fsId == null && ledgerIds.length === 0) return;
     const conditions: string[] = [];
     const params: Array<number | string> = [tenantId, original.id];

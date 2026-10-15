@@ -14,3 +14,4 @@ export * from "./profitModuleDetailSupport.js";
 export * from "./refundTolerance.js";
 export * from "./sessionPayoutMember.js";
 export * from "./tenderRateBand.js";
+export * from "./paidViaDrawer.js";

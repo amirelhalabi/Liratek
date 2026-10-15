@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { TRANSACTION_TYPES, type TransactionType } from "../constants/transactionTypes.js";
+import {
+  TRANSACTION_TYPES,
+  type TransactionType,
+} from "../constants/transactionTypes.js";
+import { PAID_VIA_DRAWERS } from "../constants/paidViaDrawer.js";
 import {
   clientDayInputSchema,
   refundExchangeRateSchema,
@@ -318,6 +322,11 @@ export const transactionTypeFilterSchema = z.object({
   provider: z.string().min(1).optional(),
   service_type: z.string().min(1).optional(),
   has_item_key: z.boolean().optional(),
+  /** LIRA-323 — a wallet option's drawer: the tuple ALSO matches rows of
+   *  other types paid through this drawer (see constants/paidViaDrawer.ts and
+   *  TransactionRepository.getRecent). Must stay in this schema — Zod strips
+   *  unknown keys, so dropping it silently loses those rows on REST (rule 23). */
+  paid_via_drawer: z.enum(PAID_VIA_DRAWERS).optional(),
 });
 
 /** Capped well above FILTER_GROUPS' real option count — a defensive bound,

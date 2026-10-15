@@ -57,6 +57,8 @@ describe("WALLET_CASHOUT filter entry", () => {
     expect(group?.options).toContainEqual({
       label: "OMT App Cash-Out",
       type: "WALLET_CASHOUT",
+      // LIRA-323 — also shows other rows paid through the OMT App wallet.
+      paid_via_drawer: "OMT_App",
     });
   });
 });

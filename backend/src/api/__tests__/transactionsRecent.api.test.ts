@@ -180,10 +180,7 @@ describe("GET /api/transactions/recent — filter forwarding parity", () => {
       .set("x-test-role", "admin");
 
     const [, filters] = spy.mock.calls[0] as [number, Record<string, unknown>];
-    expect(filters.excludeTypes).toEqual([
-      "CLIENT_CREATED",
-      "LOTO_CASH_PRIZE",
-    ]);
+    expect(filters.excludeTypes).toEqual(["CLIENT_CREATED", "LOTO_CASH_PRIZE"]);
   });
 
   it("forwards search unchanged", async () => {
@@ -221,6 +218,30 @@ describe("GET /api/transactions/recent — filter forwarding parity", () => {
         has_item_key: false,
       },
       { type: "FINANCIAL_SERVICE", provider: "Katsh", has_item_key: true },
+    ];
+
+    const res = await request(app)
+      .get("/api/transactions/recent")
+      .query({ typeFilters: JSON.stringify(typeFilters) })
+      .set("x-test-role", "admin");
+
+    expect(res.status).toBe(200);
+    const [, filters] = spy.mock.calls[0] as [number, Record<string, unknown>];
+    expect(filters.typeFilters).toEqual(typeFilters);
+  });
+
+  // LIRA-323 (rule 23) — Zod strips unknown keys, so `paid_via_drawer` must
+  // be IN the shared schema or the web filter silently loses the
+  // "paid through this wallet" rows.
+  it("keeps paid_via_drawer on a typeFilters tuple through validation", async () => {
+    const spy = jest.spyOn(txnService, "getRecent").mockReturnValue([]);
+    const typeFilters = [
+      {
+        type: "FINANCIAL_SERVICE",
+        provider: "OMT_APP",
+        service_type: "SEND",
+        paid_via_drawer: "OMT_App",
+      },
     ];
 
     const res = await request(app)

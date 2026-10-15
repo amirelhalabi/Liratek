@@ -187,6 +187,11 @@ export * from "./constants/resetTables.js";
 // above for the exact failure mode this avoids.
 export * from "./constants/omtAppCashout.js";
 
+// LIRA-323 — wallet drawers + each wallet's "own" Type-filter tuples for the
+// Transactions page "paid through this wallet" filter. Pure data, type-only
+// imports (rule 29); useTransactionRows.ts's client twin reads it.
+export * from "./constants/paidViaDrawer.js";
+
 // OMT / WHISH fee tables and commission rates (LIRA-185 display lead 11) —
 // pure data + arithmetic, no Node.js deps (rule 29: both files are leaves).
 // The Services page imports OMT_COMMISSION_RATES, the INTRA / Western Union /

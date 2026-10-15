@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_HIDDEN_TRANSACTION_TYPES,
+  PAID_VIA_DRAWER_OWN_TUPLES,
   localDayOfUtcTimestamp,
 } from "@liratek/core";
 import {
@@ -155,7 +156,13 @@ export type TransactionRow = {
  * comment on why), so the exact tuple has to be re-checked here per row
  * instead of trusted straight from the fetch.
  */
-function matchesTypeTuple(row: TransactionRow, option: FilterOption): boolean {
+function matchesTypeTuple(
+  row: TransactionRow,
+  option: Pick<
+    FilterOption,
+    "type" | "provider" | "service_type" | "has_item_key"
+  >,
+): boolean {
   if (!option.type) return true;
   if (option.type !== row.type) return false;
   const meta = parseMetaSafe(row.metadata_json);
@@ -174,6 +181,31 @@ function matchesTypeTuple(row: TransactionRow, option: FilterOption): boolean {
 }
 
 /**
+ * LIRA-323 — client twin of `TransactionRepository.getRecent`'s
+ * `buildPaidViaDrawerCondition`: the row (or its session basket) has a leg
+ * in the option's wallet drawer, and the row is not one of that wallet's own
+ * option rows (core's `PAID_VIA_DRAWER_OWN_TUPLES` — those show only through
+ * their own tuple). `payments`/`session_payments` already hold only the
+ * legs visible in payment detail (the server drops internal legs), so the
+ * drawer is the only thing left to check. Both IN and OUT legs count.
+ */
+function isPaidViaOptionDrawer(
+  row: TransactionRow,
+  option: FilterOption,
+): boolean {
+  const drawer = option.paid_via_drawer;
+  if (!drawer) return false;
+  if (
+    PAID_VIA_DRAWER_OWN_TUPLES[drawer].some((t) => matchesTypeTuple(row, t))
+  ) {
+    return false;
+  }
+  return [...(row.payments ?? []), ...(row.session_payments ?? [])].some(
+    (leg) => leg.drawer_name === drawer,
+  );
+}
+
+/**
  * Whether ONE row should be visible under ONE selected filter option — every
  * rule for that single option ANDed together (its type tuple, the D2
  * SUPPLIER_PAYMENT/EXPENSE auto-row hide, the Cash Only leg check). The
@@ -186,7 +218,9 @@ function isRowVisibleForOption(
   row: TransactionRow,
   option: FilterOption,
 ): boolean {
-  if (!matchesTypeTuple(row, option)) return false;
+  if (!matchesTypeTuple(row, option) && !isPaidViaOptionDrawer(row, option)) {
+    return false;
+  }
   if (
     row.type === "SUPPLIER_PAYMENT" &&
     !isSupplierPaymentVisible(row.metadata_json, option)
@@ -240,7 +274,9 @@ const ALL_TYPES_OPTION: FilterOption = { label: "" };
 // type, not by metadata. EXPENSE follows the same per-row pattern (see
 // isExpenseVisible) for the auto-generated SMS_Transfer_Fee/etc rows.
 // Defined once in core, shared with the phone's Activity tab.
-export const HIDDEN_TRANSACTION_TYPES = new Set(DEFAULT_HIDDEN_TRANSACTION_TYPES);
+export const HIDDEN_TRANSACTION_TYPES = new Set(
+  DEFAULT_HIDDEN_TRANSACTION_TYPES,
+);
 
 /** Multiplier applied to the requested row count on the first fetch, and
  *  again on every widening pass. */
@@ -380,6 +416,9 @@ export function useTransactionRows({
               provider: o.provider,
               service_type: o.service_type,
               has_item_key: o.has_item_key,
+              // LIRA-323 — the wallet's drawer: the repository also returns
+              // rows paid through it (isPaidViaOptionDrawer is the twin).
+              paid_via_drawer: o.paid_via_drawer,
             }) as TypeFilterTuple,
         );
       if (

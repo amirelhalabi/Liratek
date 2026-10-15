@@ -5,7 +5,7 @@
 // react-refresh/only-export-components lint rule (which forbids a component
 // file from also exporting non-component values).
 
-import { isAutoRow } from "@liratek/core";
+import { isAutoRow, type PaidViaDrawer } from "@liratek/core";
 
 export const ACTION_OPTIONS = [
   "CREATE",
@@ -61,6 +61,16 @@ export type FilterOption = {
   cash_only?: boolean;
   /** Keep only the is_credit SUPPLIER_PAYMENT rows (see TransactionsViewer). */
   supplier_credit_only?: boolean;
+  /**
+   * LIRA-323 — set on EVERY option of a wallet (OMT App / Whish App /
+   * Binance) to that wallet's drawer: the option ALSO shows rows of other
+   * types whose payment detail moved money through this drawer (a repair
+   * paid with OMT Wallet, a refund paid out by it). Rows of the wallet's own
+   * options are never added this way. Core's PAID_VIA_DRAWER_OWN_TUPLES is
+   * the definition of "own"; paidViaDrawerOptions.guard.test.ts keeps these
+   * tags and that list identical.
+   */
+  paid_via_drawer?: PaidViaDrawer;
 };
 
 // ---------------------------------------------------------------------------
@@ -232,12 +242,14 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         type: "FINANCIAL_SERVICE",
         provider: "OMT_APP",
         service_type: "SEND",
+        paid_via_drawer: "OMT_App",
       },
       {
         label: "OMT App Recv",
         type: "FINANCIAL_SERVICE",
         provider: "OMT_APP",
         service_type: "RECEIVE",
+        paid_via_drawer: "OMT_App",
       },
       {
         label: "Whish App Send",
@@ -245,6 +257,7 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         provider: "WHISH_APP",
         service_type: "SEND",
         has_item_key: false,
+        paid_via_drawer: "Whish_App",
       },
       {
         label: "Whish App Recv",
@@ -252,12 +265,14 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         provider: "WHISH_APP",
         service_type: "RECEIVE",
         has_item_key: false,
+        paid_via_drawer: "Whish_App",
       },
       {
         label: "Whish App Bills",
         type: "FINANCIAL_SERVICE",
         provider: "WHISH_APP",
         has_item_key: true,
+        paid_via_drawer: "Whish_App",
       },
       { label: "iPick", type: "FINANCIAL_SERVICE", provider: "iPick" },
       { label: "Katsh", type: "FINANCIAL_SERVICE", provider: "Katsh" },
@@ -266,12 +281,14 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         type: "FINANCIAL_SERVICE",
         provider: "BINANCE",
         service_type: "SEND",
+        paid_via_drawer: "Binance",
       },
       {
         label: "Binance Recv",
         type: "FINANCIAL_SERVICE",
         provider: "BINANCE",
         service_type: "RECEIVE",
+        paid_via_drawer: "Binance",
       },
     ],
   },
@@ -314,8 +331,14 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         label: "Whish App Top-up",
         type: "RECHARGE_TOPUP",
         provider: "WHISH_APP",
+        paid_via_drawer: "Whish_App",
       },
-      { label: "OMT App Top-up", type: "RECHARGE_TOPUP", provider: "OMT_APP" },
+      {
+        label: "OMT App Top-up",
+        type: "RECHARGE_TOPUP",
+        provider: "OMT_APP",
+        paid_via_drawer: "OMT_App",
+      },
       {
         // Primary Cash Drawer plan §1 — OMT_System is the physical cash
         // drawer, not a provider system balance; label follows suit.
@@ -332,7 +355,11 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       { label: "General Cash-Out", type: "DRAWER_CASHOUT" },
       // LIRA-192: the OMT App wallet's own cash-out (mirror of the OMT App
       // Top-up row above), grouped with the other drawer/top-up types.
-      { label: "OMT App Cash-Out", type: "WALLET_CASHOUT" },
+      {
+        label: "OMT App Cash-Out",
+        type: "WALLET_CASHOUT",
+        paid_via_drawer: "OMT_App",
+      },
     ],
   },
   {
