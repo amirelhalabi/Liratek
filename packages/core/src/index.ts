@@ -59,6 +59,10 @@ export * from "./utils/sessionNothingToCollect.js";
 // how much cash goes to the primary cash drawer), shared by the repayment
 // modal preview and DebtRepository.addRepayment (pure leaf, rule 29).
 export * from "./utils/debtRepaymentAllocation.js";
+// LIRA-322 — the ONE amount-first OMT account allocator (preview + write).
+export * from "./utils/accountSettleAllocation.js";
+// LIRA-322 — the one audit/summary text for suppliers:settle-account.
+export * from "./utils/settleAccountAudit.js";
 // LIRA-304 — basket checkout cash split, OMT first: shared by the session
 // checkout "Goes to" preview and SessionPaymentService (pure leaf, rule 29).
 export * from "./utils/sessionCashSplit.js";

@@ -24,6 +24,34 @@ import { isAppError } from "../utils/errors.js";
 // Types
 // =============================================================================
 
+/**
+ * LIRA-322 (FR-017) — one account row's label from its settlement coverage:
+ * voided → "voided"; stamped settled (or nothing owed) → "paid" in full;
+ * otherwise paid so far = active coverage in the row's own currency
+ * ("partial" while it is below what is owed). Same $0.005 / 0.5 LBP
+ * tolerance the settlement closes rows with.
+ */
+function coverageFifoStatus(
+  t: FinancialServiceEntity,
+  covered: { covered_usd: number; covered_lbp: number } | undefined,
+): { fifo_status: FifoStatus; fifo_paid_usd: number; fifo_paid_lbp: number } {
+  const isLbp = t.currency === "LBP";
+  const owed = Math.abs(t.supplier_owed ?? 0);
+  const split = (paid: number) => ({
+    fifo_paid_usd: isLbp ? 0 : paid,
+    fifo_paid_lbp: isLbp ? paid : 0,
+  });
+  if (t.is_refunded) return { fifo_status: "voided", ...split(0) };
+  if (t.settlement_id !== null || owed === 0) {
+    return { fifo_status: "paid", ...split(owed) };
+  }
+  const paid = isLbp ? (covered?.covered_lbp ?? 0) : (covered?.covered_usd ?? 0);
+  const eps = isLbp ? 0.5 : 0.005;
+  if (paid >= owed - eps) return { fifo_status: "paid", ...split(paid) };
+  if (paid > 0) return { fifo_status: "partial", ...split(paid) };
+  return { fifo_status: "unpaid", ...split(0) };
+}
+
 /** "voided" (G40, LIRA-258): the row was voided/refunded — it owes nothing
  *  and never takes money from the manual-payment FIFO pool. */
 export type FifoStatus = "paid" | "partial" | "unpaid" | "voided";
@@ -31,6 +59,12 @@ export type FifoStatus = "paid" | "partial" | "unpaid" | "voided";
 export interface TransactionWithFifoStatus extends FinancialServiceEntity {
   fifo_status: FifoStatus;
   fifo_paid_usd: number;
+  /**
+   * LIRA-322 (FR-017) — LBP paid so far. Set for OMT-account members, whose
+   * labels come from settlement coverage per currency; absent for other
+   * suppliers (their pool estimate is USD-only).
+   */
+  fifo_paid_lbp?: number;
 }
 
 export interface FinancialServiceResult {
@@ -251,6 +285,20 @@ export class FinancialService {
           fifo_status: "unpaid" as FifoStatus,
           fifo_paid_usd: 0,
         }));
+      }
+
+      // LIRA-322 (FR-017) — an OMT-account member's labels come from what
+      // settlements actually recorded (coverage), per currency.
+      if (supplierRepo.isAccountMember(supplier.id)) {
+        const coverage = supplierRepo.getRowCoverage(
+          "FINANCIAL_SERVICE",
+          transactions
+            .filter((t) => !t.is_refunded && t.settlement_id === null)
+            .map((t) => t.id),
+        );
+        return transactions.map((t) =>
+          ({ ...t, ...coverageFifoStatus(t, coverage.get(t.id)) }),
+        );
       }
 
       const pools = supplierRepo.getManualPaymentPools(supplier.id);

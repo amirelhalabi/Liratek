@@ -114,6 +114,8 @@ export const OFFLINE_ID_TABLES: readonly string[] = [
   "resale_line_recharges",
   // LIRA-312 v214 — appended (positions are baked into offline ids).
   "wrong_number_cards",
+  // LIRA-322 v217 — appended (positions are baked into offline ids).
+  "supplier_settlement_coverage",
 ];
 
 /** The offline feature's own bookkeeping tables — never written by a

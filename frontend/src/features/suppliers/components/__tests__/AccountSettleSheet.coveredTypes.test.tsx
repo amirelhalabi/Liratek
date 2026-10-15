@@ -13,6 +13,11 @@
  *
  * RULE 17 — run red before the sheet change (no picker; the WU row started
  * ticked; the payload never carried the key).
+ *
+ * LIRA-322 rewrite (rule 24 — intent kept): nothing is pre-ticked any more
+ * (the amount decides what closes); a waiting WU transfer is now out of the
+ * settlement's scope — out of the preview, out of `expected_owed` — and can't
+ * be picked in "Pick transfers".
  */
 
 import {
@@ -29,6 +34,7 @@ import type {
   AccountUnsettledRow,
 } from "../../hooks/useSuppliers";
 import { supplierSettleAccountSchema } from "@liratek/core";
+import { queueRow } from "../../testing/accountSettleFixtures";
 
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
@@ -89,47 +95,36 @@ const fsRow = (
   model: number,
   created: string,
   usd: number,
-): AccountUnsettledRow => ({
-  kind: "FINANCIAL_SERVICE",
-  id,
-  supplier_id: 1,
-  source_provider: "OMT",
-  source_name: "OMT",
-  created_at: created,
-  amount_usd: usd,
-  amount_lbp: 0,
-  entry_type: null,
-  service_type: "SEND",
-  commission_usd: 0,
-  commission_lbp: 0,
-  omt_service_type: type,
-  commission_model: model,
-});
-const ROW_INTRA = fsRow(10, "INTRA", 1, "2026-09-01T00:00:00Z", 468);
-const ROW_WU = fsRow(11, "WESTERN_UNION", 1, "2026-09-02T00:00:00Z", 526);
+): AccountUnsettledRow =>
+  queueRow({
+    id,
+    created_at: created,
+    amount_usd: usd,
+    omt_service_type: type,
+    commission_model: model,
+  });
+const ROW_INTRA = fsRow(10, "INTRA", 1, "2026-09-01 00:00:00", 468);
+const ROW_WU = fsRow(11, "WESTERN_UNION", 1, "2026-09-02 00:00:00", 526);
 const ROW_WU_LEGACY = fsRow(
   12,
   "WESTERN_UNION",
   0,
-  "2026-08-01T00:00:00Z",
+  "2026-08-01 00:00:00",
   104.5,
 );
-const ROW_IPICK: AccountUnsettledRow = {
+const ROW_IPICK = queueRow({
   kind: "LEDGER",
   id: 30,
   supplier_id: 3,
   source_provider: "iPick",
   source_name: "iPick",
-  created_at: "2026-09-03T00:00:00Z",
+  created_at: "2026-09-03 00:00:00",
   amount_usd: 200,
-  amount_lbp: 0,
   entry_type: "TOP_UP",
   service_type: null,
-  commission_usd: 0,
-  commission_lbp: 0,
   omt_service_type: null,
   commission_model: null,
-};
+});
 
 function renderSheet(rows: AccountUnsettledRow[]) {
   mockGetSupplierAccountUnsettled.mockResolvedValue(rows);
@@ -147,6 +142,21 @@ function renderSheet(rows: AccountUnsettledRow[]) {
   );
 }
 
+async function openPicker() {
+  fireEvent.click(
+    await screen.findByTestId("supplier-account-settle-pick-toggle"),
+  );
+}
+const previewIds = async () =>
+  within(await screen.findByTestId("supplier-account-settle-section-usd"))
+    .getAllByTestId("supplier-account-settle-preview-row")
+    .map((r) => r.getAttribute("data-row-id"));
+async function payUsd(value: string) {
+  const usd = await screen.findByTestId("supplier-account-settle-section-usd");
+  fireEvent.change(within(usd).getAllByTestId(/^payment-amount-/)[0], {
+    target: { value },
+  });
+}
 const rowById = async (id: number) =>
   (await screen.findAllByTestId("supplier-account-settle-row")).find(
     (r) => r.getAttribute("data-row-id") === String(id),
@@ -176,66 +186,78 @@ describe("AccountSettleSheet — LIRA-256 covered types", () => {
     expect(Object.keys(supplierSettleAccountSchema.shape)).toContain(KEY);
   });
 
-  it("with [INTRA] remembered: INTRA + LEDGER rows ticked, the WU row disabled and waiting; payload carries the choice and omits WU", async () => {
+  it("with [INTRA] remembered: the WU row waits (out of scope, unpickable); the payload carries the choice and expected_owed omits WU", async () => {
     window.localStorage.setItem(
       "liratek:omt-covered-types:1",
       JSON.stringify(["INTRA"]),
     );
     renderSheet([ROW_INTRA, ROW_WU, ROW_IPICK]);
-    await waitFor(async () => expect(await toggleOf(10)).toBeChecked());
-    expect(await toggleOf(30)).toBeChecked();
+    await waitFor(async () => expect(await previewIds()).toEqual(["10", "30"]));
+    expect(
+      screen.getByTestId("supplier-account-settle-owed-usd").textContent,
+    ).toBe("$668.00");
+
+    await openPicker();
     const wuToggle = await toggleOf(11);
     expect(wuToggle).not.toBeChecked();
     expect(wuToggle).toBeDisabled();
     expect(
       within(await rowById(11)).getByText(/Waiting — not in this statement/),
     ).toBeInTheDocument();
+    expect(await toggleOf(10)).not.toBeDisabled();
     expect(
       screen.getByTestId("supplier-account-settle-covered-INTRA"),
     ).toBeChecked();
 
+    await payUsd("668");
     const payload = await submitAndGetPayload();
-    expect(payload[KEY]).toEqual(["INTRA"]);
-    expect(payload.selections).toEqual([
-      { kind: "FINANCIAL_SERVICE", id: 10 },
-      { kind: "LEDGER", id: 30 },
-    ]);
+    const parsed = supplierSettleAccountSchema.parse({
+      account_supplier_id: 1,
+      ...payload,
+    });
+    expect(parsed[KEY]).toEqual(["INTRA"]);
+    expect(parsed.expected_owed?.usd).toBeCloseTo(668, 2);
+    expect(payload).not.toHaveProperty("selections");
   });
 
-  it("switching to 'All types' enables the WU row and the payload has NO covered key", async () => {
+  it("switching to 'All types' brings the WU row back in scope and the payload has NO covered key", async () => {
     window.localStorage.setItem(
       "liratek:omt-covered-types:1",
       JSON.stringify(["INTRA"]),
     );
     renderSheet([ROW_INTRA, ROW_WU]);
-    await waitFor(async () => expect(await toggleOf(11)).toBeDisabled());
+    await waitFor(async () => expect(await previewIds()).toEqual(["10"]));
     fireEvent.click(screen.getByTestId("supplier-account-settle-covered-all"));
-    await waitFor(async () => expect(await toggleOf(11)).not.toBeDisabled());
-    expect(await toggleOf(11)).toBeChecked();
+    await waitFor(async () => expect(await previewIds()).toEqual(["10", "11"]));
+    await openPicker();
+    expect(await toggleOf(11)).not.toBeDisabled();
+
+    await payUsd("994");
     const payload = await submitAndGetPayload();
     expect(KEY in payload).toBe(false);
   });
 
-  it("an old-style (model 0) WU row is never disabled", async () => {
+  it("an old-style (model 0) WU row is never restricted", async () => {
     window.localStorage.setItem(
       "liratek:omt-covered-types:1",
       JSON.stringify(["INTRA"]),
     );
     renderSheet([ROW_WU_LEGACY]);
-    const t = await toggleOf(12);
-    expect(t).not.toBeDisabled();
-    await waitFor(() => expect(t).toBeChecked());
+    await waitFor(async () => expect(await previewIds()).toEqual(["12"]));
+    await openPicker();
+    expect(await toggleOf(12)).not.toBeDisabled();
   });
 
-  it("ticking a type on the sheet re-derives the selection and remembers it", async () => {
+  it("ticking a type on the sheet re-derives the scope and remembers it", async () => {
     renderSheet([ROW_INTRA, ROW_WU]);
-    await waitFor(async () => expect(await toggleOf(11)).toBeChecked());
+    await waitFor(async () => expect(await previewIds()).toEqual(["10", "11"]));
     fireEvent.click(
       screen.getByTestId("supplier-account-settle-covered-INTRA"),
     );
-    await waitFor(async () => expect(await toggleOf(11)).not.toBeChecked());
+    await waitFor(async () => expect(await previewIds()).toEqual(["10"]));
+    await openPicker();
     expect(await toggleOf(11)).toBeDisabled();
-    expect(await toggleOf(10)).toBeChecked();
+    expect(await toggleOf(10)).not.toBeDisabled();
     expect(window.localStorage.getItem("liratek:omt-covered-types:1")).toBe(
       JSON.stringify(["INTRA"]),
     );

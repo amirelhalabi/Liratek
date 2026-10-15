@@ -76,6 +76,16 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 - Profits shows a new "Extra charges" line with everything charged extra, so item profits stay what they were.
 - Receipts show "Extra +$1.00" on its own line. Refunding one item gives back that item's share of the extra; voiding or refunding the whole sale gives it all back.
 
+## 💸 OMT / Whish & suppliers
+
+- Settle Account on the OMT card now takes what you actually paid OMT, in $ and/or LBP. The oldest transfers in that currency close first. You can settle only the $ or only the LBP, and the other currency stays as it is. A transfer the money doesn't fully cover stays open and shows what is still owed on it.
+- Before you confirm, each currency shows which transfers close, which one is part-paid, and what is still owed after. "Pick transfers" lets you settle only the transfers you tick.
+- One settlement can pay OMT in one currency and collect from OMT in the other, for example pay OMT in $ and receive LBP from OMT.
+- OMT, OMT App and iPick are now paid only from Settle Account. Their Pay / Receive tab and Commission settlement list are gone. Other suppliers are unchanged.
+- On the Suppliers page, "Paid" and "Partial" on OMT transfers now follow real settlements, and "Partial" shows what was paid (for example "Partial · $47.00"). Transfers that showed "Paid" only because of an old Pay / Receive payment now show as owed, until the next settlement uses that payment.
+- A commission from an earlier settlement no longer shows up again as a credit in Settle Account.
+- Undoing OMT settlements goes newest first: if a later settlement also paid some of the same transfers, void that later one first.
+
 ## 🌐 Web app
 
 - Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.

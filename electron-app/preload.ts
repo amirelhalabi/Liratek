@@ -47,6 +47,8 @@ import type {
   OmtCoveredTypesInput,
   // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
   SupplierCashflowPayload,
+  // LIRA-322 — account settlement payload (rule 21).
+  SupplierSettleAccountPayload,
   // LIRA-319 — the recharge sale payload incl. extra_usd/extra_lbp (rule 21).
   CreateRechargePayload,
   // LIRA-319 — the financial-service payload incl. extra_usd/extra_lbp (rule 21).
@@ -742,36 +744,10 @@ contextBridge.exposeInMainWorld("api", {
     // travels inside `data` (unlike the REST route, IPC has no URL to source
     // it from). The repository re-validates every selected id against
     // account membership — the client's selection is never trusted.
-    settleAccount: (data: {
-      account_supplier_id: number;
-      direction: "PAY" | "COLLECT";
-      selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
-      amount_usd: number;
-      amount_lbp: number;
-      commission_usd: number;
-      commission_lbp: number;
-      entry_mode?: "LUMP" | "RATE";
-      commission_rate?: number;
-      commission_unit_count?: number;
-      note?: string;
-      exchange_rate?: number;
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-        direction?: "IN" | "OUT";
-      }>;
-      /** LIRA-203 — legacy explicit overpay. LIRA-315: derived from
-       *  `payments` instead (PAY or COLLECT); must match it when sent. */
-      surplus_usd?: number;
-      surplus_lbp?: number;
-      /** LIRA-256 — OMT commission types this settlement's statement covers
-       *  (absent = all types). Rule 12: mirrors the core settle schema. */
-      covered_omt_service_types?: OmtCoveredTypesInput;
-      /** LIRA-310 — Waive: settle the rows for less than they net to.
-       *  Rule 12/23: mirrors supplierSettleAccountSchema.discount. */
-      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-    }) => ipcRenderer.invoke("suppliers:settle-account", data),
+    // LIRA-322 (rules 12/21) — derived from the core schema, never hand-typed:
+    // the hand-copied shape lacked `per_currency`/`expected_owed`.
+    settleAccount: (data: SupplierSettleAccountPayload) =>
+      ipcRenderer.invoke("suppliers:settle-account", data),
     // LIRA-313 (rule 12/21) — derived from the core schema: the hand-copied
     // type lacked the per-leg `direction` (change legs) and `discount`.
     recordCashflow: (data: SupplierCashflowPayload) =>

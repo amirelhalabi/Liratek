@@ -764,4 +764,61 @@ describe("Suppliers REST routes", () => {
       );
     });
   });
+
+  // ── LIRA-322 — amount-first OMT account settlement (T016) ──────────────
+  describe("POST /:id/settle-account — amount-first (per_currency)", () => {
+    const amountFirstBody = {
+      per_currency: {
+        USD: {
+          direction: "PAY",
+          payments: [{ method: "CASH", currency_code: "USD", amount: 300 }],
+        },
+      },
+      expected_owed: { usd: 497, lbp: 900000 },
+    };
+
+    it("admin: 200 { success, id }, per_currency/expected_owed forwarded, actor from the JWT", async () => {
+      const spy = jest
+        .spyOn(supplierService, "settleAccount")
+        .mockReturnValue({ success: true, id: 6 } as any);
+      const res = await request(app)
+        .post("/api/suppliers/28/settle-account")
+        .set("x-test-role", "admin")
+        .send({ ...amountFirstBody, created_by: 999 });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, id: 6 });
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          account_supplier_id: 28,
+          per_currency: amountFirstBody.per_currency,
+          expected_owed: amountFirstBody.expected_owed,
+          created_by: 42,
+        }),
+      );
+    });
+
+    it("staff is refused and the service is not called", async () => {
+      const spy = jest
+        .spyOn(supplierService, "settleAccount")
+        .mockReturnValue({ success: true, id: 6 } as any);
+      const res = await request(app)
+        .post("/api/suppliers/28/settle-account")
+        .set("x-test-role", "staff")
+        .send(amountFirstBody);
+      expect(res.status).toBe(403);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("a refusal from the service keeps the IPC envelope (HTTP 200, success false)", async () => {
+      jest
+        .spyOn(supplierService, "settleAccount")
+        .mockReturnValue({ success: false, error: "OMT's balance changed" } as any);
+      const res = await request(app)
+        .post("/api/suppliers/28/settle-account")
+        .set("x-test-role", "admin")
+        .send(amountFirstBody);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: false, error: "OMT's balance changed" });
+    });
+  });
 });

@@ -1,21 +1,19 @@
 /** @jest-environment jsdom */
 
 /**
- * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, wave 2, lane W6) —
- * `AccountSettleSheet`: the OMT open-credit account's one-call settle sheet
- * (rule 16). INTERACTION-layer test — renders the REAL `@liratek/ui`
- * `CounterpartySettleModal`/`MultiPaymentInput` (jest.config.ts maps
- * "@liratek/ui" to packages/ui/src; only `useApi` is overridden), matching
- * `Suppliers.settleNetPayCurrency.test.tsx`'s precedent for this page's
- * settle flows — assertions are against literal rendered DOM, not
- * intercepted props.
+ * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189) — `AccountSettleSheet`: the OMT
+ * open-credit account's one-call settle sheet (rule 16). INTERACTION-layer
+ * test — renders the REAL `MultiPaymentInput` (jest maps "@liratek/ui" to
+ * packages/ui/src; only `useApi` is overridden, by ONE stable object — rule
+ * 25), so a broken payload shape fails here.
  *
- * `useSupplierAccountUnsettledQuery` is mocked directly (bypassing the real
- * IPC/REST round trip, same as every other Suppliers test in this
- * directory) so each test controls exactly which rows are in the queue.
- * `useSettleSupplierAccountMutation` runs FOR REAL — it is this lane's own
- * new hook, exercised end-to-end down to the `useApi()` mock, so a broken
- * payload shape fails here rather than only in a human review.
+ * LIRA-322 rewrite (rule 24 — intent kept, assertions moved to the
+ * amount-first sheet): rows are previewed oldest first; credits net against
+ * debts in their own currency; the deferred cash-out commission shows when
+ * the credit closes; a currency OMT owes the shop is a COLLECT section; one
+ * call carries the legs; an UNDERpay is now a partial payment (no longer a
+ * block); an overpay is still allowed; a hand-typed rate is sent. Payloads
+ * are parsed through `supplierSettleAccountSchema` (rule 24).
  */
 
 import {
@@ -26,12 +24,13 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { supplierSettleAccountSchema } from "@liratek/core";
 import { AccountSettleSheet } from "../AccountSettleSheet";
 import type {
   AccountBalance,
   AccountUnsettledRow,
 } from "../../hooks/useSuppliers";
-import { supplierSettleAccountSchema } from "@liratek/core";
+import { queueRow } from "../../testing/accountSettleFixtures";
 
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
@@ -42,11 +41,8 @@ const mockApi = {
 
 jest.mock("@liratek/ui", () => {
   const actual = jest.requireActual("@liratek/ui");
-  return {
-    ...actual,
-    // Rule 25: ONE stable object, never a fresh literal per useApi() call.
-    useApi: () => mockApi,
-  };
+  // Rule 25: ONE stable object, never a fresh literal per useApi() call.
+  return { ...actual, useApi: () => mockApi };
 });
 
 jest.mock("@/hooks/usePaymentMethods", () => ({
@@ -99,66 +95,50 @@ const ACCOUNT: AccountBalance = {
   ],
 };
 
-const ROW_OMT: AccountUnsettledRow = {
-  kind: "FINANCIAL_SERVICE",
+const ROW_OMT = queueRow({
   id: 10,
-  supplier_id: 1,
-  source_provider: "OMT",
-  source_name: "OMT",
-  created_at: "2026-09-01T00:00:00Z",
+  created_at: "2026-09-01 00:00:00",
   amount_usd: 1050,
-  amount_lbp: 0,
-  entry_type: null,
-  service_type: "SEND",
-  // Always 0 for a non-cashout row — never absent (AccountUnsettledRow's
-  // own doc comment); set explicitly since the field is required.
-  commission_usd: 0,
-  commission_lbp: 0,
-};
+});
 
-const ROW_IPICK: AccountUnsettledRow = {
+const ROW_IPICK = queueRow({
   kind: "LEDGER",
   id: 30,
   supplier_id: 3,
   source_provider: "iPick",
   source_name: "iPick",
-  created_at: "2026-09-03T00:00:00Z",
+  created_at: "2026-09-03 00:00:00",
   amount_usd: 175,
-  amount_lbp: 0,
   entry_type: "TOP_UP",
   service_type: null,
-  commission_usd: 0,
-  commission_lbp: 0,
-};
+  omt_service_type: null,
+  commission_model: null,
+});
 
-/** A cashout credit — negative amount, carries the deferred cashout
- *  commission (D14) core populates on this row kind — set explicitly here
- *  to prove the sheet sums it when present. */
-const ROW_CASHOUT: AccountUnsettledRow = {
+/** A cash-out credit — negative, carries the deferred cash-out commission
+ *  (D14) recognised when the credit closes. */
+const ROW_CASHOUT = queueRow({
   kind: "LEDGER",
   id: 20,
   supplier_id: 2,
   source_provider: "OMT_APP",
   source_name: "OMT App",
-  created_at: "2026-09-05T00:00:00Z",
+  created_at: "2026-09-05 00:00:00",
   amount_usd: -100.1,
-  amount_lbp: 0,
   entry_type: "PAYMENT",
   service_type: null,
   commission_usd: 0.1,
-  commission_lbp: 0,
-};
+  omt_service_type: null,
+  commission_model: null,
+});
 
-function renderSheet(
-  rows: AccountUnsettledRow[],
-  overrides: Partial<{ onClose: () => void; onSettled: () => void }> = {},
-) {
+function renderSheet(rows: AccountUnsettledRow[]) {
   mockGetSupplierAccountUnsettled.mockResolvedValue(rows);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  const onClose = overrides.onClose ?? jest.fn();
-  const onSettled = overrides.onSettled ?? jest.fn();
+  const onClose = jest.fn();
+  const onSettled = jest.fn();
   render(
     <QueryClientProvider client={queryClient}>
       <AccountSettleSheet
@@ -171,244 +151,164 @@ function renderSheet(
   return { onClose, onSettled };
 }
 
-describe("AccountSettleSheet (LIRA-189)", () => {
+const usdSection = () =>
+  screen.findByTestId("supplier-account-settle-section-usd");
+
+function amountInput(section: HTMLElement): HTMLInputElement {
+  return within(section).getAllByTestId(
+    /^payment-amount-/,
+  )[0] as HTMLInputElement;
+}
+
+function previewRows(section: HTMLElement) {
+  return within(section)
+    .getAllByTestId("supplier-account-settle-preview-row")
+    .map((r) => [r.getAttribute("data-row-id"), r.getAttribute("data-status")]);
+}
+
+async function submitAndParse() {
+  const submit = screen.getByTestId("supplier-account-settle-submit");
+  await waitFor(() => expect(submit).not.toBeDisabled());
+  fireEvent.click(submit);
+  await waitFor(() =>
+    expect(mockSettleSupplierAccount).toHaveBeenCalledTimes(1),
+  );
+  const [accountSupplierId, payload] = mockSettleSupplierAccount.mock.calls[0];
+  expect(accountSupplierId).toBe(1);
+  return supplierSettleAccountSchema.parse({
+    account_supplier_id: accountSupplierId,
+    ...payload,
+  });
+}
+
+describe("AccountSettleSheet (LIRA-189, amount-first since LIRA-322)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 555 });
   });
 
-  it("pre-selects every open row oldest-first, all checked by default (D8)", async () => {
+  it("previews every open row oldest first, and nothing is ticked by hand", async () => {
     renderSheet([ROW_CASHOUT, ROW_OMT, ROW_IPICK]);
 
-    const rows = await screen.findAllByTestId("supplier-account-settle-row");
-    expect(rows).toHaveLength(3);
-    // Oldest-first: ROW_OMT (09-01), ROW_IPICK (09-03), ROW_CASHOUT (09-05).
-    expect(rows.map((r) => r.getAttribute("data-row-id"))).toEqual([
-      "10",
-      "30",
-      "20",
-    ]);
-    for (const row of rows) {
-      expect(
-        within(row).getByTestId("supplier-account-settle-row-toggle"),
-      ).toBeChecked();
+    const usd = await usdSection();
+    // Oldest first: ROW_OMT (09-01), ROW_IPICK (09-03), ROW_CASHOUT (09-05).
+    expect(previewRows(usd).map(([id]) => id)).toEqual(["10", "30", "20"]);
+    fireEvent.click(screen.getByTestId("supplier-account-settle-pick-toggle"));
+    for (const toggle of await screen.findAllByTestId(
+      "supplier-account-settle-row-toggle",
+    )) {
+      expect(toggle).not.toBeChecked();
     }
   });
 
-  it("nets a credit row against debt rows instead of summing magnitudes, and shows PAY by default when the net is positive", async () => {
+  it("nets a credit row against the debt rows: You pay OMT $1124.90", async () => {
     renderSheet([ROW_OMT, ROW_IPICK, ROW_CASHOUT]);
-    await screen.findAllByTestId("supplier-account-settle-row");
 
-    // selected total = |1050| + |175| + |-100.10| = 1325.10
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("supplier-account-settle-selected-total")
-          .textContent,
-      ).toBe("$1325.10");
-    });
-    // net = 1050 + 175 - 100.10 = 1124.90, positive => PAY
-    expect(screen.getByTestId("supplier-account-settle-net").textContent).toBe(
-      "$1124.90",
-    );
+    const usd = await usdSection();
+    expect(usd.textContent).toContain("You pay OMT");
     expect(
-      screen.getByTestId("supplier-account-settle-direction-pay"),
-    ).toHaveClass("bg-red-600");
+      within(usd).getByTestId("supplier-account-settle-owed-usd").textContent,
+    ).toBe("$1124.90");
   });
 
-  it("unticking the cashout row drops it from both the selected total and the net", async () => {
+  it("the credit closes by netting, and its deferred cash-out commission shows", async () => {
     renderSheet([ROW_OMT, ROW_IPICK, ROW_CASHOUT]);
-    const rows = await screen.findAllByTestId("supplier-account-settle-row");
-    const cashoutRow = rows.find(
-      (r) => r.getAttribute("data-row-id") === "20",
-    )!;
-    fireEvent.click(
-      within(cashoutRow).getByTestId("supplier-account-settle-row-toggle"),
-    );
 
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("supplier-account-settle-selected-total")
-          .textContent,
-      ).toBe("$1225.00");
-    });
-    expect(screen.getByTestId("supplier-account-settle-net").textContent).toBe(
-      "$1225.00",
+    const usd = await usdSection();
+    fireEvent.change(amountInput(usd), { target: { value: "100" } });
+
+    await waitFor(() =>
+      expect(previewRows(usd)).toEqual([
+        ["10", "part-paid"],
+        ["30", "untouched"],
+        ["20", "closes"],
+      ]),
     );
-    // The deselected row was the only one carrying a deferred commission.
     expect(
-      screen.getByTestId("supplier-account-settle-deferred-commission")
+      within(usd).getByTestId("supplier-account-settle-deferred-commission-usd")
         .textContent,
-    ).toBe("$0.00");
+    ).toBe("$0.10");
   });
 
-  it("sums the deferred cashout commission from selected rows' commission fields", async () => {
-    renderSheet([ROW_OMT, ROW_CASHOUT]);
-    await screen.findAllByTestId("supplier-account-settle-row");
-
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("supplier-account-settle-deferred-commission")
-          .textContent,
-      ).toBe("$0.10");
-    });
-  });
-
-  it("a net-negative selection defaults to COLLECT, and the admin can switch back to PAY", async () => {
+  it("a currency where OMT owes the shop is a COLLECT section: OMT pays you $100.10", async () => {
     renderSheet([ROW_CASHOUT]);
-    await screen.findAllByTestId("supplier-account-settle-row");
 
-    await waitFor(() => {
-      // Signed: negative = the account owes the shop (COLLECT, §8.4).
-      expect(
-        screen.getByTestId("supplier-account-settle-net").textContent,
-      ).toBe("-$100.10");
-    });
+    const usd = await usdSection();
+    expect(usd.textContent).toContain("OMT pays you");
     expect(
-      screen.getByTestId("supplier-account-settle-direction-collect"),
-    ).toHaveClass("bg-green-600");
+      within(usd).getByTestId("supplier-account-settle-owed-usd").textContent,
+    ).toBe("$100.10");
 
-    fireEvent.click(
-      screen.getByTestId("supplier-account-settle-direction-pay"),
-    );
-    expect(
-      screen.getByTestId("supplier-account-settle-direction-pay"),
-    ).toHaveClass("bg-red-600");
+    fireEvent.change(amountInput(usd), { target: { value: "100.10" } });
+    const parsed = await submitAndParse();
+    expect(parsed.per_currency?.USD?.direction).toBe("COLLECT");
+    expect(parsed.expected_owed?.usd).toBeCloseTo(-100.1, 2);
   });
 
-  it("submits ONE call with the selection, net amount, direction and payment legs (rule 16)", async () => {
+  it("submits ONE call with the money as payment legs (rule 16)", async () => {
     const { onSettled } = renderSheet([ROW_OMT, ROW_IPICK]);
-    await screen.findAllByTestId("supplier-account-settle-row");
 
-    // MultiPaymentInput auto-seeds a single CASH line at the full total on
-    // mount (its own single-mode auto-sync effect) — no manual entry needed
-    // for the happy path.
-    const submit = await screen.findByTestId("supplier-account-settle-submit");
-    await waitFor(() => expect(submit).not.toBeDisabled());
-    fireEvent.click(submit);
+    const usd = await usdSection();
+    fireEvent.change(amountInput(usd), { target: { value: "1225" } });
+    const parsed = await submitAndParse();
 
-    await waitFor(() => {
-      expect(mockSettleSupplierAccount).toHaveBeenCalledTimes(1);
+    expect(parsed.per_currency?.USD).toEqual({
+      direction: "PAY",
+      payments: [{ method: "CASH", currency_code: "USD", amount: 1225 }],
     });
-    const [accountSupplierId, payload] =
-      mockSettleSupplierAccount.mock.calls[0];
-    expect(accountSupplierId).toBe(1);
-    expect(payload.direction).toBe("PAY");
-    expect(payload.selections).toEqual([
-      { kind: "FINANCIAL_SERVICE", id: 10 },
-      { kind: "LEDGER", id: 30 },
-    ]);
-    expect(payload.amount_usd).toBeCloseTo(1225, 2);
-    expect(payload.amount_lbp).toBe(0);
-    expect(payload.commission_usd).toBe(0);
-    expect(payload.commission_lbp).toBe(0);
-    expect(payload.payments).toEqual([
-      { method: "CASH", currency_code: "USD", amount: 1225 },
-    ]);
-
+    expect(parsed.expected_owed?.usd).toBeCloseTo(1225, 2);
     await waitFor(() => expect(onSettled).toHaveBeenCalled());
   });
 
-  it("blocks submit when the entered payment doesn't cover the all-or-nothing selection (§9.3)", async () => {
+  // LIRA-322 (US2) replaces §9.3's "a selected row is all-or-nothing": an
+  // amount below what is owed is a partial payment, never a block.
+  it("an underpay is accepted as a partial payment — no mismatch, Confirm enabled", async () => {
     renderSheet([ROW_OMT, ROW_IPICK]);
-    await screen.findAllByTestId("supplier-account-settle-row");
 
-    const submit = await screen.findByTestId("supplier-account-settle-submit");
-    await waitFor(() => expect(submit).not.toBeDisabled());
-
-    // Manually shrink the auto-seeded CASH line below the selected total.
-    // (DecimalInput renders the amount with a thousands separator.)
-    const amountInput = await screen.findByDisplayValue("1,225");
-    fireEvent.change(amountInput, { target: { value: "500" } });
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/doesn't cover the selected rows/i),
-      ).toBeInTheDocument();
-    });
-    expect(submit).toBeDisabled();
-    expect(mockSettleSupplierAccount).not.toHaveBeenCalled();
-  });
-
-  // Money-safety regression (owner-reported overpay bug): a $100-equivalent
-  // debt entered as $150 must never reach settleSupplierAccount as a raw IN
-  // leg — SupplierRepository.settleSupplierAccount applies every payments[]
-  // leg with the same sign (no IN/OUT split), so an unreconciled overpay
-  // would drop the drawer by the FULL entered amount while the ledger nets
-  // to 0. Proven failing-first against the pre-fix code (rule 17) before
-  // this test was kept — see the ticket's failing_first_proof.
-  // LIRA-315 (owner decisions 2026-10-12/13) — an overpay is no longer
-  // blocked: the extra is change handed back or stays on the account.
-  it("does NOT block an overpay — submit stays enabled and no mismatch is shown", async () => {
-    renderSheet([ROW_OMT, ROW_IPICK]);
-    await screen.findAllByTestId("supplier-account-settle-row");
-
-    const submit = await screen.findByTestId("supplier-account-settle-submit");
-    await waitFor(() => expect(submit).not.toBeDisabled());
-
-    const amountInput = await screen.findByDisplayValue("1,225");
-    fireEvent.change(amountInput, { target: { value: "1500" } });
+    const usd = await usdSection();
+    fireEvent.change(amountInput(usd), { target: { value: "500" } });
 
     await waitFor(() =>
-      expect(screen.getByTestId("return-change")).toBeInTheDocument(),
+      expect(previewRows(usd)).toEqual([
+        ["10", "part-paid"],
+        ["30", "untouched"],
+      ]),
     );
     expect(
       screen.queryByTestId("supplier-account-settle-mismatch"),
     ).not.toBeInTheDocument();
-    expect(submit).not.toBeDisabled();
-  });
-
-  it("confirms and submits when the entered payment matches the net amount exactly", async () => {
-    renderSheet([ROW_OMT, ROW_IPICK]);
-    await screen.findAllByTestId("supplier-account-settle-row");
-
-    const submit = await screen.findByTestId("supplier-account-settle-submit");
-    await waitFor(() => expect(submit).not.toBeDisabled());
-
-    // Explicitly re-type the exact target (rather than relying purely on
-    // the auto-seeded value) so this proves the boundary itself reconciles,
-    // not just that the untouched default happens to.
-    const amountInput = await screen.findByDisplayValue("1,225");
-    fireEvent.change(amountInput, { target: { value: "1225" } });
-
-    expect(
-      screen.queryByTestId("supplier-account-settle-mismatch"),
-    ).not.toBeInTheDocument();
-    expect(submit).not.toBeDisabled();
-
-    fireEvent.click(submit);
-
-    await waitFor(() => {
-      expect(mockSettleSupplierAccount).toHaveBeenCalledTimes(1);
-    });
-    const [, payload] = mockSettleSupplierAccount.mock.calls[0];
-    expect(payload.payments).toEqual([
-      { method: "CASH", currency_code: "USD", amount: 1225 },
+    const parsed = await submitAndParse();
+    expect(parsed.per_currency?.USD?.payments).toEqual([
+      { method: "CASH", currency_code: "USD", amount: 500 },
     ]);
   });
 
+  // LIRA-315 — an overpay is allowed: the change box decides what happens.
+  it("does NOT block an overpay — the change box shows and Confirm stays enabled", async () => {
+    renderSheet([ROW_OMT, ROW_IPICK]);
+
+    const usd = await usdSection();
+    fireEvent.change(amountInput(usd), { target: { value: "1500" } });
+
+    await waitFor(() =>
+      expect(within(usd).getByTestId("return-change")).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId("supplier-account-settle-submit"),
+    ).not.toBeDisabled();
+  });
+
   // Owner decision 2026-10-07: a rate the cashier types by hand is sent and
-  // stamped on the SUPPLIER_SETTLEMENT row. The server settles per currency
-  // with no conversion, so the rate is stamp-only; the on-screen target is
-  // left at the shop's rate (re-keying the payment input on a typed rate
-  // would remount it and throw the typed rate away).
+  // stamped on the SUPPLIER_SETTLEMENT row (stamp-only).
   it("sends a hand-typed rate as exchange_rate", async () => {
     renderSheet([ROW_OMT, ROW_IPICK]);
-    await screen.findAllByTestId("supplier-account-settle-row");
-    const submit = await screen.findByTestId("supplier-account-settle-submit");
-    await waitFor(() => expect(submit).not.toBeDisabled());
 
-    fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
+    const usd = await usdSection();
+    fireEvent.change(amountInput(usd), { target: { value: "1225" } });
+    fireEvent.change(within(usd).getByTestId("payment-exchange-rate"), {
       target: { value: "87000" },
     });
-    fireEvent.click(submit);
-
-    await waitFor(() => expect(mockSettleSupplierAccount).toHaveBeenCalled());
-    const [accountSupplierId, payload] =
-      mockSettleSupplierAccount.mock.calls[0];
-    const parsed = supplierSettleAccountSchema.parse({
-      account_supplier_id: accountSupplierId,
-      ...payload,
-    });
+    const parsed = await submitAndParse();
     expect(parsed.exchange_rate).toBe(87000);
   });
 });

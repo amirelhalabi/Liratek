@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import {
   getSupplierService,
   getFinancialService,
+  describeSettleAccountForAudit,
   type OmtCoveredTypesInput,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
@@ -225,19 +226,16 @@ export function registerSupplierHandlers(): void {
       ...v.data,
       created_by: auth.userId,
     });
-    audit(e.sender.id, {
-      action: "settle",
-      entity_type: "supplier_account_settlement",
-      summary: `Settled OMT account #${v.data.account_supplier_id} (${v.data.direction}, ${v.data.selections.length} row${v.data.selections.length === 1 ? "" : "s"})`,
-      metadata: {
-        account_supplier_id: v.data.account_supplier_id,
-        direction: v.data.direction,
-        count: v.data.selections.length,
-        // LIRA-203 — 0/0 when no overpayment was declared.
-        surplus_usd: v.data.surplus_usd ?? 0,
-        surplus_lbp: v.data.surplus_lbp ?? 0,
-      },
-    });
+    // LIRA-322 — one description for both payload shapes (legacy whole-row
+    // and amount-first per_currency), shared with the REST route; audited
+    // only when the settlement was actually written.
+    if (result.success) {
+      audit(e.sender.id, {
+        action: "settle",
+        entity_type: "supplier_account_settlement",
+        ...describeSettleAccountForAudit(v.data),
+      });
+    }
     return result;
   });
 

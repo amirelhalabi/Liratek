@@ -67,9 +67,14 @@
  * math is W1's jest matrix — duplicating it here would not add confidence,
  * only runtime (rule 14 in spirit: don't re-prove what's proven elsewhere).
  *
- * NOT RUN in this pass (contract instruction) — this spec is authored
- * against CONTRACT_W2.md's FIXED names only; every place it must additionally
- * guess at unfixed UI structure is called out in a comment at that call site.
+ * LIRA-322 (specs/322-omt-amount-first-settle, T051): the sheet now settles
+ * BY AMOUNT, one currency at a time, and is the only way to pay the OMT
+ * account. All four scenarios keep their intent but use the amount-first
+ * contract the sheet sends (`per_currency` + `expected_owed`, scoped by
+ * `selections` to this spec's own rows, since the account carries other
+ * specs' backlog and oldest-first would otherwise pay that instead). Closed
+ * rows now share ONE `settlement_id` (the settlement's anchor ledger row),
+ * and the UI pass ticks its row in "Pick transfers" (nothing is pre-ticked).
  */
 import type { Page } from "@playwright/test";
 import {
@@ -170,6 +175,9 @@ interface AccountUnsettledRow {
   amount_lbp: number;
   entry_type: string | null;
   service_type: string | null;
+  // LIRA-322 — what each row still owes after part-payments.
+  remaining_usd: number;
+  remaining_lbp: number;
 }
 async function getAccountUnsettled(
   page: Page,
@@ -297,14 +305,45 @@ function expectedCashoutCommissionUsd(amount: number): number {
   return Math.round(amount * 0.001 * 100) / 100;
 }
 
-/** Strip currency symbols/commas/labels from a rendered money string. */
-function parseMoneyText(text: string): number {
-  const match = text.replace(/,/g, "").match(/-?[\d.]+/);
-  return match ? parseFloat(match[0]) : NaN;
-}
-
 const settleAccountUrl = (accountSupplierId: number): string =>
   `${BACKEND_URL}/api/suppliers/${accountSupplierId}/settle-account`;
+
+/** LIRA-322 — the signed in-scope remaining the sheet sends as
+ *  `expected_owed` (the server refuses the settlement if it changed). */
+function expectedOwedOf(rows: AccountUnsettledRow[]): {
+  usd: number;
+  lbp: number;
+} {
+  return {
+    usd: rows.reduce((s, r) => s + r.remaining_usd, 0),
+    lbp: Math.round(rows.reduce((s, r) => s + r.remaining_lbp, 0)),
+  };
+}
+
+/** The SUPPLIER_SETTLEMENT transaction of a settle-account call, by
+ *  identity: its `source_id` is the anchor ledger id the call returns. */
+async function settlementTxnByAnchor(
+  page: Page,
+  headers: { Authorization: string },
+  anchorLedgerId: number,
+): Promise<SettlementTxn & { source_table: string; source_id: number }> {
+  const r = await (
+    await page.request.get(
+      `${BACKEND_URL}/api/transactions/recent?type=SUPPLIER_SETTLEMENT&limit=300`,
+      { headers },
+    )
+  ).json();
+  expect(r.success, JSON.stringify(r)).toBeTruthy();
+  const txn = (
+    r.transactions as Array<
+      SettlementTxn & { source_table: string; source_id: number }
+    >
+  ).find(
+    (t) => t.source_table === "supplier_ledger" && t.source_id === anchorLedgerId,
+  );
+  expect(txn, `no settlement transaction for anchor #${anchorLedgerId}`).toBeTruthy();
+  return txn!;
+}
 
 test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
   test("a two-child batch with NO debt on the OMT parent settles in one PAY: both rows net to 0, one SUPPLIER_SETTLEMENT transaction, and the OMT Cash Drawer falls by exactly the cash leg (D3)", async ({
@@ -314,8 +353,10 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     const marker = Date.now();
     // Run-unique, non-round amounts so this batch's combined total can never
     // collide with another run's settlement (identity via amount match).
-    const IPICK_AMOUNT = Number((14.11 + (marker % 733) / 1000).toFixed(3));
-    const OMTAPP_AMOUNT = Number((9.27 + (marker % 611) / 1000).toFixed(3));
+    // Whole cents (LIRA-322): the amount-first allocator works in cents, so
+    // two 3-decimal rows could round to a total one cent off their sum.
+    const IPICK_AMOUNT = Number((14.11 + (marker % 733) / 100).toFixed(2));
+    const OMTAPP_AMOUNT = Number((9.27 + (marker % 611) / 100).toFixed(2));
     const TOTAL = Number((IPICK_AMOUNT + OMTAPP_AMOUNT).toFixed(2));
 
     const account = await omtAccount(page, headers);
@@ -375,54 +416,48 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     const settled = await (
       await page.request.post(settleAccountUrl(omtId), {
         headers,
+        // LIRA-322 amount-first payload (the only one the sheet sends):
+        // scoped to these two rows, the money in its own currency section.
         data: {
           account_supplier_id: omtId,
-          direction: "PAY",
           selections: [
             { kind: ipickRow.kind, id: ipickRow.id },
             { kind: omtAppRow.kind, id: omtAppRow.id },
           ],
-          amount_usd: TOTAL,
-          amount_lbp: 0,
-          commission_usd: 0,
-          commission_lbp: 0,
+          expected_owed: expectedOwedOf([ipickRow, omtAppRow]),
+          per_currency: {
+            USD: {
+              direction: "PAY",
+              payments: [
+                { method: "CASH", currency_code: "USD", amount: TOTAL },
+              ],
+            },
+          },
           note: `lira-web-035 mixed no-parent-debt ${marker}`,
-          created_by: 1,
-          payments: [{ method: "CASH", currency_code: "USD", amount: TOTAL }],
         },
       })
     ).json();
     expect(settled.success, JSON.stringify(settled)).toBeTruthy();
     expect(settled.id, JSON.stringify(settled)).toBeTruthy();
 
-    // ── §1.1 mechanism: both rows are findable and stamped settled. NOT a
-    // shared `settlement_id` — read `SupplierRepository.settleAccount`'s own
-    // doc comment (step 3/4) before touching this again: each member gets
-    // its OWN new `supplier_ledger` negation row, and every one of that
-    // member's original selected rows is stamped `settlement_id = <that
-    // member's own new row id>` — deliberately never one id shared across
-    // members, so per-member un-stamping stays correct if a settlement is
-    // later reversed for just one member's rows. What IS shared across
-    // members is the new rows' `transaction_id` (not exposed by
-    // `/account-ledger`) — proven below instead via the settlement
-    // transaction's own `metadata_json.members`, which names every member
-    // supplier this exact batch touched. ───────────────────────────────────
+    // ── Both rows are stamped settled. LIRA-322: an amount-first
+    // settlement stamps every row it closes with ONE id — its anchor ledger
+    // row, the id the call returns (the legacy path gave each member its own
+    // negation row id). Both members still get their own money row; what
+    // ties them together is that anchor and the one transaction below. ───
     const ledgerAfter = await getAccountLedger(page, headers, omtId);
     const ipickLedgerAfter = ledgerAfter.find((l) => l.id === ipickRow.id);
     const omtAppLedgerAfter = ledgerAfter.find((l) => l.id === omtAppRow.id);
-    expect(ipickLedgerAfter?.settlement_id, "iPick row not stamped settled").toBeTruthy();
+    expect(ipickLedgerAfter?.settlement_id, "iPick row not stamped settled").toBe(
+      settled.id,
+    );
     expect(
       omtAppLedgerAfter?.settlement_id,
       "OMT App row not stamped settled",
-    ).toBeTruthy();
-    // The two members' own negation rows are distinct ledger rows, so they
-    // necessarily get distinct self-referencing settlement_id values.
-    expect(omtAppLedgerAfter?.settlement_id).not.toBe(
-      ipickLedgerAfter?.settlement_id,
-    );
+    ).toBe(settled.id);
     // Rows never move (plan §2) — the raw amounts are untouched by settling.
-    expect(ipickLedgerAfter?.amount_usd).toBeCloseTo(IPICK_AMOUNT, 3);
-    expect(omtAppLedgerAfter?.amount_usd).toBeCloseTo(OMTAPP_AMOUNT, 3);
+    expect(ipickLedgerAfter?.amount_usd).toBeCloseTo(IPICK_AMOUNT, 2);
+    expect(omtAppLedgerAfter?.amount_usd).toBeCloseTo(OMTAPP_AMOUNT, 2);
 
     // Both rows leave the open unsettled queue.
     const unsettledAfter = await getAccountUnsettled(page, headers, omtId);
@@ -466,6 +501,9 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     const txns = await findSettlementTxns(page, headers, TOTAL);
     expect(txns, JSON.stringify(txns)).toHaveLength(1);
     expect(txns[0].status).toBe("ACTIVE");
+    expect((await settlementTxnByAnchor(page, headers, settled.id)).id).toBe(
+      txns[0].id,
+    );
 
     // ── The two rows really DO "belong to the settlement" together: what's
     // shared across members is the ONE settlement transaction (proven above)
@@ -551,22 +589,24 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     const settled = await (
       await page.request.post(settleAccountUrl(omtId), {
         headers,
+        // No operator-entered commission for this batch — the profit
+        // asserted below must come SOLELY from the deferred cash-out
+        // commission, summed automatically (D14), never added by hand.
+        // LIRA-322: the USD section's direction follows the sign of what is
+        // owed (negative here), so it is COLLECT.
         data: {
           account_supplier_id: omtId,
-          direction: "COLLECT",
           selections: [{ kind: cashoutRow.kind, id: cashoutRow.id }],
-          amount_usd: COLLECT_TOTAL,
-          amount_lbp: 0,
-          // No operator-entered commission for this batch — the profit
-          // asserted below must come SOLELY from the deferred cash-out
-          // commission, summed automatically (D14), never added by hand.
-          commission_usd: 0,
-          commission_lbp: 0,
+          expected_owed: expectedOwedOf([cashoutRow]),
+          per_currency: {
+            USD: {
+              direction: "COLLECT",
+              payments: [
+                { method: "CASH", currency_code: "USD", amount: COLLECT_TOTAL },
+              ],
+            },
+          },
           note: `lira-web-035 collect deferred-commission ${marker}`,
-          created_by: 1,
-          payments: [
-            { method: "CASH", currency_code: "USD", amount: COLLECT_TOTAL },
-          ],
         },
       })
     ).json();
@@ -597,12 +637,15 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     // commission (0 operator commission entered) — computed, not typed.
     // `/recent` doesn't carry profit_usd (see `SettlementTxn`'s doc
     // comment) — read it off `/transactions/:id` instead. ──────────────────
-    const txns = await findSettlementTxns(page, headers, COLLECT_TOTAL);
-    expect(txns, JSON.stringify(txns)).toHaveLength(1);
+    const settlementTxn = await settlementTxnByAnchor(
+      page,
+      headers,
+      settled.id,
+    );
     const settlementDetail = await fetchTransactionDetail(
       page,
       headers,
-      txns[0].id,
+      settlementTxn.id,
     );
     expect(settlementDetail.profit_usd).toBeCloseTo(COMMISSION, 2);
   });
@@ -659,20 +702,22 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
         headers,
         data: {
           account_supplier_id: omtId,
-          direction: "PAY",
           selections: [{ kind: "LEDGER", id: foreignLedgerId }],
-          amount_usd: 10,
-          amount_lbp: 0,
-          commission_usd: 0,
-          commission_lbp: 0,
+          // What a forged client would claim the row owes.
+          expected_owed: { usd: -10, lbp: 0 },
+          per_currency: {
+            USD: {
+              direction: "PAY",
+              payments: [{ method: "CASH", currency_code: "USD", amount: 10 }],
+            },
+          },
           note: `lira-web-035 hostile selection ${marker}`,
-          created_by: 1,
-          payments: [{ method: "CASH", currency_code: "USD", amount: 10 }],
         },
       })
     ).json();
     expect(rejected.success, JSON.stringify(rejected)).toBe(false);
-    expect(typeof rejected.error).toBe("string");
+    // The scope check runs first: the id is not on this account's queue.
+    expect(String(rejected.error)).toContain("no longer open on this account");
 
     // Nothing written: the OMT Cash Drawer is untouched...
     const omtSystemAfter = drawerOf(
@@ -696,11 +741,13 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     expect(foreignRow?.total_usd).toBeCloseTo(-10, 2);
   });
 
-  // ── Real-UI layer-seam pass — CONTRACT_W2.md §2.3's fixed testids only
-  // (see file header for the one flagged assumption: the payment-leg input
-  // prefix). Trusts lane W6's sheet has landed by the time this spec
-  // actually runs (rule 17/contract instruction — NOT run in this pass). ──
-  test("UI: the real settlement sheet's row toggle changes the selected total by exactly that row's own amount, and a real submit reaches the same core mutation", async ({
+  // ── Real-UI layer-seam pass (LIRA-322 sheet). The sheet opens with
+  // NOTHING ticked (the whole account is in scope); "Pick transfers" narrows
+  // the scope. Ticking this spec's own row must narrow the USD section's
+  // owed figure to exactly that row's amount — the sheet's OWN arithmetic,
+  // which a hand-built REST payload cannot prove — and a real submit must
+  // reach the same core mutation the REST tests above proved. ──────────────
+  test("UI: ticking a row in the real settlement sheet narrows what is owed to exactly that row, the preview closes it, and a real submit reaches the same core mutation", async ({
     page,
   }) => {
     const headers = await authHeaders(page);
@@ -723,6 +770,10 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
 
     const unsettledBefore = await getAccountUnsettled(page, headers, omtId);
     const row = findUnsettled(unsettledBefore, "iPick", "TOP_UP", UI_AMOUNT);
+    const omtSystemBefore = drawerOf(
+      await drawerBalances(page, headers),
+      "OMT_System",
+    );
 
     await gotoAndSettle(page, "/#/suppliers");
     await expect(page.locator("#root")).not.toContainText(
@@ -736,94 +787,63 @@ test.describe("OMT open-credit account settlement over REST (LIRA-189)", () => {
     const sheet = page.getByTestId("supplier-account-settle-sheet");
     await expect(sheet).toBeVisible({ timeout: 10_000 });
 
+    await sheet.getByTestId("supplier-account-settle-pick-toggle").click();
     const uiRow = sheet.locator(
-      `[data-testid="supplier-account-settle-row"][data-row-id="${row.id}"]`,
+      `[data-testid="supplier-account-settle-row"][data-kind="LEDGER"][data-row-id="${row.id}"]`,
     );
-    await expect(uiRow).toBeVisible();
-    await expect(uiRow).toHaveAttribute("data-kind", "LEDGER");
-
-    // The sheet pre-selects EVERY open row on the account, oldest-first
-    // (D8) — fine in isolation, but this suite's DB accumulates across
-    // specs (rule 15), so whatever 032/033 left unsettled on this same
-    // OMT account gets pre-selected too. That mixes other amounts (and
-    // possibly a second currency) into "selected total", which breaks
-    // parseMoneyText's first-number-only parsing and would make this spec
-    // pay less than the real selection. Deselect every row except this
-    // spec's own BEFORE reading any totals, so the selection — and the
-    // totals below — are always exactly this one known USD row,
-    // regardless of what earlier specs left behind (rule 15: assert by
-    // identity, never by inherited global state).
-    const allRows = sheet.locator('[data-testid="supplier-account-settle-row"]');
-    const otherRowCount = await allRows.count();
-    for (let i = 0; i < otherRowCount; i++) {
-      const candidate = allRows.nth(i);
-      if ((await candidate.getAttribute("data-row-id")) === String(row.id)) {
-        continue;
-      }
-      const candidateToggle = candidate.getByTestId(
-        "supplier-account-settle-row-toggle",
-      );
-      if (await candidateToggle.isChecked()) {
-        await candidateToggle.uncheck();
-      }
-    }
-
-    const totalBefore = parseMoneyText(
-      await sheet.getByTestId("supplier-account-settle-selected-total").innerText(),
-    );
-
+    await expect(uiRow).toBeVisible({ timeout: 10_000 });
     const toggle = uiRow.getByTestId("supplier-account-settle-row-toggle");
-    await toggle.click();
-    let totalAfter = parseMoneyText(
-      await sheet.getByTestId("supplier-account-settle-selected-total").innerText(),
-    );
-    // Whichever way the click moved it (deselected an already-pre-selected
-    // oldest row, or selected a not-yet-selected one), the MAGNITUDE of the
-    // change must be exactly this row's own amount — proving the sheet's own
-    // arithmetic, not a hand-built payload's.
-    expect(Math.abs(totalAfter - totalBefore)).toBeCloseTo(UI_AMOUNT, 2);
-
-    // Make sure the row ends up SELECTED before submitting.
-    if (totalAfter < totalBefore) {
-      await toggle.click();
-      totalAfter = parseMoneyText(
-        await sheet
-          .getByTestId("supplier-account-settle-selected-total")
-          .innerText(),
-      );
-      expect(totalAfter - totalBefore).toBeCloseTo(0, 2);
-    }
-
+    // Nothing is pre-ticked any more (US5: the picker is an override).
+    await expect(toggle).not.toBeChecked();
     await expect(
-      sheet.getByTestId("supplier-account-settle-net"),
-    ).toBeVisible();
+      sheet.locator(
+        '[data-testid="supplier-account-settle-row-toggle"]:checked',
+      ),
+    ).toHaveCount(0);
+
+    await toggle.check();
+    const usd = sheet.getByTestId("supplier-account-settle-section-usd");
     await expect(
-      sheet.getByTestId("supplier-account-settle-deferred-commission"),
-    ).toBeVisible();
+      usd.getByTestId("supplier-account-settle-owed-usd"),
+    ).toHaveText(`$${UI_AMOUNT.toFixed(2)}`);
+    // Only this USD row is in scope, so no LBP section is open.
+    await expect(
+      sheet.getByTestId("supplier-account-settle-section-lbp"),
+    ).toHaveCount(0);
 
-    // This selection alone is a straightforward debt — PAY.
-    await sheet.getByTestId("supplier-account-settle-direction-pay").click();
-
-    // Payment leg — NOT a CONTRACT_W2.md-fixed testid (see file header):
-    // reusing the existing settle-sheet's `payment-amount-`/
-    // `payment-currency-` prefix convention.
-    const amountInput = sheet
+    const method = usd.locator('[data-testid^="payment-method-"]').first();
+    if (await method.count()) await method.selectOption("CASH");
+    await usd
       .locator('[data-testid^="payment-amount-"]')
-      .first();
-    await amountInput.fill(String(totalAfter));
-    const currencySelect = sheet
-      .locator('[data-testid^="payment-currency-"]')
-      .first();
-    if (await currencySelect.count()) {
-      await currencySelect.selectOption("USD");
-    }
+      .first()
+      .fill(UI_AMOUNT.toFixed(2));
+
+    await expect(
+      usd.locator(
+        `[data-testid="supplier-account-settle-preview-row"][data-kind="LEDGER"][data-row-id="${row.id}"]`,
+      ),
+    ).toHaveAttribute("data-status", "closes");
+    await expect(
+      usd.getByTestId("supplier-account-settle-still-owed-usd"),
+    ).toHaveText("$0.00");
 
     await sheet.getByTestId("supplier-account-settle-submit").click();
     await expect(sheet).toHaveCount(0, { timeout: 10_000 });
 
     // The real submit reached the same core mutation the REST tests above
-    // proved: the row is gone from the unsettled queue.
+    // proved: the row is gone from the unsettled queue, and the OMT Cash
+    // Drawer paid exactly that row (D3).
     const unsettledAfter = await getAccountUnsettled(page, headers, omtId);
-    expect(unsettledAfter.some((r) => r.id === row.id)).toBe(false);
+    expect(
+      unsettledAfter.some((r) => r.kind === "LEDGER" && r.id === row.id),
+    ).toBe(false);
+    const omtSystemAfter = drawerOf(
+      await drawerBalances(page, headers),
+      "OMT_System",
+    );
+    expect(omtSystemAfter.usdBalance - omtSystemBefore.usdBalance).toBeCloseTo(
+      -UI_AMOUNT,
+      2,
+    );
   });
 });

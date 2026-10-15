@@ -342,6 +342,13 @@ function insertTenantFixture(db: Database.Database, tenantId: number): void {
       `INSERT INTO supplier_settlements (tenant_id, supplier_id, ledger_entry_id, model)
        VALUES (?, ?, ?, 0)`,
     ).run(tenantId, supplierId, supplierLedgerId);
+    // LIRA-322 v217 — what a settlement applied to one account queue row.
+    db.prepare(
+      `INSERT INTO supplier_settlement_coverage
+         (tenant_id, transaction_id, anchor_ledger_id, row_kind, row_id,
+          member_supplier_id, currency, amount, source)
+       VALUES (?, ?, ?, 'FINANCIAL_SERVICE', ?, ?, 'USD', 1, 'PAYMENT')`,
+    ).run(tenantId, txnId, supplierLedgerId, fsId, supplierId);
     db.prepare(
       `INSERT INTO voucher_images (tenant_id, provider, category, item_key, image_path)
        VALUES (?, 'test', 'test', 'key', 'path.png')`,

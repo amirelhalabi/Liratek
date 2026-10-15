@@ -14791,6 +14791,44 @@ DROP TABLE IF EXISTS wrong_number_cards;`);
       removeWhishAppCatalogAdditions(db);
     },
   },
+  {
+    version: 217,
+    name: "supplier_settlement_coverage",
+    description:
+      "LIRA-322: settle the OMT account by amount, one currency at a time. " +
+      "One row = what one SUPPLIER_SETTLEMENT applied to one account queue " +
+      "row (financial_services or supplier_ledger), in one currency, from " +
+      "one source (PAYMENT / NETTING / COMMISSION / WAIVE). 'Paid so far' " +
+      "on a row = SUM of its active (is_reversed = 0) coverage; a row still " +
+      "closes by its settlement_id stamp once fully covered. A void soft-" +
+      "reverses its own coverage (is_reversed = 1), never deletes it.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`CREATE TABLE IF NOT EXISTS supplier_settlement_coverage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+    anchor_ledger_id INTEGER NOT NULL REFERENCES supplier_ledger(id),
+    row_kind TEXT NOT NULL CHECK(row_kind IN ('FINANCIAL_SERVICE', 'LEDGER')),
+    row_id INTEGER NOT NULL,
+    member_supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+    currency TEXT NOT NULL CHECK(currency IN ('USD', 'LBP')),
+    amount REAL NOT NULL CHECK(amount > 0),
+    source TEXT NOT NULL CHECK(source IN ('PAYMENT', 'NETTING', 'COMMISSION', 'WAIVE')),
+    closes_row INTEGER NOT NULL DEFAULT 0,
+    is_reversed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ssc_row ON supplier_settlement_coverage(tenant_id, row_kind, row_id, is_reversed);
+CREATE INDEX IF NOT EXISTS idx_ssc_transaction ON supplier_settlement_coverage(tenant_id, transaction_id);`);
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_ssc_transaction;
+DROP INDEX IF EXISTS idx_ssc_row;
+DROP TABLE IF EXISTS supplier_settlement_coverage;`);
+    },
+  },
 ];
 
 /** Flatten v216's frozen Whish App items into one row per item. */

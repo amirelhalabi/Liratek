@@ -33,6 +33,11 @@
  *   - Cross-currency (LBP) arithmetic — also W1's core-jest job; this file
  *     stays USD-only to keep the UI seam under test manageable.
  *
+ * LIRA-322 (T052): the sheet settles BY AMOUNT, one currency at a time,
+ * with nothing pre-ticked; the tests tick their own rows in "Pick
+ * transfers", read the USD section's owed figure (credits net first in
+ * their own currency), and type the payment into the USD section.
+ *
  * WHY "isolateSelection" INSTEAD OF TRUSTING THE PRE-SELECTION: this suite
  * shares ONE accumulating DB across ~150 specs that run alphabetically
  * before this file (lira-056…lira-188), several of which (lira-089, -092,
@@ -352,38 +357,23 @@ async function openAccountSettleSheet(page: Page): Promise<Locator> {
 }
 
 /**
- * Ticks EXACTLY the given rows and unticks every other row currently
- * rendered in the sheet — see the file's top docblock for why this is
- * necessary on a shared, accumulating DB (D8's oldest-first pre-select would
- * otherwise happily reach into unrelated backlog from ~150 earlier specs).
- * Assumes `supplier-account-settle-row-toggle` is a checkbox (or ARIA
- * checkbox) `.check()`/`.uncheck()` can drive — flagged as an assumption in
- * this lane's report since the frontend (W6) had not landed when this spec
- * was written.
+ * LIRA-322 — ticks EXACTLY the given rows in the sheet's "Pick transfers"
+ * override. The sheet opens with nothing ticked (the whole account is in
+ * scope, oldest first), so on this shared, accumulating DB every test scopes
+ * the settlement to its own rows (matched by `data-kind`/`data-row-id`
+ * identity, never position) — otherwise the amount would pay ~150 earlier
+ * specs' backlog instead.
  *
- * Waits for every WANTED row to actually be rendered before touching any
- * checkbox, rather than taking a single `rows.count()` snapshot the instant
- * the sheet's shell appears. `openAccountSettleSheet` only waits for the
- * sheet DIV, not for its row query to resolve — and `AccountSettleSheet`'s
- * unsettled-row query shares its cache entry with the (typically
- * continuously-mounted) account card, so a row this test just seeded via a
- * raw `window.api` call (which bypasses every app-level cache invalidation)
- * can legitimately still be mid-refetch, or briefly served from a queue
- * cached before the seed, when the sheet first paints. A one-shot
- * `rows.count()` taken in that window silently sees the OLD row set, ticks
- * nothing matching `wanted`, and every downstream total reads $0 — this
- * exact race produced "Expected -337.34, Received 0" on the net readout
- * with NOTHING wrong in `AccountSettleSheet`'s own arithmetic (proved by
- * `AccountSettleSheet.test.tsx`'s "net-negative selection" case, which
- * covers the identical single-credit-row shape against a fresh, uncached
- * query and passes). `AccountSettleSheet` now asks for
- * `refetchOnMount: "always"` precisely so this wait is bounded by one real
- * IPC round trip, not by the 30s app-wide `staleTime`.
+ * Waits for every WANTED row to be rendered before touching any checkbox:
+ * the sheet's queue can still be mid-refetch right after a raw `window.api`
+ * seed (the sheet asks for `refetchOnMount: "always"`, so the wait is one
+ * round trip). Any row left ticked is unticked.
  */
 async function isolateSelection(
   sheet: Locator,
   wanted: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>,
 ) {
+  await sheet.getByTestId("supplier-account-settle-pick-toggle").click();
   for (const w of wanted) {
     await expect(
       sheet.locator(
@@ -403,34 +393,26 @@ async function isolateSelection(
     const toggle = row.getByTestId("supplier-account-settle-row-toggle");
     if (shouldCheck) {
       await toggle.check();
-    } else {
+    } else if (await toggle.isChecked()) {
       await toggle.uncheck();
     }
   }
 }
 
-/** Fills a single CASH USD leg via the shared `MultiPaymentInput` (rule 14 —
- *  the same component every other settle/cashflow sheet in this app uses;
- *  `payment-method-*`/`payment-amount-*`/`payment-currency-*` are the
- *  established sitewide prefix-testid convention for it, e.g.
- *  lira-141/lira-137). Scoped to the settle sheet so it never collides with
- *  another payment widget on the page. */
+/** Fills a single CASH leg in the sheet's USD section — each currency has
+ *  its own `MultiPaymentInput` (LIRA-322), offering only its own currency.
+ *  `payment-method-*`/`payment-amount-*` are the sitewide prefix testids of
+ *  that shared component. Method first, amount last: a method change
+ *  re-syncs the line. */
 async function fillCashLeg(sheet: Locator, amount: number) {
-  const mpi = sheet.getByTestId("multi-payment-input");
-  await expect(mpi).toBeVisible({ timeout: 10_000 });
+  const usd = sheet.getByTestId("supplier-account-settle-section-usd");
+  await expect(usd).toBeVisible({ timeout: 10_000 });
 
-  const methodSelect = mpi.locator('[data-testid^="payment-method-"]').first();
+  const methodSelect = usd.locator('[data-testid^="payment-method-"]').first();
   await expect(methodSelect).toBeVisible({ timeout: 10_000 });
   await methodSelect.selectOption("CASH");
 
-  const currencySelect = mpi
-    .locator('[data-testid^="payment-currency-"]')
-    .first();
-  if (await currencySelect.count()) {
-    await currencySelect.selectOption("USD").catch(() => {});
-  }
-
-  const amountInput = mpi.locator('[data-testid^="payment-amount-"]').first();
+  const amountInput = usd.locator('[data-testid^="payment-amount-"]').first();
   await amountInput.fill(amount.toFixed(2));
 }
 
@@ -533,26 +515,34 @@ test.describe("LIRA-189 — OMT account settlement, driven through the real sett
     if (!sendRow || !ipickRow || !cashoutRow) return;
 
     const sheet = await openAccountSettleSheet(appPage);
-    await sheet.getByTestId("supplier-account-settle-direction-pay").click();
     await isolateSelection(sheet, [
       { kind: "FINANCIAL_SERVICE", id: sendRow.id },
       { kind: "LEDGER", id: ipickRow.id },
       { kind: "LEDGER", id: cashoutRow.id },
     ]);
 
-    const netText = await sheet
-      .getByTestId("supplier-account-settle-net")
+    // LIRA-322: the USD section owes the debts minus the credit (credits
+    // net first in their own currency), and its direction follows the sign.
+    const usd = sheet.getByTestId("supplier-account-settle-section-usd");
+    await expect(usd).toContainText("You pay OMT");
+    const owedText = await usd
+      .getByTestId("supplier-account-settle-owed-usd")
       .innerText();
-    expect(parseMoneyText(netText)).toBeCloseTo(netPay, 2);
+    expect(parseMoneyText(owedText)).toBeCloseTo(netPay, 2);
+
+    await fillCashLeg(sheet, netPay);
+    await expect(
+      usd.getByTestId("supplier-account-settle-still-owed-usd"),
+    ).toHaveText("$0.00");
 
     // The deferred cashout commission this settlement will recognise as
-    // profit (D14) — computed, never operator-entered.
-    const deferredText = await sheet
-      .getByTestId("supplier-account-settle-deferred-commission")
+    // profit (D14) — computed, never operator-entered; shown once the
+    // payment closes the credit row.
+    const deferredText = await usd
+      .getByTestId("supplier-account-settle-deferred-commission-usd")
       .innerText();
     expect(parseMoneyText(deferredText)).toBeCloseTo(cashoutCommission, 2);
 
-    await fillCashLeg(sheet, netPay);
     await submitSettlement(sheet, appPage);
 
     const afterDrawers = await drawers(appPage);
@@ -617,25 +607,26 @@ test.describe("LIRA-189 — OMT account settlement, driven through the real sett
     const sheet = await openAccountSettleSheet(appPage);
     await isolateSelection(sheet, [{ kind: "LEDGER", id: cashoutRow.id }]);
 
-    // §8.4: a mixed/negative net must offer the collect direction — this IS
-    // the assertion, not incidental setup.
-    const collectBtn = sheet.getByTestId(
-      "supplier-account-settle-direction-collect",
-    );
-    await expect(collectBtn).toBeVisible({ timeout: 10_000 });
-    await collectBtn.click();
-
-    const netText = await sheet
-      .getByTestId("supplier-account-settle-net")
+    // §8.4: a negative net is a COLLECT — this IS the assertion. LIRA-322:
+    // the direction follows the sign of what is owed in the currency, so the
+    // USD section reads "OMT pays you" with no Pay / Collect choice (that is
+    // only offered when a currency owes nothing).
+    const usd = sheet.getByTestId("supplier-account-settle-section-usd");
+    await expect(usd).toContainText("OMT pays you", { timeout: 10_000 });
+    await expect(
+      sheet.getByTestId("supplier-account-settle-direction-collect-usd"),
+    ).toHaveCount(0);
+    const owedText = await usd
+      .getByTestId("supplier-account-settle-owed-usd")
       .innerText();
-    expect(parseMoneyText(netText)).toBeCloseTo(-collectAmount, 2);
+    expect(parseMoneyText(owedText)).toBeCloseTo(collectAmount, 2);
 
-    const deferredText = await sheet
-      .getByTestId("supplier-account-settle-deferred-commission")
+    await fillCashLeg(sheet, collectAmount);
+    const deferredText = await usd
+      .getByTestId("supplier-account-settle-deferred-commission-usd")
       .innerText();
     expect(parseMoneyText(deferredText)).toBeCloseTo(commission, 2);
 
-    await fillCashLeg(sheet, collectAmount);
     await submitSettlement(sheet, appPage);
 
     const afterDrawers = await drawers(appPage);

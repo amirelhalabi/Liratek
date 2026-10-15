@@ -33,25 +33,43 @@
  * revert was applied, observed failing, then reverted back; see the PR/
  * handover notes for the transcript. The assertions below run against the
  * FIXED component/hook.
+ *
+ * LIRA-322 rewrite (rule 24 — intent kept): the sheet no longer has a
+ * tick list or a merged "net" figure; the seeded row must show up in the
+ * USD section's preview, which now reads "OMT pays you $337.34". The
+ * `useApi` mock is now ONE stable object (rule 25). A second case guards
+ * FR-021: when the server refuses a stale preview, the sheet refetches the
+ * queue, shows the message and keeps the amount the operator typed (written
+ * with the change — not proven failing-first).
  */
 
-import { render, screen, waitFor, cleanup, fireEvent, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  cleanup,
+  fireEvent,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AccountSettleSheet } from "../AccountSettleSheet";
-import type { AccountBalance, AccountUnsettledRow } from "../../hooks/useSuppliers";
+import type {
+  AccountBalance,
+  AccountUnsettledRow,
+} from "../../hooks/useSuppliers";
+import { queueRow } from "../../testing/accountSettleFixtures";
 
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
+const mockApi = {
+  settleSupplierAccount: mockSettleSupplierAccount,
+  getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
+};
 
 jest.mock("@liratek/ui", () => {
   const actual = jest.requireActual("@liratek/ui");
-  return {
-    ...actual,
-    useApi: () => ({
-      settleSupplierAccount: mockSettleSupplierAccount,
-      getSupplierAccountUnsettled: mockGetSupplierAccountUnsettled,
-    }),
-  };
+  // Rule 25: ONE stable object, never a fresh literal per useApi() call.
+  return { ...actual, useApi: () => mockApi };
 });
 
 jest.mock("@/hooks/usePaymentMethods", () => ({
@@ -92,20 +110,20 @@ const ROWS_BEFORE_SEED: AccountUnsettledRow[] = [];
 
 /** A cashout credit row that appears ONLY after an out-of-band raw-IPC
  *  seed — analogous to the e2e spec's `seedOmtAppCashout`. */
-const ROW_CASHOUT: AccountUnsettledRow = {
+const ROW_CASHOUT = queueRow({
   kind: "LEDGER",
   id: 999,
   supplier_id: 2,
   source_provider: "OMT_APP",
   source_name: "OMT App",
-  created_at: "2026-09-20T00:00:00Z",
+  created_at: "2026-09-20 00:00:00",
   amount_usd: -337.34,
-  amount_lbp: 0,
   entry_type: "PAYMENT",
   service_type: null,
   commission_usd: 0.34,
-  commission_lbp: 0,
-};
+  omt_service_type: null,
+  commission_model: null,
+});
 const ROWS_AFTER_SEED: AccountUnsettledRow[] = [ROW_CASHOUT];
 
 describe("AccountSettleSheet — settle sheet must not settle against a stale queue", () => {
@@ -120,23 +138,27 @@ describe("AccountSettleSheet — settle sheet must not settle against a stale qu
   it("shows a row seeded AFTER the query was last cached, on a fresh sheet mount reusing the SAME QueryClient (production staleTime)", async () => {
     // Mirrors App.tsx's real QueryClient config (rule 28 — reproduce the
     // actual environment, not a jest-friendly staleTime of 0) and is reused
-    // across both mounts below, exactly like the one long-lived Electron
-    // renderer/QueryClient the e2e suite's `sharedPage` runs the WHOLE spec
-    // file (and every other spec file) against.
+    // across both mounts below, exactly like the one long-lived renderer.
     const queryClient = new QueryClient({
       defaultOptions: {
-        queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false },
+        queries: {
+          retry: false,
+          staleTime: 30_000,
+          refetchOnWindowFocus: false,
+        },
         mutations: { retry: false },
       },
     });
 
-    // First mount — analogous to a SupplierAccountCard/AccountSettleSheet
-    // instance observing the queue BEFORE the out-of-band seed. Populates
-    // the shared cache with the empty pre-seed queue.
+    // First mount — populates the shared cache with the empty queue.
     mockGetSupplierAccountUnsettled.mockResolvedValueOnce(ROWS_BEFORE_SEED);
     const { unmount } = render(
       <QueryClientProvider client={queryClient}>
-        <AccountSettleSheet account={ACCOUNT} onClose={jest.fn()} onSettled={jest.fn()} />
+        <AccountSettleSheet
+          account={ACCOUNT}
+          onClose={jest.fn()}
+          onSettled={jest.fn()}
+        />
       </QueryClientProvider>,
     );
     await waitFor(() => {
@@ -146,60 +168,85 @@ describe("AccountSettleSheet — settle sheet must not settle against a stale qu
     });
     unmount();
 
-    // Out-of-band seed: a raw IPC call (e.g. `window.api.omt.*`, exactly
-    // like the e2e spec's `seedOmtAppCashout`) adds the cashout row WITHOUT
-    // touching the query cache — nothing here calls
-    // `queryClient.invalidateQueries`, matching the real gap.
+    // Out-of-band seed: nothing invalidates the query cache.
     mockGetSupplierAccountUnsettled.mockResolvedValueOnce(ROWS_AFTER_SEED);
 
-    // Second mount, same QueryClient, well within the 30s staleTime — this
-    // is the moment `AccountSettleSheet` reopens in the e2e spec's second
-    // test.
+    // Second mount, same QueryClient, well within the 30s staleTime.
     render(
       <QueryClientProvider client={queryClient}>
-        <AccountSettleSheet account={ACCOUNT} onClose={jest.fn()} onSettled={jest.fn()} />
+        <AccountSettleSheet
+          account={ACCOUNT}
+          onClose={jest.fn()}
+          onSettled={jest.fn()}
+        />
       </QueryClientProvider>,
     );
 
-    // The fix (`refetchOnMount: "always"` in AccountSettleSheet) forces a
-    // real refetch despite the cache being "fresh" — the row seeded
-    // out-of-band must eventually be RENDERED. Without the fix this
-    // `waitFor` times out with the row never appearing at all: the second
-    // mount's FIRST render already resolves `isSuccess` from the shared
-    // cache's stale (pre-seed, empty) data, and with a plain
-    // `refetchOnMount: true` that data is not stale (30s `staleTime`), so
-    // no network call is ever made — not merely delayed. (Verified by
-    // temporarily removing the `refetchOnMount: "always"` override and
-    // re-running this test: it fails on exactly this `waitFor`, per rule 17.)
+    // `refetchOnMount: "always"` forces a real refetch despite the "fresh"
+    // cache — the seeded row must be RENDERED in the preview.
     const row = await waitFor(
       () => {
-        const found = screen.getByTestId("supplier-account-settle-row");
+        const found = screen.getByTestId("supplier-account-settle-preview-row");
         expect(found).toHaveAttribute("data-row-id", "999");
         return found;
       },
       { timeout: 3000 },
     );
+    expect(row).toBeInTheDocument();
 
-    // The preselect effect only auto-checks rows present at the FIRST
-    // `isSuccess` (D8's own "not on every refetch" rule, so it never
-    // silently re-checks something the admin deliberately unticked) —
-    // since this row only exists after the forced re-fetch, it renders
-    // UNCHECKED, exactly like every other not-yet-selected row. This
-    // mirrors the e2e spec's own `isolateSelection`, which never trusts
-    // preselection either and drives the checkbox directly.
-    const toggle = within(row).getByTestId(
-      "supplier-account-settle-row-toggle",
-    );
-    expect(toggle).not.toBeChecked();
-    fireEvent.click(toggle);
-
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("supplier-account-settle-net").textContent,
-      ).toBe("-$337.34");
-    });
+    const usd = screen.getByTestId("supplier-account-settle-section-usd");
+    expect(usd.textContent).toContain("OMT pays you");
     expect(
-      screen.getByTestId("supplier-account-settle-selected-total").textContent,
+      within(usd).getByTestId("supplier-account-settle-owed-usd").textContent,
     ).toBe("$337.34");
+  });
+
+  it("FR-021: a stale refusal refetches the queue, shows the message and keeps the typed amount", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    mockGetSupplierAccountUnsettled.mockResolvedValue(ROWS_AFTER_SEED);
+    mockSettleSupplierAccount.mockResolvedValue({
+      success: false,
+      error:
+        "OMT's balance changed since you opened this sheet. Check the new amounts. (expected $-337.34 + 0 LBP, found $-300.00 + 0 LBP)",
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AccountSettleSheet
+          account={ACCOUNT}
+          onClose={jest.fn()}
+          onSettled={jest.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    const usd = await screen.findByTestId(
+      "supplier-account-settle-section-usd",
+    );
+    const amount = within(usd).getAllByTestId(
+      /^payment-amount-/,
+    )[0] as HTMLInputElement;
+    fireEvent.change(amount, { target: { value: "337.34" } });
+    const submit = screen.getByTestId("supplier-account-settle-submit");
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    const fetchesBefore = mockGetSupplierAccountUnsettled.mock.calls.length;
+    fireEvent.click(submit);
+
+    expect(
+      (await screen.findByTestId("supplier-account-settle-error")).textContent,
+    ).toMatch(/^OMT's balance changed since you opened this sheet\./);
+    await waitFor(() =>
+      expect(mockGetSupplierAccountUnsettled.mock.calls.length).toBeGreaterThan(
+        fetchesBefore,
+      ),
+    );
+    const amountAfter = within(
+      screen.getByTestId("supplier-account-settle-section-usd"),
+    ).getAllByTestId(/^payment-amount-/)[0] as HTMLInputElement;
+    expect(amountAfter.value.replace(/,/g, "")).toBe("337.34");
   });
 });

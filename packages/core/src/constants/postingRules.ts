@@ -962,6 +962,47 @@ const SUPPLIER_RULES = {
       debt: NONE,
     },
   },
+  "SUPPLIER_SETTLEMENT/account-amount-first": {
+    transactionType: "SUPPLIER_SETTLEMENT",
+    mode:
+      "OMT account settled by amount, one direction per currency " +
+      "(SupplierRepository._settleAccountAmountFirst, LIRA-322)",
+    mapRef: "specs/322-omt-amount-first-settle/data-model.md (rows written)",
+    ledgers: {
+      drawers: {
+        post: "unchecked",
+        reason:
+          "Per currency SECTION, not one formula: each IN leg moves its drawer " +
+          "−x on a PAY section / +x on a COLLECT section, a change (OUT) leg " +
+          "the opposite way against its OWN section, in either currency. One " +
+          "settlement may pay USD and collect LBP. Pinned by " +
+          "SupplierRepository.lira322AmountFirst / lira322Netting (h)(i)(i2) " +
+          "and the lira322Invariant property test.",
+      },
+      supplier: {
+        post: "unchecked",
+        reason:
+          "Spread over the account's MEMBERS, one row per member per currency " +
+          "with its own sign: −(money + commission + waive applied) on a debt, " +
+          "+ on a credit; a hidden is_auto netting pair (debit member −x " +
+          "PAYMENT, credit member +x SUPPLIER_PAYS_US) per cross-member netting; " +
+          "the commission credit (−c, stamped with the anchor); the waive " +
+          "DISCOUNT; one overpay row per currency with its own sign (LIRA-315). " +
+          "Invariant instead of a formula: per member and currency the ledger " +
+          "equals Σ remaining of its queue rows (supplier_settlement_coverage) " +
+          "— lira322Invariant, lira322Netting.",
+      },
+      partner: NONE,
+      debt: NONE,
+    },
+    notes:
+      "Writes supplier_settlement_coverage rows (one per take) and stamps " +
+      "settlement_id = anchor on closed rows. Void: newest-first guard, " +
+      "coverage soft-void, every supplier_ledger row WHERE transaction_id " +
+      "(member rows, netting pair, overpay) soft-voided, payments negated " +
+      "leg by leg (TransactionRepository._reverseSupplierSettlement / " +
+      "_reversePayments) — nets 0 per member per currency.",
+  },
 } as const satisfies Record<string, PostingRule>;
 
 // ─── Partners — POSTING_MAP.md §4.7 ─────────────────────────────────────────

@@ -30,6 +30,11 @@ import { isWithinShortfallMax, SHORTFALL_MAX } from "../validators/exchange.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
 import { allocateProportional } from "../utils/largestRemainder.js";
 import {
+  allocateAccountSettlement,
+  type AccountSettleAllocResult,
+} from "../utils/accountSettleAllocation.js";
+import { formatSettleAccountSections } from "../utils/settleAccountAudit.js";
+import {
   OMT_COVERED_TYPE_VALUES,
   coveredTypeLabel,
   isOmtRowCovered,
@@ -246,6 +251,41 @@ const ledgerNotRefunded = (alias = ""): string =>
  */
 const accountMemberOf = (alias = "s."): string =>
   `(${alias}id = ? OR ${alias}account_supplier_id = ?)`;
+
+/**
+ * LIRA-322 (data-model.md "Derived values"), rule 14 — the ONE definition of
+ * "covered so far" on an OMT-account queue row: the SUM of its ACTIVE
+ * (`is_reversed = 0`) `supplier_settlement_coverage`, per currency. Every
+ * reader of a row's paid-so-far (the queue, the expected statement, the
+ * Transactions labels) runs this fragment — never a re-typed SUM.
+ *
+ * Binds, in order: `tenant_id`, `row_kind` ('FINANCIAL_SERVICE' |
+ * 'LEDGER'), `row_id`. Returns one row `{ covered_usd, covered_lbp }`
+ * (0/0 when nothing applies). Served by `idx_ssc_row`.
+ */
+export const ACCOUNT_ROW_COVERED_SQL = `SELECT
+    COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount END), 0) AS covered_usd,
+    COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount END), 0) AS covered_lbp
+  FROM supplier_settlement_coverage
+  WHERE tenant_id = ? AND row_kind = ? AND row_id = ? AND is_reversed = 0`;
+
+/**
+ * LIRA-322 finding F3, rule 14 — the ONE predicate for "this ledger row is
+ * a settlement's own commission credit": the auto `SUPPLIER_PAYS_US` row
+ * `_bookCommissionAtSettlement` writes, back-linked to the settlement's
+ * ledger row (`source_ref_table = 'supplier_ledger'`). It records commission
+ * a settlement ALREADY recognised, so it is never an open credit to apply
+ * again. NULL-safe: a credit with no back-link (an overpay credit, a manual
+ * receive, a cash-out) is never matched.
+ */
+export const isSettlementCommissionCredit = (alias = ""): string =>
+  `(${alias}entry_type = 'SUPPLIER_PAYS_US' AND COALESCE(${alias}source_ref_table, '') = 'supplier_ledger' AND COALESCE(${alias}is_auto, 0) = 1)`;
+
+/** Signed remaining after coverage: the row's own sign, |amount| − covered. */
+function remainingAfterCoverage(amount: number, covered: number): number {
+  if (amount === 0) return 0;
+  return Math.sign(amount) * (Math.abs(amount) - covered);
+}
 
 export interface SettleTransactionsData {
   supplier_id: number;
@@ -720,6 +760,21 @@ export interface AccountUnsettledRow {
   omt_service_type: string | null;
   /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows). */
   commission_model: number | null;
+  /**
+   * LIRA-322 — what active settlements already applied to this row, per
+   * currency (magnitude; SUM of `supplier_settlement_coverage` with
+   * `is_reversed = 0`, {@link ACCOUNT_ROW_COVERED_SQL}). 0 when nothing
+   * was applied, or on a database without the coverage table.
+   */
+  covered_usd: number;
+  covered_lbp: number;
+  /**
+   * LIRA-322 — what the row still owes, per currency, signed like
+   * `amount_*` (debt +, credit −): |amount| − covered. `amount_*` stays the
+   * full gross, so existing readers keep working.
+   */
+  remaining_usd: number;
+  remaining_lbp: number;
 }
 
 /**
@@ -847,6 +902,42 @@ export interface SettleAccountData {
   discount?: SupplierDiscountData;
 }
 
+/** The legacy whole-row keys the LIRA-322 amount-first payload leaves out. */
+type SettleAccountLegacyKey =
+  | "direction"
+  | "selections"
+  | "amount_usd"
+  | "amount_lbp"
+  | "commission_usd"
+  | "commission_lbp";
+
+/** LIRA-322 — one currency's part of an amount-first account settlement
+ *  (mirrors `supplierSettleAccountSchema.per_currency.*`). */
+export interface SettleAccountCurrencySectionData {
+  direction: "PAY" | "COLLECT";
+  payments: NonNullable<SettleAccountData["payments"]>;
+  commission?: number;
+  waive?: number;
+}
+
+/**
+ * LIRA-322 — what `SupplierService.settleAccount` accepts from both
+ * transports: the legacy whole-row {@link SettleAccountData}, or (with
+ * `per_currency`) the amount-first payload, where the legacy keys are
+ * optional (contracts/settle-account.md).
+ */
+export type SettleAccountRequest = Omit<
+  SettleAccountData,
+  SettleAccountLegacyKey
+> &
+  Partial<Pick<SettleAccountData, SettleAccountLegacyKey>> & {
+    per_currency?: {
+      USD?: SettleAccountCurrencySectionData;
+      LBP?: SettleAccountCurrencySectionData;
+    };
+    expected_owed?: { usd: number; lbp: number };
+  };
+
 /**
  * LIRA-310 — the ONE up-front check (rule 14) for a Waive on a supplier
  * settlement (`settleTransactions`, `settleAccount`). `owed` is the
@@ -881,6 +972,61 @@ function assertSettlementWaive(
     );
   }
   return { usd, lbp };
+}
+
+// ── LIRA-322 — amount-first account settlement (module helpers) ──────────
+
+const AMOUNT_FIRST_CURRENCIES = ["USD", "LBP"] as const;
+
+/** R12 — a row whose remaining is within this closes ($0.005 / 0.5 LBP). */
+const AMOUNT_FIRST_EPS = { USD: 0.005, LBP: 0.5 } as const;
+
+/** One currency's entry in the settlement's `metadata_json.per_currency`. */
+interface AmountFirstCurrencyMeta {
+  direction: "PAY" | "COLLECT";
+  /** Money moved in this currency (IN − change), magnitude. */
+  paid: number;
+  commission: number;
+  waive: number;
+  /** In flow terms: + paid / collected beyond what was owed. */
+  extra: number;
+}
+
+interface AmountFirstSectionPlan {
+  currency: "USD" | "LBP";
+  alloc: AccountSettleAllocResult;
+  /** Money (PAYMENT coverage) applied to rows, magnitude — extra excluded. */
+  moneyApplied: number;
+  commission: number;
+  waive: number;
+  commissionMembers: number[];
+  waiveMembers: number[];
+  meta: AmountFirstCurrencyMeta;
+  /** +1 PAY (the shop pays OMT in this currency), −1 COLLECT. */
+  dirSign: 1 | -1;
+}
+
+/** A queue row's signed remaining in one currency. */
+function rowRemaining(r: AccountUnsettledRow, currency: "USD" | "LBP"): number {
+  return currency === "USD" ? r.remaining_usd : r.remaining_lbp;
+}
+
+/** Cents for USD, whole units for LBP; never −0. */
+function roundMoney(v: number, currency: "USD" | "LBP"): number {
+  const f = currency === "USD" ? 100 : 1;
+  const r = Math.round(v * f) / f;
+  return r === 0 ? 0 : r;
+}
+
+/** Sum a per-section figure into its own currency. */
+function sumPair(
+  plans: readonly AmountFirstSectionPlan[],
+  pick: (p: AmountFirstSectionPlan) => number,
+): { usd: number; lbp: number } {
+  return {
+    usd: plans.filter((p) => p.currency === "USD").reduce((s, p) => s + pick(p), 0),
+    lbp: plans.filter((p) => p.currency === "LBP").reduce((s, p) => s + pick(p), 0),
+  };
 }
 
 /**
@@ -919,6 +1065,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   /** Memoized result of {@link _hasServiceProvidersTable}. */
   private _hasServiceProvidersTableCache: boolean | null = null;
+
+  /** Memoized result of {@link _hasSettlementCoverageTable}. */
+  private _hasSettlementCoverageTableCache: boolean | null = null;
 
   constructor() {
     super("suppliers", { softDelete: false });
@@ -1056,6 +1205,57 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       this._hasServiceProvidersTableCache = !!row;
     }
     return this._hasServiceProvidersTableCache;
+  }
+
+  /**
+   * LIRA-322 — schema-drift guard, same shape as
+   * `_hasServiceProvidersTable()`: `supplier_settlement_coverage` exists from
+   * v217 onward, and many `packages/core` jest fixtures predate it. Without
+   * the table every row reads covered 0 instead of a `no such table` throw.
+   */
+  private _hasSettlementCoverageTable(): boolean {
+    if (this._hasSettlementCoverageTableCache === null) {
+      const row = this.db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supplier_settlement_coverage'`,
+        )
+        .get();
+      this._hasSettlementCoverageTableCache = !!row;
+    }
+    return this._hasSettlementCoverageTableCache;
+  }
+
+  /**
+   * LIRA-322 — adds `covered_*` / `remaining_*` to queue rows, through
+   * {@link ACCOUNT_ROW_COVERED_SQL} (rule 14). One indexed lookup per row.
+   */
+  private _withCoverage(
+    rows: Array<
+      Omit<
+        AccountUnsettledRow,
+        "covered_usd" | "covered_lbp" | "remaining_usd" | "remaining_lbp"
+      >
+    >,
+    tenantId: number,
+  ): AccountUnsettledRow[] {
+    const stmt = this._hasSettlementCoverageTable()
+      ? this.db.prepare(ACCOUNT_ROW_COVERED_SQL)
+      : null;
+    return rows.map((r) => {
+      const covered = stmt
+        ? (stmt.get(tenantId, r.kind, r.id) as {
+            covered_usd: number;
+            covered_lbp: number;
+          })
+        : { covered_usd: 0, covered_lbp: 0 };
+      return {
+        ...r,
+        covered_usd: covered.covered_usd,
+        covered_lbp: covered.covered_lbp,
+        remaining_usd: remainingAfterCoverage(r.amount_usd, covered.covered_usd),
+        remaining_lbp: remainingAfterCoverage(r.amount_lbp, covered.covered_lbp),
+      };
+    });
   }
 
   // Override getColumns() to use explicit columns instead of SELECT *
@@ -2505,6 +2705,47 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
   }
 
+  /**
+   * LIRA-322 (FR-017) — true when the supplier belongs to an OMT open-credit
+   * account: a child (`account_supplier_id` set) or a parent other
+   * suppliers point at. Its Transactions labels then come from settlement
+   * coverage instead of the manual-payment pool estimate.
+   */
+  isAccountMember(supplierId: number): boolean {
+    if (!this._suppliersHasAccountLinkColumn()) return false;
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM suppliers
+          WHERE tenant_id = ?
+            AND ((id = ? AND account_supplier_id IS NOT NULL) OR account_supplier_id = ?)
+          LIMIT 1`,
+      )
+      .get(getCurrentTenantId(), supplierId, supplierId);
+    return !!row;
+  }
+
+  /**
+   * LIRA-322 — what active settlements applied to each queue row, per
+   * currency, through {@link ACCOUNT_ROW_COVERED_SQL} (rule 14). Rows with
+   * nothing applied read 0/0; empty map on a pre-v217 database.
+   */
+  getRowCoverage(
+    kind: "FINANCIAL_SERVICE" | "LEDGER",
+    ids: readonly number[],
+  ): Map<number, { covered_usd: number; covered_lbp: number }> {
+    const out = new Map<number, { covered_usd: number; covered_lbp: number }>();
+    if (!ids.length || !this._hasSettlementCoverageTable()) return out;
+    const tenantId = getCurrentTenantId();
+    const stmt = this.db.prepare(ACCOUNT_ROW_COVERED_SQL);
+    for (const id of ids) {
+      out.set(
+        id,
+        stmt.get(tenantId, kind, id) as { covered_usd: number; covered_lbp: number },
+      );
+    }
+    return out;
+  }
+
   /** Member suppliers (parent + children) of the account rooted at
    *  `accountSupplierId` — shared by `getAccountUnsettled` to resolve which
    *  provider(s) to ask `FinancialServiceRepository` about. */
@@ -2552,7 +2793,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const tenantId = getCurrentTenantId();
       const members = this._getAccountMembers(accountSupplierId, tenantId);
 
-      const financialServiceRows: AccountUnsettledRow[] = [];
+      type QueueRowBase = Omit<
+        AccountUnsettledRow,
+        "covered_usd" | "covered_lbp" | "remaining_usd" | "remaining_lbp"
+      >;
+      const financialServiceRows: QueueRowBase[] = [];
       const financialServiceRepo = getFinancialServiceRepository();
       for (const member of members) {
         if (!member.provider) continue;
@@ -2583,10 +2828,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         }
       }
 
-      let ledgerRows: AccountUnsettledRow[] = [];
+      let ledgerRows: QueueRowBase[] = [];
       if (this._supplierLedgerHasSettlementIdColumn()) {
+        // LIRA-322 F3 — a settlement's own commission credit is never an
+        // open credit (isSettlementCommissionCredit), so it stays out too.
         const excludeFsSiblings = this._supplierLedgerHasSourceRefColumns()
-          ? "AND COALESCE(l.source_ref_table, '') <> 'financial_services'"
+          ? `AND COALESCE(l.source_ref_table, '') <> 'financial_services'
+               AND NOT ${isSettlementCommissionCredit("l.")}`
           : "";
         const rows = this.db
           .prepare(
@@ -2644,8 +2892,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         });
       }
 
-      return [...financialServiceRows, ...ledgerRows].sort((a, b) =>
-        a.created_at.localeCompare(b.created_at),
+      return this._withCoverage(
+        [...financialServiceRows, ...ledgerRows].sort((a, b) =>
+          a.created_at.localeCompare(b.created_at),
+        ),
+        tenantId,
       );
     } catch (e) {
       throw new DatabaseError("Failed to get account unsettled transactions", {
@@ -2870,18 +3121,45 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     note: string;
   }): void {
     const ledgerSign = args.flow === "PAY" ? -1 : 1;
+    this._insertSettlementOverpayRows({
+      supplierId: args.supplierId,
+      ledger: {
+        usd: ledgerSign * args.extra.usd,
+        lbp: ledgerSign * args.extra.lbp,
+      },
+      transactionId: args.transactionId,
+      createdBy: args.createdBy,
+      tenantId: args.tenantId,
+      note: () => args.note,
+    });
+  }
+
+  /**
+   * The overpay rows themselves, from amounts already in LEDGER sign (+ the
+   * shop owes the supplier more, − the supplier owes the shop): ONE row per
+   * currency with a nonzero amount, entry type from its own sign. Shared by
+   * `_bookSettlementOverpay` (one flow for both currencies) and the LIRA-322
+   * amount-first path (each currency signed by its own section). Same rows,
+   * same reversal owner (`transaction_id` scan) — see the doc above.
+   */
+  private _insertSettlementOverpayRows(args: {
+    supplierId: number;
+    ledger: { usd: number; lbp: number };
+    transactionId: number;
+    createdBy: number;
+    tenantId: number;
+    note: (amount: number) => string;
+  }): void {
     const insert = this.db.prepare(
       `INSERT INTO supplier_ledger
          (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, tenant_id, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     );
-    for (const [usd, lbp] of [
-      [args.extra.usd, 0],
-      [0, args.extra.lbp],
+    for (const [amountUsd, amountLbp] of [
+      [args.ledger.usd, 0],
+      [0, args.ledger.lbp],
     ] as const) {
-      if (usd === 0 && lbp === 0) continue;
-      const amountUsd = ledgerSign * usd;
-      const amountLbp = ledgerSign * lbp;
+      if (amountUsd === 0 && amountLbp === 0) continue;
       const entryType: SupplierLedgerEntryType =
         amountUsd + amountLbp < 0 ? "PAYMENT" : "SUPPLIER_PAYS_US";
       insert.run(
@@ -2889,7 +3167,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         entryType,
         amountUsd,
         amountLbp,
-        args.note,
+        args.note(amountUsd + amountLbp),
         args.createdBy,
         args.transactionId,
         args.tenantId,
@@ -4723,7 +5001,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * `supplier_ledger.settlement_id`). This is §9.4's "single highest-risk
    * piece of the epic," and it is scoped exactly to that one loop.
    */
-  settleAccount(data: SettleAccountData): { id: number } {
+  settleAccount(request: SettleAccountRequest): { id: number } {
+    // LIRA-322 — `per_currency` selects the amount-first path; without it
+    // the legacy whole-row body below runs unchanged (the service has
+    // already checked that every legacy key is present).
+    if (request.per_currency !== undefined) {
+      return this._settleAccountAmountFirst(request);
+    }
+    const data = request as SettleAccountData;
     if (!this._suppliersHasAccountLinkColumn()) {
       throw new DatabaseError(
         "Account settlement requires the account schema (migration v176)",
@@ -4765,6 +5050,21 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         );
       }
       selectedRows.push(row);
+    }
+
+    // LIRA-322 (T008a) — a part-paid row (active amount-first coverage) is
+    // never settled whole: the legacy amounts are its full gross, so an
+    // outdated client would pay the covered part a second time.
+    const partlyPaid = selectedRows.find(
+      (r) => r.covered_usd > 0 || r.covered_lbp > 0,
+    );
+    if (partlyPaid) {
+      throw new DatabaseError(
+        "This transfer is partly paid; settle it from the Settle Account " +
+          `sheet. (Account settlement: ${partlyPaid.kind} row ${partlyPaid.id} ` +
+          `already has $${partlyPaid.covered_usd.toFixed(2)} + ` +
+          `${partlyPaid.covered_lbp} LBP applied)`,
+      );
     }
 
     // LIRA-256 — the covered-types guard runs on EVERY selected
@@ -5578,6 +5878,995 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       return settle();
     } catch (e) {
       throw new DatabaseError("Failed to settle account", { cause: e });
+    }
+  }
+
+  /**
+   * LIRA-322 (contracts/settle-account.md, research R3–R10) — settle the
+   * OMT account BY AMOUNT, one currency at a time. The operator enters what
+   * was paid (or received) per currency; `allocateAccountSettlement` (the
+   * ONE rule, shared with the sheet's preview — rule 14) decides what it
+   * covers, oldest first. A row the money does not fully cover stays open
+   * with "paid so far" recorded in `supplier_settlement_coverage`.
+   *
+   * Everything runs inside ONE `db.transaction`, on a FRESH queue read
+   * (F7): the stale-preview check (`expected_owed`, FR-021), the
+   * allocation, and every write.
+   *
+   * Rows written (all linked to the one SUPPLIER_SETTLEMENT transaction):
+   * - one `supplier_ledger` row PER MEMBER PER CURRENCY with a nonzero
+   *   money share, each with its own sign and entry type (never mixing
+   *   directions — Phase 6 adds a second direction per section without
+   *   touching this shape). The anchor is the first one written (commission
+   *   member, else waive member, else parent, else lowest id), or a 0/0 row
+   *   when no money moved (netting / commission only). Every member's
+   *   rows sum to minus the non-netting coverage on that member's rows,
+   *   less the commission credit / waive DISCOUNT booked on it, so per
+   *   member and currency the ledger always equals Σ remaining (invariant 1).
+   * - coverage rows (one per take), `closes_row = 1` on the last take of a
+   *   row this settlement fully covers;
+   * - `settlement_id = anchor` on every fully covered row (`.changes` guards);
+   * - commission (closed model-1 rows only, FR-012) via
+   *   `_bookAmountFirstCommission`; the cash-out commission of closed
+   *   credits; the waive DISCOUNT; the overpay (LIRA-315) per currency.
+   *
+   * Reversal owner (rule 20): `TransactionRepository._reverseSupplierSettlement`
+   * (ledger rows by `transaction_id`, stamps by `settlement_id IN`, coverage
+   * soft-void, commission records by anchor) + the generic
+   * `_reversePayments` / sibling cascade / bundled-discount reversal.
+   *
+   * Two directions (FR-013b): each section signs its own ledger rows,
+   * drawers, change legs and overpay. Cross-member netting (FR-013c):
+   * `_writeAccountNettingPairs`. A waive in two opposite-direction
+   * sections is refused (one DISCOUNT row has one direction).
+   */
+  private _settleAccountAmountFirst(data: SettleAccountRequest): { id: number } {
+    if (!this._suppliersHasAccountLinkColumn()) {
+      throw new DatabaseError(
+        "Account settlement requires the account schema (migration v176)",
+      );
+    }
+    if (!this._hasSettlementCoverageTable()) {
+      throw new DatabaseError(
+        "Settling the OMT account by amount needs a database update. " +
+          "(supplier_settlement_coverage is missing — migration v217)",
+      );
+    }
+    const pc = data.per_currency ?? {};
+    const sections = AMOUNT_FIRST_CURRENCIES.flatMap((currency) => {
+      const s = pc[currency];
+      return s ? [{ currency, ...s }] : [];
+    });
+    if (sections.length === 0) {
+      throw new DatabaseError(
+        "Enter an amount in at least one currency. (Account settlement: " +
+          "per_currency has no section)",
+      );
+    }
+    const expected = data.expected_owed;
+    if (!expected) {
+      throw new DatabaseError(
+        "The settle sheet did not send what it showed as owed — reopen it " +
+          "and try again. (Account settlement: expected_owed is required " +
+          "with per_currency)",
+      );
+    }
+    // FR-013b / R5 (owner decision) — each currency section carries its OWN
+    // direction; one settlement may pay OMT in USD and collect LBP from it.
+    // Every sign below (ledger rows, waive, drawers, change legs, overpay)
+    // is taken per section. The transaction-level flow — only used for
+    // `counterparty.flow` (the CQ-8 contract allows IN/OUT only) and the
+    // default note — is the USD section's when there is one, else the LBP
+    // section's (`sections` is in AMOUNT_FIRST_CURRENCIES order). Readers
+    // that need per-currency direction use `metadata_json.per_currency` or
+    // the signed `payments` rows.
+    const flow = sections[0].direction;
+    const mixedDirections = sections.some((s) => s.direction !== flow);
+    const tenantId = getCurrentTenantId();
+    const accountId = data.account_supplier_id;
+
+    const run = this.db.transaction((): { id: number } => {
+      const parent = this.findById(accountId);
+      if (!parent) {
+        throw new DatabaseError(`Supplier account ${accountId} not found`);
+      }
+      const drawerCtx: ServiceCashDrawerContext = {
+        provider: parent.provider ?? "",
+        baseSystem: getSettingsService().getShopBaseSystem(),
+      };
+
+      // ── 1. Fresh queue + scope (selections override, covered types) ────
+      const queue = this.getAccountUnsettled(accountId);
+      const scoped = this._amountFirstScope(queue, data);
+
+      // ── 2. Stale-preview refusal (FR-021) ─────────────────────────────
+      const owed = {
+        usd: scoped.reduce((s, r) => s + r.remaining_usd, 0),
+        lbp: scoped.reduce((s, r) => s + r.remaining_lbp, 0),
+      };
+      if (
+        Math.abs(owed.usd - expected.usd) > AMOUNT_FIRST_EPS.USD ||
+        Math.abs(owed.lbp - expected.lbp) > AMOUNT_FIRST_EPS.LBP
+      ) {
+        throw new DatabaseError(
+          "OMT's balance changed since you opened this sheet. Check the new " +
+            `amounts. (expected $${expected.usd.toFixed(2)} + ${expected.lbp} ` +
+            `LBP, found $${owed.usd.toFixed(2)} + ${owed.lbp} LBP)`,
+        );
+      }
+
+      // ── 3. Allocate each currency section ─────────────────────────────
+      const byKey = new Map(scoped.map((r) => [`${r.kind}:${r.id}`, r]));
+      const rate =
+        data.exchange_rate && data.exchange_rate > 0 ? data.exchange_rate : 89000;
+      // Extra per currency in LEDGER sign (+ shop owes OMT more, − OMT
+      // owes the shop) — each section converts its own before adding.
+      const ledgerExtra = { usd: 0, lbp: 0 };
+      const plans: AmountFirstSectionPlan[] = [];
+      for (const section of sections) {
+        plans.push(
+          this._planAmountFirstSection(section, scoped, rate, ledgerExtra),
+        );
+      }
+
+      // One commission member and one waive member for the whole settlement.
+      const commissionMembers = new Set(
+        plans.flatMap((p) => p.commissionMembers),
+      );
+      if (commissionMembers.size > 1) {
+        throw new DatabaseError(
+          "One commission figure can't cover transfers of two OMT lines — " +
+            "settle them separately. (Account settlement: closed commission " +
+            `rows span members [${[...commissionMembers].join(", ")}])`,
+        );
+      }
+      const waiveMembers = new Set(plans.flatMap((p) => p.waiveMembers));
+      if (waiveMembers.size > 1) {
+        throw new DatabaseError(
+          "A waive can only cover transfers of one OMT line — waive less or " +
+            "settle them separately. (Account settlement: waived rows span " +
+            `members [${[...waiveMembers].join(", ")}])`,
+        );
+      }
+      // One DISCOUNT row carries the waive (LIRA-310 reversal owner), and it
+      // has ONE direction — so a waive in two sections that point opposite
+      // ways is refused (the sheet keeps Waive off; FR-011 is server-only).
+      const waiveSigns = new Set(
+        plans.filter((p) => p.waive > 0).map((p) => p.dirSign),
+      );
+      if (waiveSigns.size > 1) {
+        throw new DatabaseError(
+          "A waive can't be used when you pay OMT in one currency and collect " +
+            "from OMT in the other — settle the waived currency on its own. " +
+            "(Account settlement: waive in sections with opposite directions)",
+        );
+      }
+      const waiveSign: 1 | -1 = [...waiveSigns][0] ?? 1;
+      const commissionMemberId = [...commissionMembers][0] ?? null;
+      const waiveMemberId = [...waiveMembers][0] ?? null;
+      const commission = sumPair(plans, (p) => p.commission);
+      const waive = sumPair(plans, (p) => p.waive);
+      const hasCommission =
+        commission.usd > AMOUNT_FIRST_EPS.USD ||
+        commission.lbp > AMOUNT_FIRST_EPS.LBP;
+      const hasWaive =
+        waive.usd > AMOUNT_FIRST_EPS.USD || waive.lbp > AMOUNT_FIRST_EPS.LBP;
+      const hasExtra =
+        Math.abs(ledgerExtra.usd) > AMOUNT_FIRST_EPS.USD ||
+        Math.abs(ledgerExtra.lbp) > AMOUNT_FIRST_EPS.LBP;
+      const anyTake = plans.some((p) => p.alloc.takes.length > 0);
+      const anyLeg = sections.some((s) => s.payments.length > 0);
+      if (!anyTake && !hasExtra && !anyLeg) {
+        throw new DatabaseError(
+          "There is nothing to settle for the amounts entered. (Account " +
+            "settlement: no row covered and no money moved)",
+        );
+      }
+
+      // ── 4. Ledger rows per member per currency ────────────────────────
+      // target = minus the non-netting coverage on the member's rows, in
+      // ledger sign (covering a debt lowers it, covering a credit raises
+      // it); the commission credit / waive DISCOUNT booked on a member
+      // already carry part of that, so its money row is the rest.
+      const moneyRow = new Map<number, { usd: number; lbp: number }>();
+      const addTo = (member: number, currency: "USD" | "LBP", v: number) => {
+        const cur = moneyRow.get(member) ?? { usd: 0, lbp: 0 };
+        if (currency === "USD") cur.usd += v;
+        else cur.lbp += v;
+        moneyRow.set(member, cur);
+      };
+      for (const plan of plans) {
+        for (const t of plan.alloc.takes) {
+          if (t.source === "NETTING") continue;
+          const row = byKey.get(`${t.kind}:${t.id}`)!;
+          const rowSign = rowRemaining(row, plan.currency) > 0 ? 1 : -1;
+          addTo(t.member_supplier_id, plan.currency, -rowSign * t.amount);
+        }
+        if (commissionMemberId != null && plan.commission > 0) {
+          addTo(commissionMemberId, plan.currency, plan.commission);
+        }
+        if (waiveMemberId != null && plan.waive > 0) {
+          addTo(waiveMemberId, plan.currency, plan.dirSign * plan.waive);
+        }
+      }
+      const memberRows: Array<{
+        member: number;
+        currency: "USD" | "LBP";
+        amount: number;
+      }> = [];
+      for (const [member, v] of [...moneyRow.entries()].sort(
+        (a, b) => a[0] - b[0],
+      )) {
+        const usd = roundMoney(v.usd, "USD");
+        const lbp = roundMoney(v.lbp, "LBP");
+        if (Math.abs(usd) > AMOUNT_FIRST_EPS.USD)
+          memberRows.push({ member, currency: "USD", amount: usd });
+        if (Math.abs(lbp) > AMOUNT_FIRST_EPS.LBP)
+          memberRows.push({ member, currency: "LBP", amount: lbp });
+      }
+      const rowMembers = new Set(memberRows.map((r) => r.member));
+      const anchorMember =
+        commissionMemberId ??
+        waiveMemberId ??
+        (rowMembers.has(accountId)
+          ? accountId
+          : rowMembers.size > 0
+            ? Math.min(...rowMembers)
+            : accountId);
+      const anchorRowIdx = memberRows.findIndex((r) => r.member === anchorMember);
+      const anchorRow =
+        anchorRowIdx >= 0
+          ? memberRows.splice(anchorRowIdx, 1)[0]
+          : { member: anchorMember, currency: "USD" as const, amount: 0 };
+
+      const members = [
+        ...new Set([
+          anchorMember,
+          ...memberRows.map((r) => r.member),
+          ...plans.flatMap((p) => p.alloc.takes.map((t) => t.member_supplier_id)),
+        ]),
+      ];
+      const note =
+        data.note ??
+        `Account settlement: ${parent.name} (${
+          mixedDirections
+            ? sections.map((s) => `${s.currency} ${s.direction}`).join(" / ")
+            : flow
+        })`;
+      const insertLedger = this.db.prepare(
+        `INSERT INTO supplier_ledger
+           (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, tenant_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      );
+      const writeMemberRow = (
+        r: { member: number; currency: "USD" | "LBP"; amount: number },
+        txnId: number | null,
+      ): number =>
+        Number(
+          insertLedger.run(
+            r.member,
+            r.amount < 0 ? "PAYMENT" : "SUPPLIER_PAYS_US",
+            r.currency === "USD" ? r.amount : 0,
+            r.currency === "LBP" ? r.amount : 0,
+            note,
+            data.created_by,
+            txnId,
+            tenantId,
+          ).lastInsertRowid,
+        );
+      const anchorLedgerId = writeMemberRow(anchorRow, null);
+
+      // ── 5. The ONE SUPPLIER_SETTLEMENT transaction ────────────────────
+      const allLegs = sections.flatMap((s) => s.payments);
+      const paidLegs = allLegs.filter((p) => !isReturnLeg(p));
+      // Same meaning as the legacy path: the money applied to rows (the
+      // waive and any extra excluded — the extra is its own ledger row).
+      const applied = sumPair(plans, (p) => p.moneyApplied);
+      const cashout = {
+        usd: plans
+          .filter((p) => p.currency === "USD")
+          .reduce((s, p) => s + p.alloc.cashout_commission_recognised, 0),
+        lbp: plans
+          .filter((p) => p.currency === "LBP")
+          .reduce((s, p) => s + p.alloc.cashout_commission_recognised, 0),
+      };
+      const perCurrency: Record<string, AmountFirstCurrencyMeta> = {};
+      for (const p of plans) perCurrency[p.currency] = p.meta;
+      const summary = `Account Settlement: ${parent.name} — ${formatSettleAccountSections(data.per_currency)}`;
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
+        source_table: "supplier_ledger",
+        source_id: anchorLedgerId,
+        user_id: data.created_by,
+        amount_usd: applied.usd,
+        amount_lbp: applied.lbp,
+        profit_usd: commission.usd + cashout.usd,
+        profit_lbp: commission.lbp + cashout.lbp,
+        ...cashierRateStamp(data.exchange_rate),
+        summary,
+        metadata_json: {
+          account_supplier_id: accountId,
+          mode: "AMOUNT_FIRST",
+          per_currency: perCurrency,
+          expected_owed: expected,
+          ...(data.selections ? { selections: data.selections } : {}),
+          members,
+          cashout_commission_usd: cashout.usd,
+          cashout_commission_lbp: cashout.lbp,
+          ...(hasCommission ? { entry_mode: data.entry_mode ?? "LUMP" } : {}),
+          ...(data.covered_omt_service_types
+            ? {
+                covered_omt_service_types: normaliseCoveredTypes(
+                  data.covered_omt_service_types,
+                ),
+              }
+            : {}),
+          counterparty: buildCounterpartyMetadata({
+            kind: "supplier",
+            id: accountId,
+            name: parent.name,
+            flow: flow === "PAY" ? "OUT" : "IN",
+            method:
+              paidLegs.length === 1
+                ? paidLegs[0].method
+                : paidLegs.length > 1
+                  ? "SPLIT"
+                  : "CASH",
+            ledgerEntryId: anchorLedgerId,
+          }),
+        },
+      });
+      const stampOwn = this.db.prepare(
+        `UPDATE supplier_ledger SET transaction_id = ?, settlement_id = ? WHERE id = ? AND tenant_id = ?`,
+      );
+      if (stampOwn.run(txnId, anchorLedgerId, anchorLedgerId, tenantId).changes !== 1) {
+        throw new DatabaseError(
+          `Account settlement aborted: failed to stamp the anchor supplier_ledger row ${anchorLedgerId}`,
+        );
+      }
+      for (const r of memberRows) {
+        const id = writeMemberRow(r, txnId);
+        if (stampOwn.run(txnId, id, id, tenantId).changes !== 1) {
+          throw new DatabaseError(
+            `Account settlement aborted: failed to stamp member ${r.member}'s settlement row ${id}`,
+          );
+        }
+      }
+
+      // ── 5b. Cross-member netting moves the lines (R7, FR-013c) ─────────
+      // A credit on member A netted against a debt on member B: B −x
+      // (PAYMENT) and A +x (SUPPLIER_PAYS_US), so each line keeps matching
+      // its own open rows while the account total is unchanged. One row per
+      // pair per currency (never both currencies in one row). Hidden
+      // bookkeeping the settlement wrote, not an operator action → is_auto
+      // (rule 26); linked by `transaction_id` so `_reverseSupplierSettlement`
+      // soft-voids them (rule 20); stamped `settlement_id = anchor` at write
+      // time so they are never open queue rows and never re-netted.
+      this._writeAccountNettingPairs({
+        pairs: plans.flatMap((p) =>
+          p.alloc.netting_pairs.map((np) => ({ ...np, currency: p.currency })),
+        ),
+        names: new Map(scoped.map((r) => [r.supplier_id, r.source_name])),
+        txnId,
+        anchorLedgerId,
+        createdBy: data.created_by,
+        tenantId,
+      });
+
+      // ── 6. Coverage rows; closes_row on the last take of a closed row ──
+      const remainingAfter = new Map<string, { usd: number; lbp: number }>();
+      for (const r of scoped) {
+        remainingAfter.set(`${r.kind}:${r.id}`, {
+          usd: Math.abs(r.remaining_usd),
+          lbp: Math.abs(r.remaining_lbp),
+        });
+      }
+      const allTakes = plans.flatMap((p) =>
+        p.alloc.takes.map((t) => ({ ...t, currency: p.currency })),
+      );
+      for (const t of allTakes) {
+        const left = remainingAfter.get(`${t.kind}:${t.id}`)!;
+        if (t.currency === "USD") left.usd -= t.amount;
+        else left.lbp -= t.amount;
+      }
+      const closedKeys = new Set(
+        allTakes
+          .map((t) => `${t.kind}:${t.id}`)
+          .filter((k) => {
+            const left = remainingAfter.get(k)!;
+            return (
+              left.usd <= AMOUNT_FIRST_EPS.USD && left.lbp <= AMOUNT_FIRST_EPS.LBP
+            );
+          }),
+      );
+      const lastTakeIdx = new Map<string, number>();
+      allTakes.forEach((t, i) => lastTakeIdx.set(`${t.kind}:${t.id}`, i));
+      const insertCoverage = this.db.prepare(
+        `INSERT INTO supplier_settlement_coverage
+           (tenant_id, transaction_id, anchor_ledger_id, row_kind, row_id,
+            member_supplier_id, currency, amount, source, closes_row, is_reversed,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))`,
+      );
+      allTakes.forEach((t, i) => {
+        const key = `${t.kind}:${t.id}`;
+        insertCoverage.run(
+          tenantId,
+          txnId,
+          anchorLedgerId,
+          t.kind,
+          t.id,
+          t.member_supplier_id,
+          t.currency,
+          t.amount,
+          t.source,
+          closedKeys.has(key) && lastTakeIdx.get(key) === i ? 1 : 0,
+        );
+      });
+
+      // ── 7. Stamp every fully covered row with the anchor ───────────────
+      const closedRows = [...closedKeys].map((k) => byKey.get(k)!);
+      const fsIds = closedRows
+        .filter((r) => r.kind === "FINANCIAL_SERVICE")
+        .map((r) => r.id);
+      const ledgerIds = closedRows
+        .filter((r) => r.kind === "LEDGER")
+        .map((r) => r.id);
+      const fsChanges = this._markFinancialServicesSettled(
+        fsIds,
+        anchorLedgerId,
+        tenantId,
+      );
+      if (fsChanges !== fsIds.length) {
+        throw new DatabaseError(
+          `Account settlement aborted: expected to stamp ${fsIds.length} ` +
+            `financial_service row(s), but ${fsChanges} were affected`,
+        );
+      }
+      const ledgerChanges = this._markLedgerRowsSettled(
+        ledgerIds,
+        anchorLedgerId,
+        tenantId,
+      );
+      if (ledgerChanges !== ledgerIds.length) {
+        throw new DatabaseError(
+          `Account settlement aborted: expected to stamp ${ledgerIds.length} ` +
+            `supplier_ledger row(s), but ${ledgerChanges} were affected`,
+        );
+      }
+
+      // ── 8. Legs → drawers, per SECTION (PAY: cash out; COLLECT: cash
+      //      in; a change leg the other way against ITS OWN section, in
+      //      whichever currency it is) — the same pair every supplier
+      //      settlement uses. `_reversePayments` negates each payments row
+      //      by its own signed amount, so a two-direction settlement
+      //      reverses with no extra code (rule 20). ──────────────────────
+      for (const section of sections) {
+        const cashSign = section.direction === "PAY" ? -1 : 1;
+        for (const p of section.payments) {
+          this._assertSupplierLegMovesADrawer(p.method, "Account settlement");
+          const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
+          const delta =
+            (isReturnLeg(p) ? -cashSign : cashSign) * Math.abs(p.amount);
+          applyDrawerDelta(this.db, {
+            drawerName,
+            currencyCode: p.currency_code,
+            delta,
+            tenantId,
+          });
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: p.method,
+            drawerName,
+            currencyCode: p.currency_code,
+            amount: delta,
+            note: data.note ?? summary,
+            createdBy: data.created_by,
+            tenantId,
+          });
+        }
+      }
+
+      // ── 9. Commission over CLOSED model-1 rows only (FR-012) ──────────
+      if (hasCommission && commissionMemberId != null) {
+        this._bookAmountFirstCommission({
+          anchorLedgerId,
+          supplierId: commissionMemberId,
+          commission,
+          allocations: plans.flatMap((p) =>
+            p.alloc.commission_alloc.map((a) => ({
+              ...a,
+              currency: p.currency,
+              row: byKey.get(`FINANCIAL_SERVICE:${a.id}`)!,
+              gross: Math.abs(rowRemaining(byKey.get(`FINANCIAL_SERVICE:${a.id}`)!, p.currency)),
+            })),
+          ),
+          data,
+          tenantId,
+        });
+      }
+
+      // ── 10. Waive — one DISCOUNT on the waived rows' member, linked to
+      //       and self-stamped with the anchor (LIRA-310 reversal owner) ──
+      if (hasWaive && waiveMemberId != null) {
+        this.postSupplierBundledDiscount(
+          waiveMemberId,
+          { amount_usd: waive.usd, amount_lbp: waive.lbp },
+          {
+            direction: waiveSign === 1 ? "received" : "forgiven",
+            parentLedgerId: anchorLedgerId,
+            createdBy: data.created_by,
+            applyPurchaseCoverage: false,
+            settlementId: anchorLedgerId,
+            transactionMetadata: { settlement_transaction_id: txnId },
+          },
+        );
+      }
+
+      // ── 11. Extra goes on the account (LIRA-315), per currency, each
+      //       row with its own LEDGER sign (so a PAY section's change in
+      //       the other currency, or a COLLECT section's extra, lands right
+      //       next to a PAY section's) ────────────────────────────────────
+      if (hasExtra) {
+        this._insertSettlementOverpayRows({
+          supplierId: accountId,
+          ledger: {
+            usd:
+              Math.abs(ledgerExtra.usd) > AMOUNT_FIRST_EPS.USD
+                ? roundMoney(ledgerExtra.usd, "USD")
+                : 0,
+            lbp:
+              Math.abs(ledgerExtra.lbp) > AMOUNT_FIRST_EPS.LBP
+                ? roundMoney(ledgerExtra.lbp, "LBP")
+                : 0,
+          },
+          transactionId: txnId,
+          createdBy: data.created_by,
+          tenantId,
+          note: (amount) =>
+            amount < 0
+              ? `Overpayment credit: ${parent.name} — paid beyond what was owed`
+              : `Overpayment received: ${parent.name} — collected beyond what was owed`,
+        });
+      }
+
+      return { id: anchorLedgerId };
+    });
+
+    try {
+      return run();
+    } catch (e) {
+      // Plain refusals reach the operator verbatim; anything else is wrapped.
+      if (e instanceof DatabaseError) throw e;
+      throw new DatabaseError("Failed to settle account", { cause: e });
+    }
+  }
+
+  /**
+   * LIRA-322 — the amount-first scope: the operator's ticked rows when
+   * given (each re-validated against the fresh queue; a ticked model-1 OMT
+   * row outside the statement's types is refused, LIRA-256), otherwise the
+   * whole queue minus model-1 OMT rows the statement does not cover (they
+   * are never closed or part-paid, FR-009).
+   */
+  private _amountFirstScope(
+    queue: AccountUnsettledRow[],
+    data: SettleAccountRequest,
+  ): AccountUnsettledRow[] {
+    if (data.selections) {
+      const byKey = new Map(queue.map((r) => [`${r.kind}:${r.id}`, r]));
+      const seen = new Set<string>();
+      const rows: AccountUnsettledRow[] = [];
+      for (const sel of data.selections) {
+        const key = `${sel.kind}:${sel.id}`;
+        if (seen.has(key)) throw new DatabaseError(`Duplicate selection: ${key}`);
+        seen.add(key);
+        const row = byKey.get(key);
+        if (!row) {
+          throw new DatabaseError(
+            "A ticked transfer is no longer open on this account — reopen the " +
+              `sheet. (Account settlement: ${key} is not an open row on account ` +
+              `${data.account_supplier_id})`,
+          );
+        }
+        rows.push(row);
+      }
+      this._assertRowsCoveredByStatement(
+        rows
+          .filter((r) => r.kind === "FINANCIAL_SERVICE")
+          .map((r) => ({
+            id: r.id,
+            provider: r.source_provider,
+            omt_service_type: r.omt_service_type,
+            commission_model: r.commission_model,
+          })),
+        data.covered_omt_service_types,
+      );
+      return rows;
+    }
+    return queue.filter(
+      (r) =>
+        !(
+          r.kind === "FINANCIAL_SERVICE" &&
+          r.commission_model === 1 &&
+          !isOmtRowCovered(
+            { provider: r.source_provider, omt_service_type: r.omt_service_type },
+            data.covered_omt_service_types,
+          )
+        ),
+    );
+  }
+
+  /**
+   * LIRA-322 — one currency section of an amount-first settlement: the
+   * direction check, the allocation (`allocateAccountSettlement`) and every
+   * refusal that depends on it. `_resolveSettlementLegs` is called ONLY for
+   * its leg checks (drawer method, cash-only change, change ≤ extra); the
+   * extra itself comes from the allocation (rule 14) — except a change leg
+   * in the OTHER currency, which books that currency's extra (LIRA-315).
+   *
+   * Adds this section's extra to `ledgerExtra` in LEDGER sign (+ = the shop
+   * owes OMT more, − = OMT owes the shop): `−dirSign × extra in flow terms`.
+   * Converting per section, before summing, is what lets two sections with
+   * opposite directions (and a change leg crossing into the other
+   * currency) share one accumulator without mixing conventions.
+   */
+  private _planAmountFirstSection(
+    section: SettleAccountCurrencySectionData & { currency: "USD" | "LBP" },
+    scoped: AccountUnsettledRow[],
+    rate: number,
+    ledgerExtra: { usd: number; lbp: number },
+  ): AmountFirstSectionPlan {
+    const { currency } = section;
+    const eps = AMOUNT_FIRST_EPS[currency];
+    const label = currency === "USD" ? "USD" : "LBP";
+    const fmt = (v: number) =>
+      currency === "USD" ? `$${Math.abs(v).toFixed(2)}` : `${Math.abs(v)} LBP`;
+    const dirSign = section.direction === "PAY" ? 1 : -1;
+    const commission = section.commission ?? 0;
+    const waive = section.waive ?? 0;
+
+    const rows = scoped.filter((r) => Math.abs(rowRemaining(r, currency)) > eps);
+    const owedNet = rows.reduce((s, r) => s + rowRemaining(r, currency), 0);
+    if (owedNet > eps && section.direction !== "PAY") {
+      throw new DatabaseError(
+        `You pay OMT in ${label} — ${fmt(owedNet)} is owed to OMT. ` +
+          `(Account settlement: ${label} section direction COLLECT contradicts the rows)`,
+      );
+    }
+    if (owedNet < -eps && section.direction !== "COLLECT") {
+      throw new DatabaseError(
+        `OMT pays you in ${label} — OMT owes the shop ${fmt(owedNet)}. ` +
+          `(Account settlement: ${label} section direction PAY contradicts the rows)`,
+      );
+    }
+    if (waive > 0) {
+      if (Math.abs(owedNet) <= eps) {
+        throw new DatabaseError(
+          "There is nothing owed to waive on this settlement. (Account " +
+            `settlement: nothing owed in ${label})`,
+        );
+      }
+      assertSettlementWaive(
+        currency === "USD"
+          ? { amount_usd: waive, amount_lbp: 0 }
+          : { amount_usd: 0, amount_lbp: waive },
+        currency === "USD" ? { usd: owedNet, lbp: 0 } : { usd: 0, lbp: owedNet },
+        "Account settlement",
+      );
+    }
+
+    let inSame = 0;
+    let outSame = 0;
+    for (const leg of section.payments) {
+      if (leg.currency_code !== currency) continue;
+      if (isReturnLeg(leg)) outSame += Math.abs(leg.amount);
+      else inSame += Math.abs(leg.amount);
+    }
+    const paid = dirSign * (inSame - outSame);
+
+    const alloc = allocateAccountSettlement({
+      currency,
+      rows: rows.map((r) => ({
+        kind: r.kind,
+        id: r.id,
+        member_supplier_id: r.supplier_id,
+        created_at: r.created_at,
+        remaining: rowRemaining(r, currency),
+        commission_model1: r.kind === "FINANCIAL_SERVICE" && r.commission_model === 1,
+        cashout_commission: currency === "USD" ? r.commission_usd : r.commission_lbp,
+      })),
+      paid,
+      commission,
+      waive,
+      eps,
+    });
+
+    const sumBy = (source: string) =>
+      alloc.takes
+        .filter((t) => t.source === source)
+        .reduce((s, t) => s + t.amount, 0);
+    if (commission > 0) {
+      if (alloc.commission_without_closed_model1) {
+        throw new DatabaseError(
+          "Commission can only be entered when this payment fully pays at " +
+            "least one transfer that carries commission. (Account settlement: " +
+            `${label} commission ${commission} with no commission-model-1 row closing)`,
+        );
+      }
+      if (sumBy("COMMISSION") < commission - eps) {
+        throw new DatabaseError(
+          "The commission is more than what is owed. (Account settlement: " +
+            `${label} commission ${commission} exceeds the rows)`,
+        );
+      }
+    }
+    if (waive > 0) {
+      if (Math.abs(alloc.extra) > eps) {
+        throw new DatabaseError(
+          "Waive can't be combined with an extra payment in the same " +
+            `currency. (Account settlement: ${label} waive with extra ${alloc.extra})`,
+        );
+      }
+      const waivedPartial =
+        alloc.partial &&
+        alloc.takes.some(
+          (t) =>
+            t.source === "WAIVE" &&
+            t.kind === alloc.partial!.kind &&
+            t.id === alloc.partial!.id,
+        );
+      if (waivedPartial) {
+        throw new DatabaseError(
+          "A waive must settle the transfers it covers in full.",
+        );
+      }
+    }
+
+    const byKey = new Map(rows.map((r) => [`${r.kind}:${r.id}`, r]));
+    const commissionRows = alloc.commission_alloc.map(
+      (a) => byKey.get(`FINANCIAL_SERVICE:${a.id}`)!,
+    );
+    const commissionMembers = [
+      ...new Set([
+        ...commissionRows.map((r) => r.supplier_id),
+        ...alloc.takes
+          .filter((t) => t.source === "COMMISSION")
+          .map((t) => t.member_supplier_id),
+      ]),
+    ];
+    if (
+      commissionRows.length > 0 &&
+      commissionRows.every((r) => r.service_type === "BILL")
+    ) {
+      throw new DatabaseError(
+        "Bill commission can't be settled from the account sheet — settle " +
+          "that supplier's bills directly. (Account settlement: closed " +
+          "commission rows are all BILL)",
+      );
+    }
+    const waiveMembers = [
+      ...new Set(
+        alloc.takes
+          .filter((t) => t.source === "WAIVE")
+          .map((t) => t.member_supplier_id),
+      ),
+    ];
+
+    // Legs: checks only. `owed` = the money this section applied to rows.
+    const moneyApplied = sumBy("PAYMENT");
+    const flowExtra = dirSign * alloc.extra;
+    if (section.payments.length > 0) {
+      const legs = this._resolveSettlementLegs(
+        section.payments,
+        currency === "USD"
+          ? { usd: moneyApplied, lbp: 0 }
+          : { usd: 0, lbp: moneyApplied },
+        {
+          context: "Account settlement",
+          rate,
+          eps: { usd: AMOUNT_FIRST_EPS.USD, lbp: 1 },
+          allowOverpay: waive === 0,
+        },
+      ).extra;
+      const legsSame = currency === "USD" ? legs.usd : legs.lbp;
+      if (Math.abs(legsSame - flowExtra) > (currency === "USD" ? 0.01 : 1)) {
+        throw new DatabaseError(
+          `Account settlement aborted: the ${label} payment and the allocation ` +
+            `disagree (legs extra ${legsSame}, allocation extra ${flowExtra})`,
+        );
+      }
+      // A change leg in the other currency books that currency's extra.
+      if (currency === "USD") ledgerExtra.lbp += -dirSign * legs.lbp;
+      else ledgerExtra.usd += -dirSign * legs.usd;
+    }
+    if (currency === "USD") ledgerExtra.usd += -dirSign * flowExtra;
+    else ledgerExtra.lbp += -dirSign * flowExtra;
+
+    return {
+      currency,
+      alloc,
+      moneyApplied: roundMoney(moneyApplied, currency),
+      commission,
+      waive,
+      commissionMembers: commission > 0 ? commissionMembers : [],
+      waiveMembers,
+      dirSign,
+      meta: {
+        direction: section.direction,
+        paid: roundMoney(inSame - outSame, currency),
+        commission,
+        waive,
+        extra: roundMoney(flowExtra, currency),
+      },
+    };
+  }
+
+  /**
+   * LIRA-322 (R7, FR-013c) — the hidden transfer pair a cross-member netting
+   * writes: for every `{credit_member A, debit_member B, amount x}` the
+   * allocator paired in a currency, B −x (`PAYMENT`: the debt B's line
+   * carried was paid by A's credit) and A +x (`SUPPLIER_PAYS_US`: A's
+   * credit was used up). Each line then still equals Σ remaining of its own
+   * queue rows (data-model invariant 1) and the account total is unchanged.
+   *
+   * - `is_auto = 1` (rule 26): bookkeeping the settlement wrote, not an
+   *   operator action. Deliberately NO `source_ref_*`: a +x
+   *   `SUPPLIER_PAYS_US` row linked to `supplier_ledger` would match
+   *   `isSettlementCommissionCredit` and read as commission.
+   * - `transaction_id` = the settlement → `_reverseSupplierSettlement`
+   *   soft-voids both (rule 20, no new reversal code).
+   * - `settlement_id` = the anchor, written in the INSERT itself → never an
+   *   open queue row, never re-netted. `.changes` guard on every insert.
+   * Runs inside the caller's db.transaction().
+   */
+  private _writeAccountNettingPairs(args: {
+    pairs: ReadonlyArray<{
+      credit_member: number;
+      debit_member: number;
+      amount: number;
+      currency: "USD" | "LBP";
+    }>;
+    names: ReadonlyMap<number, string>;
+    txnId: number;
+    anchorLedgerId: number;
+    createdBy: number;
+    tenantId: number;
+  }): void {
+    if (args.pairs.length === 0) return;
+    const insert = this.db.prepare(
+      `INSERT INTO supplier_ledger
+         (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
+          transaction_id, settlement_id, is_auto, tenant_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'))`,
+    );
+    const name = (id: number) => args.names.get(id) ?? `supplier #${id}`;
+    const write = (
+      member: number,
+      other: number,
+      amount: number,
+      currency: "USD" | "LBP",
+    ): void => {
+      const changes = insert.run(
+        member,
+        amount < 0 ? "PAYMENT" : "SUPPLIER_PAYS_US",
+        currency === "USD" ? amount : 0,
+        currency === "LBP" ? amount : 0,
+        `Auto: netted with ${name(other)} in settlement #${args.txnId}`,
+        args.createdBy,
+        args.txnId,
+        args.anchorLedgerId,
+        args.tenantId,
+      ).changes;
+      if (changes !== 1) {
+        throw new DatabaseError(
+          `Account settlement aborted: failed to write the netting row for member ${member}`,
+        );
+      }
+    };
+    for (const p of args.pairs) {
+      const x = roundMoney(p.amount, p.currency);
+      if (x <= AMOUNT_FIRST_EPS[p.currency]) continue;
+      write(p.debit_member, p.credit_member, -x, p.currency);
+      write(p.credit_member, p.debit_member, x, p.currency);
+    }
+  }
+
+  /**
+   * LIRA-322 (R4, T026) — book the commission entered on an amount-first
+   * settlement: the `supplier_settlements` record (keyed by the anchor),
+   * one `settlement_commission_allocations` row per CLOSED model-1 row from
+   * the allocator's split (weighted by what each row owed before this
+   * settlement — the same split the sheet previews), and the cashless
+   * commission credit on the commission member — `is_auto`, linked to the
+   * anchor (`source_ref_*`, so the LIRA-091 sibling cascade voids it) and
+   * stamped `settlement_id = anchor` so it can never re-enter the queue as
+   * an open credit (F3). Reuses `_bookCommissionAtSettlement`'s INSERT
+   * shapes; its gross-weighted split is not used (it would disagree with
+   * the preview on a row that was already part-paid).
+   */
+  private _bookAmountFirstCommission(args: {
+    anchorLedgerId: number;
+    supplierId: number;
+    commission: { usd: number; lbp: number };
+    allocations: Array<{
+      id: number;
+      amount: number;
+      currency: "USD" | "LBP";
+      row: AccountUnsettledRow;
+      gross: number;
+    }>;
+    data: SettleAccountRequest;
+    tenantId: number;
+  }): void {
+    const { anchorLedgerId, supplierId, commission, allocations, data, tenantId } =
+      args;
+    if (this._hasCommissionAtSettlementSchema()) {
+      const grossUsd = allocations
+        .filter((a) => a.currency === "USD")
+        .reduce((s, a) => s + a.gross, 0);
+      const grossLbp = allocations
+        .filter((a) => a.currency === "LBP")
+        .reduce((s, a) => s + a.gross, 0);
+      this.db
+        .prepare(
+          `INSERT INTO supplier_settlements
+             (tenant_id, supplier_id, ledger_entry_id, gross_usd, gross_lbp,
+              commission_usd, commission_lbp, entry_mode, rate, unit_count,
+              model, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))`,
+        )
+        .run(
+          tenantId,
+          supplierId,
+          anchorLedgerId,
+          grossUsd,
+          grossLbp,
+          commission.usd,
+          commission.lbp,
+          data.entry_mode ?? "LUMP",
+          data.commission_rate ?? null,
+          data.commission_unit_count ?? null,
+          data.created_by,
+        );
+      const insertAllocation = this.db.prepare(
+        `INSERT INTO settlement_commission_allocations
+           (tenant_id, settlement_ledger_id, financial_service_id, service_type,
+            provider, commission_usd, commission_lbp, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      );
+      for (const a of allocations) {
+        insertAllocation.run(
+          tenantId,
+          anchorLedgerId,
+          a.id,
+          a.row.service_type,
+          a.row.source_provider,
+          a.currency === "USD" ? a.amount : 0,
+          a.currency === "LBP" ? a.amount : 0,
+        );
+      }
+    }
+    const credit = this.addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "SUPPLIER_PAYS_US",
+      amount_usd: -Math.abs(commission.usd),
+      amount_lbp: -Math.abs(commission.lbp),
+      note: `Auto: commission credit from settlement #${anchorLedgerId}`,
+      created_by: data.created_by,
+      is_auto: true,
+      source_ref_table: "supplier_ledger",
+      source_ref_id: anchorLedgerId,
+    });
+    const stamped = this.db
+      .prepare(
+        `UPDATE supplier_ledger SET settlement_id = ? WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(anchorLedgerId, credit.id, tenantId);
+    if (stamped.changes !== 1) {
+      throw new DatabaseError(
+        `Account settlement aborted: failed to stamp the commission credit ${credit.id}`,
+      );
     }
   }
 

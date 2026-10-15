@@ -26,7 +26,7 @@ import type {
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
-  SettleAccountData,
+  SettleAccountRequest,
   UpdateSupplierAccountLinkData,
 } from "../repositories/SupplierRepository.js";
 import { toErrorString } from "../utils/errors.js";
@@ -217,21 +217,62 @@ export class SupplierService {
    * (direction cross-check, per-member commission scoping, etc.) lives in
    * the repository, next to the SQL it protects.
    */
-  settleAccount(data: SettleAccountData): SupplierResult {
+  settleAccount(data: SettleAccountRequest): SupplierResult {
     try {
       if (!data.account_supplier_id)
         return { success: false, error: "account_supplier_id is required" };
-      if (!data.selections?.length)
+      // LIRA-322 — the amount-first path (per_currency): the repository
+      // decides what the money covers, inside its own write transaction;
+      // the selections/amount checks below belong to the legacy path only.
+      if (data.per_currency !== undefined) {
+        if (!data.expected_owed)
+          return {
+            success: false,
+            error:
+              "The settle sheet did not send what it showed as owed — reopen it and try again.",
+          };
+        const res = this.repo.settleAccount(data);
+        return { success: true, id: res.id };
+      }
+      const {
+        direction,
+        selections,
+        amount_usd,
+        amount_lbp,
+        commission_usd,
+        commission_lbp,
+      } = data;
+      if (!selections?.length)
         return {
           success: false,
           error: "No rows selected for account settlement",
         };
-      if (data.amount_usd < 0 || data.amount_lbp < 0)
+      if (
+        direction === undefined ||
+        amount_usd === undefined ||
+        amount_lbp === undefined ||
+        commission_usd === undefined ||
+        commission_lbp === undefined
+      )
+        return {
+          success: false,
+          error:
+            "direction, amount_usd, amount_lbp, commission_usd and commission_lbp are required",
+        };
+      if (amount_usd < 0 || amount_lbp < 0)
         return {
           success: false,
           error: "Settlement amounts cannot be negative",
         };
-      const res = this.repo.settleAccount(data);
+      const res = this.repo.settleAccount({
+        ...data,
+        direction,
+        selections,
+        amount_usd,
+        amount_lbp,
+        commission_usd,
+        commission_lbp,
+      });
       return { success: true, id: res.id };
     } catch (e) {
       return { success: false, error: toErrorString(e) };

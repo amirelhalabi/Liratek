@@ -11,6 +11,7 @@ import {
   getRowCashFlowDirection,
   type TransactionPaymentLeg,
 } from "../cashFlow";
+import { formatSettlementPart, mixedSettlementParts } from "../settlementBadge";
 
 export interface CashFlowBadgeProps {
   type: string;
@@ -85,6 +86,56 @@ export function CashFlowBadge({
       >
         <span className="text-amber-400">+</span>
         <span className="text-amber-400">{amountStr}</span>
+      </span>
+    );
+  }
+
+  // LIRA-322 (FR-013b) — an OMT account settlement that pays one currency
+  // and collects the other: one badge per currency, side by side, each from
+  // its own legs. One `cash-flow-badge` wrapper per row, as everywhere else.
+  const mixedParts = mixedSettlementParts(type, metaJson, legs, {
+    usd: signedAmounts?.usd ?? amountUsd,
+    lbp: signedAmounts?.lbp ?? amountLbp,
+  });
+  if (mixedParts) {
+    return (
+      <span
+        data-testid="cash-flow-badge"
+        data-direction="mixed"
+        className="inline-flex items-center gap-1 text-[11px] font-mono"
+      >
+        {mixedParts.map((part, i) => {
+          // A void/refund row without legs of its own reads the original's
+          // directions, reversed (legs, when present, already are).
+          const direction =
+            reversesId != null && !legs?.length
+              ? part.direction === "in"
+                ? "out"
+                : "in"
+              : part.direction;
+          const colour =
+            direction === "in" ? "text-emerald-400" : "text-red-400";
+          return (
+            <span
+              key={part.currency}
+              className="inline-flex items-center gap-1"
+            >
+              {i > 0 && <span className="text-slate-500">·</span>}
+              <span
+                data-testid="cash-flow-badge-part"
+                data-direction={direction}
+                data-currency={part.currency}
+                className={`inline-flex items-center gap-1 ${colour}`}
+              >
+                <span>{direction === "in" ? "↓" : "↑"}</span>
+                <span>
+                  {direction === "in" ? "IN" : "OUT"}{" "}
+                  {formatSettlementPart(part)}
+                </span>
+              </span>
+            </span>
+          );
+        })}
       </span>
     );
   }

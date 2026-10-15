@@ -151,6 +151,10 @@ type SupplierTxn = {
    *  and is left out of the paid/unpaid counts and the Outstanding total. */
   fifo_status: "paid" | "partial" | "unpaid" | "voided";
   fifo_paid_usd: number;
+  /** LIRA-322 — LBP paid so far, from settlement coverage. Set for OMT
+   *  account members only (absent elsewhere: their LBP rows have no
+   *  per-row paid figure). */
+  fifo_paid_lbp?: number;
   is_refunded?: number;
   created_at: string;
   /** Display-only LEFT JOIN enrichment (FinancialServiceRepository
@@ -371,6 +375,24 @@ function formatOwedCell(
       : String(Number(n.toFixed(2)));
   const breakdown = `${fmt(absAmount)} ${op} ${fmt(absFee)} fee`;
   return { main, breakdown };
+}
+
+/** LIRA-322 (FR-017) — "Partial · $47.00": what was paid so far, in the
+ *  row's own currency. Without a per-row figure (an LBP row outside an OMT
+ *  account) it stays plain "Partial". */
+function partialLabel(t: {
+  currency: string;
+  fifo_paid_usd: number;
+  fifo_paid_lbp?: number;
+}): string {
+  if (t.currency === "LBP") {
+    return t.fifo_paid_lbp !== undefined && t.fifo_paid_lbp > 0
+      ? `Partial · ${Math.round(t.fifo_paid_lbp).toLocaleString()} LBP`
+      : "Partial";
+  }
+  return t.fifo_paid_usd > 0
+    ? `Partial · $${t.fifo_paid_usd.toFixed(2)}`
+    : "Partial";
 }
 
 /** G40 (LIRA-258): a voided/refunded history row — owes nothing. */
@@ -963,6 +985,17 @@ export default function SuppliersPage() {
     ? accountByParentId.get(selectedSupplierId)
     : undefined;
   const isSelectedAccountParent = !!selectedAccount;
+  // LIRA-322 (US4, FR-014) — the OMT counter, OMT App and iPick are paid
+  // ONLY through the account's Settle Account sheet: no Pay / Receive tab
+  // and no Commission Settlement tick list for them.
+  const isAccountMember =
+    isSelectedAccountParent ||
+    (selectedSupplierId != null &&
+      accountChildSupplierIds.has(selectedSupplierId)) ||
+    selectedSupplier?.account_supplier_id != null;
+  useEffect(() => {
+    if (isAccountMember && activeTab === "manual") setActiveTab("settle");
+  }, [isAccountMember, activeTab]);
 
   const accountLedgerQuery = useSupplierAccountLedgerQuery(
     isSelectedAccountParent ? selectedSupplierId : null,
@@ -2154,7 +2187,12 @@ export default function SuppliersPage() {
                           id: "settle" as const,
                           label: `Transactions${allTxns.length > 0 ? ` (${allTxns.length})` : ""}`,
                         },
-                        { id: "manual" as const, label: "Pay / Receive" },
+                        // LIRA-322 — account members pay via Settle Account.
+                        ...(isAccountMember
+                          ? []
+                          : [
+                              { id: "manual" as const, label: "Pay / Receive" },
+                            ]),
                       ]
                   ).map((tab) => (
                     <button
@@ -2280,7 +2318,9 @@ export default function SuppliersPage() {
                   the read-only full history below. */}
               {selectedSupplier.is_active !== 0 &&
                 activeTab === "settle" &&
-                isAdmin && (
+                isAdmin &&
+                // LIRA-322 — account members settle from Settle Account.
+                !isAccountMember && (
                   <div className="mb-4">
                     {/* Owner request (2026-08-13): this table settles
                         commission for whichever supplier is selected — not
@@ -2637,7 +2677,7 @@ export default function SuppliersPage() {
                                 </span>
                               ) : t.fifo_status === "partial" ? (
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
-                                  Partial
+                                  {partialLabel(t)}
                                 </span>
                               ) : (
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/50 text-red-400">
@@ -2697,8 +2737,35 @@ export default function SuppliersPage() {
                                   ),
                                 0,
                               );
-                            return outstandingUsd > 0
-                              ? `Outstanding: $${outstandingUsd.toFixed(2)}`
+                            // LIRA-322 (FR-017) — LBP rows count only where
+                            // the server gives a per-row LBP paid figure
+                            // (OMT account members, from coverage).
+                            // Elsewhere LBP rows stay out, as before.
+                            const outstandingLbp = liveTxns
+                              .filter(
+                                (t) =>
+                                  t.currency === "LBP" &&
+                                  t.fifo_paid_lbp !== undefined,
+                              )
+                              .reduce(
+                                (s, t) =>
+                                  s +
+                                  Math.max(
+                                    0,
+                                    t.supplier_owed - (t.fifo_paid_lbp ?? 0),
+                                  ),
+                                0,
+                              );
+                            const parts = [
+                              outstandingUsd > 0
+                                ? `$${outstandingUsd.toFixed(2)}`
+                                : null,
+                              outstandingLbp >= 0.5
+                                ? `${Math.round(outstandingLbp).toLocaleString()} LBP`
+                                : null,
+                            ].filter(Boolean);
+                            return parts.length > 0
+                              ? `Outstanding: ${parts.join(" · ")}`
                               : "Fully covered";
                           })()}
                         </span>
@@ -2710,115 +2777,119 @@ export default function SuppliersPage() {
 
               {/* Tab: Pay / Receive — CQ-11: shared CounterpartySettleModal,
                   inline variant (no backdrop/title — embedded in the tab). */}
-              {selectedSupplier.is_active !== 0 && activeTab === "manual" && (
-                <CounterpartySettleModal
-                  variant="inline"
-                  beforeContent={
-                    <div className="flex gap-2">
-                      {(["PAY", "RECEIVE"] as const).map((dir) => (
-                        <button
-                          key={dir}
-                          onClick={() => setCashflowDirection(dir)}
-                          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                            cashflowDirection === dir
-                              ? dir === "PAY"
-                                ? "bg-red-600 text-white"
-                                : "bg-green-600 text-white"
-                              : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                          }`}
-                        >
-                          {dir === "PAY" ? "Pay Supplier" : "Supplier Paid Us"}
-                        </button>
-                      ))}
-                    </div>
-                  }
-                  multiPaymentInputKey={`${cashflowKey}-${cashflowDirection}`}
-                  multiPaymentInput={{
-                    // LIRA-313 — only what is owed IN THIS DIRECTION: paying a
-                    // supplier who already owes us (or collecting from one we
-                    // owe) owes nothing, so the whole amount is extra and
-                    // goes to the account.
-                    totals: [{ amount: cashflowOwed, currency: payCurrency }],
-                    totalAmountCurrency: payCurrency,
-                    currency: payCurrency,
-                    onChange: setCashflowLines,
-                    // LIRA-313 (owner decisions 2026-10-12) — an overpay is
-                    // change handed back (default) or left on the supplier's
-                    // account; the server books the net.
-                    onReturnChange: setCashflowReturnLegs,
-                    unreturnedChangeTo: "ACCOUNT_BALANCE",
-                    accountLabel: "the supplier's account",
-                    cashOnlyReturn: true,
-                    showPmFee: false,
-                    // CQ-10: discount is PAY-only (the supplier forgiving part
-                    // of what we owe them) — the backend rejects it on
-                    // RECEIVE. The single-currency totals here (payCurrency)
-                    // mean the built-in scalar discount maps 1:1, no custom
-                    // row needed (unlike Debts' mixed USD+LBP due).
-                    showDiscount: cashflowDirection === "PAY",
-                    maxDiscount: cashflowOwed,
-                    onDiscountChange: setCashflowDiscount,
-                    paymentMethods: methods,
-                    currencies: [
-                      { code: "USD", symbol: "$" },
-                      { code: "LBP", symbol: "LBP" },
-                    ],
-                    exchangeRate: exchangeRate,
-                    onExchangeRateChange: setCashflowRate,
-                    // LIRA-310 T016 — on PAY the shop is the payer, so the
-                    // Remaining row reads "Remaining to pay" (not "Remaining
-                    // (Debt)"). Labels only: this sheet wires no kept change
-                    // (`onKeptChange`), so FEATURE_GUIDE §4.1's shop-payer
-                    // "kept → cost" rule never applies here — change not
-                    // handed back stays on the supplier's account (LIRA-313).
-                    payer: cashflowDirection === "PAY" ? "shop" : "customer",
-                    // Owner decision 2026-10-12 — no Waive anywhere on the
-                    // Suppliers page: a gap the supplier forgives is typed
-                    // into the Discount field above by hand.
-                    waiveDisabled: true,
-                  }}
-                  onConfirm={handleCashflow}
-                  confirmLabel={
-                    cashflowDirection === "PAY"
-                      ? "Record Payment"
-                      : "Record Receipt"
-                  }
-                  confirmColor={cashflowDirection === "PAY" ? "red" : "green"}
-                  isSubmitting={supplierCashflow.isPending}
-                >
-                  {cashflowDirection === "PAY" && cashflowDiscount > 0 && (
+              {selectedSupplier.is_active !== 0 &&
+                activeTab === "manual" &&
+                !isAccountMember && (
+                  <CounterpartySettleModal
+                    variant="inline"
+                    beforeContent={
+                      <div className="flex gap-2">
+                        {(["PAY", "RECEIVE"] as const).map((dir) => (
+                          <button
+                            key={dir}
+                            onClick={() => setCashflowDirection(dir)}
+                            className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                              cashflowDirection === dir
+                                ? dir === "PAY"
+                                  ? "bg-red-600 text-white"
+                                  : "bg-green-600 text-white"
+                                : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                            }`}
+                          >
+                            {dir === "PAY"
+                              ? "Pay Supplier"
+                              : "Supplier Paid Us"}
+                          </button>
+                        ))}
+                      </div>
+                    }
+                    multiPaymentInputKey={`${cashflowKey}-${cashflowDirection}`}
+                    multiPaymentInput={{
+                      // LIRA-313 — only what is owed IN THIS DIRECTION: paying a
+                      // supplier who already owes us (or collecting from one we
+                      // owe) owes nothing, so the whole amount is extra and
+                      // goes to the account.
+                      totals: [{ amount: cashflowOwed, currency: payCurrency }],
+                      totalAmountCurrency: payCurrency,
+                      currency: payCurrency,
+                      onChange: setCashflowLines,
+                      // LIRA-313 (owner decisions 2026-10-12) — an overpay is
+                      // change handed back (default) or left on the supplier's
+                      // account; the server books the net.
+                      onReturnChange: setCashflowReturnLegs,
+                      unreturnedChangeTo: "ACCOUNT_BALANCE",
+                      accountLabel: "the supplier's account",
+                      cashOnlyReturn: true,
+                      showPmFee: false,
+                      // CQ-10: discount is PAY-only (the supplier forgiving part
+                      // of what we owe them) — the backend rejects it on
+                      // RECEIVE. The single-currency totals here (payCurrency)
+                      // mean the built-in scalar discount maps 1:1, no custom
+                      // row needed (unlike Debts' mixed USD+LBP due).
+                      showDiscount: cashflowDirection === "PAY",
+                      maxDiscount: cashflowOwed,
+                      onDiscountChange: setCashflowDiscount,
+                      paymentMethods: methods,
+                      currencies: [
+                        { code: "USD", symbol: "$" },
+                        { code: "LBP", symbol: "LBP" },
+                      ],
+                      exchangeRate: exchangeRate,
+                      onExchangeRateChange: setCashflowRate,
+                      // LIRA-310 T016 — on PAY the shop is the payer, so the
+                      // Remaining row reads "Remaining to pay" (not "Remaining
+                      // (Debt)"). Labels only: this sheet wires no kept change
+                      // (`onKeptChange`), so FEATURE_GUIDE §4.1's shop-payer
+                      // "kept → cost" rule never applies here — change not
+                      // handed back stays on the supplier's account (LIRA-313).
+                      payer: cashflowDirection === "PAY" ? "shop" : "customer",
+                      // Owner decision 2026-10-12 — no Waive anywhere on the
+                      // Suppliers page: a gap the supplier forgives is typed
+                      // into the Discount field above by hand.
+                      waiveDisabled: true,
+                    }}
+                    onConfirm={handleCashflow}
+                    confirmLabel={
+                      cashflowDirection === "PAY"
+                        ? "Record Payment"
+                        : "Record Receipt"
+                    }
+                    confirmColor={cashflowDirection === "PAY" ? "red" : "green"}
+                    isSubmitting={supplierCashflow.isPending}
+                  >
+                    {cashflowDirection === "PAY" && cashflowDiscount > 0 && (
+                      <div>
+                        <label className="block text-xs text-slate-400 mb-1">
+                          Discount reason (optional)
+                        </label>
+                        <input
+                          value={cashflowDiscountReason}
+                          onChange={(e) =>
+                            setCashflowDiscountReason(e.target.value)
+                          }
+                          className="w-full bg-slate-950 border border-emerald-700/40 rounded-lg px-3 py-2 text-white text-sm"
+                          placeholder="Why the supplier is forgiving this amount…"
+                        />
+                      </div>
+                    )}
+
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">
-                        Discount reason (optional)
+                        Note (optional)
                       </label>
                       <input
-                        value={cashflowDiscountReason}
-                        onChange={(e) =>
-                          setCashflowDiscountReason(e.target.value)
+                        value={cashflowNote}
+                        onChange={(e) => setCashflowNote(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+                        placeholder={
+                          cashflowDirection === "PAY"
+                            ? "Payment to supplier…"
+                            : "Amount received from supplier…"
                         }
-                        className="w-full bg-slate-950 border border-emerald-700/40 rounded-lg px-3 py-2 text-white text-sm"
-                        placeholder="Why the supplier is forgiving this amount…"
                       />
                     </div>
-                  )}
-
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1">
-                      Note (optional)
-                    </label>
-                    <input
-                      value={cashflowNote}
-                      onChange={(e) => setCashflowNote(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
-                      placeholder={
-                        cashflowDirection === "PAY"
-                          ? "Payment to supplier…"
-                          : "Amount received from supplier…"
-                      }
-                    />
-                  </div>
-                </CounterpartySettleModal>
-              )}
+                  </CounterpartySettleModal>
+                )}
 
               {/* Ledger history — LIRA-188 (D6): an account parent shows
                   the MERGED account ledger (Type column + filter) instead

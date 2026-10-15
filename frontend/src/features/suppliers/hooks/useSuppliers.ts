@@ -5,6 +5,7 @@ import { normaliseCoveredTypes, type OmtCoveredType } from "@liratek/core";
 import type {
   SupplierCashflowPayload,
   SupplierLedgerEntryPayload,
+  SupplierSettleAccountPayload,
   SupplierSettleInput,
 } from "@liratek/core";
 
@@ -591,52 +592,18 @@ export function useSettleTransactionsMutation(
 // ── OMT open-credit account settlement (LIRA-189, wave 2) ──────────────────
 
 /**
- * Wire shape sent to `settleSupplierAccount` — mirrors `SettleAccountData`
- * (`packages/core/src/repositories/SupplierRepository.ts`) verbatim (rule
- * 14: one shape, not re-derived per layer) MINUS `account_supplier_id`
- * (passed as this hook's own argument, matching the adapter signature
- * `settleSupplierAccount(accountSupplierId, data)`, §2.2) and MINUS
- * `created_by` (never sent by the client — every existing settle/cashflow
- * mutation in this file omits it too; the handler/route injects the actor
- * from the session/JWT, rule 19c).
+ * Wire shape sent to `settleSupplierAccount` — LIRA-322 (rules 21/22): the
+ * core schema's input type (`SupplierSettleAccountPayload` =
+ * `z.input<typeof supplierSettleAccountSchema>`), never a hand-copied
+ * literal, MINUS `account_supplier_id` (passed as this hook's own argument,
+ * matching the adapter signature `settleSupplierAccount(accountSupplierId,
+ * data)`). `created_by` is not part of the schema: the handler/route injects
+ * the actor from the session/JWT (rule 19c).
  */
-export interface SettleAccountRequest {
-  direction: "PAY" | "COLLECT";
-  selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
-  amount_usd: number;
-  amount_lbp: number;
-  commission_usd: number;
-  commission_lbp: number;
-  entry_mode?: "LUMP" | "RATE";
-  commission_rate?: number;
-  commission_unit_count?: number;
-  note?: string;
-  exchange_rate?: number;
-  payments?: Array<{
-    method: string;
-    currency_code: string;
-    amount: number;
-    direction?: "IN" | "OUT";
-  }>;
-  /**
-   * LIRA-203 (owner D18 follow-up) — pay MORE than `selections` net to; the
-   * difference is booked as a standalone account credit on the account
-   * parent, deliberately left open (never auto-applied) so a LATER
-   * settlement can tick it like any other unsettled row — see
-   * `SupplierRepository.SettleAccountData.surplus_usd`'s own doc comment
-   * for the full design. LIRA-315: no longer sent by the sheet — the
-   * repository derives the overpay from `payments` (PAY or COLLECT); a value
-   * sent anyway must equal that derived overpay.
-   */
-  surplus_usd?: number;
-  surplus_lbp?: number;
-  /**
-   * LIRA-310 — Waive: settle the ticked rows for less than they net to
-   * (≤ $5 / 450,000 LBP per currency). PAY → the account let the shop pay
-   * less; COLLECT → the shop let the account pay less. Never with a surplus.
-   */
-  discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-}
+export type SettleAccountRequest = Omit<
+  SupplierSettleAccountPayload,
+  "account_supplier_id"
+>;
 
 export interface SettleAccountResult {
   success: boolean;
@@ -648,15 +615,6 @@ export interface SettleAccountResult {
  * Settle the whole OMT open-credit account (counter + OMT App + iPick) in
  * ONE call (rule 16 — the caller never makes a follow-up call for the
  * payment legs). Admin-only on both transports.
- *
- * `settleSupplierAccount` is called through a defensive cast rather than a
- * plain `api.settleSupplierAccount(...)` call: lane W4 (shared transport
- * plumbing) adds this method to `ApiAdapter` in parallel with this lane, and
- * this file must compile — and its own jest tests must be able to mock the
- * method — regardless of which lane's diff lands in the working tree first.
- * Same pattern as `useUnsettledTransactionsQuery`'s `getUnsettledTransactions`
- * cast above. See this lane's CROSS_LANE_REQUESTS: once W4 lands, this cast
- * becomes redundant (harmless) — it is not meant to be a permanent shape.
  */
 export function useSettleSupplierAccountMutation(
   accountSupplierId: number | null,
@@ -673,14 +631,7 @@ export function useSettleSupplierAccountMutation(
           ),
         );
       }
-      return (
-        api as unknown as {
-          settleSupplierAccount: (
-            accountSupplierId: number,
-            data: SettleAccountRequest,
-          ) => Promise<SettleAccountResult>;
-        }
-      ).settleSupplierAccount(accountSupplierId, data);
+      return api.settleSupplierAccount(accountSupplierId, data);
     },
     onSuccess: () => {
       // The batch can touch any/all of the account's children at once — none

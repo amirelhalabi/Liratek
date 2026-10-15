@@ -11,6 +11,12 @@ import type {
   OmtCoveredTypesInput,
   // LIRA-313 — supplier Pay/Receive payload incl. change legs (rule 21).
   SupplierCashflowPayload,
+  // LIRA-322 — account settlement payload (rule 21).
+  SupplierSettleAccountPayload,
+  // LIRA-322 (rule 14) — the OMT account queue row, core's own type. Not
+  // from @liratek/ui: tsconfig.playwright.json includes this file and has
+  // no JSX, which the @liratek/ui barrel needs.
+  AccountUnsettledRow,
   UnitWarrantyDisplay,
   DailyStatsSnapshot,
   DailyStatsSnapshotQuery,
@@ -264,6 +270,8 @@ export interface SupplierTransaction {
   supplier_owed: number;
   fifo_status: "paid" | "partial" | "unpaid" | "voided";
   fifo_paid_usd: number;
+  /** LIRA-322 — LBP paid so far (coverage); OMT account members only. */
+  fifo_paid_lbp?: number;
   created_at: string;
   /** Display-only LEFT JOIN enrichment (FinancialServiceRepository.getAllByProvider)
    *  — this row's per-currency share of the commission entered at settlement
@@ -346,32 +354,10 @@ export interface AccountLedgerEntry {
   settlement_id: number | null;
 }
 
-/**
- * One row of the OMT account's unsettled queue — a union of two
- * structurally different sources (plan §9.3): pending `financial_services`
- * rows (kind FINANCIAL_SERVICE) and raw `supplier_ledger` rows with
- * `settlement_id IS NULL` (kind LEDGER). Mirrors `@liratek/core`'s
- * `AccountUnsettledRow` verbatim (rule 14).
- */
-export interface AccountUnsettledRow {
-  kind: "FINANCIAL_SERVICE" | "LEDGER";
-  id: number;
-  supplier_id: number;
-  source_provider: string | null;
-  /** The Type column. */
-  source_name: string;
-  created_at: string;
-  amount_usd: number;
-  amount_lbp: number;
-  /** Set for LEDGER rows. */
-  entry_type: string | null;
-  /** Set for FINANCIAL_SERVICE rows. */
-  service_type: string | null;
-  /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows). */
-  omt_service_type?: string | null;
-  /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows). */
-  commission_model?: number | null;
-}
+// LIRA-322 (rule 14) — the OMT account queue row is core's own type
+// (imported at the top); the hand-copied duplicate that lived here had
+// already drifted (no commission_* / covered_* / remaining_* fields).
+export type { AccountUnsettledRow };
 
 /**
  * LIRA-255 — "check against OMT's statement" panel. Mirrors `@liratek/core`'s
@@ -1969,36 +1955,11 @@ export interface ElectronAPI {
     // travels inside `data` (unlike the REST route, IPC has no URL to source
     // it from). The repository re-validates every selected id against
     // account membership — the client's selection is never trusted.
-    settleAccount: (data: {
-      account_supplier_id: number;
-      direction: "PAY" | "COLLECT";
-      selections: Array<{ kind: "FINANCIAL_SERVICE" | "LEDGER"; id: number }>;
-      amount_usd: number;
-      amount_lbp: number;
-      commission_usd: number;
-      commission_lbp: number;
-      entry_mode?: "LUMP" | "RATE";
-      commission_rate?: number;
-      commission_unit_count?: number;
-      note?: string;
-      exchange_rate?: number;
-      payments?: Array<{
-        method: string;
-        currency_code: string;
-        amount: number;
-        direction?: "IN" | "OUT";
-      }>;
-      /** LIRA-203 — legacy explicit overpay. LIRA-315: derived from
-       *  `payments` instead (PAY or COLLECT); must match it when sent. */
-      surplus_usd?: number;
-      surplus_lbp?: number;
-      /** LIRA-256 — OMT commission types this settlement's statement covers
-       *  (absent = all types). Rule 12: mirrors the core settle schema. */
-      covered_omt_service_types?: OmtCoveredTypesInput;
-      /** LIRA-310 — Waive (supplier settle discount, ≤ $5 / 450,000 LBP).
-       *  Rule 12/23: mirrors the core settle schema's `discount`. */
-      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    // LIRA-322 (rules 12/21) — the core schema's input type, never a
+    // hand-copied literal (it lacked `per_currency`/`expected_owed`).
+    settleAccount: (
+      data: SupplierSettleAccountPayload,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     // LIRA-313 (rule 21) — the core schema's input type: per-leg
     // `direction` (change legs) and the PAY-only bundled `discount`.
     recordCashflow: (

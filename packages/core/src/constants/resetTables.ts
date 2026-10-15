@@ -270,6 +270,9 @@ export const RESET_WIPE_TABLES: readonly string[] = [
   "supplier_purchases",
   // LIRA-296 v207 — defective items sent back to their supplier.
   "supplier_returns",
+  // LIRA-322 v217 — what each settlement applied to each OMT account row;
+  // wiped with the settlements and ledger rows it points at.
+  "supplier_settlement_coverage",
   "supplier_settlements",
   "transactions",
   "vouchers",

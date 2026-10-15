@@ -199,6 +199,50 @@ export const supplierCashflowSchema = z
     path: ["discount"],
   });
 
+// LIRA-322 (contracts/settle-account.md) — one currency's part of an
+// amount-first account settlement. `direction` must match what is owed in
+// this currency after netting (checked by the repository, which sees the
+// rows); the IN legs are in THIS currency (OMT never settles a currency in
+// another), change (OUT) legs may be in any currency (LIRA-315).
+const settleAccountCurrencySectionSchema = z.object({
+  direction: z.enum(["PAY", "COLLECT"]),
+  payments: z.array(supplierPaymentLegSchema),
+  commission: z.number().nonnegative().optional(),
+  waive: z.number().nonnegative().optional(),
+});
+
+const SETTLE_ACCOUNT_CURRENCIES = ["USD", "LBP"] as const;
+
+const settleAccountPerCurrencySchema = z
+  .object({
+    USD: settleAccountCurrencySectionSchema.optional(),
+    LBP: settleAccountCurrencySectionSchema.optional(),
+  })
+  .superRefine((pc, ctx) => {
+    if (!pc.USD && !pc.LBP) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Enter an amount in at least one currency",
+        path: [],
+      });
+    }
+    for (const currency of SETTLE_ACCOUNT_CURRENCIES) {
+      pc[currency]?.payments.forEach((leg, i) => {
+        if (leg.direction !== "OUT" && leg.currency_code !== currency) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `A ${currency} amount is paid in ${currency} only`,
+            path: [currency, "payments", i, "currency_code"],
+          });
+        }
+      });
+    }
+  });
+
+export type SettleAccountCurrencySection = z.infer<
+  typeof settleAccountCurrencySectionSchema
+>;
+
 // LIRA-189 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5, CONTRACT_W2.md §2.1) — settle
 // the WHOLE OMT open-credit account (the counter, OMT App and iPick
 // together) in one call. `account_supplier_id` is the parent supplier id;
@@ -213,9 +257,12 @@ export const supplierCashflowSchema = z
 // settle/cashflow schema above, the actor is injected by the handler/route
 // from the session (IPC) or the JWT (REST, rule 19c), never trusted from the
 // request body.
-export const supplierSettleAccountSchema = z.object({
+const supplierSettleAccountBaseSchema = z.object({
   account_supplier_id: z.number().int().positive(),
-  direction: z.enum(["PAY", "COLLECT"]),
+  // Legacy whole-row path only (required there, refused with per_currency —
+  // see refineSettleAccount below).
+  direction: z.enum(["PAY", "COLLECT"]).optional(),
+  // Legacy: required, the tick-list. Amount-first: an optional scope override.
   selections: z
     .array(
       z.object({
@@ -223,17 +270,19 @@ export const supplierSettleAccountSchema = z.object({
         id: z.number().int().positive(),
       }),
     )
-    .min(1),
-  amount_usd: z.number(),
-  amount_lbp: z.number(),
+    .min(1)
+    .optional(),
+  amount_usd: z.number().optional(),
+  amount_lbp: z.number().optional(),
   // Operator-entered per-child settlement commission — same shape/meaning as
   // supplierSettleSchema's commission_usd/commission_lbp above. LIRA-189 also
   // sums the STORED commission of any WALLET_CASHOUT rows in the batch from
   // transactions.metadata_json.commission (D14, plan §8.3a) and stamps that
   // automatically; that sum is computed server-side and is NOT part of this
   // field or this schema.
-  commission_usd: z.number(),
-  commission_lbp: z.number(),
+  // Legacy path only (the amount-first path takes per_currency.*.commission).
+  commission_usd: z.number().optional(),
+  commission_lbp: z.number().optional(),
   entry_mode: z.enum(["LUMP", "RATE"]).optional(),
   commission_rate: z.number().nonnegative().optional(),
   commission_unit_count: z.number().int().nonnegative().optional(),
@@ -259,7 +308,86 @@ export const supplierSettleAccountSchema = z.object({
   // LIRA-310 — Waive: settle the selected rows for less than they net to
   // (PAY → received, COLLECT → forgiven). Refused with a surplus.
   discount: settlementDiscountSchema.optional(),
+  // LIRA-322 — presence selects the amount-first path: the operator enters
+  // money per currency and the server decides what closes
+  // (allocateAccountSettlement). Absent = the legacy whole-row path, byte-
+  // identical to before.
+  per_currency: settleAccountPerCurrencySchema.optional(),
+  // LIRA-322 (FR-021) — the signed in-scope remaining the sheet previewed,
+  // per currency; the server refuses the settlement if it has changed.
+  expected_owed: z
+    .object({ usd: z.number(), lbp: z.number() })
+    .optional(),
 });
+
+/** Keys of the legacy whole-row payload that are refused next to `per_currency`. */
+const LEGACY_ONLY_SETTLE_ACCOUNT_KEYS = [
+  "direction",
+  "amount_usd",
+  "amount_lbp",
+  "surplus_usd",
+  "surplus_lbp",
+  "discount",
+  // Lead decision 2026-10-15: the amount-first commission is
+  // per_currency.*.commission — the legacy flat figure is refused next to it.
+  "commission_usd",
+  "commission_lbp",
+] as const;
+
+/** Keys the legacy whole-row payload has always required. */
+const LEGACY_REQUIRED_SETTLE_ACCOUNT_KEYS = [
+  "direction",
+  "selections",
+  "amount_usd",
+  "amount_lbp",
+  "commission_usd",
+  "commission_lbp",
+] as const;
+
+function refineSettleAccount(
+  d: z.infer<typeof supplierSettleAccountBaseSchema>,
+  ctx: z.RefinementCtx,
+): void {
+  if (d.per_currency !== undefined) {
+    for (const key of LEGACY_ONLY_SETTLE_ACCOUNT_KEYS) {
+      if (d[key] !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${key} is not used when settling by amount (per_currency)`,
+          path: [key],
+        });
+      }
+    }
+    // FR-021 — the server refuses a stale preview; it needs the preview.
+    if (d.expected_owed === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "expected_owed is required when settling by amount",
+        path: ["expected_owed"],
+      });
+    }
+    return;
+  }
+  for (const key of LEGACY_REQUIRED_SETTLE_ACCOUNT_KEYS) {
+    if (d[key] === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Required",
+        path: [key],
+      });
+    }
+  }
+}
+
+// The cross-field rules need the whole object, so they run in a parent
+// superRefine — which in Zod 3 returns a ZodEffects with no `.shape`. The
+// backend and frontend key tests read `supplierSettleAccountSchema.shape`
+// (rule 23), so the base object's shape is carried over onto the refined
+// schema; parsing always runs the refinements.
+export const supplierSettleAccountSchema = Object.assign(
+  supplierSettleAccountBaseSchema.superRefine(refineSettleAccount),
+  { shape: supplierSettleAccountBaseSchema.shape },
+);
 
 // LIRA-191 (OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §5) — set or clear a supplier's
 // account parent (`suppliers.account_supplier_id`, migration v176). `null`

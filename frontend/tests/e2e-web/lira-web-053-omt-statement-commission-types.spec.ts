@@ -15,7 +15,8 @@
  *  4. Voiding it nets the OMT balance, the Primary Cash Drawer and Profits
  *     "Commission (at settlement)" back to 0.
  *  5. Steps 2–4 again through the OMT account settle sheet's endpoint
- *     (`/settle-account`).
+ *     (`/settle-account`), with the amount-first payload the sheet sends
+ *     since LIRA-322 (commission entered in the USD section).
  *
  * Rule 15: deltas around each action, rows matched by identity. Amounts
  * (461 / 517) are unique to this file. Both SENDs are left queued (same
@@ -211,6 +212,12 @@ test("lira-web-053 OMT statement commission types: the check subtracts only cove
     commission: number,
   ) => {
     const net = Math.round((INTRA_GROSS - commission) * 100) / 100;
+    const owedOf = (ids: number[]) =>
+      ids.reduce(
+        (sum, id) =>
+          sum + (id === intraId ? INTRA_GROSS : id === wuId ? WU_X + WU_FEE : 0),
+        0,
+      );
     const body = (ids: number[], amount: number) =>
       via === "settle"
         ? {
@@ -224,14 +231,18 @@ test("lira-web-053 OMT statement commission types: the check subtracts only cove
             covered_omt_service_types: ["INTRA"],
           }
         : {
-            direction: "PAY",
+            // LIRA-322 — the amount-first contract the account sheet sends:
+            // scoped to these transfers, the commission entered in the USD
+            // section, `expected_owed` = what the ticked transfers owe.
             selections: ids.map((id) => ({ kind: "FINANCIAL_SERVICE", id })),
-            amount_usd: amount,
-            amount_lbp: 0,
-            commission_usd: commission,
-            commission_lbp: 0,
-            entry_mode: "LUMP",
-            payments: [{ method: "CASH", currency_code: "USD", amount }],
+            expected_owed: { usd: owedOf(ids), lbp: 0 },
+            per_currency: {
+              USD: {
+                direction: "PAY",
+                payments: [{ method: "CASH", currency_code: "USD", amount }],
+                commission,
+              },
+            },
             covered_omt_service_types: ["INTRA"],
           };
     const url = `${BACKEND_URL}/api/suppliers/${omtId}/${via}`;

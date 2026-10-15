@@ -19,6 +19,7 @@ import {
   supplierRecordDebtSchema,
   supplierCreateSchema,
   omtCoveredTypesSchema,
+  describeSettleAccountForAudit,
   type SupplierCreateInput,
   type OmtCoveredTypesInput,
 } from "@liratek/core";
@@ -519,18 +520,11 @@ router.post(
       if (result.success) {
         // Mirrors supplierHandlers.ts's suppliers:settle-account audit
         // (settle/supplier_account_settlement).
+        // LIRA-322 — both payload shapes, same text as the IPC handler.
         auditRest(req, {
           action: "settle",
           entity_type: "supplier_account_settlement",
-          summary: `Settled OMT account #${req.body.account_supplier_id} (${req.body.direction}, ${req.body.selections.length} row${req.body.selections.length === 1 ? "" : "s"})`,
-          metadata: {
-            account_supplier_id: req.body.account_supplier_id,
-            direction: req.body.direction,
-            count: req.body.selections.length,
-            // LIRA-203 — 0/0 when no overpayment was declared.
-            surplus_usd: req.body.surplus_usd ?? 0,
-            surplus_lbp: req.body.surplus_lbp ?? 0,
-          },
+          ...describeSettleAccountForAudit(req.body),
         });
       }
       res.json(result);

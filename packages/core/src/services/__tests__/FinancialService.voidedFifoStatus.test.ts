@@ -18,6 +18,8 @@ jest.mock("../../repositories/index.js", () => {
     getSupplierRepository: () => ({
       getByProvider: mockGetByProvider,
       getManualPaymentPools: mockGetManualPaymentPools,
+      // LIRA-322 — a non-member keeps the pool estimate this file tests.
+      isAccountMember: () => false,
     }),
   };
 });

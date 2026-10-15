@@ -939,6 +939,29 @@ CREATE INDEX IF NOT EXISTS idx_sca_settlement_ledger_id ON settlement_commission
 CREATE INDEX IF NOT EXISTS idx_sca_financial_service_id ON settlement_commission_allocations(financial_service_id);
 CREATE INDEX IF NOT EXISTS idx_sca_tenant_id ON settlement_commission_allocations(tenant_id);
 
+-- LIRA-322 (v217): what one SUPPLIER_SETTLEMENT applied to one OMT-account
+-- queue row (financial_services or supplier_ledger), in one currency, from
+-- one source. 'Paid so far' on a row = SUM of its active coverage
+-- (is_reversed = 0); a void sets is_reversed = 1, never deletes.
+CREATE TABLE IF NOT EXISTS supplier_settlement_coverage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+    anchor_ledger_id INTEGER NOT NULL REFERENCES supplier_ledger(id),
+    row_kind TEXT NOT NULL CHECK(row_kind IN ('FINANCIAL_SERVICE', 'LEDGER')),
+    row_id INTEGER NOT NULL,
+    member_supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+    currency TEXT NOT NULL CHECK(currency IN ('USD', 'LBP')),
+    amount REAL NOT NULL CHECK(amount > 0),
+    source TEXT NOT NULL CHECK(source IN ('PAYMENT', 'NETTING', 'COMMISSION', 'WAIVE')),
+    closes_row INTEGER NOT NULL DEFAULT 0,
+    is_reversed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ssc_row ON supplier_settlement_coverage(tenant_id, row_kind, row_id, is_reversed);
+CREATE INDEX IF NOT EXISTS idx_ssc_transaction ON supplier_settlement_coverage(tenant_id, transaction_id);
+
 -- Supplier Purchases (delivery batches for FIFO payment coverage)
 CREATE TABLE IF NOT EXISTS supplier_purchases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3113,4 +3136,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- v216 adds the Whish App catalog items to shops that already have a
     -- catalog (data only, no schema). A fresh install gets them from the
     -- starting catalog seed instead.
-    (216, 'whish_app_catalog_additions');
+    (216, 'whish_app_catalog_additions'),
+    -- v217 (LIRA-322) adds supplier_settlement_coverage + its two indexes,
+    -- declared above.
+    (217, 'supplier_settlement_coverage');

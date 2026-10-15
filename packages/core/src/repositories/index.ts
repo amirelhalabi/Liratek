@@ -298,6 +298,8 @@ export {
   SupplierRepository,
   getSupplierRepository,
   resetSupplierRepository,
+  ACCOUNT_ROW_COVERED_SQL,
+  isSettlementCommissionCredit,
 } from "./SupplierRepository.js";
 export type {
   SupplierEntity,
@@ -314,6 +316,9 @@ export type {
   AccountExpectedStatement,
   AccountLedgerEntry,
   AccountUnsettledRow,
+  SettleAccountData,
+  SettleAccountRequest,
+  SettleAccountCurrencySectionData,
 } from "./SupplierRepository.js";
 
 // Maintenance Repository

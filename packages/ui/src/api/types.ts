@@ -645,6 +645,18 @@ export type AccountUnsettledRow = {
   omt_service_type?: string | null;
   /** LIRA-256 — FINANCIAL_SERVICE rows only (null for LEDGER rows). */
   commission_model?: number | null;
+  /**
+   * LIRA-322 — what active settlements already applied to this row, per
+   * currency (magnitude; 0 when nothing was applied).
+   */
+  covered_usd: number;
+  covered_lbp: number;
+  /**
+   * LIRA-322 — what the row still owes, per currency, signed like
+   * `amount_*` (debt +, credit −). `amount_*` stays the full gross.
+   */
+  remaining_usd: number;
+  remaining_lbp: number;
 };
 
 /**

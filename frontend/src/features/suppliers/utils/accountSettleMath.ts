@@ -1,37 +1,43 @@
 /**
- * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md (LIRA-189, wave 2, lane W6) — pure
- * arithmetic for the OMT account settle sheet, kept out of the component so
- * it's independently unit-testable and so the same "collapse mixed USD/LBP
- * into one currency + direction" rule used by the pre-existing Pay/Receive
- * tab (`Suppliers/index.tsx`'s `payAmount`/`payCurrency`/`defaultDirection`
- * memo) isn't pasted a second time inline in the sheet (rule 14 — one
- * definition, reused). Not imported FROM `index.tsx` (that file exports
- * nothing) — this is the account-settlement sibling of the same formula,
- * factored out once so both call sites can share it going forward.
+ * LIRA-322 — pure helpers for the OMT account Settle Account sheet, kept out
+ * of the component so they are unit-testable and so the sheet's preview
+ * feeds the core allocator EXACTLY what the server feeds it
+ * (`SupplierRepository._planAmountFirstSection`, rule 14):
  *
- * `entry_type` is never in this file. All amount fields here are raw
- * `supplier_ledger`-shaped USD/LBP components carried by
- * `AccountUnsettledRow`, which are ALREADY signed the right way (positive =
- * shop owes; negative = the account owes the shop, e.g. an OMT App cashout)
- * — see `SupplierRepository.getAccountUnsettled`'s own doc comment. Nothing
- * here re-derives or re-signs anything.
+ *   - money applies per currency only (USD money to USD rows, LBP to LBP);
+ *   - rows are the in-scope queue rows whose remaining in that currency is
+ *     beyond the tolerance ($0.005 / 0.5 LBP);
+ *   - `paid` = direction sign × (IN legs − change legs) in that currency;
+ *   - `commission_model1` = a FINANCIAL_SERVICE row with commission_model 1;
+ *   - `cashout_commission` = the row's commission in that currency.
+ *
+ * The old "collapse a mixed USD/LBP net into one USD figure" rule
+ * (`collapseNetBalance`) is gone on purpose: OMT never settles one currency
+ * with the other (FR-001/FR-003), and that merged figure is what made the
+ * server refuse "$507.11" (research F1).
+ *
+ * All `remaining_*` amounts here are already signed (+ the shop owes OMT,
+ * − OMT owes the shop) by `getAccountUnsettled`; nothing here re-signs.
  */
+import {
+  allocateAccountSettlement,
+  compareAccountSettleRows,
+  isOmtRowCovered,
+  type AccountSettleAllocResult,
+  type OmtCoveredType,
+} from "@liratek/core";
+import type { AccountUnsettledRow } from "../hooks/useSuppliers";
 
-/** The subset of `AccountUnsettledRow` this module actually reads — kept
- *  minimal and structural so a caller with the real (richer) type satisfies
- *  it for free. `commission_usd`/`commission_lbp` are REQUIRED, matching
- *  `AccountUnsettledRow`'s own contract: `getAccountUnsettled` populates
- *  them unconditionally (always 0 for a non-cashout row), so a caller here
- *  never needs an `?? 0` guard either. */
-export interface AccountSettleRowLike {
-  kind: "FINANCIAL_SERVICE" | "LEDGER";
-  id: number;
-  amount_usd: number;
-  amount_lbp: number;
-  created_at: string;
-  commission_usd: number;
-  commission_lbp: number;
-}
+export type SettleCurrency = "USD" | "LBP";
+export type SettleDirection = "PAY" | "COLLECT";
+
+export const SETTLE_CURRENCIES: readonly SettleCurrency[] = ["USD", "LBP"];
+
+/** Same tolerances as the server's `AMOUNT_FIRST_EPS`. */
+export const SETTLE_EPS: Record<SettleCurrency, number> = {
+  USD: 0.005,
+  LBP: 0.5,
+};
 
 /** Composite selection key — a FINANCIAL_SERVICE row and a LEDGER row can
  *  legitimately share a numeric `id` (they're different tables), so the
@@ -40,99 +46,139 @@ export function accountRowKey(row: { kind: string; id: number }): string {
   return `${row.kind}:${row.id}`;
 }
 
-/** Oldest-first, matching `getAccountUnsettled`'s own ordering convention
- *  and D8 ("oldest rows pre-selected"). Returns a new array — never mutates
- *  the query's cached result. */
-export function sortOldestFirst<T extends { created_at: string }>(
-  rows: T[],
-): T[] {
-  return [...rows].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-  );
+/** Oldest first, in the ONE row order the server allocates in
+ *  (`compareAccountSettleRows`: `created_at` as a string, then kind, then
+ *  id). Returns a new array — never mutates the query's cached result. */
+export function sortOldestFirst<
+  T extends Pick<AccountUnsettledRow, "kind" | "id" | "created_at">,
+>(rows: T[]): T[] {
+  return [...rows].sort(compareAccountSettleRows);
 }
 
-export interface SelectionTotals {
-  /** Sum of |amount| across selected rows, per currency — "how much money,
-   *  regardless of direction, this selection touches" (the
-   *  `supplier-account-settle-selected-total` figure). */
-  selectedTotalUsd: number;
-  selectedTotalLbp: number;
-  /** Signed sum across selected rows, per currency — credits (negative
-   *  rows) net against debts automatically (the
-   *  `supplier-account-settle-net` figure). */
-  netUsd: number;
-  netLbp: number;
-  /** Sum of the per-row commission fields across selected rows — 0 for any
-   *  selection with no cashout row (`AccountSettleRowLike`'s doc comment). */
-  deferredCommissionUsd: number;
-  deferredCommissionLbp: number;
-}
-
-export function computeSelectionTotals(
-  rows: AccountSettleRowLike[],
-  selected: ReadonlySet<string>,
-): SelectionTotals {
-  let selectedTotalUsd = 0;
-  let selectedTotalLbp = 0;
-  let netUsd = 0;
-  let netLbp = 0;
-  let deferredCommissionUsd = 0;
-  let deferredCommissionLbp = 0;
-  for (const row of rows) {
-    if (!selected.has(accountRowKey(row))) continue;
-    const usd = row.amount_usd || 0;
-    const lbp = row.amount_lbp || 0;
-    selectedTotalUsd += Math.abs(usd);
-    selectedTotalLbp += Math.abs(lbp);
-    netUsd += usd;
-    netLbp += lbp;
-    deferredCommissionUsd += row.commission_usd;
-    deferredCommissionLbp += row.commission_lbp;
-  }
-  return {
-    selectedTotalUsd,
-    selectedTotalLbp,
-    netUsd,
-    netLbp,
-    deferredCommissionUsd,
-    deferredCommissionLbp,
-  };
-}
-
-export interface CollapsedBalance {
-  amount: number;
-  currency: "USD" | "LBP";
-  direction: "PAY" | "COLLECT";
+/** Signed remaining of a row in one currency. */
+export function rowRemaining(
+  row: Pick<AccountUnsettledRow, "remaining_usd" | "remaining_lbp">,
+  currency: SettleCurrency,
+): number {
+  return (currency === "USD" ? row.remaining_usd : row.remaining_lbp) || 0;
 }
 
 /**
- * Collapse a mixed USD/LBP net into ONE currency + a PAY/COLLECT direction —
- * the account-settlement sibling of `Suppliers/index.tsx`'s pre-existing
- * `payAmount`/`payCurrency`/`defaultDirection` memo (same three-case shape:
- * pure USD, pure LBP, mixed collapses to USD via `exchangeRate`). Positive
- * net = the shop owes the account = PAY; negative = the account owes the
- * shop (e.g. cashouts outweighing debt, §8.4) = COLLECT.
+ * LIRA-256 — a new-style (commission_model = 1) OMT transfer whose type the
+ * statement does not cover waits for a later statement: it is out of scope
+ * and cannot be picked. Old-style rows and LEDGER rows are never
+ * restricted. Same predicate the server's scope uses (`isOmtRowCovered`).
  */
-export function collapseNetBalance(
-  usd: number,
-  lbp: number,
-  exchangeRate: number,
-  epsUsd = 0.005,
-  epsLbp = 0.5,
-): CollapsedBalance {
-  const hasUsd = Math.abs(usd) > epsUsd;
-  const hasLbp = Math.abs(lbp) > epsLbp;
+export function isWaitingRow(
+  row: AccountUnsettledRow,
+  covered: OmtCoveredType[] | undefined,
+): boolean {
+  return (
+    row.kind === "FINANCIAL_SERVICE" &&
+    row.commission_model === 1 &&
+    !isOmtRowCovered(
+      {
+        provider: row.source_provider,
+        omt_service_type: row.omt_service_type ?? null,
+      },
+      covered,
+    )
+  );
+}
 
-  if (hasLbp && hasUsd) {
-    const netUsd = lbp / exchangeRate + usd;
-    return {
-      amount: netUsd,
-      currency: "USD",
-      direction: netUsd >= 0 ? "PAY" : "COLLECT",
-    };
+/**
+ * The rows a settlement covers — the server's `_amountFirstScope`: the
+ * ticked rows when any are ticked, otherwise the whole queue minus the
+ * waiting rows.
+ */
+export function settlementScope(
+  rows: AccountUnsettledRow[],
+  picked: ReadonlySet<string>,
+  covered: OmtCoveredType[] | undefined,
+): AccountUnsettledRow[] {
+  if (picked.size > 0) {
+    return rows.filter(
+      (r) => picked.has(accountRowKey(r)) && !isWaitingRow(r, covered),
+    );
   }
-  if (hasLbp) {
-    return { amount: lbp, currency: "LBP", direction: lbp >= 0 ? "PAY" : "COLLECT" };
-  }
-  return { amount: usd, currency: "USD", direction: usd >= 0 ? "PAY" : "COLLECT" };
+  return rows.filter((r) => !isWaitingRow(r, covered));
+}
+
+/** Signed in-scope remaining per currency — the sheet's `expected_owed`
+ *  (FR-021). Raw sums, the same arithmetic the server repeats. */
+export function scopeOwed(rows: AccountUnsettledRow[]): {
+  usd: number;
+  lbp: number;
+} {
+  return {
+    usd: rows.reduce((s, r) => s + rowRemaining(r, "USD"), 0),
+    lbp: rows.reduce((s, r) => s + rowRemaining(r, "LBP"), 0),
+  };
+}
+
+/** In-scope rows that still owe something in this currency. */
+export function rowsInCurrency(
+  rows: AccountUnsettledRow[],
+  currency: SettleCurrency,
+): AccountUnsettledRow[] {
+  return rows.filter(
+    (r) => Math.abs(rowRemaining(r, currency)) > SETTLE_EPS[currency],
+  );
+}
+
+/** The direction what is owed in a currency dictates: + PAY, − COLLECT,
+ *  null when nothing is owed (the operator may choose). */
+export function directionFromOwed(
+  owed: number,
+  currency: SettleCurrency,
+): SettleDirection | null {
+  if (owed > SETTLE_EPS[currency]) return "PAY";
+  if (owed < -SETTLE_EPS[currency]) return "COLLECT";
+  return null;
+}
+
+/** Cents for USD, whole units for LBP; never −0. */
+export function roundMoney(value: number, currency: SettleCurrency): number {
+  const f = currency === "USD" ? 100 : 1;
+  const r = Math.round(value * f) / f;
+  return r === 0 ? 0 : r;
+}
+
+export interface SectionMoney {
+  /** IN legs in this currency (money paid toward rows). */
+  inSame: number;
+  /** Change (OUT) legs in this currency. */
+  outSame: number;
+  commission: number;
+}
+
+/**
+ * Run the core allocator for one currency section, exactly as the server
+ * does (see the header comment).
+ */
+export function allocateSection(
+  rows: AccountUnsettledRow[],
+  currency: SettleCurrency,
+  direction: SettleDirection,
+  money: SectionMoney,
+): AccountSettleAllocResult {
+  const dirSign = direction === "PAY" ? 1 : -1;
+  return allocateAccountSettlement({
+    currency,
+    rows: rowsInCurrency(rows, currency).map((r) => ({
+      kind: r.kind,
+      id: r.id,
+      member_supplier_id: r.supplier_id,
+      created_at: r.created_at,
+      remaining: rowRemaining(r, currency),
+      commission_model1:
+        r.kind === "FINANCIAL_SERVICE" && r.commission_model === 1,
+      cashout_commission:
+        currency === "USD" ? r.commission_usd : r.commission_lbp,
+    })),
+    paid: dirSign * (money.inSame - money.outSame),
+    commission: money.commission,
+    waive: 0,
+    eps: SETTLE_EPS[currency],
+  });
 }

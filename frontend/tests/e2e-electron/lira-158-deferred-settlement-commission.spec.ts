@@ -28,7 +28,8 @@
  *   1. Record a real OMT (system) SEND through the Services form, charged
  *      ENTIRELY to a brand-new client's account (CUSTOMER_ACCOUNT) — so the
  *      client owes the shop for the transfer, unpaid at settlement time.
- *   2. Settle it through the REAL Suppliers "Commission Settlement" tab,
+ *   2. Settle it through the REAL OMT account Settle Account sheet
+ *      (LIRA-322; it was the Suppliers "Commission Settlement" tab),
  *      entering a commission DELIBERATELY DIFFERENT from the auto-calculated
  *      estimate still sitting on the financial_services row (LIRA-158 §1.1:
  *      OMT's `commission` column holds that estimate, untouched by the
@@ -93,11 +94,6 @@ import {
 } from "./fixtures";
 import type { Page, Locator } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
-import {
-  settleModalRoot,
-  beforeContentBlock,
-  settleRowById,
-} from "./helpers/katshSettlement";
 
 test.describe.configure({ retries: 0 });
 
@@ -331,85 +327,66 @@ async function settleFullDebtInCash(page: Page, clientName: string) {
   ).toBeVisible({ timeout: 15_000 });
 }
 
-/** Select a supplier tile on the Suppliers page and wait for its
- *  "Commission Settlement" header — provider-generic version of
- *  `selectKatshSupplierTile` (helpers/katshSettlement.ts), which is named
- *  and scoped for Katsh specifically. The underlying mechanism (tile click,
- *  escalating retry, same heading) is identical for every supplier. */
-async function selectSupplierTile(page: Page, provider: string) {
-  const tile = page.getByTestId(`supplier-tile-${provider}`);
-  const settleHeader = page.getByText("Commission Settlement");
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await expect(tile).toBeVisible({ timeout: 15_000 });
-    if (attempt === 0) {
-      await tile.click();
-    } else {
-      await page.mouse.move(5, 400);
-      await tile.evaluate((el) => (el as HTMLButtonElement).click());
-    }
-    const waitMs = [8_000, 12_000, 12_000][attempt] ?? 12_000;
-    const ok = await settleHeader
-      .waitFor({ state: "visible", timeout: waitMs })
-      .then(() => true)
-      .catch(() => false);
-    if (ok) return;
-  }
-  throw new Error(
-    `"${provider}" supplier tile selected but "Commission Settlement" heading never appeared.`,
-  );
-}
-
-/** Select this run's OMT row, open the Commission Settlement modal, force
- *  LUMP entry mode, enter a commission through the REAL "Commission (USD)"
- *  input (never a hand-built IPC payload), pick CASH for the net payment,
- *  and confirm. */
+/** LIRA-322 — OMT is an account member, so it is paid only from the OMT
+ *  account card's Settle Account sheet (the per-supplier "Commission
+ *  Settlement" list is gone for OMT, OMT App and iPick). Open the sheet,
+ *  tick THIS run's own SEND in "Pick transfers" (by kind + id — never by
+ *  position, rule 15: the account lists every other spec's stale rows),
+ *  enter the commission through the REAL USD-section commission input
+ *  (never a hand-built IPC payload), pay the rest in CASH, and confirm. */
 async function settleOmtRow(
   page: Page,
   rowId: number,
+  owedUsd: number,
   enteredCommissionUsd: number,
 ) {
-  // THIS run's own SEND, by its unsettled-transaction id -- never by
-  // position (rule 15: the tab also lists every other spec's stale
-  // unsettled OMT rows) and no longer by amount text: since c2f4429d the
-  // row shows `supplier_owed` (amount + fee), not the raw amount.
-  const row = settleRowById(page, rowId);
+  await navigateTo(page, "/suppliers");
+  const card = page.getByTestId("supplier-account-card-OMT");
+  await expect(card).toBeVisible({ timeout: 15_000 });
+  await card.getByTestId("supplier-account-settle-button").click();
+  const sheet = page.getByTestId("supplier-account-settle-sheet");
+  await expect(sheet).toBeVisible({ timeout: 10_000 });
+
+  await sheet.getByTestId("supplier-account-settle-pick-toggle").click();
+  const row = sheet.locator(
+    `[data-testid="supplier-account-settle-row"][data-kind="FINANCIAL_SERVICE"][data-row-id="${rowId}"]`,
+  );
   await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.locator('input[type="checkbox"]').check();
+  await row.getByTestId("supplier-account-settle-row-toggle").check();
 
-  const settleBtn = page.getByRole("button", { name: /^Settle \(1\)$/ });
-  await expect(settleBtn).toBeVisible();
-  await expect(settleBtn).toBeEnabled();
-  await settleBtn.click();
-  await expect(settleModalRoot(page)).toBeVisible({ timeout: 10_000 });
+  const usd = sheet.getByTestId("supplier-account-settle-section-usd");
+  await expect(usd.getByTestId("supplier-account-settle-owed-usd")).toHaveText(
+    `$${owedUsd.toFixed(2)}`,
+  );
+  await usd
+    .getByTestId("supplier-account-settle-commission-usd")
+    .fill(enteredCommissionUsd.toFixed(2));
 
-  // Pick CASH BEFORE entering the commission. MultiPaymentInput re-syncs the
-  // single leg to the net total (owed − commission) in an effect; a method
-  // change dispatched in the few ms between that effect's setState and its
-  // commit runs updatePaymentLine over the PRE-sync lines and writes the old
-  // (owed) amount back — and a method change never re-triggers the sync, so
-  // the leg stayed at the owed figure, the sheet showed "reduce the payment
-  // to …" and Confirm stayed disabled. Reproduced only in headed runs
-  // (2026-10-11, console probe: sync 635.41→631.06, then the method change
-  // 10 ms later still saw [635.41]). Entering the commission LAST makes the
-  // sync the final writer.
-  const methodSelect = page.locator('[data-testid^="payment-method-"]').first();
+  // Method first, amount last: a method change re-syncs the line.
+  const methodSelect = usd.locator('[data-testid^="payment-method-"]').first();
   await expect(methodSelect).toBeVisible({ timeout: 10_000 });
   await methodSelect.selectOption("CASH");
+  const cash = Math.round((owedUsd - enteredCommissionUsd) * 100) / 100;
+  await usd
+    .locator('[data-testid^="payment-amount-"]')
+    .first()
+    .fill(cash.toFixed(2));
 
-  const body = beforeContentBlock(page);
-  await body.getByRole("button", { name: "Lump sum", exact: true }).click();
+  // The commission + cash close this transfer in full (commission only
+  // counts on a transfer the settlement closes).
+  await expect(
+    usd.locator(
+      `[data-testid="supplier-account-settle-preview-row"][data-kind="FINANCIAL_SERVICE"][data-row-id="${rowId}"]`,
+    ),
+  ).toHaveAttribute("data-status", "closes");
+  await expect(
+    usd.getByTestId("supplier-account-settle-commission-warning-usd"),
+  ).toHaveCount(0);
 
-  const commissionUsdInput = body
-    .locator('label:text-is("Commission (USD)")')
-    .locator("xpath=following-sibling::input[1]");
-  await commissionUsdInput.fill(enteredCommissionUsd.toFixed(2));
-
-  const confirmBtn = settleModalRoot(page).getByRole("button", {
-    name: "Confirm Settlement",
-  });
-  await expect(confirmBtn).toBeEnabled();
-  await confirmBtn.click();
-  await expect(settleModalRoot(page)).toBeHidden({ timeout: 15_000 });
+  const submit = sheet.getByTestId("supplier-account-settle-submit");
+  await expect(submit).toBeEnabled();
+  await submit.click();
+  await expect(sheet).toBeHidden({ timeout: 15_000 });
 }
 
 test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT settlement)", () => {
@@ -479,11 +456,9 @@ test.describe("LIRA-158 D17 — deferred settlement commission (cashless OMT set
     const ipcBeforeSettle = await getProfitFigures(appPage);
     const pageBeforeSettle = await readProfitsPageFigures(appPage);
 
-    // ── 4. Settle via the REAL Suppliers "Commission Settlement" tab,
+    // ── 4. Settle via the REAL OMT account Settle Account sheet (LIRA-322),
     // entering ENTERED_COMMISSION — never a hand-built IPC payload. ──────
-    await navigateTo(appPage, "/suppliers");
-    await selectSupplierTile(appPage, "OMT");
-    await settleOmtRow(appPage, unsettledRow!.id, ENTERED_COMMISSION);
+    await settleOmtRow(appPage, unsettledRow!.id, owed, ENTERED_COMMISSION);
 
     // ── 5. D17: the client hasn't repaid yet, so this cashless settlement's
     // commission must NOT be recognised — it must show up as deferred

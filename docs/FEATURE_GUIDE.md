@@ -740,7 +740,36 @@ its row exactly where the flow wrote it.
 | Settlement | `settleAccount` writes **one ledger row per child touched**, so each child nets to 0 individually. A single lump row on the parent would leave one child overpaid and another unpaid |
 | Direction | Settlement supports **PAY and COLLECT** — cashouts (§8.2) can make the account net negative |
 | Deferred commission | An OMT App cashout's commission is stored in `transactions.metadata_json.commission` (there is no column) and recognised as profit **at settlement**, summed server-side. Never ask the operator to total it |
-| OUT legs | **Rejected outright** in `settleAccount`. A supplier settlement has no customer, so there is no change to return — and an equal-and-opposite pair was a way to wash money between two drawers |
+| OUT legs | **Rejected outright** in the legacy whole-row `settleAccount` payload. A supplier settlement has no customer, so there is no change to return — and an equal-and-opposite pair was a way to wash money between two drawers. The amount-first payload (below) allows CASH change legs only, capped by the extra (`_resolveSettlementLegs`, LIRA-315) |
+
+#### Amount-first account settlement (LIRA-322, `specs/322-omt-amount-first-settle/`)
+
+The Settle Account sheet sends the **amount-first** payload: the operator types what was paid or
+received per currency, and the server decides what closes. It is the ONLY way to pay an
+account member — OMT, OMT App and iPick have no Pay / Receive tab and no Commission settlement list
+(non-members such as Katsh keep both). The old whole-row payload (`direction` + `selections` +
+`amount_*`) is still accepted by the server as a regression net, but refuses a part-paid row.
+
+| Fact | Detail |
+| ---- | ------ |
+| Payload | `per_currency: { USD?, LBP? }`, each `{ direction, payments, commission?, waive? }`, plus `expected_owed: { usd, lbp }` (the signed in-scope remaining the sheet previewed) and an optional `selections` scope. Schema `supplierSettleAccountSchema`; one payload for both transports (rules 21/22) |
+| Per-currency rule | USD money settles USD rows only, LBP money LBP rows only. An IN leg must be in its section's currency; a change (OUT) leg may be in either currency, CASH only (LIRA-315). A currency with no section is untouched |
+| Direction | Per section, from the sign of what is owed in that currency (PAY when the shop owes, COLLECT when OMT owes). One settlement may PAY one currency and COLLECT the other; drawers, ledger rows and change legs are signed per section |
+| Allocation | ONE pure allocator, `allocateAccountSettlement` (core `utils/accountSettleAllocation.ts`), runs in the sheet preview AND on the server. Credits net first in their currency, then money + commission close rows oldest first (`compareAccountSettleRows`: `created_at`, kind, id); at most one row is part-paid; anything above what is owed is an extra booked on the account (LIRA-315 overpay rows) |
+| Stale refusal | The server re-reads the queue inside the transaction and refuses when the in-scope remaining differs from `expected_owed` ("OMT's balance changed since you opened this sheet…"); the sheet refetches and keeps the typed lines |
+| Coverage table | `supplier_settlement_coverage` (v217): one row per (settlement, queue row, currency, source `PAYMENT`/`NETTING`/`COMMISSION`/`WAIVE`), `closes_row=1` on the row it fully paid. Remaining = gross − active coverage (`ACCOUNT_ROW_COVERED_SQL`, the one fragment — rule 14). A row is stamped `settlement_id = anchor` only when it closes; a part-paid row stays in the queue with `remaining_*` |
+| Ledger rows | One anchor + one `supplier_ledger` row per member **per currency** with a nonzero money share, sign from its own section. Closed rows of every member share the ONE anchor `settlement_id`. The call returns the anchor ledger id; the transaction is the `SUPPLIER_SETTLEMENT` with `source_id = anchor` and `metadata_json.per_currency` |
+| Netting pair (`is_auto`) | A credit on one member netting a debt on another writes an auto pair (debtor −x `PAYMENT`, creditor +x `SUPPLIER_PAYS_US`, `is_auto=1`, `transaction_id` = settlement, stamped `settlement_id = anchor` at write time so it never re-enters the queue). Rule 26: its lifecycle belongs to the settlement |
+| Commission | Entered commission counts toward coverage and is allocated (`settlement_commission_allocations`) only over model-1 rows this settlement CLOSES; refused when none closes. Its credit row is stamped with the anchor, so an old settlement commission never reappears as a credit. A cash-out's deferred commission is recognised only by the settlement that closes its credit row |
+| Status on the Suppliers page | For account members, `getAllByProvider` takes `fifo_status` / `fifo_paid_usd` / `fifo_paid_lbp` from coverage ("Partial · $47.00"), never from the manual-payment pool estimate |
+| Void (reversal owner) | Generic void/refund → `_reverseSupplierSettlement`, which also soft-voids the coverage rows (`is_reversed=1`), the netting pair and the overpay / commission siblings. **Newest first:** `_assertSettlementIsNewestOnItsRows` refuses, before any write, a settlement when a later active one covered any of the same rows ("A later settlement … Void it first."). `_assertNoActiveSettlementCoverage` refuses voiding a part-paid or netted row's own transaction while a settlement still covers it |
+
+Guards: core jest `SupplierRepository.lira322AmountFirst` / `.lira322Netting` / `.lira322Invariant`
+(seeded property test of invariants 1–3) / `.lira322ExpectedStatement`,
+`TransactionRepository.lira322AmountFirstVoid`, `FinancialService.lira322CoverageStatus`; sheet
+suites `AccountSettleSheet.lira322*`; page `Suppliers.lira322AccountOnly`; badge
+`CashFlowBadge.lira322MixedSettlement`; web e2e `lira-web-065-omt-amount-first-settle` (plus
+lira-web-035/053 and the shared desktop lira-189/lira-158 on the new sheet).
 
 ### 8.3 OMT App wallet — credit in, cashout out
 

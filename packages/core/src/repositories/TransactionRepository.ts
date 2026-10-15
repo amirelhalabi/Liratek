@@ -5639,6 +5639,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // removed by the payment's void/refund; refuse up front if that
     // discount was already swept into a settlement.
     this._assertSupplierBundledDiscountVoidable(original);
+    // LIRA-322 (R8) — amount-first OMT account settlements are voided
+    // newest first, and nothing a settlement part-paid is voided under it.
+    this._assertSettlementIsNewestOnItsRows(original);
+    this._assertNoActiveSettlementCoverage(original);
     // EXCHANGE_LOT_SETTLEMENT.md Q12 — refuse up-front if this exchange's
     // acquired lot has already been partially/fully sold. No-op for every
     // non-EXCHANGE type.
@@ -6056,6 +6060,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // removed by the payment's void/refund; refuse up front if that
     // discount was already swept into a settlement.
     this._assertSupplierBundledDiscountVoidable(original);
+    // LIRA-322 (R8) — same up-front guards as voidTransaction.
+    this._assertSettlementIsNewestOnItsRows(original);
+    this._assertNoActiveSettlementCoverage(original);
     // Same up-front settled-lot guard as voidTransaction — see
     // _assertExchangeLotsVoidable's doc. No-op for every non-EXCHANGE type.
     this._assertExchangeLotsVoidable(original);
@@ -7096,6 +7103,122 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
   }
 
+  /** LIRA-322 — `supplier_settlement_coverage` exists from v217; many
+   *  hand-rolled jest fixtures predate it. */
+  private _hasSettlementCoverageTable(): boolean {
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supplier_settlement_coverage'`,
+      )
+      .get();
+  }
+
+  /**
+   * LIRA-322 (R8, FR-018) — settlements that share transfers are voided
+   * newest first. Refuses, before any write, the void/refund of a
+   * SUPPLIER_SETTLEMENT when another ACTIVE coverage row of a LATER
+   * settlement (higher transaction id — the channel is online-only, so ids
+   * only grow, and two settlements in the same second still order) sits on
+   * any row this settlement covered. Otherwise the later settlement's
+   * coverage would keep counting against a row this void reopens. No-op for
+   * every other type and for a legacy whole-row settlement (no coverage).
+   */
+  private _assertSettlementIsNewestOnItsRows(original: TransactionEntity): void {
+    if (original.type !== "SUPPLIER_SETTLEMENT") return;
+    if (!this._hasSettlementCoverageTable()) return;
+    const later = this.queryOne<{ id: number; created_at: string }>(
+      `SELECT t.id AS id, t.created_at AS created_at
+         FROM supplier_settlement_coverage mine
+         JOIN supplier_settlement_coverage other
+           ON other.tenant_id = mine.tenant_id
+          AND other.row_kind = mine.row_kind
+          AND other.row_id = mine.row_id
+          AND other.is_reversed = 0
+          AND other.transaction_id > mine.transaction_id
+         JOIN transactions t
+           ON t.id = other.transaction_id AND t.tenant_id = other.tenant_id
+        WHERE mine.tenant_id = ? AND mine.transaction_id = ? AND mine.is_reversed = 0
+        ORDER BY t.id DESC
+        LIMIT 1`,
+      getCurrentTenantId(),
+      original.id,
+    );
+    if (later) {
+      throw new DatabaseError(
+        `A later settlement (#${later.id}, ${later.created_at}) paid the same transfers. Void it first.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /**
+   * LIRA-322 (rule 20) — refuse, before any write, voiding/refunding the
+   * transaction behind an OMT-account queue row that an ACTIVE settlement
+   * still has coverage on (part-paid or netted): the transfer itself
+   * (`financial_services`), a ledger row it booked (its auto sibling, or
+   * the ledger row it IS), or — for a settlement — the overpay credit it
+   * left on the account and a later settlement already applied. Voiding
+   * it anyway would drop the row from the queue while the settlement's
+   * money row stayed booked against it. "Blocking beats corrupting", as
+   * `_assertSupplierSiblingsVoidable` does for fully settled rows.
+   */
+  private _assertNoActiveSettlementCoverage(original: TransactionEntity): void {
+    if (!this._hasSettlementCoverageTable()) return;
+    if (!original.source_table || original.source_id == null) return;
+    const tenantId = getCurrentTenantId();
+    const ledgerIds: number[] = [];
+    if (original.source_table === "supplier_ledger") ledgerIds.push(original.source_id);
+    if (this._supplierLedgerHasSourceRefColumns()) {
+      for (const r of this.query<{ id: number }>(
+        `SELECT id FROM supplier_ledger
+          WHERE source_ref_table = ? AND source_ref_id = ? AND tenant_id = ?`,
+        original.source_table,
+        original.source_id,
+        tenantId,
+      )) {
+        ledgerIds.push(r.id);
+      }
+    }
+    if (original.type === "SUPPLIER_SETTLEMENT") {
+      for (const r of this.query<{ id: number }>(
+        `SELECT id FROM supplier_ledger WHERE transaction_id = ? AND tenant_id = ?`,
+        original.id,
+        tenantId,
+      )) {
+        ledgerIds.push(r.id);
+      }
+    }
+    const fsId =
+      original.source_table === "financial_services" ? original.source_id : null;
+    if (fsId == null && ledgerIds.length === 0) return;
+    const conditions: string[] = [];
+    const params: Array<number | string> = [tenantId, original.id];
+    if (fsId != null) {
+      conditions.push(`(row_kind = 'FINANCIAL_SERVICE' AND row_id = ?)`);
+      params.push(fsId);
+    }
+    if (ledgerIds.length > 0) {
+      conditions.push(
+        `(row_kind = 'LEDGER' AND row_id IN (${ledgerIds.map(() => "?").join(",")}))`,
+      );
+      params.push(...ledgerIds);
+    }
+    const covering = this.queryOne<{ transaction_id: number }>(
+      `SELECT transaction_id FROM supplier_settlement_coverage
+        WHERE tenant_id = ? AND is_reversed = 0 AND transaction_id <> ?
+          AND (${conditions.join(" OR ")})
+        ORDER BY transaction_id DESC
+        LIMIT 1`,
+      ...params,
+    );
+    if (covering) {
+      throw new DatabaseError(
+        `It is partly paid by settlement #${covering.transaction_id} — void that settlement first.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
   /**
    * OMT_OPEN_CREDIT_ACCOUNT_PLAN.md §9.3/§10.2 (LIRA-187, v176) — true when
    * the connected `supplier_ledger` table already carries the
@@ -7168,7 +7291,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
     if (!sibling) return;
 
-    if (hasSettlementIdColumn && sibling.settlement_id != null) {
+    // LIRA-322 (R6) — an amount-first settlement stamps its OWN commission
+    // credit with its anchor (`settlement_id = original.source_id`) so the
+    // credit never re-enters the queue; that is not "someone else's"
+    // settlement — the settlement's void owns it (same exemption as
+    // `_assertSupplierBundledDiscountVoidable`).
+    const ownSettlementCredit =
+      original.type === "SUPPLIER_SETTLEMENT" &&
+      sibling.settlement_id === original.source_id;
+    if (
+      hasSettlementIdColumn &&
+      sibling.settlement_id != null &&
+      !ownSettlementCredit
+    ) {
       throw new DatabaseError(
         `Cannot void/refund — its auto supplier-ledger entry has already been included in settlement #${sibling.settlement_id}; correct the supplier balance with a manual adjustment instead.`,
         { entityId: original.id },
@@ -8982,6 +9117,21 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       return;
     }
     const tenantId = getCurrentTenantId();
+
+    // LIRA-322 (R8) — give back exactly what this settlement applied: its
+    // coverage rows stop counting (never deleted). A part-paid row has no
+    // stamp, so this is its whole reversal; a closed row is also reopened
+    // by the settlement_id un-stamp below.
+    if (this._hasSettlementCoverageTable()) {
+      this.execute(
+        `UPDATE supplier_settlement_coverage SET is_reversed = 1, updated_at = ?
+         WHERE transaction_id = ? AND tenant_id = ? AND is_reversed = 0`,
+        // LIRA-306 FR-021: the event time on an offline replay.
+        requestNow(),
+        original.id,
+        tenantId,
+      );
+    }
 
     // Every supplier_ledger row THIS settlement transaction wrote — see the
     // doc comment above for why `transaction_id = original.id` alone already
