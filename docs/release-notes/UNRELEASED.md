@@ -82,6 +82,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 ## 💸 OMT / Whish & suppliers
 
+- On the Suppliers page, the Payments list is easier to read: notes show in full (up to two lines), dates fit on one line, and the LBP amount no longer runs into the note.
 - Settle Account on the OMT card now takes what you actually paid OMT, in $ and/or LBP. The oldest transfers in that currency close first. You can settle only the $ or only the LBP, and the other currency stays as it is. A transfer the money doesn't fully cover stays open and shows what is still owed on it.
 - Settle Account has one payment box with a $ line and an LBP line, already filled in with everything owed: confirm to settle it all, or lower a line to settle less. Its Total, Paid and Remaining to pay rows show $ and LBP side by side instead of one converted figure, and any change is worked out in each currency on its own.
 - Before you confirm, each currency shows which transfers close, which one is part-paid, and what is still owed after. "Pick transfers" lets you settle only the transfers you tick.

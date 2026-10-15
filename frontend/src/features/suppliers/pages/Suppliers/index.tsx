@@ -672,21 +672,25 @@ function AccountLedgerTable({
         </select>
       </div>
       <div className="border border-slate-700 rounded-xl overflow-hidden">
-        <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
-          <div className="col-span-2">Entry</div>
-          <div className="col-span-2">Source</div>
-          <div className="col-span-2 text-right">USD</div>
-          <div className="col-span-2 text-right">LBP</div>
-          <div className="col-span-2">Note</div>
-          <div className="col-span-2">Date</div>
+        {/* Fixed tracks for the short columns, the rest to Note: the old
+            even 12-col split squeezed LBP against Note and wrapped the date. */}
+        <div
+          className={`grid grid-cols-[5.75rem_4.75rem_5.25rem_6.75rem_minmax(0,1fr)_7.5rem] gap-x-3 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2`}
+        >
+          <div>Entry</div>
+          <div>Source</div>
+          <div className="text-right">USD</div>
+          <div className="text-right">LBP</div>
+          <div>Note</div>
+          <div>Date</div>
         </div>
         <div className="max-h-[30vh] overflow-y-auto">
           {filtered.map((row) => (
             <div
               key={row.id}
-              className={`grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center ${row.is_refunded ? "opacity-60" : ""}`}
+              className={`grid grid-cols-[5.75rem_4.75rem_5.25rem_6.75rem_minmax(0,1fr)_7.5rem] gap-x-3 px-3 py-2 text-sm border-t border-slate-700 items-center ${row.is_refunded ? "opacity-60" : ""}`}
             >
-              <div className="col-span-2 flex items-center gap-1">
+              <div className="flex items-center gap-1 min-w-0">
                 <EntryTypeBadge
                   type={row.entry_type}
                   direction={ledgerRowDirection(row.amount_usd, row.amount_lbp)}
@@ -699,13 +703,13 @@ function AccountLedgerTable({
               </div>
               <div
                 data-testid="supplier-ledger-type-cell"
-                className="col-span-2 text-slate-300 text-xs truncate"
+                className="text-slate-300 text-xs truncate"
                 title={row.source_provider ?? undefined}
               >
                 {row.source_name}
               </div>
               <div
-                className={`col-span-2 text-right font-mono ${
+                className={`text-right font-mono whitespace-nowrap ${
                   row.is_refunded
                     ? "line-through text-slate-500"
                     : balanceColor(row.amount_usd)
@@ -716,7 +720,7 @@ function AccountLedgerTable({
                   : "—"}
               </div>
               <div
-                className={`col-span-2 text-right font-mono ${
+                className={`text-right font-mono whitespace-nowrap ${
                   row.is_refunded
                     ? "line-through text-slate-500"
                     : balanceColor(row.amount_lbp)
@@ -726,11 +730,26 @@ function AccountLedgerTable({
                   ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
                   : "—"}
               </div>
-              <div className="col-span-2 text-slate-300 truncate text-xs">
+              <div
+                className="text-slate-300 line-clamp-2 break-words text-xs min-w-0"
+                title={row.note || undefined}
+              >
                 {row.note || ""}
               </div>
-              <div className="col-span-2 text-slate-400 text-xs">
-                {parseDbDate(row.created_at).toLocaleString()}
+              <div className="text-slate-400 text-xs whitespace-nowrap">
+                {parseDbDate(row.created_at).toLocaleString(undefined, {
+                  // The year only when it is not this year: keeps the column
+                  // to one line ("Oct 15, 8:11 PM").
+                  year:
+                    parseDbDate(row.created_at).getFullYear() ===
+                    new Date().getFullYear()
+                      ? undefined
+                      : "numeric",
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
               </div>
             </div>
           ))}
