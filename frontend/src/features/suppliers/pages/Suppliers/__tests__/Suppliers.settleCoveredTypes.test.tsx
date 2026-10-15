@@ -26,6 +26,13 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { supplierSettleSchema } from "@liratek/core";
 import Suppliers from "../index";
+import {
+  coveredPickerShowsAllTypes,
+  isCoveredTypeTicked,
+  toggleCoveredType,
+} from "../../../testing/coveredTypesPicker";
+
+const SP = "supplier-settle-covered";
 
 const mockGetSuppliers = jest.fn();
 const mockGetUnsettledTransactions = jest.fn();
@@ -192,7 +199,7 @@ describe("Suppliers Settle tab — LIRA-256 covered types", () => {
     renderPage();
     fireEvent.click((await screen.findAllByText("OMT"))[0]);
     await screen.findByTestId("settle-row-302");
-    expect(screen.getByTestId("supplier-settle-covered-INTRA")).toBeChecked();
+    expect(await isCoveredTypeTicked(SP, "INTRA")).toBe(true);
     // Nothing pre-selected (unchanged Settle-tab behaviour).
     expect(rowToggle(301)).not.toBeChecked();
     expect(rowToggle(302)).toBeDisabled();
@@ -218,13 +225,14 @@ describe("Suppliers Settle tab — LIRA-256 covered types", () => {
     renderPage();
     fireEvent.click((await screen.findAllByText("OMT"))[0]);
     await screen.findByTestId("settle-row-302");
-    expect(screen.getByTestId("supplier-settle-covered-all")).toBeChecked();
+    expect(coveredPickerShowsAllTypes(SP)).toBe(true);
     fireEvent.click(rowToggle(302));
     expect(rowToggle(302)).toBeChecked();
-    fireEvent.click(screen.getByTestId("supplier-settle-covered-INTRA"));
+    await toggleCoveredType(SP, "INTRA");
     expect(rowToggle(302)).not.toBeChecked();
     expect(rowToggle(302)).toBeDisabled();
-    fireEvent.click(screen.getByTestId("supplier-settle-covered-all"));
+    // Unticking the only ticked type returns to "All types".
+    await toggleCoveredType(SP, "INTRA");
     expect(rowToggle(302)).not.toBeDisabled();
     fireEvent.click(rowToggle(302));
     fireEvent.click(await screen.findByText(/^Settle \(1\)$/));

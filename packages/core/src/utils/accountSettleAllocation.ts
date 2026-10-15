@@ -11,15 +11,22 @@
  * shop):
  *   1. Netting — open credits are applied oldest first to open debts, up to
  *      the smaller total. Both sides get NETTING coverage of equal size.
- *   2. Budget S = paid + commission ± waive (the waive takes the sign of
- *      what is owed after netting). S > 0 covers debts oldest first, S < 0
- *      covers credits oldest first. Within the budget the commission is
- *      consumed first, then the waive, then the money — so the commission
- *      lands on the oldest rows, which close first.
+ *   2. Budget S = paid ± waive (the waive takes the sign of what is owed
+ *      after netting). S > 0 covers debts oldest first, S < 0 covers
+ *      credits oldest first. Within the budget the waive is consumed first,
+ *      then the money.
  *   3. Extra — budget left after every in-scope row is covered.
  *   4. The entered commission is split over the commission-model-1 rows
  *      this settlement CLOSES, in proportion to what each owed before it
- *      (largest remainder, cents / whole LBP).
+ *      (largest remainder, cents / whole LBP). That split is for PROFIT
+ *      only.
+ *
+ * The commission is NEVER a coverage source (owner decision 2026-10-15,
+ * replacing FR-013a: "Pay the amount in full; don't let the commission
+ * amount affect the payment leg amount. After the payment is processed, the
+ * commission amount is credited to the supplier account."). Only money and
+ * a waive close rows; the repository books the commission as an open credit
+ * on the account, which nets first at the next settlement.
  *
  * Order: `created_at` compared as a STRING (never `new Date()` — rule 27;
  * matches SQL `ORDER BY created_at`), then kind (FINANCIAL_SERVICE before
@@ -36,6 +43,11 @@ import { allocateProportional } from "./largestRemainder.js";
 
 export type AccountSettleRowKind = "FINANCIAL_SERVICE" | "LEDGER";
 export type AccountSettleCurrency = "USD" | "LBP";
+/**
+ * "COMMISSION" is a legacy value: coverage rows written before the owner
+ * decision of 2026-10-15 may carry it (the table's CHECK keeps it), but the
+ * allocator no longer emits it.
+ */
 export type AccountSettleCoverageSource =
   | "NETTING"
   | "PAYMENT"
@@ -63,7 +75,8 @@ export interface AccountSettleAllocInput {
   rows: AccountSettleAllocRow[];
   /** Signed money toward rows: + shop paid, − shop received. */
   paid: number;
-  /** ≥ 0. Always reduces what the shop owes. */
+  /** ≥ 0. Never covers a row — drives the profit split over closed
+   *  commission-model-1 rows only (owner decision 2026-10-15). */
   commission: number;
   /** ≥ 0. Takes the sign of what is owed after netting. */
   waive: number;
@@ -237,7 +250,8 @@ export function allocateAccountSettlement(
           : 1;
   const commissionMinor = Math.abs(toMinor(input.commission));
   const waiveMinor = Math.abs(toMinor(input.waive)) * waiveSign;
-  const budget = paidMinor + commissionMinor + waiveMinor;
+  // The commission is not money and covers nothing (owner 2026-10-15).
+  const budget = paidMinor + waiveMinor;
 
   let applied = 0;
   if (budget !== 0) {
@@ -250,19 +264,14 @@ export function allocateAccountSettlement(
       Math.abs(budget),
       0.5,
     );
-    // Tag each take: commission first, then waive, then money.
-    let commissionLeft = Math.max(0, commissionMinor * sign);
+    // Tag each take: waive first, then money.
     let waiveLeft = Math.max(0, waiveMinor * sign);
     for (const t of budgetTakes) {
       const i = Number(t.id);
       let left = t.take;
-      const fromCommission = Math.min(left, commissionLeft);
-      commissionLeft -= fromCommission;
-      left -= fromCommission;
       const fromWaive = Math.min(left, waiveLeft);
       waiveLeft -= fromWaive;
       left -= fromWaive;
-      record(i, "COMMISSION", fromCommission);
       record(i, "WAIVE", fromWaive);
       record(i, "PAYMENT", left);
       applied += t.take;

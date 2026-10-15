@@ -366,14 +366,16 @@ async function settleOmtRow(
   const methodSelect = usd.locator('[data-testid^="payment-method-"]').first();
   await expect(methodSelect).toBeVisible({ timeout: 10_000 });
   await methodSelect.selectOption("CASH");
-  const cash = Math.round((owedUsd - enteredCommissionUsd) * 100) / 100;
+  // Owner 2026-10-15: the gross is paid in full; the commission never
+  // reduces the payment (it is credited to the OMT account afterwards).
+  const cash = Math.round(owedUsd * 100) / 100;
   await usd
     .locator('[data-testid^="payment-amount-"]')
     .first()
     .fill(cash.toFixed(2));
 
-  // The commission + cash close this transfer in full (commission only
-  // counts on a transfer the settlement closes).
+  // The cash closes this transfer in full (commission only counts on a
+  // transfer the settlement closes).
   await expect(
     usd.locator(
       `[data-testid="supplier-account-settle-preview-row"][data-kind="FINANCIAL_SERVICE"][data-row-id="${rowId}"]`,

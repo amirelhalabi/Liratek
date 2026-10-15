@@ -182,3 +182,66 @@ export function allocateSection(
     eps: SETTLE_EPS[currency],
   });
 }
+
+/** The tolerance the payment box (`MultiPaymentInput`) uses to call a
+ *  currency short or overpaid ($0.01 / 100 LBP — its `matchTolerance`). The
+ *  sheet decides which section a change leg belongs to with the SAME figure,
+ *  so it agrees with the box about which currency is overpaid. */
+export const BOX_MATCH_TOLERANCE: Record<SettleCurrency, number> = {
+  USD: 0.01,
+  LBP: 100,
+};
+
+/**
+ * LIRA-322 (one payment box for both currencies) — which currency section
+ * each change (OUT) leg is sent in. A change leg must go to the section of
+ * the currency that was OVERPAID: in a short section it would be subtracted
+ * from that currency's payment and silently net the two currencies.
+ *
+ * - One currency overpaid: every change leg goes to its section (change may
+ *   come back in either currency — the server books a leg in the other
+ *   currency as that currency's extra, LIRA-315).
+ * - Both overpaid: each leg fills its OWN currency's section up to that
+ *   currency's extra; anything above it is split off into the other
+ *   section (as a cross-currency leg). So "$3 + 89,000 LBP" over, handed
+ *   back as $3 + 89,000 LBP, sends $3 in USD and 89,000 LBP in LBP; handed
+ *   back all in $ ($4), sends $3 in USD and $1 in LBP. Each section's change
+ *   then stays within its own extra (`_resolveSettlementLegs`).
+ * - Nothing overpaid (should not happen — the box emits change only when
+ *   it sees an overpay): everything goes to `fallback`.
+ *
+ * `extras` are what each currency was overpaid by, in that currency.
+ */
+export function assignChangeLegs<
+  T extends { currencyCode: string; amount: number },
+>(
+  legs: readonly T[],
+  extras: Partial<Record<SettleCurrency, number>>,
+  fallback: SettleCurrency,
+): Record<SettleCurrency, T[]> {
+  const out: Record<SettleCurrency, T[]> = { USD: [], LBP: [] };
+  const paidLegs = legs.filter((l) => l.amount > 0);
+  const overpaid = SETTLE_CURRENCIES.filter(
+    (c) => (extras[c] ?? 0) > BOX_MATCH_TOLERANCE[c],
+  );
+  if (overpaid.length < 2) {
+    out[overpaid[0] ?? fallback].push(...paidLegs);
+    return out;
+  }
+  const room: Record<SettleCurrency, number> = {
+    USD: extras.USD ?? 0,
+    LBP: extras.LBP ?? 0,
+  };
+  for (const leg of paidLegs) {
+    const own: SettleCurrency = leg.currencyCode === "LBP" ? "LBP" : "USD";
+    const other: SettleCurrency = own === "USD" ? "LBP" : "USD";
+    const take = roundMoney(Math.min(leg.amount, room[own]), own);
+    if (take > 0) {
+      out[own].push({ ...leg, amount: take });
+      room[own] -= take;
+    }
+    const rest = roundMoney(leg.amount - take, own);
+    if (rest > 0) out[other].push({ ...leg, amount: rest });
+  }
+  return out;
+}

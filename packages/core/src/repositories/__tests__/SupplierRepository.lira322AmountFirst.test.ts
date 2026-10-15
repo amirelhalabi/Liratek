@@ -325,10 +325,13 @@ describe("LIRA-322 — amount-first account settlement (SupplierRepository)", ()
     expectBalanceInvariant();
   });
 
-  it("(k) Cash $496.30 + commission 0.70 closes all six; allocations sum 0.70; profit 0.70", () => {
+  // Owner 2026-10-15 (replaces FR-013a): the gross is paid in full; the
+  // commission covers nothing and is credited to the account as an OPEN
+  // credit that nets at the next settlement.
+  it("(k) Cash $497 + commission 0.70 closes all six; allocations sum 0.70; profit 0.70; −0.70 open credit", () => {
     const profit0 = profitTotals(db);
     const anchor = settle({
-      USD: { direction: "PAY", payments: [cashUsd(496.3)], commission: 0.7 },
+      USD: { direction: "PAY", payments: [cashUsd(497)], commission: 0.7 },
     });
     for (const id of usd) expect(fsState(id).settlement_id).toBe(anchor);
     const alloc = db
@@ -340,17 +343,23 @@ describe("LIRA-322 — amount-first account settlement (SupplierRepository)", ()
     expect(alloc.reduce((s, a) => s + a.commission_usd, 0)).toBeCloseTo(0.7, 6);
     expect(settlementTxn(db, anchor).profit_usd).toBeCloseTo(0.7, 6);
     expect(profitTotals(db).usd - profit0.usd).toBeCloseTo(0.7, 6);
-    // The commission credit is stamped with the anchor and is never an open credit (F3).
+    // The commission credit is an OPEN credit in the settlement's own
+    // transaction (link-mode, no back-link — not a legacy F3 credit).
     const credit = db
       .prepare(
-        `SELECT settlement_id, amount_usd FROM supplier_ledger
-          WHERE entry_type = 'SUPPLIER_PAYS_US' AND source_ref_table = 'supplier_ledger'`,
+        `SELECT settlement_id, amount_usd, source_ref_table FROM supplier_ledger
+          WHERE entry_type = 'SUPPLIER_PAYS_US' AND transaction_id = ? AND id <> ?`,
       )
-      .all() as Array<{ settlement_id: number | null; amount_usd: number }>;
+      .all(settlementTxn(db, anchor).id, anchor) as Array<{
+      settlement_id: number | null;
+      amount_usd: number;
+      source_ref_table: string | null;
+    }>;
     expect(credit).toHaveLength(1);
-    expect(credit[0].settlement_id).toBe(anchor);
+    expect(credit[0].settlement_id).toBeNull();
+    expect(credit[0].source_ref_table).toBeNull();
     expect(credit[0].amount_usd).toBeCloseTo(-0.7, 6);
-    expect(queueOwed().usd).toBe(0);
+    expect(queueOwed().usd).toBeCloseTo(-0.7, 6);
     expectBalanceInvariant();
   });
 
@@ -363,12 +372,12 @@ describe("LIRA-322 — amount-first account settlement (SupplierRepository)", ()
     expectBalanceInvariant();
   });
 
-  it("(m) Cash $200 + commission 0.70: the $152 row closes with all the commission; the $101 is part-paid 48.70", () => {
+  it("(m) Cash $200 + commission 0.70: the $152 row closes with all the commission; the $101 is part-paid 48 (money only)", () => {
     settle({
       USD: { direction: "PAY", payments: [cashUsd(200)], commission: 0.7 },
     });
     expect(fsState(usd[0]).settlement_id).not.toBeNull();
-    expect(queueRow(usd[1])!.covered_usd).toBeCloseTo(48.7, 6);
+    expect(queueRow(usd[1])!.covered_usd).toBeCloseTo(48, 6);
     const alloc = db
       .prepare(
         `SELECT financial_service_id AS id, commission_usd FROM settlement_commission_allocations`,

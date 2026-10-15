@@ -79,6 +79,8 @@ interface Stats {
   refusedVoid: number;
   mixed: number;
   pairs: number;
+  /** Settlements that booked a commission (owner 2026-10-15: an open credit). */
+  commissioned: number;
 }
 
 /**
@@ -87,7 +89,11 @@ interface Stats {
  * and the wrapper "Failed to settle account" around a crash — is a defect
  * the property test exists to catch, never a counted refusal.
  */
-const LEGIT_SETTLE_REFUSALS = [/^There is nothing to settle for the amounts entered\./];
+const LEGIT_SETTLE_REFUSALS = [
+  /^There is nothing to settle for the amounts entered\./,
+  // A random commission where no commission-carrying transfer closes.
+  /^Commission can only be entered when this payment fully pays at least one transfer that carries commission\./,
+];
 const LEGIT_VOID_REFUSALS = [
   /^A later settlement \(#\d+, [^)]+\) paid the same transfers\. Void it first\.$/,
   /^It is partly paid by settlement #\d+ — void that settlement first\.$/,
@@ -116,6 +122,7 @@ describe("LIRA-322 T049 — amount-first settlement property test", () => {
       refusedVoid: 0,
       mixed: 0,
       pairs: 0,
+      commissioned: 0,
     };
     for (const seed of SEEDS) {
       const s = runSeed(seed);
@@ -126,6 +133,7 @@ describe("LIRA-322 T049 — amount-first settlement property test", () => {
     expect(total.voided).toBeGreaterThanOrEqual(10);
     expect(total.mixed).toBeGreaterThanOrEqual(1);
     expect(total.pairs).toBeGreaterThanOrEqual(1);
+    expect(total.commissioned).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -139,6 +147,7 @@ function runSeed(seed: number): Stats {
     refusedVoid: 0,
     mixed: 0,
     pairs: 0,
+    commissioned: 0,
   };
 
   resetAll();
@@ -327,7 +336,19 @@ function runSeed(seed: number): Stats {
             }
           }
         }
-        perCurrency[c] = { direction, payments };
+        // Owner 2026-10-15 — a commission sometimes: it covers nothing and
+        // goes on the account as an open credit (invariant 1 must hold).
+        const commission =
+          direction === "PAY" && paid > 0 && rnd() < 0.35
+            ? c === "USD"
+              ? round2(0.01 + rnd() * 3)
+              : Math.round((1000 + rnd() * 50_000) / 1000) * 1000
+            : 0;
+        perCurrency[c] = {
+          direction,
+          payments,
+          ...(commission > 0 ? { commission } : {}),
+        };
       }
       if (!perCurrency.USD && !perCurrency.LBP) return;
 
@@ -363,6 +384,8 @@ function runSeed(seed: number): Stats {
       )
         stats.mixed++;
       stats.pairs += pairCount() - pairs0;
+      if (perCurrency.USD?.commission || perCurrency.LBP?.commission)
+        stats.commissioned++;
     };
 
     const tryVoid = (): void => {

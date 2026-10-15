@@ -21,6 +21,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { OmtStatementCheckPanel } from "../OmtStatementCheckPanel";
 import type { AccountBalance, AccountExpectedStatement } from "../../hooks/useSuppliers";
 import { OMT_COVERED_TYPE_VALUES, coveredTypeLabel } from "@liratek/core";
+import {
+  coveredPickerShowsAllTypes,
+  isCoveredTypeTicked,
+  openCoveredPicker,
+  toggleCoveredType,
+} from "../../testing/coveredTypesPicker";
 
 const mockGetStatement = jest.fn();
 // Module-level stable object — rule 25: returning the SAME reference every
@@ -223,6 +229,8 @@ describe("OmtStatementCheckPanel (LIRA-255)", () => {
 // before the picker existed (no "All types" control; the read was only ever
 // called with one argument).
 // ─────────────────────────────────────────────────────────────────────────
+const P = "omt-statement-covered";
+
 describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
   const BASE: AccountExpectedStatement = {
     account_supplier_id: 1,
@@ -270,9 +278,13 @@ describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
 
   it("shows 'All types', every OMT type label and 'Type not recorded'", async () => {
     renderWith(byChoice);
-    expect(await screen.findByTestId("omt-statement-covered-all")).toBeChecked();
+    await screen.findByTestId("omt-statement-covered");
+    expect(coveredPickerShowsAllTypes(P)).toBe(true);
+    await openCoveredPicker(P);
     for (const v of OMT_COVERED_TYPE_VALUES) {
-      expect(screen.getByTestId(`omt-statement-covered-${v}`)).not.toBeChecked();
+      expect(
+        screen.getByTestId(`${P}-option-${v}`).getAttribute("aria-selected"),
+      ).toBe("false");
       expect(screen.getByText(coveredTypeLabel(v))).toBeInTheDocument();
     }
     expect(screen.getByText("Type not recorded")).toBeInTheDocument();
@@ -286,18 +298,18 @@ describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
 
   it("ticking only Intra re-reads with (id, ['INTRA']) and renders that response", async () => {
     renderWith(byChoice);
-    await screen.findByTestId("omt-statement-covered-INTRA");
-    fireEvent.click(screen.getByTestId("omt-statement-covered-INTRA"));
+    await toggleCoveredType(P, "INTRA");
     await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1, ["INTRA"]));
     await waitFor(() =>
       expect(screen.getByTestId("omt-statement-commission-usd")).toHaveTextContent("$0.30"),
     );
     expect(screen.getByTestId("omt-statement-expected-usd")).toHaveTextContent("$599.70");
-    expect(screen.getByTestId("omt-statement-covered-all")).not.toBeChecked();
+    expect(coveredPickerShowsAllTypes(P)).toBe(false);
   });
 
   it("each type shows its count and unsettled commission from commission_by_type", async () => {
     renderWith(byChoice);
+    await openCoveredPicker(P);
     await waitFor(() =>
       expect(screen.getByTestId("omt-statement-covered-INTRA-amount")).toHaveTextContent("2"),
     );
@@ -308,20 +320,20 @@ describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
 
   it("saves the choice per account on this device and restores it on remount", async () => {
     renderWith(byChoice);
-    fireEvent.click(await screen.findByTestId("omt-statement-covered-INTRA"));
+    await toggleCoveredType(P, "INTRA");
     expect(window.localStorage.getItem("liratek:omt-covered-types:1")).toBe(JSON.stringify(["INTRA"]));
     cleanup();
     mockGetStatement.mockClear();
     renderWith(byChoice);
-    expect(await screen.findByTestId("omt-statement-covered-INTRA")).toBeChecked();
+    expect(await isCoveredTypeTicked(P, "INTRA")).toBe(true);
     await waitFor(() => expect(mockGetStatement).toHaveBeenCalledWith(1, ["INTRA"]));
   });
 
   it("unticking the last type returns to 'All types' (never sends [])", async () => {
     renderWith(byChoice);
-    fireEvent.click(await screen.findByTestId("omt-statement-covered-INTRA"));
-    fireEvent.click(screen.getByTestId("omt-statement-covered-INTRA"));
-    expect(screen.getByTestId("omt-statement-covered-all")).toBeChecked();
+    await toggleCoveredType(P, "INTRA");
+    await toggleCoveredType(P, "INTRA");
+    expect(coveredPickerShowsAllTypes(P)).toBe(true);
     for (const call of mockGetStatement.mock.calls) {
       if (call.length > 1) expect(call[1]).not.toEqual([]);
     }
@@ -335,8 +347,9 @@ describe("OmtStatementCheckPanel — LIRA-256 covered types", () => {
       throw new Error("blocked");
     });
     renderWith(byChoice);
-    expect(await screen.findByTestId("omt-statement-covered-all")).toBeChecked();
-    fireEvent.click(screen.getByTestId("omt-statement-covered-INTRA"));
-    expect(screen.getByTestId("omt-statement-covered-INTRA")).toBeChecked();
+    await screen.findByTestId("omt-statement-covered");
+    expect(coveredPickerShowsAllTypes(P)).toBe(true);
+    await toggleCoveredType(P, "INTRA");
+    expect(await isCoveredTypeTicked(P, "INTRA")).toBe(true);
   });
 });

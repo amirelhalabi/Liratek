@@ -7,11 +7,12 @@ Ask the owner before running any test suite (standing preference). Desktop e2e i
 1. **Allocator unit tests**: every row of the table in [contracts/allocator.md](./contracts/allocator.md), plus LBP, COLLECT and covered-types scope cases.
    `yarn workspace @liratek/core test accountSettleAllocation`
 2. **Repository tests** (core jest, in-memory DB), each guard seen failing first (rule 17):
-   - F3: a past settlement's commission credit no longer shows in the queue.
+   - F3: a LEGACY settlement's commission credit no longer shows in the queue.
    - F4: commission entered on the sheet is accepted.
    - USD-only settle leaves LBP rows and balance untouched.
    - $300 partial: coverage rows, remaining $54, member balance $197.
    - Second settlement $197 closes the rest; commission recognised once per transfer.
+   - Owner decision 2026-10-15: $197 + $0.70 commission closes all four remaining transfers with no extra, and leaves ONE open −$0.70 credit (OMT owes the shop $0.70); the next settlement nets it first; voiding nets 0; voiding it after a later settlement used the credit is refused (`lira322CommissionToAccount`). On the live shop: pay the full gross, enter the commission, and expect the OMT card to show OMT owes you the commission.
    - Credit netting within a member and across members (both line balances move, total unchanged).
    - Mixed directions in one transaction: USD out, LBP in, change in the other currency.
    - Stale `expected_owed`: refused, nothing written.

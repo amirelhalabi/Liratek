@@ -29,12 +29,19 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AccountSettleSheet } from "../AccountSettleSheet";
+import {
+  coveredPickerShowsAllTypes,
+  isCoveredTypeTicked,
+  toggleCoveredType,
+} from "../../testing/coveredTypesPicker";
 import type {
   AccountBalance,
   AccountUnsettledRow,
 } from "../../hooks/useSuppliers";
 import { supplierSettleAccountSchema } from "@liratek/core";
 import { queueRow } from "../../testing/accountSettleFixtures";
+
+const SP = "supplier-account-settle-covered";
 
 const mockSettleSupplierAccount = jest.fn();
 const mockGetSupplierAccountUnsettled = jest.fn();
@@ -205,9 +212,7 @@ describe("AccountSettleSheet — LIRA-256 covered types", () => {
       within(await rowById(11)).getByText(/Waiting — not in this statement/),
     ).toBeInTheDocument();
     expect(await toggleOf(10)).not.toBeDisabled();
-    expect(
-      screen.getByTestId("supplier-account-settle-covered-INTRA"),
-    ).toBeChecked();
+    expect(await isCoveredTypeTicked(SP, "INTRA")).toBe(true);
 
     await payUsd("668");
     const payload = await submitAndGetPayload();
@@ -227,7 +232,9 @@ describe("AccountSettleSheet — LIRA-256 covered types", () => {
     );
     renderSheet([ROW_INTRA, ROW_WU]);
     await waitFor(async () => expect(await previewIds()).toEqual(["10"]));
-    fireEvent.click(screen.getByTestId("supplier-account-settle-covered-all"));
+    // Unticking the only ticked type returns to "All types".
+    await toggleCoveredType(SP, "INTRA");
+    expect(coveredPickerShowsAllTypes(SP)).toBe(true);
     await waitFor(async () => expect(await previewIds()).toEqual(["10", "11"]));
     await openPicker();
     expect(await toggleOf(11)).not.toBeDisabled();
@@ -251,9 +258,7 @@ describe("AccountSettleSheet — LIRA-256 covered types", () => {
   it("ticking a type on the sheet re-derives the scope and remembers it", async () => {
     renderSheet([ROW_INTRA, ROW_WU]);
     await waitFor(async () => expect(await previewIds()).toEqual(["10", "11"]));
-    fireEvent.click(
-      screen.getByTestId("supplier-account-settle-covered-INTRA"),
-    );
+    await toggleCoveredType(SP, "INTRA");
     await waitFor(async () => expect(await previewIds()).toEqual(["10"]));
     await openPicker();
     expect(await toggleOf(11)).toBeDisabled();

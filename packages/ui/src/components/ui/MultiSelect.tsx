@@ -17,6 +17,7 @@ import {
   ListboxOption,
 } from "@headlessui/react";
 import { Check, ChevronDown } from "lucide-react";
+import type { ReactNode } from "react";
 
 export interface MultiSelectProps {
   /** Static button label — the count badge is appended when values is non-empty. */
@@ -30,6 +31,12 @@ export interface MultiSelectProps {
   disabled?: boolean;
   /** `data-testid` for the button; options get `${testId}-option-${option}`. */
   testId?: string;
+  /**
+   * How an option is shown. Defaults to the option string itself. Lets a
+   * caller keep stable option KEYS as values (and in test ids) while showing
+   * a friendly label — e.g. the OMT covered-types picker (LIRA-322).
+   */
+  getOptionLabel?: (option: string) => ReactNode;
 }
 
 export default function MultiSelect({
@@ -42,6 +49,7 @@ export default function MultiSelect({
   optionsClassName = "",
   disabled = false,
   testId,
+  getOptionLabel,
 }: MultiSelectProps) {
   const count = values.length;
 
@@ -138,7 +146,7 @@ export default function MultiSelect({
                         selected ? "font-medium" : "font-normal"
                       }`}
                     >
-                      {option}
+                      {getOptionLabel ? getOptionLabel(option) : option}
                     </span>
                   </span>
                 )}

@@ -9,9 +9,12 @@
  *   L  iPick top-up in LBP      → owes L LBP
  *
  *  1. UI, USD only while LBP is owed: the sheet's "Pick transfers" ticks
- *     exactly A/B/C/L. Typing Cash $199 in the USD box previews A closes,
- *     B part-paid "$47 of $101 · $54 owed", C untouched, $75.00 still owed,
- *     and the LBP section untouched — BEFORE confirming. After confirming:
+ *     exactly A/B/C/L. ONE payment box (owner 2026-10-15) opens with a USD
+ *     line and an LBP line pre-filled with what is owed; setting the USD
+ *     line to $199 and clearing the LBP line previews A closes, B part-paid
+ *     "$47 of $101 · $54 owed", C untouched, $75.00 still owed, L untouched,
+ *     and the box's Remaining row "$75.00 · L LBP" (never one converted
+ *     figure) — BEFORE confirming. After confirming:
  *     the OMT drawer moved −$199 and 0 LBP, L still owes all of L, and the
  *     settlement sent no LBP section.
  *  2. Suppliers → OMT → Transactions shows B as "Partial · $47.00".
@@ -236,19 +239,25 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
     await row.getByTestId("supplier-account-settle-row-toggle").check();
   }
 
-  const usd = sheet.getByTestId("supplier-account-settle-section-usd");
-  const lbp = sheet.getByTestId("supplier-account-settle-section-lbp");
-  await expect(usd.getByTestId("supplier-account-settle-owed-usd")).toHaveText(
+  // ONE box for both currencies; the header keeps each in its own currency.
+  const box = sheet.getByTestId("supplier-account-settle-section-usd-lbp");
+  const usd = box;
+  const lbp = box;
+  await expect(box.getByTestId("supplier-account-settle-owed-usd")).toHaveText(
     "$274.00",
   );
-  await expect(lbp.getByTestId("supplier-account-settle-owed-lbp")).toHaveText(
+  await expect(box.getByTestId("supplier-account-settle-owed-lbp")).toHaveText(
     `${LBP_OWED.toLocaleString("en-US")} LBP`,
   );
+  const amounts = box.locator('[data-testid^="payment-amount-"]');
+  await expect(amounts).toHaveCount(2);
 
-  // Method first, amount last (the box re-syncs on a method change).
-  const method = usd.locator('[data-testid^="payment-method-"]').first();
-  if (await method.count()) await method.selectOption("CASH");
-  await usd.locator('[data-testid^="payment-amount-"]').first().fill("199");
+  // Line 1 is USD, line 2 LBP (both Cash, pre-filled with what is owed).
+  await amounts.nth(0).fill("199");
+  await amounts.nth(1).fill("0");
+  await expect(box.getByTestId("remaining-amount")).toHaveText(
+    `$75.00 · ${LBP_OWED.toLocaleString("en-US")} LBP`,
+  );
 
   // The preview, before confirming.
   await expect(previewRow(usd, A)).toHaveAttribute("data-status", "closes");

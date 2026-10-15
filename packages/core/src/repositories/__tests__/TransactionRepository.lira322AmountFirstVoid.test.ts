@@ -192,16 +192,17 @@ describe("LIRA-322 — void of an amount-first account settlement", () => {
 
   it("(d) commission 0.70: the void deletes the allocations, voids the credit, reverses profit", () => {
     const before = snapshot();
-    const txn = settleUsd(496.3, { commission: 0.7 });
+    const txn = settleUsd(497, { commission: 0.7 });
     expect(snapshot().allocations).toBeGreaterThan(before.allocations);
     voidTxn(txn);
     expectSameAs(before);
+    // The open commission credit (owner 2026-10-15) is soft-voided with it.
     const credit = db
       .prepare(
         `SELECT is_refunded FROM supplier_ledger
-          WHERE entry_type = 'SUPPLIER_PAYS_US' AND source_ref_table = 'supplier_ledger'`,
+          WHERE entry_type = 'SUPPLIER_PAYS_US' AND transaction_id = ? AND note LIKE 'Auto: commission credit%'`,
       )
-      .all() as Array<{ is_refunded: number }>;
+      .all(txn) as Array<{ is_refunded: number }>;
     expect(credit).toEqual([{ is_refunded: 1 }]);
   });
 

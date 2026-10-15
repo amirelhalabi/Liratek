@@ -15,7 +15,7 @@ One row = what one settlement applied to one OMT-account queue row, in one curre
 | `member_supplier_id` | INTEGER NOT NULL | account member that owns the row |
 | `currency` | TEXT NOT NULL CHECK IN ('USD','LBP') | |
 | `amount` | REAL NOT NULL CHECK (amount > 0) | magnitude applied; always reduces the row's \|remaining\| |
-| `source` | TEXT NOT NULL CHECK IN ('PAYMENT','NETTING','COMMISSION','WAIVE') | what paid it |
+| `source` | TEXT NOT NULL CHECK IN ('PAYMENT','NETTING','COMMISSION','WAIVE') | what paid it. `COMMISSION` is no longer written since the owner decision of 2026-10-15 (the commission covers nothing); the CHECK keeps it for rows written before |
 | `closes_row` | INTEGER NOT NULL DEFAULT 0 | 1 when this settlement fully covered the row (it stamped `settlement_id`) |
 | `is_reversed` | INTEGER NOT NULL DEFAULT 0 | set by the void, never deleted |
 | `created_at`, `updated_at` | TEXT NOT NULL DEFAULT datetime('now') | schema rule 5 |
@@ -42,7 +42,7 @@ Indexes: `(tenant_id, row_kind, row_id, is_reversed)` for remaining-amount reads
 | `supplier_ledger` queue row (credit/manual) | settled whole: `settlement_id` | same as above |
 | Member settlement row | one per member, both currencies, refused if they point opposite ways | **one per member per currency with a nonzero money share**; entry type from its own sign (`PAYMENT` / `SUPPLIER_PAYS_US`) |
 | Netting transfer pair (new) | — | written when a credit on member A nets a debt on member B: B −x `PAYMENT`, A +x `SUPPLIER_PAYS_US`, `is_auto=1`, `transaction_id`=settlement, stamped `settlement_id = anchor` at write time (never open, so never re-netted) |
-| Commission credit row | `settlement_id` NULL, shows in queue (F3) | stamped `settlement_id = anchor`; old ones excluded from the queue by `isSettlementCommissionCredit` |
+| Commission credit row | `settlement_id` NULL, shows in queue (F3) | **Owner 2026-10-15:** one OPEN credit per currency (−commission, `is_auto=1`, link-mode `transaction_id` = settlement, no `source_ref_*`, `settlement_id` NULL) — a queue row that nets at the next settlement. Legacy back-linked credits (and pre-decision stamped ones) stay excluded by `isSettlementCommissionCredit` |
 | Overpay rows (LIRA-315) | one per currency, open credit | unchanged |
 | `SUPPLIER_SETTLEMENT` transaction | one direction | one transaction; `metadata_json.per_currency` holds each currency's direction / paid / commission / waive / extra |
 | `settlement_commission_allocations` | split across all selected model-1 rows | split across the model-1 rows **this settlement closes**, in proportion to what each still owed |

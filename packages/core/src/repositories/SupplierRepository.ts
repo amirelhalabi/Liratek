@@ -271,12 +271,24 @@ export const ACCOUNT_ROW_COVERED_SQL = `SELECT
 
 /**
  * LIRA-322 finding F3, rule 14 — the ONE predicate for "this ledger row is
- * a settlement's own commission credit": the auto `SUPPLIER_PAYS_US` row
- * `_bookCommissionAtSettlement` writes, back-linked to the settlement's
- * ledger row (`source_ref_table = 'supplier_ledger'`). It records commission
- * a settlement ALREADY recognised, so it is never an open credit to apply
- * again. NULL-safe: a credit with no back-link (an overpay credit, a manual
- * receive, a cash-out) is never matched.
+ * a LEGACY settlement commission credit": the auto `SUPPLIER_PAYS_US` row
+ * `_bookCommissionAtSettlement` (whole-row path) writes, back-linked to the
+ * settlement's ledger row (`source_ref_table = 'supplier_ledger'`, its own
+ * hidden transaction). Under that model the commission was netted INTO the
+ * payment, so the credit records commission the settlement already used —
+ * it is never an open credit to apply again. The amount-first settlements
+ * committed before 2026-10-15 wrote the same back-linked shape (stamped,
+ * and netted into coverage the same way), so they match too.
+ *
+ * Deliberately NOT matched: the amount-first commission credit written
+ * since the owner decision of 2026-10-15 ("the commission amount is
+ * credited to the supplier account" — `_bookAmountFirstCommission`). That
+ * row is a link-mode row (`transaction_id` = the settlement, NO
+ * `source_ref_*` — `addLedgerEntry` refuses the two together), and it MUST
+ * stay an open credit that nets at the next settlement. The back-link is
+ * therefore the discriminator, not the note or the entry type.
+ * NULL-safe: a credit with no back-link (that commission credit, an
+ * overpay credit, a manual receive, a cash-out) is never matched.
  */
 export const isSettlementCommissionCredit = (alias = ""): string =>
   `(${alias}entry_type = 'SUPPLIER_PAYS_US' AND COALESCE(${alias}source_ref_table, '') = 'supplier_ledger' AND COALESCE(${alias}is_auto, 0) = 1)`;
@@ -5899,16 +5911,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *   directions — Phase 6 adds a second direction per section without
    *   touching this shape). The anchor is the first one written (commission
    *   member, else waive member, else parent, else lowest id), or a 0/0 row
-   *   when no money moved (netting / commission only). Every member's
-   *   rows sum to minus the non-netting coverage on that member's rows,
-   *   less the commission credit / waive DISCOUNT booked on it, so per
-   *   member and currency the ledger always equals Σ remaining (invariant 1).
+   *   when no money moved (netting only). Every member's rows sum to
+   *   minus the non-netting coverage on that member's rows, less the
+   *   waive DISCOUNT booked on it, so per member and currency the ledger
+   *   always equals Σ remaining (invariant 1).
    * - coverage rows (one per take), `closes_row = 1` on the last take of a
    *   row this settlement fully covers;
    * - `settlement_id = anchor` on every fully covered row (`.changes` guards);
-   * - commission (closed model-1 rows only, FR-012) via
-   *   `_bookAmountFirstCommission`; the cash-out commission of closed
-   *   credits; the waive DISCOUNT; the overpay (LIRA-315) per currency.
+   * - commission via `_bookAmountFirstCommission`: profit over closed
+   *   model-1 rows only (FR-012), and the amount as an OPEN credit on the
+   *   account per currency (owner 2026-10-15 — the commission never covers
+   *   a row; the credit is itself a queue row, so invariant 1 still holds);
+   *   the cash-out commission of closed credits; the waive DISCOUNT; the
+   *   overpay (LIRA-315) per currency.
    *
    * Reversal owner (rule 20): `TransactionRepository._reverseSupplierSettlement`
    * (ledger rows by `transaction_id`, stamps by `settlement_id IN`, coverage
@@ -6066,8 +6081,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       // ── 4. Ledger rows per member per currency ────────────────────────
       // target = minus the non-netting coverage on the member's rows, in
       // ledger sign (covering a debt lowers it, covering a credit raises
-      // it); the commission credit / waive DISCOUNT booked on a member
-      // already carry part of that, so its money row is the rest.
+      // it); the waive DISCOUNT booked on a member already carries part of
+      // that, so its money row is the rest. The commission covers nothing
+      // (owner 2026-10-15) and so takes no part here: it is booked in step
+      // 9 as its own OPEN credit on the account.
       const moneyRow = new Map<number, { usd: number; lbp: number }>();
       const addTo = (member: number, currency: "USD" | "LBP", v: number) => {
         const cur = moneyRow.get(member) ?? { usd: 0, lbp: 0 };
@@ -6081,9 +6098,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           const row = byKey.get(`${t.kind}:${t.id}`)!;
           const rowSign = rowRemaining(row, plan.currency) > 0 ? 1 : -1;
           addTo(t.member_supplier_id, plan.currency, -rowSign * t.amount);
-        }
-        if (commissionMemberId != null && plan.commission > 0) {
-          addTo(commissionMemberId, plan.currency, plan.commission);
         }
         if (waiveMemberId != null && plan.waive > 0) {
           addTo(waiveMemberId, plan.currency, plan.dirSign * plan.waive);
@@ -6367,10 +6381,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         }
       }
 
-      // ── 9. Commission over CLOSED model-1 rows only (FR-012) ──────────
+      // ── 9. Commission: profit over CLOSED model-1 rows only (FR-012), and
+      //      the amount itself credited to the account as an OPEN credit
+      //      (owner 2026-10-15) ───────────────────────────────────────────
       if (hasCommission && commissionMemberId != null) {
         this._bookAmountFirstCommission({
           anchorLedgerId,
+          txnId,
           supplierId: commissionMemberId,
           commission,
           allocations: plans.flatMap((p) =>
@@ -6586,20 +6603,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       alloc.takes
         .filter((t) => t.source === source)
         .reduce((s, t) => s + t.amount, 0);
-    if (commission > 0) {
-      if (alloc.commission_without_closed_model1) {
-        throw new DatabaseError(
-          "Commission can only be entered when this payment fully pays at " +
-            "least one transfer that carries commission. (Account settlement: " +
-            `${label} commission ${commission} with no commission-model-1 row closing)`,
-        );
-      }
-      if (sumBy("COMMISSION") < commission - eps) {
-        throw new DatabaseError(
-          "The commission is more than what is owed. (Account settlement: " +
-            `${label} commission ${commission} exceeds the rows)`,
-        );
-      }
+    // The commission covers nothing (owner 2026-10-15); it is recognised as
+    // profit over the commission-model-1 transfers this settlement CLOSES,
+    // so it still needs at least one (FR-012 — a settlement_commission_
+    // allocations row per closed transfer is what the commission reports
+    // read; profit with no transfer to attach it to would desync them).
+    if (commission > 0 && alloc.commission_without_closed_model1) {
+      throw new DatabaseError(
+        "Commission can only be entered when this payment fully pays at " +
+          "least one transfer that carries commission. (Account settlement: " +
+          `${label} commission ${commission} with no commission-model-1 row closing)`,
+      );
     }
     if (waive > 0) {
       if (Math.abs(alloc.extra) > eps) {
@@ -6628,12 +6642,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       (a) => byKey.get(`FINANCIAL_SERVICE:${a.id}`)!,
     );
     const commissionMembers = [
-      ...new Set([
-        ...commissionRows.map((r) => r.supplier_id),
-        ...alloc.takes
-          .filter((t) => t.source === "COMMISSION")
-          .map((t) => t.member_supplier_id),
-      ]),
+      ...new Set(commissionRows.map((r) => r.supplier_id)),
     ];
     if (
       commissionRows.length > 0 &&
@@ -6773,20 +6782,33 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   }
 
   /**
-   * LIRA-322 (R4, T026) — book the commission entered on an amount-first
-   * settlement: the `supplier_settlements` record (keyed by the anchor),
-   * one `settlement_commission_allocations` row per CLOSED model-1 row from
-   * the allocator's split (weighted by what each row owed before this
-   * settlement — the same split the sheet previews), and the cashless
-   * commission credit on the commission member — `is_auto`, linked to the
-   * anchor (`source_ref_*`, so the LIRA-091 sibling cascade voids it) and
-   * stamped `settlement_id = anchor` so it can never re-enter the queue as
-   * an open credit (F3). Reuses `_bookCommissionAtSettlement`'s INSERT
-   * shapes; its gross-weighted split is not used (it would disagree with
-   * the preview on a row that was already part-paid).
+   * LIRA-322 (R4, T026; owner decision 2026-10-15) — book the commission
+   * entered on an amount-first settlement:
+   * - profit: the `supplier_settlements` record (keyed by the anchor) and
+   *   one `settlement_commission_allocations` row per CLOSED model-1 row
+   *   from the allocator's split (weighted by what each row owed before
+   *   this settlement — the same split the sheet previews). Reuses
+   *   `_bookCommissionAtSettlement`'s INSERT shapes; its gross-weighted
+   *   split is not used (it would disagree with the preview on a row that
+   *   was already part-paid).
+   * - the amount itself: "after the payment is processed, the commission
+   *   amount is credited to the supplier account" (owner). One OPEN
+   *   `SUPPLIER_PAYS_US` credit per currency (−commission) on the
+   *   commission member, `settlement_id` NULL, so it is an open queue row
+   *   that nets first at the next settlement (FR-005). Written in LINK-MODE
+   *   (`transaction_id` = this settlement, no `source_ref_*`): that is what
+   *   keeps it OUT of `isSettlementCommissionCredit` (which matches only
+   *   the legacy back-linked credits, already netted into their payment),
+   *   lets `_reverseSupplierSettlement` soft-void it with the settlement
+   *   (rule 20), and lets `_assertNoActiveSettlementCoverage` refuse this
+   *   settlement's void once a later settlement has netted the credit.
+   *   `is_auto`: bookkeeping the settlement wrote, not an operator action
+   *   (rule 26). One row per currency, never a mixed row: a later
+   *   settlement may net only one currency (FR-002).
    */
   private _bookAmountFirstCommission(args: {
     anchorLedgerId: number;
+    txnId: number;
     supplierId: number;
     commission: { usd: number; lbp: number };
     allocations: Array<{
@@ -6799,8 +6821,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     data: SettleAccountRequest;
     tenantId: number;
   }): void {
-    const { anchorLedgerId, supplierId, commission, allocations, data, tenantId } =
-      args;
+    const {
+      anchorLedgerId,
+      txnId,
+      supplierId,
+      commission,
+      allocations,
+      data,
+      tenantId,
+    } = args;
     if (this._hasCommissionAtSettlementSchema()) {
       const grossUsd = allocations
         .filter((a) => a.currency === "USD")
@@ -6847,26 +6876,22 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         );
       }
     }
-    const credit = this.addLedgerEntry({
-      supplier_id: supplierId,
-      entry_type: "SUPPLIER_PAYS_US",
-      amount_usd: -Math.abs(commission.usd),
-      amount_lbp: -Math.abs(commission.lbp),
-      note: `Auto: commission credit from settlement #${anchorLedgerId}`,
-      created_by: data.created_by,
-      is_auto: true,
-      source_ref_table: "supplier_ledger",
-      source_ref_id: anchorLedgerId,
-    });
-    const stamped = this.db
-      .prepare(
-        `UPDATE supplier_ledger SET settlement_id = ? WHERE id = ? AND tenant_id = ?`,
-      )
-      .run(anchorLedgerId, credit.id, tenantId);
-    if (stamped.changes !== 1) {
-      throw new DatabaseError(
-        `Account settlement aborted: failed to stamp the commission credit ${credit.id}`,
+    for (const currency of AMOUNT_FIRST_CURRENCIES) {
+      const amount = roundMoney(
+        currency === "USD" ? commission.usd : commission.lbp,
+        currency,
       );
+      if (Math.abs(amount) <= AMOUNT_FIRST_EPS[currency]) continue;
+      this.addLedgerEntry({
+        supplier_id: supplierId,
+        entry_type: "SUPPLIER_PAYS_US",
+        amount_usd: currency === "USD" ? -Math.abs(amount) : 0,
+        amount_lbp: currency === "LBP" ? -Math.abs(amount) : 0,
+        note: `Auto: commission credit from settlement #${txnId} — netted at the next settlement`,
+        created_by: data.created_by,
+        is_auto: true,
+        transaction_id: txnId,
+      });
     }
   }
 

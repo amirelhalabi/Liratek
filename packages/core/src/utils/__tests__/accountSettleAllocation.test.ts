@@ -134,16 +134,17 @@ describe("allocateAccountSettlement — contract table (USD, $152/$101/$101/$101
     expect(r.extra).toBe(10.11);
   });
 
-  it("paid 496.30 + commission 0.70 → all six close, nothing extra", () => {
-    const r = usd(SIX, 496.3, { commission: 0.7 });
+  // Owner 2026-10-15 (replaces FR-013a): the gross is paid in full; the
+  // commission covers nothing (the repository credits it to the account).
+  it("paid 497 + commission 0.70 → all six close, nothing extra, money only", () => {
+    const r = usd(SIX, 497, { commission: 0.7 });
     expect(ids(r.closed)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(r.partial).toBeNull();
     expect(r.remaining_after).toBe(0);
     expect(r.extra).toBe(0);
     expect(r.commission_without_closed_model1).toBe(false);
-    // Commission is consumed first, so it sits on the oldest row.
-    expect(takenOn(r, 1, "COMMISSION")).toBe(0.7);
-    expect(takenOn(r, 1, "PAYMENT")).toBe(151.3);
+    expect(takenOn(r, 1, "COMMISSION")).toBe(0);
+    expect(takenOn(r, 1, "PAYMENT")).toBe(152);
     expect(takenOn(r, 6, "PAYMENT")).toBe(21);
   });
 
@@ -311,13 +312,13 @@ describe("allocateAccountSettlement — COLLECT (OMT owes the shop)", () => {
 });
 
 describe("allocateAccountSettlement — sources", () => {
-  it("commission first, then waive, then money", () => {
+  it("waive first, then money; the commission is never a source", () => {
     const r = usd(SIX, 300, { commission: 0.7, waive: 2 });
-    expect(takenOn(r, 1, "COMMISSION")).toBe(0.7);
+    expect(takenOn(r, 1, "COMMISSION")).toBe(0);
     expect(takenOn(r, 1, "WAIVE")).toBe(2);
-    expect(takenOn(r, 1, "PAYMENT")).toBe(149.3);
+    expect(takenOn(r, 1, "PAYMENT")).toBe(150);
     // A partial row carries PAYMENT coverage only.
-    expect(r.partial).toMatchObject({ id: 3, applied: 49.7 });
+    expect(r.partial).toMatchObject({ id: 3, applied: 49 });
     expect(r.takes.filter((t) => t.id === 3).map((t) => t.source)).toEqual([
       "PAYMENT",
     ]);
@@ -329,13 +330,14 @@ describe("allocateAccountSettlement — sources", () => {
       .filter((t) => t.source !== "NETTING")
       .reduce((s, t) => s + t.amount, 0);
     expect(Math.round(applied * 100) / 100).toBe(497);
-    expect(r.extra).toBe(10.81);
+    // The commission is not part of the budget, so it is never extra either.
+    expect(r.extra).toBe(10.11);
   });
 });
 
 describe("allocateAccountSettlement — commission allocation", () => {
   it("over every closed model-1 row, in proportion to what each owed, largest remainder to the cent", () => {
-    const r = usd(SIX, 496.3, { commission: 0.7 });
+    const r = usd(SIX, 497, { commission: 0.7 });
     // 70 cents over weights 152/101/101/101/21/21 (Σ 497):
     // floors 21,14,14,14,2,2 = 67; the 3 leftover cents go to the largest
     // fractions (rows 5, 6: .958; row 1: .408).
@@ -358,7 +360,7 @@ describe("allocateAccountSettlement — commission allocation", () => {
       fs(3, 21, "2026-10-01 11:00:00"),
       fs(4, 50, "2026-10-01 12:00:00", { commission_model1: false }),
     ];
-    const r = usd(rows, 323.3, { commission: 0.7 });
+    const r = usd(rows, 324, { commission: 0.7 });
     expect(ids(r.closed)).toEqual([1, 2, 3, 4]);
     // 70 cents over 152/101/21 (Σ 274): 38.83, 25.80, 5.36 → floors 68,
     // leftover 2 cents to rows 1 (.83) and 2 (.80).
@@ -374,7 +376,7 @@ describe("allocateAccountSettlement — commission allocation", () => {
       fs(1, 50, "2026-10-01 09:00:00"), // part-paid earlier: 50 of 152 left
       fs(2, 50, "2026-10-01 10:00:00"),
     ];
-    const r = usd(rows, 99, { commission: 1 });
+    const r = usd(rows, 100, { commission: 1 });
     expect(r.commission_alloc).toEqual([
       { id: 1, amount: 0.5 },
       { id: 2, amount: 0.5 },
@@ -384,7 +386,7 @@ describe("allocateAccountSettlement — commission allocation", () => {
   it("commission with no model-1 row closing → empty allocation and the refusal flag", () => {
     const r = usd(SIX, 0, { commission: 0.7 });
     expect(r.closed).toEqual([]);
-    expect(r.partial).toMatchObject({ id: 1, applied: 0.7 });
+    expect(r.partial).toBeNull();
     expect(r.commission_alloc).toEqual([]);
     expect(r.commission_without_closed_model1).toBe(true);
   });
@@ -392,7 +394,7 @@ describe("allocateAccountSettlement — commission allocation", () => {
   it("commission where only non-model-1 rows close → the refusal flag", () => {
     const r = usd(
       [fs(1, 10, "2026-10-01 09:00:00", { commission_model1: false })],
-      9.3,
+      10,
       { commission: 0.7 },
     );
     expect(ids(r.closed)).toEqual([1]);
@@ -482,5 +484,42 @@ describe("allocateAccountSettlement — tolerance", () => {
     expect(ids(r.closed)).toEqual([7]);
     expect(ids(r.untouched)).toEqual([1]);
     expect(r.takes).toEqual([]);
+  });
+});
+
+// Owner decision 2026-10-15 (replaces FR-013a): "Pay the amount in full;
+// don't let the commission amount affect the payment leg amount." Only
+// money (and a waive) covers rows; the commission is booked on the account
+// as a credit by the repository and only drives the profit allocation.
+describe("allocateAccountSettlement — commission never covers rows (owner 2026-10-15)", () => {
+  it("paid 497 + commission 0.70 → all six close, nothing extra, no COMMISSION takes; profit still allocated", () => {
+    const r = usd(SIX, 497, { commission: 0.7 });
+    expect(ids(r.closed)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(r.extra).toBe(0);
+    expect(r.remaining_after).toBe(0);
+    expect(r.takes.filter((t) => t.source === "COMMISSION")).toEqual([]);
+    expect(
+      Math.round(r.commission_alloc.reduce((s, a) => s + a.amount, 0) * 100),
+    ).toBe(70);
+  });
+
+  it("paid 496.30 + commission 0.70 → the newest 21 stays part-paid 20.30 (commission is not money)", () => {
+    const r = usd(SIX, 496.3, { commission: 0.7 });
+    expect(ids(r.closed)).toEqual([1, 2, 3, 4, 5]);
+    expect(r.partial).toEqual({
+      kind: "FINANCIAL_SERVICE",
+      id: 6,
+      applied: 20.3,
+      remaining: 0.7,
+    });
+    expect(r.extra).toBe(0);
+  });
+
+  it("paid 0 + commission 0.70 → nothing is covered at all", () => {
+    const r = usd(SIX, 0, { commission: 0.7 });
+    expect(r.takes).toEqual([]);
+    expect(r.partial).toBeNull();
+    expect(r.remaining_after).toBe(497);
+    expect(r.commission_without_closed_model1).toBe(true);
   });
 });

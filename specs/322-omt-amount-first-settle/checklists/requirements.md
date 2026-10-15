@@ -32,4 +32,4 @@
 ## Notes
 
 - Acceptance math re-derived against the test shop's real OMT account ($152, $101, $101, $101, $21, $21 = $497).
-- Owner answered both open points 2026-10-15: gross closes a transfer, entered commission counts toward coverage; one settlement can pay in one currency and receive in the other.
+- Owner answered both open points 2026-10-15: gross closes a transfer, ~~entered commission counts toward coverage~~ (replaced 2026-10-15: the commission is credited to the account after the payment); one settlement can pay in one currency and receive in the other.

@@ -36,9 +36,9 @@ F3 and F4 are fixed by this design (R6, R9). Each gets a failing-first test befo
 For each currency independently, all amounts signed (positive = shop owes OMT):
 
 1. **Netting**: open credits (negative rows: receives, OMT App cash-outs, earlier payments, overpay credits) are applied oldest first to open debts (positive rows), up to the smaller total. Both sides get `NETTING` coverage of equal size. No money moves.
-2. **Settlement budget** `S = P + c + w`:
+2. **Settlement budget** `S = P + w` (was `P + c + w` until the owner decision of 2026-10-15 — see R4):
    - `P` = money: + IN legs − OUT change legs in this currency when the shop pays. When OMT pays the shop, the IN legs count negative.
-   - `c` = commission entered in this currency (always reduces what the shop owes).
+   - ~~`c` = commission entered in this currency.~~ No longer part of the budget (R4).
    - `w` = waive, signed with the currency's direction.
    - `S > 0` covers remaining debts oldest first. `S < 0` covers remaining credits oldest first.
 3. **Extra**: budget left after every in-scope row is covered goes on the account as credit, per LIRA-315 (`_bookSettlementOverpay`, one row per currency). The calculation is the only source of `extra`; `_resolveSettlementLegs` only validates legs (method, cash-only change, change ≤ extra).
@@ -52,7 +52,11 @@ COLLECT check: credits −$100, P = −$100 (received), c = 0, so S = −$100 an
 
 ### R4 — Commission recognition
 
-- The entered commission `c` is a coverage source (owner: gross closes a transfer; commission counts toward coverage).
+- **Owner decision 2026-10-15 (replaces the first bullet below):** the entered commission `c` is NOT a coverage source. The budget is `S = P ± w`; only money and a waive close rows. After the payment, `c` is booked as an OPEN credit on the account in its currency (`SUPPLIER_PAYS_US`, −c, `is_auto = 1`, link-mode: `transaction_id` = the settlement, no `source_ref_*`, `settlement_id` NULL). It appears in `getAccountUnsettled` and nets first at the next settlement (R3 step 1). One credit row per currency (a later settlement may net only one currency, FR-002).
+  - **Predicate** (rule 14): `isSettlementCommissionCredit` is unchanged and still matches only back-linked credits (`source_ref_table = 'supplier_ledger'`): the legacy whole-row path's credits, and the stamped credits of amount-first settlements made before this decision. Both were netted into their payment, so they stay hidden. The new credit is a link-mode row (`addLedgerEntry` refuses `source_ref` with `transaction_id`), so the back-link is a clean discriminator.
+  - **Profit rule (minimal change):** unchanged. `c` is recognised by this settlement, split over the model-1 transfers it fully closes in proportion to what each still owed. The refusal "commission without a closed model-1 row" stays: commission reports read `settlement_commission_allocations` per transfer, so profit with no closed transfer to attach to would desync them. The "commission is more than what is owed" refusal is removed (commission no longer consumes rows).
+  - **Void:** `_reverseSupplierSettlement` soft-voids the credit with the settlement (`transaction_id` scan); create + void nets 0 per currency. Once a later settlement has netted the credit, `_assertNoActiveSettlementCoverage` (which scans every ledger row with `transaction_id` = the settlement) refuses the earlier void: "It is partly paid by settlement #N — void that settlement first."
+- ~~The entered commission `c` is a coverage source (owner: gross closes a transfer; commission counts toward coverage).~~ Superseded 2026-10-15.
 - **Profit**: `c` is allocated over the commission-model-1 transfers this settlement **fully closes**, in proportion to the amount each one still owed before this settlement. The existing `allocateProportional` and `settlement_commission_allocations` are reused (one allocation row per closed transfer). Reusing them also keeps "one allocation per transfer" true.
 - **Refusals**: entered commission with no model-1 transfer closing in that currency (spec edge case). The existing "commission member" rule still applies: closed model-1 rows across more than one member are refused (SR:4828).
 - **Deferred OMT App cash-out commission** (`_sumCashoutCommission`) is counted only for cash-out credit rows this settlement fully closes.
@@ -70,7 +74,7 @@ COLLECT check: credits −$100, P = −$100 (received), c = 0, so S = −$100 an
 
 - **Anchor**: the first member row written (commission member, else parent, else lowest member id, as today). `settlement_id` on a fully covered queue row = the anchor's ledger id, so the existing void lookup (`settlement_id IN (rows of this txn)`) finds it.
 - **Netting-only settlement** (no money, credits close debts): allowed. A zero-amount anchor row is written so the transaction has a source row. The queue already filters out zero rows; the balance is unaffected.
-- **Commission credit row** (F3): stamped `settlement_id = anchor`, so it no longer appears as an open credit. Old open ones from past settlements are excluded from the queue with one named predicate, `isSettlementCommissionCredit` (rule 14): `entry_type='SUPPLIER_PAYS_US' AND source_ref_table='supplier_ledger'` and is_auto. A failing-first test proves F3 first.
+- **Commission credit row** (F3): ~~stamped `settlement_id = anchor`, so it no longer appears as an open credit.~~ Since 2026-10-15 the amount-first commission credit is deliberately an OPEN credit (R4); only legacy back-linked credits are hidden. Old open ones from past settlements are excluded from the queue with one named predicate, `isSettlementCommissionCredit` (rule 14): `entry_type='SUPPLIER_PAYS_US' AND source_ref_table='supplier_ledger'` and is_auto. A failing-first test proves F3 first.
 
 ### R7 — Cross-member netting moves the lines (owner decision)
 

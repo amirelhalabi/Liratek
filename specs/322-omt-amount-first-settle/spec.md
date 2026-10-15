@@ -26,7 +26,13 @@
 ### Session 2026-10-15 (owner answers to the two open points)
 
 - Q: The shop owes OMT in one currency and OMT owes the shop in the other (shop owes $497, OMT owes 2,000,000 LBP) — one settlement? → A: Yes. Each currency carries its own direction; one confirmation pays $497 out and takes 2,000,000 LBP in.
-- Q: How much money closes a transaction that carries commission? → A: Its full (gross) amount. The commission the operator enters at settlement counts toward coverage, as a separate amount next to the money. Paying the statement figure ($496.30) with the $0.70 commission entered closes all six transfers; paying $496.30 with no commission entered leaves the newest $21 transfer partly paid ($20.30) and $0.70 owed.
+- Q: How much money closes a transaction that carries commission? → A: Its full (gross) amount. ~~The commission the operator enters at settlement counts toward coverage, as a separate amount next to the money.~~ *Superseded by the owner decision of 2026-10-15 below.*
+
+### Owner decision 2026-10-15 (replaces the commission-as-coverage answer above)
+
+- Owner, verbatim: "Pay the amount in full; don't let the commission amount affect the payment leg amount. After the payment is processed, the commission amount is credited to the supplier account. Simply that's it."
+- Meaning: only money (and a Waive) closes transfers. The commission entered at settlement never covers a transfer, never changes the payment lines or the box totals, and is never shown as extra. After the payment, the commission is booked on the OMT account as a credit in its currency (OMT owes the shop that amount). It nets first at the next settlement, like any other credit (FR-005).
+- Example: $197 owed over four transfers; the operator pays Cash $197 and enters $0.70 commission. All four transfers close, nothing is extra, and the account shows OMT owes the shop $0.70. The next settlement uses that $0.70 first.
 
 ### Session 2026-10-15 (owner answers during planning)
 
@@ -146,7 +152,7 @@ A settlement made by mistake is voided from Transactions. Every transfer it clos
 
 ### Edge Cases
 
-- **Commission without enough money**: $496.30 paid with no commission entered leaves the newest $21 transfer partly paid ($20.30) and $0.70 owed. Entering the $0.70 commission closes it, with no money moved.
+- **Commission without enough money**: $496.30 paid leaves the newest $21 transfer partly paid ($20.30) and $0.70 owed, whether or not a commission is entered. A $0.70 commission entered with it goes on the account as a credit, so the account nets to $0 while that transfer stays open until the next settlement (owner decision 2026-10-15).
 - **Commission entered with no transfer closing**: refused with a plain message; commission is only recognised on a transfer this settlement closes (FR-012).
 
 - **Paying more than owed in a currency**: the extra goes on the account as credit or is handed back as change, as today (LIRA-315). It never pays the other currency.
@@ -185,7 +191,7 @@ A settlement made by mistake is voided from Transactions. Every transfer it clos
 
 - **FR-012**: Commission entered at settlement, and the deferred commission of OMT App cash-outs, MUST be recognised only for transactions that this settlement fully closes. It MUST NOT be recognised for a transaction that is only partly paid.
 - **FR-013**: A transaction partly paid by several settlements MUST have its commission recognised exactly once, by the settlement that closes it.
-- **FR-013a**: A transaction closes when its full (gross) amount is covered. Commission entered at settlement counts toward coverage in its own currency, applied oldest first together with the money; it is not a payment and moves no drawer.
+- **FR-013a** (rewritten — owner decision 2026-10-15): A transaction closes when its full (gross) amount is covered by money (or a Waive). Commission entered at settlement MUST NOT cover any transaction and MUST NOT change the payment lines, the payment box totals or the extra. After the payment, the system MUST book the entered commission on the OMT account as an open credit in its own currency (OMT owes the shop), which nets first at the next settlement (FR-005). It moves no drawer. Voiding the settlement removes that credit (FR-019); while a later settlement has already used the credit, the void is refused until that later settlement is voided first (FR-018).
 - **FR-013b**: One settlement MAY pay OMT in one currency and receive from OMT in the other. Each currency's direction comes from what is owed in it (shop owes OMT = pay; OMT owes the shop = receive), and the sheet shows the two side by side. It is recorded as one settlement entry carrying both currencies with their own directions; change may come back in either currency (LIRA-315).
 - **FR-013c**: When a credit on one account line nets against a debt on another line, each line's balance MUST move by the netted amount (account total unchanged), so every line matches its own open transactions.
 
@@ -217,7 +223,7 @@ A settlement made by mistake is voided from Transactions. Every transfer it clos
 
 - **SC-001**: An operator can settle only USD or only LBP when both are owed, without unticking any transaction, in a single confirmation.
 - **SC-002**: Paying any amount between $0.01 and the amount owed in a currency is accepted on the first try. 0% of these settlements are refused for not matching whole transactions.
-- **SC-003**: Paying exactly the figure on OMT's statement for a currency, with the statement's commission entered, leaves that currency at $0 / 0 LBP owed in the app.
+- **SC-003** (rewritten 2026-10-15): Paying the full (gross) amount owed in a currency, with the statement's commission entered, closes every transfer in that currency and leaves exactly the commission as a credit on the account (OMT owes the shop that amount), which the next settlement uses first.
 - **SC-004**: For any sequence of settlements and voids, the OMT account balance per currency equals the sum still owed on open transactions plus open credits, to the cent and to the LBP unit.
 - **SC-005**: A settlement followed by its void returns every drawer, the account balance, commission and profit to their previous values in both currencies, verified by an automated check.
 - **SC-006**: Operators have exactly one place to pay OMT (down from three), and the paid / partial / unpaid labels agree with the account balance 100% of the time.

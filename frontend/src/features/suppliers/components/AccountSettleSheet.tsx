@@ -15,6 +15,7 @@ import {
 import {
   accountRowKey,
   allocateSection,
+  assignChangeLegs,
   directionFromOwed,
   isWaitingRow,
   roundMoney,
@@ -47,11 +48,16 @@ import {
  * - Each section has its own direction, from the sign of what is owed in
  *   that currency ("You pay OMT $497.00" / "OMT pays you 2,000,000 LBP").
  *   Only a currency that owes nothing offers a small Pay / Collect choice.
- * - Each section has its own `MultiPaymentInput`, offering only its own
- *   currency for the money (change may come back in either currency, cash
- *   only — LIRA-315), and its own commission figure.
- * - The payment boxes start EMPTY: the operator types what is handed over
- *   (usually not the full figure). The box still shows what is owed.
+ * - Owner 2026-10-15: every currency owed in the SAME direction (the normal
+ *   case) shares ONE `MultiPaymentInput` in `perCurrencyTotals` mode — one
+ *   line per currency, each counted only toward its own currency, with the
+ *   box's own Total / Paid / Remaining rows showing "$ · LBP". It opens
+ *   PRE-FILLED with everything owed; the operator lowers a line to settle
+ *   less. Lines are split back into the per-currency sections by currency;
+ *   change legs go to the section of the overpaid currency
+ *   (`assignChangeLegs`). Commission stays per currency.
+ * - Only a currency owed in the OTHER direction (or opened with nothing
+ *   owed) keeps its own small box, which starts empty as before.
  * - The preview is the core allocator (`allocateAccountSettlement`), the
  *   SAME function the server runs: which transfers close, the one that is
  *   part-paid, which stay untouched, what is still owed after and any extra
@@ -119,8 +125,8 @@ function sumAmounts(lines: PaymentLine[], currency?: SettleCurrency): number {
 
 type PerCurrency<T> = Record<SettleCurrency, T>;
 
-/** Everything one currency section needs, derived once per render. */
-interface SectionState {
+/** What one currency section knows before any money is entered. */
+interface SectionBase {
   currency: SettleCurrency;
   /** In-scope rows that still owe something in this currency, oldest first. */
   rows: AccountUnsettledRow[];
@@ -129,8 +135,12 @@ interface SectionState {
   direction: SettleDirection;
   /** Nothing owed: the operator chooses the direction. */
   canChooseDirection: boolean;
-  /** Rendered as a full section (rows owed, or the operator opened it). */
+  /** Rendered (rows owed, or the operator opened it). */
   shown: boolean;
+}
+
+/** Everything one currency section needs, derived once per render. */
+interface SectionState extends SectionBase {
   /** Money or commission entered in this section. */
   hasMoney: boolean;
   commission: number;
@@ -140,6 +150,8 @@ interface SectionState {
   alloc: AccountSettleAllocResult | null;
   commissionProblem: string | null;
 }
+
+const EMPTY_LINES: PerCurrency<PaymentLine[]> = { USD: [], LBP: [] };
 
 export interface AccountSettleSheetProps {
   account: AccountBalance;
@@ -184,14 +196,16 @@ export function AccountSettleSheet({
   const [directionChoice, setDirectionChoice] = useState<
     PerCurrency<SettleDirection | null>
   >({ USD: null, LBP: null });
-  const [lines, setLines] = useState<PerCurrency<PaymentLine[]>>({
-    USD: [],
-    LBP: [],
-  });
-  const [returnLegs, setReturnLegs] = useState<PerCurrency<PaymentLine[]>>({
-    USD: [],
-    LBP: [],
-  });
+  // The ONE payment box (every currency owed in the main direction): its
+  // lines (any currency) and its change legs.
+  const [mainLines, setMainLines] = useState<PaymentLine[]>([]);
+  const [mainReturnLegs, setMainReturnLegs] = useState<PaymentLine[]>([]);
+  // A currency outside the main box (the rare opposite direction, or one
+  // the operator opened with nothing owed) keeps its own small box.
+  const [sideLines, setSideLines] =
+    useState<PerCurrency<PaymentLine[]>>(EMPTY_LINES);
+  const [sideReturnLegs, setSideReturnLegs] =
+    useState<PerCurrency<PaymentLine[]>>(EMPTY_LINES);
   const [commissionInput, setCommissionInput] = useState<PerCurrency<string>>({
     USD: "",
     LBP: "",
@@ -234,25 +248,76 @@ export function AccountSettleSheet({
   );
   const expectedOwed = useMemo(() => scopeOwed(scope), [scope]);
 
-  const sections: PerCurrency<SectionState> = useMemo(() => {
-    const base = {} as PerCurrency<
-      Omit<SectionState, "included" | "alloc" | "commissionProblem">
-    >;
+  const bases: PerCurrency<SectionBase> = useMemo(() => {
+    const out = {} as PerCurrency<SectionBase>;
     for (const currency of SETTLE_CURRENCIES) {
       const cRows = rowsInCurrency(scope, currency);
       const owed = cRows.reduce((s, r) => s + rowRemaining(r, currency), 0);
       const fromRows = directionFromOwed(owed, currency);
-      const commission = parseAmount(commissionInput[currency]);
-      base[currency] = {
+      out[currency] = {
         currency,
         rows: cRows,
         owed,
         direction: fromRows ?? directionChoice[currency] ?? "PAY",
         canChooseDirection: fromRows === null,
         shown: cRows.length > 0 || directionChoice[currency] !== null,
+      };
+    }
+    return out;
+  }, [scope, directionChoice]);
+
+  // LIRA-322 (owner 2026-10-15) — ONE payment box for every currency that
+  // is owed in the same direction (the normal case). Only when OMT owes the
+  // shop in one currency while the shop owes OMT in the other does that
+  // other currency get its own small box.
+  const owedSections = SETTLE_CURRENCIES.map((c) => bases[c]).filter(
+    (b) => b.rows.length > 0 && !b.canChooseDirection,
+  );
+  const mainDirection: SettleDirection | null =
+    owedSections[0]?.direction ?? null;
+  const mainCurrencies = owedSections
+    .filter((b) => b.direction === mainDirection)
+    .map((b) => b.currency);
+  const mainKeyCurrencies = mainCurrencies.join("-");
+  /** What the main box is paying, per currency (the box's `totals`). */
+  const mainTotals = mainCurrencies.map((c) => ({
+    amount: roundMoney(Math.abs(bases[c].owed), c),
+    currency: c,
+  }));
+
+  // Lines and change legs per currency section, from whichever box owns it.
+  const linesByCurrency: PerCurrency<PaymentLine[]> = { USD: [], LBP: [] };
+  const returnLegsByCurrency: PerCurrency<PaymentLine[]> = { USD: [], LBP: [] };
+  if (mainCurrencies.length > 0) {
+    const extras: Partial<Record<SettleCurrency, number>> = {};
+    for (const t of mainTotals) {
+      extras[t.currency] = sumAmounts(mainLines, t.currency) - t.amount;
+    }
+    const change = assignChangeLegs(mainReturnLegs, extras, mainCurrencies[0]);
+    for (const c of mainCurrencies) {
+      linesByCurrency[c] = mainLines.filter((l) => l.currencyCode === c);
+      returnLegsByCurrency[c] = change[c];
+    }
+  }
+  for (const c of SETTLE_CURRENCIES) {
+    if (mainCurrencies.includes(c) || !bases[c].shown) continue;
+    linesByCurrency[c] = sideLines[c];
+    returnLegsByCurrency[c] = sideReturnLegs[c];
+  }
+
+  const sections: PerCurrency<SectionState> = (() => {
+    const lines = linesByCurrency;
+    const returnLegs = returnLegsByCurrency;
+    const withMoney = {} as PerCurrency<
+      SectionBase & { hasMoney: boolean; commission: number }
+    >;
+    for (const c of SETTLE_CURRENCIES) {
+      const commission = parseAmount(commissionInput[c]);
+      withMoney[c] = {
+        ...bases[c],
         hasMoney:
-          sumAmounts(lines[currency]) > 0 ||
-          sumAmounts(returnLegs[currency]) > 0 ||
+          sumAmounts(lines[c]) > 0 ||
+          sumAmounts(returnLegs[c]) > 0 ||
           commission > 0,
         commission,
       };
@@ -260,16 +325,16 @@ export function AccountSettleSheet({
     const moneyOf = (c: SettleCurrency) => ({
       inSame: sumAmounts(lines[c], c),
       outSame: sumAmounts(returnLegs[c], c),
-      commission: base[c].commission,
+      commission: withMoney[c].commission,
     });
     // A currency goes in the payload when money or commission was entered
     // in it (FR-002: an untouched currency stays unchanged). With nothing
     // entered anywhere, a currency whose credits close debts on their own
     // is sent as a pure-netting section (`payments: []`).
-    const anyMoney = SETTLE_CURRENCIES.some((c) => base[c].hasMoney);
+    const anyMoney = SETTLE_CURRENCIES.some((c) => withMoney[c].hasMoney);
     const out = {} as PerCurrency<SectionState>;
     for (const c of SETTLE_CURRENCIES) {
-      const s = base[c];
+      const s = withMoney[c];
       let alloc: AccountSettleAllocResult | null = null;
       if (s.rows.length > 0 || s.hasMoney) {
         const candidate = allocateSection(scope, c, s.direction, moneyOf(c));
@@ -277,22 +342,19 @@ export function AccountSettleSheet({
           alloc = candidate;
         }
       }
+      // Owner 2026-10-15: the commission never changes what the money
+      // covers (nor the box totals, nor the extra) — it is credited to the
+      // account after the payment. It still needs a commission-carrying
+      // transfer this payment closes, to be recognised as profit (FR-012).
       let commissionProblem: string | null = null;
-      if (alloc && s.commission > 0) {
-        const commissionTaken = alloc.takes
-          .filter((t) => t.source === "COMMISSION")
-          .reduce((sum, t) => sum + t.amount, 0);
-        if (alloc.commission_without_closed_model1) {
-          commissionProblem =
-            "Commission counts only when this payment fully pays at least one transfer that carries commission.";
-        } else if (commissionTaken < s.commission - SETTLE_EPS[c]) {
-          commissionProblem = "The commission is more than what is owed.";
-        }
+      if (alloc && s.commission > 0 && alloc.commission_without_closed_model1) {
+        commissionProblem =
+          "Commission counts only when this payment fully pays at least one transfer that carries commission.";
       }
       out[c] = { ...s, included: alloc !== null, alloc, commissionProblem };
     }
     return out;
-  }, [scope, lines, returnLegs, commissionInput, directionChoice]);
+  })();
 
   const includedSections = SETTLE_CURRENCIES.map((c) => sections[c]).filter(
     (s) => s.included,
@@ -319,14 +381,14 @@ export function AccountSettleSheet({
           // ONE payload (rule 22): money handed over + change handed back
           // (OUT legs, any currency, cash only — LIRA-315).
           payments: [
-            ...lines[c]
+            ...linesByCurrency[c]
               .filter((l) => l.amount > 0)
               .map((l) => ({
                 method: l.method,
                 currency_code: l.currencyCode,
                 amount: roundMoney(l.amount, c),
               })),
-            ...returnLegs[c]
+            ...returnLegsByCurrency[c]
               .filter((l) => l.amount > 0)
               .map((l) => ({
                 method: l.method,
@@ -374,7 +436,7 @@ export function AccountSettleSheet({
 
       const summary = includedSections
         .map((s) => {
-          const paid = sumAmounts(lines[s.currency], s.currency);
+          const paid = sumAmounts(linesByCurrency[s.currency], s.currency);
           if (paid <= 0) return null;
           return `${s.direction === "PAY" ? "paid" : "received"} ${formatMoney(paid, s.currency)}`;
         })
@@ -394,12 +456,19 @@ export function AccountSettleSheet({
   };
 
   const hasCredit = account.total_usd < -0.01 || account.total_lbp < -0.5;
-  const visibleSections = SETTLE_CURRENCIES.map((c) => sections[c]).filter(
-    (s) => s.shown,
+  const sideSections = SETTLE_CURRENCIES.map((c) => sections[c]).filter(
+    (s) => s.shown && !mainCurrencies.includes(s.currency),
   );
   const hiddenSections = SETTLE_CURRENCIES.map((c) => sections[c]).filter(
     (s) => !s.shown,
   );
+  // The main box is re-created (re-filled with what is now owed) when the
+  // operator changes WHAT is settled — never when the queue refetches after
+  // a stale refusal (FR-021: the lines the operator typed are kept).
+  const scopeKey = `${[...picked].sort().join(",")}|${coveredTypes?.join(",") ?? "all"}`;
+
+  const handleCommissionChange = (c: SettleCurrency, raw: string) =>
+    setCommissionInput((prev) => ({ ...prev, [c]: raw }));
 
   return (
     <div
@@ -490,20 +559,81 @@ export function AccountSettleSheet({
             />
           )}
 
+          {unsettledQuery.isSuccess && mainCurrencies.length > 0 && (
+            <CurrencySection
+              sections={mainCurrencies.map((c) => sections[c])}
+              accountName={account.account_name}
+              commissionInput={commissionInput}
+              onCommissionChange={handleCommissionChange}
+              onChooseDirection={() => {}}
+              returnLegs={returnLegsByCurrency}
+              paymentInput={
+                <MultiPaymentInput
+                  // Re-created when the currencies, the direction or the
+                  // scope change (re-filled with what is then owed); NOT on
+                  // a refetch after a stale refusal (FR-021).
+                  key={`main-${mainDirection}-${mainKeyCurrencies}-${scopeKey}`}
+                  label={
+                    mainDirection === "PAY"
+                      ? `You pay (${mainCurrencies.join(" · ")})`
+                      : `You receive (${mainCurrencies.join(" · ")})`
+                  }
+                  // LIRA-322 — each currency on its own: a line counts only
+                  // toward its own currency, never converted or netted.
+                  perCurrencyTotals
+                  totals={mainTotals}
+                  // Owner 2026-10-15 — pre-filled with everything owed, one
+                  // Cash line per currency; lower a line to settle less.
+                  initialLines={mainTotals.map((t) => ({
+                    method: "CASH",
+                    currencyCode: t.currency,
+                    amount: t.amount,
+                  }))}
+                  totalAmountCurrency={mainCurrencies[0]}
+                  currency={mainCurrencies[0]}
+                  onChange={setMainLines}
+                  // LIRA-315 — change handed back (OUT legs) or, when not
+                  // handed back, left on the account (server books it).
+                  onReturnChange={setMainReturnLegs}
+                  unreturnedChangeTo="ACCOUNT_BALANCE"
+                  accountLabel={`${account.account_name}'s account`}
+                  cashOnlyReturn
+                  showPmFee={false}
+                  showDiscount={false}
+                  paymentMethods={methods}
+                  // FR-001 — only the currencies this box settles.
+                  currencies={mainCurrencies.map((c) =>
+                    c === "USD"
+                      ? { code: "USD", symbol: "$" }
+                      : { code: "LBP", symbol: "LBP" },
+                  )}
+                  returnCurrencies={["USD", "LBP"]}
+                  exchangeRate={exchangeRate}
+                  onExchangeRateChange={setPaymentRate}
+                  payer={mainDirection === "PAY" ? "shop" : "customer"}
+                  {...(mainDirection === "COLLECT"
+                    ? { owedLabel: `${account.account_name} still owes` }
+                    : {})}
+                  // Owner decision 2026-10-12 — no Waive on the Suppliers
+                  // page (the server supports it per currency, FR-011).
+                  waiveDisabled
+                />
+              }
+            />
+          )}
+
           {unsettledQuery.isSuccess &&
-            visibleSections.map((s) => (
+            sideSections.map((s) => (
               <CurrencySection
                 key={s.currency}
-                section={s}
+                sections={[s]}
                 accountName={account.account_name}
-                commissionInput={commissionInput[s.currency]}
-                onCommissionChange={(raw) =>
-                  setCommissionInput((prev) => ({ ...prev, [s.currency]: raw }))
-                }
+                commissionInput={commissionInput}
+                onCommissionChange={handleCommissionChange}
                 onChooseDirection={(dir) =>
                   setDirectionChoice((prev) => ({ ...prev, [s.currency]: dir }))
                 }
-                returnLegs={returnLegs[s.currency]}
+                returnLegs={returnLegsByCurrency}
                 paymentInput={
                   <MultiPaymentInput
                     // Keyed by currency + direction only: a refetch after a
@@ -520,18 +650,20 @@ export function AccountSettleSheet({
                         currency: s.currency,
                       },
                     ]}
-                    // Starts empty: the operator types the amount handed
-                    // over; the box still shows what is owed.
+                    // The small second box starts empty: the operator types
+                    // the amount handed over; the box still shows what is
+                    // owed.
                     fillTotals={[{ amount: 0, currency: s.currency }]}
                     totalAmountCurrency={s.currency}
                     currency={s.currency}
                     onChange={(next) =>
-                      setLines((prev) => ({ ...prev, [s.currency]: next }))
+                      setSideLines((prev) => ({ ...prev, [s.currency]: next }))
                     }
-                    // LIRA-315 — change handed back (OUT legs) or, when not
-                    // handed back, left on the account (server books it).
                     onReturnChange={(next) =>
-                      setReturnLegs((prev) => ({ ...prev, [s.currency]: next }))
+                      setSideReturnLegs((prev) => ({
+                        ...prev,
+                        [s.currency]: next,
+                      }))
                     }
                     unreturnedChangeTo="ACCOUNT_BALANCE"
                     accountLabel={`${account.account_name}'s account`}
@@ -552,8 +684,6 @@ export function AccountSettleSheet({
                     {...(s.direction === "COLLECT"
                       ? { owedLabel: `${account.account_name} still owes` }
                       : {})}
-                    // Owner decision 2026-10-12 — no Waive on the Suppliers
-                    // page (the server supports it per currency, FR-011).
                     waiveDisabled
                   />
                 }
@@ -664,8 +794,15 @@ function DirectionChoice({
   );
 }
 
+/**
+ * One payment card: the header (what is owed, each currency in its own
+ * currency, joined " · "), the commission per currency, the payment box and
+ * the preview per currency (closes / part-paid / untouched, still owed
+ * after). `sections` all share one direction. The card's test id lists its
+ * currencies (`…-section-usd`, `…-section-usd-lbp`).
+ */
 function CurrencySection({
-  section,
+  sections,
   accountName,
   commissionInput,
   onCommissionChange,
@@ -673,142 +810,118 @@ function CurrencySection({
   returnLegs,
   paymentInput,
 }: {
-  section: SectionState;
+  sections: SectionState[];
   accountName: string;
-  commissionInput: string;
-  onCommissionChange: (raw: string) => void;
+  commissionInput: PerCurrency<string>;
+  onCommissionChange: (currency: SettleCurrency, raw: string) => void;
   onChooseDirection: (dir: SettleDirection) => void;
-  returnLegs: PaymentLine[];
+  returnLegs: PerCurrency<PaymentLine[]>;
   paymentInput: ReactNode;
 }) {
-  const { currency, owed, direction, alloc } = section;
-  const lc = currency.toLowerCase();
-  const nothingOwed = section.canChooseDirection;
-  const stillOwed = alloc ? alloc.remaining_after : owed;
-  const extra = alloc ? alloc.extra : 0;
-  const changeInOtherCurrency = returnLegs.some(
-    (l) => l.amount > 0 && l.currencyCode !== currency,
+  const first = sections[0];
+  const { direction } = first;
+  const nothingOwed = sections.length === 1 && first.canChooseDirection;
+  const stillOwedOf = (s: SectionState) =>
+    s.alloc ? s.alloc.remaining_after : s.owed;
+  const owesYouAfter = sections.some(
+    (s) => stillOwedOf(s) < -SETTLE_EPS[s.currency],
   );
-  const closedKeys = new Set(alloc?.closed.map(accountRowKey) ?? []);
 
   return (
     <div
-      data-testid={`supplier-account-settle-section-${lc}`}
+      data-testid={`supplier-account-settle-section-${sections
+        .map((s) => s.currency.toLowerCase())
+        .join("-")}`}
       className="bg-slate-800 rounded-xl p-4 space-y-3"
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-white font-bold text-sm">
           {nothingOwed
-            ? `Nothing owed in ${currency}`
+            ? `Nothing owed in ${first.currency}`
             : direction === "PAY"
               ? `You pay ${accountName}`
               : `${accountName} pays you`}
         </span>
         {nothingOwed ? (
           <DirectionChoice
-            currency={currency}
+            currency={first.currency}
             value={direction}
             onChoose={onChooseDirection}
           />
         ) : (
           <span
-            data-testid={`supplier-account-settle-owed-${lc}`}
             className={`font-mono font-bold text-base ${
               direction === "PAY" ? "text-red-400" : "text-green-400"
             }`}
           >
-            {formatMoney(owed, currency)}
+            {sections.map((s, i) => (
+              <span key={s.currency}>
+                {i > 0 && " · "}
+                <span
+                  data-testid={`supplier-account-settle-owed-${s.currency.toLowerCase()}`}
+                >
+                  {formatMoney(s.owed, s.currency)}
+                </span>
+              </span>
+            ))}
           </span>
         )}
       </div>
 
-      {/* Settlement-day commission in THIS currency (LIRA-322 F4): counts
-          toward coverage next to the money; recognised only on transfers
-          this settlement closes. */}
-      <div>
-        <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-          Settlement commission ({currency})
-        </label>
-        <input
-          type="text"
-          inputMode={currency === "USD" ? "decimal" : "numeric"}
-          data-testid={`supplier-account-settle-commission-${lc}`}
-          value={commissionInput}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/,/g, "");
-            const ok =
-              currency === "USD" ? /^\d*\.?\d*$/.test(raw) : /^\d*$/.test(raw);
-            if (raw === "" || ok) onCommissionChange(raw);
-          }}
-          placeholder={currency === "USD" ? "0.00" : "0"}
-          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
-        />
-        {section.commissionProblem && (
-          <p
-            className="text-amber-400 text-xs mt-1"
-            data-testid={`supplier-account-settle-commission-warning-${lc}`}
-          >
-            {section.commissionProblem}
-          </p>
-        )}
+      {/* Settlement-day commission per currency. Owner 2026-10-15: it never
+          changes what the money covers or the box totals — after the
+          payment it is credited to the OMT account (netted at the next
+          settlement), and recognised only on transfers this payment
+          closes. */}
+      <div
+        className={sections.length > 1 ? "grid grid-cols-2 gap-2" : undefined}
+      >
+        {sections.map((s) => {
+          const lc = s.currency.toLowerCase();
+          return (
+            <div key={s.currency}>
+              <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                Settlement commission ({s.currency})
+              </label>
+              <input
+                type="text"
+                inputMode={s.currency === "USD" ? "decimal" : "numeric"}
+                data-testid={`supplier-account-settle-commission-${lc}`}
+                value={commissionInput[s.currency]}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/,/g, "");
+                  const ok =
+                    s.currency === "USD"
+                      ? /^\d*\.?\d*$/.test(raw)
+                      : /^\d*$/.test(raw);
+                  if (raw === "" || ok) onCommissionChange(s.currency, raw);
+                }}
+                placeholder={s.currency === "USD" ? "0.00" : "0"}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+              />
+              {s.commissionProblem && (
+                <p
+                  className="text-amber-400 text-xs mt-1"
+                  data-testid={`supplier-account-settle-commission-warning-${lc}`}
+                >
+                  {s.commissionProblem}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {paymentInput}
 
-      {section.rows.length > 0 && (
-        <div
-          data-testid={`supplier-account-settle-preview-${lc}`}
-          className="border border-slate-700 rounded-xl overflow-hidden"
-        >
+      {sections.some((s) => s.rows.length > 0) && (
+        <div className="border border-slate-700 rounded-xl overflow-hidden">
           <div className="max-h-[24vh] overflow-y-auto divide-y divide-slate-700">
-            {section.rows.map((row) => {
-              const key = accountRowKey(row);
-              const before = rowRemaining(row, currency);
-              const isPartial =
-                alloc?.partial != null && accountRowKey(alloc.partial) === key;
-              const status = isPartial
-                ? "part-paid"
-                : closedKeys.has(key)
-                  ? "closes"
-                  : "untouched";
-              return (
-                <div
-                  key={key}
-                  data-testid="supplier-account-settle-preview-row"
-                  data-kind={row.kind}
-                  data-row-id={row.id}
-                  data-status={status}
-                  className="grid grid-cols-12 gap-2 px-3 py-2 text-xs items-center"
-                >
-                  <div className="col-span-4 text-slate-300 truncate flex items-center gap-1">
-                    {rowTypeLabel(row)}
-                    {before < 0 && (
-                      <span className="px-1 py-0.5 rounded bg-emerald-900/50 text-emerald-400 text-[9px] font-semibold uppercase tracking-wide">
-                        Credit
-                      </span>
-                    )}
-                  </div>
-                  <div className="col-span-3 text-right font-mono text-white">
-                    {formatMoney(before, currency)}
-                  </div>
-                  <div className="col-span-5 text-right">
-                    {status === "closes" ? (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
-                        Closes
-                      </span>
-                    ) : status === "part-paid" && alloc?.partial ? (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
-                        {`${formatCompact(alloc.partial.applied, currency)} of ${formatCompact(before, currency)} · ${formatCompact(alloc.partial.remaining, currency)} owed`}
-                      </span>
-                    ) : (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-700 text-slate-400">
-                        Untouched
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {sections
+              .filter((s) => s.rows.length > 0)
+              .map((s) => (
+                <PreviewRows key={s.currency} section={s} />
+              ))}
           </div>
         </div>
       )}
@@ -816,39 +929,123 @@ function CurrencySection({
       <div className="space-y-1 text-sm">
         <div className="flex justify-between text-slate-300">
           <span>
-            {stillOwed < -SETTLE_EPS[currency]
+            {owesYouAfter
               ? `${accountName} still owes you after`
               : "Still owed after"}
           </span>
-          <span
-            data-testid={`supplier-account-settle-still-owed-${lc}`}
-            className="font-mono font-semibold text-white"
-          >
-            {formatMoney(roundMoney(stillOwed, currency), currency)}
+          <span className="font-mono font-semibold text-white">
+            {sections.map((s, i) => (
+              <span key={s.currency}>
+                {i > 0 && " · "}
+                <span
+                  data-testid={`supplier-account-settle-still-owed-${s.currency.toLowerCase()}`}
+                >
+                  {formatMoney(
+                    roundMoney(stillOwedOf(s), s.currency),
+                    s.currency,
+                  )}
+                </span>
+              </span>
+            ))}
           </span>
         </div>
-        {alloc && alloc.cashout_commission_recognised > 0 && (
-          <div className="flex justify-between text-slate-300">
-            <span>Deferred cashout commission recognised now</span>
-            <span
-              data-testid={`supplier-account-settle-deferred-commission-${lc}`}
-              className="font-mono text-emerald-400"
-            >
-              {formatMoney(alloc.cashout_commission_recognised, currency)}
-            </span>
-          </div>
-        )}
-        {Math.abs(extra) > SETTLE_EPS[currency] && (
-          <p
-            className="text-emerald-300 text-xs"
-            data-testid={`supplier-account-settle-extra-${lc}`}
-          >
-            {changeInOtherCurrency
-              ? `Extra ${formatMoney(extra, currency)} — change handed back in the other currency.`
-              : `Extra ${formatMoney(extra, currency)} goes on the account.`}
-          </p>
-        )}
+        {sections.map((s) => {
+          const lc = s.currency.toLowerCase();
+          const extra = s.alloc ? s.alloc.extra : 0;
+          const changeInOtherCurrency = returnLegs[s.currency].some(
+            (l) => l.amount > 0 && l.currencyCode !== s.currency,
+          );
+          return (
+            <div key={s.currency} className="space-y-1">
+              {s.alloc && s.alloc.cashout_commission_recognised > 0 && (
+                <div className="flex justify-between text-slate-300">
+                  <span>Deferred cashout commission recognised now</span>
+                  <span
+                    data-testid={`supplier-account-settle-deferred-commission-${lc}`}
+                    className="font-mono text-emerald-400"
+                  >
+                    {formatMoney(
+                      s.alloc.cashout_commission_recognised,
+                      s.currency,
+                    )}
+                  </span>
+                </div>
+              )}
+              {Math.abs(extra) > SETTLE_EPS[s.currency] && (
+                <p
+                  className="text-emerald-300 text-xs"
+                  data-testid={`supplier-account-settle-extra-${lc}`}
+                >
+                  {changeInOtherCurrency
+                    ? `Extra ${formatMoney(extra, s.currency)} — change handed back in the other currency.`
+                    : `Extra ${formatMoney(extra, s.currency)} goes on the account.`}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+/** One currency's preview rows: closes / part-paid / untouched. */
+function PreviewRows({ section }: { section: SectionState }) {
+  const { currency, alloc } = section;
+  const closedKeys = new Set(alloc?.closed.map(accountRowKey) ?? []);
+  return (
+    <div
+      data-testid={`supplier-account-settle-preview-${currency.toLowerCase()}`}
+      className="divide-y divide-slate-700"
+    >
+      {section.rows.map((row) => {
+        const key = accountRowKey(row);
+        const before = rowRemaining(row, currency);
+        const isPartial =
+          alloc?.partial != null && accountRowKey(alloc.partial) === key;
+        const status = isPartial
+          ? "part-paid"
+          : closedKeys.has(key)
+            ? "closes"
+            : "untouched";
+        return (
+          <div
+            key={key}
+            data-testid="supplier-account-settle-preview-row"
+            data-kind={row.kind}
+            data-row-id={row.id}
+            data-status={status}
+            className="grid grid-cols-12 gap-2 px-3 py-2 text-xs items-center"
+          >
+            <div className="col-span-4 text-slate-300 truncate flex items-center gap-1">
+              {rowTypeLabel(row)}
+              {before < 0 && (
+                <span className="px-1 py-0.5 rounded bg-emerald-900/50 text-emerald-400 text-[9px] font-semibold uppercase tracking-wide">
+                  Credit
+                </span>
+              )}
+            </div>
+            <div className="col-span-3 text-right font-mono text-white">
+              {formatMoney(before, currency)}
+            </div>
+            <div className="col-span-5 text-right">
+              {status === "closes" ? (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
+                  Closes
+                </span>
+              ) : status === "part-paid" && alloc?.partial ? (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
+                  {`${formatCompact(alloc.partial.applied, currency)} of ${formatCompact(before, currency)} · ${formatCompact(alloc.partial.remaining, currency)} owed`}
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-700 text-slate-400">
+                  Untouched
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

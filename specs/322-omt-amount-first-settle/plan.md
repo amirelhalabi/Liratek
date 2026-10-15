@@ -7,7 +7,7 @@
 ## Summary
 
 - **What changes**: the OMT Settle Account sheet stops merging USD and LBP into one figure. The operator enters money per currency, and the system decides what closes.
-  - Each currency is handled separately: credits net first, then the money plus any entered commission covers the oldest transfers.
+  - Each currency is handled separately: credits net first, then the money covers the oldest transfers. (Owner decision 2026-10-15: the entered commission covers nothing; it is credited to the account as an open credit after the payment — research R4.)
   - The last transfer reached may be part-paid. Extra goes on the account.
   - One settlement can pay OMT in one currency and collect in the other.
 - **Server**: coverage is stored in a new `supplier_settlement_coverage` table (v217). One pure allocator in core is shared by the sheet preview and the server.
@@ -49,7 +49,7 @@
 | I. One core, two transports | The same `SupplierService.settleAccount` serves IPC and REST, and the schema is shared. The sheet builds one payload through `useApi()`. The allocator is pure and reachable from `browser.ts` with no Node imports (guard test). No clock or locale input: ordering uses stored `created_at` strings. | Pass |
 | II. Layer boundaries | All SQL is in repositories. The allocator is pure math. The service only validates and forwards. Handler and route hold no logic. | Pass |
 | III. Contracts once | The schema is extended in `validators/supplier.ts`. The adapter and preload types derive from `z.input` (the hand-typed preload payload is replaced). A three-way key diff runs before wiring (rule 23). `ACCOUNT_ROW_COVERED_SQL` and `isSettlementCommissionCredit` are named once (rule 14). | Pass |
-| IV. Money integrity | Work through the FEATURE_GUIDE §13 checklist:<br>• **Legs**: per-currency IN legs only toward coverage; change legs go through the shared loop (rule 16).<br>• **Reversal owners**: coverage → void soft-void; netting pairs and member/currency rows → the existing `transaction_id` scan; commission credit → the existing sibling cascade (rule 20).<br>• **`is_auto`**: on the netting pairs (rule 26).<br>• **Tests**: create + void = 0 per currency, written failing-first (rule 17).<br>• **No client**: there is no client field, so rule 11 does not apply. | Pass |
+| IV. Money integrity | Work through the FEATURE_GUIDE §13 checklist:<br>• **Legs**: per-currency IN legs only toward coverage; change legs go through the shared loop (rule 16).<br>• **Reversal owners**: coverage → void soft-void; netting pairs and member/currency rows → the existing `transaction_id` scan; commission credit → the existing `transaction_id` scan (link-mode open credit since the owner decision of 2026-10-15; rule 20).<br>• **`is_auto`**: on the netting pairs (rule 26).<br>• **Tests**: create + void = 0 per currency, written failing-first (rule 17).<br>• **No client**: there is no client field, so rule 11 does not apply. | Pass |
 | V. Data and security | `?` placeholders only, `tenant_id` on every new query, admin role on both transports, actor from session/JWT. | Pass |
 
 Post-design re-check: pass. The one structural addition, a coverage table instead of columns, is justified in research R1 and needs no Complexity Tracking entry.

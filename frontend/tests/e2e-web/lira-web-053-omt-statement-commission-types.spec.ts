@@ -16,7 +16,10 @@
  *     "Commission (at settlement)" back to 0.
  *  5. Steps 2–4 again through the OMT account settle sheet's endpoint
  *     (`/settle-account`), with the amount-first payload the sheet sends
- *     since LIRA-322 (commission entered in the USD section).
+ *     since LIRA-322 (commission entered in the USD section). Owner
+ *     decision 2026-10-15: on that path the gross is paid in full and the
+ *     commission is credited to the OMT account (an open credit), so the
+ *     balance moves by −(gross + commission) until the next settlement.
  *
  * Rule 15: deltas around each action, rows matched by identity. Amounts
  * (461 / 517) are unique to this file. Both SENDs are left queued (same
@@ -211,7 +214,13 @@ test("lira-web-053 OMT statement commission types: the check subtracts only cove
     via: "settle" | "settle-account",
     commission: number,
   ) => {
-    const net = Math.round((INTRA_GROSS - commission) * 100) / 100;
+    // Legacy /settle nets the commission into the payment; the amount-first
+    // /settle-account pays the gross in full and credits the commission to
+    // the account (owner 2026-10-15).
+    const paid =
+      via === "settle"
+        ? Math.round((INTRA_GROSS - commission) * 100) / 100
+        : INTRA_GROSS;
     const owedOf = (ids: number[]) =>
       ids.reduce(
         (sum, id) =>
@@ -249,7 +258,8 @@ test("lira-web-053 OMT statement commission types: the check subtracts only cove
 
     // ── 3. refused: the WU transfer is not in this statement ──
     const owedBeforeRefusal = await owedUsd();
-    const both = INTRA_GROSS + WU_X + WU_FEE - commission;
+    const both =
+      INTRA_GROSS + WU_X + WU_FEE - (via === "settle" ? commission : 0);
     const refused = await (
       await page.request.post(url, {
         headers: auth,
@@ -267,7 +277,7 @@ test("lira-web-053 OMT statement commission types: the check subtracts only cove
     const settled = await (
       await page.request.post(url, {
         headers: auth,
-        data: body([intraId], net),
+        data: body([intraId], paid),
       })
     ).json();
     expect(settled.success, JSON.stringify(settled)).toBeTruthy();
@@ -278,7 +288,10 @@ test("lira-web-053 OMT statement commission types: the check subtracts only cove
     const wuRow = queueAfter.find((r) => r.id === wuId);
     expect(wuRow, "WU transfer left the queue").toBeTruthy();
     expect(wuRow!.settlement_id).toBeNull();
-    expect((await pcdUsd()) - pcdBefore).toBeCloseTo(-net, 2);
+    expect((await pcdUsd()) - pcdBefore).toBeCloseTo(-paid, 2);
+    // Money paid plus the commission credit: −(gross) on /settle,
+    // −(gross + commission) on /settle-account.
+    expect((await owedUsd()) - owedBefore).toBeCloseTo(-(paid + commission), 2);
     expect((await commissionAtSettlementUsd()) - commissionBefore).toBeCloseTo(
       commission,
       2,

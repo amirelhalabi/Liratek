@@ -596,7 +596,7 @@ describe("LIRA-322 — netting, COLLECT and two directions (SupplierRepository)"
 
   // ── Commission in an LBP section (untested before) ──────────────────────
 
-  it("LBP section commission: PAY 890,000 + commission 10,000 closes the LBP send; allocation + profit in LBP; void nets 0", () => {
+  it("LBP section commission: PAY 900,000 + commission 10,000 closes the LBP send; allocation + profit in LBP; −10,000 LBP open credit; void nets 0", () => {
     const lbpRow = seedOmtSend(db, acc.omtId, {
       amount: 900000,
       currency: "LBP",
@@ -604,7 +604,7 @@ describe("LIRA-322 — netting, COLLECT and two directions (SupplierRepository)"
     });
     const before = snapshot();
     const anchor = settle({
-      LBP: { direction: "PAY", payments: [cashLbp(890_000)], commission: 10_000 },
+      LBP: { direction: "PAY", payments: [cashLbp(900_000)], commission: 10_000 },
     });
     expect(fsState(lbpRow).settlement_id).toBe(anchor);
     const alloc = db
@@ -616,8 +616,9 @@ describe("LIRA-322 — netting, COLLECT and two directions (SupplierRepository)"
     const txn = settlementTxn(db, anchor);
     expect(txn.profit_lbp).toBe(10_000);
     expect(txn.profit_usd).toBe(0);
-    expect(Math.round(drawerTotals(db).lbp - before.drawers.lbp)).toBe(-890_000);
-    expect(queueOwed()).toEqual({ usd: 497, lbp: 0 });
+    expect(Math.round(drawerTotals(db).lbp - before.drawers.lbp)).toBe(-900_000);
+    // Owner 2026-10-15 — the commission is credited to the account.
+    expect(queueOwed()).toEqual({ usd: 497, lbp: -10_000 });
     expectBalanceInvariant();
 
     getTransactionRepository().voidTransaction(txn.id, 1);

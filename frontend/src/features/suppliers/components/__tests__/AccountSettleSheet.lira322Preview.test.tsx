@@ -7,6 +7,12 @@
  * still owed) and leaves three untouched; $197 is still owed after. The LBP
  * section is not affected by USD money. An amount above what is owed says
  * the extra goes on the account.
+ *
+ * Owner 2026-10-15 (one-box follow-up): $ and LBP share ONE payment box, so
+ * the $300 case types $300 on the USD line and leaves the LBP line at its
+ * pre-filled 900,000 LBP (the mock's screen B): the LBP transfer closes and
+ * "Still owed after" reads "$197.00 · 0 LBP". Rewritten after the sheet
+ * change — not proven failing-first.
  */
 
 import {
@@ -85,12 +91,13 @@ describe("AccountSettleSheet — per-currency preview (LIRA-322 US2)", () => {
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 900 });
   });
 
-  it("Cash $300: 2 close, 1 part-paid ($47 of $101 · $54 owed), 3 untouched, $197.00 still owed; LBP unchanged", async () => {
+  it("Cash $300 + 900,000 LBP: 2 close, 1 part-paid ($47 of $101 · $54 owed), 3 untouched, $197.00 · 0 LBP still owed", async () => {
     renderSheet([...SIX_USD_ROWS, LBP_ROW]);
 
     const usd = await screen.findByTestId(
-      "supplier-account-settle-section-usd",
+      "supplier-account-settle-section-usd-lbp",
     );
+    // Line 1 is USD; line 2 (LBP) stays pre-filled with 900,000.
     fireEvent.change(amountInput(usd), { target: { value: "300" } });
 
     const preview = within(usd).getByTestId(
@@ -114,16 +121,19 @@ describe("AccountSettleSheet — per-currency preview (LIRA-322 US2)", () => {
       within(usd).getByTestId("supplier-account-settle-still-owed-usd")
         .textContent,
     ).toBe("$197.00");
+    // The box's own Remaining row names only the short currency.
+    expect(within(usd).getByTestId("remaining-amount").textContent).toBe(
+      "$197.00",
+    );
 
-    const lbp = screen.getByTestId("supplier-account-settle-section-lbp");
-    const lbpPreview = within(lbp).getByTestId(
+    const lbpPreview = within(usd).getByTestId(
       "supplier-account-settle-preview-lbp",
     );
-    expect(previewStatuses(lbpPreview)).toEqual([["201", "untouched"]]);
+    expect(previewStatuses(lbpPreview)).toEqual([["201", "closes"]]);
     expect(
-      within(lbp).getByTestId("supplier-account-settle-still-owed-lbp")
+      within(usd).getByTestId("supplier-account-settle-still-owed-lbp")
         .textContent,
-    ).toBe("900,000 LBP");
+    ).toBe("0 LBP");
   });
 
   it("an amount above what is owed says the extra goes on the account", async () => {

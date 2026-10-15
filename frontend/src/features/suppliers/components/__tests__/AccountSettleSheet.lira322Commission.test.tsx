@@ -2,15 +2,20 @@
 
 /**
  * LIRA-322 (US3, T035 — finding F4) — commission entered at settlement is
- * per currency and counts toward coverage next to the money. Paying the
- * statement figure $496.30 with the $0.70 commission closes all six
- * transfers, and the commission travels as `per_currency.USD.commission`
- * (the legacy flat `commission_usd` is refused next to `per_currency`).
- * Without the commission, the newest $21 transfer stays part-paid.
+ * per currency and travels as `per_currency.USD.commission` (the legacy
+ * flat `commission_usd` is refused next to `per_currency`).
  *
- * Not proven failing-first in the strict sense (the old sheet sent a
- * different contract, so these fail on missing testids, not on the bug F4
- * itself).
+ * Owner decision 2026-10-15 (replaces FR-013a): "Pay the amount in full;
+ * don't let the commission amount affect the payment leg amount." The
+ * commission never covers a transfer, never changes the box totals and is
+ * never shown as "Extra … goes on the account" — the server credits it to
+ * the account after the payment.
+ *
+ * Not proven failing-first: the 2026-10-15 cases were written after the
+ * allocator change (frontend jest resolves @liratek/core from source, so
+ * the unfixed allocator was no longer reachable without re-breaking it —
+ * rule 17 forbids that). The same behaviour is proven failing-first in
+ * core (accountSettleAllocation + lira322CommissionToAccount).
  */
 
 import {
@@ -92,23 +97,29 @@ describe("AccountSettleSheet — commission per currency (LIRA-322 F4)", () => {
     mockSettleSupplierAccount.mockResolvedValue({ success: true, id: 900 });
   });
 
-  it("Cash $496.30 + commission $0.70 closes all six and sends per_currency.USD.commission", async () => {
+  it("Cash $497 + commission $0.70 closes all six, shows no extra, and sends per_currency.USD.commission", async () => {
     renderSheet(MODEL1_ROWS);
 
     const usd = await screen.findByTestId(
       "supplier-account-settle-section-usd",
     );
-    fireEvent.change(amountInput(usd), { target: { value: "496.30" } });
     fireEvent.change(
       within(usd).getByTestId("supplier-account-settle-commission-usd"),
       { target: { value: "0.70" } },
     );
+    // The commission does not touch the line amount (owner 2026-10-15).
+    fireEvent.change(amountInput(usd), { target: { value: "497" } });
+    expect(amountInput(usd).value).toBe("497");
 
     await waitFor(() => expect(statuses(usd)).toEqual(Array(6).fill("closes")));
     expect(
       within(usd).getByTestId("supplier-account-settle-still-owed-usd")
         .textContent,
     ).toBe("$0.00");
+    // No "Extra $0.70 goes on the account" caused by the commission.
+    expect(
+      screen.queryByTestId("supplier-account-settle-extra-usd"),
+    ).toBeNull();
 
     const submit = screen.getByTestId("supplier-account-settle-submit");
     await waitFor(() => expect(submit).not.toBeDisabled());
@@ -125,10 +136,41 @@ describe("AccountSettleSheet — commission per currency (LIRA-322 F4)", () => {
     });
     expect(parsed.per_currency?.USD?.commission).toBeCloseTo(0.7, 2);
     expect(parsed.per_currency?.USD?.payments).toEqual([
-      { method: "CASH", currency_code: "USD", amount: 496.3 },
+      { method: "CASH", currency_code: "USD", amount: 497 },
     ]);
     expect(payload).not.toHaveProperty("commission_usd");
     expect(payload).not.toHaveProperty("commission_lbp");
+  });
+
+  it("Cash $496.30 + commission $0.70: the commission covers nothing — the newest $21 stays part-paid", async () => {
+    renderSheet(MODEL1_ROWS);
+
+    const usd = await screen.findByTestId(
+      "supplier-account-settle-section-usd",
+    );
+    fireEvent.change(amountInput(usd), { target: { value: "496.30" } });
+    fireEvent.change(
+      within(usd).getByTestId("supplier-account-settle-commission-usd"),
+      { target: { value: "0.70" } },
+    );
+
+    await waitFor(() =>
+      expect(statuses(usd)).toEqual([
+        "closes",
+        "closes",
+        "closes",
+        "closes",
+        "closes",
+        "part-paid",
+      ]),
+    );
+    expect(
+      within(usd).getByTestId("supplier-account-settle-still-owed-usd")
+        .textContent,
+    ).toBe("$0.70");
+    expect(
+      within(usd).queryByTestId("supplier-account-settle-commission-warning-usd"),
+    ).toBeNull();
   });
 
   it("Cash $496.30 with no commission leaves the newest $21 part-paid ($0.70 owed)", async () => {

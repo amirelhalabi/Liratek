@@ -983,10 +983,12 @@ const SUPPLIER_RULES = {
         post: "unchecked",
         reason:
           "Spread over the account's MEMBERS, one row per member per currency " +
-          "with its own sign: −(money + commission + waive applied) on a debt, " +
+          "with its own sign: −(money + waive applied) on a debt, " +
           "+ on a credit; a hidden is_auto netting pair (debit member −x " +
           "PAYMENT, credit member +x SUPPLIER_PAYS_US) per cross-member netting; " +
-          "the commission credit (−c, stamped with the anchor); the waive " +
+          "the commission credit (−c per currency, is_auto, in this " +
+          "settlement's own transaction, left OPEN so it nets at the next " +
+          "settlement — owner 2026-10-15: the commission never covers a row); the waive " +
           "DISCOUNT; one overpay row per currency with its own sign (LIRA-315). " +
           "Invariant instead of a formula: per member and currency the ledger " +
           "equals Σ remaining of its queue rows (supplier_settlement_coverage) " +

@@ -98,6 +98,20 @@ export interface MultiPaymentInputProps {
    *  crosses currencies, so e.g. an LBP debt paid in LBP is rate-invariant.
    *  Defaults to [] (nothing owed). */
   totals?: Money[];
+  /** LIRA-322 (OMT Settle Account, owner 2026-10-15) — OPT-IN. Each line
+   *  counts ONLY toward its own currency's entry in `totals`; currencies are
+   *  never converted or netted against each other (OMT settles each currency
+   *  on its own). The existing summary rows show each currency in its own
+   *  currency, joined " · ": "Total Amount $497.00 · 900,000 LBP", "Paid
+   *  $300.00 · 900,000 LBP", and "Remaining to pay" lists only the short
+   *  currencies ("$197.00"). Overpay is per currency (paid − total, never
+   *  offset by another currency's shortfall); the existing change box shows
+   *  the SUM of every overpaid currency converted to the box's display, and
+   *  seeds each return field with its own currency's extra. A new line fills
+   *  to its own currency's remaining only. Discount/Waive are not supported
+   *  in this mode (callers pass `showDiscount={false}` / `waiveDisabled`).
+   *  Off/absent: unchanged behaviour. */
+  perCurrencyTotals?: boolean;
   /** Rate table for cross-currency math. Defaults to a USD-based table whose
    *  LBP pair tracks the header rate field (which also overrides the LBP pair
    *  of a provided table — the operator sets today's counter rate). */
@@ -646,6 +660,7 @@ export default function MultiPaymentInput({
   currency,
   totalAmountCurrency = "USD",
   totals: totalsProp,
+  perCurrencyTotals = false,
   rateTable: rateTableProp,
   side = "buy",
   onChange,
@@ -960,6 +975,19 @@ export default function MultiPaymentInput({
     /** The lines to count instead of the current ones (LIRA-308 answer 3). */
     linesOverride?: PaymentLine[],
   ): number => {
+    // LIRA-322 — perCurrencyTotals: only this currency's own remaining; the
+    // other currencies are never converted into it.
+    if (perCurrencyTotals) {
+      const owed = (fillTotals ?? baseTotals)
+        .filter((t) => t.currency === lineCurrency)
+        .reduce((s, t) => s + t.amount, 0);
+      const others = (linesOverride ?? paymentLines)
+        .filter(
+          (l) => l.id !== excludeLineId && l.currencyCode === lineCurrency,
+        )
+        .reduce((s, l) => s + Math.max(0, l.amount || 0), 0);
+      return Math.max(0, owed - others);
+    }
     const otherPayments: Money[] = (linesOverride ?? paymentLines)
       .filter((l) => l.id !== excludeLineId)
       .map((l) => ({
@@ -1423,6 +1451,47 @@ export default function MultiPaymentInput({
   // Tolerance for matching: LBP amounts are large so use higher tolerance
   const matchTolerance = totalAmountCurrency === "LBP" ? 100 : 0.01;
 
+  // ── LIRA-322 — perCurrencyTotals: each currency settles on its own ──
+  // What is owed, paid, short and extra PER CURRENCY, in that currency
+  // (never converted). Tolerance per currency, the same figures as
+  // `matchTolerance` (100 LBP / 0.01 otherwise). Empty when the prop is off.
+  const pcRows: Array<{
+    currency: string;
+    total: number;
+    paid: number;
+    short: number;
+    extra: number;
+  }> = perCurrencyTotals
+    ? [
+        ...new Set([
+          ...baseTotals.map((t) => t.currency),
+          ...paymentLines
+            .filter((l) => (l.amount || 0) > 0)
+            .map((l) => l.currencyCode),
+        ]),
+      ].map((c) => {
+        const total = baseTotals
+          .filter((t) => t.currency === c)
+          .reduce((s, t) => s + t.amount, 0);
+        const paid = paymentLines
+          .filter((l) => l.currencyCode === c)
+          .reduce((s, l) => s + (l.amount || 0), 0);
+        const tol = c === "LBP" ? 100 : 0.01;
+        return {
+          currency: c,
+          total,
+          paid,
+          short: total - paid > tol ? total - paid : 0,
+          extra: paid - total > tol ? paid - total : 0,
+        };
+      })
+    : [];
+  const pcAnyShort = pcRows.some((r) => r.short > 0);
+  const pcAnyExtra = pcRows.some((r) => r.extra > 0);
+  /** Re-seeds the change fields when the per-currency split of the overpay
+   *  changes (constant "" when the prop is off). */
+  const pcExtraKey = pcRows.map((r) => `${r.currency}:${r.extra}`).join("|");
+
   const hasDebt = paymentLines.some(
     (line) => line.method === "CUSTOMER_ACCOUNT",
   );
@@ -1553,16 +1622,31 @@ export default function MultiPaymentInput({
   // --- Return / change derivation ---
   // Overpaid amount (in totalAmountCurrency); only positive when the customer
   // paid more than the (post-discount) total.
-  const overpaidTarget = Math.max(0, totalPaid - effectiveTotalInTarget);
+  // LIRA-322 — perCurrencyTotals: the sum of each currency's OWN overpay,
+  // converted only for display (a short currency never offsets it). If
+  // both currencies are overpaid, the change due is both extras together.
+  const overpaidTarget = perCurrencyTotals
+    ? pcRows.reduce(
+        (s, r) => s + convertSafe(r.extra, r.currency, totalAmountCurrency),
+        0,
+      )
+    : Math.max(0, totalPaid - effectiveTotalInTarget);
   // Payout mode: an overpaid payout is never "change" (see the `direction`
   // prop doc) — the whole Return/Change + T3 keep-change path stays off.
-  const isOverpaid = !isPayout && overpaidTarget > matchTolerance;
+  const isOverpaid =
+    !isPayout &&
+    (perCurrencyTotals ? pcAnyExtra : overpaidTarget > matchTolerance);
 
   // --- Waive-remaining derivation ---
   // Shortfall in totalAmountCurrency — compared in that currency, never
   // converted (LIRA-310: the cap is $5 for a USD total and 450,000 LBP for
   // an LBP total).
-  const remainingShortfall = Math.max(0, effectiveTotalInTarget - totalPaid);
+  const remainingShortfall = perCurrencyTotals
+    ? pcRows.reduce(
+        (s, r) => s + convertSafe(r.short, r.currency, totalAmountCurrency),
+        0,
+      )
+    : Math.max(0, effectiveTotalInTarget - totalPaid);
   // --- Payout keep-change (direction="payout", owner decision 2026-10-06) ---
   // The shortfall IS the kept amount: the shop hands out the round figure
   // and keeps the leftover as profit. Up to and including the shared core
@@ -1781,6 +1865,20 @@ export default function MultiPaymentInput({
       );
       return;
     }
+    // LIRA-322 — perCurrencyTotals: each field starts with its own
+    // currency's extra ($3 over → "$3.00"; 100,000 LBP over → LBP field).
+    if (
+      perCurrencyTotals &&
+      pcRows.every(
+        (r) => r.extra <= 0 || r.currency === "USD" || r.currency === "LBP",
+      )
+    ) {
+      const usdExtra = pcRows.find((r) => r.currency === "USD")?.extra ?? 0;
+      const lbpExtra = pcRows.find((r) => r.currency === "LBP")?.extra ?? 0;
+      setReturnAmountUSD(usdExtra > 0 ? usdExtra.toFixed(2) : "");
+      setReturnAmountLBP(lbpExtra > 0 ? String(Math.round(lbpExtra)) : "");
+      return;
+    }
     if (totalAmountCurrency === "USD") {
       if (smartSplitOverpay) {
         // Lebanon dual-currency drawer convention: hand back whole USD notes
@@ -1816,7 +1914,13 @@ export default function MultiPaymentInput({
     }
     seedFullSuggestedReturn();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOverpaid, overpaidTarget, totalAmountCurrency, smartSplitOverpay]);
+  }, [
+    isOverpaid,
+    overpaidTarget,
+    totalAmountCurrency,
+    smartSplitOverpay,
+    pcExtraKey,
+  ]);
 
   // Payer switch without a remount (e.g. a form toggling customer ↔ payout,
   // or Expenses reusing the instance): an under-return typed in one mode
@@ -2007,11 +2111,13 @@ export default function MultiPaymentInput({
   // A problem is: underpaid with nothing kept, a payout handing out more
   // than owed, or a CASH change return that does not add up (over-return,
   // or an under-return this page cannot keep).
-  const paidExact =
-    Math.abs(totalPaid - effectiveTotalInTarget) < matchTolerance;
+  const paidExact = perCurrencyTotals
+    ? !pcAnyShort && !pcAnyExtra
+    : Math.abs(totalPaid - effectiveTotalInTarget) < matchTolerance;
   const paidHasProblem =
     !paidExact &&
-    ((remainingShortfall > matchTolerance && !payoutKeepActive) ||
+    (((perCurrencyTotals ? pcAnyShort : remainingShortfall > matchTolerance) &&
+      !payoutKeepActive) ||
       (isPayout && overpaidTarget > matchTolerance && !payoutExcessToAccount) ||
       (effectiveReturnMethod === "CASH" &&
         hasReturnMismatch &&
@@ -2305,6 +2411,20 @@ export default function MultiPaymentInput({
       </>
     );
   };
+  /** LIRA-322 — perCurrencyTotals: amounts each in their own currency,
+   *  joined " · " ("$197.00 · 900,000 LBP"). */
+  const pcText = (items: Array<{ amount: number; currency: string }>) =>
+    items
+      .map(({ amount, currency: c }) =>
+        fmtWithSymbol(
+          amount,
+          c === "USD"
+            ? "$"
+            : (currencies.find((x) => x.code === c)?.symbol ?? c),
+          c === "LBP" ? 0 : 2,
+        ),
+      )
+      .join(" · ");
   // The kept change (payment mode) as ONE amount in totalAmountCurrency,
   // from the unrounded per-currency figures, for the green note.
   const keptTotalTarget =
@@ -2766,13 +2886,20 @@ export default function MultiPaymentInput({
           <div className="flex justify-between text-xs">
             <span className="text-slate-400">Total Amount</span>
             <span className="font-mono text-white">
-              {fmtTarget(
-                toDisplayCurrency(
-                  totalBeforeDiscount
-                    ? sumInTarget(totalBeforeDiscount)
-                    : totalInTarget,
-                ),
-              )}
+              {perCurrencyTotals
+                ? pcText(
+                    pcRows.map((r) => ({
+                      amount: r.total,
+                      currency: r.currency,
+                    })),
+                  )
+                : fmtTarget(
+                    toDisplayCurrency(
+                      totalBeforeDiscount
+                        ? sumInTarget(totalBeforeDiscount)
+                        : totalInTarget,
+                    ),
+                  )}
             </span>
           </div>
         )}
@@ -2959,7 +3086,14 @@ export default function MultiPaymentInput({
                     : "text-slate-100"
               }`}
             >
-              {fmtTarget(toDisplayCurrency(totalPaid))}
+              {perCurrencyTotals
+                ? pcText(
+                    pcRows.map((r) => ({
+                      amount: r.paid,
+                      currency: r.currency,
+                    })),
+                  )
+                : fmtTarget(toDisplayCurrency(totalPaid))}
             </span>
           </span>
         </div>
@@ -3004,7 +3138,9 @@ export default function MultiPaymentInput({
         )}
 
         {/* Remaining (underpaid → debt) warning */}
-        {totalPaid < effectiveTotalInTarget - matchTolerance && (
+        {(perCurrencyTotals
+          ? pcAnyShort
+          : totalPaid < effectiveTotalInTarget - matchTolerance) && (
           <div
             data-testid="remaining-row"
             className={`flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md ${
@@ -3060,7 +3196,16 @@ export default function MultiPaymentInput({
                   data-testid="remaining-amount"
                   className={`flex items-center gap-1 font-mono font-bold ${payoutKeepActive ? "text-emerald-400" : "text-red-400"}`}
                 >
-                  {renderDualAmount(effectiveTotalInTarget - totalPaid)}
+                  {perCurrencyTotals
+                    ? pcText(
+                        pcRows
+                          .filter((r) => r.short > 0)
+                          .map((r) => ({
+                            amount: r.short,
+                            currency: r.currency,
+                          })),
+                      )
+                    : renderDualAmount(effectiveTotalInTarget - totalPaid)}
                 </span>
                 {showWaiveButton && waiveButton}
               </span>
@@ -3072,14 +3217,18 @@ export default function MultiPaymentInput({
           !isPayout &&
           !isShopPayer &&
           !isOverpaid &&
-          totalPaid >= effectiveTotalInTarget - matchTolerance && (
+          (perCurrencyTotals
+            ? !pcAnyShort
+            : totalPaid >= effectiveTotalInTarget - matchTolerance) && (
             <div
               data-testid="owed-after-row"
               className="flex items-center justify-between gap-2 text-xs px-2 py-1"
             >
               <span className="text-slate-300 font-medium">{owedLabel}</span>
               <span className="font-mono font-bold text-emerald-400">
-                {fmtTarget(toDisplayCurrency(0))}
+                {perCurrencyTotals
+                  ? pcText(pcRows.map((r) => ({ amount: 0, currency: r.currency })))
+                  : fmtTarget(toDisplayCurrency(0))}
               </span>
             </div>
           )}
