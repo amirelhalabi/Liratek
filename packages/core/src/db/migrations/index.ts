@@ -14871,7 +14871,9 @@ DROP TABLE IF EXISTS supplier_settlement_coverage;`);
     },
     down(db: Database.Database) {
       // A SPLIT row cannot survive the old CHECK; it has no single method.
-      if (tableExists(db, "partner_ledger")) {
+      // A partner_ledger without the column (a trimmed test schema rolled
+      // back through the runner) has nothing to undo.
+      if (partnerLedgerHasSettlementMethod(db)) {
         db.exec(
           `UPDATE partner_ledger SET settlement_method = NULL WHERE settlement_method = 'SPLIT'`,
         );
@@ -14894,6 +14896,16 @@ const PARTNER_SETTLEMENT_METHODS_V219 = [
   "SPLIT",
 ] as const;
 
+/** v219 — true when partner_ledger exists and has settlement_method. */
+function partnerLedgerHasSettlementMethod(db: Database.Database): boolean {
+  if (!tableExists(db, "partner_ledger")) return false;
+  return (
+    db.prepare(`PRAGMA table_info(partner_ledger)`).all() as Array<{
+      name: string;
+    }>
+  ).some((c) => c.name === "settlement_method");
+}
+
 /**
  * v219 — rebuild partner_ledger with a new settlement_method CHECK list.
  * Works from the table's CURRENT `CREATE TABLE` text (sqlite_master), so
@@ -14911,7 +14923,7 @@ export function setPartnerLedgerSettlementMethods(
       `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'partner_ledger'`,
     )
     .get() as { sql: string } | undefined;
-  if (!table) return;
+  if (!table || !partnerLedgerHasSettlementMethod(db)) return;
   const checkRe =
     /settlement_method\s+TEXT\s+CHECK\s*\(\s*settlement_method\s+IN\s*\([^)]*\)\s*\)/i;
   if (!checkRe.test(table.sql)) {
