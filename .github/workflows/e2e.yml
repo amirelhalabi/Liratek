@@ -35,7 +35,7 @@ on:
 # manual e2e dispatch never cancels (or gets cancelled by) an in-flight CI
 # run on the same ref — the two workflows are independent gates.
 concurrency:
-  group: e2e-${{ github.ref }}
+  group: e2e-${{ github.ref }}-${{ github.event.inputs.suite }}
   cancel-in-progress: true
 
 env:
@@ -94,6 +94,27 @@ jobs:
       # one"), and scripts/run-e2e.mjs adds the safety net that was missing:
       # it fails the step if the run reports fewer than --min completed
       # tests, even if the underlying process's own exit code was 0.
+      # Diagnostic only (log_level=debug): boot the desktop app directly for
+      # 45 s with every log channel on, so a boot that never opens a window
+      # shows where it stops.
+      - name: Boot desktop app directly (diagnostic)
+        if: ${{ github.event.inputs.log_level == 'debug' }}
+        continue-on-error: true
+        working-directory: electron-app
+        env:
+          NODE_ENV: test
+          LOG_LEVEL: debug
+          ELECTRON_ENABLE_LOGGING: "1"
+          ELECTRON_ENABLE_STACK_DUMPING: "1"
+          DEBUG: "*"
+        run: |
+          mkdir -p /tmp/diag-user /tmp/diag-db
+          export DATABASE_PATH=/tmp/diag-db/phone_shop.db
+          ELECTRON_BIN=$(node -p "require('electron')")
+          timeout 45 xvfb-run --auto-servernum -- "$ELECTRON_BIN" dist/main.js --user-data-dir=/tmp/diag-user --enable-logging=stderr 2>&1 | tail -200 || true
+          echo "--- user data dir ---"; ls -la /tmp/diag-user || true
+          echo "--- db dir ---"; ls -la /tmp/diag-db || true
+
       - name: Run Electron E2E tests
         env:
           LOG_LEVEL: ${{ github.event.inputs.log_level }}
