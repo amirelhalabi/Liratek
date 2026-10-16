@@ -39,6 +39,9 @@ export interface ActionGatingFields {
   reverses_id?: number | null;
   /** Set on an original row once it has been refunded (see file doc). */
   reversed_by_id?: number | null;
+  /** A SALE with at least one line refunded item by item (core
+   *  `getRecent`, shop-day 2026-10-16) — a whole Void/Refund is refused. */
+  item_refunded?: boolean;
 }
 
 /**
@@ -57,6 +60,18 @@ export function isReversibleRow(row: ActionGatingFields): boolean {
     row.reverses_id == null &&
     row.reversed_by_id == null
   );
+}
+
+/**
+ * Whether the plain whole-transaction Void / Refund pair is offered. A sale
+ * with a line already refunded item by item (`item_refunded`, core
+ * `getRecent`, shop-day 2026-10-16) is still reversible item by item, but
+ * the server refuses a whole Void/Refund of it
+ * (`_assertNoPartialItemRefunds`), so the pair is hidden. Kept apart from
+ * `isReversibleRow` so a session sale keeps its "Refund item" button.
+ */
+export function offersWholeVoidRefund(row: ActionGatingFields): boolean {
+  return isReversibleRow(row) && row.item_refunded !== true;
 }
 
 // =============================================================================

@@ -507,6 +507,14 @@ export interface RecentTransaction {
    * the session. Always `false` for a non-session row.
    */
   session_fully_refunded: boolean;
+  /** Shop-day 2026-10-16 — see `TransactionWithUser.item_refund_of_id`
+   *  (core TransactionRepository): the SALE row a sale-item refund belongs
+   *  to; null otherwise. */
+  item_refund_of_id?: number | null;
+  /** True on an active, not-whole-refunded SALE with an item refund. */
+  item_refunded?: boolean;
+  /** With `item_refunded`: quantity is still refundable item by item. */
+  item_refund_remaining?: boolean;
 }
 
 /** A mobile service catalog item stored in the database */

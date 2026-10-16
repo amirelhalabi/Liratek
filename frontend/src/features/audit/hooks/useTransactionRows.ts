@@ -65,6 +65,9 @@ export type TransactionRow = {
   created_at: string;
   username: string;
   client_name: string | null;
+  /** The customer's phone as saved on the row (LIRA-329); `getRecent`
+   *  already selects it. Optional for rows from an older backend. */
+  client_phone?: string | null;
   // WS8: set when the row belongs to a customer-session basket. Drives the
   // per-session colored left-border accent. Null for non-session rows.
   session_id: number | null;
@@ -144,6 +147,20 @@ export type TransactionRow = {
    * read as "not fully refunded" (never hides the basket actions).
    */
   session_fully_refunded?: boolean;
+  /**
+   * Shop-day 2026-10-16 (core `getRecent`) — on a sale-ITEM refund row: the
+   * SALE row it belongs to (such rows keep `reverses_id` null, which means
+   * "whole refund"). Read through `reversedTransactionId` (../rowBadges).
+   * Optional for rows from an older backend.
+   */
+  item_refund_of_id?: number | null;
+  /** On an active, not-whole-refunded SALE: at least one line was refunded
+   *  item by item. The server refuses a whole Void/Refund then. */
+  item_refunded?: boolean;
+  /** With `item_refunded`: some quantity can still be refunded ("PARTLY
+   *  REFUNDED"); false = every line refunded item by item ("REFUNDED",
+   *  while `reversed_by_id` stays null). */
+  item_refund_remaining?: boolean;
 };
 
 /**

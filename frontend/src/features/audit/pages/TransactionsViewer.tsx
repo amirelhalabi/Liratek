@@ -20,13 +20,18 @@ import {
   type ProductUnitDto,
   type BookedRateSource,
 } from "@/api/backendApi";
-import { DataTable, useApi, appEvents } from "@liratek/ui";
+import {
+  DataTable,
+  useApi,
+  appEvents,
+  type DataTableColumn,
+  type ExportSheet,
+} from "@liratek/ui";
 import logger from "@/utils/logger";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import {
   billsCommissionModeLine,
   billsOnlyCommissionAmount,
-  formatPaymentMethods,
   legMethodLabel,
   methodLegsFor,
   sessionPooledMethodLegsFor,
@@ -37,16 +42,25 @@ import {
   AmountCell,
   ClientCell,
   MethodCell,
-  ReturnedCreditsCell,
-  ReversesCell,
-  StatusCell,
   SummaryCell,
   TimeCell,
   TypeCell,
   UserCell,
   type RowActionHandlers,
 } from "../components/TransactionCells";
-import { deriveRow } from "../rowDerived";
+import { amountCellText, deriveRow } from "../rowDerived";
+import { displaySummary, getTypeLabel } from "../transactionDisplay";
+import {
+  clientText,
+  methodText,
+  timeText,
+  userText,
+} from "../transactionCellText";
+import {
+  detailsLineText,
+  transactionExtraSheets,
+  type ExportContext,
+} from "../transactionExport";
 import {
   computeSessionGroupHeaders,
   isSessionGroupHeader,
@@ -72,11 +86,13 @@ import {
 } from "@/features/wrongNumbers/components/WrongNumberDialog";
 import {
   extraChargeText,
+  fallbackMethodLabel,
   isSwapTransactionType,
   REFUND_KEPT_CHANGE_TYPES,
   type RefundKeptChangeInput,
 } from "@liratek/core";
 import { RefundQuantityModal } from "../components/RefundQuantityModal";
+import { TransactionDetailsPanel } from "../components/TransactionDetailsPanel";
 import {
   SessionSaleLinePickerModal,
   type SessionSaleLineItem,
@@ -142,6 +158,62 @@ export interface TransactionsViewerProps {
   from: string;
   to: string;
 }
+
+/**
+ * The table's columns — ONE list for the screen header, the export column
+ * picker and the export's plain-text cells (`exportText` maps every header
+ * here to its text; the type makes a missing header a compile error).
+ */
+const TRANSACTION_COLUMNS = [
+  {
+    header: "Time",
+    sortKey: "created_at",
+    width: "160px",
+    className: "p-2 text-xs font-semibold uppercase text-slate-400",
+  },
+  {
+    header: "Summary",
+    sortKey: "summary",
+    className: "p-2 text-xs font-semibold uppercase text-slate-400",
+  },
+  {
+    header: "Type",
+    sortKey: "type",
+    width: "160px",
+    className: "p-2 text-xs font-semibold uppercase text-slate-400",
+  },
+  {
+    header: "Client",
+    sortKey: "client_name",
+    width: "140px",
+    className: "p-2 text-xs font-semibold uppercase text-slate-400",
+  },
+  {
+    header: "Amount",
+    sortKey: "amount_usd",
+    width: "160px",
+    className: "p-2 text-xs font-semibold uppercase text-slate-400",
+  },
+  {
+    header: "Method",
+    sortKey: "payment_method",
+    width: "120px",
+    className: "p-2 text-xs font-semibold uppercase text-slate-400",
+  },
+  {
+    header: "User",
+    sortKey: "username",
+    width: "90px",
+    className: "p-2 text-xs font-semibold uppercase text-slate-400",
+  },
+  {
+    header: "Actions",
+    width: "80px",
+    className: "p-2 text-xs font-semibold uppercase text-slate-400",
+  },
+] as const satisfies readonly DataTableColumn[];
+
+type TransactionColumnHeader = (typeof TRANSACTION_COLUMNS)[number]["header"];
 
 export default function TransactionsViewer({
   limit,
@@ -223,6 +295,29 @@ export default function TransactionsViewer({
     for (const m of paymentMethods) map.set(m.code, m.label);
     return map;
   }, [paymentMethods]);
+
+  // Owner decision 2026-10-16 — every export carries each transaction's
+  // details, with costs for admins only (the Details panel's own rules).
+  const exportContext = useMemo<ExportContext>(
+    () => ({
+      isAdmin,
+      methodLabel: (code) =>
+        methodLabelByCode.get(code) ?? fallbackMethodLabel(code),
+    }),
+    [isAdmin, methodLabelByCode],
+  );
+  const exportRowNotes = useMemo(
+    () => ({
+      header: "Details",
+      get: (row: TransactionRow) => detailsLineText(row, exportContext),
+    }),
+    [exportContext],
+  );
+  const exportExtraSheets = useCallback(
+    (items: TransactionRow[]): ExportSheet[] =>
+      transactionExtraSheets(items, exportContext),
+    [exportContext],
+  );
 
   // The "System Transactions" sandwich fold — a ⚙ toggle that collapsed the
   // auto-generated system rows (chiefly SUPPLIER_PAYMENT siblings) sitting
@@ -326,8 +421,7 @@ export default function TransactionsViewer({
               )
             : await refundTransaction(id, refundLegs, unitExtras, exchangeRate);
         if (res.success) load();
-        else
-          alert(describeActionFailure(res.error, "Refunding a transaction"));
+        else alert(describeActionFailure(res.error, "Refunding a transaction"));
       } catch (err) {
         alert(describeActionFailure(err, "Refunding a transaction"));
       }
@@ -340,6 +434,8 @@ export default function TransactionsViewer({
   // LIRA-312 — the open "Wrong number…" / "Credits…" dialog, if any.
   const [wrongNumberTarget, setWrongNumberTarget] =
     useState<WrongNumberDialogTarget | null>(null);
+  // Owner request 2026-10-16 — the row whose Details panel is open.
+  const [detailsRow, setDetailsRow] = useState<TransactionRow | null>(null);
   const [refundModalRow, setRefundModalRow] = useState<TransactionRow | null>(
     null,
   );
@@ -453,8 +549,10 @@ export default function TransactionsViewer({
       // failure (rule 19c envelope), and a rejected promise (network error)
       // is caught below and simply leaves `refundBookedRate` null, which the
       // render treats the same as "fallback".
-      let bookedRate: { bookedRate: number; bookedRateSource: BookedRateSource } | null =
-        null;
+      let bookedRate: {
+        bookedRate: number;
+        bookedRateSource: BookedRateSource;
+      } | null = null;
       try {
         const rateRes = await getRefundBookedRate(row.id);
         if (rateRes.success) {
@@ -549,7 +647,8 @@ export default function TransactionsViewer({
       try {
         const res = await voidSessionBasket(sessionId);
         if (res.success) load();
-        else alert(describeActionFailure(res.error, "Voiding a session basket"));
+        else
+          alert(describeActionFailure(res.error, "Voiding a session basket"));
       } catch (err) {
         alert(describeActionFailure(err, "Voiding a session basket"));
       }
@@ -679,7 +778,12 @@ export default function TransactionsViewer({
       .filter((item) => item.quantity - (item.refunded_quantity ?? 0) > 0)
       .map((item) => item.id);
     setSaleLinePicker(null);
-    void openSessionItemPreview(row, undefined, undefined, remainingSaleItemIds);
+    void openSessionItemPreview(
+      row,
+      undefined,
+      undefined,
+      remainingSaleItemIds,
+    );
   };
 
   const handleConfirmSaleLineQuantity = (quantity: number) => {
@@ -703,6 +807,7 @@ export default function TransactionsViewer({
       onRefundSessionItem: handleRefundSessionItem,
       onUndoRefund: handleUndoRefund,
       onWrongNumber: setWrongNumberTarget,
+      onShowDetails: setDetailsRow,
     }),
     [
       handlePrintReceipt,
@@ -766,6 +871,51 @@ export default function TransactionsViewer({
     ) {
       return null;
     }
+    const ownLines = buildPaymentDetailLines(
+      legs.map((leg) => ({
+        ...leg,
+        method: legMethodLabel(leg, methodLabelByCode),
+      })),
+      row.drawer_moves ?? [],
+    );
+    const pooledLines =
+      pooledLegs.length > 0
+        ? buildPaymentDetailLines(
+            pooledLegs.map((leg) => ({
+              ...leg,
+              method: legMethodLabel(leg, methodLabelByCode),
+            })),
+          )
+        : [];
+    if (keySuffix === "export") {
+      // The shared export reads a cell's text by joining its children with
+      // nothing between them, so the lines below ran together ("In — Cash:
+      // $50Out — Cash: $5", shop-day test 2026-10-16). The export gets the
+      // same lines as ONE string, " · " between them — local to this table,
+      // so no other page's export changes.
+      const lineText = (line: (typeof ownLines)[number]) =>
+        `${line.direction === "in" ? "In" : "Out"} — ${line.method}: ${line.amountText}` +
+        (line.drawersText ? `  {${line.drawersText}}` : "");
+      const parts = [
+        modeLine,
+        extraText ? `Extra charged: ${extraText}` : null,
+        ...ownLines.map(lineText),
+        pooledLines.length > 0
+          ? `Session #${row.session_id} pooled: ` +
+            pooledLines
+              .map(
+                (l) => lineText(l) + (l.reversal ? " (basket reversal)" : ""),
+              )
+              .join(" · ")
+          : null,
+      ].filter((p): p is string => !!p);
+      return (
+        <tr key={`legdetail-${row.id}-${keySuffix}`}>
+          <td />
+          <td colSpan={7}>{parts.join(" · ")}</td>
+        </tr>
+      );
+    }
     return (
       <tr
         key={`legdetail-${row.id}-${keySuffix}`}
@@ -773,8 +923,8 @@ export default function TransactionsViewer({
         className="border-t border-slate-800/30 text-[11px] bg-slate-900/20"
       >
         <td className="p-2" />
-        {/* LIRA-205: 1 (indent) + 10 (remaining columns, after ReturnedCreditsCell) = 11 total. */}
-        <td className="p-2 pl-5 text-slate-400 font-mono" colSpan={10}>
+        {/* 1 (indent) + 7 (remaining columns) = 8 total. */}
+        <td className="p-2 pl-5 text-slate-400 font-mono" colSpan={7}>
           <div className="flex flex-col gap-0.5">
             {modeLine && (
               <div data-testid={`commission-mode-${row.id}`}>{modeLine}</div>
@@ -787,13 +937,7 @@ export default function TransactionsViewer({
                 Extra charged: {extraText}
               </div>
             )}
-            {buildPaymentDetailLines(
-              legs.map((leg) => ({
-                ...leg,
-                method: legMethodLabel(leg, methodLabelByCode),
-              })),
-              row.drawer_moves ?? [],
-            ).map((line, i) => (
+            {ownLines.map((line, i) => (
               <div key={`own-${i}`}>
                 {line.direction === "in" ? "In" : "Out"} — {line.method}:{" "}
                 {line.amountText}
@@ -814,12 +958,7 @@ export default function TransactionsViewer({
                 <div className="font-semibold">
                   Session #{row.session_id} pooled:
                 </div>
-                {buildPaymentDetailLines(
-                  pooledLegs.map((leg) => ({
-                    ...leg,
-                    method: legMethodLabel(leg, methodLabelByCode),
-                  })),
-                ).map((line, i) => (
+                {pooledLines.map((line, i) => (
                   <div key={`pooled-${i}`}>
                     {line.direction === "in" ? "In" : "Out"} — {line.method}:{" "}
                     {line.amountText}
@@ -849,9 +988,9 @@ export default function TransactionsViewer({
   // the session accent (data-session + --session-hue); pass null for plain rows.
   // isSystem=true applies muted styling for collapsed system sub-rows.
   /**
-   * One transaction row. All eleven cells are their own component (see
-   * `../components/TransactionCells`, including `ReturnedCreditsCell` —
-   * LIRA-205) so they stay independently readable; each renders exactly one
+   * One transaction row. All eight cells are their own component (see
+   * `../components/TransactionCells`) so they stay independently readable;
+   * each renders exactly one
    * `<td>` in the same declared column order. This function's only job is
    * the `<tr>` itself — the session accent, the voided/refunded row tint —
    * and passing each cell what it needs. `deriveRow` parses the row's
@@ -879,11 +1018,8 @@ export default function TransactionsViewer({
         <TypeCell row={row} />
         <ClientCell row={row} />
         <AmountCell row={row} derived={derived} />
-        <ReturnedCreditsCell row={row} />
         <MethodCell row={row} methodLabelByCode={methodLabelByCode} />
         <UserCell row={row} />
-        <StatusCell row={row} />
-        <ReversesCell row={row} />
         <ActionsCell
           row={row}
           derived={derived}
@@ -901,6 +1037,33 @@ export default function TransactionsViewer({
             sessionId != null && sessionsFullyRefunded.has(sessionId)
           }
         />
+      </tr>
+    );
+  }
+
+  /**
+   * The row as the export reads it: one plain-text `<td>` per column. The
+   * screen cells are components, whose text the shared DataTable export
+   * cannot see (every row exported blank from 3a2be48e on). Summary is the
+   * plain summary — the status / reversal / credits tags are in the Details
+   * text instead.
+   */
+  function buildExportTr(row: TransactionRow) {
+    const exportText: Record<TransactionColumnHeader, () => string> = {
+      Time: () => timeText(row),
+      Summary: () => displaySummary(row) ?? "",
+      Type: () => getTypeLabel(row),
+      Client: () => clientText(row),
+      Amount: () => amountCellText(row, deriveRow(row, isRowGroupHeader(row))),
+      Method: () => methodText(row, methodLabelByCode),
+      User: () => userText(row),
+      Actions: () => "",
+    };
+    return (
+      <tr key={row.id}>
+        {TRANSACTION_COLUMNS.map((c) => (
+          <td key={c.header}>{exportText[c.header]()}</td>
+        ))}
       </tr>
     );
   }
@@ -923,74 +1086,7 @@ export default function TransactionsViewer({
   return (
     <>
       <DataTable<TransactionRow>
-        columns={[
-          {
-            header: "Time",
-            sortKey: "created_at",
-            width: "160px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            header: "Summary",
-            sortKey: "summary",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            header: "Type",
-            sortKey: "type",
-            width: "160px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            header: "Client",
-            sortKey: "client_name",
-            width: "140px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            header: "Amount",
-            sortKey: "amount_usd",
-            width: "160px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            // LIRA-205: net telecom credit returned to the shop on an
-            // Only-Days MTC/Alfa card sale (blank when none — ReturnedCreditsCell).
-            header: "Ret. Credits",
-            sortKey: "returned_credits_usd",
-            width: "120px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            header: "Method",
-            sortKey: "payment_method",
-            width: "120px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            header: "User",
-            sortKey: "username",
-            width: "90px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            header: "Status",
-            sortKey: "status",
-            width: "80px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            header: "Reverses",
-            sortKey: "reverses_id",
-            width: "60px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-          {
-            header: "Actions",
-            width: "80px",
-            className: "p-2 text-xs font-semibold uppercase text-slate-400",
-          },
-        ]}
+        columns={[...TRANSACTION_COLUMNS]}
         data={filteredRows}
         loading={loading}
         emptyMessage="No transactions found"
@@ -1001,6 +1097,9 @@ export default function TransactionsViewer({
         exportExcel
         exportPdf
         exportFilename="transactions"
+        exportSheetName="Transactions"
+        exportRowNotes={exportRowNotes}
+        exportExtraSheets={exportExtraSheets}
         className="w-full text-left"
         theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
         tbodyClassName=""
@@ -1008,16 +1107,10 @@ export default function TransactionsViewer({
           if (key === "created_at")
             return row.created_at ? parseDbDate(row.created_at).getTime() : 0;
           if (key === "amount_usd") return amountSortValue(row, fallbackRate);
-          if (key === "returned_credits_usd")
-            // LIRA-205: numeric sort — the generic String(...) fallback below
-            // would sort "-73" next to "-7" (lexicographic, not numeric).
-            return row.returned_credits_usd ?? 0;
-          if (key === "reverses_id") return row.reverses_id ?? 0;
           if (key === "payment_method")
-            // LIRA-201b fix round (M3): own-only, matching MethodCell's
-            // display (the pooled basket method never merges in — see
-            // methodLegsFor's doc).
-            return formatPaymentMethods(methodLegsFor(row), methodLabelByCode);
+            // Exactly the Method column's text (`methodText` — screen,
+            // export and sort share it).
+            return methodText(row, methodLabelByCode);
           return String((row as Record<string, unknown>)[key] ?? "");
         }}
         exportRow={(row) => {
@@ -1025,10 +1118,10 @@ export default function TransactionsViewer({
           // detail (unconditionally — a static export has no "expand" state),
           // indented one column in under the transaction row.
           const legDetail = buildLegDetailTr(row, "export");
-          if (!legDetail) return buildTr(row, row.session_id);
+          if (!legDetail) return buildExportTr(row);
           return (
             <Fragment key={row.id}>
-              {buildTr(row, row.session_id)}
+              {buildExportTr(row)}
               {legDetail}
             </Fragment>
           );
@@ -1038,6 +1131,14 @@ export default function TransactionsViewer({
           return withLegDetail(row, buildTr(row, row.session_id));
         }}
       />
+      {detailsRow && (
+        <TransactionDetailsPanel
+          row={detailsRow}
+          isAdmin={isAdmin}
+          methodLabelByCode={methodLabelByCode}
+          onClose={() => setDetailsRow(null)}
+        />
+      )}
       {wrongNumberTarget && (
         <WrongNumberDialog
           target={wrongNumberTarget}

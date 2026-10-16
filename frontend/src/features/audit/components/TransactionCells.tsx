@@ -1,19 +1,20 @@
 /**
- * The eleven cells of one transaction row, one component each.
+ * The eight cells of one transaction row, one component each.
  *
  * `buildTr` in `pages/TransactionsViewer.tsx` was a single 256-line function
- * rendering all ten (this file's original count), with ternaries nested four
- * deep in the actions cell — you could not read the Status logic without
- * scrolling past the Summary logic. Each cell is now independently readable
- * and independently renderable in a test. `ReturnedCreditsCell` (LIRA-205)
- * was added later, bringing the row to eleven.
+ * rendering every cell, with ternaries nested four deep in the actions cell —
+ * you could not read one cell's logic without scrolling past another's. Each
+ * cell is now independently readable and independently renderable in a test.
+ * Owner decision 2026-10-16 removed the Ret. Credits, Status and Reverses
+ * cells: their rare cases are tags in `SummaryCell` (`../rowBadges`) and
+ * facts in the Details panel.
  *
  * DOM contract: every component here renders exactly ONE `<td>`, in the
- * declared column order (Time, Summary, Type, Client, Amount, Ret. Credits,
- * Method, User, Status, Reverses, Actions — eleven total). The page's specs
- * address cells by index, and `DataTable`'s column headers are declared
- * separately — so a cell that renders zero or two `<td>`s would silently
- * misalign the whole table.
+ * declared column order (Time, Summary, Type, Client, Amount, Method, User,
+ * Actions — eight total). The page's specs address cells by index, and
+ * `DataTable`'s column headers are declared separately — so a cell that
+ * renders zero or two `<td>`s would silently misalign the whole table (and
+ * its Excel/PDF export, which reads cells by header index).
  *
  * Per-row derivations that more than one cell needs (`deriveRow`) are
  * computed ONCE by the caller and passed in, rather than each cell
@@ -26,6 +27,7 @@ import {
 import { isReceiptableRow } from "../receiptGating";
 import {
   isReversibleRow,
+  offersWholeVoidRefund,
   isWrongNumberEligible,
   wrongNumberRecordTarget,
   wrongNumberSaleProvider,
@@ -37,13 +39,9 @@ import { formatPaymentLegs } from "../cashFlow";
 import {
   cashLegsFor,
   cashMovementLine,
-  checkpointPhysicalTotals,
   displayAmountFields,
   displaySummary,
-  formatAmount,
   formatCheckpointAmounts,
-  formatPaymentMethods,
-  paymentMethodsBrand,
   getTypeColor,
   getTypeLabel,
   methodLegsFor,
@@ -52,8 +50,15 @@ import {
   sessionReversalLine,
 } from "../transactionDisplay";
 import { CashFlowBadge } from "./CashFlowBadge";
-import type { RowDerived } from "../rowDerived";
-import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { amountCellText, type RowDerived } from "../rowDerived";
+import { rowBadges } from "../rowBadges";
+import {
+  clientText,
+  methodBrand,
+  methodText,
+  timeText,
+  userText,
+} from "../transactionCellText";
 import { ProviderLogo } from "@/shared/components/ProviderLogo";
 import type { TransactionRow } from "../hooks/useTransactionRows";
 
@@ -64,20 +69,7 @@ const voidedText = (row: TransactionRow) =>
 export function TimeCell({ row }: { row: TransactionRow }) {
   return (
     <td className="p-2 truncate" style={{ width: 160 }}>
-      {row.created_at
-        ? (() => {
-            try {
-              return parseDbDate(row.created_at).toLocaleString("en-GB", {
-                day: "2-digit",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              });
-            } catch {
-              return row.created_at;
-            }
-          })()
-        : ""}
+      {timeText(row)}
     </td>
   );
 }
@@ -114,6 +106,25 @@ export function SummaryCell({
             Session #{row.session_id} — pooled basket total
           </span>
         )}
+        {(() => {
+          // Owner decision 2026-10-16: voided / refunded / reversal /
+          // credits-returned rows get a small tag; a normal row gets none.
+          const badges = rowBadges(row);
+          if (badges.length === 0) return null;
+          return (
+            <span className="flex flex-wrap gap-1">
+              {badges.map((b) => (
+                <span
+                  key={b.key}
+                  data-testid="row-badge"
+                  className={b.className}
+                >
+                  {b.label}
+                </span>
+              ))}
+            </span>
+          );
+        })()}
         <CashFlowBadge
           type={row.type}
           amountUsd={amount.usd}
@@ -238,7 +249,7 @@ export function TypeCell({ row }: { row: TransactionRow }) {
 export function ClientCell({ row }: { row: TransactionRow }) {
   return (
     <td className="p-2 truncate" style={{ width: 140 }}>
-      {row.client_name || "—"}
+      {clientText(row)}
     </td>
   );
 }
@@ -250,56 +261,12 @@ export function AmountCell({
   row: TransactionRow;
   derived: RowDerived;
 }) {
-  const { credit, partnerSigned, commissionAmount } = derived;
   // The transaction amount, signed (a void/refund reads "−$4.25") — never the
-  // tender (production test 2026-10-07). See displayAmountFields.
-  const value = displayAmountFields(row);
+  // tender (production test 2026-10-07). One definition, shared with the
+  // Details panel: `amountCellText`.
   return (
     <td className="p-2 truncate" style={{ width: 160 }}>
-      <span className={voidedText(row)}>
-        {row.type === "CHECKPOINT"
-          ? (() => {
-              const totals = checkpointPhysicalTotals(row.metadata_json);
-              return formatAmount(
-                totals?.usd ?? row.amount_usd,
-                totals?.lbp ?? row.amount_lbp,
-                null,
-              );
-            })()
-          : formatAmount(
-              commissionAmount?.usd ??
-                (credit || partnerSigned ? Math.abs(value.usd) : value.usd),
-              commissionAmount?.lbp ??
-                (credit || partnerSigned ? Math.abs(value.lbp) : value.lbp),
-              row.metadata_json,
-              row.type,
-            )}
-      </span>
-    </td>
-  );
-}
-
-/**
- * LIRA-205 — net telecom credit returned to the shop on this transaction
- * (Only-Days sale of an MTC/Alfa card through iPick/Katsh), sourced from
- * `TransactionRow.returned_credits_usd` (`TransactionRepository.getRecent`,
- * USD-only — see that repository's `_attachPaymentLegs` doc comment).
- *
- * Blank (em dash) when the row posted no CREDIT_RETURN leg: `v === undefined`
- * is the ONLY blank condition — a `0` here would claim a return happened and
- * came to nothing, which is why the field is presence-keyed rather than
- * defaulted to 0 upstream. Signed — a VOID/REFUND row shows the negated
- * mirror `_reversePayments` writes. Deliberately not `formatAmount`
- * (../transactionDisplay.ts): it renders a negative as `$-73` via bare
- * `toLocaleString()`.
- */
-export function ReturnedCreditsCell({ row }: { row: TransactionRow }) {
-  const v = row.returned_credits_usd;
-  return (
-    <td className={`p-2 truncate ${voidedText(row)}`} style={{ width: 120 }}>
-      {v === undefined
-        ? "—"
-        : `${v < 0 ? "−" : ""}$${Math.abs(v).toLocaleString()}`}
+      <span className={voidedText(row)}>{amountCellText(row, derived)}</span>
     </td>
   );
 }
@@ -311,10 +278,9 @@ export function MethodCell({
   row: TransactionRow;
   methodLabelByCode: Map<string, string>;
 }) {
-  // Whish/OMT icon only when every named leg is that one wallet; the text
-  // itself is unchanged (still one text node).
-  const brand =
-    row.type === "CHECKPOINT" ? null : paymentMethodsBrand(methodLegsFor(row));
+  // Whish/OMT icon only when every leg the column names is that one wallet
+  // (`methodBrand` reads the same legs as `methodText`).
+  const brand = methodBrand(row);
   return (
     <td className="p-2 truncate" style={{ width: 120 }}>
       {brand && (
@@ -325,17 +291,12 @@ export function MethodCell({
           className="mr-1 align-middle"
         />
       )}
-      {row.type === "CHECKPOINT"
-        ? "—"
-        : formatPaymentMethods(
-            // LIRA-201b fix round (M3): always THIS row's own legs only,
-            // including on the session group-header row — the pooled
-            // basket method(s) render on their own labelled line/detail
-            // section instead (SummaryCell's "Session:" line,
-            // buildLegDetailTr's "Session:" block), never merged in here.
-            methodLegsFor(row),
-            methodLabelByCode,
-          )}
+      {/* LIRA-201b fix round (M3): always THIS row's own legs only,
+          including on the session group-header row — the pooled basket
+          method(s) render on their own labelled line/detail section
+          instead (SummaryCell's "Session:" line, buildLegDetailTr's
+          "Session:" block), never merged in here. */}
+      {methodText(row, methodLabelByCode)}
     </td>
   );
 }
@@ -343,45 +304,7 @@ export function MethodCell({
 export function UserCell({ row }: { row: TransactionRow }) {
   return (
     <td className="p-2 truncate" style={{ width: 90 }}>
-      {row.username || `#${row.user_id}`}
-    </td>
-  );
-}
-
-export function StatusCell({ row }: { row: TransactionRow }) {
-  return (
-    <td className="p-2" style={{ width: 80 }}>
-      {row.status === "VOIDED" ? (
-        <span className="bg-red-900/50 text-red-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
-          VOIDED
-        </span>
-      ) : row.reversed_by_id ? (
-        // note 21d: an ACTIVE original that has already been refunded —
-        // gets the same small badge treatment as VOIDED (and, below,
-        // loses its Void/Refund buttons the same way), but deliberately
-        // NOT the line-through styling VOIDED rows get on the
-        // type/summary cells: a void means "this transaction is
-        // cancelled, its amount doesn't count" (the source record itself
-        // is voided), whereas a refunded row's sale/service genuinely
-        // happened — the amount stays real history, only the money was
-        // reversed via a separate REFUND row. Badge-only, distinct color
-        // so the two states still read apart.
-        <span className="bg-rose-900/50 text-rose-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
-          REFUNDED
-        </span>
-      ) : (
-        <span className="text-green-500/80 text-[10px] font-medium">
-          ACTIVE
-        </span>
-      )}
-    </td>
-  );
-}
-
-export function ReversesCell({ row }: { row: TransactionRow }) {
-  return (
-    <td className="p-2" style={{ width: 60 }}>
-      {row.reverses_id ? `#${row.reverses_id}` : "—"}
+      {userText(row)}
     </td>
   );
 }
@@ -405,6 +328,10 @@ export interface RowActionHandlers {
   /** LIRA-312 — "Wrong number…" on a card sale, "Credits…" on a credits
    *  entry or a wrong-number expense. */
   onWrongNumber: (target: WrongNumberDialogTarget) => void;
+  /** Owner request 2026-10-16 — open the Details panel (everything saved
+   *  with this transaction). Optional so callers that build handlers
+   *  without it are unaffected; the button shows only when it is passed. */
+  onShowDetails?: (row: TransactionRow) => void;
 }
 
 export function ActionsCell({
@@ -464,6 +391,17 @@ export function ActionsCell({
   return (
     <td className="p-2" style={{ width: 110 }}>
       <div className="flex items-center gap-1">
+        {/* Owner request 2026-10-16 — on every row: what was saved with it.
+            Same look as Print. */}
+        {handlers.onShowDetails && (
+          <button
+            onClick={() => handlers.onShowDetails?.(row)}
+            title="Everything saved with this transaction"
+            className="px-1.5 py-0.5 text-[10px] rounded bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
+          >
+            Details
+          </button>
+        )}
         {/* Reprint a detailed service receipt (RCP-3) — available on any
             service transaction, including voided/older ones. Provider-
             aware gate (LIRA-069 W1.a) — excludes OMT/Whish System,
@@ -573,7 +511,7 @@ export function ActionsCell({
                   </button>
                 )}
             </>
-          ) : (
+          ) : offersWholeVoidRefund(row) ? (
             <>
               <button
                 onClick={() => handlers.onVoid(row.id)}
@@ -589,7 +527,7 @@ export function ActionsCell({
                 {refundLookupRowId === row.id ? "…" : "Refund"}
               </button>
             </>
-          )
+          ) : null
         ) : isAdmin &&
           row.type === "REFUND" &&
           row.status === "ACTIVE" &&
@@ -624,7 +562,8 @@ export function ActionsCell({
               >
                 Can't refund here
               </span>
-            ) : (
+            ) : handlers.onShowDetails ? null : (
+              // The Details button already fills the cell.
               "—"
             );
           })()

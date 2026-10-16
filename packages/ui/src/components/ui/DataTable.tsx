@@ -17,7 +17,7 @@ import {
 } from "@tanstack/react-table";
 import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { ExportBar } from "./ExportBar";
-import type { TableData } from "../../utils/tableExport";
+import type { ExportSheet, TableData } from "../../utils/tableExport";
 
 /* ------------------------------------------------------------------ */
 /*  Export column-picker defaults                                      */
@@ -91,6 +91,17 @@ export interface DataTableProps<T> {
    * table are ignored.
    */
   exportDefaultColumns?: string[];
+  /** Main worksheet name in the Excel export (default "Sheet1"). */
+  exportSheetName?: string;
+  /**
+   * A long text per item, always exported (not in the column picker): the
+   * Excel export's last column titled `header`; a full-width line under the
+   * item's row in the PDF. "" = nothing for that item.
+   */
+  exportRowNotes?: { header: string; get: (item: T) => string };
+  /** Extra Excel worksheets, built from the exported items in their
+   *  current (filtered, sorted) order. */
+  exportExtraSheets?: (items: T[]) => ExportSheet[];
 
   // ── Header actions ─────────────────────────────────────────────────
   /** Content rendered on the left side of the header bar (e.g. batch action buttons). */
@@ -196,6 +207,9 @@ function DataTableInner<T>({
   exportPdf = false,
   exportFilename = "export",
   exportDefaultColumns,
+  exportSheetName,
+  exportRowNotes,
+  exportExtraSheets,
   headerActions,
   loading = false,
   emptyMessage = "No data",
@@ -534,21 +548,40 @@ function DataTableInner<T>({
     // chosen columns' original indices.
     const allRows = table.getSortedRowModel().rows;
     const rows: string[][] = [];
+    const notes: string[] = [];
+    const items: T[] = [];
 
     const rowRenderer = exportRow ?? renderRow;
     for (const row of allRows) {
       const item = row.original.__original as T;
       const rendered = rowRenderer(item, row.index);
       if (!rendered || !React.isValidElement(rendered)) continue;
+      items.push(item);
 
       const cellRows = extractRowsCells(rendered as React.ReactElement);
-      for (const cells of cellRows) {
+      cellRows.forEach((cells, i) => {
         rows.push(chosenIndices.map((idx) => cells[idx] ?? ""));
-      }
+        // The note belongs to the item's own (first) row, not to any
+        // detail rows it renders beneath itself.
+        if (exportRowNotes) notes.push(i === 0 ? exportRowNotes.get(item) : "");
+      });
     }
 
-    return { headers, rows };
+    // New keys only when the caller asked for them, so every other table's
+    // export data stays exactly { headers, rows }.
+    return {
+      headers,
+      rows,
+      ...(exportSheetName ? { sheetName: exportSheetName } : {}),
+      ...(exportRowNotes
+        ? { rowNotes: { header: exportRowNotes.header, values: notes } }
+        : {}),
+      ...(exportExtraSheets ? { extraSheets: exportExtraSheets(items) } : {}),
+    };
   }, [
+    exportSheetName,
+    exportRowNotes,
+    exportExtraSheets,
     exportableColumns,
     selectedColumnKeys,
     table,

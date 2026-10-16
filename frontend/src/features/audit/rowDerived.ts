@@ -8,8 +8,12 @@
  * shared them; splitting the cells up must not quietly turn that into five
  * parses per row per render.
  */
+import { formatMoneyAmount } from "@liratek/core";
 import {
   billsOnlyCommissionAmount,
+  checkpointPhysicalTotals,
+  displayAmountFields,
+  formatAmount,
   getSplitGroupInfo,
   isProviderBalanceInflow,
   isSignedAmountType,
@@ -60,4 +64,94 @@ export function deriveRow(
     providerBalance: isProviderBalanceInflow(row),
     isGroupHeader,
   };
+}
+
+/**
+ * The Amount column's text for a row — ONE definition shared by
+ * `AmountCell` and the Details panel, so the two never show different
+ * figures for the same transaction: a checkpoint's counted totals, a
+ * bills-only commission, a credit / signed partner row as its magnitude
+ * (the sign is direction), else the signed transaction amount (a
+ * void/refund reads "−$4.25"; never the tender — production test
+ * 2026-10-07, see `displayAmountFields`).
+ */
+export function amountCellText(
+  row: TransactionRow,
+  derived: RowDerived,
+): string {
+  if (row.type === "CHECKPOINT") {
+    const totals = checkpointPhysicalTotals(row.metadata_json);
+    return formatAmount(
+      totals?.usd ?? row.amount_usd,
+      totals?.lbp ?? row.amount_lbp,
+      null,
+    );
+  }
+  const special = forgivenAmountText(row) ?? exchangeAmountText(row);
+  if (special) return special;
+  const { credit, partnerSigned, commissionAmount } = derived;
+  const value = displayAmountFields(row);
+  return formatAmount(
+    commissionAmount?.usd ??
+      (credit || partnerSigned ? Math.abs(value.usd) : value.usd),
+    commissionAmount?.lbp ??
+      (credit || partnerSigned ? Math.abs(value.lbp) : value.lbp),
+    row.metadata_json,
+    row.type,
+  );
+}
+
+function parseMeta(row: TransactionRow): Record<string, unknown> | null {
+  if (!row.metadata_json) return null;
+  try {
+    const m: unknown = JSON.parse(row.metadata_json);
+    return typeof m === "object" && m !== null && !Array.isArray(m)
+      ? (m as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A write-off / discount row (COUNTERPARTY_DISCOUNT) carries 0 / 0 — no
+ * cash moves, the value is in profit (CQ-10) — so its Amount read "—". The
+ * amount forgiven is saved on the row's counterparty (shop-day test
+ * 2026-10-16): "$15 forgiven".
+ */
+function forgivenAmountText(row: TransactionRow): string | null {
+  if (row.type !== "COUNTERPARTY_DISCOUNT") return null;
+  if (row.amount_usd || row.amount_lbp) return null;
+  const cp = parseMeta(row)?.counterparty as
+    | { discount?: { amount_usd?: unknown; amount_lbp?: unknown } }
+    | undefined;
+  const usd = Number(cp?.discount?.amount_usd) || 0;
+  const lbp = Number(cp?.discount?.amount_lbp) || 0;
+  if (!usd && !lbp) return null;
+  return `${formatAmount(usd, lbp)} forgiven`;
+}
+
+/**
+ * An exchange shows what the customer gave and got — "50 EUR → 5,162,000
+ * LBP" — like its summary. Its amount columns could not: a cross exchange
+ * (EUR → LBP via USD) stores a $1 rounding residue and the LBP paid out,
+ * which read "$1 + −5,162,000 LBP" (shop-day test 2026-10-16). Originals
+ * only: a void/refund keeps the signed amount.
+ */
+function exchangeAmountText(row: TransactionRow): string | null {
+  if (row.type !== "EXCHANGE" || row.reverses_id != null) return null;
+  const m = parseMeta(row);
+  const from = m?.from_currency;
+  const to = m?.to_currency;
+  const amountIn = m?.amount_in;
+  const amountOut = m?.amount_out;
+  if (
+    typeof from !== "string" ||
+    typeof to !== "string" ||
+    typeof amountIn !== "number" ||
+    typeof amountOut !== "number"
+  ) {
+    return null;
+  }
+  return `${formatMoneyAmount(amountIn, from)} → ${formatMoneyAmount(amountOut, to)}`;
 }

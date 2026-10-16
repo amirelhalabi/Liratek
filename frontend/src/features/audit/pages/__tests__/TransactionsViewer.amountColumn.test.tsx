@@ -88,7 +88,7 @@ const mockGetRecentTransactions = getRecentTransactions as jest.MockedFunction<
 >;
 
 // Column order in buildTr: Time(0) Summary(1) Type(2) Client(3) Amount(4)
-// Method(5) User(6) Status(7) Reverses(8) Actions(9).
+// Method(5) User(6) Actions(7).
 const AMOUNT_COL_INDEX = 4;
 const SUMMARY_COL_INDEX = 1;
 

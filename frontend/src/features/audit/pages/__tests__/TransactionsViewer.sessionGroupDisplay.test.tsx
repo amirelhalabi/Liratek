@@ -199,13 +199,15 @@ describe("TransactionsViewer — session group display (LIRA-201b, owner note #1
     // labelled Session line/expanded detail, never the Method column.
     expect(screen.queryAllByText("Cash")).toHaveLength(0);
 
-    // ticketRow (11, the non-header member) still shows its OWN amount, and
-    // its OWN (blank) Method — column index 6: Time,Summary,Type,Client,
-    // Amount,Ret.Credits,Method — see TransactionCells.tsx's DOM contract.
+    // ticketRow (11, the non-header member) still shows its OWN amount. It
+    // has no legs of its own — it was paid at the session checkout — so its
+    // Method names the session (owner decision 2026-10-16; was "—"). Column
+    // index 5: Time,Summary,Type,Client,Amount,Method — see
+    // TransactionCells.tsx's DOM contract.
     const ticketTr = screen
       .getByText("Loto ticket", { exact: false })
       .closest("tr")!;
-    expect(ticketTr.querySelectorAll("td")[6]!.textContent).toBe("—");
+    expect(ticketTr.querySelectorAll("td")[5]!.textContent).toBe("Session #7");
     expect(ticketTr.textContent).toContain("1,280,000 LBP");
     // And it carries NO group-header marker of its own.
     expect(

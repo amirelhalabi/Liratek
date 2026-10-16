@@ -80,12 +80,13 @@ const mockGetRecentTransactions = getRecentTransactions as jest.MockedFunction<
   typeof getRecentTransactions
 >;
 
-// Column order in buildTr (TransactionCells.tsx, LIRA-205): Time(0)
-// Summary(1) Type(2) Client(3) Amount(4) Ret. Credits(5) Method(6) User(7)
-// Status(8) Reverses(9) Actions(10). ReturnedCreditsCell was inserted at
-// index 5, shifting every column from Method onward up by one.
+// Column order in buildTr (TransactionCells.tsx): Time(0) Summary(1) Type(2)
+// Client(3) Amount(4) Method(5) User(6) Actions(7). Owner decision
+// 2026-10-16 removed Ret. Credits, Status and Reverses (they are Summary
+// tags now), which moved Method back from 6 to 5.
 const AMOUNT_COL_INDEX = 4;
-const METHOD_COL_INDEX = 6;
+const SUMMARY_COL_INDEX = 1;
+const METHOD_COL_INDEX = 5;
 
 function rowFor(summaryText: string): HTMLTableRowElement {
   const summarySpan = screen.getByText(summaryText, { exact: false });
@@ -297,22 +298,11 @@ describe("TransactionsViewer — extra-currency drawer top-up / cash-out (LIRA-2
   });
 });
 
-// LIRA-205 — the Ret. Credits column (index 5, see METHOD_COL_INDEX's
-// comment above). Reuses this file's baseRow/renderViewer/cellFor harness
-// rather than a new file, since this is the one frontend test file this
-// change owns.
-//
-// Provenance (rule 17 / rule 24): written in this same change, alongside the
-// `TransactionRow.returned_credits_usd` field declaration and the
-// `ReturnedCreditsCell` move into TransactionCells.tsx — not run (this
-// batch's process rules forbid running tests mid-batch; the orchestrator
-// runs the full suite once at the end), so not observed failing against
-// pre-fix code. `RET_CREDITS_COL_INDEX` does directly guard the same
-// off-by-one this file's `METHOD_COL_INDEX` fix guards: reverting that fix
-// (leaving `ReturnedCreditsCell` out of the row, or reading the old index)
-// would make these two assertions read the WRONG cell's text ("Cash" /
-// undefined) instead of "$3" / "—".
-const RET_CREDITS_COL_INDEX = 5;
+// Owner decision 2026-10-16 — the Ret. Credits, Status and Reverses columns
+// are gone; the rare cases show as small tags in the Summary cell instead
+// (`rowBadges`). This block was LIRA-205's Ret. Credits column test; it now
+// asserts the same values where they moved (rule 24), plus the column set
+// itself. Written before the change and seen failing (rule 17).
 
 const CREDIT_RETURN_SUMMARY = "Only-Days: MTC card return";
 const creditReturnRow = baseRow({
@@ -335,30 +325,109 @@ const noCreditReturnRow = baseRow({
   // TransactionRepository._attachPaymentLegs' presence-keyed accumulator).
 });
 
-describe("TransactionsViewer — Ret. Credits column (LIRA-205)", () => {
+const VOIDED_SUMMARY = "Voided card sale";
+const voidedRow = baseRow({
+  id: 503,
+  type: "FINANCIAL_SERVICE",
+  source_table: "financial_services",
+  amount_usd: 25,
+  status: "VOIDED",
+  summary: VOIDED_SUMMARY,
+});
+
+const REFUNDED_SUMMARY = "Refunded card sale";
+const refundedRow = baseRow({
+  id: 504,
+  type: "FINANCIAL_SERVICE",
+  source_table: "financial_services",
+  amount_usd: 25,
+  // A refunded original stays ACTIVE; only reversed_by_id marks it.
+  reversed_by_id: 505,
+  summary: REFUNDED_SUMMARY,
+});
+
+const REVERSAL_SUMMARY = "Refund of card sale";
+const reversalRow = baseRow({
+  id: 505,
+  type: "REFUND",
+  source_table: "financial_services",
+  amount_usd: -25,
+  reverses_id: 504,
+  returned_credits_usd: -3,
+  summary: REVERSAL_SUMMARY,
+});
+
+function summaryCellOf(summaryText: string): HTMLElement {
+  return rowFor(summaryText).querySelectorAll("td")[
+    SUMMARY_COL_INDEX
+  ] as HTMLElement;
+}
+
+function tagsIn(summaryText: string): string[] {
+  return Array.from(
+    summaryCellOf(summaryText).querySelectorAll('[data-testid="row-badge"]'),
+  ).map((el) => el.textContent ?? "");
+}
+
+describe("TransactionsViewer — Summary tags replace Ret. Credits / Status / Reverses", () => {
   beforeEach(() => {
     mockGetRecentTransactions.mockReset();
   });
 
-  it("renders the returned-credit figure with a $ prefix when the row carries one", async () => {
+  it("the table has no Ret. Credits, Status or Reverses column, and every row has one cell per header", async () => {
     mockGetRecentTransactions.mockResolvedValue([creditReturnRow]);
     renderViewer();
     await waitFor(() =>
       screen.getByText(CREDIT_RETURN_SUMMARY, { exact: false }),
     );
 
-    expect(cellFor(CREDIT_RETURN_SUMMARY, RET_CREDITS_COL_INDEX)).toBe("$3");
+    const headers = Array.from(document.querySelectorAll("thead th")).map(
+      (th) => (th.textContent ?? "").trim(),
+    );
+    expect(headers.join("|")).not.toMatch(/Ret\. Credits|Status|Reverses/i);
+    expect(headers).toHaveLength(8);
+    // The export column picker counts the same columns (Actions excluded):
+    // Time / Summary / User preselected out of 7.
+    expect(
+      screen.getByTestId("export-column-picker-button").textContent,
+    ).toContain("(3/7)");
+    // Screen and export both read cells by header index — they must line up.
+    expect(rowFor(CREDIT_RETURN_SUMMARY).querySelectorAll("td")).toHaveLength(
+      headers.length,
+    );
   });
 
-  it("renders — (never 0) when the row posted no CREDIT_RETURN leg", async () => {
+  it("credits returned show as a +$X credits back tag in the Summary cell", async () => {
+    mockGetRecentTransactions.mockResolvedValue([creditReturnRow]);
+    renderViewer();
+    await waitFor(() =>
+      screen.getByText(CREDIT_RETURN_SUMMARY, { exact: false }),
+    );
+
+    expect(tagsIn(CREDIT_RETURN_SUMMARY)).toEqual(["+$3 credits back"]);
+  });
+
+  it("a normal active row with no credits returned has no tag", async () => {
     mockGetRecentTransactions.mockResolvedValue([noCreditReturnRow]);
     renderViewer();
     await waitFor(() =>
       screen.getByText(NO_CREDIT_RETURN_SUMMARY, { exact: false }),
     );
 
-    expect(cellFor(NO_CREDIT_RETURN_SUMMARY, RET_CREDITS_COL_INDEX)).toBe(
-      "—",
-    );
+    expect(tagsIn(NO_CREDIT_RETURN_SUMMARY)).toEqual([]);
+  });
+
+  it("voided, refunded and reversal rows carry their status / ↩ tags", async () => {
+    mockGetRecentTransactions.mockResolvedValue([
+      voidedRow,
+      refundedRow,
+      reversalRow,
+    ]);
+    renderViewer();
+    await waitFor(() => screen.getByText(VOIDED_SUMMARY, { exact: false }));
+
+    expect(tagsIn(VOIDED_SUMMARY)).toEqual(["VOIDED"]);
+    expect(tagsIn(REFUNDED_SUMMARY)).toEqual(["REFUNDED"]);
+    expect(tagsIn(REVERSAL_SUMMARY)).toEqual(["↩ #504", "−$3 credits back"]);
   });
 });

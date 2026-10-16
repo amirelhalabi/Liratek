@@ -7,8 +7,9 @@
  *   - Opening the picker reveals a checkbox list of the table's exportable
  *     columns (Actions / select-all checkbox columns excluded).
  *   - The default selection is Time / Summary / User (preselected/checked),
- *     while the other columns (Type, Client, Amount, Status, Reverses) start
- *     unchecked.
+ *     while the other columns (Type, Client, Amount, Method) start
+ *     unchecked. (Status / Reverses / Ret. Credits were removed from the
+ *     table on 2026-10-16 — they are Summary tags now.)
  *   - The picker drives BOTH export paths — Excel and PDF buttons remain
  *     present alongside it (no regression to existing export).
  *
@@ -29,13 +30,7 @@ const AMOUNT_USD = "30";
 /** Default-checked headers per the ticket. */
 const DEFAULT_COLUMNS = ["Time", "Summary", "User"] as const;
 /** Headers that exist on the Transactions table but are NOT default-checked. */
-const NON_DEFAULT_COLUMNS = [
-  "Type",
-  "Client",
-  "Amount",
-  "Status",
-  "Reverses",
-] as const;
+const NON_DEFAULT_COLUMNS = ["Type", "Client", "Amount", "Method"] as const;
 
 test.describe("LIRA-073 — DataTable export customizable columns", () => {
   test("export column picker defaults to Time/Summary/User and toggles columns", async ({
