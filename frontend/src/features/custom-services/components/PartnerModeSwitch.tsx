@@ -33,17 +33,25 @@ const OPTIONS: ReadonlyArray<{
 export function PartnerModeSwitch({
   value,
   onChange,
+  hideFor = false,
 }: {
   value: PartnerMode;
   onChange: (next: PartnerMode) => void;
+  /** Leave out the "For Partner" segment — during a customer session (owner
+   *  rule 2026-10-16: a session never has partner sales). "Via Partner"
+   *  stays: the customer still pays. */
+  hideFor?: boolean;
 }) {
+  const options = hideFor
+    ? OPTIONS.filter((option) => option.mode !== "FOR")
+    : OPTIONS;
   return (
     <div
       role="radiogroup"
       aria-label="Who is this service for"
       className="flex gap-2 bg-slate-800 border border-slate-700/50 p-1 rounded-xl h-11"
     >
-      {OPTIONS.map((option) => {
+      {options.map((option) => {
         const active = option.mode === value;
         return (
           <button

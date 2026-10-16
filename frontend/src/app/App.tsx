@@ -3,7 +3,10 @@ import { lazyWithReload } from "@/shared/utils/lazyWithReload";
 import { Suspense, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
-import { SessionProvider } from "@/features/sessions/context/SessionContext";
+import {
+  SessionProvider,
+  useSession,
+} from "@/features/sessions/context/SessionContext";
 import { RechargeBasketProvider } from "@/features/recharge/context/RechargeBasketContext";
 import { ModuleProvider } from "@/contexts/ModuleContext";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
@@ -495,6 +498,24 @@ function AppRoutes() {
   );
 }
 
+/**
+ * The Mobile Recharge basket, told whether a customer session is open (owner
+ * rule 2026-10-16: a session never has partner sales), so a basket-wide For
+ * Partner is turned off even when the session opens on another page.
+ */
+function SessionAwareRechargeBasketProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const { activeSession } = useSession();
+  return (
+    <RechargeBasketProvider inSession={!!activeSession}>
+      {children}
+    </RechargeBasketProvider>
+  );
+}
+
 function App() {
   const { isLoaded } = useVoiceBotSettings();
 
@@ -558,9 +579,9 @@ function App() {
                               above the routes so picks survive switching
                               provider tabs and leaving the page (not kept
                               across a reload). */}
-                              <RechargeBasketProvider>
+                              <SessionAwareRechargeBasketProvider>
                                 <AppRoutes />
-                              </RechargeBasketProvider>
+                              </SessionAwareRechargeBasketProvider>
                             </MobileServiceItemsProvider>
                           </SessionProvider>
                         </CurrencyProvider>

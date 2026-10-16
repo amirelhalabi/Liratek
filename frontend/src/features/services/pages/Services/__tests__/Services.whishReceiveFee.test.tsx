@@ -421,6 +421,46 @@ describe("Services page — WHISH system RECEIVE fee is optional and drawer-affe
     expect(payload).not.toHaveProperty("feePayments");
   });
 
+  // Owner rule 2026-10-16: a customer session never has partner sales. A
+  // For Partner left ON when a session opens is turned OFF — the basket line
+  // the page then records is the customer's, never a partner order.
+  it("For Partner ON, then a session opens: the toggle is gone and the basket line is not a partner order", async () => {
+    const { rerender } = render(<Services />);
+    await waitFor(() => expect(mockGetOMTHistory).toHaveBeenCalled());
+    switchToWhishReceive();
+    fireEvent.change(
+      document.getElementById("service-amount") as HTMLInputElement,
+      { target: { value: "100" } },
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /For Partner/i }));
+    expect(
+      screen.getByRole("checkbox", { name: /For Partner/i }),
+    ).toBeChecked();
+
+    mockActiveSession = {
+      id: 1,
+      customer_name: "Jane Doe",
+      customer_phone: "70111222",
+    };
+    rerender(<Services />);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("checkbox", { name: /For Partner/i }),
+      ).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Record Receive/i }));
+    await waitFor(() => expect(mockAddToCart).toHaveBeenCalledTimes(1));
+    const cartItem = mockAddToCart.mock.calls[0][0] as {
+      formData: Record<string, unknown>;
+    };
+    // Not a FOR (partner) order. (This file's PartnerSelector stub also
+    // picks partner 1 for the THROUGH selector — a customer transfer through
+    // a partner's system, which a session may keep.)
+    expect(cartItem.formData.partnerMode).not.toBe("FOR");
+    expect(mockAddOMTTransaction).not.toHaveBeenCalled();
+  });
+
   // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.3: the counter-flow's
   // CUSTOMER_ACCOUNT gate must use the canonical name-AND-phone rule
   // (`canChargeToCustomerAccount`) — moved here from

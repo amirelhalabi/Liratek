@@ -34,6 +34,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type Dispatch,
@@ -80,7 +81,18 @@ interface RechargeBasketValue {
 
 const RechargeBasketContext = createContext<RechargeBasketValue | null>(null);
 
-export function RechargeBasketProvider({ children }: { children: ReactNode }) {
+export function RechargeBasketProvider({
+  children,
+  inSession = false,
+}: {
+  children: ReactNode;
+  /** Owner rule 2026-10-16: a customer session never has partner sales.
+   *  App.tsx passes whether one is open, so the basket-wide For Partner is
+   *  turned off even when the session opens while no basket tab is mounted
+   *  (the basket tabs also pass it to `useBasketPartner`). Passed in, not
+   *  read here: tests render this provider without a SessionProvider. */
+  inSession?: boolean;
+}) {
   const [catalogCart, setCatalogCart] = useState<Map<string, CatalogCartLine>>(
     () => new Map(),
   );
@@ -92,6 +104,13 @@ export function RechargeBasketProvider({ children }: { children: ReactNode }) {
   const [bills, setBills] = useState<BasketBill[]>([]);
   const billLines = useMemo(() => bills.map(billPricedLine), [bills]);
   const [partner, setPartner] = useState<BasketPartner>(PARTNER_OFF);
+  const partnerStored = partner.forPartner || partner.partnerId !== null;
+  // Only fires while something is stored, so it cannot loop (rule 25).
+  useEffect(() => {
+    // Syncing with the session (external to this provider); guarded above.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (inSession && partnerStored) setPartner(PARTNER_OFF);
+  }, [inSession, partnerStored]);
 
   const clearAll = useCallback(() => {
     setCatalogCart(new Map());
@@ -211,12 +230,28 @@ export interface BasketPartnerHandle extends BasketPartner {
   shared: boolean;
 }
 
-export function useBasketPartner(enabled: boolean): BasketPartnerHandle {
+export function useBasketPartner(
+  enabled: boolean,
+  /** Owner rule 2026-10-16: a customer session never has partner sales.
+   *  While true the choice reads OFF and the stored one (basket-wide or
+   *  local) is cleared, so it is still off once the session ends. The
+   *  session is passed in, not read here, so this module needs no
+   *  SessionContext (tests render it without a SessionProvider). */
+  inSession = false,
+): BasketPartnerHandle {
   const ctx = useContext(RechargeBasketContext);
   const [local, setLocal] = useState<BasketPartner>(PARTNER_OFF);
   const shared = !!ctx && enabled;
-  const value = shared ? ctx.partner : local;
+  const stored = shared ? ctx.partner : local;
   const set = shared ? ctx.setPartner : setLocal;
+  const storedOn = stored.forPartner || stored.partnerId !== null;
+  // Only fires while something is stored, so PARTNER_OFF (one constant)
+  // cannot loop (rule 25).
+  useEffect(() => {
+    if (inSession && storedOn) set(PARTNER_OFF);
+  }, [inSession, storedOn, set]);
+  // Read OFF already on this render — never a frame with a partner order.
+  const value = inSession ? PARTNER_OFF : stored;
   const setForPartner = useCallback(
     (on: boolean) =>
       set((p) => (on ? { ...p, forPartner: true } : { ...PARTNER_OFF })),

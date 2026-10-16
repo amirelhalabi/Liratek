@@ -47,6 +47,7 @@ import {
   ForPartnerNotice,
   ForPartnerToggle,
 } from "@/features/partners/components/ForPartnerToggle";
+import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import type { Partner } from "@/types/electron";
 import type { CreateFinancialServicePayload } from "@liratek/core";
 import { getLoadErrorMessage } from "@/shared/utils/apiErrorMessage";
@@ -301,6 +302,12 @@ export default function Services() {
   );
   const [forPartner, setForPartner] = useState(false);
   const [forPartnerId, setForPartnerId] = useState<number | null>(null);
+  // Owner rule 2026-10-16: a customer session never has partner sales —
+  // For Partner is hidden in a session and turned off if it was on.
+  useForPartnerOffInSession(!!activeSession, forPartner, () => {
+    setForPartner(false);
+    setForPartnerId(null);
+  });
   const [hasPartnerForSystem, setHasPartnerForSystem] = useState(true); // assume true until loaded
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
@@ -1696,7 +1703,7 @@ export default function Services() {
               )}
 
               {/* "For Partner" toggle — shown on base system (OMT) */}
-              {provider !== partnerSystem && (
+              {provider !== partnerSystem && !activeSession && (
                 <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3">
                   <div className="flex items-center gap-3">
                     <ForPartnerToggle

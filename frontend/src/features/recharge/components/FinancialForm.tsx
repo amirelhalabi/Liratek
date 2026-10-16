@@ -257,7 +257,12 @@ export function FinancialForm({
     partnerId,
     setPartnerId,
     shared: partnerShared,
-  } = useBasketPartner(isWhishApp);
+  } = useBasketPartner(
+    isWhishApp,
+    // Owner rule 2026-10-16: no partner sales in a customer session — the
+    // basket (or this form's own) For Partner is turned off while one is open.
+    !!activeSession,
+  );
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
   const [partnerPaidFromMethod, setPartnerPaidFromMethod] = useState("CASH");
   const [clientId, setClientId] = useState<number | null>(null);
@@ -1095,20 +1100,22 @@ export function FinancialForm({
                 the PaymentSheet entirely (see handleForPartnerSubmit).
                 Renders for EVERY provider this form serves, unlike the old
                 always-on header PartnerSelector it replaces. */}
-            <ForPartnerToggle
-              testId="financial-for-partner-toggle"
-              checked={forPartner}
-              onChange={handleForPartnerChange}
-              selectedPartnerId={partnerId}
-              onPartnerChange={setPartnerId}
-              autoSelectSingle
-              activeClassName={
-                activeConfig?.brand
-                  ? PROVIDER_BRANDS[activeConfig.brand].solid
-                  : undefined
-              }
-              selectorClassName=""
-            />
+            {!activeSession && (
+              <ForPartnerToggle
+                testId="financial-for-partner-toggle"
+                checked={forPartner}
+                onChange={handleForPartnerChange}
+                selectedPartnerId={partnerId}
+                onPartnerChange={setPartnerId}
+                autoSelectSingle
+                activeClassName={
+                  activeConfig?.brand
+                    ? PROVIDER_BRANDS[activeConfig.brand].solid
+                    : undefined
+                }
+                selectorClassName=""
+              />
+            )}
             {onCurrencyChange && (
               <WhishCurrencySwitch
                 value={currency}

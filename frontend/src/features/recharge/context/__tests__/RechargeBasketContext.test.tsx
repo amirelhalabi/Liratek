@@ -270,3 +270,108 @@ describe("RechargeBasketContext — bills and For Partner (LIRA-327)", () => {
     expect(screen.getByTestId("partner")).toHaveTextContent("false|null|true");
   });
 });
+
+// ─── Owner rule 2026-10-16: no For Partner during a customer session ─────────
+// `useBasketPartner(enabled, inSession)`: while `inSession` is true the
+// choice reads OFF and the stored state (basket-wide or local) is cleared,
+// so it is still off once the session ends.
+
+function SessionPartnerTab({ inSession }: { inSession: boolean }) {
+  const { forPartner, partnerId, setForPartner, setPartnerId } =
+    useBasketPartner(true, inSession);
+  return (
+    <div>
+      <span data-testid="session-partner">{`${forPartner}|${partnerId}`}</span>
+      <button
+        onClick={() => {
+          setForPartner(true);
+          setPartnerId(7);
+        }}
+      >
+        partner-on
+      </button>
+    </div>
+  );
+}
+
+function LocalSessionPartner({ inSession }: { inSession: boolean }) {
+  const { forPartner, partnerId, setForPartner, setPartnerId, shared } =
+    useBasketPartner(false, inSession);
+  return (
+    <div>
+      <span data-testid="local-partner">{`${forPartner}|${partnerId}|${shared}`}</span>
+      <button
+        onClick={() => {
+          setForPartner(true);
+          setPartnerId(3);
+        }}
+      >
+        local-on
+      </button>
+    </div>
+  );
+}
+
+describe("RechargeBasketContext — For Partner is off during a customer session", () => {
+  it("basket-wide: ON, then a session → reads off and the basket is cleared (another tab sees it off too)", () => {
+    const tree = (inSession: boolean) => (
+      <RechargeBasketProvider>
+        <SessionPartnerTab inSession={inSession} />
+        <WhishPartner />
+      </RechargeBasketProvider>
+    );
+    const { rerender } = render(tree(false));
+    fireEvent.click(screen.getByText("partner-on"));
+    expect(screen.getByTestId("session-partner")).toHaveTextContent("true|7");
+    expect(screen.getByTestId("whish-partner")).toHaveTextContent("true|7");
+
+    rerender(tree(true));
+    expect(screen.getByTestId("session-partner")).toHaveTextContent(
+      "false|null",
+    );
+    expect(screen.getByTestId("whish-partner")).toHaveTextContent("false|null");
+
+    rerender(tree(false));
+    expect(screen.getByTestId("session-partner")).toHaveTextContent(
+      "false|null",
+    );
+  });
+
+  it("local fallback (no provider): ON, then a session → off, still off after it ends", () => {
+    const { rerender } = render(<LocalSessionPartner inSession={false} />);
+    fireEvent.click(screen.getByText("local-on"));
+    expect(screen.getByTestId("local-partner")).toHaveTextContent(
+      "true|3|false",
+    );
+    rerender(<LocalSessionPartner inSession={true} />);
+    expect(screen.getByTestId("local-partner")).toHaveTextContent(
+      "false|null|false",
+    );
+    rerender(<LocalSessionPartner inSession={false} />);
+    expect(screen.getByTestId("local-partner")).toHaveTextContent(
+      "false|null|false",
+    );
+  });
+});
+
+// The provider itself also turns the basket's For Partner off while a
+// session is open (App.tsx passes `inSession` from the session context), so
+// it is off even when the session opens while no basket tab is mounted.
+describe("RechargeBasketProvider — inSession turns the basket For Partner off", () => {
+  it("ON with no basket tab told about the session; the provider's inSession clears it", () => {
+    const tree = (inSession: boolean) => (
+      <RechargeBasketProvider inSession={inSession}>
+        <WhishPartner />
+        <SessionPartnerTab inSession={false} />
+      </RechargeBasketProvider>
+    );
+    const { rerender } = render(tree(false));
+    fireEvent.click(screen.getByText("partner-on"));
+    expect(screen.getByTestId("whish-partner")).toHaveTextContent("true|7");
+
+    rerender(tree(true));
+    expect(screen.getByTestId("whish-partner")).toHaveTextContent("false|null");
+    rerender(tree(false));
+    expect(screen.getByTestId("whish-partner")).toHaveTextContent("false|null");
+  });
+});

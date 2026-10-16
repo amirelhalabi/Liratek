@@ -43,6 +43,7 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
+import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
@@ -203,6 +204,12 @@ export default function CheckoutModal({
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
     null,
   );
+  // Owner rule 2026-10-16: a customer session never has partner sales —
+  // For Partner is hidden in a session and turned off if it was on.
+  useForPartnerOffInSession(!!activeSession, forPartner, () => {
+    setForPartner(false);
+    setSelectedPartnerId(null);
+  });
 
   // Payment State
   const [discount, setDiscount] = useState(0);
@@ -1058,7 +1065,7 @@ export default function CheckoutModal({
               {/* PFT-2b: "For Partner" opt-in — routes the unpaid remainder
                   to a partner's ledger instead of a client's debt. Gated on
                   allowForPartner so other hosts of this modal are unaffected. */}
-              {allowForPartner && (
+              {allowForPartner && !activeSession && (
                 <div className="mb-2">
                   <ForPartnerToggle
                     testId="checkout-for-partner-toggle"

@@ -564,3 +564,58 @@ describe("Mobile Recharge basket across providers (LIRA-326)", () => {
     confirmSpy.mockRestore();
   });
 });
+
+// Owner rule 2026-10-16: a customer session never has partner sales. While a
+// session is open no basket tab offers For Partner, and a basket-wide For
+// Partner left ON when the session starts is turned OFF in the basket itself
+// (still off on every tab once the session ends).
+describe("Mobile Recharge basket — no For Partner during a customer session", () => {
+  beforeEach(() => {
+    mockRechargePartnerOrder.mockClear();
+    mockAddToCart.mockClear();
+    mockSession.activeSession = null;
+    delete sheet.items;
+    delete sheet.totals;
+  });
+
+  it("session open: neither the Katsh nor the Whish App tab renders the For Partner toggle", async () => {
+    mockSession.activeSession = { id: 1 };
+    render(<Page />);
+    await screen.findAllByText("60 UC");
+    expect(
+      screen.queryByTestId("katsh-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+    go("WHISH_APP");
+    await screen.findByText("PSN $10 - LEBANON");
+    expect(
+      screen.queryByTestId("financial-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("basket For Partner ON, then a session opens: the basket turns it OFF on every tab", async () => {
+    const { rerender } = render(<Page />);
+    await screen.findAllByText("60 UC");
+    fireEvent.click(screen.getByTestId("katsh-for-partner-toggle"));
+    expect(screen.getByTestId("katsh-for-partner-toggle")).toBeChecked();
+
+    mockSession.activeSession = { id: 1 };
+    rerender(<Page />);
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("katsh-partner-no-payment-notice"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId("katsh-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+
+    mockSession.activeSession = null;
+    rerender(<Page />);
+    expect(screen.getByTestId("katsh-for-partner-toggle")).not.toBeChecked();
+    go("WHISH_APP");
+    await screen.findByText("PSN $10 - LEBANON");
+    expect(
+      screen.getByTestId("financial-for-partner-toggle"),
+    ).not.toBeChecked();
+  });
+});

@@ -53,6 +53,7 @@ import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import type { Client } from "@liratek/ui";
 import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
 import { PartnerModeSwitch } from "@/features/custom-services/components/PartnerModeSwitch";
+import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import {
   partnerModeTransition,
   type PartnerMode,
@@ -209,6 +210,14 @@ export default function CustomServices() {
       setKeptChange(null);
     }
   };
+
+  // Owner rule 2026-10-16: a customer session never has partner sales. In a
+  // session the "For Partner" segment is hidden (PartnerModeSwitch `hideFor`)
+  // and a FOR picked before the session opened goes back to "Customer"
+  // through the normal transition (which drops the partner). VIA stays.
+  useForPartnerOffInSession(!!activeSession, isForPartner, () =>
+    handlePartnerModeChange("none"),
+  );
 
   // ─── Item Selector ───
   const [selectedProduct, setSelectedProduct] = useState<{
@@ -1288,6 +1297,7 @@ export default function CustomServices() {
                   <PartnerModeSwitch
                     value={partnerMode}
                     onChange={handlePartnerModeChange}
+                    hideFor={!!activeSession}
                   />
                   {(isForPartner || isViaPartner) && (
                     <div className="flex flex-wrap items-center gap-6">

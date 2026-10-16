@@ -46,6 +46,7 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
+import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 import type { ResaleLineRow } from "@liratek/core";
 import { ResaleLineRechargePanel } from "@/features/phoneLines/components/ResaleLineRechargePanel";
@@ -312,6 +313,12 @@ export function TelecomForm({
     null,
   );
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
+  // Owner rule 2026-10-16: a customer session never has partner sales —
+  // For Partner is hidden in a session and turned off if it was on.
+  useForPartnerOffInSession(!!activeSession, forPartner, () => {
+    setForPartner(false);
+    setSelectedPartnerId(null);
+  });
 
   // Fix round 1 (minor, issue partner-path-sends-credit-transfer): "For
   // Partner" and a shop-line match (case 1 buy-back OR case 2 shop-line
@@ -1056,7 +1063,7 @@ export function TelecomForm({
                   line matches (case 1 buy-back or case 2 shop-line use) —
                   see the `isShopLineMatch` reset effect above for why the
                   two don't compose. */}
-              {!isShopLineMatch && (
+              {!isShopLineMatch && !activeSession && (
                 <div className="flex flex-wrap items-center gap-3">
                   <ForPartnerToggle
                     testId="recharge-for-partner-toggle"

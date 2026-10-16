@@ -24,6 +24,7 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
+import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { cryptoAmounts } from "../utils/cryptoAmounts";
@@ -169,6 +170,12 @@ export function CryptoForm({
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
     null,
   );
+  // Owner rule 2026-10-16: a customer session never has partner sales —
+  // For Partner is hidden in a session and turned off if it was on.
+  useForPartnerOffInSession(!!activeSession, forPartner, () => {
+    setForPartner(false);
+    setSelectedPartnerId(null);
+  });
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
 
   // Auto-promote CUSTOMER_ACCOUNT once name+phone are filled for a new client
@@ -558,18 +565,20 @@ export function CryptoForm({
           partner's ledger instead of a walk-in customer. No counter
           payment is ever collected in this mode (backend rejects any IN
           leg); the PaymentSheet below is replaced with a notice. */}
-      <div className="flex flex-wrap items-center gap-3">
-        <ForPartnerToggle
-          testId="crypto-for-partner-toggle"
-          checked={forPartner}
-          onChange={setForPartner}
-          selectedPartnerId={selectedPartnerId}
-          onPartnerChange={setSelectedPartnerId}
-          autoSelectSingle
-          activeClassName={brand.solid}
-          selectorClassName=""
-        />
-      </div>
+      {!activeSession && (
+        <div className="flex flex-wrap items-center gap-3">
+          <ForPartnerToggle
+            testId="crypto-for-partner-toggle"
+            checked={forPartner}
+            onChange={setForPartner}
+            selectedPartnerId={selectedPartnerId}
+            onPartnerChange={setSelectedPartnerId}
+            autoSelectSingle
+            activeClassName={brand.solid}
+            selectorClassName=""
+          />
+        </div>
+      )}
 
       {/* Client Name + Phone + Description — Client Name/Phone are hidden
           in partner mode (the backend rejects clientId/clientName once

@@ -33,6 +33,7 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
+import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 
 interface LotoSettings {
   commission_rate: string;
@@ -92,6 +93,12 @@ export function LotoPage() {
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
     null,
   );
+  // Owner rule 2026-10-16: a customer session never has partner sales —
+  // For Partner is hidden in a session and turned off if it was on.
+  useForPartnerOffInSession(!!activeSession, forPartner, () => {
+    setForPartner(false);
+    setSelectedPartnerId(null);
+  });
 
   // Cash prize form state
   const [cashPrizeTicketNumber, setCashPrizeTicketNumber] = useState("");
@@ -661,16 +668,18 @@ export function LotoPage() {
                 {/* For Partner — sells this ticket on a partner's behalf.
                     No counter cash is collected; the partner owes the full
                     sale amount, settled later on the Partners page. */}
-                <div className="flex flex-wrap items-center gap-3">
-                  <ForPartnerToggle
-                    testId="loto-for-partner-toggle"
-                    checked={forPartner}
-                    onChange={setForPartner}
-                    selectedPartnerId={selectedPartnerId}
-                    onPartnerChange={setSelectedPartnerId}
-                    selectorClassName=""
-                  />
-                </div>
+                {!activeSession && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <ForPartnerToggle
+                      testId="loto-for-partner-toggle"
+                      checked={forPartner}
+                      onChange={setForPartner}
+                      selectedPartnerId={selectedPartnerId}
+                      onPartnerChange={setSelectedPartnerId}
+                      selectorClassName=""
+                    />
+                  </div>
+                )}
 
                 {/* Payment Method — hidden for a partner ticket: no counter
                     cash is collected, the full sale amount goes on the

@@ -27,6 +27,7 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
+import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import { ensureRechargeClient } from "../utils/ensureClient";
 import { calculateOmtWhishAppFees } from "../utils/omtWhishAppFees";
 import { buildWalletTransferPayload, SHORTFALL_MAX } from "@liratek/core";
@@ -178,6 +179,12 @@ function OmtWhishAppTransferFormInner({
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
     null,
   );
+  // Owner rule 2026-10-16: a customer session never has partner sales —
+  // For Partner is hidden in a session and turned off if it was on.
+  useForPartnerOffInSession(!!activeSession, forPartner, () => {
+    setForPartner(false);
+    setSelectedPartnerId(null);
+  });
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
   const [partnerPayFromMethod, setPartnerPayFromMethod] = useState("CASH");
 
@@ -682,18 +689,20 @@ function OmtWhishAppTransferFormInner({
           the checkbox (never auto-selected on the page) to avoid the
           previous unconditional-header bug where a single-partner shop
           silently painted "Partner: <name>" on every transaction. */}
-      <div className="flex flex-wrap items-center gap-3">
-        <ForPartnerToggle
-          testId="omt-whish-transfer-for-partner-toggle"
-          checked={forPartner}
-          onChange={setForPartner}
-          selectedPartnerId={selectedPartnerId}
-          onPartnerChange={setSelectedPartnerId}
-          autoSelectSingle
-          activeClassName={brand.solid}
-          selectorClassName=""
-        />
-      </div>
+      {!activeSession && (
+        <div className="flex flex-wrap items-center gap-3">
+          <ForPartnerToggle
+            testId="omt-whish-transfer-for-partner-toggle"
+            checked={forPartner}
+            onChange={setForPartner}
+            selectedPartnerId={selectedPartnerId}
+            onPartnerChange={setSelectedPartnerId}
+            autoSelectSingle
+            activeClassName={brand.solid}
+            selectorClassName=""
+          />
+        </div>
+      )}
 
       {/* Amount Input */}
       <div>

@@ -703,7 +703,12 @@ function KatshFormInner({
     partnerId: selectedPartnerId,
     setPartnerId: setSelectedPartnerId,
     shared: partnerShared,
-  } = useBasketPartner(true);
+  } = useBasketPartner(
+    true,
+    // Owner rule 2026-10-16: no partner sales in a customer session — the
+    // basket-wide For Partner is turned off while one is open.
+    !!activeSession,
+  );
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
 
   // Autofill client name + phone from active customer session
@@ -2087,16 +2092,18 @@ function KatshFormInner({
           )}
           {/* "For Partner" — same toolbar slot as FinancialForm (Whish App
               → Bills): after the totals, before the Proceed button. */}
-          <ForPartnerToggle
-            testId="katsh-for-partner-toggle"
-            checked={forPartner}
-            onChange={handleForPartnerChange}
-            selectedPartnerId={selectedPartnerId}
-            onPartnerChange={setSelectedPartnerId}
-            autoSelectSingle
-            activeClassName={billAccent.brand.solid}
-            selectorClassName=""
-          />
+          {!activeSession && (
+            <ForPartnerToggle
+              testId="katsh-for-partner-toggle"
+              checked={forPartner}
+              onChange={handleForPartnerChange}
+              selectedPartnerId={selectedPartnerId}
+              onPartnerChange={setSelectedPartnerId}
+              autoSelectSingle
+              activeClassName={billAccent.brand.solid}
+              selectorClassName=""
+            />
+          )}
           <button
             type="button"
             onClick={() => {

@@ -447,3 +447,75 @@ describe("CustomServices — For Partner with no selling price waits for one", (
     alertSpy.mockRestore();
   });
 });
+
+// Owner rule 2026-10-16: a customer session never has partner sales. In a
+// session the "For Partner" segment is not offered ("Via Partner" stays —
+// the customer still pays), and a For Partner picked before the session
+// opened switches back to "Customer", dropping the partner.
+describe("CustomServices — no For Partner during a customer session", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPaymentProps.length = 0;
+    mockActiveSession = null;
+    mockGetClients.mockResolvedValue([]);
+    mockPartnersGetAll.mockResolvedValue([]);
+    mockGetCustomServicesSummary.mockResolvedValue({
+      count: 0,
+      totalCostUsd: 0,
+      totalCostLbp: 0,
+      totalPriceUsd: 0,
+      totalPriceLbp: 0,
+      totalProfitUsd: 0,
+      totalProfitLbp: 0,
+    });
+    mockGetCustomServices.mockResolvedValue([]);
+    mockAddCustomService.mockResolvedValue({ success: true, id: 1 });
+  });
+
+  it("session open: the For Partner segment is not rendered; Customer and Via Partner are", () => {
+    mockActiveSession = { id: 42 };
+    render(<CustomServices />);
+    expect(
+      screen.getByTestId("custom-service-partner-mode-none"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("custom-service-via-partner-toggle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("custom-service-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("For Partner picked, then a session opens: back to Customer, no partner notice", async () => {
+    const { rerender } = render(<CustomServices />);
+    fireEvent.click(screen.getByTestId("custom-service-for-partner-toggle"));
+    expect(
+      screen.getByTestId("custom-service-for-partner-toggle"),
+    ).toHaveAttribute("aria-checked", "true");
+
+    mockActiveSession = { id: 42 };
+    rerender(<CustomServices />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("custom-service-partner-mode-none"),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
+    expect(
+      screen.queryByTestId("custom-service-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("custom-service-partner-no-payment-notice"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("guard: Via Partner picked stays Via Partner when a session opens", async () => {
+    const { rerender } = render(<CustomServices />);
+    fireEvent.click(screen.getByTestId("custom-service-via-partner-toggle"));
+    mockActiveSession = { id: 42 };
+    rerender(<CustomServices />);
+    await Promise.resolve();
+    expect(
+      screen.getByTestId("custom-service-via-partner-toggle"),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+});

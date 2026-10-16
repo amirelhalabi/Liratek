@@ -131,7 +131,11 @@ jest.mock("@/contexts/CurrencyContext", () => ({
   useCurrencyContext: () => mockCurrencyContext,
 }));
 
-const mockSessionContext = {
+// Mutable so the session-rule describe below can open a customer session.
+const mockSessionContext: {
+  activeSession: { id: number; customer_name: string } | null;
+  linkTransaction: jest.Mock;
+} = {
   activeSession: null,
   linkTransaction: jest.fn(),
 };
@@ -223,6 +227,7 @@ async function renderExchange() {
 describe("Exchange page — Client Name capture under For Partner", () => {
   beforeEach(() => {
     mockAddExchangeTransaction.mockClear();
+    mockSessionContext.activeSession = null;
   });
 
   it("For Partner OFF: Client Name input is present and editable, notice is absent", async () => {
@@ -261,5 +266,48 @@ describe("Exchange page — Client Name capture under For Partner", () => {
 
     fireEvent.change(input, { target: { value: "John Partner-Customer" } });
     expect(input.value).toBe("John Partner-Customer");
+  });
+});
+
+// Owner rule 2026-10-16: a customer session never has partner sales — the
+// "For Partner" option is not offered while a session is open, and a For
+// Partner left ON when a session starts is turned OFF (not merely hidden).
+describe("Exchange page — no For Partner during a customer session", () => {
+  beforeEach(() => {
+    mockAddExchangeTransaction.mockClear();
+    mockSessionContext.activeSession = null;
+  });
+
+  it("session open: the For Partner toggle is not rendered", async () => {
+    mockSessionContext.activeSession = { id: 1, customer_name: "Jane" };
+    await renderExchange();
+    expect(
+      screen.queryByTestId("exchange-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("For Partner ON, then a session opens: it is turned OFF (notice gone, toggle unchecked once the session ends)", async () => {
+    const { rerender } = render(<Exchange />);
+    await waitFor(() => expect(mockGetRates).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("exchange-for-partner-toggle"));
+    expect(
+      await screen.findByTestId("exchange-partner-no-payment-notice"),
+    ).toBeInTheDocument();
+
+    mockSessionContext.activeSession = { id: 1, customer_name: "Jane" };
+    rerender(<Exchange />);
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("exchange-partner-no-payment-notice"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId("exchange-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+
+    // State, not just visibility: after the session ends it is still off.
+    mockSessionContext.activeSession = null;
+    rerender(<Exchange />);
+    expect(screen.getByTestId("exchange-for-partner-toggle")).not.toBeChecked();
   });
 });

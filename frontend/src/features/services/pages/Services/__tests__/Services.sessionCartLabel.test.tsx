@@ -8,10 +8,9 @@
  *    the customer a fee on a receive (D1: the fee there is informational
  *    only). The label must not mention a fee for OMT RECEIVE. Whish RECEIVE,
  *    whose typed fee IS charged, keeps it.
- * 2. A For-Partner OMT/Whish line contributes $0 to the walk-in customer's
- *    charge (`sessionBasketCustomerAmount`, @liratek/core), yet its label
- *    still read "+ $X fees". It must say the transfer goes on the partner's
- *    account and drop the fee wording.
+ * 2. (Superseded 2026-10-16) For-Partner lines in a session basket: the
+ *    owner ruled a customer session never has partner sales, so the For
+ *    Partner option is no longer offered in a session — guarded below.
  *
  * Label only — the cart amount / payload are asserted unchanged.
  */
@@ -30,9 +29,11 @@ const mockGetOMTAnalytics = jest.fn().mockResolvedValue({
 });
 const mockGetSuppliers = jest.fn().mockResolvedValue([]);
 const mockGetSupplierBalances = jest.fn().mockResolvedValue([]);
-const mockPartnersGetAll = jest.fn().mockResolvedValue([
-  { id: 7, name: "Ziad Supplies", system_association: null, is_active: 1 },
-]);
+const mockPartnersGetAll = jest
+  .fn()
+  .mockResolvedValue([
+    { id: 7, name: "Ziad Supplies", system_association: null, is_active: 1 },
+  ]);
 const mockAddToCart = jest.fn();
 
 // Rule 25: ONE stable object — a fresh literal per useApi() call is the
@@ -226,13 +227,6 @@ async function addToBasket(type: "SEND" | "RECEIVE") {
   return item;
 }
 
-async function checkForPartner() {
-  fireEvent.click(screen.getByRole("checkbox", { name: /For Partner/i }));
-  await waitFor(() =>
-    expect(screen.queryByText(/Select partner/)).not.toBeInTheDocument(),
-  );
-}
-
 describe("Services page — session cart label", () => {
   beforeEach(() => {
     mockAddToCart.mockClear();
@@ -280,32 +274,19 @@ describe("Services page — session cart label", () => {
     expect(item.label).toMatch(/\+ \$1\.00 fees/);
   });
 
-  it("For Partner OMT SEND: the label says it goes on the partner's account, with no fee wording", async () => {
+  // Owner rule 2026-10-16: a customer session never has partner sales. The
+  // two "For Partner in a session" label cases this file used to cover are
+  // gone with the option itself; this guard replaces them.
+  it("session open: the For Partner toggle is not offered; an OMT SEND basket line is the customer's", async () => {
     await renderPage();
     switchTab("OMT", "SEND");
+    expect(
+      screen.queryByRole("checkbox", { name: /For Partner/i }),
+    ).not.toBeInTheDocument();
     typeAmount("100");
-    await checkForPartner();
     const item = await addToBasket("SEND");
 
-    expect(item.formData.partnerMode).toBe("FOR");
-    expect(item.label).toContain("OMT SEND");
-    expect(item.label).toContain("$100.00");
-    expect(item.label).toContain("for Ziad Supplies");
-    expect(item.label).toContain("on partner account");
-    expect(item.label).not.toMatch(/fee/i);
-  });
-
-  it("For Partner OMT RECEIVE: the label says it goes on the partner's account", async () => {
-    await renderPage();
-    switchTab("OMT", "RECEIVE");
-    typeAmount("100");
-    await checkForPartner();
-    const item = await addToBasket("RECEIVE");
-
-    expect(item.formData.partnerMode).toBe("FOR");
-    expect(item.label).toContain("OMT RECEIVE");
-    expect(item.label).toContain("for Ziad Supplies");
-    expect(item.label).toContain("on partner account");
-    expect(item.label).not.toMatch(/fee/i);
+    expect(item.formData.partnerMode).not.toBe("FOR");
+    expect(item.label).not.toContain("on partner account");
   });
 });

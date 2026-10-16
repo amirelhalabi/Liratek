@@ -52,6 +52,7 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
+import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -372,6 +373,12 @@ export default function Exchange() {
     null,
   );
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
+  // Owner rule 2026-10-16: a customer session never has partner sales —
+  // For Partner is hidden in a session and turned off if it was on.
+  useForPartnerOffInSession(!!activeSession, forPartner, () => {
+    setForPartner(false);
+    setSelectedPartnerId(null);
+  });
 
   // Split payout (owner-requested 2026-07-30): every walk-in exchange with a
   // USD/LBP target confirms through the PaymentSheet, so the payout can be
@@ -1951,16 +1958,18 @@ export default function Exchange() {
 
               {/* LIRA-081 (PFT-R): "For Partner" — takes no counter cash; the
               partner owes the exchange's fromCurrency amount instead. */}
-              <div>
-                <ForPartnerToggle
-                  testId="exchange-for-partner-toggle"
-                  checked={forPartner}
-                  onChange={setForPartner}
-                  selectedPartnerId={selectedPartnerId}
-                  onPartnerChange={setSelectedPartnerId}
-                  activeClassName="bg-violet-600 text-white"
-                />
-              </div>
+              {!activeSession && (
+                <div>
+                  <ForPartnerToggle
+                    testId="exchange-for-partner-toggle"
+                    checked={forPartner}
+                    onChange={setForPartner}
+                    selectedPartnerId={selectedPartnerId}
+                    onPartnerChange={setSelectedPartnerId}
+                    activeClassName="bg-violet-600 text-white"
+                  />
+                </div>
+              )}
 
               {/* Client Name — kept in BOTH modes per the owner's 2026-09-12
               decision (FOR_PARTNER_AND_COST_UNIFICATION_PLAN §4's last

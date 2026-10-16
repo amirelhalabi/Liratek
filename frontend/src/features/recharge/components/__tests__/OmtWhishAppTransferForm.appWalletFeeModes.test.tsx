@@ -458,3 +458,56 @@ describe("OmtWhishAppTransferForm — Phase D app-wallet fee modes", () => {
     expect(screen.queryByTestId("fee-mode-separate")).not.toBeInTheDocument();
   });
 });
+
+// Owner rule 2026-10-16: a customer session never has partner sales — no
+// For Partner toggle while a session is open, and one left ON when the
+// session starts is turned OFF (not merely hidden).
+describe("OmtWhishAppTransferForm — no For Partner during a customer session", () => {
+  beforeEach(() => {
+    mockAddOMTTransaction.mockClear();
+    mockActiveSession = null;
+    window.__stubPayoutAmount = 100;
+  });
+
+  it("session open: the For Partner toggle is not rendered", () => {
+    mockActiveSession = { id: 1 };
+    renderForm("WHISH_APP");
+    expect(
+      screen.queryByTestId("omt-whish-transfer-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("For Partner ON, then a session opens: it is turned OFF, and stays off when the session ends", async () => {
+    // The form is memo()'d and the session mock is not a real context, so
+    // each render gets a fresh callback prop to make it re-read the session.
+    const element = () => (
+      <OmtWhishAppTransferForm
+        activeProvider="WHISH_APP"
+        transactions={[]}
+        loadFinancialData={jest.fn()}
+        formatAmount={formatAmount}
+      />
+    );
+    const { rerender } = render(element());
+    fireEvent.click(
+      screen.getByTestId("omt-whish-transfer-for-partner-toggle"),
+    );
+    expect(
+      screen.getByTestId("omt-whish-transfer-partner-no-payment-notice"),
+    ).toBeInTheDocument();
+
+    mockActiveSession = { id: 1 };
+    rerender(element());
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("omt-whish-transfer-partner-no-payment-notice"),
+      ).not.toBeInTheDocument(),
+    );
+
+    mockActiveSession = null;
+    rerender(element());
+    expect(
+      screen.getByTestId("omt-whish-transfer-for-partner-toggle"),
+    ).not.toBeChecked();
+  });
+});

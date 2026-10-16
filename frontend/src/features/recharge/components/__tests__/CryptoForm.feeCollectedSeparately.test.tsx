@@ -407,3 +407,44 @@ describe("CryptoForm — Binance mode C (Customer pays separately)", () => {
     );
   });
 });
+
+// Owner rule 2026-10-16: a customer session never has partner sales — no
+// For Partner toggle while a session is open, and one left ON when the
+// session starts is turned OFF (not merely hidden).
+describe("CryptoForm — no For Partner during a customer session", () => {
+  beforeEach(() => {
+    mockActiveSession = null;
+    mockAddOMTTransaction.mockClear();
+  });
+
+  it("session open: the For Partner toggle is not rendered", () => {
+    mockActiveSession = { id: 1 };
+    render(<Harness initialCryptoType="SEND" />);
+    expect(
+      screen.queryByTestId("crypto-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("For Partner ON, then a session opens: it is turned OFF, and stays off when the session ends", async () => {
+    const { rerender } = render(<Harness initialCryptoType="SEND" />);
+    fireEvent.click(screen.getByTestId("crypto-for-partner-toggle"));
+    expect(
+      screen.getByTestId("crypto-partner-no-payment-notice"),
+    ).toBeInTheDocument();
+
+    mockActiveSession = { id: 1 };
+    rerender(<Harness initialCryptoType="SEND" />);
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("crypto-partner-no-payment-notice"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId("crypto-for-partner-toggle"),
+    ).not.toBeInTheDocument();
+
+    mockActiveSession = null;
+    rerender(<Harness initialCryptoType="SEND" />);
+    expect(screen.getByTestId("crypto-for-partner-toggle")).not.toBeChecked();
+  });
+});
