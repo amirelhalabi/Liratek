@@ -213,8 +213,7 @@ async function providerTabKatsh(page: Page) {
       .waitFor({ state: "hidden", timeout: 6_000 })
       .catch(() => {});
     const tab = page
-      .locator("button")
-      .filter({ hasText: /^Katsh$/ })
+      .getByRole("button", { name: "Katsh", exact: true })
       .first();
     if (attempt === 0) {
       await tab.click({ force: true });

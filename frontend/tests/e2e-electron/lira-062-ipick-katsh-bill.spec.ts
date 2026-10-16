@@ -222,8 +222,7 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
     await navigateTo(appPage, "/recharge");
 
     const katshTab = appPage
-      .locator("button")
-      .filter({ hasText: /^Katsh$/ })
+      .getByRole("button", { name: "Katsh", exact: true })
       .first();
     await expect(katshTab).toBeVisible({ timeout: 8_000 });
     await katshTab.click({ force: true });

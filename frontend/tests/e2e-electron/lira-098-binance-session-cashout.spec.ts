@@ -131,8 +131,7 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
     // form never opens. Retry the click until the form is up.
     await expect(async () => {
       await appPage
-        .locator("button")
-        .filter({ hasText: /^Binance$/ })
+        .getByRole("button", { name: "Binance", exact: true })
         .first()
         .click({ force: true });
       await expect(appPage.locator("#crypto-amount")).toBeVisible({

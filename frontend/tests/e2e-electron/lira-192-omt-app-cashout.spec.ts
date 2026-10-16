@@ -154,11 +154,7 @@ async function omtAppSupplierBalance(
 /** Seed the wallet via raw IPC (setup, not the behaviour under test — that
  *  is LIRA-190's own spec) so the cashout has real balance to draw down
  *  regardless of this shared DB's prior history. */
-async function seedWallet(
-  page: Page,
-  amount: number,
-  currency: "USD" | "LBP",
-) {
+async function seedWallet(page: Page, amount: number, currency: "USD" | "LBP") {
   const res = await page.evaluate(
     async ({ amount, currency }) => {
       const w = window as unknown as Api;
@@ -177,8 +173,7 @@ async function seedWallet(
  *  (D16: OMT App only — this button's very presence is part of the gate). */
 async function selectOmtAppTab(page: Page) {
   const tab = page
-    .locator("button")
-    .filter({ hasText: /^OMT App$/ })
+    .getByRole("button", { name: "OMT App", exact: true })
     .first();
   await expect(tab).toBeVisible({ timeout: 10_000 });
   await tab.click();
@@ -358,8 +353,7 @@ test.describe("LIRA-192 — OMT App cash-out, driven through the real modal", ()
           error: voidRes.error ?? null,
           storedCommission: meta.commission ?? null,
           omtAppNetDelta: Math.round((omtAppAfter - omtAppBefore) * 100) / 100,
-          ledgerNetDelta:
-            Math.round((ledgerAfter - ledgerBefore) * 100) / 100,
+          ledgerNetDelta: Math.round((ledgerAfter - ledgerBefore) * 100) / 100,
         };
       },
       { amount: VOID_ROUNDTRIP_USD },

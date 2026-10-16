@@ -84,8 +84,7 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
     // MTC is the default provider; CREDIT_TRANSFER is the default type.
     // Click MTC tab to be explicit in case a previous test left a different provider.
     const mtcTab = appPage
-      .locator("button")
-      .filter({ hasText: /^MTC$/ })
+      .getByRole("button", { name: "MTC", exact: true })
       .first();
     await expect(mtcTab).toBeVisible({ timeout: 8_000 });
     await mtcTab.click();
@@ -107,8 +106,7 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
     await navigateTo(appPage, "/recharge");
 
     const mtcTab = appPage
-      .locator("button")
-      .filter({ hasText: /^MTC$/ })
+      .getByRole("button", { name: "MTC", exact: true })
       .first();
     await expect(mtcTab).toBeVisible({ timeout: 8_000 });
     await mtcTab.click();
@@ -131,8 +129,7 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
 
     // Switch to Alfa provider
     const alfaTab = appPage
-      .locator("button")
-      .filter({ hasText: /^Alfa$/ })
+      .getByRole("button", { name: "Alfa", exact: true })
       .first();
     await expect(alfaTab).toBeVisible({ timeout: 8_000 });
     await alfaTab.click();
@@ -153,8 +150,7 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
     await navigateTo(appPage, "/recharge");
 
     const mtcTab = appPage
-      .locator("button")
-      .filter({ hasText: /^MTC$/ })
+      .getByRole("button", { name: "MTC", exact: true })
       .first();
     await expect(mtcTab).toBeVisible({ timeout: 8_000 });
     await mtcTab.click();

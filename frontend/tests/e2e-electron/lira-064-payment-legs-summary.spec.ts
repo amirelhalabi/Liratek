@@ -108,8 +108,7 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
     await navigateTo(appPage, "/recharge");
 
     const mtcTab = appPage
-      .locator("button")
-      .filter({ hasText: /^MTC$/ })
+      .getByRole("button", { name: "MTC", exact: true })
       .first();
     await expect(mtcTab).toBeVisible({ timeout: 8_000 });
     await mtcTab.click();

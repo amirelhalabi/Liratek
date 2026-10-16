@@ -78,9 +78,9 @@ async function snapshot(
 ): Promise<Snapshot> {
   const r = await getJson(page, auth, "/api/recharge/drawer-balances");
   const usd = (name: string) =>
-    (
-      r.balances as Array<{ name: string; usdBalance: number }>
-    ).find((d) => d.name === name)?.usdBalance ?? 0;
+    (r.balances as Array<{ name: string; usdBalance: number }>).find(
+      (d) => d.name === name,
+    )?.usdBalance ?? 0;
   const debt = await getJson(
     page,
     auth,
@@ -197,8 +197,7 @@ test.describe("lira-web-062 Whish App cash-out — Customer pays", () => {
     await gotoAndSettle(page, "/#/recharge");
 
     const tab = page
-      .locator("button")
-      .filter({ hasText: /^Whish App$/ })
+      .getByRole("button", { name: "Whish App", exact: true })
       .first();
     await expect(tab).toBeVisible({ timeout: 8_000 });
     await tab.click();

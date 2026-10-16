@@ -185,8 +185,7 @@ test.describe("LIRA-093 — customer account everywhere", () => {
     await navigateTo(appPage, "/recharge");
 
     await appPage
-      .locator("button")
-      .filter({ hasText: /^MTC$/ })
+      .getByRole("button", { name: "MTC", exact: true })
       .first()
       .click({ force: true });
 
@@ -243,8 +242,7 @@ test.describe("LIRA-093 — customer account everywhere", () => {
     const before = await balance(appPage);
     await navigateTo(appPage, "/recharge");
     await appPage
-      .locator("button")
-      .filter({ hasText: /^Katsh$/ })
+      .getByRole("button", { name: "Katsh", exact: true })
       .first()
       .click({ force: true });
 
@@ -291,8 +289,7 @@ test.describe("LIRA-093 — customer account everywhere", () => {
     const before = await balance(appPage);
     await navigateTo(appPage, "/recharge");
     await appPage
-      .locator("button")
-      .filter({ hasText: /^OMT App$/ })
+      .getByRole("button", { name: "OMT App", exact: true })
       .first()
       .click({ force: true });
 

@@ -55,8 +55,7 @@ test.describe("LIRA-083 (A2) — send/receive field visibility", () => {
 
     // Open the OMT App provider tab, then its transfer view.
     await appPage
-      .locator("button")
-      .filter({ hasText: /^OMT App$/ })
+      .getByRole("button", { name: "OMT App", exact: true })
       .first()
       .click();
 

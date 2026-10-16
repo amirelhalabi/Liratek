@@ -172,8 +172,7 @@ test.describe("lira-web-064 Binance cash-out — Customer pays", () => {
     // settle — retry until the crypto form is up (as lira-136 does).
     await expect(async () => {
       await page
-        .locator("button")
-        .filter({ hasText: /^Binance$/ })
+        .getByRole("button", { name: "Binance", exact: true })
         .first()
         .click({ force: true });
       await expect(page.locator("#crypto-amount")).toBeVisible({

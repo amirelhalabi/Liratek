@@ -142,14 +142,13 @@ async function omtAppSupplierBalance(
 /** Click the OMT App provider tab and confirm its Top-Up button rendered. */
 async function selectOmtAppTab(page: Page) {
   const tab = page
-    .locator("button")
-    .filter({ hasText: /^OMT App$/ })
+    .getByRole("button", { name: "OMT App", exact: true })
     .first();
   await expect(tab).toBeVisible({ timeout: 10_000 });
   await tab.click();
-  await expect(
-    page.getByRole("button", { name: "Top-Up" }),
-  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: "Top-Up" })).toBeVisible({
+    timeout: 10_000,
+  });
 }
 
 /** Open the real Top-Up modal and return a locator scoped to its panel (not
@@ -191,7 +190,9 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
     await modal
       .locator('input[inputmode="decimal"]')
       .fill(String(CREDIT_TOPUP_USD));
-    await modal.getByRole("button", { name: "Confirm Supplier Credit" }).click();
+    await modal
+      .getByRole("button", { name: "Confirm Supplier Credit" })
+      .click();
     await expect(modal).toBeHidden({ timeout: 10_000 });
 
     const after = await drawers(appPage);
@@ -220,7 +221,9 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
     await modal
       .locator('input[inputmode="decimal"]')
       .fill(String(CREDIT_TOPUP_LBP));
-    await modal.getByRole("button", { name: "Confirm Supplier Credit" }).click();
+    await modal
+      .getByRole("button", { name: "Confirm Supplier Credit" })
+      .click();
     await expect(modal).toBeHidden({ timeout: 10_000 });
 
     const after = await drawers(appPage);
@@ -396,8 +399,7 @@ test.describe("LIRA-190 — OMT App wallet credit top-up, driven through the rea
           // over-reversed) is caught here, not masked by measuring from a
           // post-top-up baseline.
           omtAppNetDelta: Math.round((omtAppAfter - omtAppBefore) * 100) / 100,
-          ledgerNetDelta:
-            Math.round((ledgerAfter - ledgerBefore) * 100) / 100,
+          ledgerNetDelta: Math.round((ledgerAfter - ledgerBefore) * 100) / 100,
         };
       },
       { amount: VOID_ROUNDTRIP_USD },

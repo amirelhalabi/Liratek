@@ -72,8 +72,7 @@ test("WHISH App SEND $140, CASH amount edited to 100 → auto CUSTOMER_ACCOUNT $
 
   // Whish App tab → force the Transfer sub-tab (parent state may be on Bills).
   const tab = appPage
-    .locator("button")
-    .filter({ hasText: /^Whish App$/ })
+    .getByRole("button", { name: "Whish App", exact: true })
     .first();
   await expect(tab).toBeVisible({ timeout: 8_000 });
   await tab.click();

@@ -120,8 +120,7 @@ async function createOmtAppSend(appPage: Page): Promise<void> {
   await navigateTo(appPage, "/recharge");
 
   const omtAppTab = appPage
-    .locator("button")
-    .filter({ hasText: /^OMT App$/ })
+    .getByRole("button", { name: "OMT App", exact: true })
     .first();
   await expect(omtAppTab).toBeVisible({ timeout: 8_000 });
   await omtAppTab.click({ force: true });

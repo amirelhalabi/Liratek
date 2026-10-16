@@ -87,9 +87,13 @@ function delta(after: Snapshot, before: Snapshot): Snapshot {
 
 async function openWhishBills(page: Page): Promise<void> {
   await gotoAndSettle(page, "/#/recharge");
+  // A hash-only goto keeps the catalog loaded at login; reload so the item
+  // created by the test is in it.
+  await page.reload();
+  // Provider tabs show only a logo when unselected; the name is the
+  // button's accessible name.
   const tab = page
-    .locator("button")
-    .filter({ hasText: /^Whish App$/ })
+    .getByRole("button", { name: "Whish App", exact: true })
     .first();
   await expect(tab).toBeVisible({ timeout: 8_000 });
   await tab.click();

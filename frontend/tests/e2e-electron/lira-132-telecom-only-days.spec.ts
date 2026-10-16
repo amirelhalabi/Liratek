@@ -374,8 +374,7 @@ test.describe("LIRA-132 — Telecom Only-Days credit model (MTC via iPick, B1 re
       // means the seed completed.
       await navigateTo(appPage, "/recharge");
       const ipickBtn = appPage
-        .locator("button")
-        .filter({ hasText: /^iPick$/ })
+        .getByRole("button", { name: "iPick", exact: true })
         .first();
       await expect(ipickBtn).toBeVisible({ timeout: 15_000 });
       await ipickBtn.click();
@@ -640,8 +639,7 @@ test.describe("LIRA-132 — Telecom Only-Days credit model (MTC via iPick, B1 re
       // ── The card, and the seeded days price behind it ─────────────────────
       await navigateTo(appPage, "/recharge");
       const ipickBtn = appPage
-        .locator("button")
-        .filter({ hasText: /^iPick$/ })
+        .getByRole("button", { name: "iPick", exact: true })
         .first();
       await expect(ipickBtn).toBeVisible({ timeout: 15_000 });
       await ipickBtn.click();

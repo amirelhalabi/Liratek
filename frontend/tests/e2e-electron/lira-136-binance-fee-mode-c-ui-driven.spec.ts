@@ -136,8 +136,7 @@ async function openBinanceCashOut(page: Page) {
   // form never opens. Retry the click until the form is up.
   await expect(async () => {
     await page
-      .locator("button")
-      .filter({ hasText: /^Binance$/ })
+      .getByRole("button", { name: "Binance", exact: true })
       .first()
       .click({ force: true });
     await expect(page.locator("#crypto-amount")).toBeVisible({
@@ -258,8 +257,7 @@ test.describe("LIRA-136 — Binance mode C (customer pays separately), UI-driven
     // form never opens. Retry the click until the form is up.
     await expect(async () => {
       await appPage
-        .locator("button")
-        .filter({ hasText: /^Binance$/ })
+        .getByRole("button", { name: "Binance", exact: true })
         .first()
         .click({ force: true });
       await expect(appPage.locator("#crypto-amount")).toBeVisible({

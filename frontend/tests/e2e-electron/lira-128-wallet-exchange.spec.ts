@@ -108,8 +108,7 @@ async function ensureOmtAppUsdBalance(page: Page, minimum: number) {
 
 async function openOmtAppExchangeTab(page: Page) {
   const omtTab = page
-    .locator("button")
-    .filter({ hasText: /^OMT App$/ })
+    .getByRole("button", { name: "OMT App", exact: true })
     .first();
   await expect(omtTab).toBeVisible({ timeout: 8_000 });
   await omtTab.click();

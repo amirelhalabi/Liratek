@@ -150,8 +150,7 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
     // until the form is up — same end state, no fixed sleep.
     await expect(async () => {
       await appPage
-        .locator("button")
-        .filter({ hasText: /^Binance$/ })
+        .getByRole("button", { name: "Binance", exact: true })
         .first()
         .click({ force: true });
       await expect(cryptoAmountInput).toBeVisible({ timeout: 3_000 });

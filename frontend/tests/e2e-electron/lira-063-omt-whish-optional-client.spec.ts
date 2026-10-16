@@ -32,8 +32,7 @@ test.describe("LIRA-063 — OMT App / Whish App optional client name/phone", () 
 
     // ── Select the OMT App provider tab ──────────────────────────────────────
     const omtAppTab = appPage
-      .locator("button")
-      .filter({ hasText: /^OMT App$/ })
+      .getByRole("button", { name: "OMT App", exact: true })
       .first();
     await expect(omtAppTab).toBeVisible({ timeout: 8_000 });
     // force:true matches goToRechargeForm — bypasses transient header z-layer

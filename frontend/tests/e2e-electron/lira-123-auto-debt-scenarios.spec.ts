@@ -125,8 +125,7 @@ async function whishTab(page: Page, sub: "Transfer" | "Bills") {
   await navigateTo(page, "/");
   await navigateTo(page, "/recharge");
   const tab = page
-    .locator("button")
-    .filter({ hasText: /^Whish App$/ })
+    .getByRole("button", { name: "Whish App", exact: true })
     .first();
   await expect(tab).toBeVisible({ timeout: 8_000 });
   await tab.click();

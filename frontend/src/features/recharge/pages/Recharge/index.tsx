@@ -519,9 +519,10 @@ export default function MobileRecharge() {
 
   // Reset form state when provider changes
   useEffect(() => {
-    // Always reset to "transfer" so returning to WHISH_APP renders the correct
-    // form on the first paint (prevents FinancialForm mount→unmount flash).
-    setWhishAppMode("transfer");
+    // Whish App keeps its Transfer / Bills screen across provider switches
+    // (owner request 2026-10-16): a basket built across tabs returns to
+    // Bills without pressing it again. The mode is read on the first paint
+    // after switching back, so there is no form flash either way.
     setRechargeType("CREDIT_TRANSFER");
     setTelecomDaysCostUsd("");
     setFinAnalytics({
