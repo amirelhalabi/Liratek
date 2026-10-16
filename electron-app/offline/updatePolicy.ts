@@ -9,7 +9,7 @@
  *   offline/finishing  nothing: an update mid-outage could change a form
  *                    while events still wait (O-new-26)
  */
-import type { OfflineMode } from "./bootDecision";
+import type { OfflineMode } from "./bootDecision.js";
 
 export interface UpdatePolicy {
   autoCheck: boolean;

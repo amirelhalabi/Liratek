@@ -15,7 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
-import type { CopyInfo } from "./bootDecision";
+import type { CopyInfo } from "./bootDecision.js";
 
 export type DatabaseCtor = typeof BetterSqlite3;
 

@@ -18,7 +18,7 @@
  * The shop id comes from the copy, never the hard-coded 1.
  */
 import path from "node:path";
-import type { PairingFile } from "./pairingStore";
+import type { PairingFile } from "./pairingStore.js";
 
 export type OfflineMode =
   | "standalone"

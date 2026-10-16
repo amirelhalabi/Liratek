@@ -29,21 +29,21 @@ import {
   verifyPassword,
   type OfflineRates,
 } from "@liratek/core";
-import { decideBoot, type BootDecision } from "./bootDecision";
-import { PairingStore, type SafeStorageLike } from "./pairingStore";
+import { decideBoot, type BootDecision } from "./bootDecision.js";
+import { PairingStore, type SafeStorageLike } from "./pairingStore.js";
 import {
   listMirrors,
   readCopyInfo,
   workingCopyPath,
   type DatabaseCtor,
-} from "./offlineFiles";
-import { installRecorder, type IpcMainLike, type Recorder } from "./recorder";
-import { ReadWriteLog, WriteGuard } from "./writeGuard";
-import { SyncClient, type FetchLike } from "./syncClient";
-import { OfflineSender } from "./sender";
-import { Finisher, makeBackToWeb, makeGoOffline } from "./modeSwitch";
-import { buildManifest } from "./manifest";
-import { setOfflineRuntime } from "./runtime";
+} from "./offlineFiles.js";
+import { installRecorder, type IpcMainLike, type Recorder } from "./recorder.js";
+import { ReadWriteLog, WriteGuard } from "./writeGuard.js";
+import { SyncClient, type FetchLike } from "./syncClient.js";
+import { OfflineSender } from "./sender.js";
+import { Finisher, makeBackToWeb, makeGoOffline } from "./modeSwitch.js";
+import { buildManifest } from "./manifest.js";
+import { setOfflineRuntime } from "./runtime.js";
 
 export const DEFAULT_OFFLINE_API_URL = "https://api.liratek.shop";
 

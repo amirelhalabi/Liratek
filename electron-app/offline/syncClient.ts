@@ -19,7 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { logger } from "@liratek/core";
-import type { PairingStore } from "./pairingStore";
+import type { PairingStore } from "./pairingStore.js";
 import {
   fileStamp,
   integrityOk,
@@ -27,8 +27,8 @@ import {
   pruneMirrors,
   readCopyInfo,
   type DatabaseCtor,
-} from "./offlineFiles";
-import type { Sender } from "./sender";
+} from "./offlineFiles.js";
+import type { Sender } from "./sender.js";
 
 export const CHECKIN_INTERVAL_MS = 30_000;
 export const COPY_REFRESH_MS = 5 * 60_000;

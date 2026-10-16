@@ -29,7 +29,7 @@ import {
   readCopyInfo,
   workingCopyPath,
   type DatabaseCtor,
-} from "./offlineFiles";
+} from "./offlineFiles.js";
 
 const TABLE_STRIDE = 1_000_000_000;
 

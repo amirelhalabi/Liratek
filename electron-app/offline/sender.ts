@@ -21,8 +21,8 @@
  * it never interleaves with an open write window.
  */
 import { logger, type OfflineEventInput, type OutboxRow } from "@liratek/core";
-import type { PairingStore } from "./pairingStore";
-import { DEVICE_KEY_HEADER_NAME, type FetchLike } from "./syncClient";
+import type { PairingStore } from "./pairingStore.js";
+import { DEVICE_KEY_HEADER_NAME, type FetchLike } from "./syncClient.js";
 
 export const UPLOAD_BATCH = 100;
 export const UPLOAD_TIMEOUT_MS = 60_000;

@@ -4,9 +4,9 @@
  * it here; nothing is read at import time, so loading the handlers in the
  * channel-policy guard (no Electron, no userData) does nothing.
  */
-import type { BootDecision } from "./bootDecision";
-import type { PairingStore } from "./pairingStore";
-import type { FetchLike, SyncClient } from "./syncClient";
+import type { BootDecision } from "./bootDecision.js";
+import type { PairingStore } from "./pairingStore.js";
+import type { FetchLike, SyncClient } from "./syncClient.js";
 
 export interface OfflineRuntime {
   /** the mode this process booted into (a mode change relaunches) */

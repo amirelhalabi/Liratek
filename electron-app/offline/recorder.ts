@@ -40,12 +40,12 @@ import {
   type OfflineRates,
 } from "@liratek/core";
 import type BetterSqlite3 from "better-sqlite3";
-import type { OfflineMode } from "./bootDecision";
+import type { OfflineMode } from "./bootDecision.js";
 import {
   isReadOnlyRefusal,
   type ReadWriteLog,
   type WriteGuard,
-} from "./writeGuard";
+} from "./writeGuard.js";
 
 type IpcEvent = { sender: { id: number } };
 type Handler = (event: IpcEvent, ...args: unknown[]) => unknown;

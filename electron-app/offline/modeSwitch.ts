@@ -9,9 +9,9 @@
  *                manifest accepted; → offline after 30 s without the server
  */
 import { logger, type ManifestInput } from "@liratek/core";
-import type { PairingStore } from "./pairingStore";
-import { createWorkingCopy, finishWorkingCopy } from "./workingCopy";
-import type { DatabaseCtor } from "./offlineFiles";
+import type { PairingStore } from "./pairingStore.js";
+import { createWorkingCopy, finishWorkingCopy } from "./workingCopy.js";
+import type { DatabaseCtor } from "./offlineFiles.js";
 
 export const FINISHING_GIVE_UP_SECONDS = 30;
 
