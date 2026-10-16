@@ -2425,6 +2425,39 @@ describe("FinancialServiceRepository — partner mode", () => {
       ]);
     });
 
+    it("FOR catalog (WHISH_APP in USD, LIRA-324): partner owes the USD selling price; cost leaves Whish App USD", () => {
+      const partnerId = seedPartner(db);
+      const whishUsd = () =>
+        (
+          db
+            .prepare(
+              "SELECT COALESCE(SUM(balance), 0) AS b FROM drawer_balances WHERE drawer_name = 'Whish_App' AND currency_code = 'USD'",
+            )
+            .get() as { b: number }
+        ).b;
+      const before = whishUsd();
+      repo.createTransaction({
+        provider: "WHISH_APP",
+        serviceType: "SEND",
+        amount: 10,
+        cost: 9.5,
+        price: 10,
+        currency: "USD",
+        commission: 0,
+        partnerId,
+        partnerMode: "FOR",
+      });
+      expect(rows(partnerId)).toEqual([
+        {
+          type: "FOR_WHISH_APP_SEND",
+          amount: 10,
+          currency: "USD",
+          direction: "DEBIT",
+        },
+      ]);
+      expect(whishUsd() - before).toBeCloseTo(-9.5, 6);
+    });
+
     it("FOR BINANCE SEND: partner owes amount + fee in USD", () => {
       const partnerId = seedPartner(db);
       repo.createTransaction({

@@ -40,6 +40,14 @@ export interface ItemPricing {
    * is the normal case for Only-Days candidates.
    */
   credits?: number;
+  /**
+   * LIRA-324 (v218): the USD price pair for Whish App USD mode (Whish app
+   * crawl 2026-10-14). Omitted = not sold in USD. A USD-only item has
+   * `cost: "0", sell: "0"`. Never set on MTC / Alfa Prepaid cards in this
+   * release (their days/credits handling is LBP-only).
+   */
+  cost_usd?: string;
+  sell_usd?: string;
 }
 export type ServiceItems = Record<string, ItemPricing> | string[];
 export type ServiceSubcategory = ServiceItems | Record<string, ServiceItems>;

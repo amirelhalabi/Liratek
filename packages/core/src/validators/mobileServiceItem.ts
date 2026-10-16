@@ -58,6 +58,12 @@ export const mobileServiceItemUpdateSchema = z.object({
    * itself is never re-encoded, only called).
    */
   max_returned_credits_usd: z.number().positive().nullable().optional(),
+  /**
+   * v218 (LIRA-324): USD price pair for Whish App USD mode. Nullable so the
+   * owner can clear it (an item without both is not sold in USD).
+   */
+  cost_usd: z.number().nonnegative().nullable().optional(),
+  sell_usd: z.number().nonnegative().nullable().optional(),
 });
 
 export type MobileServiceItemUpdateInput = z.infer<
@@ -103,6 +109,9 @@ export const mobileServiceItemCreateSchema = z.object({
   sell_credit_lbp: z.number().nonnegative().nullable().optional(),
   /** v160 — see `mobileServiceItemUpdateSchema.max_returned_credits_usd`. */
   max_returned_credits_usd: z.number().positive().nullable().optional(),
+  /** v218 — see `mobileServiceItemUpdateSchema.cost_usd`. */
+  cost_usd: z.number().nonnegative().nullable().optional(),
+  sell_usd: z.number().nonnegative().nullable().optional(),
 });
 
 export type MobileServiceItemCreateInput = z.infer<

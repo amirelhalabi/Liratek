@@ -15,6 +15,10 @@ import {
   TELECOM_DAYS_SELL_PRICE_LBP,
 } from "../../utils/telecomCredit.js";
 import { V216_WHISH_APP_ITEMS } from "./data/v216WhishAppCatalog.js";
+import {
+  V218_USD_PRICES,
+  V218_USD_ONLY_ITEMS,
+} from "./data/v218WhishUsdPrices.js";
 
 /**
  * Does this database have that table?
@@ -14829,6 +14833,27 @@ DROP INDEX IF EXISTS idx_ssc_row;
 DROP TABLE IF EXISTS supplier_settlement_coverage;`);
     },
   },
+  {
+    version: 218,
+    name: "whish_app_usd_prices",
+    description:
+      "LIRA-324: Whish App items in USD. Adds mobile_service_items.cost_usd / " +
+      "sell_usd (NULL = not sold in USD). For every shop that already has a " +
+      "catalog, writes the USD price crawled from the Whish app on 2026-10-14 " +
+      "(frozen copy in data/v218WhishUsdPrices.ts) on WHISH_APP items that have " +
+      "no USD price yet (sell starts = cost, owner rule 2026-10-10), and adds the " +
+      "items Whish sells in USD only (no LBP price). Never changes an LBP price, " +
+      "a name or a USD price the shop already set. MTC / Alfa Prepaid cards get " +
+      "no USD price (deferred, WHISH_USD_PREPAID_CARDS.md). A shop with an empty " +
+      "catalog is skipped: the frontend seed fills it with the same prices.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      addWhishUsdPrices(db);
+    },
+    down(db: Database.Database) {
+      removeWhishUsdPrices(db);
+    },
+  },
 ];
 
 /** Flatten v216's frozen Whish App items into one row per item. */
@@ -14946,6 +14971,110 @@ export function removeWhishAppCatalogAdditions(db: Database.Database): void {
       del.run(r.category, r.subcategory, r.label, r.cost, r.sell);
     }
   })();
+}
+
+/**
+ * v218 up (LIRA-324). Adds the USD price pair, then fills it for shops that
+ * already have a catalog. Idempotent. Exported for its own test only.
+ */
+export function addWhishUsdPrices(db: Database.Database): void {
+  if (!tableExists(db, "mobile_service_items")) return;
+  if (!columnExists(db, "mobile_service_items", "cost_usd")) {
+    db.exec(`ALTER TABLE mobile_service_items ADD COLUMN cost_usd REAL NULL;`);
+  }
+  if (!columnExists(db, "mobile_service_items", "sell_usd")) {
+    db.exec(`ALTER TABLE mobile_service_items ADD COLUMN sell_usd REAL NULL;`);
+  }
+  const tenants = db
+    .prepare(`SELECT DISTINCT tenant_id FROM mobile_service_items`)
+    .all() as Array<{ tenant_id: number | null }>;
+  const price = db.prepare(
+    `UPDATE mobile_service_items SET cost_usd = ?, sell_usd = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE tenant_id IS ? AND provider = 'WHISH_APP'
+        AND category = ? AND subcategory = ? AND label = ?
+        AND cost_usd IS NULL`,
+  );
+  const exists = db.prepare(
+    `SELECT 1 FROM mobile_service_items
+      WHERE tenant_id IS ? AND provider = 'WHISH_APP'
+        AND category = ? AND subcategory = ? AND label = ?`,
+  );
+  const maxSort = db.prepare(
+    `SELECT COALESCE(MAX(sort_order), -1) AS m FROM mobile_service_items
+      WHERE tenant_id IS ? AND provider = 'WHISH_APP' AND category = ?`,
+  );
+  const insert = db.prepare(
+    `INSERT INTO mobile_service_items
+       (tenant_id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, cost_usd, sell_usd)
+     VALUES (?, 'WHISH_APP', ?, ?, ?, 0, 0, ?, 1, ?, ?)`,
+  );
+  db.transaction(() => {
+    for (const { tenant_id } of tenants) {
+      for (const r of V218_USD_PRICES) {
+        price.run(
+          r.cost_usd,
+          r.cost_usd,
+          tenant_id,
+          r.category,
+          r.subcategory,
+          r.label,
+        );
+      }
+      const nextSort = new Map<string, number>();
+      for (const r of V218_USD_ONLY_ITEMS) {
+        if (exists.get(tenant_id, r.category, r.subcategory, r.label)) continue;
+        if (!nextSort.has(r.category)) {
+          const { m } = maxSort.get(tenant_id, r.category) as { m: number };
+          nextSort.set(r.category, m + 1);
+        }
+        const sort = nextSort.get(r.category) as number;
+        nextSort.set(r.category, sort + 1);
+        insert.run(
+          tenant_id,
+          r.category,
+          r.subcategory,
+          r.label,
+          sort,
+          r.cost_usd,
+          r.cost_usd,
+        );
+      }
+    }
+  })();
+}
+
+/**
+ * v218 down: clear only the USD prices still exactly as v218 wrote them,
+ * delete the USD-only items still unchanged and unreferenced, then drop the
+ * columns. A price the shop changed survives as the item it was; a repriced
+ * USD-only item stays (it loses its USD price with the columns).
+ */
+export function removeWhishUsdPrices(db: Database.Database): void {
+  if (!tableExists(db, "mobile_service_items")) return;
+  if (columnExists(db, "mobile_service_items", "cost_usd")) {
+    const refs: string[] = [];
+    for (const t of ["wrong_number_cards", "resale_line_recharges"]) {
+      if (tableExists(db, t) && columnExists(db, t, "mobile_service_item_id")) {
+        refs.push(
+          `AND id NOT IN (SELECT mobile_service_item_id FROM ${t} WHERE mobile_service_item_id IS NOT NULL)`,
+        );
+      }
+    }
+    const del = db.prepare(
+      `DELETE FROM mobile_service_items
+        WHERE provider = 'WHISH_APP' AND category = ? AND subcategory = ? AND label = ?
+          AND cost_lbp = 0 AND sell_lbp = 0 AND cost_usd = ? AND sell_usd = ? ${refs.join(" ")}`,
+    );
+    db.transaction(() => {
+      for (const r of V218_USD_ONLY_ITEMS) {
+        del.run(r.category, r.subcategory, r.label, r.cost_usd, r.cost_usd);
+      }
+    })();
+    db.exec(`ALTER TABLE mobile_service_items DROP COLUMN cost_usd;`);
+  }
+  if (columnExists(db, "mobile_service_items", "sell_usd")) {
+    db.exec(`ALTER TABLE mobile_service_items DROP COLUMN sell_usd;`);
+  }
 }
 
 /**

@@ -66,6 +66,8 @@ function item(over: Partial<MobileServiceItem>): MobileServiceItem {
     sell_days_lbp: null,
     sell_credit_lbp: null,
     max_returned_credits_usd: null,
+    cost_usd: null,
+    sell_usd: null,
     created_at: "2026-07-01 00:00:00",
     updated_at: "2026-07-01 00:00:00",
     ...over,

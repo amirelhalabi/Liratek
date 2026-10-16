@@ -135,6 +135,11 @@ export * from "./constants/drawerCurrencyPolicy.js";
 // above for the exact failure mode this avoids.
 export * from "./constants/exchangeLotPolicy.js";
 
+// Which catalog items sell in which currency (LIRA-324: isUsdSellable /
+// isLbpSellable) — pure predicates, no Node.js deps. The Whish App Bills grid
+// and Settings use them (rule 14).
+export * from "./constants/catalogCurrency.js";
+
 // Market-rate orientation normalization (marketRateToUsdPerUnit) — pure
 // arithmetic over `exchange_rates.market_rate`/`is_stronger`, no Node.js
 // deps. DrawerTopUpModal.tsx (2026-08-23 refinement, EXCHANGE_LOT_SETTLEMENT.md

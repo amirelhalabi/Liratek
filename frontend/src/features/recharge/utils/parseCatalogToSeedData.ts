@@ -44,6 +44,9 @@ export interface SeedItem {
    * at the annual, so interpolating would invent an unapproved price).
    */
   sell_days_lbp?: number;
+  /** LIRA-324 (v218): Whish App USD price pair; omitted = not sold in USD. */
+  cost_usd?: number;
+  sell_usd?: number;
   /**
    * v160: the per-card max-returned override. Supplied HERE, at seed time,
    * because v160's migration backfill cannot reach a fresh install — the
@@ -186,6 +189,12 @@ export function parseCatalogToSeedData(): SeedItem[] {
                 ...(sellDaysLbp != null ? { sell_days_lbp: sellDaysLbp } : {}),
                 ...(maxReturnedCreditsUsd != null
                   ? { max_returned_credits_usd: maxReturnedCreditsUsd }
+                  : {}),
+                ...(obj.cost_usd !== undefined
+                  ? { cost_usd: Number(obj.cost_usd) }
+                  : {}),
+                ...(obj.sell_usd !== undefined
+                  ? { sell_usd: Number(obj.sell_usd) }
                   : {}),
               });
             } else {

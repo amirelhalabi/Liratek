@@ -340,6 +340,8 @@ function createTestDb(): Database.Database {
       sell_days_lbp             REAL,
       sell_credit_lbp           REAL,
       max_returned_credits_usd  REAL,
+      cost_usd REAL,
+      sell_usd REAL,
       created_at                DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at                DATETIME DEFAULT CURRENT_TIMESTAMP
     );

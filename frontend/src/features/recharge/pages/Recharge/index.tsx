@@ -43,6 +43,11 @@ import {
   OmtWhishAppTransferForm,
   OmtAppCashoutModal,
 } from "../../components";
+import {
+  loadWhishBillsCurrency,
+  saveWhishBillsCurrency,
+} from "../../utils/whishBillsCurrencyStorage";
+import type { CatalogCurrency } from "@liratek/core";
 import { TopUpModal, ServiceTypeTabs } from "@liratek/ui";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import type {
@@ -316,7 +321,9 @@ export default function MobileRecharge() {
     void loadResaleLines();
   }, [loadResaleLines]);
   const resaleLineMatch = phoneNumber
-    ? (resaleLines.find((l) => isSameLebanesePhone(phoneNumber, l.phone_number)) ?? null)
+    ? (resaleLines.find((l) =>
+        isSameLebanesePhone(phoneNumber, l.phone_number),
+      ) ?? null)
     : null;
   // Owner note #21: the checkbox itself. ON (default) = case 1, the existing
   // credit buy-back (payment OUT). OFF = case 2, the customer used the shop
@@ -348,9 +355,9 @@ export default function MobileRecharge() {
     useState(false);
   // LIRA-321 (US4): a cash-out's "Customer pays" lines (the USDT line plus
   // the fee line when paid separately) and the part the cashier forgave.
-  const [cryptoCustomerLines, setCryptoCustomerLines] = useState<
-    PaymentLine[]
-  >([]);
+  const [cryptoCustomerLines, setCryptoCustomerLines] = useState<PaymentLine[]>(
+    [],
+  );
   const [cryptoCustomerForgiven, setCryptoCustomerForgiven] = useState(0);
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [cryptoClientName, setCryptoClientName] = useState("");
@@ -437,6 +444,11 @@ export default function MobileRecharge() {
   // Whish App mode: 'bills' (card grid) or 'transfer' (send/receive money)
   const [whishAppMode, setWhishAppMode] = useState<"bills" | "transfer">(
     "transfer",
+  );
+  // LIRA-324: Whish App → Bills sells its catalog in LBP or USD.
+  // Defaults to LBP; remembers the last choice on this device.
+  const [whishBillsCurrency, setWhishBillsCurrency] = useState<CatalogCurrency>(
+    loadWhishBillsCurrency,
   );
 
   // Autofill client name from active customer session, clear when session closes
@@ -1577,7 +1589,7 @@ export default function MobileRecharge() {
       setCryptoFeeIncluded(false);
       setCryptoFeeCollectedSeparately(false);
       setCryptoCustomerLines([]);
-    setCryptoCustomerForgiven(0);
+      setCryptoCustomerForgiven(0);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
@@ -1701,7 +1713,7 @@ export default function MobileRecharge() {
       setCryptoFeeIncluded(false);
       setCryptoFeeCollectedSeparately(false);
       setCryptoCustomerLines([]);
-    setCryptoCustomerForgiven(0);
+      setCryptoCustomerForgiven(0);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
@@ -2114,6 +2126,11 @@ export default function MobileRecharge() {
 
               {whishAppMode === "bills" ? (
                 <FinancialForm
+                  currency={whishBillsCurrency}
+                  onCurrencyChange={(next) => {
+                    saveWhishBillsCurrency(next);
+                    setWhishBillsCurrency(next);
+                  }}
                   activeConfig={activeConfig}
                   finTransactions={finTransactions}
                   activeProvider={activeProvider}

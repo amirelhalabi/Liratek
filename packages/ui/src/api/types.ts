@@ -923,6 +923,9 @@ export type MobileServiceItemEntity = {
   sell_credit_lbp: number | null;
   /** v160: per-card override of the returnable credit maximum; null = computed. */
   max_returned_credits_usd: number | null;
+  /** v218 (LIRA-324): USD price pair; null = not sold in USD. */
+  cost_usd: number | null;
+  sell_usd: number | null;
   created_at: string;
   updated_at: string;
 };

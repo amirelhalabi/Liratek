@@ -304,3 +304,50 @@ describe("parseCatalogToSeedData — days_cost_lbp full-catalog guard (plan §4.
     expect(mtc45?.days_cost_lbp).toBe(67500);
   });
 });
+
+describe("parseCatalogToSeedData — Whish App USD prices (LIRA-324)", () => {
+  const items = parseCatalogToSeedData();
+  const whishUsd = items.filter(
+    (i) => i.provider === "WHISH_APP" && i.cost_usd !== undefined,
+  );
+
+  it("seeds the 352 crawled USD prices (319 also sold in LBP + 33 USD-only), sell = cost", () => {
+    expect(whishUsd).toHaveLength(352);
+    for (const i of whishUsd) {
+      expect(i.cost_usd).toBeGreaterThan(0);
+      expect(i.sell_usd).toBe(i.cost_usd);
+    }
+    const usdOnly = whishUsd.filter((i) => i.cost_lbp === 0);
+    expect(usdOnly).toHaveLength(33);
+    for (const i of usdOnly) expect(i.sell_lbp).toBe(0);
+  });
+
+  it("spot-check: PSN $10 - LEBANON keeps its LBP price and gains $10", () => {
+    expect(
+      findItem(
+        items,
+        "WHISH_APP",
+        "Gaming",
+        "PlayStation LEB",
+        "PSN $10 - LEBANON",
+      ),
+    ).toMatchObject({
+      cost_lbp: 897000,
+      sell_lbp: 897000,
+      cost_usd: 10,
+      sell_usd: 10,
+    });
+  });
+
+  it("never prices an MTC / Alfa Prepaid card in USD, and only Whish App carries USD", () => {
+    for (const i of items) {
+      if (
+        /^(alfa|mtc)$/i.test(i.category) &&
+        /^prepaid$/i.test(i.subcategory)
+      ) {
+        expect(i.cost_usd).toBeUndefined();
+      }
+      if (i.provider !== "WHISH_APP") expect(i.cost_usd).toBeUndefined();
+    }
+  });
+});

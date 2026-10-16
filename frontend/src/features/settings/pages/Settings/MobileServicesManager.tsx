@@ -107,6 +107,12 @@ interface EditingState {
    * null = "use the computed value" (the default for every card).
    */
   max_returned_credits_usd: string;
+  /**
+   * LIRA-324: USD price pair for Whish App USD mode. Empty string = null =
+   * not sold in USD.
+   */
+  cost_usd: string;
+  sell_usd: string;
 }
 
 interface NewItemForm {
@@ -128,6 +134,12 @@ interface NewItemForm {
    * null = "use the computed value" (the default for every card).
    */
   max_returned_credits_usd: string;
+  /**
+   * LIRA-324: USD price pair for Whish App USD mode. Empty string = null =
+   * not sold in USD.
+   */
+  cost_usd: string;
+  sell_usd: string;
 }
 
 const EMPTY_NEW_ITEM: NewItemForm = {
@@ -144,7 +156,19 @@ const EMPTY_NEW_ITEM: NewItemForm = {
   sell_days_lbp: "",
   sell_credit_lbp: "",
   max_returned_credits_usd: "",
+  cost_usd: "",
+  sell_usd: "",
 };
+
+/** LIRA-324: "$9.50 / $10.25" — a missing side shows "—". */
+function formatUsdPair(
+  cost: number | null | undefined,
+  sell: number | null | undefined,
+): string {
+  const fmt = (v: number | null | undefined) =>
+    v != null ? `$${v.toFixed(2)}` : "—";
+  return `${fmt(cost)} / ${fmt(sell)}`;
+}
 
 /** Grouped data structure */
 interface GroupedData {
@@ -394,6 +418,11 @@ export default function MobileServicesManager() {
       editing.max_returned_credits_usd.trim() === ""
         ? null
         : parseFloat(editing.max_returned_credits_usd);
+    // LIRA-324: USD with cents — parseFloat, empty = null (not sold in USD).
+    const costUsd =
+      editing.cost_usd.trim() === "" ? null : parseFloat(editing.cost_usd);
+    const sellUsd =
+      editing.sell_usd.trim() === "" ? null : parseFloat(editing.sell_usd);
     try {
       const res = await api.updateMobileServiceItem(editing.id, {
         label: editing.label.trim(),
@@ -410,6 +439,8 @@ export default function MobileServicesManager() {
         sell_days_lbp: sellDaysLbp,
         sell_credit_lbp: sellCreditLbp,
         max_returned_credits_usd: maxReturnedCreditsUsd,
+        cost_usd: costUsd,
+        sell_usd: sellUsd,
       });
       if (!res.success) {
         setError(res.error ?? "Failed to update");
@@ -526,6 +557,15 @@ export default function MobileServicesManager() {
       newItemForm.max_returned_credits_usd.trim() === ""
         ? null
         : parseFloat(newItemForm.max_returned_credits_usd);
+    // LIRA-324: USD with cents — parseFloat, empty = null (not sold in USD).
+    const costUsd =
+      newItemForm.cost_usd.trim() === ""
+        ? null
+        : parseFloat(newItemForm.cost_usd);
+    const sellUsd =
+      newItemForm.sell_usd.trim() === ""
+        ? null
+        : parseFloat(newItemForm.sell_usd);
     try {
       const res = await api.createMobileServiceItem({
         provider: newItemForm.provider,
@@ -550,6 +590,8 @@ export default function MobileServicesManager() {
         sell_days_lbp: sellDaysLbp,
         sell_credit_lbp: sellCreditLbp,
         max_returned_credits_usd: maxReturnedCreditsUsd,
+        cost_usd: costUsd,
+        sell_usd: sellUsd,
       });
       if (!res.success) {
         setError(res.error ?? "Failed to create item");
@@ -749,6 +791,40 @@ export default function MobileServicesManager() {
                     sell_lbp: n ? String(n) : "",
                   })
                 }
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-slate-400 text-xs block mb-1">
+                Cost (USD)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                aria-label="Cost (USD)"
+                value={newItemForm.cost_usd}
+                onChange={(e) =>
+                  setNewItemForm({ ...newItemForm, cost_usd: e.target.value })
+                }
+                placeholder="—"
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-slate-400 text-xs block mb-1">
+                Sell (USD)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                aria-label="Sell (USD)"
+                value={newItemForm.sell_usd}
+                onChange={(e) =>
+                  setNewItemForm({ ...newItemForm, sell_usd: e.target.value })
+                }
+                placeholder="—"
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
@@ -1331,6 +1407,60 @@ export default function MobileServicesManager() {
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-xs text-slate-500">
+                                                    C($):
+                                                  </span>
+                                                  <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    aria-label="Cost (USD)"
+                                                    value={editing.cost_usd}
+                                                    onChange={(e) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        cost_usd:
+                                                          e.target.value,
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    placeholder="—"
+                                                    className="w-16 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-xs text-slate-500">
+                                                    S($):
+                                                  </span>
+                                                  <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    aria-label="Sell (USD)"
+                                                    value={editing.sell_usd}
+                                                    onChange={(e) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        sell_usd:
+                                                          e.target.value,
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    placeholder="—"
+                                                    className="w-16 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-xs text-slate-500">
                                                     Ord:
                                                   </span>
                                                   <input
@@ -1801,6 +1931,18 @@ export default function MobileServicesManager() {
                                                 >
                                                   P: {profit.toLocaleString()}
                                                 </span>
+                                                {(item.cost_usd != null ||
+                                                  item.sell_usd != null) && (
+                                                  <span
+                                                    className="text-xs text-sky-300 font-mono"
+                                                    title="USD cost / sell"
+                                                  >
+                                                    {formatUsdPair(
+                                                      item.cost_usd,
+                                                      item.sell_usd,
+                                                    )}
+                                                  </span>
+                                                )}
                                                 {item.validity_days != null && (
                                                   <span className="text-[10px] text-slate-500">
                                                     {item.validity_days}d
@@ -1886,6 +2028,18 @@ export default function MobileServicesManager() {
                                                         null
                                                           ? String(
                                                               item.max_returned_credits_usd,
+                                                            )
+                                                          : "",
+                                                      cost_usd:
+                                                        item.cost_usd != null
+                                                          ? String(
+                                                              item.cost_usd,
+                                                            )
+                                                          : "",
+                                                      sell_usd:
+                                                        item.sell_usd != null
+                                                          ? String(
+                                                              item.sell_usd,
                                                             )
                                                           : "",
                                                     })

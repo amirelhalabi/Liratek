@@ -57,6 +57,7 @@ import cardGamingArenaBreakoutArenaBreakout100 from "@/assets/cards/gaming-arena
 import cardGamingArenaBreakoutArenaBreakout25 from "@/assets/cards/gaming-arena-breakout-arena-breakout-25.jpg";
 import cardGamingArenaBreakoutArenaBreakout5 from "@/assets/cards/gaming-arena-breakout-arena-breakout-5.jpg";
 import cardGamingArenaBreakoutArenaBreakout50 from "@/assets/cards/gaming-arena-breakout-arena-breakout-50.jpg";
+import cardGamingBattleOfKingsBattleOfKings89P99 from "@/assets/cards/gaming-battle-of-kings-battle-of-kings-89.99.jpg";
 import cardGamingBlizzard20 from "@/assets/cards/gaming-blizzard-20.jpg";
 import cardGamingBlizzard50 from "@/assets/cards/gaming-blizzard-50.jpg";
 import cardGamingClimbingSandDuneClimbingSandDune19P79 from "@/assets/cards/gaming-climbing-sand-dune-climbing-sand-dune-19.79.jpg";
@@ -211,6 +212,10 @@ import cardGiftCardsSheinSheinEGiftCard300 from "@/assets/cards/gift-cards-shein
 import cardGiftCardsSheinSheinEGiftCard500 from "@/assets/cards/gift-cards-shein-shein-e-gift-card-500.jpg";
 import cardGiftCardsSheinSheinEGiftCard800 from "@/assets/cards/gift-cards-shein-shein-e-gift-card-800.jpg";
 import cardGiftCardsYallaLiveYallaLive100 from "@/assets/cards/gift-cards-yalla-live-yalla-live-100.jpg";
+import cardGiftCardsYallaLiveYallaLive25 from "@/assets/cards/gift-cards-yalla-live-yalla-live-25.jpg";
+import cardGiftCardsYallaLiveYallaLive300 from "@/assets/cards/gift-cards-yalla-live-yalla-live-300.jpg";
+import cardGiftCardsYallaLiveYallaLive50 from "@/assets/cards/gift-cards-yalla-live-yalla-live-50.jpg";
+import cardGiftCardsYallaLiveYallaLive500 from "@/assets/cards/gift-cards-yalla-live-yalla-live-500.jpg";
 import cardInternetConnectConnectDsl4M85Gb from "@/assets/cards/internet-connect-connect-dsl-4m-85-gb.jpg";
 import cardInternetConnectConnectDsl4Mb85GbFnt from "@/assets/cards/internet-connect-connect-dsl-4mb-85gb-fnt.jpg";
 import cardInternetConnectConnectDsl6MUnlimited from "@/assets/cards/internet-connect-connect-dsl-6m-unlimited.jpg";
@@ -324,10 +329,15 @@ import cardStreamingAnghamiAnghamiPlus3M from "@/assets/cards/streaming-anghami-
 import cardStreamingAnghamiAnghamiPlus6M from "@/assets/cards/streaming-anghami-anghami-plus-6m.jpg";
 import cardStreamingMbcShahidShahidVip12MLebanon from "@/assets/cards/streaming-mbc-shahid-shahid-vip-12m-lebanon.jpg";
 import cardStreamingMbcShahidShahidVip3MLebanon from "@/assets/cards/streaming-mbc-shahid-shahid-vip-3m-lebanon.jpg";
+import cardStreamingMbcShahidUaeShahidVip12MUae from "@/assets/cards/streaming-mbc-shahid-uae-shahid-vip-12m-uae.jpg";
+import cardStreamingMbcShahidUaeShahidVip3MUae from "@/assets/cards/streaming-mbc-shahid-uae-shahid-vip-3m-uae.jpg";
 import cardStreamingNetflixUaeNetflix100AedUaeOnly from "@/assets/cards/streaming-netflix-uae-netflix-100-aed-uae-only.jpg";
 import cardStreamingNetflixUaeNetflix500AedUaeOnly from "@/assets/cards/streaming-netflix-uae-netflix-500-aed-uae-only.jpg";
 import cardStreamingNetflixUsaNetflix15 from "@/assets/cards/streaming-netflix-usa-netflix-15.jpg";
+import cardStreamingNetflixUsaNetflix20 from "@/assets/cards/streaming-netflix-usa-netflix-20.jpg";
+import cardStreamingNetflixUsaNetflix25 from "@/assets/cards/streaming-netflix-usa-netflix-25.jpg";
 import cardStreamingNetflixUsaNetflix30 from "@/assets/cards/streaming-netflix-usa-netflix-30.jpg";
+import cardStreamingNetflixUsaNetflix50 from "@/assets/cards/streaming-netflix-usa-netflix-50.jpg";
 import cardStreamingOsnPlusLebanonOsnPlusPremium12MLebanon from "@/assets/cards/streaming-osn-plus-lebanon-osn-plus-premium-12m-lebanon.jpg";
 import cardStreamingOsnPlusLebanonOsnPlusPremium1MLebanon from "@/assets/cards/streaming-osn-plus-lebanon-osn-plus-premium-1m-lebanon.jpg";
 import cardStreamingOsnPlusLebanonOsnPlusPremium3MLebanon from "@/assets/cards/streaming-osn-plus-lebanon-osn-plus-premium-3m-lebanon.jpg";
@@ -341,6 +351,10 @@ import cardStreamingPoduPodu5P14 from "@/assets/cards/streaming-podu-podu-5.14.j
 import cardStreamingStarzplayStarzplay12M from "@/assets/cards/streaming-starzplay-starzplay-12m.jpg";
 import cardStreamingStarzplayStarzplay3M from "@/assets/cards/streaming-starzplay-starzplay-3m.jpg";
 import cardStreamingStarzplayStarzplay6M from "@/assets/cards/streaming-starzplay-starzplay-6m.jpg";
+import cardStreamingStarzplayUaeStarzplay100Aed3MUae from "@/assets/cards/streaming-starzplay-uae-starzplay-100-aed-3m-uae.jpg";
+import cardStreamingStarzplayUaeStarzplay195Aed6MUae from "@/assets/cards/streaming-starzplay-uae-starzplay-195-aed-6m-uae.jpg";
+import cardStreamingStarzplayUaeStarzplay330Aed12MUae from "@/assets/cards/streaming-starzplay-uae-starzplay-330-aed-12m-uae.jpg";
+import cardStreamingStarzplayUaeStarzplay40Aed1MUae from "@/assets/cards/streaming-starzplay-uae-starzplay-40-aed-1m-uae.jpg";
 import cardStreamingTwitchTwitch100NotRedeemableOutsideUsa from "@/assets/cards/streaming-twitch-twitch-100-not-redeemable-outside-usa.jpg";
 import cardStreamingTwitchTwitch50NotRedeemableOutsideUsa from "@/assets/cards/streaming-twitch-twitch-50-not-redeemable-outside-usa.jpg";
 import cardTelecomDuUaeDuPin110Aed from "@/assets/cards/telecom-du-uae-du-pin-110-aed.jpg";
@@ -364,6 +378,7 @@ import cardTransportationActcActc100 from "@/assets/cards/transportation-actc-ac
 import cardTransportationActcActc130 from "@/assets/cards/transportation-actc-actc-130.jpg";
 import cardTransportationActcActc150 from "@/assets/cards/transportation-actc-actc-150.jpg";
 import cardTransportationActcActc200 from "@/assets/cards/transportation-actc-actc-200.jpg";
+import cardTransportationActcActc80 from "@/assets/cards/transportation-actc-actc-80.jpg";
 
 export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "alfa|alfa go|alfa go": cardAlfaAlfaGoAlfaGo,
@@ -421,6 +436,8 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
     cardGamingArenaBreakoutArenaBreakout5,
   "gaming|arena breakout|arena breakout 50":
     cardGamingArenaBreakoutArenaBreakout50,
+  "gaming|battle of kings|battle of kings 89.99":
+    cardGamingBattleOfKingsBattleOfKings89P99,
   "gaming|blizzard|20": cardGamingBlizzard20,
   "gaming|blizzard|50": cardGamingBlizzard50,
   "gaming|blizzard|blizzard 20 usa": cardGamingBlizzard20,
@@ -441,6 +458,7 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "gaming|free fire|free fire 10": cardGamingFreeFireDirect1080Plus108Diamonds,
   "gaming|free fire|free fire 2": cardGamingFreeFireDirect210Plus21Diamonds,
   "gaming|free fire|free fire 20": cardGamingFreeFireDirect2200Plus220Diamonds,
+  "gaming|free fire|free fire 5": cardGamingFreeFireDirect530Plus30Diamonds,
   "gaming|free fire direct|100 +10 diamonds":
     cardGamingFreeFireDirect100Plus10Diamonds,
   "gaming|free fire direct|1080 +108 diamonds":
@@ -518,7 +536,9 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "gaming|playstation leb|40 psn": cardGamingPlaystationLeb40Psn,
   "gaming|playstation leb|50 psn": cardGamingPlaystationLeb50Psn,
   "gaming|playstation leb|psn 10 - lebanon": cardGamingPlaystationLeb10Psn,
+  "gaming|playstation leb|psn 100 - lebanon": cardGamingPlaystationLeb100Psn,
   "gaming|playstation leb|psn 20 - lebanon": cardGamingPlaystationLeb20Psn,
+  "gaming|playstation leb|psn 40 - lebanon": cardGamingPlaystationLeb40Psn,
   "gaming|playstation leb|psn 50 - lebanon": cardGamingPlaystationLeb50Psn,
   "gaming|playstation uae|10 psn": cardGamingPlaystationUae10Psn,
   "gaming|playstation uae|100 psn": cardGamingPlaystationUae100Psn,
@@ -528,13 +548,18 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "gaming|playstation uae|60 psn": cardGamingPlaystationUae60Psn,
   "gaming|playstation uae|70 psn": cardGamingPlaystationUae70Psn,
   "gaming|playstation uae|psn 10 - uae": cardGamingPlaystationUae10Psn,
+  "gaming|playstation uae|psn 100 - uae": cardGamingPlaystationUae100Psn,
   "gaming|playstation uae|psn 20 - uae": cardGamingPlaystationUae20Psn,
+  "gaming|playstation uae|psn 40 - uae": cardGamingPlaystationUae40Psn,
   "gaming|playstation uae|psn 50 - uae": cardGamingPlaystationUae50Psn,
+  "gaming|playstation uae|psn 60 - uae": cardGamingPlaystationUae60Psn,
+  "gaming|playstation uae|psn 70 - uae": cardGamingPlaystationUae70Psn,
   "gaming|playstation usa|10 psn": cardGamingPlaystationUsa10Psn,
   "gaming|playstation usa|100 psn": cardGamingPlaystationUsa100Psn,
   "gaming|playstation usa|25 psn": cardGamingPlaystationUsa25Psn,
   "gaming|playstation usa|50 psn": cardGamingPlaystationUsa50Psn,
   "gaming|playstation usa|75 psn": cardGamingPlaystationUsa75Psn,
+  "gaming|playstation usa|psn 10 - usa": cardGamingPlaystationUsa10Psn,
   "gaming|playstation usa|psn 100 - usa": cardGamingPlaystationUsa100Psn,
   "gaming|playstation usa|psn 25 - usa": cardGamingPlaystationUsa25Psn,
   "gaming|playstation usa|psn 50 - usa": cardGamingPlaystationUsa50Psn,
@@ -576,9 +601,13 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "gaming|razer gold|200": cardGamingRazerGold200,
   "gaming|razer gold|5": cardGamingRazerGold5,
   "gaming|razer gold|50": cardGamingRazerGold50,
+  "gaming|razer gold|razer 1": cardGamingRazerGold1,
   "gaming|razer gold|razer 10": cardGamingRazerGold10,
   "gaming|razer gold|razer 100": cardGamingRazerGold100,
+  "gaming|razer gold|razer 2": cardGamingRazerGold2,
   "gaming|razer gold|razer 20": cardGamingRazerGold20,
+  "gaming|razer gold|razer 200": cardGamingRazerGold200,
+  "gaming|razer gold|razer 5": cardGamingRazerGold5,
   "gaming|razer gold|razer 50": cardGamingRazerGold50,
   "gaming|riot usa|riot access usa - 10": cardGamingRiotUsaRiotAccessUsa10,
   "gaming|riot usa|riot access usa - 100": cardGamingRiotUsaRiotAccessUsa100,
@@ -599,7 +628,9 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "gaming|roblox uae|roblox 200 aed - uae": cardGamingRobloxUaeRoblox200AedUae,
   "gaming|roblox uae|roblox 500 aed - uae": cardGamingRobloxUaeRoblox500AedUae,
   "gaming|roblox usa|roblox 10 - usa": cardGamingRoblox10,
+  "gaming|roblox usa|roblox 100 - usa": cardGamingRoblox100,
   "gaming|roblox usa|roblox 25 - usa": cardGamingRoblox25,
+  "gaming|roblox usa|roblox 50 - usa": cardGamingRoblox50,
   "gaming|runescape|runescape 10": cardGamingRunescapeRunescape10,
   "gaming|runescape|runescape 25": cardGamingRunescapeRunescape25,
   "gaming|steam|10": cardGamingSteam10,
@@ -627,8 +658,12 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "gaming|xbox ksa|xbox 200 sar - ksa": cardGamingXboxKsaXbox200SarKsa,
   "gaming|xbox ksa|xbox 300 sar - ksa": cardGamingXboxKsaXbox300SarKsa,
   "gaming|xbox ksa|xbox 50 sar - ksa": cardGamingXboxKsaXbox50SarKsa,
+  "gaming|xbox usa|xbox 10 - usa": cardGamingXbox10,
+  "gaming|xbox usa|xbox 100 - usa": cardGamingXbox100,
   "gaming|xbox usa|xbox 15 - usa": cardGamingXbox15,
+  "gaming|xbox usa|xbox 20 - usa": cardGamingXbox20,
   "gaming|xbox usa|xbox 25 - usa": cardGamingXbox25,
+  "gaming|xbox usa|xbox 5 - usa": cardGamingXbox5,
   "gaming|xbox usa|xbox 50 - usa": cardGamingXbox50,
   "gift cards|discord|discord 10": cardGiftCardsDiscordDiscord10,
   "gift cards|discord|discord 100": cardGiftCardsDiscordDiscord100,
@@ -675,6 +710,10 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "gift cards|shein|shein e-gift card 500": cardGiftCardsSheinSheinEGiftCard500,
   "gift cards|shein|shein e-gift card 800": cardGiftCardsSheinSheinEGiftCard800,
   "gift cards|yalla live|yalla live 100": cardGiftCardsYallaLiveYallaLive100,
+  "gift cards|yalla live|yalla live 25": cardGiftCardsYallaLiveYallaLive25,
+  "gift cards|yalla live|yalla live 300": cardGiftCardsYallaLiveYallaLive300,
+  "gift cards|yalla live|yalla live 50": cardGiftCardsYallaLiveYallaLive50,
+  "gift cards|yalla live|yalla live 500": cardGiftCardsYallaLiveYallaLive500,
   "internet|connect|connect dsl 4m / 85 gb":
     cardInternetConnectConnectDsl4M85Gb,
   "internet|connect|connect dsl 4mb - 85gb - fnt":
@@ -890,12 +929,19 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
     cardStreamingMbcShahidShahidVip12MLebanon,
   "streaming|mbc shahid|shahid vip - 3m - lebanon":
     cardStreamingMbcShahidShahidVip3MLebanon,
+  "streaming|mbc shahid uae|shahid vip - 12m - uae":
+    cardStreamingMbcShahidUaeShahidVip12MUae,
+  "streaming|mbc shahid uae|shahid vip - 3m - uae":
+    cardStreamingMbcShahidUaeShahidVip3MUae,
   "streaming|netflix uae|netflix 100 aed - uae only":
     cardStreamingNetflixUaeNetflix100AedUaeOnly,
   "streaming|netflix uae|netflix 500 aed - uae only":
     cardStreamingNetflixUaeNetflix500AedUaeOnly,
   "streaming|netflix usa|netflix 15": cardStreamingNetflixUsaNetflix15,
+  "streaming|netflix usa|netflix 20": cardStreamingNetflixUsaNetflix20,
+  "streaming|netflix usa|netflix 25": cardStreamingNetflixUsaNetflix25,
   "streaming|netflix usa|netflix 30": cardStreamingNetflixUsaNetflix30,
+  "streaming|netflix usa|netflix 50": cardStreamingNetflixUsaNetflix50,
   "streaming|osn+ lebanon|osn+ premium 12m - lebanon":
     cardStreamingOsnPlusLebanonOsnPlusPremium12MLebanon,
   "streaming|osn+ lebanon|osn+ premium 1m - lebanon":
@@ -917,6 +963,14 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "streaming|starzplay|starzplay 12m": cardStreamingStarzplayStarzplay12M,
   "streaming|starzplay|starzplay 3m": cardStreamingStarzplayStarzplay3M,
   "streaming|starzplay|starzplay 6m": cardStreamingStarzplayStarzplay6M,
+  "streaming|starzplay uae|starzplay 100 aed - 3m - uae":
+    cardStreamingStarzplayUaeStarzplay100Aed3MUae,
+  "streaming|starzplay uae|starzplay 195 aed - 6m - uae":
+    cardStreamingStarzplayUaeStarzplay195Aed6MUae,
+  "streaming|starzplay uae|starzplay 330 aed - 12m - uae":
+    cardStreamingStarzplayUaeStarzplay330Aed12MUae,
+  "streaming|starzplay uae|starzplay 40 aed - 1m - uae":
+    cardStreamingStarzplayUaeStarzplay40Aed1MUae,
   "streaming|twitch|twitch 100 (not redeemable outside usa)":
     cardStreamingTwitchTwitch100NotRedeemableOutsideUsa,
   "streaming|twitch|twitch 50 (not redeemable outside usa)":
@@ -947,4 +1001,5 @@ export const CARD_IMAGE_MANIFEST: Readonly<Record<string, string>> = {
   "transportation|actc|actc 130": cardTransportationActcActc130,
   "transportation|actc|actc 150": cardTransportationActcActc150,
   "transportation|actc|actc 200": cardTransportationActcActc200,
+  "transportation|actc|actc 80": cardTransportationActcActc80,
 };

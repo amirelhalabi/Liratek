@@ -57,6 +57,8 @@ function createTestDb(): Database.Database {
       sell_days_lbp    REAL,
       sell_credit_lbp  REAL,
       max_returned_credits_usd REAL,
+      cost_usd REAL,
+      sell_usd REAL,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at       TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(tenant_id, provider, category, subcategory, label)

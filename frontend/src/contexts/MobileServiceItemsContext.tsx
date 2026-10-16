@@ -42,6 +42,10 @@ export interface ServiceItem {
    *  Null/undefined until configured. Presence (with cost_lbp + credits) enables
    *  the computed Only-Days flow (`isTelecomSplitComplete`). */
   days_cost_lbp?: number | null;
+  /** LIRA-324 (v218): USD price pair for Whish App USD mode. Undefined = not
+   *  sold in USD (see `isUsdSellable` in @liratek/core). */
+  catalogCostUsd?: number;
+  catalogSellPriceUsd?: number;
 }
 
 interface ItemCostRow {
@@ -263,6 +267,8 @@ export function MobileServiceItemsProvider({
       ...(item.days_cost_lbp != null
         ? { days_cost_lbp: item.days_cost_lbp }
         : {}),
+      ...(item.cost_usd != null ? { catalogCostUsd: item.cost_usd } : {}),
+      ...(item.sell_usd != null ? { catalogSellPriceUsd: item.sell_usd } : {}),
     }));
 
     if (!itemCosts.length && !voucherImages.length) return baseItems;

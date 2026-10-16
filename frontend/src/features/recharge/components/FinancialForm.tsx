@@ -7,6 +7,7 @@ import {
   hasNewClientInfo,
   type PaymentLine,
   Select,
+  ConfirmModal,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
@@ -24,6 +25,12 @@ import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
 import { getCardImage } from "../utils/cardImages";
 import { CardArtwork } from "./CardArtwork";
+import { WhishCurrencySwitch } from "./WhishCurrencySwitch";
+import {
+  isLbpSellable,
+  isUsdSellable,
+  type CatalogCurrency,
+} from "@liratek/core";
 import type {
   FinancialTransaction,
   ServiceType,
@@ -69,6 +76,19 @@ interface FinancialFormProps {
   isAdmin?: boolean;
   /** Reports selected-item counts per provider tab (count pill on the tab). */
   onCartCountChange?: (counts: Record<string, number>) => void;
+  /**
+   * LIRA-324: the currency the catalog sells in (Whish App → Bills switch).
+   * USD swaps each item's prices for its USD pair, hides items with no USD
+   * price (and MTC / Alfa Prepaid cards) and books the sale in USD.
+   * Defaults to LBP — every other caller is unchanged.
+   */
+  currency?: CatalogCurrency;
+  /**
+   * LIRA-324: when set, the LBP | USD switch shows just left of "Proceed to
+   * Pay". The page owns the currency (and remembers it per device); the form
+   * owns the basket, so it asks before a switch drops selected items.
+   */
+  onCurrencyChange?: (next: CatalogCurrency) => void;
 }
 
 export function FinancialForm({
@@ -90,8 +110,40 @@ export function FinancialForm({
   onRefreshItems,
   isAdmin,
   onCartCountChange,
+  currency = "LBP",
+  onCurrencyChange,
 }: FinancialFormProps) {
   const api = useApi();
+  const isUsd = currency === "USD";
+  /** Money as the active currency shows it: "$10.00" or "897,000 LBP". */
+  const money = (n: number) =>
+    isUsd
+      ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : `${n.toLocaleString()} LBP`;
+  /**
+   * The item as the active currency sells it, or null when it does not sell
+   * in that currency (LIRA-324; rule lives in @liratek/core, rule 14). In USD
+   * the item's price fields carry its USD pair, so every price computation
+   * below is currency-agnostic.
+   */
+  const inCurrency = (item: ServiceItem): ServiceItem | null => {
+    const prices = {
+      category: item.category,
+      subcategory: item.subcategory,
+      cost_lbp: item.catalogCost ?? 0,
+      sell_lbp: item.catalogSellPrice ?? 0,
+      cost_usd: item.catalogCostUsd ?? null,
+      sell_usd: item.catalogSellPriceUsd ?? null,
+    };
+    if (!isUsd) return isLbpSellable(prices) ? item : null;
+    if (!isUsdSellable(prices)) return null;
+    // isUsdSellable guarantees both USD prices are set and above zero.
+    return {
+      ...item,
+      catalogCost: item.catalogCostUsd ?? 0,
+      catalogSellPrice: item.catalogSellPriceUsd ?? 0,
+    };
+  };
   const {
     activeSession,
     linkTransaction,
@@ -143,11 +195,14 @@ export function FinancialForm({
   const { buyRate, sellRate } = useSellRate();
   const [searchQuery, setSearchQuery] = useState("");
   const [discount, setDiscount] = useState(0);
-  // LIRA-319 — the extra from the payment box's "+ Extra" side (LBP, the
+  // LIRA-319 — the extra from the payment box's "+ Extra" side (in the
   // sheet's total currency). Sent on its own field with the checkout's
   // carrier only — never folded into a unit's price — and never in a
   // session (the session checkout takes it) or for a partner (no sheet).
   const [extraCharge, setExtraCharge] = useState(0);
+  // LIRA-324: a switch waiting for "Clear and switch" (items were selected).
+  const [pendingCurrency, setPendingCurrency] =
+    useState<CatalogCurrency | null>(null);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [partnerId, setPartnerId] = useState<number | null>(null);
   // PFT-3b (Partner FOR-Transactions): a "for partner" order has NO walk-in
@@ -351,7 +406,7 @@ export function FinancialForm({
         activeConfig?.label || activeProvider || "Financial";
       const label =
         itemLabels.length > 60
-          ? `${providerLabel} (${cartItems.length} items) - ${totalPrice.toLocaleString()} LBP`
+          ? `${providerLabel} (${cartItems.length} items) - ${money(totalPrice)}`
           : `${providerLabel}: ${itemLabels}`;
 
       // Store each line item for replay at checkout
@@ -364,7 +419,7 @@ export function FinancialForm({
           serviceType: serviceType || "SEND",
           amount: sellPrice,
           cost,
-          currency: "LBP",
+          currency,
           commission: Math.max(0, commission),
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
@@ -378,7 +433,7 @@ export function FinancialForm({
         module: activeProvider === "WHISH_APP" ? "whish_app" : "omt_app",
         label,
         amount: totalPrice,
-        currency: "LBP",
+        currency,
         ipcChannel: "financial:create",
         formData: {
           _batch: true,
@@ -420,12 +475,15 @@ export function FinancialForm({
     // checkoutTotal (Payment-Legs Integrity plan wave 8): the carrier's own
     // `amount` is just ONE unit's discounted price — the payment legs it
     // carries cover the WHOLE cart. Mirrors the header's own total math
-    // (totalPrice, always LBP here) net of the same `discount` the per-unit
+    // (totalPrice, in the catalog currency) net of the same `discount` the per-unit
     // loop below already applies, so the repository can reconcile the legs
     // against the real customer-owed total for the checkout instead of one
     // item's price.
-    const checkoutTotalLbp = Math.max(0, totalPrice - discount);
-    const checkoutTotal = { usd: 0, lbp: checkoutTotalLbp };
+    const checkoutTotalAmount = Math.max(0, totalPrice - discount);
+    // LIRA-324: the total sits on the side of the catalog's currency.
+    const checkoutTotal = isUsd
+      ? { usd: checkoutTotalAmount, lbp: 0 }
+      : { usd: 0, lbp: checkoutTotalAmount };
 
     let allSucceeded = true;
 
@@ -493,7 +551,7 @@ export function FinancialForm({
             serviceType: serviceType || "SEND",
             amount: discountedSellPrice,
             cost,
-            currency: "LBP",
+            currency,
             commission: Math.max(0, commission),
             paidByMethod: finalPaymentMethod,
             payments: isCarrier ? paymentsPayload : undefined,
@@ -538,7 +596,7 @@ export function FinancialForm({
               ? (() => {
                   const e = extraPending;
                   extraPending = 0;
-                  return { extra_lbp: e };
+                  return isUsd ? { extra_usd: e } : { extra_lbp: e };
                 })()
               : {}),
             clientId: resolvedClientId || undefined,
@@ -660,13 +718,13 @@ export function FinancialForm({
             serviceType: svcType,
             amount: sellPrice,
             cost,
-            currency: "LBP",
+            currency,
             commission,
             payments: isTransferOutLeg
               ? [
                   {
                     method: partnerPaidFromMethod,
-                    currencyCode: "LBP",
+                    currencyCode: currency,
                     amount: sellPrice,
                     direction: "OUT" as const,
                   },
@@ -787,11 +845,13 @@ export function FinancialForm({
                   {totalItems} items
                 </div>
                 <div className="text-xs text-emerald-400 font-mono font-semibold">
-                  {totalPrice.toLocaleString()} LBP
+                  {money(totalPrice)}
                 </div>
                 {exchangeRate > 0 && (
                   <div className="text-xs text-slate-400 font-mono">
-                    ${(totalPrice / exchangeRate).toFixed(2)}
+                    {isUsd
+                      ? `${Math.round(totalPrice * exchangeRate).toLocaleString()} LBP`
+                      : `$${(totalPrice / exchangeRate).toFixed(2)}`}
                   </div>
                 )}
               </div>
@@ -813,6 +873,15 @@ export function FinancialForm({
               textClassName=""
               selectorClassName=""
             />
+            {onCurrencyChange && (
+              <WhishCurrencySwitch
+                value={currency}
+                onChange={(next) => {
+                  if (cart.size > 0) setPendingCurrency(next);
+                  else onCurrencyChange(next);
+                }}
+              />
+            )}
             <button
               type="button"
               onClick={() => {
@@ -866,11 +935,8 @@ export function FinancialForm({
           >
             <span>
               No payment is collected from a customer for a partner order. The
-              full{" "}
-              <span className="font-bold">
-                {totalPrice.toLocaleString()} LBP
-              </span>{" "}
-              goes on the selected partner&apos;s account, settled later on the
+              full <span className="font-bold">{money(totalPrice)}</span> goes
+              on the selected partner&apos;s account, settled later on the
               Partners page.
             </span>
             {hasTransferUnit && (
@@ -905,7 +971,10 @@ export function FinancialForm({
               const categoryItems = getServiceItems(
                 activeProvider as ProviderKey,
                 category,
-              );
+              ).flatMap((i) => {
+                const priced = inCurrency(i);
+                return priced ? [priced] : [];
+              });
               const filteredItems = filterItemsBySearch(categoryItems);
               if (filteredItems.length === 0) return null;
 
@@ -1045,7 +1114,7 @@ export function FinancialForm({
                                     Cost:
                                   </span>
                                   <span className="text-xs text-white font-mono">
-                                    {cost.toLocaleString()} LBP
+                                    {money(cost)}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between">
@@ -1053,7 +1122,7 @@ export function FinancialForm({
                                     Sell:
                                   </span>
                                   <span className="text-xs text-emerald-400 font-mono">
-                                    {sellPrice.toLocaleString()} LBP
+                                    {money(sellPrice)}
                                   </span>
                                 </div>
                               </div>
@@ -1118,7 +1187,7 @@ export function FinancialForm({
           onConfirm={handleSubmit}
           isSubmitting={localSubmitting}
           title={activeSession ? "Add to Cart" : "Confirm Payment"}
-          subtitle={`${totalItems} items — ${totalPrice.toLocaleString()} LBP`}
+          subtitle={`${totalItems} items — ${money(totalPrice)}`}
           accentColor={
             activeProvider === "WHISH_APP"
               ? "bg-[#ff0a46] hover:bg-[#ff0a46]/90 text-white"
@@ -1129,8 +1198,8 @@ export function FinancialForm({
           totalAmount={totalPrice}
           onKeptChange={setKeptChange}
           onReturnChange={setReturnLegs}
-          totalAmountCurrency="LBP"
-          currency="LBP"
+          totalAmountCurrency={currency}
+          currency={currency}
           paymentMethods={methods}
           clientId={clientId}
           fetchClientVouchers={fetchClientVouchers}
@@ -1164,7 +1233,9 @@ export function FinancialForm({
           // LIRA-319: "− Discount | + Extra" on a walk-in sale only (a
           // session or a partner order never opens this sheet; a RECEIVE is
           // the shop paying out, never an extra).
-          {...(!activeSession && !forPartner && (serviceType || "SEND") === "SEND"
+          {...(!activeSession &&
+          !forPartner &&
+          (serviceType || "SEND") === "SEND"
             ? { onExtraChange: setExtraCharge }
             : {})}
           onPaymentChange={(lines) => {
@@ -1262,6 +1333,26 @@ export function FinancialForm({
           }}
         />
       )}
+      <ConfirmModal
+        isOpen={pendingCurrency !== null}
+        title={`Switch to ${pendingCurrency ?? ""}?`}
+        message={`Your selected items are priced in ${currency}. Switching to ${pendingCurrency ?? ""} clears them.`}
+        confirmLabel="Clear and switch"
+        variant="warning"
+        onCancel={() => setPendingCurrency(null)}
+        onConfirm={() => {
+          const next = pendingCurrency;
+          setPendingCurrency(null);
+          if (!next) return;
+          // Every amount below is in the old currency — drop them all.
+          setCart(new Map());
+          setKeptChange(null);
+          setExtraCharge(0);
+          setReturnLegs([]);
+          setPaymentLines([]);
+          onCurrencyChange?.(next);
+        }}
+      />
     </>
   );
 }

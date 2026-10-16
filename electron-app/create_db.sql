@@ -1540,6 +1540,10 @@ CREATE TABLE IF NOT EXISTS mobile_service_items (
     -- Upward-only and capped at one transfer step above computed; the bound is
     -- enforced by MobileServiceItemService, not by SQL.
     max_returned_credits_usd REAL,
+    -- v218 (LIRA-324): USD price pair for Whish App USD mode. NULL = not sold
+    -- in USD; a USD-only item has cost_lbp = sell_lbp = 0.
+    cost_usd REAL,
+    sell_usd REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tenant_id, provider, category, subcategory, label)
@@ -3139,4 +3143,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (216, 'whish_app_catalog_additions'),
     -- v217 (LIRA-322) adds supplier_settlement_coverage + its two indexes,
     -- declared above.
-    (217, 'supplier_settlement_coverage');
+    (217, 'supplier_settlement_coverage'),
+    -- v218 (LIRA-324) adds mobile_service_items.cost_usd / sell_usd and fills
+    -- Whish App USD prices for shops that already have a catalog.
+    (218, 'whish_app_usd_prices');

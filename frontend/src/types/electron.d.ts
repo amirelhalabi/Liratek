@@ -528,6 +528,9 @@ export interface MobileServiceItem {
   sell_credit_lbp: number | null;
   /** v160: per-card override of the returnable credit maximum; null = computed. */
   max_returned_credits_usd: number | null;
+  /** v218 (LIRA-324): USD price pair; null = not sold in USD. */
+  cost_usd: number | null;
+  sell_usd: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -3445,6 +3448,9 @@ export interface ElectronAPI {
       sell_credit_lbp?: number | null;
       /** v160: per-card override of the returnable credit maximum; null = computed. */
       max_returned_credits_usd?: number | null;
+      /** v218 (LIRA-324): USD price pair; null = not sold in USD. */
+      cost_usd?: number | null;
+      sell_usd?: number | null;
     }) => Promise<{
       success: boolean;
       data?: MobileServiceItem;
@@ -3466,6 +3472,9 @@ export interface ElectronAPI {
         sell_credit_lbp?: number | null;
         /** v160: per-card override of the returnable credit maximum; null = computed. */
         max_returned_credits_usd?: number | null;
+        /** v218 (LIRA-324): USD price pair; null = not sold in USD. */
+        cost_usd?: number | null;
+        sell_usd?: number | null;
       },
     ) => Promise<{
       success: boolean;
@@ -3496,6 +3505,9 @@ export interface ElectronAPI {
         days_cost_lbp?: number | null;
         // TELECOM_CREDIT_RATE_PLAN.md — fresh-install days-only sell price.
         sell_days_lbp?: number | null;
+        /** v218 (LIRA-324): Whish App USD price pair. */
+        cost_usd?: number | null;
+        sell_usd?: number | null;
       }[],
     ) => Promise<{
       success: boolean;

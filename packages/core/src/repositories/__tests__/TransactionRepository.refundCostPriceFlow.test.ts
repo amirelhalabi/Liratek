@@ -595,13 +595,16 @@ describe("LIRA-259 — Katsh card, $6 paid, only 10,000 of 30,000 LBP change ret
       paidByMethod: "CASH",
       payments: [
         { method: "CASH", currencyCode: "USD", amount: 6 },
-        { method: "CASH", currencyCode: "LBP", amount: 10000, direction: "OUT" },
+        {
+          method: "CASH",
+          currencyCode: "LBP",
+          amount: 10000,
+          direction: "OUT",
+        },
       ],
       checkoutTotal: { usd: 0, lbp: 450000 },
       tender_exchange_rate: 80000,
-      ...(kept
-        ? { kept_change_usd: kept.usd, kept_change_lbp: kept.lbp }
-        : {}),
+      ...(kept ? { kept_change_usd: kept.usd, kept_change_lbp: kept.lbp } : {}),
     });
   }
 
@@ -655,5 +658,142 @@ describe("LIRA-259 — Katsh card, $6 paid, only 10,000 of 30,000 LBP change ret
       .get(refundId) as { profit_usd: number; profit_lbp: number };
     expect(refund.profit_lbp).toBeCloseTo(-50000, 2);
     expect(refund.profit_usd).toBeCloseTo(-0.25, 6);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// LIRA-324 — Whish App → Bills in USD mode. The form sends the catalog item's
+// USD price and cost with `currency: "USD"` and the checkout total on its USD
+// side; the repository's cost/price flow is already currency-generic.
+//
+// Pins existing behaviour (not failing-first, rule 17 disclosure): the cost
+// leaves the Whish App drawer's USD balance, the price lands in the paying
+// drawer per leg currency, profit is in USD, and a void nets every ledger
+// back to zero per currency (rule 20).
+// ─────────────────────────────────────────────────────────────────────────
+describe("LIRA-324 — Whish App catalog sale in USD", () => {
+  let db: Database.Database;
+  let fsRepo: FinancialServiceRepository;
+  let txnRepo: TransactionRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    resetSupplierRepository();
+    resetTransactionRepository();
+    resetPaymentMethodRepository();
+    fsRepo = new FinancialServiceRepository();
+    txnRepo = new TransactionRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+    resetSupplierRepository();
+    resetTransactionRepository();
+    resetPaymentMethodRepository();
+  });
+
+  /** The payload FinancialForm sends for "PSN $10 - LEBANON" in USD mode. */
+  function whishUsdSale(
+    payments: Array<{ method: string; currencyCode: string; amount: number }>,
+    extra: { paidByMethod?: string; clientId?: number } = {},
+  ) {
+    return fsRepo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "SEND",
+      amount: 10,
+      cost: 9.5,
+      currency: "USD",
+      commission: 0,
+      paidByMethod: extra.paidByMethod ?? "CASH",
+      ...(extra.clientId !== undefined ? { clientId: extra.clientId } : {}),
+      payments,
+      checkoutTotal: { usd: 10, lbp: 0 },
+      tender_exchange_rate: 90000,
+    });
+  }
+
+  it("paid $10 cash: Whish App USD −9.50, General USD +10, profit $0.50; void nets to 0", () => {
+    const before = snapshotLedgers(db);
+    const { id: fsId } = whishUsdSale([
+      { method: "CASH", currencyCode: "USD", amount: 10 },
+    ]);
+
+    expectPostings(before, snapshotLedgers(db), {
+      drawers: { "General|USD": 10, "Whish_App|USD": -9.5 },
+    });
+
+    const txnId = txnIdForFsRow(db, fsId);
+    const sale = db
+      .prepare(
+        "SELECT amount_usd, amount_lbp, profit_usd, profit_lbp FROM transactions WHERE id = ?",
+      )
+      .get(txnId) as {
+      amount_usd: number;
+      amount_lbp: number;
+      profit_usd: number;
+      profit_lbp: number;
+    };
+    expect(sale.amount_usd).toBeCloseTo(10, 6);
+    expect(sale.amount_lbp).toBe(0);
+    expect(sale.profit_usd).toBeCloseTo(0.5, 6);
+    expect(sale.profit_lbp).toBe(0);
+
+    txnRepo.voidTransaction(txnId, 1);
+    expectPostings(before, snapshotLedgers(db), {});
+  });
+
+  it("paid $5 + 450,000 LBP (split at 90,000): legs reconcile to the $10 total; refund nets to 0", () => {
+    const before = snapshotLedgers(db);
+    const { id: fsId } = whishUsdSale([
+      { method: "CASH", currencyCode: "USD", amount: 5 },
+      { method: "CASH", currencyCode: "LBP", amount: 450000 },
+    ]);
+
+    expectPostings(before, snapshotLedgers(db), {
+      drawers: {
+        "General|USD": 5,
+        "General|LBP": 450000,
+        "Whish_App|USD": -9.5,
+      },
+    });
+
+    txnRepo.refundTransaction(txnIdForFsRow(db, fsId), 1);
+    expectPostings(before, snapshotLedgers(db), {});
+  });
+
+  it("charged to the customer's account: debt +$10 in USD, no cash drawer moves; void nets to 0", () => {
+    const clientId = Number(
+      db
+        .prepare(
+          "INSERT INTO clients (full_name, phone_number) VALUES ('USD Client', '70111222')",
+        )
+        .run().lastInsertRowid,
+    );
+    const before = snapshotLedgers(db);
+    const { id: fsId } = whishUsdSale(
+      [{ method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 10 }],
+      { paidByMethod: "CUSTOMER_ACCOUNT", clientId },
+    );
+
+    expectPostings(before, snapshotLedgers(db), {
+      drawers: { "Whish_App|USD": -9.5 },
+      debt: { [`${clientId}|USD`]: 10 },
+    });
+
+    txnRepo.voidTransaction(txnIdForFsRow(db, fsId), 1);
+    expectPostings(before, snapshotLedgers(db), {});
+  });
+
+  it("a short payment is refused and writes nothing (legs checked against the USD total)", () => {
+    const before = snapshotLedgers(db);
+    expect(() =>
+      whishUsdSale([{ method: "CASH", currencyCode: "USD", amount: 7 }]),
+    ).toThrow(/do not reconcile/);
+    expectPostings(before, snapshotLedgers(db), {});
   });
 });

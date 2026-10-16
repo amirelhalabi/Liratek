@@ -1652,6 +1652,9 @@ contextBridge.exposeInMainWorld("api", {
       sell_credit_lbp?: number | null;
       /** v160: per-card override of the returnable credit maximum; null = computed. */
       max_returned_credits_usd?: number | null;
+      /** v218 (LIRA-324): USD price pair; null = not sold in USD. */
+      cost_usd?: number | null;
+      sell_usd?: number | null;
     }) => ipcRenderer.invoke("mobile-service-items:create", data),
     update: (
       id: number,
@@ -1670,6 +1673,9 @@ contextBridge.exposeInMainWorld("api", {
         sell_credit_lbp?: number | null;
         /** v160: per-card override of the returnable credit maximum; null = computed. */
         max_returned_credits_usd?: number | null;
+        /** v218 (LIRA-324): USD price pair; null = not sold in USD. */
+        cost_usd?: number | null;
+        sell_usd?: number | null;
       },
     ) => ipcRenderer.invoke("mobile-service-items:update", id, data),
     toggleActive: (id: number) =>
@@ -1694,6 +1700,9 @@ contextBridge.exposeInMainWorld("api", {
         // properties at runtime, or the next person refactoring the seed
         // payload has no signal the field is meant to be here.
         sell_days_lbp?: number | null;
+        /** v218 (LIRA-324): Whish App USD price pair. */
+        cost_usd?: number | null;
+        sell_usd?: number | null;
       }[],
     ) => ipcRenderer.invoke("mobile-service-items:seed", items),
     count: () => ipcRenderer.invoke("mobile-service-items:count"),
