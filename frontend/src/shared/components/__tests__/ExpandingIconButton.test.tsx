@@ -42,4 +42,13 @@ describe("ExpandingIconButton", () => {
     fireEvent.click(screen.getByTestId("history-button"));
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it("is 48px tall with a 20px icon, matching the provider tabs", () => {
+    render(
+      <ExpandingIconButton icon={History} label="History" onClick={() => {}} />,
+    );
+    const button = screen.getByRole("button", { name: "History" });
+    expect(button).toHaveClass("h-12", "min-w-12");
+    expect(button.querySelector("svg")).toHaveAttribute("width", "20");
+  });
 });

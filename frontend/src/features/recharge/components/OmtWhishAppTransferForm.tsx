@@ -682,7 +682,7 @@ function OmtWhishAppTransferFormInner({
           the checkbox (never auto-selected on the page) to avoid the
           previous unconditional-header bug where a single-partner shop
           silently painted "Partner: <name>" on every transaction. */}
-      <div>
+      <div className="flex flex-wrap items-center gap-3">
         <ForPartnerToggle
           testId="omt-whish-transfer-for-partner-toggle"
           checked={forPartner}
@@ -690,6 +690,8 @@ function OmtWhishAppTransferFormInner({
           selectedPartnerId={selectedPartnerId}
           onPartnerChange={setSelectedPartnerId}
           autoSelectSingle
+          activeClassName={brand.solid}
+          selectorClassName=""
         />
       </div>
 

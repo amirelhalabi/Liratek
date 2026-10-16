@@ -300,7 +300,7 @@ describe("CustomServices — Pay out (OWNER_NOTES_REMAINING_BUILD.md #16)", () =
     ).not.toBeInTheDocument();
   });
 
-  it("unchecking Via Partner also clears Pay out (it cannot outlive its parent mode)", async () => {
+  it("leaving Via Partner (back to Customer) also clears Pay out (it cannot outlive its parent mode)", async () => {
     mockPartnersGetAll.mockResolvedValue([SOLE_PARTNER]);
     render(<CustomServices />);
 
@@ -311,7 +311,7 @@ describe("CustomServices — Pay out (OWNER_NOTES_REMAINING_BUILD.md #16)", () =
       screen.getByTestId("custom-service-payout-notice"),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("custom-service-via-partner-toggle"));
+    fireEvent.click(screen.getByTestId("custom-service-partner-mode-none"));
 
     expect(
       screen.queryByTestId("custom-service-payout-toggle"),

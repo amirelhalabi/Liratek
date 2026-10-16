@@ -1102,9 +1102,11 @@ export function FinancialForm({
               selectedPartnerId={partnerId}
               onPartnerChange={setPartnerId}
               autoSelectSingle
-              labelClassName="flex items-center gap-1.5 cursor-pointer select-none text-xs text-slate-400 shrink-0"
-              checkboxClassName="w-3.5 h-3.5 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-              textClassName=""
+              activeClassName={
+                activeConfig?.brand
+                  ? PROVIDER_BRANDS[activeConfig.brand].solid
+                  : undefined
+              }
               selectorClassName=""
             />
             {onCurrencyChange && (
@@ -1161,26 +1163,24 @@ export function FinancialForm({
         {forPartner && (
           <ForPartnerNotice
             testId="financial-partner-no-payment-notice"
-            className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
+            contentClassName="flex items-center justify-between gap-3 flex-wrap"
           >
             {partnerShared ? (
               <span>
-                No payment is collected from a customer for a partner order.
-                Everything in the basket, on every tab, goes on the selected
-                partner&apos;s account at its full selling price, settled later
-                on the Partners page.
+                Partner order: nothing is collected now — everything in the
+                basket, on every tab, goes on the partner&apos;s account at full
+                price, settled on the Partners page.
               </span>
             ) : (
               <span>
-                No payment is collected from a customer for a partner order. The
-                full <span className="font-bold">{money(totalPrice)}</span> goes
-                on the selected partner&apos;s account, settled later on the
-                Partners page.
+                Partner order: nothing is collected now — the full{" "}
+                <span className="font-bold">{money(totalPrice)}</span> goes on
+                the partner&apos;s account, settled on the Partners page.
               </span>
             )}
             {hasTransferUnit && (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-orange-300/80 uppercase tracking-wider">
+                <span className="text-xs text-orange-700 dark:text-orange-300/80 uppercase tracking-wider">
                   Paid from
                 </span>
                 <Select

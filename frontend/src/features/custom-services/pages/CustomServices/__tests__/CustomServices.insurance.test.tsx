@@ -333,8 +333,8 @@ describe("CustomServices — Insurance category (LIRA-155)", () => {
     // VIA does not hide the payment section (unlike FOR).
     expect(screen.getByTestId("multi-payment-input")).toBeInTheDocument();
 
-    // The operator can still turn it back off.
-    fireEvent.click(screen.getByTestId("custom-service-via-partner-toggle"));
+    // The operator can still turn it back off (back to Customer).
+    fireEvent.click(screen.getByTestId("custom-service-partner-mode-none"));
     expect(
       screen.getByTestId("custom-service-via-partner-toggle"),
     ).not.toBeChecked();
@@ -345,7 +345,7 @@ describe("CustomServices — Insurance category (LIRA-155)", () => {
 
     fireEvent.click(screen.getByText("Insurance"));
     // Operator explicitly moves off VIA onto FOR.
-    fireEvent.click(screen.getByTestId("custom-service-via-partner-toggle")); // VIA off
+    fireEvent.click(screen.getByTestId("custom-service-partner-mode-none")); // VIA off
     fireEvent.click(screen.getByTestId("custom-service-for-partner-toggle")); // FOR on
     expect(
       screen.getByTestId("custom-service-for-partner-toggle"),

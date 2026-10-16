@@ -2,7 +2,8 @@ import type { CatalogCurrency } from "@liratek/core";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 
 /**
- * LIRA-324 — the LBP | USD switch on Whish App → Bills, like the currency
+ * LIRA-324 — the USD | LBP switch on Whish App → Bills (same order as every
+ * other currency toggle in the app), like the currency
  * selector on the Whish app's home page. Controlled: the page owns the value
  * (and remembers it per device).
  */
@@ -13,7 +14,7 @@ export function WhishCurrencySwitch({
   value: CatalogCurrency;
   onChange: (next: CatalogCurrency) => void;
 }) {
-  const options: CatalogCurrency[] = ["LBP", "USD"];
+  const options: CatalogCurrency[] = ["USD", "LBP"];
   return (
     <div
       role="radiogroup"

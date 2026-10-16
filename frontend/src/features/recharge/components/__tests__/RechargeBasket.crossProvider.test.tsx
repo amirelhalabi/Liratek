@@ -511,10 +511,7 @@ describe("Mobile Recharge basket across providers (LIRA-326)", () => {
 
     go("WHISH_APP");
     await screen.findByText("PSN $10 - LEBANON");
-    const toggle = screen.getByTestId(
-      "financial-for-partner-toggle",
-    ) as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
+    expect(screen.getByTestId("financial-for-partner-toggle")).toBeChecked();
     expect(screen.getByTestId("stub-pick-partner").dataset.selected).toBe("7");
 
     fireEvent.click(screen.getByRole("button", { name: /Submit to Partner/i }));
@@ -541,9 +538,8 @@ describe("Mobile Recharge basket across providers (LIRA-326)", () => {
     // Submitted: the basket is empty and For Partner is off again.
     await waitFor(() =>
       expect(
-        (screen.getByTestId("financial-for-partner-toggle") as HTMLInputElement)
-          .checked,
-      ).toBe(false),
+        screen.getByTestId("financial-for-partner-toggle"),
+      ).not.toBeChecked(),
     );
     expect(JSON.parse(screen.getByTestId("tab-counts").textContent!)).toEqual(
       {},
@@ -558,19 +554,13 @@ describe("Mobile Recharge basket across providers (LIRA-326)", () => {
     // Empty basket: no question asked.
     fireEvent.click(screen.getByTestId("katsh-for-partner-toggle"));
     expect(confirmSpy).not.toHaveBeenCalled();
-    expect(
-      (screen.getByTestId("katsh-for-partner-toggle") as HTMLInputElement)
-        .checked,
-    ).toBe(true);
+    expect(screen.getByTestId("katsh-for-partner-toggle")).toBeChecked();
     fireEvent.click(screen.getByTestId("katsh-for-partner-toggle"));
 
     await pick("60 UC");
     fireEvent.click(screen.getByTestId("katsh-for-partner-toggle"));
     expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(
-      (screen.getByTestId("katsh-for-partner-toggle") as HTMLInputElement)
-        .checked,
-    ).toBe(false);
+    expect(screen.getByTestId("katsh-for-partner-toggle")).not.toBeChecked();
     confirmSpy.mockRestore();
   });
 });

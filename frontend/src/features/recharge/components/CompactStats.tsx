@@ -72,7 +72,7 @@ function Metric({
       title={hint ?? label}
       className={`flex items-center gap-2 px-3 ${accentBg ?? ""}`}
     >
-      <Icon size={15} className="shrink-0 text-slate-500" aria-hidden="true" />
+      <Icon size={17} className="shrink-0 text-slate-500" aria-hidden="true" />
       <span className="sr-only">{label}</span>
       <span className={`text-sm font-bold whitespace-nowrap ${valueClass}`}>
         {value}
@@ -87,7 +87,7 @@ function Metric({
  */
 function StatsPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-11 items-stretch divide-x divide-slate-700/60 overflow-hidden rounded-xl border border-slate-700/60 bg-slate-800/40">
+    <div className="flex h-12 items-stretch divide-x divide-slate-700/60 overflow-hidden rounded-xl border border-slate-700/60 bg-slate-800/40">
       {children}
     </div>
   );

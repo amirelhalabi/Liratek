@@ -2085,6 +2085,18 @@ function KatshFormInner({
               </div>
             </div>
           )}
+          {/* "For Partner" — same toolbar slot as FinancialForm (Whish App
+              → Bills): after the totals, before the Proceed button. */}
+          <ForPartnerToggle
+            testId="katsh-for-partner-toggle"
+            checked={forPartner}
+            onChange={handleForPartnerChange}
+            selectedPartnerId={selectedPartnerId}
+            onPartnerChange={setSelectedPartnerId}
+            autoSelectSingle
+            activeClassName={billAccent.brand.solid}
+            selectorClassName=""
+          />
           <button
             type="button"
             onClick={() => {
@@ -2121,30 +2133,17 @@ function KatshFormInner({
         </div>
       </div>
 
-      {/* For Partner — PFT-3b: a partner checkout has NO walk-in customer
-          and takes NO counter cash; the full selling price goes on the
-          selected partner's tab, settled later on the Partners page. */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <ForPartnerToggle
-          testId="katsh-for-partner-toggle"
-          checked={forPartner}
-          onChange={handleForPartnerChange}
-          selectedPartnerId={selectedPartnerId}
-          onPartnerChange={setSelectedPartnerId}
-          autoSelectSingle
-          selectorClassName=""
-        />
-        {forPartner && (
-          <ForPartnerNotice
-            testId="katsh-partner-no-payment-notice"
-            className="w-full text-xs text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-2"
-          >
-            No payment is collected for a partner transaction. Everything in the
-            basket, on every tab, goes on the selected partner&apos;s account at
-            its full selling price, settled later on the Partners page.
-          </ForPartnerNotice>
-        )}
-      </div>
+      {/* PFT-3b: a partner checkout has NO walk-in customer and takes NO
+          counter cash; the full selling price goes on the selected
+          partner's tab, settled later on the Partners page. The toggle sits
+          in the toolbar row above (same place as on Whish App → Bills). */}
+      {forPartner && (
+        <ForPartnerNotice testId="katsh-partner-no-payment-notice">
+          Partner order: nothing is collected now — everything in the basket, on
+          every tab, goes on the partner&apos;s account at full price, settled
+          on the Partners page.
+        </ForPartnerNotice>
+      )}
 
       {/* Card Grid */}
       {!itemsReady ? (

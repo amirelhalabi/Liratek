@@ -558,7 +558,7 @@ export function CryptoForm({
           partner's ledger instead of a walk-in customer. No counter
           payment is ever collected in this mode (backend rejects any IN
           leg); the PaymentSheet below is replaced with a notice. */}
-      <div>
+      <div className="flex flex-wrap items-center gap-3">
         <ForPartnerToggle
           testId="crypto-for-partner-toggle"
           checked={forPartner}
@@ -566,7 +566,8 @@ export function CryptoForm({
           selectedPartnerId={selectedPartnerId}
           onPartnerChange={setSelectedPartnerId}
           autoSelectSingle
-          checkboxClassName={`w-4 h-4 rounded border-slate-600 bg-slate-900 ${brand.text} focus:outline-none focus:ring-1 ${brand.focusRing}`}
+          activeClassName={brand.solid}
+          selectorClassName=""
         />
       </div>
 
@@ -728,12 +729,12 @@ export function CryptoForm({
           collects no cash, so show a short notice instead. */}
       {forPartner ? (
         <ForPartnerNotice testId="crypto-partner-no-payment-notice">
-          No payment is collected for a partner transaction. The partner will{" "}
+          Partner transaction: nothing is collected now — the partner will{" "}
           {cryptoType === "RECEIVE" ? "be credited" : "owe"}{" "}
           <span className="font-bold">
             ${(cryptoType === "RECEIVE" ? payout : sendTotal).toFixed(2)}
-          </span>{" "}
-          on their ledger, settled later on the Partners page.
+          </span>
+          , settled on the Partners page.
         </ForPartnerNotice>
       ) : (
         <PaymentSheet

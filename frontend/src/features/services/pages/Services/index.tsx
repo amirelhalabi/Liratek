@@ -43,7 +43,10 @@ import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteI
 import { useSellRate } from "@/hooks/useSellRate";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { useShopBase } from "@/hooks/useShopBase";
-import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
+import {
+  ForPartnerNotice,
+  ForPartnerToggle,
+} from "@/features/partners/components/ForPartnerToggle";
 import type { Partner } from "@/types/electron";
 import type { CreateFinancialServicePayload } from "@liratek/core";
 import { getLoadErrorMessage } from "@/shared/utils/apiErrorMessage";
@@ -1696,21 +1699,18 @@ export default function Services() {
               {provider !== partnerSystem && (
                 <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3">
                   <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={forPartner}
-                        onChange={(e) => {
-                          setForPartner(e.target.checked);
-                          if (!e.target.checked) setForPartnerId(null);
-                        }}
-                        className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-600 focus:ring-violet-500"
-                      />
-                      <span className="text-sm font-medium">For Partner</span>
-                      <span className="text-xs text-slate-500">
-                        (partner's customer, our system)
-                      </span>
-                    </label>
+                    <ForPartnerToggle
+                      testId="services-for-partner-toggle"
+                      checked={forPartner}
+                      onChange={setForPartner}
+                      selectedPartnerId={forPartnerId}
+                      onPartnerChange={setForPartnerId}
+                      activeClassName="bg-violet-600 text-white"
+                      showSelector={false}
+                    />
+                    <span className="text-xs text-slate-500 shrink-0">
+                      (partner&apos;s customer, our system)
+                    </span>
                     {forPartner && (
                       <div className="flex-1 flex items-center gap-2">
                         <PartnerSelector
@@ -2421,10 +2421,7 @@ export default function Services() {
                   (OmtWhishAppTransferForm.tsx) and keep their disbursement
                   legs. */}
               {forPartner && serviceType === "SEND" ? (
-                <ForPartnerNotice
-                  testId="services-for-partner-send-obligation-notice"
-                  className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
-                >
+                <ForPartnerNotice testId="services-for-partner-send-obligation-notice">
                   For partner:{" "}
                   <span className="font-bold">{forPartnerName}</span> owes you{" "}
                   <span className="font-bold">
@@ -2435,10 +2432,7 @@ export default function Services() {
                   leaves a drawer.
                 </ForPartnerNotice>
               ) : forPartner && serviceType === "RECEIVE" ? (
-                <ForPartnerNotice
-                  testId="services-for-partner-receive-no-payout-notice"
-                  className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
-                >
+                <ForPartnerNotice testId="services-for-partner-receive-no-payout-notice">
                   There is no payout method to choose here — the {provider}{" "}
                   drawer is credited automatically, and the shop ends up owing{" "}
                   <span className="font-bold">{forPartnerName}</span> the amount

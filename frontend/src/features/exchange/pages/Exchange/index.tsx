@@ -583,7 +583,8 @@ export default function Exchange() {
         const leg2 = legs[1];
         const cr = effectiveRates.find(
           (r) =>
-            r.to_code === legOverrideCurrency(1, isCross, fromCurrency, toCurrency),
+            r.to_code ===
+            legOverrideCurrency(1, isCross, fromCurrency, toCurrency),
         );
         const rate2 = rateOverridden[1]
           ? parseFloat(customRates[1] ?? "") || leg2.rate
@@ -791,7 +792,10 @@ export default function Exchange() {
     setClientId(null);
     setClientPhone("");
   };
-  const handleClientSelect = (c: { id: number; phone_number?: string | null }) => {
+  const handleClientSelect = (c: {
+    id: number;
+    phone_number?: string | null;
+  }) => {
     setClientId(c.id);
     setClientPhone(c.phone_number || "");
   };
@@ -1303,7 +1307,12 @@ export default function Exchange() {
     const legIndices = isCross ? [0, 1] : [0];
     const legCurrency: { [i: number]: string } = {};
     for (const i of legIndices) {
-      legCurrency[i] = legOverrideCurrency(i, isCross, fromCurrency, toCurrency);
+      legCurrency[i] = legOverrideCurrency(
+        i,
+        isCross,
+        fromCurrency,
+        toCurrency,
+      );
     }
 
     return effectiveRates.map((r) => {
@@ -1356,9 +1365,7 @@ export default function Exchange() {
         setCalcError(null);
       } catch (err) {
         logger.error("Reverse exchange calculation failed", err);
-        setCalcError(
-          err instanceof Error ? err.message : "Calculation error",
-        );
+        setCalcError(err instanceof Error ? err.message : "Calculation error");
       }
     },
     [fromCurrency, toCurrency, overrideAdjustedRates],
@@ -1404,7 +1411,13 @@ export default function Exchange() {
         err,
       );
     }
-  }, [overrideAdjustedRates, lastEditedSide, lastTypedTarget, fromCurrency, toCurrency]);
+  }, [
+    overrideAdjustedRates,
+    lastEditedSide,
+    lastTypedTarget,
+    fromCurrency,
+    toCurrency,
+  ]);
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
@@ -1945,7 +1958,7 @@ export default function Exchange() {
                   onChange={setForPartner}
                   selectedPartnerId={selectedPartnerId}
                   onPartnerChange={setSelectedPartnerId}
-                  checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  activeClassName="bg-violet-600 text-white"
                 />
               </div>
 
@@ -1961,14 +1974,14 @@ export default function Exchange() {
               {forPartner && (
                 <ForPartnerNotice
                   testId="exchange-partner-no-payment-notice"
-                  className="text-sm text-violet-200 bg-violet-500/10 border border-violet-500/30 rounded-xl px-4 py-4"
+                  tone="violet"
                 >
-                  No payment is collected for a partner exchange. The full{" "}
+                  Partner exchange: nothing is collected now — the full{" "}
                   <span className="font-bold">
                     {amountIn.toLocaleString()} {fromCurrency}
                   </span>{" "}
-                  goes on the selected partner&apos;s account, settled later on
-                  the Partners page.
+                  goes on the partner&apos;s account, settled on the Partners
+                  page.
                 </ForPartnerNotice>
               )}
               {/* LIRA-321: the shared client picker (saved client → id +

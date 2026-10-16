@@ -1057,7 +1057,7 @@ export function TelecomForm({
                   see the `isShopLineMatch` reset effect above for why the
                   two don't compose. */}
               {!isShopLineMatch && (
-                <div>
+                <div className="flex flex-wrap items-center gap-3">
                   <ForPartnerToggle
                     testId="recharge-for-partner-toggle"
                     checked={forPartner}
@@ -1065,6 +1065,8 @@ export function TelecomForm({
                     selectedPartnerId={selectedPartnerId}
                     onPartnerChange={setSelectedPartnerId}
                     autoSelectSingle
+                    activeClassName={brand.solid}
+                    selectorClassName=""
                   />
                 </div>
               )}
@@ -1073,7 +1075,7 @@ export function TelecomForm({
                   it collects no cash, so show a short notice instead. */}
               {forPartner ? (
                 <ForPartnerNotice testId="recharge-partner-no-payment-notice">
-                  No payment is collected for a partner recharge. The full{" "}
+                  Partner recharge: nothing is collected now — the full{" "}
                   <span className="font-bold">
                     {(telecomPrice
                       ? parseFloat(telecomPrice)
@@ -1081,8 +1083,8 @@ export function TelecomForm({
                     ).toLocaleString()}{" "}
                     LBP
                   </span>{" "}
-                  goes on the selected partner&apos;s account, settled later on
-                  the Partners page.
+                  goes on the partner&apos;s account, settled on the Partners
+                  page.
                 </ForPartnerNotice>
               ) : (
                 <PaymentSheet

@@ -661,14 +661,14 @@ export function LotoPage() {
                 {/* For Partner — sells this ticket on a partner's behalf.
                     No counter cash is collected; the partner owes the full
                     sale amount, settled later on the Partners page. */}
-                <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <ForPartnerToggle
                     testId="loto-for-partner-toggle"
                     checked={forPartner}
                     onChange={setForPartner}
                     selectedPartnerId={selectedPartnerId}
                     onPartnerChange={setSelectedPartnerId}
-                    textClassName="text-sm font-medium text-slate-300"
+                    selectorClassName=""
                   />
                 </div>
 
@@ -676,17 +676,14 @@ export function LotoPage() {
                     cash is collected, the full sale amount goes on the
                     selected partner's tab instead. */}
                 {forPartner ? (
-                  <ForPartnerNotice
-                    testId="loto-partner-no-payment-notice"
-                    className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3"
-                  >
-                    No payment is collected for a partner ticket. The full{" "}
+                  <ForPartnerNotice testId="loto-partner-no-payment-notice">
+                    Partner ticket: nothing is collected now — the full{" "}
                     <span className="font-bold">
                       {saleAmount ? parseFloat(saleAmount).toLocaleString() : 0}{" "}
                       LBP
                     </span>{" "}
-                    goes on the selected partner&apos;s account, settled later
-                    on the Partners page.
+                    goes on the partner&apos;s account, settled on the Partners
+                    page.
                   </ForPartnerNotice>
                 ) : (
                   <div>

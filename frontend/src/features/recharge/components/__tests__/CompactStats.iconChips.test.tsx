@@ -48,4 +48,9 @@ describe("CompactStats — icon chips", () => {
   it("drawer value reads USD · LBP", () => {
     expect(screen.getByText("$-485.79 · 33,600,000 LBP")).toBeInTheDocument();
   });
+
+  it("the strip is 48px tall, matching the provider tabs", () => {
+    const strip = chipOf("Profit").parentElement as HTMLElement;
+    expect(strip).toHaveClass("h-12");
+  });
 });

@@ -51,10 +51,12 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import type { Client } from "@liratek/ui";
+import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
+import { PartnerModeSwitch } from "@/features/custom-services/components/PartnerModeSwitch";
 import {
-  ForPartnerToggle,
-  ForPartnerNotice,
-} from "@/features/partners/components/ForPartnerToggle";
+  partnerModeTransition,
+  type PartnerMode,
+} from "@/features/custom-services/utils/partnerModeTransition";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { formatServiceAmount } from "@/features/custom-services/utils/formatServiceAmount";
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
@@ -171,15 +173,11 @@ export default function CustomServices() {
   //   "VIA"  — the MIRROR of FOR: the partner performs the service, the
   //            walk-in customer pays US now through the normal payment
   //            section, and we owe the partner the COST (not the price).
-  // The mode control itself is built locally in this page (two independent
-  // <ForPartnerToggle> instances below, driven off this single piece of
-  // state so they're mutually exclusive) rather than teaching the shared
-  // ForPartnerToggle component a 3rd state — that component is boolean-only
-  // and shared by 7 call sites; widening its `checked`/`onChange` contract
-  // to a mode enum would ripple into all of them for one caller's needs.
-  const [partnerMode, setPartnerMode] = useState<"none" | "FOR" | "VIA">(
-    "none",
-  );
+  // Picked on one segmented control, [ Customer | For Partner | Via Partner ]
+  // (owner decision 2026-10-16; it replaced two mutually exclusive
+  // checkboxes). The side effects of each change live in
+  // handlePartnerModeChange below.
+  const [partnerMode, setPartnerMode] = useState<PartnerMode>("none");
   const isForPartner = partnerMode === "FOR";
   const isViaPartner = partnerMode === "VIA";
   const hasPartnerMode = partnerMode !== "none";
@@ -190,10 +188,27 @@ export default function CustomServices() {
   // OWNER_NOTES_REMAINING_BUILD.md #16 (Route A) — "Pay out": ONLY valid
   // alongside "Via Partner" (mirrors the core Zod refine). Not a 3rd
   // partnerMode value — a payout is still partner_mode='VIA' underneath,
-  // this just flips `direction`. Cleared whenever VIA is turned off (see the
-  // two ForPartnerToggle onChange handlers below) so it can never linger
-  // into a "none"/FOR submission.
+  // this just flips `direction`. Cleared whenever VIA is left (see
+  // handlePartnerModeChange) so it can never linger into a "none"/FOR
+  // submission.
   const [isPayout, setIsPayout] = useState(false);
+
+  // Partner-mode change — every side effect of the two checkboxes this
+  // control replaced, pinned per transition in partnerModeTransition.
+  const handlePartnerModeChange = (next: PartnerMode) => {
+    const effects = partnerModeTransition(partnerMode, next);
+    if (!effects) return;
+    setPartnerMode(next);
+    if (effects.clearPayout) setIsPayout(false);
+    if (effects.clearPartner) setSelectedPartnerId(null);
+    if (effects.clearPayments) {
+      // Clear any lingering payment state so a leftover leg from before
+      // switching to For Partner is never submitted.
+      setPaymentLines([]);
+      setReturnLegs([]);
+      setKeptChange(null);
+    }
+  };
 
   // ─── Item Selector ───
   const [selectedProduct, setSelectedProduct] = useState<{
@@ -1261,73 +1276,19 @@ export default function CustomServices() {
                   </div>
                 </div>
 
-                {/* LIRA-081 (PFT-R) / LIRA-154: two independent, mutually
-                    exclusive toggles sharing one `partnerMode` state (each
-                    setting it to its own value turning on, and back to
-                    "none" turning off — so checking one implicitly
-                    unchecks the other). Both reuse the shared
-                    ForPartnerToggle component as plain boolean widgets;
-                    the mode concept lives entirely here, not in the
-                    shared component (boolean-only, shared by other call
-                    sites). */}
-                {/* Two rows: the toggles on top, then the partner picker
-                    (shared by both toggles) and "Pay out" below them. Each
-                    ForPartnerToggle is told not to render its own selector,
-                    so the picker sits at one fixed spot instead of floating
-                    between the checkboxes. */}
+                {/* LIRA-081 (PFT-R) / LIRA-154: who the service is for —
+                    one segmented control. "For Partner": no counter
+                    payment, the FULL price books to the partner's tab
+                    (hides the Payment Method section below). "Via
+                    Partner": the partner performs the service, the
+                    customer still pays us now (payment section stays), and
+                    we owe the partner the COST. The partner picker and
+                    "Pay out" sit on the row below. */}
                 <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-6">
-                    {/* "For Partner" — no counter payment; the FULL price (per
-                      currency) books to the selected partner's tab instead.
-                      Hides the Payment Method section below. Unchanged from
-                      pre-LIRA-154 behavior. */}
-                    <ForPartnerToggle
-                      testId="custom-service-for-partner-toggle"
-                      showSelector={false}
-                      checked={isForPartner}
-                      onChange={(next) => {
-                        if (next) {
-                          setPartnerMode("FOR");
-                          setIsPayout(false);
-                          // Clear any lingering payment state so a leftover
-                          // leg from before toggling on is never submitted.
-                          setPaymentLines([]);
-                          setReturnLegs([]);
-                          setKeptChange(null);
-                        } else {
-                          setPartnerMode("none");
-                        }
-                      }}
-                      selectedPartnerId={selectedPartnerId}
-                      onPartnerChange={setSelectedPartnerId}
-                      checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                    />
-                    {/* "Via Partner" (LIRA-154) — the mirror of "For Partner":
-                      the partner performs the service, the walk-in customer
-                      still pays US now via the normal Payment Method section
-                      below (kept mounted — NOT cleared), and we owe the
-                      partner the COST instead of the price. */}
-                    <ForPartnerToggle
-                      testId="custom-service-via-partner-toggle"
-                      showSelector={false}
-                      label="Via Partner"
-                      checked={isViaPartner}
-                      onChange={(next) => {
-                        // Deliberately does NOT clear paymentLines/returnLegs/
-                        // keptChange — unlike FOR, VIA keeps the payment
-                        // section live and submitting, so clearing here would
-                        // wipe an operator's in-progress payment lines.
-                        setPartnerMode(next ? "VIA" : "none");
-                        // OWNER_NOTES_REMAINING_BUILD.md #16: "Pay out" is
-                        // ONLY valid under VIA — unchecking VIA must not leave
-                        // it stranded true for a "none"/FOR submission.
-                        if (!next) setIsPayout(false);
-                      }}
-                      selectedPartnerId={selectedPartnerId}
-                      onPartnerChange={setSelectedPartnerId}
-                      checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    />
-                  </div>
+                  <PartnerModeSwitch
+                    value={partnerMode}
+                    onChange={handlePartnerModeChange}
+                  />
                   {(isForPartner || isViaPartner) && (
                     <div className="flex flex-wrap items-center gap-6">
                       <PartnerSelector
@@ -1352,8 +1313,8 @@ export default function CustomServices() {
                               // A payout collects no payment legs (it PAYS the
                               // recipient CASH from General, per owner decision)
                               // — drop any leftover legs from before the toggle
-                              // was checked, mirroring the FOR toggle's own
-                              // clear-on-check above.
+                              // was checked, mirroring what switching to
+                              // For Partner clears (handlePartnerModeChange).
                               if (e.target.checked) {
                                 setPaymentLines([]);
                                 setReturnLegs([]);
@@ -1394,7 +1355,7 @@ export default function CustomServices() {
                 {isForPartner ? (
                   <ForPartnerNotice
                     testId="custom-service-partner-no-payment-notice"
-                    className="text-sm text-teal-200 bg-teal-500/10 border border-teal-500/30 rounded-xl px-4 py-4"
+                    tone="teal"
                   >
                     No price is collected from a customer for a partner service.
                     {awaitingSellingPrice ? (
@@ -1427,7 +1388,7 @@ export default function CustomServices() {
                 ) : isPayout ? (
                   <ForPartnerNotice
                     testId="custom-service-payout-notice"
-                    className="text-sm text-rose-200 bg-rose-500/10 border border-rose-500/30 rounded-xl px-4 py-4"
+                    tone="rose"
                   >
                     The partner owes the shop the full{" "}
                     <span className="font-bold">
@@ -1446,7 +1407,7 @@ export default function CustomServices() {
                     {isViaPartner && (
                       <ForPartnerNotice
                         testId="custom-service-via-partner-notice"
-                        className="text-sm text-sky-200 bg-sky-500/10 border border-sky-500/30 rounded-xl px-4 py-4"
+                        tone="sky"
                       >
                         The customer pays the full{" "}
                         <span className="font-bold">

@@ -47,18 +47,18 @@ import {
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
 } & Pick<SaleProcessPayload, "extra_usd" | "extra_lbp"> & {
-  // LIRA-319: the extra-charge keys typed from the shared sale schema
-  // (rule 21) — never a hand-written copy.
-  clientId?: number | null;
-  paidUSD?: number;
-  paidLBP?: number;
-  /**
-   * Currency that `total_amount`/`discount`/`final_amount` are expressed in
-   * (mirrors the `currency` prop, defaulted to "USD" via `totalCurrency`).
-   * Always set by `getPaymentData` — see CheckoutModal.tsx.
-   */
-  currency: "USD" | "LBP";
-};
+    // LIRA-319: the extra-charge keys typed from the shared sale schema
+    // (rule 21) — never a hand-written copy.
+    clientId?: number | null;
+    paidUSD?: number;
+    paidLBP?: number;
+    /**
+     * Currency that `total_amount`/`discount`/`final_amount` are expressed in
+     * (mirrors the `currency` prop, defaulted to "USD" via `totalCurrency`).
+     * Always set by `getPaymentData` — see CheckoutModal.tsx.
+     */
+    currency: "USD" | "LBP";
+  };
 
 interface CheckoutModalProps {
   items?: CartItem[];
@@ -513,9 +513,7 @@ export default function CheckoutModal({
   /** LIRA-319 — the same field on the Extra side of the line. */
   const extraField = (
     <div className="flex items-center gap-1">
-      <span className="text-amber-400 text-xs">
-        {isLbpTotal ? "LBP" : "$"}
-      </span>
+      <span className="text-amber-400 text-xs">{isLbpTotal ? "LBP" : "$"}</span>
       <DecimalInput
         data-testid="checkout-discount-input"
         aria-label="Extra"
@@ -1068,7 +1066,7 @@ export default function CheckoutModal({
                     onChange={setForPartner}
                     selectedPartnerId={selectedPartnerId}
                     onPartnerChange={setSelectedPartnerId}
-                    checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                    activeClassName="bg-violet-600 text-white"
                   />
                 </div>
               )}
@@ -1252,12 +1250,12 @@ export default function CheckoutModal({
               {forPartner ? (
                 <ForPartnerNotice
                   testId="checkout-partner-no-payment-notice"
-                  className="text-sm text-violet-200 bg-violet-500/10 border border-violet-500/30 rounded-xl px-4 py-4"
+                  tone="violet"
                 >
-                  No payment is collected for a partner sale. The full{" "}
+                  Partner sale: nothing is collected now — the full{" "}
                   <span className="font-bold">{fmtTotal(finalAmount)}</span>{" "}
-                  goes on the selected partner&apos;s account, settled later on
-                  the Partners page.
+                  goes on the partner&apos;s account, settled on the Partners
+                  page.
                 </ForPartnerNotice>
               ) : (
                 <>

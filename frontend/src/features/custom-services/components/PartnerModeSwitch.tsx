@@ -1,0 +1,70 @@
+import type { PartnerMode } from "@/features/custom-services/utils/partnerModeTransition";
+
+const OPTIONS: ReadonlyArray<{
+  mode: PartnerMode;
+  label: string;
+  testId: string;
+}> = [
+  {
+    mode: "none",
+    label: "Customer",
+    testId: "custom-service-partner-mode-none",
+  },
+  // The For/Via segments keep the testids of the two checkboxes they
+  // replaced, so existing unit and e2e selectors keep matching.
+  {
+    mode: "FOR",
+    label: "For Partner",
+    testId: "custom-service-for-partner-toggle",
+  },
+  {
+    mode: "VIA",
+    label: "Via Partner",
+    testId: "custom-service-via-partner-toggle",
+  },
+];
+
+/**
+ * Custom Services: who the service is for — [ Customer | For Partner |
+ * Via Partner ]. Styled like the slim mode tabs on the Recharge page
+ * (Whish App Transfer | Bills). Controlled; side effects of a change live
+ * in the page (see `partnerModeTransition`).
+ */
+export function PartnerModeSwitch({
+  value,
+  onChange,
+}: {
+  value: PartnerMode;
+  onChange: (next: PartnerMode) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Who is this service for"
+      className="flex gap-2 bg-slate-800 border border-slate-700/50 p-1 rounded-xl h-11"
+    >
+      {OPTIONS.map((option) => {
+        const active = option.mode === value;
+        return (
+          <button
+            key={option.mode}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            data-testid={option.testId}
+            onClick={() => {
+              if (!active) onChange(option.mode);
+            }}
+            className={`flex-1 h-full py-1.5 px-3 rounded-lg font-semibold text-sm whitespace-nowrap transition-all ${
+              active
+                ? "bg-teal-600 text-white shadow-lg"
+                : "text-slate-400 hover:text-white hover:bg-slate-700/60"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
