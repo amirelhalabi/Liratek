@@ -72,6 +72,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 - Exchange: the client name box now finds saved clients, and you can also pick or change the client right inside the payment window, without closing it. When you confirm the payout, "Customer pays — LBP" (or the currency you receive) shows the full amount. If the customer pays in $ or LBP and pays less, the rest goes on the picked client's account (it shows on the Debts page), or you can forgive a small leftover. When the customer pays in another currency (for example euros), they must pay the full amount: putting part on an account or forgiving it is not available yet. Confirm stays off until it adds up, and a client is needed to put money on an account. The Exchange history shows the client.
 - Debts (Settle Debt) and Partners (Settle): the separate green Discount / Forgive box is gone. Forgiving is now a "Forgive (no cash)" line in the payment box, and typing an amount there no longer changes the payment you entered. A "Client will owe" (or "Partner will owe") line shows what is left after you confirm. To forgive part of it, lower the payment first.
 - Dark mode: greyed-out buttons now show their text on the Mobile Recharge screens (MTC / Alfa, Katsh, Binance, Whish App / OMT App, card sales and money transfers) and on the OMT/Whish page. Before, a button that could not be pressed yet looked like an empty bar.
+- Screen readers now call the currency picker next to the Extra amount "Extra currency". It used to say "Discount currency".
 
 ## ➕ Extra charges
 
@@ -184,3 +185,18 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 - The session checkout window now has "Set custom time". The time you pick is used for everything in that checkout: every item, the extra, the kept change or forgiven amount, the payment, and any amount put on the customer's account. An item that already had its own custom time when you added it keeps that time. Before, a session checkout was always saved at the time you checked out.
 - A Binance send or cash-out, an OMT App or Whish App transfer, and iPick, Katsh or Whish App items added to a customer session now keep the custom time you set on them. Before, that time was ignored and they were saved at checkout time.
+- The session window under the top-bar session button now opens only when you rest the pointer on the button. It closes as soon as the pointer leaves it, or with Escape. Before, it could stay open over the page, for example over the MTC / Alfa / iPick tabs on Mobile Recharge.
+- Mobile Recharge, MTC and Alfa Credit: in a customer session, the phone number now starts filled with the session customer's phone. A number you type is never replaced.
+
+## 👥 Clients
+
+- Web app: a phone typed with spaces or dashes, such as "03 123 456", is now accepted when adding or editing a client. It used to be refused with "Invalid phone number format". From now on both apps save the phone without the spaces or dashes.
+
+## 🔧 Repairs
+
+- The repair checkout now opens with the client name and phone you typed on the job. Before, the Customer fields were empty and you had to search for the client again.
+
+## 🧮 Checkpoint
+
+- Checkpoint: if a drawer's currencies or expected balances can't load (for example when the connection is busy), the drawer now says so with a Retry button, and its Save stays off until everything has loaded. Before, Save stayed on and could save a wrong or empty count.
+- Initial Drawer Amounts: if the drawers can't load, you now see why, with a Retry button, instead of an empty window.

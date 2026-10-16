@@ -20,6 +20,7 @@ import {
 } from "../repositories/index.js";
 import { NotFoundError, getRepoConstraintCode } from "../utils/errors.js";
 import { clientLogger } from "../utils/logger.js";
+import { normalizeClientPhone } from "../utils/phoneNumber.js";
 
 // =============================================================================
 // Types
@@ -134,15 +135,19 @@ export class ClientService {
       return { success: false, error: "Phone number is required" };
     }
 
+    // "03 123 456" and "03123456" are one phone: stored without the
+    // formatting on both apps (shop-day test 2026-10-16).
+    const phone = normalizeClientPhone(data.phone_number);
+
     // Check for duplicate phone
-    if (this.clientRepo.phoneExists(data.phone_number.trim())) {
+    if (this.phoneTaken(data.phone_number, phone)) {
       return { success: false, error: "Phone number already registered" };
     }
 
     try {
       const createData = {
         full_name: data.full_name.trim(),
-        phone_number: data.phone_number.trim(),
+        phone_number: phone,
         ...(data.whatsapp_opt_in != null
           ? { whatsapp_opt_in: data.whatsapp_opt_in }
           : {}),
@@ -162,6 +167,26 @@ export class ClientService {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * Duplicate-phone check on the stored (formatting-free) form AND on the
+   * text as typed — desktop rows saved before formatting was stripped still
+   * hold e.g. "03 123 456", and must keep matching that same text.
+   */
+  private phoneTaken(
+    typed: string,
+    normalized: string,
+    excludeId?: number,
+  ): boolean {
+    const check = (p: string) =>
+      excludeId === undefined
+        ? this.clientRepo.phoneExists(p)
+        : this.clientRepo.phoneExists(p, excludeId);
+    if (check(normalized)) return true;
+    // A REST update may omit the phone at runtime despite the type.
+    const asTyped = typeof typed === "string" ? typed.trim() : typed;
+    return asTyped !== normalized && check(asTyped);
   }
 
   /**
@@ -186,8 +211,15 @@ export class ClientService {
       return { success: false, error: "Client not found" };
     }
 
+    // The REST body may omit the phone (editing only notes/WhatsApp) —
+    // normalise only a phone that was actually sent.
+    const phone =
+      typeof data.phone_number === "string"
+        ? normalizeClientPhone(data.phone_number)
+        : data.phone_number;
+
     // Check for duplicate phone (excluding this client)
-    if (this.clientRepo.phoneExists(data.phone_number, id)) {
+    if (this.phoneTaken(data.phone_number, phone, id)) {
       return {
         success: false,
         error: "Phone number already in use by another client",
@@ -199,7 +231,7 @@ export class ClientService {
         id,
         {
           full_name: data.full_name,
-          phone_number: data.phone_number,
+          phone_number: phone,
           whatsapp_opt_in: data.whatsapp_opt_in,
           ...(data.notes != null ? { notes: data.notes } : {}),
         },

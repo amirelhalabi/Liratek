@@ -28,7 +28,8 @@ export function CheckpointDrawerBody({
     isPartnerDrawerInactive,
     currencies,
     currenciesLoading,
-    currenciesError,
+    loadError,
+    retryLoad,
     drawerAmounts,
     drawerCurrencies,
     carrier,
@@ -63,9 +64,19 @@ export function CheckpointDrawerBody({
           <p className="text-blue-200 text-sm">Loading currencies...</p>
         </div>
       )}
-      {currenciesError && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-          <p className="text-red-200 text-sm">Error: {currenciesError}</p>
+      {loadError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 flex items-center justify-between gap-3">
+          <p className="text-red-200 text-sm">
+            Couldn't load this drawer: {loadError}. Saving is off until it
+            loads.
+          </p>
+          <button
+            type="button"
+            onClick={retryLoad}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-slate-700 hover:bg-slate-600 transition-colors"
+          >
+            Retry
+          </button>
         </div>
       )}
       {saveError && (
@@ -74,7 +85,7 @@ export function CheckpointDrawerBody({
         </div>
       )}
 
-      {!currenciesLoading && !currenciesError && (
+      {!currenciesLoading && !loadError && (
         <>
           {currencies.length === 0 ? (
             <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">

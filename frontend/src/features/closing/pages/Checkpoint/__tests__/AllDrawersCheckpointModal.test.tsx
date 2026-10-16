@@ -175,7 +175,10 @@ describe("Checkpoint — all drawers window", () => {
     renderWindow();
     const general = card("General");
     await within(general).findByLabelText("USD");
-    fireEvent.click(within(general).getByTestId("checkpoint-save-General"));
+    const save = within(general).getByTestId("checkpoint-save-General");
+    // Save is off until the sheet has fully loaded (shop-day 2026-10-16).
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
     expect(
       await within(card("General")).findByText("Nope"),
     ).toBeInTheDocument();

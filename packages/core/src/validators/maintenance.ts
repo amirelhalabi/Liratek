@@ -9,7 +9,10 @@ import {
   discountAndExtraNotBoth,
   extraNotBothRefineOptions,
 } from "./common.js";
-import { normalizeLineNumber } from "../utils/phoneNumber.js";
+import {
+  normalizeLineNumber,
+  stripPhoneFormatting,
+} from "../utils/phoneNumber.js";
 import { warrantyMonthsSchema } from "./productUnit.js";
 
 /**
@@ -28,7 +31,7 @@ export function normalizeMaintenancePhone(
   raw: string | null | undefined,
 ): string {
   if (!raw) return "";
-  return normalizeLineNumber(raw).replace(/[\s\-.()]/g, "");
+  return stripPhoneFormatting(normalizeLineNumber(raw));
 }
 
 const paymentLineSchema = z.object({

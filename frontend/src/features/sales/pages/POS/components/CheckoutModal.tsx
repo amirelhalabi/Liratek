@@ -124,6 +124,11 @@ interface CheckoutModalProps {
   onEdit?: (checkoutData: CheckoutDraftData) => void;
   onCancel?: () => void;
   draftData?: CheckoutDraftData; // optional: only provided when restoring a draft
+  /** The customer the host page already typed (Maintenance: the job's
+   *  Client Name / Phone). Seeds the Customer fields ONCE, on mount, as
+   *  typed text — never as a selected client, which would switch the first
+   *  payment line to Customer Account. Rule 11. */
+  initialCustomer?: { name: string; phone: string } | undefined;
   onRestoreDraftComplete?: () => void;
   isDraft?: boolean;
   /** LIRA-296: the sale's id when it already exists (a resumed draft) — the
@@ -175,6 +180,7 @@ export default function CheckoutModal({
   onEdit,
   onCancel,
   draftData,
+  initialCustomer,
   onRestoreDraftComplete,
   isDraft,
   saleId,
@@ -194,7 +200,12 @@ export default function CheckoutModal({
   const [isLoading, setIsLoading] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [clientSearch, setClientSearch] = useState("");
+  // Rule 11: the host's typed customer seeds the fields once (mount only).
+  // A name goes in the search field with the phone beside it; a phone alone
+  // goes in the search field (it reads as a phone search).
+  const seedName = initialCustomer?.name.trim() ?? "";
+  const seedPhone = initialCustomer?.phone.trim() ?? "";
+  const [clientSearch, setClientSearch] = useState(seedName || seedPhone);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
 
   // PFT-2b: "For Partner" toggle — when true, the sale's unpaid remainder
@@ -440,7 +451,9 @@ export default function CheckoutModal({
   );
 
   // State for the secondary input (Name or Phone depending on search)
-  const [secondaryInput, setSecondaryInput] = useState("");
+  const [secondaryInput, setSecondaryInput] = useState(
+    seedName ? seedPhone : "",
+  );
 
   // Heuristic: Is the search mainly digits?
   const isSearchPhone =

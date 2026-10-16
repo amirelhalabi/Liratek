@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { Phone, User, Search, X, CreditCard } from "lucide-react";
@@ -20,6 +20,7 @@ import {
   maxRechargeDiscount,
   planSmsTransfer,
   type CreateRechargePayload,
+  normalizeLineNumber,
 } from "@liratek/core";
 import type {
   FinancialTransaction,
@@ -290,6 +291,39 @@ export function TelecomForm({
 }: TelecomFormProps) {
   const api = useApi();
   const { activeSession } = useSession();
+
+  // Shop-day 2026-10-16: in a customer session the Credit phone starts with
+  // the session customer's phone. Only into an EMPTY field — a typed number
+  // is never replaced, and a field the cashier cleared themselves stays
+  // clear (`cashierClearedRef`). An empty field set by the page (the reset
+  // after Add to Cart, a tab switch) fills again. When the session ends or
+  // changes, a number we filled in and nobody edited is removed.
+  const sessionPhone = activeSession?.customer_phone
+    ? normalizeLineNumber(activeSession.customer_phone)
+    : "";
+  const cashierClearedRef = useRef(false);
+  const autoFilledPhoneRef = useRef("");
+  useEffect(() => {
+    if (
+      autoFilledPhoneRef.current &&
+      autoFilledPhoneRef.current !== sessionPhone &&
+      phoneNumber === autoFilledPhoneRef.current
+    ) {
+      autoFilledPhoneRef.current = "";
+      setPhoneNumber("");
+      return;
+    }
+    if (
+      sessionPhone &&
+      rechargeType === "CREDIT_TRANSFER" &&
+      phoneNumber === "" &&
+      !cashierClearedRef.current
+    ) {
+      autoFilledPhoneRef.current = sessionPhone;
+      setPhoneNumber(sessionPhone);
+    }
+  }, [sessionPhone, rechargeType, phoneNumber, setPhoneNumber]);
+
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
   const [daysPriceCurrency, setDaysPriceCurrency] = useState<"USD" | "LBP">(
@@ -725,7 +759,10 @@ export function TelecomForm({
                       id="telecom-phone"
                       type="text"
                       value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      onChange={(e) => {
+                        cashierClearedRef.current = e.target.value === "";
+                        setPhoneNumber(e.target.value);
+                      }}
                       className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-28 pr-4 py-4 text-2xl font-bold text-white focus:outline-none ${inputFocus} transition-all tracking-widest font-mono`}
                       placeholder="XX XXX XXX"
                       maxLength={8}

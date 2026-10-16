@@ -87,10 +87,15 @@ export function useDrawerCheckpoint({
     currencies,
     loading: currenciesLoading,
     error: currenciesError,
+    reload: reloadCurrencies,
   } = useCurrencies();
 
   const drawerAmounts = useDrawerAmounts({ currencies });
-  const { systemExpected, fetchSystemExpected } = useSystemExpected();
+  const {
+    systemExpected,
+    fetchSystemExpected,
+    error: expectedError,
+  } = useSystemExpected();
   // LIRA-174: the closing PDF's rate-stamped profit view converts at
   // sell_rate (owner decision) — see rateStampedProfit.ts for why. Read via
   // the canonical hook, never hardcoded, and injected into
@@ -127,15 +132,43 @@ export function useDrawerCheckpoint({
     Record<string, string[]>
   >({});
 
-  useEffect(() => {
-    if (!isOpen) return;
+  // Shop-day 2026-10-16: a failed load (e.g. a 429 burst) used to be
+  // swallowed here and the sheet fell back to EVERY active currency — a
+  // wrong sheet that could still be saved. The failure is now kept, Save
+  // stays off until this list has loaded, and Retry loads it again.
+  const [countableLoaded, setCountableLoaded] = useState(false);
+  const [countableError, setCountableError] = useState<string | null>(null);
+  const loadCountableCurrencies = () => {
+    setCountableError(null);
     api
       .getCountableDrawerCurrencies()
-      .then(setDrawerCurrencyConfig)
-      .catch(() => {});
+      .then((config) => {
+        setDrawerCurrencyConfig(config);
+        setCountableLoaded(true);
+      })
+      .catch((err: unknown) => {
+        logger.error("[Checkpoint] Countable currencies error:", err);
+        setCountableError(
+          getApiErrorMessage(err, "Failed to load this drawer's currencies"),
+        );
+      });
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    loadCountableCurrencies();
     fetchSystemExpected();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  /** The first load that failed — the sheet is not usable until Retry. */
+  const loadError = currenciesError ?? countableError ?? expectedError;
+  /** Load again everything the count sheet needs. */
+  const retryLoad = () => {
+    void reloadCurrencies();
+    loadCountableCurrencies();
+    void fetchSystemExpected();
+  };
 
   const hasInitializedAmounts = useRef(false);
   useEffect(() => {
@@ -489,6 +522,10 @@ export function useDrawerCheckpoint({
   const saveDisabled =
     saving ||
     currenciesLoading ||
+    // Never save a sheet that did not load (empty or wrong amounts).
+    !!loadError ||
+    !amountsReady ||
+    !countableLoaded ||
     isPartnerDrawerInactive ||
     (carrier ? carrierLines.length === 0 : drawerCurrencies.length === 0);
 
@@ -521,6 +558,8 @@ export function useDrawerCheckpoint({
     currencies,
     currenciesLoading,
     currenciesError,
+    loadError,
+    retryLoad,
     drawerAmounts,
     drawerCurrencies,
     carrier,

@@ -30,6 +30,11 @@ interface CustomerSessionButtonProps {
   isKnownClient?: boolean;
 }
 
+/** Rest this long on the session button before its panel opens. */
+const HOVER_OPEN_DELAY_MS = 250;
+/** Grace to cross from the button to the panel below it. */
+const HOVER_CLOSE_GRACE_MS = 200;
+
 export function CustomerSessionButton({
   isKnownClient = false,
 }: CustomerSessionButtonProps) {
@@ -59,20 +64,68 @@ export function CustomerSessionButton({
   const [sessionFilter, setSessionFilter] = useState<SessionFilter>("active");
   const editNameRef = useRef<HTMLInputElement>(null);
 
-  // Hover popup state
+  // Hover popup state. The panel hangs under this top-bar button, so while
+  // it is open it covers the page below (shop-day 2026-10-16: the Mobile
+  // Recharge provider tabs). So it opens only after the pointer RESTS on
+  // the button, keeps a short grace only for crossing to the panel, closes
+  // as soon as the pointer leaves the panel, and closes on Escape.
   const [isHovered, setIsHovered] = useState(false);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
+
+  const clearHoverTimers = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    if (openTimeoutRef.current) clearTimeout(openTimeoutRef.current);
+    hoverTimeoutRef.current = null;
+    openTimeoutRef.current = null;
+  };
 
   const handleMouseEnter = () => {
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    setIsHovered(true);
+    hoverTimeoutRef.current = null;
+    if (isHovered || openTimeoutRef.current) return;
+    openTimeoutRef.current = setTimeout(() => {
+      openTimeoutRef.current = null;
+      setIsHovered(true);
+    }, HOVER_OPEN_DELAY_MS);
   };
 
   const handleMouseLeave = () => {
-    // Small delay before hiding to allow moving mouse to popup
-    hoverTimeoutRef.current = setTimeout(() => setIsHovered(false), 200);
+    if (openTimeoutRef.current) clearTimeout(openTimeoutRef.current);
+    openTimeoutRef.current = null;
+    // Short grace to cross the gap from the button to the panel.
+    hoverTimeoutRef.current = setTimeout(
+      () => setIsHovered(false),
+      HOVER_CLOSE_GRACE_MS,
+    );
   };
+
+  /** Leaving the panel itself — unless back onto the button — closes it. */
+  const handlePanelMouseLeave = (e: React.MouseEvent) => {
+    const to = e.relatedTarget;
+    if (to instanceof Node && wrapperRef.current?.contains(to)) return;
+    clearHoverTimers();
+    setIsHovered(false);
+  };
+
+  useEffect(() => {
+    if (!isHovered) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsHovered(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isHovered]);
+
+  useEffect(
+    () => () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+      if (openTimeoutRef.current) clearTimeout(openTimeoutRef.current);
+    },
+    [],
+  );
 
   const getInitials = (name?: string) => {
     if (!name) return "?";
@@ -304,6 +357,7 @@ export function CustomerSessionButton({
 
       {/* Session Button with Dropdown + Hover Popup */}
       <div
+        ref={wrapperRef}
         className="relative"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -353,6 +407,8 @@ export function CustomerSessionButton({
         {isHovered && hasActiveSession && !showDropdown && (
           <div
             ref={popupRef}
+            data-testid="session-hover-panel"
+            onMouseLeave={handlePanelMouseLeave}
             className="absolute top-full left-0 mt-2 z-50 animate-in fade-in zoom-in-95 duration-200"
           >
             <SessionPopupPanel onCheckout={() => setIsCheckoutOpen(true)} />

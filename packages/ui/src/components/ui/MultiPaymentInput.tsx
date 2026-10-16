@@ -2964,7 +2964,9 @@ export default function MultiPaymentInput({
               <select
                 value={discountCurrency}
                 onChange={(e) => setDiscountCurrency(e.target.value)}
-                aria-label="Discount currency"
+                aria-label={
+                  isExtraMode ? "Extra currency" : "Discount currency"
+                }
                 className="bg-slate-900 border border-emerald-700/40 rounded-md px-1.5 py-0.5 text-emerald-300 text-[11px] focus:outline-none focus:border-emerald-500"
               >
                 {currencies.map((curr) => (

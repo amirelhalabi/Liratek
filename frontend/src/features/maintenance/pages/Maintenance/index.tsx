@@ -704,7 +704,13 @@ export default function Maintenance() {
       clientOverride: {
         client_id: paymentData.client_id,
         client_name: paymentData.client_name,
-        client_phone: paymentData.client_phone,
+        // The checkout opens with this page's own phone (initialCustomer).
+        // Handed back unchanged it is not an override, so LIRA-263's
+        // "an untouched reopened phone goes out blank" rule still applies.
+        client_phone:
+          paymentData.client_phone === clientPhone.trim()
+            ? undefined
+            : paymentData.client_phone,
       },
       finalAmount: labourFinal,
       warrantyMonths,
@@ -1428,6 +1434,15 @@ export default function Maintenance() {
             extraTotals={
               currency === "LBP" && partsPriceUsd > 0
                 ? [{ amount: partsPriceUsd, currency: "USD" }]
+                : undefined
+            }
+            // Rule 11: the job's typed client opens in the Customer fields.
+            // Not in a customer session (the modal fills itself from the
+            // session) and not without a name (a phone alone would come back
+            // named "Client <phone>").
+            initialCustomer={
+              !activeSession && clientName.trim()
+                ? { name: clientName, phone: clientPhone }
                 : undefined
             }
             onClose={() => setIsCheckoutOpen(false)}

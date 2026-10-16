@@ -204,3 +204,32 @@ export function isPhoneLineCategoryName(
   if (!name) return false;
   return /\blines?\b/i.test(name.trim());
 }
+
+/**
+ * The formatting characters a person types inside a phone number: spaces,
+ * dashes, dots and brackets ("03 123 456", "03-123-456", "(03) 123.456").
+ * Defined once (rule 14) — `stripPhoneFormatting` and the maintenance
+ * normaliser both strip exactly this set.
+ */
+const PHONE_FORMATTING = /[\s\-.()]/g;
+
+/** Remove {@link PHONE_FORMATTING} characters. Pure — no other change. */
+export function stripPhoneFormatting(raw: string): string {
+  return raw.replace(PHONE_FORMATTING, "");
+}
+
+/**
+ * A client's phone as it is STORED: formatting stripped when what is left is
+ * a phone ("+"-optional digits) — "03 123 456" -> "03123456",
+ * "+961 70 123 456" -> "+96170123456" (no country-code rewrite: a stored
+ * "+961…" stays "+961…", so the exact-match duplicate check keeps matching
+ * rows stored before this). Anything else (e.g. "N/A" on the desktop app,
+ * which accepts free text) is only trimmed, never mangled. Shop-day test
+ * 2026-10-16: the client form's own placeholder "03 123 456" was refused on
+ * the web app. Leaf, browser-safe (rule 29).
+ */
+export function normalizeClientPhone(raw: string): string {
+  const trimmed = raw.trim();
+  const stripped = stripPhoneFormatting(trimmed);
+  return /^\+?\d+$/.test(stripped) ? stripped : trimmed;
+}

@@ -4,6 +4,8 @@ import { DecimalInput, useApi } from "@liratek/ui";
 import { useModules } from "@/contexts/ModuleContext";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import logger from "@/utils/logger";
 import { DRAWER_ORDER, DRAWER_CONFIGS } from "../config/drawers";
 import { isDrawerVisible, isUnrestrictedDrawer } from "@liratek/core";
 
@@ -65,26 +67,40 @@ export function InitialDrawerAmountsModal({
   // holding a non-zero balance there — GENERAL_DRAWER_UNRESTRICTED.md D2/D5)
   // + current balances so the operator sees existing state and the real
   // per-drawer countable set.
-  useEffect(() => {
+  // Shop-day 2026-10-16: a failed load (e.g. a 429 burst) used to leave the
+  // window empty with no message. It now says so and offers Retry; Save
+  // stays off until the drawers load.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadDrawers = () => {
+    setLoadError(null);
     Promise.all([
       api.getCountableDrawerCurrencies(),
       api.getSystemExpectedBalancesDynamic(),
-    ]).then(([configured, balances]) => {
-      const initialCurrencies: Record<string, string[]> = {};
-      const initialAmounts: Record<string, Record<string, number>> = {};
-      for (const drawer of visibleDrawers) {
-        const currencies = configured[drawer] ?? [];
-        initialCurrencies[drawer] = [...currencies];
-        initialAmounts[drawer] = {};
-        for (const currency of currencies) {
-          initialAmounts[drawer][currency] = balances[drawer]?.[currency] ?? 0;
+    ])
+      .then(([configured, balances]) => {
+        const initialCurrencies: Record<string, string[]> = {};
+        const initialAmounts: Record<string, Record<string, number>> = {};
+        for (const drawer of visibleDrawers) {
+          const currencies = configured[drawer] ?? [];
+          initialCurrencies[drawer] = [...currencies];
+          initialAmounts[drawer] = {};
+          for (const currency of currencies) {
+            initialAmounts[drawer][currency] =
+              balances[drawer]?.[currency] ?? 0;
+          }
         }
-      }
-      setDrawerCurrencyState(initialCurrencies);
-      setBaselineCurrencies(initialCurrencies);
-      setAmounts(initialAmounts);
-      setLoaded(true);
-    });
+        setDrawerCurrencyState(initialCurrencies);
+        setBaselineCurrencies(initialCurrencies);
+        setAmounts(initialAmounts);
+        setLoaded(true);
+      })
+      .catch((err: unknown) => {
+        logger.error("[InitialDrawerAmounts] Load error:", err);
+        setLoadError(getApiErrorMessage(err, "Failed to load the drawers"));
+      });
+  };
+  useEffect(() => {
+    loadDrawers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -205,6 +221,20 @@ export function InitialDrawerAmountsModal({
 
         {/* Body — two drawer cards per row */}
         <div className="overflow-y-auto flex-1 px-6 py-4">
+          {loadError && (
+            <div className="mb-3 bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-center justify-between gap-3">
+              <p className="text-red-200 text-sm">
+                Couldn't load the drawers: {loadError}
+              </p>
+              <button
+                type="button"
+                onClick={loadDrawers}
+                className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-slate-700 hover:bg-slate-600 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             {visibleDrawers.map((drawer) => {
               const config =

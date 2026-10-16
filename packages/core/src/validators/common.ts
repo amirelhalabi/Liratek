@@ -1,13 +1,21 @@
 import { z } from "zod";
+import { normalizeClientPhone } from "../utils/phoneNumber.js";
 
 /**
  * Common validation schemas used across multiple entities
  */
 
-// Phone number validation (Lebanese format)
+// Phone number validation (Lebanese format). Spaces, dashes, dots and
+// brackets are formatting, not errors: they are stripped BEFORE the format
+// check, so "03 123 456" — the client form's own placeholder — passes and is
+// kept as "03123456" (shop-day test 2026-10-16). transform + pipe, NOT zod
+// 4's `.overwrite()`: the desktop main process and the backend load this
+// file under the root zod 3 (measured 3.25.76), where `.overwrite` does not
+// exist and would crash at import. Input type stays `string`.
 export const phoneNumberSchema = z
   .string()
-  .regex(/^\+?[0-9]{8,15}$/, "Invalid phone number format");
+  .transform(normalizeClientPhone)
+  .pipe(z.string().regex(/^\+?[0-9]{8,15}$/, "Invalid phone number format"));
 
 /**
  * Same format check as `phoneNumberSchema`, but also accepts a blank string.

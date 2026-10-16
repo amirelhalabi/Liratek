@@ -105,6 +105,8 @@ describe("Checkpoint save — LIRA-219 closingDay reused for closing_date + snap
     await screen.findByLabelText("USD");
 
     const saveButton = screen.getByRole("button", { name: /Save/ });
+    // Save is off until the sheet has fully loaded (shop-day 2026-10-16).
+    await waitFor(() => expect(saveButton).toBeEnabled());
     fireEvent.click(saveButton);
 
     await waitFor(() => {
