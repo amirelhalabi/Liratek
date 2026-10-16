@@ -14854,7 +14854,102 @@ DROP TABLE IF EXISTS supplier_settlement_coverage;`);
       removeWhishUsdPrices(db);
     },
   },
+  {
+    version: 219,
+    name: "partner_ledger_split_settlement_method",
+    description:
+      "Allow 'SPLIT' in partner_ledger.settlement_method. A partner " +
+      "settlement paid with more than one method (e.g. Cash + Whish) was " +
+      "stored under the first leg's method because the CHECK had no SPLIT " +
+      "(shop-day bug 2026-10-16). SQLite can't ALTER a CHECK, so the table is " +
+      "rebuilt from its CURRENT definition (every column, e.g. covered_amount, " +
+      "and every index kept); only the CHECK list changes. Rows are not " +
+      "rewritten: settlements before this keep the method they were saved with.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      setPartnerLedgerSettlementMethods(db, PARTNER_SETTLEMENT_METHODS_V219);
+    },
+    down(db: Database.Database) {
+      // A SPLIT row cannot survive the old CHECK; it has no single method.
+      if (tableExists(db, "partner_ledger")) {
+        db.exec(
+          `UPDATE partner_ledger SET settlement_method = NULL WHERE settlement_method = 'SPLIT'`,
+        );
+      }
+      setPartnerLedgerSettlementMethods(
+        db,
+        PARTNER_SETTLEMENT_METHODS_V219.filter((m) => m !== "SPLIT"),
+      );
+    },
+  },
 ];
+
+/** v219 — partner_ledger.settlement_method's allowed values. */
+const PARTNER_SETTLEMENT_METHODS_V219 = [
+  "CASH",
+  "OMT",
+  "WHISH",
+  "BINANCE",
+  "CLIENT_ACCOUNT",
+  "SPLIT",
+] as const;
+
+/**
+ * v219 — rebuild partner_ledger with a new settlement_method CHECK list.
+ * Works from the table's CURRENT `CREATE TABLE` text (sqlite_master), so
+ * columns added after the last hand-written rebuild (covered_amount,
+ * tenant_id) are never dropped, and re-creates every index the table had.
+ * A no-op when the CHECK already lists exactly these methods. Exported for
+ * its own test only.
+ */
+export function setPartnerLedgerSettlementMethods(
+  db: Database.Database,
+  methods: readonly string[],
+): void {
+  const table = db
+    .prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'partner_ledger'`,
+    )
+    .get() as { sql: string } | undefined;
+  if (!table) return;
+  const checkRe =
+    /settlement_method\s+TEXT\s+CHECK\s*\(\s*settlement_method\s+IN\s*\([^)]*\)\s*\)/i;
+  if (!checkRe.test(table.sql)) {
+    throw new Error(
+      "v219: partner_ledger.settlement_method CHECK not found — refusing to rebuild",
+    );
+  }
+  const newCheck = `settlement_method TEXT CHECK(settlement_method IN (${methods
+    .map((m) => `'${m}'`)
+    .join(", ")}))`;
+  const rebuilt = table.sql.replace(checkRe, newCheck);
+  if (rebuilt === table.sql) return;
+  const createNew = rebuilt.replace(
+    /^CREATE TABLE\s+(IF NOT EXISTS\s+)?["`]?partner_ledger["`]?/i,
+    "CREATE TABLE partner_ledger_new",
+  );
+  const indexes = db
+    .prepare(
+      `SELECT sql FROM sqlite_master
+        WHERE type IN ('index', 'trigger') AND tbl_name = 'partner_ledger'
+          AND sql IS NOT NULL`,
+    )
+    .all() as Array<{ sql: string }>;
+  const cols = (
+    db.prepare(`PRAGMA table_info(partner_ledger)`).all() as Array<{
+      name: string;
+    }>
+  )
+    .map((c) => `"${c.name}"`)
+    .join(", ");
+  db.exec(createNew);
+  db.exec(
+    `INSERT INTO partner_ledger_new (${cols}) SELECT ${cols} FROM partner_ledger`,
+  );
+  db.exec(`DROP TABLE partner_ledger`);
+  db.exec(`ALTER TABLE partner_ledger_new RENAME TO partner_ledger`);
+  for (const ix of indexes) db.exec(ix.sql);
+}
 
 /** Flatten v216's frozen Whish App items into one row per item. */
 function whishAppAdditionRows(): Array<{

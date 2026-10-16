@@ -505,6 +505,7 @@ export function FinancialForm({
 
     const clientResult = await ensureRechargeClient({
       clientId,
+      inSession: !!activeSession,
       name: clientName,
       phone: clientPhone,
       // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too.
@@ -545,6 +546,8 @@ export function FinancialForm({
         {
           clientId: resolvedClientId,
           ...(clientName ? { clientName } : {}),
+          // Bug #4: the time picked on the form, as on a walk-in sale.
+          transactionTime,
         },
       );
 

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   appEvents,
@@ -259,6 +260,9 @@ export function SessionCheckoutModal({
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bug #4: the "Set custom time" for the whole checkout (ISO). Every row it
+  // writes carries it; an item added with its own time keeps that one.
+  const [checkoutTime, setCheckoutTime] = useState<string | undefined>();
   const shopInfo = useShopInfo();
 
   // W1.b — set once checkout succeeds; renders the Print + Close success view
@@ -290,6 +294,8 @@ export function SessionCheckoutModal({
       setCheckoutSuccess(null);
       setPayoutMethodOverride({});
       setChosenFirstMethod(null);
+      // Bug #4: a time picked for one basket never carries to the next.
+      setCheckoutTime(undefined);
     }
   }, [isOpen]);
 
@@ -1001,6 +1007,8 @@ export function SessionCheckoutModal({
         // schema has no default — an absent key means "no extra").
         ...(basketExtra.usd > 0 ? { extra_usd: basketExtra.usd } : {}),
         ...(basketExtra.lbp > 0 ? { extra_lbp: basketExtra.lbp } : {}),
+        // Bug #4: absent = booked now.
+        ...(checkoutTime ? { transaction_time: checkoutTime } : {}),
         userId: user.id,
       });
 
@@ -1518,6 +1526,11 @@ export function SessionCheckoutModal({
                     )}
                   </div>
                 )}
+
+                <TransactionTimeOverride
+                  value={checkoutTime}
+                  onChange={setCheckoutTime}
+                />
 
                 {/* Error Display */}
                 {error && (

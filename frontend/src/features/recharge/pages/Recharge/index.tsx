@@ -74,6 +74,7 @@ import type {
 import { PROVIDER_CONFIGS } from "../../types";
 import { deriveSubmittedRechargeType } from "@/shared/utils/rechargeLabels";
 import { cryptoAmounts } from "../../utils/cryptoAmounts";
+import { buildCryptoServiceFields } from "../../utils/cryptoServiceFields";
 import { toTelecomHistoryRow } from "../../utils/telecomHistoryRow";
 
 // Fix round 1 (major, rule 25 — render-loop): a stable, module-level empty
@@ -465,6 +466,16 @@ export default function MobileRecharge() {
       lbpBalance: number;
     }>;
   } | null>(null);
+
+  // Shop-day 2026-10-16: the Top-Up modal opens on the click and refreshes
+  // the drawer balances inside it (it used to wait for them first, so the
+  // button looked dead for seconds). `topUpDrawersRequestRef` drops a late
+  // answer once the modal was closed or re-opened.
+  const [topUpDrawersLoading, setTopUpDrawersLoading] = useState(false);
+  const [topUpDrawersError, setTopUpDrawersError] = useState<string | null>(
+    null,
+  );
+  const topUpDrawersRequestRef = useRef(0);
 
   // Alfa credit sell rate for "Only Days" returned credits calculation
   const [alfaCreditSellRate, setAlfaCreditSellRate] = useState(100000);
@@ -886,6 +897,7 @@ export default function MobileRecharge() {
 
     const clientResult = await ensureRechargeClient({
       clientId: telecomClientId,
+      inSession: !!activeSession,
       name: telecomClientName,
       phone: telecomClientPhone,
       paymentLines,
@@ -1122,6 +1134,40 @@ export default function MobileRecharge() {
     telecomExtra,
   ]);
 
+  const refreshTopUpDrawers = useCallback(async (destinationDrawer: string) => {
+    const requestId = ++topUpDrawersRequestRef.current;
+    setTopUpDrawersLoading(true);
+    setTopUpDrawersError(null);
+    try {
+      const drawers = await apiRef.current.getRechargeDrawerBalances();
+      if (topUpDrawersRequestRef.current !== requestId) return;
+      setDrawerBalances(drawers ?? []);
+      // Functional update: a modal closed meanwhile (null) stays closed.
+      setTopUpData((prev) =>
+        prev && prev.destinationDrawer === destinationDrawer
+          ? {
+              ...prev,
+              availableDrawers: (drawers ?? []).filter(
+                (d) => d.name !== destinationDrawer,
+              ),
+            }
+          : prev,
+      );
+    } catch (error) {
+      if (topUpDrawersRequestRef.current !== requestId) return;
+      // LIRA-247: show the real reason; shop-day: inside the modal, with
+      // Retry, instead of a blocking alert.
+      logger.error("Failed to load drawer balances:", error);
+      setTopUpDrawersError(
+        getApiErrorMessage(error, "Failed to load drawer balances"),
+      );
+    } finally {
+      if (topUpDrawersRequestRef.current === requestId) {
+        setTopUpDrawersLoading(false);
+      }
+    }
+  }, []);
+
   const handleTopUpClick = useCallback(async () => {
     if (!activeProvider) return;
 
@@ -1170,26 +1216,18 @@ export default function MobileRecharge() {
       type: provider,
     } = config;
 
-    try {
-      const drawers = await api.getRechargeDrawerBalances();
-      const availableDrawers = drawers.filter(
+    // Open now with the balances the page already holds; fresh ones follow.
+    setTopUpData({
+      provider,
+      destinationDrawer,
+      defaultSourceDrawer,
+      availableDrawers: drawerBalances.filter(
         (d) => d.name !== destinationDrawer,
-      );
-
-      setTopUpData({
-        provider,
-        destinationDrawer,
-        defaultSourceDrawer,
-        availableDrawers,
-      });
-      setShowTopUpModal(true);
-    } catch (error) {
-      // LIRA-247: a thrown ApiError used to be discarded in favor of this
-      // hardcoded string.
-      logger.error("Failed to load drawer balances:", error);
-      alert(getApiErrorMessage(error, "Failed to load drawer balances"));
-    }
-  }, [activeProvider, api]);
+      ),
+    });
+    setShowTopUpModal(true);
+    await refreshTopUpDrawers(destinationDrawer);
+  }, [activeProvider, drawerBalances, refreshTopUpDrawers]);
 
   const handleTopUpConfirm = useCallback(
     async (data: {
@@ -1387,6 +1425,7 @@ export default function MobileRecharge() {
 
     const clientResult = await ensureRechargeClient({
       clientId: telecomClientId,
+      inSession: !!activeSession,
       name: telecomClientName,
       phone: telecomClientPhone,
       paymentLines,
@@ -1606,6 +1645,7 @@ export default function MobileRecharge() {
 
     const clientResult = await ensureRechargeClient({
       clientId: cryptoClientId,
+      inSession: !!activeSession,
       name: cryptoClientName,
       phone: cryptoClientPhone,
       // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too,
@@ -1624,6 +1664,19 @@ export default function MobileRecharge() {
     if (resolvedCryptoClientId && resolvedCryptoClientId !== cryptoClientId) {
       setCryptoClientId(resolvedCryptoClientId);
     }
+
+    // Bug #4 / rule 22: ONE set of fields for the basket item and the
+    // direct send — the custom time included in both.
+    const cryptoServiceFields = buildCryptoServiceFields({
+      cryptoType,
+      amount,
+      commission,
+      clientId: resolvedCryptoClientId,
+      clientName: cryptoClientName,
+      reference: cryptoDescription,
+      detailFields: cryptoDetailFields,
+      transactionTime: cryptoTransactionTime,
+    });
 
     // If session is active, add to cart instead of submitting
     if (activeSession) {
@@ -1646,17 +1699,10 @@ export default function MobileRecharge() {
         amount: isSend ? amount + fee : -(amount - fee),
         currency: "USD",
         ipcChannel: "financial:create",
-        formData: {
-          provider: "BINANCE",
-          serviceType: cryptoType,
-          amount,
-          currency: "USDT",
-          clientId: resolvedCryptoClientId || undefined,
-          clientName: cryptoClientName,
-          referenceNumber: cryptoDescription,
-          commission: fee,
-          ...cryptoDetailFields,
-        },
+        // Bug #4: the SAME fields as the direct send below — the time
+        // picked on the form included (`commission` = fee here: no
+        // discount inside a session).
+        formData: cryptoServiceFields,
       });
 
       // Reset form
@@ -1681,21 +1727,13 @@ export default function MobileRecharge() {
     setIsSubmitting(true);
     try {
       const result = await api.addOMTTransaction({
-        provider: "BINANCE",
-        serviceType: cryptoType,
         // The GROSS wallet amount with the fee-included toggle already
         // folded in (computed above) — the repo contract. The raw input
         // (`parseFloat(cryptoAmount)`) here made a fee-on-top RECEIVE book
         // a payout `fee` short of what the sheet collected, and a
         // fee-included SEND overcharge the books by `fee` — the session
         // cart path above always used the folded value.
-        amount,
-        currency: "USDT",
-        clientId: resolvedCryptoClientId || undefined,
-        clientName: cryptoClientName,
-        referenceNumber: cryptoDescription,
-        commission,
-        ...cryptoDetailFields,
+        ...cryptoServiceFields,
         paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
         payments: useCryptoStructuredPayments
           ? toCamelLegs(cryptoPaymentLines, cryptoChangeLegs)
@@ -1749,7 +1787,6 @@ export default function MobileRecharge() {
               kept_change_lbp: cryptoKeptChange.lbp,
             }
           : {}),
-        transaction_time: cryptoTransactionTime,
       });
 
       // LIRA-247: `addOMTTransaction` can RESOLVE `{success:false, error}`
@@ -2402,6 +2439,10 @@ export default function MobileRecharge() {
         <TopUpModal
           isOpen={showTopUpModal}
           onClose={() => {
+            // Any balances request still in flight is now stale.
+            topUpDrawersRequestRef.current += 1;
+            setTopUpDrawersLoading(false);
+            setTopUpDrawersError(null);
             setShowTopUpModal(false);
             setTopUpData(null);
             setTopUpPartnerId(null);
@@ -2448,6 +2489,11 @@ export default function MobileRecharge() {
           allDrawers={topUpData.availableDrawers}
           destinationDrawer={topUpData.destinationDrawer}
           defaultSourceDrawer={topUpData.defaultSourceDrawer}
+          drawersLoading={topUpDrawersLoading}
+          drawersError={topUpDrawersError}
+          onRetryDrawers={() =>
+            void refreshTopUpDrawers(topUpData.destinationDrawer)
+          }
         />
       )}
 

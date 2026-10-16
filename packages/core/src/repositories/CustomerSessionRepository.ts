@@ -295,6 +295,8 @@ export class CustomerSessionRepository {
     profitUsd: number = 0,
     profitLbp: number = 0,
     unifiedTransactionId: number | null = null,
+    /** Bug #4 — a backdated checkout's time (SQLite UTC text). */
+    createdAt?: string,
   ): void {
     const insert = this.db.prepare(`
       INSERT INTO ${this.transactionsTableName} (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, created_at)
@@ -310,7 +312,7 @@ export class CustomerSessionRepository {
       amountLbp,
       profitUsd,
       profitLbp,
-      requestNow(), // LIRA-306 FR-021
+      createdAt ?? requestNow(), // LIRA-306 FR-021
     );
   }
 

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import type { DatabaseResetPreview } from "@liratek/core";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { ResetDataModal } from "./ResetDataModal";
 
 /**
@@ -165,32 +166,52 @@ function groupCounts(
   return rows;
 }
 
+/** After this long without a preview the panel offers Retry (seed run
+ *  2026-10-16: a stalled request left the button disabled with no way out). */
+const RESET_PREVIEW_SLOW_MS = 10_000;
+
 export function ResetDataPanel() {
   const api = useApi();
+  // rule 25: read through a ref so `load` keeps one identity.
+  const apiRef = useRef(api);
+  apiRef.current = api;
   const [preview, setPreview] = useState<DatabaseResetPreview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [slow, setSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  // Only the newest request may update the panel (Retry can overlap a
+  // stalled one).
+  const requestRef = useRef(0);
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function load() {
+  const load = useCallback(async () => {
+    const requestId = ++requestRef.current;
     setLoading(true);
+    setSlow(false);
     setError(null);
     try {
-      const data = await api.getDatabaseResetPreview();
+      const data = await apiRef.current.getDatabaseResetPreview();
+      if (requestRef.current !== requestId) return;
       setPreview(data);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load reset preview",
-      );
+      if (requestRef.current !== requestId) return;
+      // The web transport throws a plain { status, message } object, not an
+      // Error — getApiErrorMessage reads both.
+      setError(getApiErrorMessage(err, "Failed to load reset preview"));
     } finally {
-      setLoading(false);
+      if (requestRef.current === requestId) setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!loading) return;
+    const timer = window.setTimeout(() => setSlow(true), RESET_PREVIEW_SLOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
 
   const groups = preview ? groupCounts(preview.counts) : [];
 
@@ -254,9 +275,38 @@ export function ResetDataPanel() {
           What will be removed
         </h3>
         {loading ? (
-          <div className="text-sm text-slate-400">Loading preview...</div>
+          <div className="text-sm text-slate-400">
+            Loading preview...
+            {slow && (
+              <span
+                data-testid="reset-data-slow"
+                className="ml-2 inline-flex items-center gap-2"
+              >
+                This is taking longer than usual.
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs"
+                >
+                  Retry
+                </button>
+              </span>
+            )}
+          </div>
         ) : error ? (
-          <div className="text-sm text-red-400">{error}</div>
+          <div
+            data-testid="reset-data-error"
+            className="flex items-center gap-3 text-sm text-red-400"
+          >
+            <span>Could not load the preview: {error}</span>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs"
+            >
+              Retry
+            </button>
+          </div>
         ) : (
           <div
             data-testid="reset-data-preview"

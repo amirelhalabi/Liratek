@@ -1206,6 +1206,54 @@ describe("TransactionRepository.refundSessionBasketItem (LIRA-232 phase 1)", () 
     expect(clientNetDebtUsd(db, clientId)).toBeCloseTo(0, 6);
   });
 
+  // Shop-day 2026-10-16 — the summary names the product, not the sale-item
+  // id ("1x sale item #9"), the same way a POS item refund does (one helper,
+  // rule 14). Rule 17: seen failing first ("1x sale item #<id>").
+  it("summary: a single-line refund names the product", () => {
+    const sessionId = seedSession();
+    const { txnId, itemIds } = sellIntoSession(sessionId, null, [
+      { name: "iPhone 15 128GB", price: 700, cost: 690 },
+      { name: "USB-C cable", price: 7, cost: 3 },
+    ]);
+    payCash(sessionId, 707);
+
+    const result = txnRepo.refundSessionBasketItem({
+      sessionId,
+      transactionId: txnId,
+      saleItemId: itemIds[1],
+      quantity: 1,
+      userId: USER_ID,
+    });
+    const { summary } = db
+      .prepare(`SELECT summary FROM transactions WHERE id = ?`)
+      .get(result.refundTransactionId) as { summary: string };
+    expect(summary).toMatch(
+      /^SESSION ITEM REFUND: 1x USB-C cable from Sale #\d+$/,
+    );
+  });
+
+  it("summary: refunding every remaining line names each product", () => {
+    const clientId = seedClient();
+    const sessionId = seedSession();
+    const { txnId } = sellIntoSession(sessionId, clientId, [
+      { name: "iPhone", price: 1500, cost: 1300 },
+      { name: "testpart", price: 15, cost: 10 },
+    ]);
+    payAccount(sessionId, 1515, clientId);
+
+    const result = txnRepo.refundSessionBasketItem({
+      sessionId,
+      transactionId: txnId,
+      userId: USER_ID,
+    });
+    const { summary } = db
+      .prepare(`SELECT summary FROM transactions WHERE id = ?`)
+      .get(result.refundTransactionId) as { summary: string };
+    expect(summary).toMatch(
+      /^SESSION ITEM REFUND: 1x iPhone, 1x testpart from Sale #\d+$/,
+    );
+  });
+
   // ── Refusals ──────────────────────────────────────────────────────────
   it("refuses a payout/prize/kept-change member (owner decision #4)", () => {
     const sessionId = seedSession();

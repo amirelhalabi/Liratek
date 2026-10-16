@@ -1459,6 +1459,10 @@ function KatshFormInner({
           currency: billCurrency,
           commission: 0,
           paidByMethod: "CASH",
+          // Bug #4: the time picked on the form, as on a bill paid alone.
+          ...(transactionTime !== undefined
+            ? { transaction_time: transactionTime }
+            : {}),
         },
       });
       setBillAmount("");
@@ -1566,6 +1570,7 @@ function KatshFormInner({
 
     const clientResult = await ensureRechargeClient({
       clientId,
+      inSession: !!activeSession,
       name: clientName,
       phone: clientPhone,
       // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too.
@@ -1593,6 +1598,8 @@ function KatshFormInner({
       const client = {
         clientId: resolvedClientId,
         ...(clientName ? { clientName } : {}),
+        // Bug #4: the time picked on the form, as on a walk-in sale.
+        transactionTime,
       };
       for (const entry of basketEntries(pricedLines)) {
         addToSessionCart({

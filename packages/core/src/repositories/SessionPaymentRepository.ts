@@ -40,6 +40,8 @@ export interface InsertSessionLegInput {
   amount: number;
   note: string;
   userId: number;
+  /** Bug #4 — a backdated checkout's time (SQLite UTC text). Omitted = now. */
+  createdAt?: string;
 }
 
 export interface InsertBasketDebtInput {
@@ -54,6 +56,9 @@ export interface InsertBasketDebtInput {
   coveredUsd?: number;
   coveredLbp?: number;
   userId: number;
+  /** Bug #4 — a backdated checkout's time (SQLite UTC text); the due date
+   *  is 30 days after it. Omitted = now. */
+  createdAt?: string;
 }
 
 export interface SessionSaleRow {
@@ -160,6 +165,7 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
       note: input.note,
       createdBy: input.userId,
       tenantId: getCurrentTenantId(),
+      createdAt: input.createdAt,
     });
   }
 
@@ -188,7 +194,7 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
    * ._coverServiceDebtsFIFO), which releases the basket items' profit.
    */
   insertBasketDebt(input: InsertBasketDebtInput): void {
-    const now = requestNow();
+    const now = input.createdAt ?? requestNow();
     this.db
       .prepare(
         `INSERT INTO debt_ledger (

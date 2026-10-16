@@ -57,7 +57,6 @@ import {
   OMT_COMMISSION_RATES,
   INTRA_FEE_TIERS,
   WESTERN_UNION_FEE_TIERS,
-  WHISH_FEE_TIERS,
   lookupOmtFee,
   lookupIntraLbpFee,
   isForPartnerPayload,
@@ -461,6 +460,14 @@ export default function Services() {
     isNonCashMethod(paidByMethod) &&
     provider !== "WHISH";
 
+  // The single-line payment-method fee the customer pays on top — ONE value
+  // for both the payment box total (`sendCustomerTotal` below) and the
+  // payload's `paymentMethodFee` (handleSubmit), so they cannot disagree
+  // (rule 14). Shop-day bug 2026-10-16: the box total left it out, so a
+  // wallet-paid $100 INTRA send carried a $101 leg next to a $1 fee and core
+  // refused it ("expected $102.00 … got $101.00").
+  const singlePmFee = pmFeeApplies ? parseFloat(pmFeeAmount) || 0 : 0;
+
   // For multi-payment: PM fee applies on SEND transactions
   const multiPmFeeApplies =
     serviceType === "SEND" && isSplitPayment && provider !== "WHISH";
@@ -568,6 +575,14 @@ export default function Services() {
         ? parseFloat(amount) || 0
         : (parseFloat(amount) || 0) + renderProviderFee
       : 0;
+
+  // What the walk-in customer pays on a SEND, the payment box's total: the
+  // send total plus the single-line payment-method fee. With "including
+  // fees" ticked the entered amount already IS the budget (the fee is
+  // back-calculated out of it in handleSubmit), so nothing is added. A split
+  // payment adds each line's fee to its own leg instead (`multiPmFees`).
+  // Not used for the For-Partner notice: a partner send has no PM fee.
+  const sendCustomerTotal = sendPayoutTotal + (includingFees ? 0 : singlePmFee);
 
   // Shop-owner-facing provider name for the For-Partner SEND notice
   // ("Whish", not the "WHISH" code). Provider is only ever OMT | WHISH here.
@@ -963,8 +978,11 @@ export default function Services() {
 
     setIsSubmitting(true);
     try {
-      // Save as client if checkbox is checked
-      await trySaveAsClient();
+      // Save as client if checkbox is checked. The id it returns rides the
+      // payload (rule 11), and the choice itself does too: unchecked tells
+      // the server NOT to create a client from the name + phone (shop-day
+      // 2026-10-16 — it used to create one anyway).
+      const savedClient = await trySaveAsClient();
 
       const amtVal = parseFloat(amount) || 0;
 
@@ -1065,16 +1083,12 @@ export default function Services() {
       // 2026-10-07; the repository refuses them).
       const changeLegs = serviceType === "RECEIVE" ? [] : returnLegs;
 
-      // Determine PM fee for non-cash single payments on SEND
-      const activePmFeeApplies =
-        serviceType === "SEND" &&
-        !isSplitPayment &&
-        isNonCashMethod(paidByMethod);
+      // Determine PM fee for non-cash single payments on SEND — the same
+      // render-time value the payment box total includes (rule 14).
+      const activePmFeeApplies = pmFeeApplies;
 
       // PM fee: user-entered USD amount (auto-filled at 1% but fully editable)
-      const resolvedPmFee = activePmFeeApplies
-        ? parseFloat(pmFeeAmount) || 0
-        : 0;
+      const resolvedPmFee = singlePmFee;
       // Derive rate for backend audit storage (pmFee / sentAmount)
       const resolvedPmFeeRate =
         resolvedPmFee > 0 && amtVal > 0
@@ -1113,14 +1127,14 @@ export default function Services() {
               (sentAmount * resolvedPmFeeRate).toFixed(2),
             );
           } else {
+            // No WHISH arm: a payment-method fee never applies to a Whish
+            // system send (`pmFeeApplies`), so this branch is OMT-only.
             const feeTiers =
               provider === "OMT" && omtServiceType === "INTRA"
                 ? INTRA_FEE_TIERS
                 : provider === "OMT" && omtServiceType === "WESTERN_UNION"
                   ? WESTERN_UNION_FEE_TIERS
-                  : provider === "WHISH"
-                    ? WHISH_FEE_TIERS
-                    : null;
+                  : null;
 
             if (feeTiers) {
               // Use the pmFee rate derived from user input for the back-calculation
@@ -1185,6 +1199,8 @@ export default function Services() {
         ...(serviceType === "SEND"
           ? { clientName: senderName, phoneNumber: senderPhone }
           : { clientName: receiverName, phoneNumber: receiverPhone }),
+        ...(savedClient.clientId ? { clientId: savedClient.clientId } : {}),
+        saveAsClient,
         ...(referenceNumber ? { referenceNumber } : {}),
         // New sender/receiver fields
         senderName,
@@ -1489,6 +1505,7 @@ export default function Services() {
     effectiveRate,
     pmFeeAmount,
     pmFeeApplies,
+    singlePmFee,
     multiPmFees,
     multiPmFeeApplies,
     note,
@@ -1502,6 +1519,7 @@ export default function Services() {
     linkTransaction,
     addToSessionCart,
     loadData,
+    saveAsClient,
     trySaveAsClient,
     resetSaveAsClient,
     submitOMTPayload,
@@ -2507,7 +2525,7 @@ export default function Services() {
                         //   RECEIVE instead of the netted-down figure.
                         amount:
                           serviceType === "SEND"
-                            ? sendPayoutTotal
+                            ? sendCustomerTotal
                             : includingFees
                               ? Math.max(
                                   0,
@@ -2568,9 +2586,13 @@ export default function Services() {
                     // (data-testid="service-receive-fee-breakdown"), and the
                     // payout total this sheet reconciles against is already
                     // fee-netted via `totals` above.
+                    // Everything on top of the send amount — the provider fee
+                    // plus the single-line payment-method fee the total above
+                    // now carries — so the box's "Send Amount" (total − this)
+                    // still reads the amount sent.
                     providerFee={
                       serviceType === "SEND" && !includingFees
-                        ? renderProviderFee
+                        ? renderProviderFee + singlePmFee
                         : 0
                     }
                     paymentMethods={

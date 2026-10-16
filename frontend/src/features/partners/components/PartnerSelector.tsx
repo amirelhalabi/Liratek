@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Users } from "lucide-react";
 import type { Partner } from "@/types/electron";
 import logger from "@/utils/logger";
@@ -33,14 +33,45 @@ export function PartnerSelector({
   systemFilter,
 }: PartnerSelectorProps): React.ReactElement | null {
   const [allPartners, setAllPartners] = useState<Partner[]>([]);
+  // Shop-day 2026-10-16: an empty list used to mean three different things —
+  // still loading, the request failed, or the shop really has no partners —
+  // and all three rendered "No partners available. Add a partner first."
+  // (seen on Mobile Recharge while GET /api/partners had 4 active partners).
+  // Only a SUCCESSFUL load may claim there are none.
+  const [loadState, setLoadState] = useState<"loading" | "error" | "loaded">(
+    "loading",
+  );
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const api = useApi();
+  // Rule 25: read `api` through a ref so an unstable adapter identity can
+  // never re-fire the fetch (see FeatureFlagContext.tsx).
+  // Synced in an effect (not during render) — declared before the fetch
+  // effect, so it has already run when that effect reads it.
+  const apiRef = useRef(api);
+  useEffect(() => {
+    apiRef.current = api;
+  });
 
   useEffect(() => {
-    api.partners
+    let cancelled = false;
+    apiRef.current.partners
       .getAll(false)
-      .then(setAllPartners)
-      .catch((err: unknown) => logger.error("Failed to load partners:", err));
-  }, [api]);
+      .then((list: Partner[]) => {
+        if (cancelled) return;
+        setAllPartners(Array.isArray(list) ? list : []);
+        setLoadState("loaded");
+      })
+      .catch((err: unknown) => {
+        logger.error("Failed to load partners:", err);
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : String(err));
+        setLoadState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
 
   // Filter by system association if specified
   const partners = systemFilter
@@ -68,6 +99,38 @@ export function PartnerSelector({
   }, [partners, selectedPartnerId, onSelect]);
 
   if (!required && partners.length === 0) return null;
+
+  if (required && loadState === "loading") {
+    return (
+      <div className={`flex items-center gap-2 ${className}`}>
+        <Users size={16} className="text-slate-400" />
+        <span className="text-xs text-slate-400">Loading partners…</span>
+      </div>
+    );
+  }
+
+  if (required && loadState === "error") {
+    return (
+      <div className={`flex items-center gap-2 ${className}`}>
+        <Users size={16} className="text-red-400" />
+        <span className="text-xs text-red-400 font-medium">
+          Couldn&apos;t load partners
+          {loadError ? `: ${loadError}` : ""}.
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            setLoadState("loading");
+            setLoadError(null);
+            setReloadKey((k) => k + 1);
+          }}
+          className="text-xs font-semibold text-orange-400 hover:text-orange-300 underline"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (required && partners.length === 0) {
     const systemLabel = systemFilter ? ` with ${systemFilter} system` : "";

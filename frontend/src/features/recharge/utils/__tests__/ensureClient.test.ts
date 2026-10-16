@@ -34,6 +34,7 @@ describe("ensureRechargeClient", () => {
     });
     const result = await ensureRechargeClient({
       clientId: 42,
+      inSession: false,
       name: "Nour",
       phone: "03999888",
       paymentLines: [cashLine(100)],
@@ -48,6 +49,7 @@ describe("ensureRechargeClient", () => {
     });
     const result = await ensureRechargeClient({
       clientId: null,
+      inSession: false,
       name: "",
       phone: "",
       paymentLines: [cashLine(100)],
@@ -60,6 +62,7 @@ describe("ensureRechargeClient", () => {
     mockClientsCreate(() => ({ success: true, id: 1 }));
     const result = await ensureRechargeClient({
       clientId: null,
+      inSession: false,
       name: "",
       phone: "",
       paymentLines: [debtLine(100)],
@@ -72,6 +75,7 @@ describe("ensureRechargeClient", () => {
     const create = mockClientsCreate(() => ({ success: true, id: 1 }));
     const result = await ensureRechargeClient({
       clientId: null,
+      inSession: false,
       name: "Nour",
       phone: "",
       paymentLines: [debtLine(100)],
@@ -84,6 +88,7 @@ describe("ensureRechargeClient", () => {
     const create = mockClientsCreate(() => ({ success: true, id: 77 }));
     const result = await ensureRechargeClient({
       clientId: null,
+      inSession: false,
       name: " Nour ",
       phone: " 03 999 888 ",
       paymentLines: [debtLine(100)],
@@ -104,6 +109,7 @@ describe("ensureRechargeClient", () => {
     }));
     const result = await ensureRechargeClient({
       clientId: null,
+      inSession: false,
       name: "Nour",
       phone: "03999888",
       paymentLines: [debtLine(100)],
@@ -120,6 +126,7 @@ describe("ensureRechargeClient", () => {
     }));
     const result = await ensureRechargeClient({
       clientId: null,
+      inSession: false,
       name: "Nour",
       phone: "03999888",
       paymentLines: [cashLine(100)],
@@ -133,6 +140,7 @@ describe("ensureRechargeClient", () => {
     });
     const result = await ensureRechargeClient({
       clientId: null,
+      inSession: false,
       name: "Nour",
       phone: "03999888",
       paymentLines: [debtLine(100)],
@@ -148,10 +156,48 @@ describe("ensureRechargeClient", () => {
     });
     const result = await ensureRechargeClient({
       clientId: null,
+      inSession: false,
       name: "Nour",
       phone: "03999888",
       paymentLines: [cashLine(100)],
     });
     expect(result).toEqual({ ok: true, id: null });
+  });
+
+  // Shop-day 2026-10-16: inside a customer session every add-to-cart fired a
+  // client create for the session customer, who was registered when the
+  // session started — a 409 DUPLICATE_PHONE on every add. The session owns the
+  // customer: the server stamps the session client on every basket item at
+  // checkout, and the basket collects payment there, so the form's payment
+  // lines (even a stale Customer Account line) are not this call's concern.
+  it("in a customer session, never creates a client and never blocks on Customer Account", async () => {
+    const create = mockClientsCreate(() => ({
+      success: false,
+      error: "Phone number already registered",
+    }));
+    const result = await ensureRechargeClient({
+      clientId: null,
+      inSession: true,
+      name: "Samir Aoun",
+      phone: "70998811",
+      paymentLines: [debtLine(100)],
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, id: null });
+  });
+
+  it("in a customer session, still keeps a client the cashier picked", async () => {
+    const create = mockClientsCreate(() => {
+      throw new Error("should not be called");
+    });
+    const result = await ensureRechargeClient({
+      clientId: 42,
+      inSession: true,
+      name: "Samir Aoun",
+      phone: "70998811",
+      paymentLines: [cashLine(100)],
+    });
+    expect(result).toEqual({ ok: true, id: 42 });
+    expect(create).not.toHaveBeenCalled();
   });
 });

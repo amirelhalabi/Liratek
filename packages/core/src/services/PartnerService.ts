@@ -19,7 +19,10 @@ import {
 } from "../repositories/index.js";
 import { NotFoundError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
-import { partnerSettlementNet } from "../validators/partner.js";
+import {
+  partnerSettlementMethod,
+  partnerSettlementNet,
+} from "../validators/partner.js";
 
 const partnerLogger = logger.child({ module: "partner" });
 
@@ -319,8 +322,13 @@ export class PartnerService {
           direction,
           notes: data.notes,
           user_id: data.userId,
-          settlement_method:
-            data.settlementMethod as CreateLedgerEntryData["settlement_method"],
+          // Shop-day bug 2026-10-16: the legs decide the method (a Cash +
+          // Whish split was stored as the page's first-leg 'CASH'); the
+          // sent settlementMethod only counts when there are no legs.
+          settlement_method: partnerSettlementMethod(
+            data.payments,
+            data.settlementMethod,
+          ) as CreateLedgerEntryData["settlement_method"],
         });
 
         // PFT-6b (owner-approved 2026-07-14): a settlement moves REAL money —

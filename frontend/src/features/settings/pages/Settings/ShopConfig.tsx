@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import logger from "@/utils/logger";
 import { appEvents, useApi, DecimalInput, Select } from "@liratek/ui";
 import { Printer, Wallet } from "lucide-react";
@@ -6,6 +6,7 @@ import clsx from "clsx";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { invalidateShopInfo } from "@/hooks/useShopName";
 import { Link } from "react-router-dom";
+import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   WARRANTY_TERMS_MAX_LENGTH,
   WARRANTY_TERMS_SETTING_KEY,
@@ -36,15 +37,26 @@ export default function ShopConfig() {
   const [barcodePrinter, setBarcodePrinter] = useState("");
 
   const [isLoading, setIsLoading] = useState(false);
+  // Seed run 2026-10-16: a failed read used to fall through to a BLANK form
+  // (saving it would overwrite the real settings) and a stalled one showed
+  // "Loading..." forever. Now: the reason + Retry, and Retry when slow.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadSlow, setLoadSlow] = useState(false);
+  const loadRequestRef = useRef(0);
   const [isSaving, setIsSaving] = useState(false);
   const [alfaCreditCost, setAlfaCreditCost] = useState("85000");
   const [alfaCreditSellRate, setAlfaCreditSellRate] = useState("100000");
   const [marginAlertThreshold, setMarginAlertThreshold] = useState("100000");
 
   const load = async () => {
+    const requestId = ++loadRequestRef.current;
     setIsLoading(true);
+    setLoadError(null);
+    setLoadSlow(false);
     try {
       const settings = await api.getAllSettings();
+      // A Retry overlapping a stalled read: only the newest one applies.
+      if (loadRequestRef.current !== requestId) return;
       const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
       setShopName((map.get("shop_name") as string) || "");
       setShopPhone((map.get("shop_phone") as string) || "");
@@ -85,8 +97,12 @@ export default function ShopConfig() {
           logger.error("Failed to fetch system printers", { error: e });
         }
       }
+    } catch (e) {
+      if (loadRequestRef.current !== requestId) return;
+      logger.error("Failed to load shop settings", { error: e });
+      setLoadError(getApiErrorMessage(e, "Failed to load settings"));
     } finally {
-      setIsLoading(false);
+      if (loadRequestRef.current === requestId) setIsLoading(false);
     }
   };
 
@@ -190,9 +206,52 @@ export default function ShopConfig() {
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (isLoading) return <div className="text-slate-400">Loading...</div>;
+  useEffect(() => {
+    if (!isLoading) return;
+    const timer = window.setTimeout(() => setLoadSlow(true), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [isLoading]);
+
+  if (isLoading)
+    return (
+      <div className="text-slate-400">
+        Loading...
+        {loadSlow && (
+          <span
+            data-testid="shop-config-slow"
+            className="ml-2 inline-flex items-center gap-2 text-sm"
+          >
+            This is taking longer than usual.
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs"
+            >
+              Retry
+            </button>
+          </span>
+        )}
+      </div>
+    );
+  if (loadError)
+    return (
+      <div
+        data-testid="shop-config-load-error"
+        className="flex items-center gap-3 text-sm text-red-400"
+      >
+        <span>Could not load the shop settings: {loadError}</span>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs"
+        >
+          Retry
+        </button>
+      </div>
+    );
 
   return (
     <div className="space-y-6">

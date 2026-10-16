@@ -18,6 +18,7 @@ import {
 import { paymentMethodToDrawerName } from "../utils/payments.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
+import { partnerSettlementMethod } from "../validators/partner.js";
 import {
   applyDrawerDelta,
   cashierRateStamp,
@@ -250,7 +251,14 @@ export interface CreateLedgerEntryData {
   direction: "DEBIT" | "CREDIT";
   notes?: string;
   user_id?: number;
-  settlement_method?: "CASH" | "OMT" | "WHISH" | "BINANCE" | "CLIENT_ACCOUNT";
+  settlement_method?:
+    | "CASH"
+    | "OMT"
+    | "WHISH"
+    | "BINANCE"
+    | "CLIENT_ACCOUNT"
+    /** More than one method across the legs (v219). */
+    | "SPLIT";
   /** PFT-7b: force settlement FIFO coverage for a non-SETTLEMENT row (a
    *  cash-moved manual entry) — profit realizes when real money moves. */
   applyCoverage?: boolean;
@@ -631,14 +639,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
     // `counterparty.method`) reflects what ACTUALLY moved money — the
     // legs' methods when present (collapsing to 'SPLIT' when they're mixed),
     // falling back to the legacy `method` when `legs` is omitted.
-    const legMethods = legs
-      ? new Set(legs.filter((l) => l.direction !== "OUT").map((l) => l.method))
-      : null;
-    const effectiveMethod = legMethods
-      ? legMethods.size > 1
-        ? "SPLIT"
-        : [...legMethods][0]
-      : method;
+    const effectiveMethod = partnerSettlementMethod(legs, method);
 
     // LIRA-329 — the bundled discount as typed (partner_ledger is one
     // currency per row: only the settlement currency's side counts).

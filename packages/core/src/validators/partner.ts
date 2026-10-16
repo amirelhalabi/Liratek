@@ -97,6 +97,23 @@ export function partnerSettlementNet(
   );
 }
 
+/** Shop-day bug 2026-10-16 — the method a settlement's legs actually used:
+ *  the one method every IN leg uses, or 'SPLIT' when they differ (change
+ *  (OUT) legs never count). `fallback` (the sent `settlementMethod`) when
+ *  there are no IN legs. The ONE definition (rule 14) for both the
+ *  partner_ledger row (PartnerService.settle) and the PARTNER_SETTLEMENT
+ *  transaction (PartnerRepository.recordSettlementMoneyMovement). */
+export function partnerSettlementMethod(
+  legs: ReadonlyArray<{ method: string; direction?: "IN" | "OUT" }> | undefined,
+  fallback: string,
+): string {
+  const methods = new Set(
+    (legs ?? []).filter((l) => l.direction !== "OUT").map((l) => l.method),
+  );
+  if (methods.size === 0) return fallback;
+  return methods.size > 1 ? "SPLIT" : [...methods][0];
+}
+
 // Settle a partner balance (money — writes a SETTLEMENT partner_ledger entry;
 // direction is computed server-side from the current balance).
 export const partnerSettleSchema = z

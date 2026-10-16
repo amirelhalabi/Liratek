@@ -1378,7 +1378,8 @@ CREATE TABLE IF NOT EXISTS partner_ledger (
     direction TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
     notes TEXT,
     user_id INTEGER REFERENCES users(id),
-    settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT')),
+    -- v219: SPLIT = paid with more than one method
+    settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT', 'SPLIT')),
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     -- PFT-6: settlement coverage applied FIFO to FOR_% rows (v128)
     covered_amount REAL NOT NULL DEFAULT 0
@@ -3146,4 +3147,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (217, 'supplier_settlement_coverage'),
     -- v218 (LIRA-324) adds mobile_service_items.cost_usd / sell_usd and fills
     -- Whish App USD prices for shops that already have a catalog.
-    (218, 'whish_app_usd_prices');
+    (218, 'whish_app_usd_prices'),
+    -- v219 allows 'SPLIT' in partner_ledger.settlement_method (declared above).
+    (219, 'partner_ledger_split_settlement_method');

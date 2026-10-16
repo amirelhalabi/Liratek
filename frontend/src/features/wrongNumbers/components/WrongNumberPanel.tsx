@@ -21,7 +21,10 @@ import {
   type CarrierLineEntity,
   type MobileServiceItemEntity,
 } from "@liratek/ui";
-import type { RecordWrongNumberInput, WrongNumberCardItem } from "@liratek/core";
+import type {
+  RecordWrongNumberInput,
+  WrongNumberCardItem,
+} from "@liratek/core";
 import { localDay } from "@/shared/utils/localDay";
 import logger from "@/utils/logger";
 import type { WrongNumberProviderCode } from "@/features/audit/actionGating";
@@ -64,9 +67,19 @@ export function WrongNumberPanel({
   const [lineId, setLineId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // Shop-day 2026-10-16: a slow card list used to read as "No MTC or Alfa
+  // card" with no sign of loading, and a failed one stayed that way. Bumping
+  // `reloadKey` (Retry) re-runs the load.
+  const [loadState, setLoadState] = useState<"loading" | "error" | "ready">(
+    "loading",
+  );
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoadState("loading");
+    setLoadError("");
     (async () => {
       try {
         const [items, active, sold] = await Promise.all([
@@ -86,14 +99,22 @@ export function WrongNumberPanel({
         setSoldCard(sold);
         setCardId(sold ? sold.id : (defaultCardFor(own, saleText)?.id ?? null));
         setLines(Array.isArray(active) ? active : []);
+        setLoadState("ready");
       } catch (err) {
         logger.error("Failed to load wrong-number cards", err);
+        if (cancelled) return;
+        setLoadError(
+          err instanceof Error && err.message
+            ? err.message
+            : "Could not load the cards.",
+        );
+        setLoadState("error");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [provider, saleText, saleTransactionId]);
+  }, [provider, saleText, saleTransactionId, reloadKey]);
 
   const card: Pick<
     WrongNumberCardItem,
@@ -152,7 +173,9 @@ export function WrongNumberPanel({
       onDone(res.data.id);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not record the wrong number.",
+        err instanceof Error
+          ? err.message
+          : "Could not record the wrong number.",
       );
     } finally {
       setSaving(false);
@@ -171,7 +194,31 @@ export function WrongNumberPanel({
         {PROVIDER_LABELS[provider]} balance.
       </p>
 
-      {soldCard ? (
+      {loadState === "loading" && (
+        <p
+          data-testid="wrong-number-loading"
+          className="text-sm text-slate-400"
+        >
+          Loading cards...
+        </p>
+      )}
+      {loadState === "error" && (
+        <div
+          data-testid="wrong-number-load-error"
+          className="flex items-center justify-between gap-2 text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded"
+        >
+          <span>Could not load the cards: {loadError}</span>
+          <button
+            type="button"
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-xs"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {loadState !== "ready" ? null : soldCard ? (
         <div>
           <span className="text-xs text-slate-400 block mb-1">
             Card that was sent
@@ -186,39 +233,47 @@ export function WrongNumberPanel({
           </p>
         </div>
       ) : (
-      <div>
-        <label htmlFor="wn-card" className="text-xs text-slate-400 block mb-1">
-          Card that was sent
-        </label>
-        <select
-          id="wn-card"
-          value={cardId ?? ""}
-          onChange={(e) => setCardId(Number(e.target.value) || null)}
-          className={inputClass}
-        >
-          {cards.length === 0 && (
-            <option value="">No MTC or Alfa card from {PROVIDER_LABELS[provider]}</option>
-          )}
-          {cards.map((c) => (
-            <option key={c.id} value={c.id}>
-              {carrierLabel(c.category)} {c.label} — {lbp(c.cost_lbp)}
-            </option>
-          ))}
-        </select>
-        {saleTransactionId !== undefined && (
-          <p
-            data-testid="wrong-number-pick-hint"
-            className="text-xs text-slate-500 mt-1"
+        <div>
+          <label
+            htmlFor="wn-card"
+            className="text-xs text-slate-400 block mb-1"
           >
-            Pick the card that was sent.
-          </p>
-        )}
-      </div>
+            Card that was sent
+          </label>
+          <select
+            id="wn-card"
+            value={cardId ?? ""}
+            onChange={(e) => setCardId(Number(e.target.value) || null)}
+            className={inputClass}
+          >
+            {cards.length === 0 && (
+              <option value="">
+                No MTC or Alfa card from {PROVIDER_LABELS[provider]}
+              </option>
+            )}
+            {cards.map((c) => (
+              <option key={c.id} value={c.id}>
+                {carrierLabel(c.category)} {c.label} — {lbp(c.cost_lbp)}
+              </option>
+            ))}
+          </select>
+          {saleTransactionId !== undefined && (
+            <p
+              data-testid="wrong-number-pick-hint"
+              className="text-xs text-slate-500 mt-1"
+            >
+              Pick the card that was sent.
+            </p>
+          )}
+        </div>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label htmlFor="wn-wrong" className="text-xs text-slate-400 block mb-1">
+          <label
+            htmlFor="wn-wrong"
+            className="text-xs text-slate-400 block mb-1"
+          >
             Wrong number (optional)
           </label>
           <input
@@ -230,7 +285,10 @@ export function WrongNumberPanel({
           />
         </div>
         <div>
-          <label htmlFor="wn-right" className="text-xs text-slate-400 block mb-1">
+          <label
+            htmlFor="wn-right"
+            className="text-xs text-slate-400 block mb-1"
+          >
             Customer's right number
           </label>
           <input
@@ -255,7 +313,10 @@ export function WrongNumberPanel({
       {creditsCame && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label htmlFor="wn-credits" className="text-xs text-slate-400 block mb-1">
+            <label
+              htmlFor="wn-credits"
+              className="text-xs text-slate-400 block mb-1"
+            >
               Credits that arrived ($)
             </label>
             <input
@@ -269,7 +330,10 @@ export function WrongNumberPanel({
             />
           </div>
           <div>
-            <label htmlFor="wn-line" className="text-xs text-slate-400 block mb-1">
+            <label
+              htmlFor="wn-line"
+              className="text-xs text-slate-400 block mb-1"
+            >
               On shop line
             </label>
             <select
@@ -309,7 +373,7 @@ export function WrongNumberPanel({
       <div className="flex gap-2">
         <button
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || loadState !== "ready"}
           className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded text-sm"
         >
           {saving ? "Saving..." : "Record wrong number"}

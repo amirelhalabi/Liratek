@@ -7,16 +7,16 @@ import {
   MultiPaymentInput,
   type PaymentLine,
 } from "@liratek/ui";
-import {
-  HOLD_MONEY_METHODS,
-  HOLD_PICKUP_EPSILON,
-  holdPickupKeptPerCurrency,
-} from "@liratek/core";
+import { HOLD_PICKUP_EPSILON, holdPickupKeptPerCurrency } from "@liratek/core";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { toHoldMoneyLegs } from "@/utils/paymentUtils";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import {
+  holdMoneyLegsHaveMethods,
+  holdMoneyMethodOptions,
+} from "./holdMoneyMethods";
 
 /** Shape shared by every Hold Money list/active/collect read — the fields
  *  this sheet actually needs. A structural subset so both HoldMoneySection
@@ -77,11 +77,10 @@ export function HoldMoneyPickupSheet({
   // customer account, no gift card. HOLD_MONEY_METHODS is the SAME allow-
   // list the server enforces (packages/core/src/validators/holdMoney.ts),
   // imported rather than re-typed (rule 14).
+  // Cash alone while the list loads, so the dropdown is never empty
+  // (shop-day 2026-10-16).
   const allowedMethods = useMemo(
-    () =>
-      methods.filter((m) =>
-        (HOLD_MONEY_METHODS as readonly string[]).includes(m.code),
-      ),
+    () => holdMoneyMethodOptions(methods),
     [methods],
   );
 
@@ -122,8 +121,11 @@ export function HoldMoneyPickupSheet({
     returnUsd < hold.remaining_usd - EPS_USD ||
     returnLbp < hold.remaining_lbp - EPS_LBP;
 
+  // Never submit a leg with an empty / unoffered method.
   const canSubmit =
-    !isSubmitting && (returnUsd > EPS_USD || returnLbp > EPS_LBP);
+    !isSubmitting &&
+    (returnUsd > EPS_USD || returnLbp > EPS_LBP) &&
+    holdMoneyLegsHaveMethods(paymentLines, allowedMethods);
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -227,8 +229,8 @@ export function HoldMoneyPickupSheet({
               Amount to Return
             </span>
             <p className="text-[11px] text-slate-500">
-              Defaults to the full remaining balance — lower either field for
-              a partial pickup.
+              Defaults to the full remaining balance — lower either field for a
+              partial pickup.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -242,9 +244,7 @@ export function HoldMoneyPickupSheet({
                   id="pickup-usd"
                   value={returnUsd}
                   onChange={(v) =>
-                    setReturnUsd(
-                      Math.max(0, Math.min(v, hold.remaining_usd)),
-                    )
+                    setReturnUsd(Math.max(0, Math.min(v, hold.remaining_usd)))
                   }
                   decimals={2}
                   className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
@@ -263,9 +263,7 @@ export function HoldMoneyPickupSheet({
                   id="pickup-lbp"
                   value={returnLbp}
                   onChange={(v) =>
-                    setReturnLbp(
-                      Math.max(0, Math.min(v, hold.remaining_lbp)),
-                    )
+                    setReturnLbp(Math.max(0, Math.min(v, hold.remaining_lbp)))
                   }
                   className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
                   placeholder="0"
@@ -296,9 +294,8 @@ export function HoldMoneyPickupSheet({
               onChange={setPaymentLines}
               {...(pickupCurrency
                 ? {
-                    onKeptChange: (
-                      k: { usd: number; lbp: number } | null,
-                    ) => setKeptChange(k ? { usd: k.usd, lbp: k.lbp } : null),
+                    onKeptChange: (k: { usd: number; lbp: number } | null) =>
+                      setKeptChange(k ? { usd: k.usd, lbp: k.lbp } : null),
                   }
                 : {})}
               showDiscount={false}

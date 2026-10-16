@@ -133,15 +133,23 @@ export function billPricedLine(bill: BasketBill): PricedLine {
   };
 }
 
-/** Stamp the resolved walk-in client on every sub-item. */
+/** Stamp the resolved walk-in client — and, for a customer-session item,
+ *  the "Set custom time" picked on the form (bug #4) — on every sub-item. */
 export function withClient(
   subItems: BasketSubItem[],
-  client: { clientId?: number | null | undefined; clientName?: string },
+  client: {
+    clientId?: number | null | undefined;
+    clientName?: string;
+    transactionTime?: string | undefined;
+  },
 ): BasketSubItem[] {
   return subItems.map((s) => ({
     ...s,
     ...(client.clientId ? { clientId: client.clientId } : {}),
     ...(client.clientName ? { clientName: client.clientName } : {}),
+    ...(client.transactionTime
+      ? { transaction_time: client.transactionTime }
+      : {}),
   }));
 }
 

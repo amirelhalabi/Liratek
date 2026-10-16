@@ -50,6 +50,7 @@ import {
 } from "../validators/common.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import { toSqliteUtc } from "../utils/requestNow.js";
 import {
   TRANSACTION_DETAILS_VERSION,
   type TransactionDetails,
@@ -111,6 +112,10 @@ export interface CheckoutRequest {
    *  (`resolveBasketExtra`) before anything is written. */
   extra_usd?: number;
   extra_lbp?: number;
+  /** Bug #4 — the time the cashier set on the checkout window (ISO). Every
+   *  row this checkout writes carries it; an item's own `transaction_time`
+   *  (set when it was added) wins for that item. Absent = now. */
+  transaction_time?: string;
   userId: number;
 }
 
@@ -209,11 +214,20 @@ export function processCartItem(
   userId: number,
   /** LIRA-329: the session whose basket payment covers this item. */
   sessionId?: number,
+  /** Bug #4: the checkout's backdated time — used only when the item has
+   *  no time of its own (the item's wins). */
+  checkoutTime?: string,
 ): ProcessedItem {
   const data = { ...item.formData, deferPayment: true } as Record<
     string,
     unknown
   >;
+  // Bug #4: the item goes through its own module's `transaction_time` path
+  // (and that module's own "not in the future" check), exactly as when it
+  // is sold on its own.
+  if (checkoutTime && !data.transaction_time) {
+    data.transaction_time = checkoutTime;
+  }
   // LIRA-329 (T022, T037): every item's transaction says which session paid
   // for it (`details.paid_in_session`, and the session on its payment
   // snapshot). Server-injected for EVERY channel, like `deferPayment` —
@@ -393,6 +407,7 @@ function processBatchCartItem(
   exchangeRate: number | undefined,
   userId: number,
   sessionId?: number,
+  checkoutTime?: string,
 ): ProcessedItem[] {
   const results: ProcessedItem[] = [];
   const items = item.formData.items as Array<Record<string, unknown>>;
@@ -403,7 +418,15 @@ function processBatchCartItem(
   }
   for (const subItem of items) {
     const subCartItem: CheckoutCartItem = { ...item, formData: subItem };
-    results.push(processCartItem(subCartItem, exchangeRate, userId, sessionId));
+    results.push(
+      processCartItem(
+        subCartItem,
+        exchangeRate,
+        userId,
+        sessionId,
+        checkoutTime,
+      ),
+    );
   }
   return results;
 }
@@ -587,10 +610,29 @@ export class SessionCheckoutService {
         extra_lbp,
         paidByMethod,
       } = request;
+      // Bug #4: the checkout's backdated time (blank = none).
+      const checkoutTime = request.transaction_time?.trim() || undefined;
 
       if (!cartItems || cartItems.length === 0) {
         return { success: false, error: "Cart is empty" };
       }
+      if (checkoutTime) {
+        const t = new Date(checkoutTime);
+        if (isNaN(t.getTime())) {
+          return { success: false, error: "Invalid transaction_time format" };
+        }
+        if (t > new Date()) {
+          return {
+            success: false,
+            error: "transaction_time cannot be in the future",
+          };
+        }
+      }
+      // The same instant in the stored `YYYY-MM-DD HH:MM:SS` UTC form, for
+      // the basket's payment lines, debt row and session links.
+      const checkoutStamp = checkoutTime
+        ? toSqliteUtc(checkoutTime)
+        : undefined;
 
       const sessionResult =
         await this.sessionService.getSessionDetails(sessionId);
@@ -760,6 +802,7 @@ export class SessionCheckoutService {
                 exchangeRate,
                 userId,
                 sessionId,
+                checkoutTime,
               );
               const batchItems = item.formData.items as
                 | Array<Record<string, unknown>>
@@ -806,6 +849,7 @@ export class SessionCheckoutService {
                   subProfitUsd,
                   subProfitLbp,
                   unifiedId,
+                  checkoutStamp,
                 );
                 itemResults.push({
                   cartItemId: item.id,
@@ -820,6 +864,7 @@ export class SessionCheckoutService {
                 exchangeRate,
                 userId,
                 sessionId,
+                checkoutTime,
               );
 
               if (
@@ -867,6 +912,7 @@ export class SessionCheckoutService {
                 itemProfitUsd,
                 itemProfitLbp,
                 unifiedId,
+                checkoutStamp,
               );
 
               itemResults.push({
@@ -928,6 +974,8 @@ export class SessionCheckoutService {
             source_table: "customer_sessions",
             source_id: sessionId,
             user_id: userId,
+            // Bug #4: the checkout's backdated time (absent = now).
+            transaction_time: checkoutTime,
             amount_usd: extra.usd,
             amount_lbp: extra.lbp,
             profit_usd: 0,
@@ -969,6 +1017,7 @@ export class SessionCheckoutService {
             0,
             0,
             extraTxnId,
+            checkoutStamp,
           );
           checkoutTotalUsd += extra.usd;
           checkoutTotalLbp += extra.lbp;
@@ -998,6 +1047,7 @@ export class SessionCheckoutService {
               feeOnTopReceiveFsIds,
               keptChange: claimsKept ? keptClaim : null,
               waived: claimsWaived ? waivedClaim : null,
+              ...(checkoutTime ? { transactionTime: checkoutTime } : {}),
             },
           );
           keptUsd = basket.keptUsd;
@@ -1033,6 +1083,8 @@ export class SessionCheckoutService {
             source_table: "customer_sessions",
             source_id: sessionId,
             user_id: userId,
+            // Bug #4: the checkout's backdated time (absent = now).
+            transaction_time: checkoutTime,
             amount_usd: 0,
             amount_lbp: 0,
             profit_usd: keptUsd,
@@ -1091,6 +1143,7 @@ export class SessionCheckoutService {
             keptUsd,
             keptLbp,
             keptTxnId,
+            checkoutStamp,
           );
         }
 
@@ -1106,6 +1159,8 @@ export class SessionCheckoutService {
             source_table: "customer_sessions",
             source_id: sessionId,
             user_id: userId,
+            // Bug #4: the checkout's backdated time (absent = now).
+            transaction_time: checkoutTime,
             amount_usd: 0,
             amount_lbp: 0,
             profit_usd: -waivedUsd,
@@ -1144,9 +1199,13 @@ export class SessionCheckoutService {
             -waivedUsd,
             -waivedLbp,
             waivedTxnId,
+            checkoutStamp,
           );
         }
 
+        // Bug #4: the session's own close time stays the real time — it
+        // records when the session window was closed, not when the sale
+        // happened (the rows above carry the backdated time).
         repo.recordCheckoutClose(sessionId, {
           totalUsd: checkoutTotalUsd,
           totalLbp: checkoutTotalLbp,

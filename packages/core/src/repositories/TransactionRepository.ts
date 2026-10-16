@@ -5390,7 +5390,6 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       };
 
       if (isSaleMember) {
-        const saleItemIds = lines.map((l) => l.saleItemId).join(", ");
         refundTxnId = this.createTransaction({
           type: TRANSACTION_TYPES.REFUND,
           source_table: original.source_table,
@@ -5414,10 +5413,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
             originalTransactionId: transactionId,
             refundUnitExtras: input.unitExtras,
           }),
-          summary:
-            lines.length === 1
-              ? `SESSION ITEM REFUND: ${lines[0].quantity}x sale item #${lines[0].saleItemId} from Sale #${saleId}`
-              : `SESSION ITEM REFUND: sale items [${saleItemIds}] from Sale #${saleId}`,
+          // Shop-day 2026-10-16: the product's name, as the POS item
+          // refund writes it (one helper, rule 14), not "sale item #<id>".
+          summary: `SESSION ITEM REFUND: ${lines
+            .map((l) =>
+              getSalesRepository().saleItemRefundLabel(
+                l.saleItemId,
+                l.quantity,
+              ),
+            )
+            .join(", ")} from Sale #${saleId}`,
           metadata_json: {
             refundType: "sessionItem",
             sessionId,

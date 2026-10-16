@@ -78,7 +78,11 @@ import {
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { bookForgivenShortfallSibling } from "./forgivenShortfall.js";
-import { formatMoneyAmount } from "../utils/formatMoney.js";
+import {
+  buildFinancialServiceSummary,
+  financialServicePrimaryParty,
+  providerDisplayLabel,
+} from "../utils/financialServiceSummary.js";
 import { catalogItemLabelFromKey } from "../utils/catalogSale.js";
 import {
   walletReceiveAmounts,
@@ -433,6 +437,10 @@ export interface CreateFinancialServiceData {
   clientName?: string;
   referenceNumber?: string;
   phoneNumber?: string;
+  /** The Services page's "Save as client" choice: `false` = never create a
+   *  client from the name + phone (an existing one is still linked by
+   *  phone). Absent = auto-create, as before. */
+  saveAsClient?: boolean;
   senderName?: string;
   senderPhone?: string;
   receiverName?: string;
@@ -1025,7 +1033,12 @@ export interface ProviderStats {
 
 export interface CurrencyStats {
   currency: string;
+  /** Realized commission, in THIS row's currency. */
   commission: number;
+  /** Not-yet-settled commission (commission_model 0), in THIS row's
+   *  currency — the per-currency side of the USD-only top-level
+   *  `pending_commission` (shop-day bug 2026-10-16). */
+  pending_commission: number;
   count: number;
   /** @see ProviderStats.awaiting_settlement_count — same count, scoped to
    *  this currency instead of this provider. */
@@ -1057,6 +1070,10 @@ export interface CurrencyStats {
  */
 export interface FinancialServiceAnalytics {
   today: {
+    /** USD ONLY. Each row's commission is in its own currency, so the
+     *  scalar never adds currencies together (shop-day bug 2026-10-16: it
+     *  read 317851.43 = LBP + USDT). Every currency, USD included, is in
+     *  `byCurrency`. Same for `pending_commission` and the `month` bucket. */
     commission: number;
     pending_commission: number;
     count: number;
@@ -1075,25 +1092,6 @@ export interface FinancialServiceAnalytics {
     byCurrency: CurrencyStats[];
   };
   byProvider: ProviderStats[];
-}
-
-/**
- * Operator-facing provider label for item/bill summaries and Service Debt
- * notes — the raw "WHISH_APP"/"OMT_APP" enums read like codes next to
- * iPick/Katsh. Transfer summaries and ledger matching keep the raw enum
- * (e2e specs and existing rows match on "WHISH_APP SEND: …").
- */
-function providerDisplayLabel(
-  provider: CreateFinancialServiceData["provider"],
-): string {
-  switch (provider) {
-    case "WHISH_APP":
-      return "Whish App";
-    case "OMT_APP":
-      return "OMT App";
-    default:
-      return provider;
-  }
 }
 
 /**
@@ -2730,14 +2728,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
       // Resolve primary client ID: look up by phone number if not provided
       let resolvedPrimaryClientId = primaryClientId;
-      const primaryPhone =
-        data.serviceType === "SEND"
-          ? data.senderPhone || data.phoneNumber
-          : data.receiverPhone || data.phoneNumber;
-      const primaryName =
-        data.serviceType === "SEND"
-          ? data.senderName || data.clientName
-          : data.receiverName || data.clientName;
+      // The row's customer — ONE rule shared with the History edit.
+      const { phone: primaryPhone, name: primaryName } =
+        financialServicePrimaryParty(data);
 
       if (!resolvedPrimaryClientId && primaryName) {
         if (primaryPhone) {
@@ -2749,8 +2742,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             .get(primaryPhone, tenantId) as { id: number } | undefined;
           if (existing) {
             resolvedPrimaryClientId = existing.id;
-          } else {
-            // Auto-create client with phone
+          } else if (data.saveAsClient !== false) {
+            // Auto-create client with phone — unless the page said not to
+            // ("Save as client" unchecked, shop-day 2026-10-16). Callers
+            // that never offer the choice send nothing and keep this.
             const insertResult = this.db
               .prepare(
                 `INSERT INTO clients (full_name, phone_number, notes, tenant_id, created_at)
@@ -2979,88 +2974,21 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             : null,
         ...(serviceDetails ? { details: serviceDetails } : {}),
         ...(transferSnapshot ? { payment_snapshot: transferSnapshot } : {}),
-        summary: (() => {
-          // iPick/Katsh: a catalog item purchase or bill payment, not a
-          // sender/receiver transfer — surface the selected item(s)
-          // (category + label, via `data.note`) or call out a bill payment
-          // explicitly, instead of the generic provider+amount line below.
-          const isKatshLike =
-            data.provider === "iPick" || data.provider === "Katsh";
-          // Wallet-provider catalog items (Whish App / OMT App grid sales)
-          // are cost/price rows, not transfers — they get the same item-style
-          // line. Real transfers never send cost > 0 (OmtWhishAppTransferForm),
-          // so useCostPriceFlow cleanly separates the two; without this a
-          // Whish App item sale read "WHISH_APP SEND: 150000 LBP (+30,383 LBP
-          // fee)" — a transfer line whose "fee" was actually the item margin.
-          const isItemSale = useCostPriceFlow && !!note;
-          // Friendly provider label for the item/bill lines only; the generic
-          // transfer line below keeps the raw enum (see providerDisplayLabel).
-          const providerLabel = providerDisplayLabel(data.provider);
-          // D1.1 (owner: "show the cash that crossed the counter"): a plain
-          // OMT/WHISH SEND's summary spells out the split the gross row
-          // amount (`unifiedAmount`, set above) now folds together — e.g.
-          // "OMT SEND: <name> — $100 (95 transfer + 5 fee)" for the
-          // fee-included worked example (ticket's own illustration wrote the
-          // headline as "100 USD"; this reuses `formatMoneyAmount`
-          // (moneyPosting.ts's shared stored-summary-string formatter, rule
-          // 14 — its own doc comment: "use this instead of a Nth hand-rolled
-          // copy") for the headline figure instead of a fourth hand-rolled
-          // `$${n}` / `${n.toLocaleString()} LBP` ternary in this same
-          // function, so the "$100" vs "100 USD" surface form is a
-          // deliberate, flagged deviation from the ticket's literal string —
-          // see this ticket's report). `data.amount` is always the
-          // transfer-only portion in both fee modes (see `unifiedAmount`'s
-          // doc comment above), so the breakdown needs no `includingFees`
-          // branch either. Gated on `resolvedProviderFee > 0` — a zero-fee
-          // transfer keeps the plain pre-existing line, matching every
-          // fee-less test fixture in this file untouched.
-          const genericTransferLine = (): string => {
-            const namePrefix = primaryName ? `${primaryName} — ` : "";
-            if (isPlainSystemSend && resolvedProviderFee > 0) {
-              return (
-                `${data.provider} ${data.serviceType}: ${namePrefix}` +
-                `${formatMoneyAmount(unifiedAmount, currency)} ` +
-                `(${data.amount.toLocaleString()} transfer + ${resolvedProviderFee.toLocaleString()} fee)`
-              );
-            }
-            return `${data.provider} ${data.serviceType}: ${namePrefix}${data.amount} ${currency}`;
-          };
-          let head =
-            isKatshLike && data.serviceType === "BILL"
-              ? `${providerLabel} Bill: ${data.amount} ${currency}`
-              : (isKatshLike || isItemSale) && note
-                ? `${providerLabel}: ${note} — ${data.amount} ${currency}`
-                : genericTransferLine();
-
-          // Wallet transfers (Binance / OMT App / Whish App): the fee the shop
-          // charges on top is the commission — surface it, otherwise the audit
-          // row reads "20 USD" while the customer was charged 22 and the fee
-          // is invisible anywhere in the table. Cost/price rows are excluded:
-          // there the commission is the price − cost margin already inside the
-          // amount the customer paid, not a fee on top.
-          const isWalletProviderTransfer =
-            data.provider === "BINANCE" ||
-            data.provider === "OMT_APP" ||
-            data.provider === "WHISH_APP";
-          if (isWalletProviderTransfer && !useCostPriceFlow && commission > 0) {
-            const fmtFee =
-              currency === "LBP"
-                ? `${Math.round(commission).toLocaleString()} LBP`
-                : `$${commission}`;
-            head += ` (+${fmtFee} fee)`;
-          }
-
-          // When the customer paid in a currency different from the service-denominated
-          // currency, surface that on the audit row so it's visible at a glance.
-          if (paidCurrency && paidAmount != null && paidCurrency !== currency) {
-            const fmtPaid =
-              paidCurrency === "LBP"
-                ? `${Math.round(paidAmount).toLocaleString()} LBP`
-                : `$${paidAmount.toFixed(2)}`;
-            return `${head} (paid ${fmtPaid})`;
-          }
-          return head;
-        })(),
+        // ONE summary builder shared with the History edit (rules 14/31 —
+        // `updateMetadata` rewrites this line when a name is corrected).
+        summary: buildFinancialServiceSummary({
+          provider: data.provider,
+          serviceType: data.serviceType,
+          amount: data.amount,
+          currency,
+          primaryName,
+          providerFee: resolvedProviderFee,
+          useCostPriceFlow,
+          note,
+          commission,
+          paidAmount,
+          paidCurrency,
+        }),
         metadata_json: {
           provider: data.provider,
           service_type: data.serviceType,
@@ -6118,13 +6046,19 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       "financial_services",
       supported,
     );
+    // Shop-day bug 2026-10-16: the top-level commission scalars are USD
+    // only — a row's commission is in its own `currency`, so summing across
+    // currencies added LBP and USDT into one meaningless figure. ONE
+    // fragment for all four scalar sums (rule 14); per-currency figures live
+    // in `byCurrency`.
+    const usdOnly = "currency = 'USD'";
 
     // Today's totals — split realized (settled) vs pending
     const todayStats = this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as today_commission,
-          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as today_pending,
+          COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} AND ${usdOnly} THEN commission ELSE 0 END), 0) as today_commission,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} AND ${usdOnly} THEN commission ELSE 0 END), 0) as today_pending,
           COUNT(*) as today_count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as today_awaiting_settlement_count
         FROM financial_services
@@ -6143,6 +6077,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         `SELECT
           currency,
           COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as commission,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as pending_commission,
           COUNT(*) as count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
@@ -6155,8 +6090,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     const monthStats = this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as month_commission,
-          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as month_pending,
+          COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} AND ${usdOnly} THEN commission ELSE 0 END), 0) as month_commission,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} AND ${usdOnly} THEN commission ELSE 0 END), 0) as month_pending,
           COUNT(*) as month_count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as month_awaiting_settlement_count
         FROM financial_services
@@ -6175,6 +6110,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         `SELECT
           currency,
           COALESCE(SUM(CASE WHEN is_settled = 1 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as commission,
+          COALESCE(SUM(CASE WHEN is_settled = 0 AND ${modelZeroOnly} THEN commission ELSE 0 END), 0) as pending_commission,
           COUNT(*) as count,
           COALESCE(SUM(CASE WHEN is_settled = 0 AND ${awaitingSettlement} THEN 1 ELSE 0 END), 0) as awaiting_settlement_count
         FROM financial_services
@@ -6275,13 +6211,203 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     values.push(editedBy);
     values.push(id, getCurrentTenantId());
 
+    // Bug #6 / rule 31: the edit is the update owner of every copy the
+    // create path made — the row and its transaction change together.
+    return this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE financial_services SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(...values);
+
+      const updated = this.findById(id);
+      if (updated) this.syncEditedCopiesToTransaction(existing, updated);
+      return updated;
+    })();
+  }
+
+  /**
+   * Bug #6 (rule 31) — after a History edit, bring the transaction's copies
+   * of the edited fields in step with the `financial_services` row:
+   *  - its client name and phone (the row's customer: the sender on a SEND,
+   *    the receiver otherwise — `financialServicePrimaryParty`), unless it is
+   *    a For-Partner row (labelled with the partner) or a row whose client
+   *    columns are not a copy of that customer;
+   *  - the sender / receiver / customer and note in its details, built by
+   *    the kind's own builder from the edited values (only those keys are
+   *    replaced — everything else in the details is kept as saved);
+   *  - its summary, rebuilt by the create path's own builder
+   *    (`buildFinancialServiceSummary`).
+   * Only the ORIGINAL row is touched (voided or not): a void's or refund's
+   * reversal row (`reverses_id` set) records the transaction as it stood at
+   * that moment and is left alone.
+   */
+  private syncEditedCopiesToTransaction(
+    before: FinancialServiceEntity,
+    after: FinancialServiceEntity,
+  ): void {
+    const tenantId = getCurrentTenantId();
+    const row = this.db
+      .prepare(
+        `SELECT id, client_name, client_phone, summary, metadata_json
+           FROM transactions
+          WHERE source_table = 'financial_services' AND source_id = ?
+            AND type = ? AND reverses_id IS NULL AND tenant_id = ?
+          ORDER BY id LIMIT 1`,
+      )
+      .get(after.id, TRANSACTION_TYPES.FINANCIAL_SERVICE, tenantId) as
+      | {
+          id: number;
+          client_name: string | null;
+          client_phone: string | null;
+          summary: string | null;
+          metadata_json: string | null;
+        }
+      | undefined;
+    if (!row) return;
+
+    const partyOf = (e: FinancialServiceEntity) =>
+      financialServicePrimaryParty({
+        serviceType: e.service_type,
+        senderName: e.sender_name,
+        senderPhone: e.sender_phone,
+        receiverName: e.receiver_name,
+        receiverPhone: e.receiver_phone,
+        clientName: e.client_name,
+        phoneNumber: e.phone_number,
+      });
+    const oldParty = partyOf(before);
+    const newParty = partyOf(after);
+
+    let metadata: Record<string, unknown> = {};
+    try {
+      metadata = row.metadata_json
+        ? (JSON.parse(row.metadata_json) as Record<string, unknown>)
+        : {};
+    } catch {
+      metadata = {};
+    }
+
+    // Details: replace only the edited people / note, built by the kind's
+    // own builder (one definition of each field's shape and of the
+    // placeholder note that is not saved).
+    const details = metadata.details as
+      | (Record<string, unknown> & { kind?: string })
+      | undefined;
+    let nextDetails: Record<string, unknown> | undefined;
+    const edited: CreateFinancialServiceData = {
+      provider: after.provider,
+      serviceType: after.service_type,
+      amount: after.amount,
+      currency: after.currency,
+      commission: after.commission,
+      senderName: after.sender_name ?? undefined,
+      senderPhone: after.sender_phone ?? undefined,
+      receiverName: after.receiver_name ?? undefined,
+      receiverPhone: after.receiver_phone ?? undefined,
+      clientName: after.client_name ?? undefined,
+      phoneNumber: after.phone_number ?? undefined,
+      note: after.note ?? undefined,
+    } as CreateFinancialServiceData;
+    const replaceKeys = (
+      base: Record<string, unknown>,
+      rebuilt: Record<string, unknown>,
+      keys: readonly string[],
+    ): Record<string, unknown> => {
+      const out: Record<string, unknown> = { ...base };
+      for (const k of keys) {
+        if (rebuilt[k] === undefined) delete out[k];
+        else out[k] = rebuilt[k];
+      }
+      return out;
+    };
+    if (details?.kind === "omt_whish_transfer") {
+      nextDetails = replaceKeys(
+        details,
+        buildOmtWhishTransferDetails(edited, undefined) as unknown as Record<
+          string,
+          unknown
+        >,
+        ["sender", "receiver", "note"],
+      );
+    } else if (details?.kind === "wallet_transfer") {
+      nextDetails = replaceKeys(
+        details,
+        buildWalletTransferDetails(edited, {}) as unknown as Record<
+          string,
+          unknown
+        >,
+        ["counterparty", "note"],
+      );
+    }
+
+    // Client columns: a copy of the row's customer (never a partner label).
+    const isForPartner = after.partner_mode === "FOR" && !!after.partner_id;
+    const columnsAreCopy =
+      !isForPartner &&
+      (details !== undefined ||
+        (row.client_name ?? null) === (oldParty.name ?? null));
+    const clientName = columnsAreCopy
+      ? (newParty.name ?? null)
+      : row.client_name;
+    const clientPhone = columnsAreCopy
+      ? newParty.name
+        ? (newParty.phone ?? null)
+        : null
+      : row.client_phone;
+
+    // Summary: rebuilt by the create path's builder — but only when that
+    // builder reproduces the saved line from the row as it was (a row
+    // written by an older format is left as it reads).
+    const summaryOf = (
+      e: FinancialServiceEntity,
+      party: { name: string | undefined },
+    ) =>
+      buildFinancialServiceSummary({
+        provider: e.provider,
+        serviceType: e.service_type,
+        amount: e.amount,
+        currency: e.currency,
+        primaryName: party.name,
+        providerFee:
+          e.provider === "OMT"
+            ? (e.omt_fee ?? 0)
+            : e.provider === "WHISH"
+              ? (e.whish_fee ?? 0)
+              : 0,
+        useCostPriceFlow: (e.cost ?? 0) > 0,
+        note: e.note,
+        commission: e.commission,
+        paidAmount: e.paid_amount,
+        paidCurrency: e.paid_currency,
+      });
+    let summary = row.summary;
+    if (row.summary !== null && summaryOf(before, oldParty) === row.summary) {
+      summary = summaryOf(after, newParty);
+    } else if (row.summary !== null) {
+      financialLogger.warn(
+        { financialServiceId: after.id, transactionId: row.id },
+        "History edit: summary not in the current format — left unchanged",
+      );
+    }
+
+    const nextMetadata =
+      nextDetails !== undefined ? { ...metadata, details: nextDetails } : null;
     this.db
       .prepare(
-        `UPDATE financial_services SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        `UPDATE transactions
+            SET client_name = ?, client_phone = ?, summary = ?,
+                metadata_json = COALESCE(?, metadata_json)
+          WHERE id = ? AND tenant_id = ?`,
       )
-      .run(...values);
-
-    return this.findById(id);
+      .run(
+        clientName,
+        clientPhone,
+        summary,
+        nextMetadata ? JSON.stringify(nextMetadata) : null,
+        row.id,
+        tenantId,
+      );
   }
 }
 

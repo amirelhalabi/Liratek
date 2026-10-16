@@ -50,6 +50,7 @@ import {
   type SessionSaleRow,
 } from "../repositories/SessionPaymentRepository.js";
 import { getDebtService } from "./DebtService.js";
+import { toSqliteUtc } from "../utils/requestNow.js";
 import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
@@ -152,6 +153,10 @@ export interface RecordBasketPaymentInput {
   // (No FOR-partner flag: owner decision 2026-10-07 — a basket holding a
   // FOR-partner item may keep change; the item's own partner posting is
   // unaffected and kept change stays drawer-funded via resolveKeptChange.)
+  /** Bug #4 — the checkout's backdated time (ISO, as the client sent it):
+   *  the basket's payment lines, debt row and account credit carry it so a
+   *  backdated checkout lands on ONE day. Omitted = now. */
+  transactionTime?: string;
 }
 
 /** LIRA-258 / G17 — `allocateBasketAccountDebt`'s sales-first split. */
@@ -510,6 +515,11 @@ export class SessionPaymentService {
   ): RecordBasketPaymentResult {
     const { legs, exchangeRate, userId } = input;
     const rate = exchangeRate > 0 ? exchangeRate : 1;
+    // Bug #4: the backdated time in the stored `YYYY-MM-DD HH:MM:SS` UTC
+    // form, for the payment lines and the debt row (absent = now).
+    const backdatedAt = input.transactionTime
+      ? toSqliteUtc(input.transactionTime)
+      : undefined;
 
     // Resolve the session's client for the debt / store-credit entry.
     const sessionClientId =
@@ -683,6 +693,10 @@ export class SessionPaymentService {
             note: `Session #${sessionId} basket`,
             userId,
             sessionId,
+            // Bug #4: a backdated checkout's credit lands on its day.
+            ...(input.transactionTime
+              ? { transactionTime: input.transactionTime }
+              : {}),
           });
         } else {
           // IN on account = customer charges the basket to their account (debt).
@@ -716,6 +730,7 @@ export class SessionPaymentService {
           amount: signed,
           note: isOut ? outNote : "Basket payment",
           userId,
+          createdAt: backdatedAt,
         });
         this.paymentRepo.postDrawerDelta(
           naturalDrawer,
@@ -766,6 +781,7 @@ export class SessionPaymentService {
               ? `${outNote} (primary-system item share)`
               : "Basket payment (primary-system item share)",
             userId,
+            createdAt: backdatedAt,
           });
           this.paymentRepo.postDrawerDelta(
             pcdDrawerName,
@@ -784,6 +800,7 @@ export class SessionPaymentService {
             amount: signed,
             note: isOut ? outNote : "Basket payment",
             userId,
+            createdAt: backdatedAt,
           });
           this.paymentRepo.postDrawerDelta("General", leg.currencyCode, signed);
         }
@@ -829,6 +846,7 @@ export class SessionPaymentService {
         coveredUsd: allocation.preCoveredUsd,
         coveredLbp: allocation.preCoveredLbp,
         userId,
+        createdAt: backdatedAt,
       });
       // LIRA-304: which items that debt belongs to ("OMT first").
       this.paymentRepo.writeBasketMemberOwed(sessionId, rate);

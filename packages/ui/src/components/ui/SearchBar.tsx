@@ -16,6 +16,13 @@ export interface SearchBarProps<T> {
   onSelect: (item: T) => void;
   /** Called when no results and user confirms free text */
   onFreeText?: (text: string) => void;
+  /**
+   * Called with the box's current text on every change (and with "" when it
+   * is cleared or a result is picked). Lets a form use typed-but-not-yet-
+   * committed text, e.g. as a description when the user submits without
+   * pressing Enter.
+   */
+  onQueryChange?: (text: string) => void;
   /** Render each result item in the dropdown */
   renderItem: (item: T) => React.ReactNode;
   /** Extract a unique key from each item */
@@ -43,6 +50,7 @@ export function SearchBar<T>({
   onSearch,
   onSelect,
   onFreeText,
+  onQueryChange,
   renderItem,
   getKey,
   minChars = 2,
@@ -99,6 +107,7 @@ export function SearchBar<T>({
 
   const handleChange = (value: string) => {
     setQuery(value);
+    onQueryChange?.(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (value.length >= minChars) {
       debounceRef.current = setTimeout(() => doSearch(value), debounceMs);
@@ -111,6 +120,7 @@ export function SearchBar<T>({
 
   const handleClear = () => {
     setQuery("");
+    onQueryChange?.("");
     setResults([]);
     setShowDropdown(false);
     setHasSearched(false);
@@ -119,6 +129,7 @@ export function SearchBar<T>({
   const handleSelect = (item: T) => {
     onSelect(item);
     setQuery("");
+    onQueryChange?.("");
     setResults([]);
     setShowDropdown(false);
     setHasSearched(false);

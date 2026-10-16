@@ -150,6 +150,12 @@ export const createFinancialServiceSchema = z
     receiverPhone: z.string().max(30).optional(),
     senderClientId: z.number().int().positive().optional(),
     receiverClientId: z.number().int().positive().optional(),
+    // Shop-day 2026-10-16: the Services page's "Save as client" choice.
+    // `false` = do not create a client from the name + phone (an existing
+    // client with that phone is still linked). Absent = the old behaviour
+    // (auto-create), for every caller that never offered the choice. No
+    // `.default()` on purpose (rule 22): absent must stay distinguishable.
+    saveAsClient: z.boolean().optional(),
     // LIRA-256 — the ONE type list (rule 14), not an inline copy.
     omtServiceType: z.enum(OMT_SERVICE_TYPES).optional(),
     itemKey: z.string().max(255).optional(),

@@ -281,6 +281,9 @@ export function LotoPage() {
     // Resolve client (creates one on-the-fly if name+phone entered without existing clientId)
     const clientResult = await ensureRechargeClient({
       clientId,
+      // Same condition as the session-basket branch below: a partner ticket
+      // submits directly, outside the basket.
+      inSession: !!activeSession && !forPartner,
       name: clientName,
       phone: clientPhone,
       // A partner ticket sends no payment legs at all (see `payments` below),

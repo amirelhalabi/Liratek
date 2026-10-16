@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { extraChargeFields } from "./common.js";
+import { extraChargeFields, transactionTimeSchema } from "./common.js";
 
 /**
  * Session checkout contract — the ONE basket payment envelope, shared by the
@@ -69,6 +69,12 @@ export const sessionCheckoutSchema = z
     // Verified server-side against the basket's own charge and booked as an
     // EXTRA_CHARGE row linked to the session (SessionCheckoutService).
     ...extraChargeFields,
+    // Bug #4 (TRANSACTION_DETAIL_AUDIT §3): the time the cashier set on the
+    // session checkout window (backdating). Applied by SessionCheckoutService
+    // to every row the checkout writes; an item that carries its own
+    // `transaction_time` keeps it. Absent = now (server clock fallback,
+    // rule 27).
+    transaction_time: transactionTimeSchema,
     userId: z.number().int(),
   })
   .passthrough();

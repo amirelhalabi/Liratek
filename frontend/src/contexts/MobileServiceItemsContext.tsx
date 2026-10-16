@@ -7,6 +7,7 @@ import React, {
   useMemo,
 } from "react";
 import { useApi } from "@liratek/ui";
+import { catalogItemKey } from "@liratek/core";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import type { MobileServiceItem } from "@/types/electron";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
@@ -60,6 +61,33 @@ interface VoucherImageRow {
   category: string;
   item_key: string;
   image_data: string;
+}
+
+// ─── DB row → ServiceItem ──────────────────────────────────────────────────
+
+/** One `mobile_service_items` row as the grid's `ServiceItem`. */
+export function toServiceItem(item: MobileServiceItem): ServiceItem {
+  return {
+    id: item.id,
+    // The ONE catalog key format (rule 14) — the same key the sale's
+    // details read the label back from (`catalogItemLabelFromKey`).
+    key: catalogItemKey(item),
+    provider: item.provider as ProviderKey,
+    category: item.category,
+    subcategory: item.subcategory,
+    label: item.label,
+    catalogCost: item.cost_lbp,
+    catalogSellPrice: item.sell_lbp,
+    sortOrder: item.sort_order,
+    ...(item.validity_days != null ? { validityDays: item.validity_days } : {}),
+    ...(item.credits != null ? { credits: item.credits } : {}),
+    // LIRA-090: days_cost_lbp enables the computed Only-Days split gate.
+    ...(item.days_cost_lbp != null
+      ? { days_cost_lbp: item.days_cost_lbp }
+      : {}),
+    ...(item.cost_usd != null ? { catalogCostUsd: item.cost_usd } : {}),
+    ...(item.sell_usd != null ? { catalogSellPriceUsd: item.sell_usd } : {}),
+  };
 }
 
 // ─── Sorting ───────────────────────────────────────────────────────────────
@@ -249,27 +277,7 @@ export function MobileServiceItemsProvider({
   }, [isAuthenticated, load]);
 
   const items = useMemo<ServiceItem[]>(() => {
-    const baseItems: ServiceItem[] = dbItems.map((item) => ({
-      id: item.id,
-      key: `${item.provider}/${item.category}/${item.subcategory}/${item.label}`,
-      provider: item.provider as ProviderKey,
-      category: item.category,
-      subcategory: item.subcategory,
-      label: item.label,
-      catalogCost: item.cost_lbp,
-      catalogSellPrice: item.sell_lbp,
-      sortOrder: item.sort_order,
-      ...(item.validity_days != null
-        ? { validityDays: item.validity_days }
-        : {}),
-      ...(item.credits != null ? { credits: item.credits } : {}),
-      // LIRA-090: days_cost_lbp enables the computed Only-Days split gate.
-      ...(item.days_cost_lbp != null
-        ? { days_cost_lbp: item.days_cost_lbp }
-        : {}),
-      ...(item.cost_usd != null ? { catalogCostUsd: item.cost_usd } : {}),
-      ...(item.sell_usd != null ? { catalogSellPriceUsd: item.sell_usd } : {}),
-    }));
+    const baseItems: ServiceItem[] = dbItems.map(toServiceItem);
 
     if (!itemCosts.length && !voucherImages.length) return baseItems;
 

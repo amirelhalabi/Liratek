@@ -2129,6 +2129,31 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
+   * The refund text for one sale line — `"<qty>x <product name>"` — shared
+   * by the POS item refund and the session item refund (rule 14), so both
+   * read the same. Falls back to `product <id>` (via `_productLabel`), or
+   * `sale item #<id>` if the line itself is gone.
+   */
+  saleItemRefundLabel(saleItemId: number, quantity: number): string {
+    const row = this.db
+      .prepare(
+        `SELECT product_id FROM sale_items WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(saleItemId, getCurrentTenantId()) as
+      | { product_id: number }
+      | undefined;
+    const label = row
+      ? this._productLabel(row.product_id)
+      : `sale item #${saleItemId}`;
+    return this._refundLineText(quantity, label);
+  }
+
+  /** `"<qty>x <label>"` — the ONE refund-line text format (rule 14). */
+  private _refundLineText(quantity: number, label: string): string {
+    return `${quantity}x ${label}`;
+  }
+
+  /**
    * Shop-day 2026-10-16 — ONE definition (rule 14) of the payment rows an
    * item refund mirrors, used by the preview (`getItemRefundPreview`), the
    * override check and the drawer money-back (`_applySaleItemMoneyBack`), so
@@ -2539,7 +2564,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         client_id: originalTxn.client_id,
         // LIRA-329 (T038): the sale's own client name and phone.
         ...reversalClientOf(originalTxn),
-        summary: `ITEM REFUND: ${params.refundQuantity}x ${productLabel} from Sale #${params.saleId}`,
+        summary: `ITEM REFUND: ${this._refundLineText(params.refundQuantity, productLabel)} from Sale #${params.saleId}`,
         metadata_json: {
           refundType: "item",
           saleItemId: params.saleItemId,
@@ -3593,7 +3618,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         drawerName: payment.drawer_name,
         currencyCode: payment.currency_code,
         amount: negatedAmount,
-        note: `Item refund - ${params.refundQuantity}x ${params.productLabel}`,
+        note: `Item refund - ${this._refundLineText(params.refundQuantity, params.productLabel)}`,
         createdBy: params.userId,
         tenantId,
       });

@@ -536,11 +536,11 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
     }
     setSubmitting(true);
     try {
-      // partner_ledger.settlement_method is CHECK-constrained to
-      // CASH/OMT/WHISH/BINANCE/CLIENT_ACCOUNT — never "SPLIT". A true
-      // multi-method split still needs ONE value for that column; the first
-      // leg's method is as good a "primary method" tag as any (the legs
-      // themselves, not this field, drive the actual money movement).
+      // With legs, the server records the method from the legs themselves
+      // (one method, or SPLIT — PartnerService.settle via
+      // partnerSettlementMethod; shop-day bug 2026-10-16), so this field
+      // only decides a settlement with no legs. The schema still requires
+      // it; the first leg's method is sent as a harmless placeholder.
       // CLIENT_ACCOUNT is a legacy wire value (CHECK-constrained column,
       // changing it needs a migration) — the UI says "Cash moved" / paper.
       const settlementMethod = useClientAccount

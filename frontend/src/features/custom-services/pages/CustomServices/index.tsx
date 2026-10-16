@@ -137,6 +137,23 @@ export default function CustomServices() {
 
   // ─── Form State ───
   const [description, setDescription] = useState("");
+  // Shop-day B3 / owner decision Q4: text typed in the "Search Item or
+  // Service" box but never committed with Enter is still the description.
+  // Mirrors the SearchBar's own query; `searchBoxKey` remounts the box blank
+  // after a submit so the old text cannot become the next service's.
+  const [searchText, setSearchText] = useState("");
+  const [searchBoxKey, setSearchBoxKey] = useState(0);
+  // Once a description is set (product, preset or Enter) the box unmounts;
+  // drop its text so a later remount (description cleared) starts clean.
+  useEffect(() => {
+    if (description) setSearchText("");
+  }, [description]);
+  // The ONE description the submit sends (payload and session-cart label).
+  const resolvedDescription = description.trim() || searchText.trim();
+  const resetSearchBox = () => {
+    setSearchText("");
+    setSearchBoxKey((k) => k + 1);
+  };
   const [costUsd, setCostUsd] = useState("");
   const [costLbp, setCostLbp] = useState("");
   const [priceUsd, setPriceUsd] = useState("");
@@ -518,7 +535,7 @@ export default function CustomServices() {
       const payload: Parameters<typeof api.addCustomService>[0] & {
         fulfillment_status?: FulfillmentStatus;
       } = {
-        description: description.trim(),
+        description: resolvedDescription,
         cost_usd: costUsdVal,
         cost_lbp: costLbpVal,
         // LIRA-310 US5: the price after the payment sheet's discount.
@@ -636,7 +653,7 @@ export default function CustomServices() {
           chargedPriceUsd > 0
             ? `$${chargedPriceUsd.toFixed(2)}`
             : `${chargedPriceLbp.toLocaleString()} LBP`;
-        const label = `Service: ${description.trim().substring(0, 40)} - ${amountLabel}`;
+        const label = `Service: ${resolvedDescription.substring(0, 40)} - ${amountLabel}`;
 
         addToSessionCart({
           module: "custom_service",
@@ -655,6 +672,7 @@ export default function CustomServices() {
 
         // Reset form
         setDescription("");
+        resetSearchBox();
         setCostUsd("");
         setCostLbp("");
         setPriceUsd("");
@@ -693,6 +711,7 @@ export default function CustomServices() {
         });
         // Reset form
         setDescription("");
+        resetSearchBox();
         setCostUsd("");
         setCostLbp("");
         setPriceUsd("");
@@ -971,6 +990,7 @@ export default function CustomServices() {
                     /* No selection yet — show SearchBar */
                     <div ref={productSearchRef}>
                       <SearchBar<ProductSearchResult>
+                        key={searchBoxKey}
                         data-testid="custom-service-item-search"
                         placeholder="Search by name/barcode, or type your service description..."
                         onSearch={async (query) => {
@@ -1019,6 +1039,7 @@ export default function CustomServices() {
                         onFreeText={(text) => {
                           setDescription(text);
                         }}
+                        onQueryChange={setSearchText}
                         renderItem={(item) => (
                           <div className="flex items-center justify-between w-full">
                             <span className="font-medium">{item.name}</span>

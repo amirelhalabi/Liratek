@@ -704,7 +704,11 @@ export type AccountExpectedStatement = {
  */
 export type OMTCurrencyStats = {
   currency: string;
+  /** Realized commission, in this row's currency. */
   commission: number;
+  /** Not-yet-settled commission, in this row's currency (optional for older
+   *  payloads/mocks). */
+  pending_commission?: number;
   count: number;
   awaiting_settlement_count?: number;
 };
@@ -732,6 +736,8 @@ export type OMTProviderStats = {
  */
 export type OMTAnalytics = {
   today: {
+    /** USD only — never a sum across currencies; every currency is in
+     *  `byCurrency`. Same for `pending_commission` and `month`. */
     commission: number;
     pending_commission: number;
     count: number;

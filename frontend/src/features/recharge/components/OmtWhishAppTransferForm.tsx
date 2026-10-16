@@ -339,6 +339,7 @@ function OmtWhishAppTransferFormInner({
 
     const clientResult = await ensureRechargeClient({
       clientId,
+      inSession: !!activeSession,
       name: activeClientName,
       phone: activeClientPhone,
       // An OUT CUSTOMER_ACCOUNT (change to account) leg needs a client too,
@@ -406,6 +407,11 @@ function OmtWhishAppTransferFormInner({
             });
             return feePaidBy ? { feePaidBy } : {};
           })(),
+          // Bug #4: the "Set custom time" picked on the form — the same key
+          // the walk-in builder sends (buildWalletTransferPayload).
+          ...(transactionTime !== undefined
+            ? { transaction_time: transactionTime }
+            : {}),
         },
       });
 

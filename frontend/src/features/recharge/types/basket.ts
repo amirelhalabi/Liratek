@@ -71,6 +71,9 @@ export interface BasketSubItem {
   note?: string;
   /** LIRA-329 — this unit's share of the basket's typed discount. */
   typedDiscount?: { amount: number; currency: "LBP" | "USD" };
+  /** Bug #4 — the "Set custom time" picked on the form (ISO), on a unit
+   *  added to a customer session's basket. Absent = the checkout's time. */
+  transaction_time?: string;
 }
 
 /** The providers whose bills can be staged on the Bill card (KatshForm). */

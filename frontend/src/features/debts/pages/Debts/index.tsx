@@ -144,6 +144,16 @@ export default function Debts() {
     null,
   );
   const [history, setHistory] = useState<DebtHistoryItem[]>([]);
+  // Shop-day 2026-10-16: which client the on-screen history / ledger balance
+  // belong to. Switching client used to leave the PREVIOUS client's rows (and,
+  // via the history-derived balance fallback, their Cash Out button) under
+  // the new client's header until the new requests returned. The panel now
+  // shows a loading state — no rows, no balance, no action buttons — until
+  // both have settled for the selected client, and a late response for a
+  // client no longer selected is dropped (see `selectedClientIdRef`).
+  const [historyClientId, setHistoryClientId] = useState<number | null>(null);
+  const [ledgerClientId, setLedgerClientId] = useState<number | null>(null);
+  const selectedClientIdRef = useRef<number | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [showRepaymentModal, setShowRepaymentModal] = useState(false);
   useModalFocusFix(showRepaymentModal);
@@ -263,16 +273,24 @@ export default function Debts() {
   }, [loadDebtors]);
 
   useEffect(() => {
-    if (selectedClient) {
-      setLedgerBalance(null);
-      loadHistory(selectedClient.id);
-      loadLedgerBalance(selectedClient.id);
-      getDebtAging(selectedClient.id)
-        .then(setAging)
-        .catch(() => setAging(null));
-    } else {
-      setAging(null);
-      setLedgerBalance(null);
+    const clientId = selectedClient?.id ?? null;
+    selectedClientIdRef.current = clientId;
+    // Never show one client's data under another client's header.
+    setHistory([]);
+    setHistoryClientId(null);
+    setLedgerClientId(null);
+    setLedgerBalance(null);
+    setAging(null);
+    if (clientId !== null) {
+      loadHistory(clientId);
+      loadLedgerBalance(clientId);
+      getDebtAging(clientId)
+        .then((a) => {
+          if (selectedClientIdRef.current === clientId) setAging(a);
+        })
+        .catch(() => {
+          if (selectedClientIdRef.current === clientId) setAging(null);
+        });
     }
   }, [selectedClient]);
 
@@ -345,11 +363,17 @@ export default function Debts() {
         }),
       );
 
+      // A late answer for a client the user already left is dropped.
+      if (selectedClientIdRef.current !== clientId) return;
       setHistory(enrichedData);
       // Reset sort to default (desc) when loading new client
       setDateSortOrder("desc");
     } catch (error) {
       logger.error("Failed to load history:", error);
+    } finally {
+      if (selectedClientIdRef.current === clientId) {
+        setHistoryClientId(clientId);
+      }
     }
   };
 
@@ -482,8 +506,16 @@ export default function Debts() {
   // single button (and the table framing) off netUsd alone made one whole
   // side of a mixed position unreachable. Epsilons match the list filter
   // (USD cents; LBP has no sub-unit).
-  const hasDebt = dueUsd > 0.01 || dueLbp > 0.5;
-  const hasCredit = creditUsd > 0.01 || creditLbp > 0.5;
+  // True until the selected client's history AND ledger balance have both
+  // settled — the panel then shows nothing that could belong to the
+  // previously selected client, and offers no action on it.
+  const clientDetailsLoading =
+    selectedClient !== null &&
+    (historyClientId !== selectedClient.id ||
+      ledgerClientId !== selectedClient.id);
+  const hasDebt = !clientDetailsLoading && (dueUsd > 0.01 || dueLbp > 0.5);
+  const hasCredit =
+    !clientDetailsLoading && (creditUsd > 0.01 || creditLbp > 0.5);
   // Table framing: a mixed account gets combined labels because its tables
   // genuinely contain both kinds of rows (charges AND purchases).
   const accountFraming: "creditor" | "debtor" | "mixed" =
@@ -496,6 +528,7 @@ export default function Debts() {
   const loadLedgerBalance = async (clientId: number) => {
     try {
       const res = await api.getClientBalance(clientId);
+      if (selectedClientIdRef.current !== clientId) return;
       if (res.success && res.data) {
         setLedgerBalance({
           usd: res.data.balance_usd,
@@ -504,6 +537,10 @@ export default function Debts() {
       }
     } catch (error) {
       logger.error("Failed to load ledger balance:", error);
+    } finally {
+      if (selectedClientIdRef.current === clientId) {
+        setLedgerClientId(clientId);
+      }
     }
   };
 
@@ -1807,12 +1844,18 @@ export default function Debts() {
                     <span className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
                       Balance
                     </span>
-                    <span
-                      className={`font-mono text-2xl font-bold ${balanceTextColor(-netUsd, BALANCE_EPS)}`}
-                    >
-                      {netUsd < 0 ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
-                    </span>
-                    {netLbp !== 0 && (
+                    {clientDetailsLoading ? (
+                      <span className="font-mono text-2xl font-bold text-slate-500">
+                        …
+                      </span>
+                    ) : (
+                      <span
+                        className={`font-mono text-2xl font-bold ${balanceTextColor(-netUsd, BALANCE_EPS)}`}
+                      >
+                        {netUsd < 0 ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
+                      </span>
+                    )}
+                    {!clientDetailsLoading && netLbp !== 0 && (
                       <>
                         <span className="text-slate-600 text-lg">|</span>
                         <span
@@ -1961,472 +2004,490 @@ export default function Debts() {
                 )}
 
               {/* Two Tables Side by Side */}
-              <div className="flex-1 flex gap-4 p-4 overflow-hidden">
-                {/* Left: Purchases (Debts) */}
-                <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
-                    <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
-                      {accountFraming === "mixed"
-                        ? "Purchases & Charges"
-                        : accountFraming === "creditor"
-                          ? "Charges"
-                          : "Purchases"}
-                    </h3>
-                    <span className="text-xs text-slate-500">
-                      {debtEntries.length}
-                    </span>
-                  </div>
-                  <div className="flex-1 overflow-y-auto">
-                    <DataTable
-                      columns={[
-                        {
-                          header: (
-                            <button
-                              onClick={toggleDateSort}
-                              className="flex items-center gap-1 hover:text-slate-200 transition-colors"
-                            >
-                              Date
-                              {dateSortOrder === "desc" ? (
-                                <ChevronDown
-                                  size={14}
-                                  className="text-slate-500"
-                                />
-                              ) : (
-                                <ChevronUp
-                                  size={14}
-                                  className="text-slate-500"
-                                />
-                              )}
-                            </button>
-                          ),
-                          className: "px-4 py-2 text-xs font-medium",
-                        },
-                        {
-                          header: "Note",
-                          className: "px-3 py-2 text-xs font-medium",
-                        },
-                        {
-                          header: "User",
-                          className: "px-3 py-2 text-xs font-medium",
-                        },
-                        {
-                          header: "USD",
-                          className: "px-3 py-2 text-xs font-medium text-right",
-                        },
-                        {
-                          header: "LBP",
-                          className: "px-3 py-2 text-xs font-medium text-right",
-                        },
-                      ]}
-                      data={debtEntries}
-                      exportExcel
-                      exportPdf
-                      exportFilename="debt-purchases"
-                      className="w-full"
-                      theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
-                      tbodyClassName="divide-y divide-slate-700/30"
-                      emptyMessage="No purchases on debt"
-                      renderRow={(item) => {
-                        const isRefunded = Boolean(item.is_refunded);
-                        return (
-                          <>
-                            <tr
-                              key={item.id}
-                              className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
-                            >
-                              <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                                {parseDbDate(
-                                  item.created_at,
-                                ).toLocaleDateString()}
-                                <div className="text-[10px] text-slate-500">
-                                  {parseDbDate(
-                                    item.created_at,
-                                  ).toLocaleTimeString()}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2.5 text-slate-400 text-sm">
-                                <div className="flex flex-col gap-1">
-                                  {isRefunded && (
-                                    <span className="inline-flex items-center self-start rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                                      Refunded
-                                    </span>
-                                  )}
-                                  {item.transaction_type &&
-                                    item.transaction_type !== "Sale Debt" && (
-                                      <span
-                                        className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                          item.transaction_type ===
-                                          "Service Debt"
-                                            ? "bg-sky-400/10 text-sky-400"
-                                            : item.transaction_type ===
-                                                "Recharge Debt"
-                                              ? "bg-cyan-400/10 text-cyan-400"
-                                              : item.transaction_type ===
-                                                  "Custom Service Debt"
-                                                ? "bg-teal-400/10 text-teal-400"
-                                                : item.transaction_type ===
-                                                    "Session Debt"
-                                                  ? "bg-indigo-400/10 text-indigo-400"
-                                                  : item.transaction_type ===
-                                                      "CREDIT_DEPOSIT"
-                                                    ? "bg-emerald-400/10 text-emerald-400"
-                                                    : item.transaction_type ===
-                                                        "CREDIT_USED"
-                                                      ? "bg-orange-400/10 text-orange-400"
-                                                      : item.transaction_type ===
-                                                          "Manual Debt"
-                                                        ? "bg-rose-400/10 text-rose-400"
-                                                        : "bg-slate-700 text-slate-400"
-                                        }`}
-                                      >
-                                        {item.transaction_type ===
-                                          "Custom Service Debt" && (
-                                          <Briefcase
-                                            size={10}
-                                            className="mr-1"
-                                          />
-                                        )}
-                                        {item.transaction_type ===
-                                        "CREDIT_DEPOSIT"
-                                          ? "Credit Deposit"
-                                          : item.transaction_type ===
-                                              "CREDIT_USED"
-                                            ? "Credit Used"
-                                            : item.transaction_type}
-                                      </span>
-                                    )}
-                                  <div className="flex items-center gap-1.5">
-                                    {item.itemNames &&
-                                    item.itemNames.length > 0 ? (
-                                      <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
-                                        {item.itemNames.map((name) => (
-                                          <div key={name} className="truncate">
-                                            • {name}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <span className="whitespace-normal break-words">
-                                        {item.note || "-"}
-                                      </span>
-                                    )}
-                                    {item.transaction_id &&
-                                      item.transaction_type === "Sale Debt" && (
-                                        <button
-                                          onClick={() =>
-                                            loadSaleDetails(
-                                              item.transaction_id!,
-                                            )
-                                          }
-                                          className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
-                                          title="View Sale Details"
-                                        >
-                                          <Eye size={13} />
-                                        </button>
-                                      )}
-                                    {item.transaction_id &&
-                                      item.transaction_type ===
-                                        "Service Debt" && (
-                                        <button
-                                          onClick={() =>
-                                            loadServiceDebtDetails(
-                                              item.transaction_id!,
-                                              item.amount_usd,
-                                              item.amount_lbp,
-                                            )
-                                          }
-                                          className="shrink-0 p-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 transition-all"
-                                          title="View Transaction Details"
-                                        >
-                                          <Eye size={13} />
-                                        </button>
-                                      )}
-                                    {item.session_id &&
-                                      item.transaction_type ===
-                                        "Session Debt" && (
-                                        <button
-                                          onClick={() =>
-                                            loadSessionDebtDetails(
-                                              item.session_id!,
-                                              item.amount_usd,
-                                              item.amount_lbp,
-                                              // On-account cash-out → its payout
-                                              // shows on the Payments side, so
-                                              // the basket eye shows CHARGES
-                                              // only. A cash payout has no such
-                                              // credit row, so show the FULL
-                                              // basket (both signs). See
-                                              // lira-session-cashout-credit /
-                                              // lira-session-debt-payout-signs.
-                                              sessionsWithOnAccountCredit.has(
-                                                item.session_id,
-                                              )
-                                                ? "charges"
-                                                : "all",
-                                            )
-                                          }
-                                          className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
-                                          title="View Basket Items"
-                                        >
-                                          <Eye size={13} />
-                                        </button>
-                                      )}
-                                  </div>
-                                  {item.session_id &&
-                                    item.transaction_type === "Session Debt" &&
-                                    clientOpenItems.some(
-                                      (o) => o.sessionId === item.session_id,
-                                    ) && (
-                                      <div
-                                        data-testid={`basket-open-items-${item.id}`}
-                                        className="mt-0.5 pl-2 border-l border-indigo-500/30 text-[11px] leading-snug"
-                                      >
-                                        <div className="text-slate-500">
-                                          Still open:
-                                        </div>
-                                        {clientOpenItems
-                                          .filter(
-                                            (o) =>
-                                              o.sessionId === item.session_id,
-                                          )
-                                          .map((o) => (
-                                            <div
-                                              key={`${o.kind}-${o.id}`}
-                                              className="flex justify-between gap-2 max-w-[260px]"
-                                            >
-                                              <span className="truncate text-slate-300">
-                                                {o.label}
-                                              </span>
-                                              <span className="font-mono text-red-300 shrink-0">
-                                                {[
-                                                  o.openUsd > 0.004
-                                                    ? `$${o.openUsd.toFixed(2)}`
-                                                    : "",
-                                                  o.openLbp > 0.5
-                                                    ? `${Math.round(o.openLbp).toLocaleString()} LBP`
-                                                    : "",
-                                                ]
-                                                  .filter(Boolean)
-                                                  .join(" + ")}
-                                              </span>
-                                            </div>
-                                          ))}
-                                      </div>
-                                    )}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2.5 text-slate-400 text-sm whitespace-nowrap">
-                                {item.created_by_username || "—"}
-                              </td>
-                              <td
-                                className={`px-3 py-2.5 text-right font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
-                              >
-                                {Math.abs(item.amount_usd) > 0 ? (
-                                  `$${Math.abs(item.amount_usd).toFixed(2)}`
-                                ) : (
-                                  <span className="text-slate-600">-</span>
-                                )}
-                              </td>
-                              <td
-                                className={`px-3 py-2.5 text-right font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
-                              >
-                                {Math.abs(item.amount_lbp) > 0 ? (
-                                  `${Math.abs(item.amount_lbp).toLocaleString()}`
-                                ) : (
-                                  <span className="text-slate-600">-</span>
-                                )}
-                              </td>
-                            </tr>
-                          </>
-                        );
-                      }}
-                    />
-                  </div>
-                  {/* Footer total */}
-                  <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-400 uppercase">
-                      {accountFraming === "mixed"
-                        ? "Total Debited"
-                        : accountFraming === "creditor"
-                          ? "Total Charged"
-                          : "Total Owed"}
-                    </span>
-                    <div className="flex gap-3">
-                      <span className="font-mono text-sm font-bold text-red-400">
-                        ${debtTotals.usd.toFixed(2)}
-                      </span>
-                      {debtTotals.lbp > 0 && (
-                        <span className="font-mono text-sm font-bold text-red-400">
-                          {debtTotals.lbp.toLocaleString()} LBP
-                        </span>
-                      )}
-                    </div>
-                  </div>
+              {clientDetailsLoading ? (
+                <div
+                  data-testid="debts-client-loading"
+                  className="flex-1 flex items-center justify-center text-slate-400"
+                >
+                  Loading {selectedClient.full_name}'s account...
                 </div>
-
-                {/* Right: Payments (Repayments) */}
-                <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
-                    <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                      {accountFraming === "mixed"
-                        ? "Payments & Deposits"
-                        : accountFraming === "creditor"
-                          ? "Deposits"
-                          : "Payments"}
-                    </h3>
-                    <span className="text-xs text-slate-500">
-                      {paymentEntries.length}
-                    </span>
-                  </div>
-                  <div className="flex-1 overflow-y-auto">
-                    <DataTable
-                      columns={[
-                        {
-                          header: (
-                            <button
-                              onClick={toggleDateSort}
-                              className="flex items-center gap-1 hover:text-slate-200 transition-colors"
-                            >
-                              Date
-                              {dateSortOrder === "desc" ? (
-                                <ChevronDown
-                                  size={14}
-                                  className="text-slate-500"
-                                />
-                              ) : (
-                                <ChevronUp
-                                  size={14}
-                                  className="text-slate-500"
-                                />
-                              )}
-                            </button>
-                          ),
-                          className: "px-4 py-2 text-xs font-medium",
-                        },
-                        {
-                          header: "Note",
-                          className: "px-3 py-2 text-xs font-medium",
-                        },
-                        {
-                          header: "User",
-                          className: "px-3 py-2 text-xs font-medium",
-                        },
-                        {
-                          header: "USD",
-                          className: "px-3 py-2 text-xs font-medium text-right",
-                        },
-                        {
-                          header: "LBP",
-                          className: "px-3 py-2 text-xs font-medium text-right",
-                        },
-                      ]}
-                      data={paymentEntries}
-                      exportExcel
-                      exportPdf
-                      exportFilename="debt-payments"
-                      className="w-full"
-                      theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
-                      tbodyClassName="divide-y divide-slate-700/30"
-                      emptyMessage="No payments recorded"
-                      renderRow={(item) => {
-                        const isRefunded = Boolean(item.is_refunded);
-                        return (
-                          <>
-                            <tr
-                              key={item.id}
-                              className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
-                            >
-                              <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                                {parseDbDate(
-                                  item.created_at,
-                                ).toLocaleDateString()}
-                                <div className="text-[10px] text-slate-500">
+              ) : (
+                <div className="flex-1 flex gap-4 p-4 overflow-hidden">
+                  {/* Left: Purchases (Debts) */}
+                  <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                        {accountFraming === "mixed"
+                          ? "Purchases & Charges"
+                          : accountFraming === "creditor"
+                            ? "Charges"
+                            : "Purchases"}
+                      </h3>
+                      <span className="text-xs text-slate-500">
+                        {debtEntries.length}
+                      </span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                      <DataTable
+                        columns={[
+                          {
+                            header: (
+                              <button
+                                onClick={toggleDateSort}
+                                className="flex items-center gap-1 hover:text-slate-200 transition-colors"
+                              >
+                                Date
+                                {dateSortOrder === "desc" ? (
+                                  <ChevronDown
+                                    size={14}
+                                    className="text-slate-500"
+                                  />
+                                ) : (
+                                  <ChevronUp
+                                    size={14}
+                                    className="text-slate-500"
+                                  />
+                                )}
+                              </button>
+                            ),
+                            className: "px-4 py-2 text-xs font-medium",
+                          },
+                          {
+                            header: "Note",
+                            className: "px-3 py-2 text-xs font-medium",
+                          },
+                          {
+                            header: "User",
+                            className: "px-3 py-2 text-xs font-medium",
+                          },
+                          {
+                            header: "USD",
+                            className:
+                              "px-3 py-2 text-xs font-medium text-right",
+                          },
+                          {
+                            header: "LBP",
+                            className:
+                              "px-3 py-2 text-xs font-medium text-right",
+                          },
+                        ]}
+                        data={debtEntries}
+                        exportExcel
+                        exportPdf
+                        exportFilename="debt-purchases"
+                        className="w-full"
+                        theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
+                        tbodyClassName="divide-y divide-slate-700/30"
+                        emptyMessage="No purchases on debt"
+                        renderRow={(item) => {
+                          const isRefunded = Boolean(item.is_refunded);
+                          return (
+                            <>
+                              <tr
+                                key={item.id}
+                                className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
+                              >
+                                <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
                                   {parseDbDate(
                                     item.created_at,
-                                  ).toLocaleTimeString()}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2.5 text-slate-400 text-sm">
-                                <span className="flex flex-col gap-1">
-                                  {item.transaction_type ===
-                                    "CREDIT_DEPOSIT" && (
-                                    <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-400/10 text-emerald-400">
-                                      Credit Deposit
-                                    </span>
-                                  )}
-                                  <span className="flex items-center gap-1">
-                                    {item.note || "-"}
+                                  ).toLocaleDateString()}
+                                  <div className="text-[10px] text-slate-500">
+                                    {parseDbDate(
+                                      item.created_at,
+                                    ).toLocaleTimeString()}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-400 text-sm">
+                                  <div className="flex flex-col gap-1">
                                     {isRefunded && (
-                                      <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                      <span className="inline-flex items-center self-start rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                                         Refunded
                                       </span>
                                     )}
+                                    {item.transaction_type &&
+                                      item.transaction_type !== "Sale Debt" && (
+                                        <span
+                                          className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                            item.transaction_type ===
+                                            "Service Debt"
+                                              ? "bg-sky-400/10 text-sky-400"
+                                              : item.transaction_type ===
+                                                  "Recharge Debt"
+                                                ? "bg-cyan-400/10 text-cyan-400"
+                                                : item.transaction_type ===
+                                                    "Custom Service Debt"
+                                                  ? "bg-teal-400/10 text-teal-400"
+                                                  : item.transaction_type ===
+                                                      "Session Debt"
+                                                    ? "bg-indigo-400/10 text-indigo-400"
+                                                    : item.transaction_type ===
+                                                        "CREDIT_DEPOSIT"
+                                                      ? "bg-emerald-400/10 text-emerald-400"
+                                                      : item.transaction_type ===
+                                                          "CREDIT_USED"
+                                                        ? "bg-orange-400/10 text-orange-400"
+                                                        : item.transaction_type ===
+                                                            "Manual Debt"
+                                                          ? "bg-rose-400/10 text-rose-400"
+                                                          : "bg-slate-700 text-slate-400"
+                                          }`}
+                                        >
+                                          {item.transaction_type ===
+                                            "Custom Service Debt" && (
+                                            <Briefcase
+                                              size={10}
+                                              className="mr-1"
+                                            />
+                                          )}
+                                          {item.transaction_type ===
+                                          "CREDIT_DEPOSIT"
+                                            ? "Credit Deposit"
+                                            : item.transaction_type ===
+                                                "CREDIT_USED"
+                                              ? "Credit Used"
+                                              : item.transaction_type}
+                                        </span>
+                                      )}
+                                    <div className="flex items-center gap-1.5">
+                                      {item.itemNames &&
+                                      item.itemNames.length > 0 ? (
+                                        <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
+                                          {item.itemNames.map((name) => (
+                                            <div
+                                              key={name}
+                                              className="truncate"
+                                            >
+                                              • {name}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <span className="whitespace-normal break-words">
+                                          {item.note || "-"}
+                                        </span>
+                                      )}
+                                      {item.transaction_id &&
+                                        item.transaction_type ===
+                                          "Sale Debt" && (
+                                          <button
+                                            onClick={() =>
+                                              loadSaleDetails(
+                                                item.transaction_id!,
+                                              )
+                                            }
+                                            className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
+                                            title="View Sale Details"
+                                          >
+                                            <Eye size={13} />
+                                          </button>
+                                        )}
+                                      {item.transaction_id &&
+                                        item.transaction_type ===
+                                          "Service Debt" && (
+                                          <button
+                                            onClick={() =>
+                                              loadServiceDebtDetails(
+                                                item.transaction_id!,
+                                                item.amount_usd,
+                                                item.amount_lbp,
+                                              )
+                                            }
+                                            className="shrink-0 p-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 transition-all"
+                                            title="View Transaction Details"
+                                          >
+                                            <Eye size={13} />
+                                          </button>
+                                        )}
+                                      {item.session_id &&
+                                        item.transaction_type ===
+                                          "Session Debt" && (
+                                          <button
+                                            onClick={() =>
+                                              loadSessionDebtDetails(
+                                                item.session_id!,
+                                                item.amount_usd,
+                                                item.amount_lbp,
+                                                // On-account cash-out → its payout
+                                                // shows on the Payments side, so
+                                                // the basket eye shows CHARGES
+                                                // only. A cash payout has no such
+                                                // credit row, so show the FULL
+                                                // basket (both signs). See
+                                                // lira-session-cashout-credit /
+                                                // lira-session-debt-payout-signs.
+                                                sessionsWithOnAccountCredit.has(
+                                                  item.session_id,
+                                                )
+                                                  ? "charges"
+                                                  : "all",
+                                              )
+                                            }
+                                            className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
+                                            title="View Basket Items"
+                                          >
+                                            <Eye size={13} />
+                                          </button>
+                                        )}
+                                    </div>
                                     {item.session_id &&
                                       item.transaction_type ===
-                                        "CREDIT_DEPOSIT" && (
-                                        <button
-                                          onClick={() =>
-                                            loadSessionDebtDetails(
-                                              item.session_id!,
-                                              item.amount_usd,
-                                              item.amount_lbp,
-                                              "payouts",
-                                            )
-                                          }
-                                          className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
-                                          title="View Basket Items"
+                                        "Session Debt" &&
+                                      clientOpenItems.some(
+                                        (o) => o.sessionId === item.session_id,
+                                      ) && (
+                                        <div
+                                          data-testid={`basket-open-items-${item.id}`}
+                                          className="mt-0.5 pl-2 border-l border-indigo-500/30 text-[11px] leading-snug"
                                         >
-                                          <Eye size={13} />
-                                        </button>
+                                          <div className="text-slate-500">
+                                            Still open:
+                                          </div>
+                                          {clientOpenItems
+                                            .filter(
+                                              (o) =>
+                                                o.sessionId === item.session_id,
+                                            )
+                                            .map((o) => (
+                                              <div
+                                                key={`${o.kind}-${o.id}`}
+                                                className="flex justify-between gap-2 max-w-[260px]"
+                                              >
+                                                <span className="truncate text-slate-300">
+                                                  {o.label}
+                                                </span>
+                                                <span className="font-mono text-red-300 shrink-0">
+                                                  {[
+                                                    o.openUsd > 0.004
+                                                      ? `$${o.openUsd.toFixed(2)}`
+                                                      : "",
+                                                    o.openLbp > 0.5
+                                                      ? `${Math.round(o.openLbp).toLocaleString()} LBP`
+                                                      : "",
+                                                  ]
+                                                    .filter(Boolean)
+                                                    .join(" + ")}
+                                                </span>
+                                              </div>
+                                            ))}
+                                        </div>
                                       )}
-                                  </span>
-                                </span>
-                              </td>
-                              <td className="px-3 py-2.5 text-slate-400 text-sm whitespace-nowrap">
-                                {item.created_by_username || "—"}
-                              </td>
-                              <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
-                                {Math.abs(item.amount_usd) > 0 ? (
-                                  `$${Math.abs(item.amount_usd).toFixed(2)}`
-                                ) : (
-                                  <span className="text-slate-600">-</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
-                                {Math.abs(item.amount_lbp) > 0 ? (
-                                  `${Math.abs(item.amount_lbp).toLocaleString()}`
-                                ) : (
-                                  <span className="text-slate-600">-</span>
-                                )}
-                              </td>
-                            </tr>
-                          </>
-                        );
-                      }}
-                    />
-                  </div>
-                  {/* Footer total */}
-                  <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-400 uppercase">
-                      {accountFraming === "mixed"
-                        ? "Total Credited"
-                        : accountFraming === "creditor"
-                          ? "Total Deposited"
-                          : "Total Paid"}
-                    </span>
-                    <div className="flex gap-3">
-                      <span className="font-mono text-sm font-bold text-emerald-400">
-                        ${paymentTotals.usd.toFixed(2)}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-400 text-sm whitespace-nowrap">
+                                  {item.created_by_username || "—"}
+                                </td>
+                                <td
+                                  className={`px-3 py-2.5 text-right font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
+                                >
+                                  {Math.abs(item.amount_usd) > 0 ? (
+                                    `$${Math.abs(item.amount_usd).toFixed(2)}`
+                                  ) : (
+                                    <span className="text-slate-600">-</span>
+                                  )}
+                                </td>
+                                <td
+                                  className={`px-3 py-2.5 text-right font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
+                                >
+                                  {Math.abs(item.amount_lbp) > 0 ? (
+                                    `${Math.abs(item.amount_lbp).toLocaleString()}`
+                                  ) : (
+                                    <span className="text-slate-600">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            </>
+                          );
+                        }}
+                      />
+                    </div>
+                    {/* Footer total */}
+                    <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
+                      <span className="text-xs font-bold text-slate-400 uppercase">
+                        {accountFraming === "mixed"
+                          ? "Total Debited"
+                          : accountFraming === "creditor"
+                            ? "Total Charged"
+                            : "Total Owed"}
                       </span>
-                      {paymentTotals.lbp > 0 && (
-                        <span className="font-mono text-sm font-bold text-emerald-400">
-                          {paymentTotals.lbp.toLocaleString()} LBP
+                      <div className="flex gap-3">
+                        <span className="font-mono text-sm font-bold text-red-400">
+                          ${debtTotals.usd.toFixed(2)}
                         </span>
-                      )}
+                        {debtTotals.lbp > 0 && (
+                          <span className="font-mono text-sm font-bold text-red-400">
+                            {debtTotals.lbp.toLocaleString()} LBP
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Payments (Repayments) */}
+                  <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                        {accountFraming === "mixed"
+                          ? "Payments & Deposits"
+                          : accountFraming === "creditor"
+                            ? "Deposits"
+                            : "Payments"}
+                      </h3>
+                      <span className="text-xs text-slate-500">
+                        {paymentEntries.length}
+                      </span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                      <DataTable
+                        columns={[
+                          {
+                            header: (
+                              <button
+                                onClick={toggleDateSort}
+                                className="flex items-center gap-1 hover:text-slate-200 transition-colors"
+                              >
+                                Date
+                                {dateSortOrder === "desc" ? (
+                                  <ChevronDown
+                                    size={14}
+                                    className="text-slate-500"
+                                  />
+                                ) : (
+                                  <ChevronUp
+                                    size={14}
+                                    className="text-slate-500"
+                                  />
+                                )}
+                              </button>
+                            ),
+                            className: "px-4 py-2 text-xs font-medium",
+                          },
+                          {
+                            header: "Note",
+                            className: "px-3 py-2 text-xs font-medium",
+                          },
+                          {
+                            header: "User",
+                            className: "px-3 py-2 text-xs font-medium",
+                          },
+                          {
+                            header: "USD",
+                            className:
+                              "px-3 py-2 text-xs font-medium text-right",
+                          },
+                          {
+                            header: "LBP",
+                            className:
+                              "px-3 py-2 text-xs font-medium text-right",
+                          },
+                        ]}
+                        data={paymentEntries}
+                        exportExcel
+                        exportPdf
+                        exportFilename="debt-payments"
+                        className="w-full"
+                        theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
+                        tbodyClassName="divide-y divide-slate-700/30"
+                        emptyMessage="No payments recorded"
+                        renderRow={(item) => {
+                          const isRefunded = Boolean(item.is_refunded);
+                          return (
+                            <>
+                              <tr
+                                key={item.id}
+                                className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
+                              >
+                                <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
+                                  {parseDbDate(
+                                    item.created_at,
+                                  ).toLocaleDateString()}
+                                  <div className="text-[10px] text-slate-500">
+                                    {parseDbDate(
+                                      item.created_at,
+                                    ).toLocaleTimeString()}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-400 text-sm">
+                                  <span className="flex flex-col gap-1">
+                                    {item.transaction_type ===
+                                      "CREDIT_DEPOSIT" && (
+                                      <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-400/10 text-emerald-400">
+                                        Credit Deposit
+                                      </span>
+                                    )}
+                                    <span className="flex items-center gap-1">
+                                      {item.note || "-"}
+                                      {isRefunded && (
+                                        <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                          Refunded
+                                        </span>
+                                      )}
+                                      {item.session_id &&
+                                        item.transaction_type ===
+                                          "CREDIT_DEPOSIT" && (
+                                          <button
+                                            onClick={() =>
+                                              loadSessionDebtDetails(
+                                                item.session_id!,
+                                                item.amount_usd,
+                                                item.amount_lbp,
+                                                "payouts",
+                                              )
+                                            }
+                                            className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
+                                            title="View Basket Items"
+                                          >
+                                            <Eye size={13} />
+                                          </button>
+                                        )}
+                                    </span>
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-400 text-sm whitespace-nowrap">
+                                  {item.created_by_username || "—"}
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                                  {Math.abs(item.amount_usd) > 0 ? (
+                                    `$${Math.abs(item.amount_usd).toFixed(2)}`
+                                  ) : (
+                                    <span className="text-slate-600">-</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                                  {Math.abs(item.amount_lbp) > 0 ? (
+                                    `${Math.abs(item.amount_lbp).toLocaleString()}`
+                                  ) : (
+                                    <span className="text-slate-600">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            </>
+                          );
+                        }}
+                      />
+                    </div>
+                    {/* Footer total */}
+                    <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
+                      <span className="text-xs font-bold text-slate-400 uppercase">
+                        {accountFraming === "mixed"
+                          ? "Total Credited"
+                          : accountFraming === "creditor"
+                            ? "Total Deposited"
+                            : "Total Paid"}
+                      </span>
+                      <div className="flex gap-3">
+                        <span className="font-mono text-sm font-bold text-emerald-400">
+                          ${paymentTotals.usd.toFixed(2)}
+                        </span>
+                        {paymentTotals.lbp > 0 && (
+                          <span className="font-mono text-sm font-bold text-emerald-400">
+                            {paymentTotals.lbp.toLocaleString()} LBP
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-500">

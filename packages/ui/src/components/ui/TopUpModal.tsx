@@ -121,6 +121,17 @@ export interface TopUpModalProps {
   allDrawers: DrawerBalanceWithBalance[];
   destinationDrawer: string;
   defaultSourceDrawer: string;
+  /**
+   * True while the page is still fetching fresh drawer balances. The modal
+   * opens at once (shop-day 2026-10-16: waiting for the balances first made
+   * the Top-Up button look dead for seconds); only the "from drawer" path
+   * needs them, so only it shows a loading line and holds its confirm.
+   */
+  drawersLoading?: boolean;
+  /** Why the drawer balances could not be loaded — shown with `onRetryDrawers`. */
+  drawersError?: string | null;
+  /** Re-fetch the drawer balances after `drawersError`. */
+  onRetryDrawers?: () => void;
 }
 
 export default function TopUpModal({
@@ -140,6 +151,9 @@ export default function TopUpModal({
   allDrawers,
   destinationDrawer,
   defaultSourceDrawer,
+  drawersLoading = false,
+  drawersError = null,
+  onRetryDrawers,
 }: TopUpModalProps) {
   // Electron/Windows focus bug: the shared hook (one copy, @liratek/ui).
   useModalFocusFix(isOpen);
@@ -183,9 +197,7 @@ export default function TopUpModal({
   // archived plan; see docs/plans/done_plans/): `cashPaid` is retired from
   // the wire, replaced by these
   // structured legs (CLAUDE.md rule 16 — undirected, never OUT).
-  const [clientPayoutLines, setClientPayoutLines] = useState<PaymentLine[]>(
-    [],
-  );
+  const [clientPayoutLines, setClientPayoutLines] = useState<PaymentLine[]>([]);
   const [clientPayoutExchangeRate, setClientPayoutExchangeRate] = useState<
     number | undefined
   >(undefined);
@@ -224,6 +236,9 @@ export default function TopUpModal({
     currency === "USD"
       ? (sourceDrawerData?.usdBalance ?? 0)
       : (sourceDrawerData?.lbpBalance ?? 0);
+  // The from-drawer transfer is checked against `sourceBalance`, so it waits
+  // for fresh balances; supplier / partner / client top-ups never read them.
+  const drawersNotReady = drawersLoading || !!drawersError;
 
   // Whish "From Client" fee math (replicates OmtWhishAppTransferForm RECEIVE):
   // 1% auto fee on USD amounts, overridable by a manual fee. The client
@@ -370,6 +385,7 @@ export default function TopUpModal({
       return;
     }
 
+    if (drawersNotReady) return;
     if (amountNum > sourceBalance) {
       alert("Insufficient balance in source drawer");
       return;
@@ -793,6 +809,7 @@ export default function TopUpModal({
                   </span>
                 </div>
                 {!isSupplierCredit &&
+                  !drawersNotReady &&
                   amount &&
                   parseFloat(amount) > sourceBalance && (
                     <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
@@ -820,14 +837,42 @@ export default function TopUpModal({
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Selected drawer balance:{" "}
-                    <span className="text-white font-medium">
-                      {currency === "USD"
-                        ? `$${sourceBalance.toFixed(2)}`
-                        : `${sourceBalance.toLocaleString()} LBP`}
-                    </span>
-                  </p>
+                  {drawersError ? (
+                    <div
+                      data-testid="topup-drawers-error"
+                      className="mt-1 flex items-center justify-between gap-2 text-xs text-red-400"
+                    >
+                      <span className="flex items-center gap-1">
+                        <AlertTriangle size={12} />
+                        Could not load drawer balances: {drawersError}
+                      </span>
+                      {onRetryDrawers && (
+                        <button
+                          type="button"
+                          onClick={onRetryDrawers}
+                          className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200"
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  ) : drawersLoading ? (
+                    <p
+                      data-testid="topup-drawers-loading"
+                      className="text-xs text-slate-500 mt-1"
+                    >
+                      Loading drawer balances...
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Selected drawer balance:{" "}
+                      <span className="text-white font-medium">
+                        {currency === "USD"
+                          ? `$${sourceBalance.toFixed(2)}`
+                          : `${sourceBalance.toLocaleString()} LBP`}
+                      </span>
+                    </p>
+                  )}
                 </div>
               )}
             </>
@@ -874,7 +919,8 @@ export default function TopUpModal({
                   ? !selectedPartnerId
                   : clientPayoutTargetInvalid ||
                     clientPayoutPositiveLegs.length === 0
-                : !isSupplierCredit && parseFloat(amount) > sourceBalance)
+                : !isSupplierCredit &&
+                  (drawersNotReady || parseFloat(amount) > sourceBalance))
             }
             className={`flex-1 px-4 py-2.5 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg ${
               isWhishTopUp && whishMode === "client"

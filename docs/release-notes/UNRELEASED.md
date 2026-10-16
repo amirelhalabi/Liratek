@@ -82,14 +82,18 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 ## 💸 OMT / Whish & suppliers
 
+- OMT/Whish page: a send or receive no longer adds the sender (or receiver) to your clients when "Save as client" is unticked. If a client with that phone is already saved, the transaction is still linked to them. Paying on the customer's account still needs a client, so one is still saved in that case.
 - OMT/Whish page, OMT send with "Online Brokerage": a BINANCE fee charged to the customer is now recorded with the send. Before, any such send with a fee was refused with "the payment is more than the total".
 - OMT/Whish page: from now on each OMT or Whish send and receive keeps everything you enter on the transaction itself — service type, reference number, the customer's name and phone, OMT or Whish fee, whether the fee was included, the partner, the fee for paying by wallet, the note, and how the customer paid.
+- OMT/Whish page: an OMT send paid by OMT Wallet or Whish Wallet with the wallet fee is no longer refused. The payment box now asks for the amount, the OMT fee and the wallet fee together (for example $102 on a $100 send), so the customer pays the right total.
+- Partners page: from now on, a settlement paid in more than one way (for example $200 cash + $100 Whish) shows "via SPLIT" in the partner's history instead of only the first method.
 - On the Suppliers page, the Payments list is easier to read: notes show in full (up to two lines), dates fit on one line, and the LBP amount no longer runs into the note.
 - Mobile Recharge: items you pick on iPick, Katsh and Whish App now stay picked when you switch tabs. Picking from more than one of them makes one basket: Proceed to Pay shows every item grouped by provider, the customer pays once, and it is saved as a walk-in customer session with one sale per provider, each taken from its own provider's balance. Refund it as a whole from Transactions. Before, a basket with both iPick and Katsh items was all saved under the tab you paid from.
 - Mobile Recharge: a bill you add on the iPick or Katsh tab now stays in the basket when you switch tabs or leave the page, counts on its tab, and is always saved under the tab you added it on, whichever tab you pay from. Bills now show in the one payment window under their provider and are paid together with items from other providers, all at once.
 - Mobile Recharge: "For Partner" now covers the whole basket. Tick it on iPick, Katsh or Whish App and it stays ticked on the other two, with the same partner. If the basket already has items, you are asked first whether to make them all a partner order. "Submit to Partner" sends everything in the basket, from every tab, in one go: each item is taken from its own provider's balance, and the partner owes the full price. If one item fails, nothing is saved.
 - "For Partner" is now a button instead of a tick box everywhere it appears (Mobile Recharge, Point of Sale, Exchange, Loto, OMT/Whish). On iPick, Katsh and Whish App it sits in the top bar, in the provider's colour, with the partner picker right next to it. The partner notes that appear when it is on are now easy to read in light mode, and most are shorter. On Custom Services, Customer / For Partner / Via Partner is now one switch.
 - During a customer session, the "For Partner" option is hidden everywhere it appears (Point of Sale, Exchange, Loto, OMT/Whish, Mobile Recharge, Custom Services), because a customer's visit never includes partner sales. If it was on when the session started, it is turned off. On Custom Services, "Via Partner" is still available.
+- "For Partner" partner picker (Mobile Recharge, Point of Sale, Exchange, Loto, OMT/Whish): while the partner list is loading it now says "Loading partners…", and if the list can't be loaded it says so with the reason and a Retry button. Before, both cases wrongly said "No partners available. Add a partner first." even when partners were set up.
 - Mobile Recharge, Whish App: the tab now remembers whether you were on Transfer or Bills, so coming back from another tab keeps you on Bills instead of sending you to Transfer.
 - Mobile Recharge: the selected provider at the top is bigger and easier to read. Moving the mouse along the other logos now slides a soft highlight in each provider's colour from one to the next, shaped like the logo.
 - Mobile Recharge: the provider tabs (MTC, Alfa, iPick, Katsh, Whish App, OMT App, Binance) now show each provider's logo; the selected tab also shows its name. Each provider's screen now uses that provider's own colours (Katsh lime, iPick green-to-blue, MTC teal, Alfa red, Binance yellow).
@@ -105,6 +109,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 - A commission from a settlement made before this update no longer shows up a second time as a credit in Settle Account.
 - "Which OMT shares does this statement include?" on Settle Account and on the OMT statement check is now a drop-down list with tick boxes. Nothing ticked means all types.
 - Undoing OMT settlements goes newest first: if a later settlement also paid some of the same transfers, void that later one first.
+- OMT/Whish and Mobile Recharge (OMT App, Whish App, Binance, iPick, Katsh) History: from now on, when you correct a name or phone, the transaction in Transactions shows the new client name, phone and summary too. On OMT, Whish, OMT App and Whish App transfers, its Details also show the corrected sender, receiver or customer and note. On iPick and Katsh, correcting the note also changes the item text shown in Transactions. Before, Transactions kept showing the old name.
 
 ## 🌐 Web app
 
@@ -126,7 +131,18 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 - iPick, Katsh and Whish App items: cards of the same kind now sit together, for example all Terranet Army DSL cards, then all Fiber cards, each from smallest to biggest (500MB now comes before 1.5GB and 5GB).
 - Mobile Recharge, MTC and Alfa: your shop line now sits at the top, between the logos and the totals: the phone number with its credit. Your main line is picked when the page opens; the small arrow next to it lists your other lines, and the one you pick is the line the next sales send credits from (just for that screen; your main line stays the default). A small dot shows when something needs a look (a line running out of days, expired or burned, the balance not matching your lines, or days still owed to a customer).
 - Mobile Recharge: click the phone number to record usage on that line straight away. Days still owed to customers (Mark sent) and a balance mismatch show in the same window. To edit or add a line, use Settings → Shop lines.
+- Mobile Recharge: the Top-Up window for OMT App, Whish App, iPick and Katsh now opens as soon as you click Top-Up. Drawer balances show "Loading..." for a moment, and if they can't be loaded you see why, with a Retry button.
+- Wrong number: the window now says "Loading cards..." while your MTC and Alfa cards load, instead of "No MTC or Alfa card". If they can't be loaded, you see why, with a Retry button.
 - Mobile Recharge: from now on every sale keeps what you entered on the transaction itself: the customer's name and phone, the shop line used, the Alfa Gift chosen, Days cost and price as typed in dollars, each iPick / Katsh / Whish App item picked, the discount as typed, the Whish / OMT App fee and who paid it, the Binance reference, a wrong number's right number and original sale, and how the customer paid. Items paid in one basket also keep which customer session paid for them.
+
+## 📒 Accounts
+
+- Accounts: when you click another client, their account shows "Loading..." until it has loaded. Before, the previous client's charges and their Cash Out button stayed on screen for a moment under the new client's name.
+
+## ⚙️ Settings
+
+- Reset Data: if the list of what will be removed can't load, you now see why, with a Retry button. If it takes long, a Retry button appears too. Before, "Reset All Data" just stayed greyed out.
+- Shop Config: if the shop settings can't load, you now see why, with a Retry button, instead of an empty form. If they take long, a Retry button appears too.
 
 ## 🧾 Expenses
 
@@ -139,6 +155,8 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 ## 🛠️ Custom Services
 
 - From now on Custom Services and Hold Money keep every detail you enter on the transaction itself: category, product, insurance status, partner (For or Via), notes and how the customer paid.
+- Services: from now on, text you type in "Search Item or Service" is saved as the service's description even if you press Submit without pressing Enter first. Before, it was dropped and the service was saved as plain "Custom Service".
+- Hold Money: the payment method now shows Cash straight away when you hold money or return a hold. Before, the list could stay empty for a few seconds.
 
 ## 🧾 Transactions
 
@@ -157,6 +175,12 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 - On Transactions, filtering by an OMT App, Whish App or Binance type now also shows other transactions paid through that wallet: for example a repair or sale paid with OMT Wallet, a refund paid back by OMT Wallet, or a customer session paid by it. Transactions of that wallet's other types (for example OMT App Recv when you picked OMT App Send) still show only under their own filter.
 - From now on, refunding one item of a sale from the POS takes whole cents and whole Lebanese pounds out of the drawer (before, it could take odd amounts like $679.587 and 11,164,641.555 LBP), and refunding every item of a sale one at a time gives back exactly what the customer paid.
 - From now on, an item refund says which product was returned, for example "1x iPhone 15 128GB from Sale #182", instead of a product number.
+- From now on, refunding an item from a customer session basket also says which product was returned, for example "1x USB-C cable from Sale #191", instead of an item number. Refunding the rest of the basket lists each product.
 - Transactions: from now on, in a transaction's Details, money the shop pays out shows as Out: Loto prizes, Hold Money pickups, expenses, supplier and partner payments, cash advances and credit cash-outs, OMT / Whish / Whish App / Binance payouts, Exchange payouts, Custom Services pay-outs, credit buy-backs and Whish App top-ups paid to a client. Change a vendor or supplier hands back shows as In. Transactions saved before keep their old labels.
 - Transactions: from now on, a top-up's Details shows the amount, the currency and the drawers it moved between. A top-up from a drawer also lists both lines: out of the drawer, into the wallet.
 - Transactions: from now on, an iPick, Katsh or Whish App item paid in a basket, picked from the Whish App list or sent to a partner shows the item's name in Details (for example "4.5"), not only its category.
+
+## 🧺 Customer sessions
+
+- The session checkout window now has "Set custom time". The time you pick is used for everything in that checkout: every item, the extra, the kept change or forgiven amount, the payment, and any amount put on the customer's account. An item that already had its own custom time when you added it keeps that time. Before, a session checkout was always saved at the time you checked out.
+- A Binance send or cash-out, an OMT App or Whish App transfer, and iPick, Katsh or Whish App items added to a customer session now keep the custom time you set on them. Before, that time was ignored and they were saved at checkout time.

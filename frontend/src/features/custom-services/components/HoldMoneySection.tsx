@@ -17,7 +17,6 @@ import {
   type PaymentLine,
 } from "@liratek/ui";
 import type { Client } from "@liratek/ui";
-import { HOLD_MONEY_METHODS } from "@liratek/core";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -25,6 +24,10 @@ import { toHoldMoneyLegs } from "@/utils/paymentUtils";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { HoldMoneyPickupSheet } from "./HoldMoneyPickupSheet";
+import {
+  holdMoneyLegsHaveMethods,
+  holdMoneyMethodOptions,
+} from "./holdMoneyMethods";
 
 interface HoldMoneyRecord {
   id: number;
@@ -128,10 +131,9 @@ export function HoldMoneySection() {
 
   // Owner answer #24: cash from any drawer + the shop's own wallets — no
   // customer account, no gift card (HOLD_MONEY_METHODS is the SAME
-  // allow-list the server enforces — rule 14).
-  const allowedMethods = methods.filter((m) =>
-    (HOLD_MONEY_METHODS as readonly string[]).includes(m.code),
-  );
+  // allow-list the server enforces — rule 14). Cash alone while the list
+  // loads, so the dropdown is never empty (shop-day 2026-10-16).
+  const allowedMethods = holdMoneyMethodOptions(methods);
 
   const loadHolds = useCallback(async (filter: HoldStatusFilter) => {
     setLoading(true);
@@ -243,9 +245,15 @@ export function HoldMoneySection() {
     setClientId(client.id);
   };
 
+  // Never submit a leg with an empty / unoffered method.
+  const legsHaveMethods = holdMoneyLegsHaveMethods(
+    [...paymentLines, ...returnLegs],
+    allowedMethods,
+  );
   const canSubmit =
     clientName.trim().length > 0 &&
     (usdAmount > 0 || lbpAmount > 0) &&
+    legsHaveMethods &&
     !isSubmitting;
 
   const handleHold = useCallback(async () => {
@@ -261,6 +269,14 @@ export function HoldMoneySection() {
       appEvents.emit(
         "notification:show",
         "Enter a USD and/or LBP amount to hold.",
+        "warning",
+      );
+      return;
+    }
+    if (!legsHaveMethods) {
+      appEvents.emit(
+        "notification:show",
+        "Pick a payment method for every payment line.",
         "warning",
       );
       return;
@@ -328,6 +344,7 @@ export function HoldMoneySection() {
     returnLegs,
     effectiveRate,
     loadHolds,
+    legsHaveMethods,
   ]);
 
   return (
@@ -433,8 +450,8 @@ export function HoldMoneySection() {
           </div>
         </div>
         <p className="text-[11px] text-slate-500">
-          Held cash is posted per the payment method below; collecting pays
-          it back out the same way.
+          Held cash is posted per the payment method below; collecting pays it
+          back out the same way.
         </p>
       </div>
 
@@ -447,8 +464,12 @@ export function HoldMoneySection() {
           <MultiPaymentInput
             key={`${usdAmount}-${lbpAmount > 0 ? "lbp" : "no-lbp"}`}
             totals={[
-              ...(usdAmount > 0 ? [{ amount: usdAmount, currency: "USD" }] : []),
-              ...(lbpAmount > 0 ? [{ amount: lbpAmount, currency: "LBP" }] : []),
+              ...(usdAmount > 0
+                ? [{ amount: usdAmount, currency: "USD" }]
+                : []),
+              ...(lbpAmount > 0
+                ? [{ amount: lbpAmount, currency: "LBP" }]
+                : []),
             ]}
             side="buy"
             currency="USD"
@@ -515,7 +536,11 @@ export function HoldMoneySection() {
                       : "bg-slate-800/60 text-slate-400 hover:bg-slate-700"
                   }`}
                 >
-                  {f === "held" ? "Held" : f === "collected" ? "Collected" : "All"}
+                  {f === "held"
+                    ? "Held"
+                    : f === "collected"
+                      ? "Collected"
+                      : "All"}
                 </button>
               ))}
             </div>
