@@ -1,0 +1,45 @@
+{
+  "id": "01-intro",
+  "type": "image",
+  "status": "draft",
+  "planned_date": "2026-10-19",
+  "slides": [
+    {
+      "template": "hero",
+      "eyebrow": "Built for Lebanese phone shops",
+      "title": "Your whole shop, in *dollars and lira*, in one place.",
+      "body": "Sell, track stock, send OMT and Whish transfers, recharge MTC and Alfa, follow customer debts and close the day.",
+      "chips": [
+        "USD + LBP",
+        "OMT & Whish",
+        "MTC & Alfa",
+        "Debts",
+        "Drawer counts"
+      ],
+      "sub_ar": "محلك كله، بالدولار والليرة، في مكان واحد."
+    }
+  ],
+  "caption_en": "Meet LiraTek — the shop system built for Lebanese phone shops.\n\nSell, track stock, send OMT and Whish transfers, recharge MTC and Alfa, follow customer debts and close the day — every amount in USD and LBP, every drawer balanced.\n\nWant to see it in your shop? Message us on WhatsApp: +961 81 077 357 (link in bio).",
+  "caption_ar": "تعرّف على LiraTek — برنامج محل خليوي مصمّم للبنان.\n\nبِع، تابع المخزون، أرسل واستلم تحويلات OMT وWhish، اشحن MTC وAlfa، تابع ديون الزبائن وأقفل اليوم — كل مبلغ بالدولار والليرة، وكل صندوق مضبوط.\n\nتريد أن تراه في محلك؟ راسلنا على واتساب: 357 077 81 961+",
+  "hashtags": [
+    "#LiraTek",
+    "#Lebanon",
+    "#لبنان",
+    "#PhoneShop",
+    "#محل_خليوي",
+    "#POS",
+    "#Beirut",
+    "#SmallBusiness"
+  ],
+  "sources": [
+    "landing/index.html hero",
+    "landing/ar.html hero"
+  ],
+  "notes": "",
+  "media": [
+    "media/slide-01.png"
+  ],
+  "public_urls": [],
+  "published_id": null,
+  "rendered_at": "2026-10-16T19:48:00.445Z"
+}

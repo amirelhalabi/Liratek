@@ -1,0 +1,69 @@
+{
+  "id": "08-close-the-day",
+  "type": "carousel",
+  "status": "draft",
+  "planned_date": "2026-11-04",
+  "slides": [
+    {
+      "template": "hero",
+      "eyebrow": "Daily closing",
+      "title": "Close the day. *See the profit.*",
+      "body": "Close each drawer at the end of the day and see the profit from every part of the shop.",
+      "sub_ar": "أقفل اليوم واعرف الربح"
+    },
+    {
+      "template": "shot",
+      "eyebrow": "Dashboard",
+      "title": "Every drawer, *at a glance*.",
+      "shot": {
+        "file": "dashboard.png",
+        "crop": [
+          410,
+          100,
+          1490,
+          660
+        ]
+      }
+    },
+    {
+      "template": "hero",
+      "eyebrow": "Drawer counts",
+      "title": "Count a drawer *any time*.",
+      "body": "Count each drawer during the day, see the sales since its last count, and spot a difference straight away.",
+      "sub_ar": "عُدّ متى شئت واكتشف أي فرق"
+    },
+    {
+      "template": "hero",
+      "eyebrow": "Small change",
+      "title": "Keep the *small change*.",
+      "body": "Hand back a round amount and the leftover counts as shop profit — at checkout and on refunds.",
+      "sub_ar": "احتفظ بالباقي ربحاً"
+    },
+    {
+      "template": "cta",
+      "title": "Want to see it in *your shop*?",
+      "body": "Message us — we'll show you how it works and talk about pricing.",
+      "sub_ar": "تريد أن تراه في محلك؟"
+    }
+  ],
+  "caption_en": "The drawer is short and nobody knows why? Count it any time.\n\nWith LiraTek you count each drawer during the day, see the sales since its last count, and spot a difference straight away. At closing, you see the profit from every part of the shop.\n\n(Screen from our demo shop.)\n\nWant to see it in your shop? Message us on WhatsApp: +961 81 077 357 (link in bio).",
+  "caption_ar": "الصندوق ناقص وما حدا عارف ليش؟ عُدّه متى شئت.\n\nمع LiraTek بتعدّ كل صندوق خلال النهار، بتشوف المبيعات منذ آخر عدّ، وبتكتشف أي فرق فوراً. وعند الإقفال بتعرف الربح من كل قسم في المحل.\n\n(الصورة من محل تجريبي.)\n\nتريد أن تراه في محلك؟ راسلنا على واتساب: 357 077 81 961+",
+  "hashtags": [
+    "#LiraTek",
+    "#Lebanon",
+    "#لبنان",
+    "#PhoneShop",
+    "#محل_خليوي",
+    "#POS",
+    "#SmallBusiness",
+    "#Profit"
+  ],
+  "sources": [
+    "landing/index.html \"Daily closing and profits\", \"Count a drawer any time\", \"Keep the small change\"",
+    "assets/shots/dashboard.png"
+  ],
+  "notes": "",
+  "media": [],
+  "public_urls": [],
+  "published_id": null
+}

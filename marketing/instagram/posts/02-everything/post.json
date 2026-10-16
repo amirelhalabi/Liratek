@@ -1,0 +1,95 @@
+{
+  "id": "02-everything",
+  "type": "carousel",
+  "status": "draft",
+  "planned_date": "2026-10-21",
+  "slides": [
+    {
+      "template": "hero",
+      "eyebrow": "Swipe →",
+      "title": "Everything a phone shop does *in a day*.",
+      "body": "One system for the counter, the drawers and the books.",
+      "sub_ar": "كل ما يحتاجه محل الخليوي في يومه"
+    },
+    {
+      "template": "list",
+      "eyebrow": "At the counter",
+      "title": "Sell, change, transfer, recharge.",
+      "items": [
+        {
+          "t": "Sales and stock",
+          "d": "Fast checkout, barcodes, stock levels, and phones tracked by IMEI."
+        },
+        {
+          "t": "Dollars and lira together",
+          "d": "Prices, payments, change and drawers in USD and LBP."
+        },
+        {
+          "t": "OMT and Whish",
+          "d": "Send and receive transfers with fees worked out."
+        },
+        {
+          "t": "MTC and Alfa",
+          "d": "Credit and days recharges."
+        }
+      ]
+    },
+    {
+      "template": "list",
+      "eyebrow": "Behind the counter",
+      "title": "Debts, repairs, warranty, closing.",
+      "items": [
+        {
+          "t": "Customer debts",
+          "d": "Sell on credit, take repayments in either currency, see who owes what."
+        },
+        {
+          "t": "Repairs",
+          "d": "Repair jobs from intake to pickup, with the parts used."
+        },
+        {
+          "t": "Warranty on any item",
+          "d": "Find any sold item by customer, phone, receipt number or serial."
+        },
+        {
+          "t": "Daily closing and profits",
+          "d": "Close each drawer and see the profit from every part of the shop."
+        }
+      ]
+    },
+    {
+      "template": "cta",
+      "title": "Want to see it in *your shop*?",
+      "body": "Message us — we'll show you how it works and talk about pricing.",
+      "sub_ar": "تريد أن تراه في محلك؟"
+    }
+  ],
+  "caption_en": "Everything a phone shop does in a day, in one system 👇\n\n• Sales and stock, phones tracked by IMEI\n• Dollars and lira together\n• OMT and Whish transfers, fees worked out\n• MTC and Alfa credit and days\n• Customer debts\n• Repairs from intake to pickup\n• Warranty on any item\n• Daily closing and profits\n\nUse the desktop app in the shop, or sign in from any browser.\n\nWant to see it in your shop? Message us on WhatsApp: +961 81 077 357 (link in bio).",
+  "caption_ar": "كل ما يحتاجه محل الخليوي في يومه، في نظام واحد 👇\n\n• المبيعات والمخزون، وتتبّع الهواتف برقم IMEI\n• الدولار والليرة معاً\n• تحويلات OMT وWhish مع حساب العمولة\n• تشريج رصيد وأيام MTC وAlfa\n• دفتر ديون الزبائن\n• التصليحات من الاستلام حتى التسليم\n• كفالة على أي قطعة\n• إقفال اليوم والأرباح\n\nاستعمل تطبيق الكمبيوتر في المحل، أو ادخل من أي متصفح.\n\nتريد أن تراه في محلك؟ راسلنا على واتساب: 357 077 81 961+",
+  "hashtags": [
+    "#LiraTek",
+    "#Lebanon",
+    "#لبنان",
+    "#PhoneShop",
+    "#محل_خليوي",
+    "#POS",
+    "#OMT",
+    "#Whish",
+    "#MTC",
+    "#Alfa"
+  ],
+  "sources": [
+    "landing/index.html \"Everything a phone shop does in a day\" section",
+    "landing/ar.html same section"
+  ],
+  "notes": "",
+  "media": [
+    "media/slide-01.png",
+    "media/slide-02.png",
+    "media/slide-03.png",
+    "media/slide-04.png"
+  ],
+  "public_urls": [],
+  "published_id": null,
+  "rendered_at": "2026-10-16T19:49:57.914Z"
+}

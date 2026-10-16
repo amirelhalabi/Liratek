@@ -1,0 +1,58 @@
+{
+  "id": "09-phone-app",
+  "type": "image",
+  "status": "draft",
+  "planned_date": "2026-11-06",
+  "slides": [
+    {
+      "template": "phone",
+      "eyebrow": "New · Phone app",
+      "title": "Your shop with you, *after closing too*.",
+      "body": "A customer messages you after hours? Record the Whish App or OMT App transfer from home — it goes into your shop's books like one made at the counter.",
+      "sub_ar": "محلك معك، حتى بعد الإقفال.",
+      "note": "For shops on the LiraTek web app. Owner account only.",
+      "rows": [
+        {
+          "k": "Record a transfer",
+          "v": "Whish App · OMT App"
+        },
+        {
+          "k": "Drawer and wallet balances",
+          "v": "Live"
+        },
+        {
+          "k": "Since the last count",
+          "v": "Sales per wallet"
+        },
+        {
+          "k": "Who owes you",
+          "v": "Debts and repayments"
+        }
+      ]
+    }
+  ],
+  "caption_en": "LiraTek on your phone 📱\n\nWhen a customer messages you after hours, record the Whish App or OMT App transfer from home — it goes into your shop's books just like one made at the counter.\n\n• See your drawer and wallet balances live\n• See who owes you, and record a repayment into a wallet\n• Tap Save twice by mistake and the sale is still booked once\n\nFor shops on the LiraTek web app. Owner account only.\n\nWant to see it in your shop? Message us on WhatsApp: +961 81 077 357 (link in bio).",
+  "caption_ar": "LiraTek على هاتفك 📱\n\nإذا راسلك زبون بعد الدوام، سجّل تحويل Whish App أو OMT App من البيت، فيدخل في حسابات محلك تماماً كأنه سُجّل في المحل.\n\n• اطّلع على أرصدة الصناديق والمحافظ مباشرة\n• اعرف ما على كل زبون، وسجّل دفعة منه في محفظة\n• إذا ضغطت «حفظ» مرتين بالخطأ، تُسجَّل العملية مرة واحدة فقط\n\nللمحلات التي تستعمل LiraTek على الويب. لحساب صاحب المحل فقط.\n\nتريد أن تراه في محلك؟ راسلنا على واتساب: 357 077 81 961+",
+  "hashtags": [
+    "#LiraTek",
+    "#Lebanon",
+    "#لبنان",
+    "#PhoneShop",
+    "#محل_خليوي",
+    "#POS",
+    "#Whish",
+    "#OMT",
+    "#App"
+  ],
+  "sources": [
+    "landing/index.html \"LiraTek on your phone\" section",
+    "landing/ar.html same section"
+  ],
+  "notes": "",
+  "media": [
+    "media/slide-01.png"
+  ],
+  "public_urls": [],
+  "published_id": null,
+  "rendered_at": "2026-10-16T19:43:56.948Z"
+}

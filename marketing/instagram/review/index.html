@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiraTek · Instagram review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#020222; --card:#0c134f; --line:#25336a; --text:#fff; --muted:#bfc7dc;
+  --accent:#d4adfc; --accent-ink:#0c134f; --blue:#518cff;
+  --green:#10b981; --amber:#f59e0b; --red:#ef4444;
+  --radius:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;font-size:14px}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.ar{font-family:"IBM Plex Sans Arabic",Inter,sans-serif}
+
+/* Header */
+header{position:sticky;top:0;z-index:5;background:rgba(2,2,34,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:14px 20px;display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center}
+header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em}
+header h1 span{color:var(--accent)}
+.counts{display:flex;gap:10px;color:var(--muted);font-size:12px;flex-wrap:wrap}
+.counts b{color:var(--text);font-weight:600}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.chip{background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 12px;color:var(--muted);font-size:12px;font-weight:500}
+.chip:hover{border-color:var(--blue);color:var(--text)}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+/* Grid */
+main{max-width:960px;margin:0 auto;padding:20px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.tile{position:relative;aspect-ratio:4/5;background:var(--card);border:0;padding:0;overflow:hidden;border-radius:4px;outline:2px solid transparent;outline-offset:-2px}
+.tile:hover,.tile.active{outline-color:var(--accent)}
+.tile img{width:100%;height:100%;object-fit:cover;display:block}
+.tile .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;padding:10px;text-align:center}
+.tile .top{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:6px;pointer-events:none}
+.tile .type{width:22px;height:22px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))}
+.tile .date{position:absolute;bottom:0;left:0;right:0;padding:18px 8px 7px;background:linear-gradient(transparent,rgba(2,2,34,.85));font-size:11px;color:var(--text);text-align:left;pointer-events:none;display:flex;justify-content:space-between;gap:6px}
+.tile .date span:last-child{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{display:inline-block;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.st-draft{background:#25336a;color:#fff}
+.st-approved{background:var(--green);color:#03241a}
+.st-changes{background:var(--amber);color:#2b1a00}
+.st-rejected{background:var(--red);color:#fff}
+.empty{color:var(--muted);padding:40px;text-align:center}
+
+/* Detail */
+.overlay{position:fixed;inset:0;background:rgba(2,2,34,.75);z-index:10;display:none}
+.overlay.open{display:block}
+.panel{position:fixed;top:0;right:0;bottom:0;width:min(1100px,100vw);background:var(--bg);border-left:1px solid var(--line);z-index:11;display:none;flex-direction:column}
+.panel.open{display:flex}
+.ph-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.ph-head h2{font-size:15px;margin:0;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.iconbtn{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--text)}
+.iconbtn:hover{border-color:var(--blue)}
+.ph-body{flex:1;overflow:auto;display:grid;grid-template-columns:360px 1fr;gap:24px;padding:20px}
+@media (max-width:860px){.ph-body{grid-template-columns:1fr}.phone{margin:0 auto}}
+@media (max-width:600px){.grid{gap:2px}main{padding:8px}header{padding:12px}.chips{margin-left:0}.ph-body{padding:12px}}
+
+/* Phone preview */
+.phone{width:100%;max-width:360px;background:#000;border:1px solid var(--line);border-radius:28px;padding:12px 0 14px;align-self:start;position:sticky;top:0}
+.ig-top{display:flex;align-items:center;gap:8px;padding:0 12px 10px;font-size:13px;font-weight:600}
+.ig-av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--blue))}
+.stage{position:relative;background:#111;overflow:hidden}
+.stage.r45{aspect-ratio:4/5}
+.stage.r916{aspect-ratio:9/16}
+.stage img,.stage video{width:100%;height:100%;object-fit:cover;display:block}
+.nav{position:absolute;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.85);color:#000;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center}
+.nav.prev{left:8px}.nav.next{right:8px}
+.nav[hidden]{display:none}
+.counter{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.6);border-radius:999px;padding:3px 9px;font-size:11px}
+.dots{display:flex;justify-content:center;gap:4px;padding:10px 0 4px}
+.dot{width:6px;height:6px;border-radius:50%;background:#555;border:0;padding:0}
+.dot.on{background:var(--blue)}
+.ig-cap{padding:6px 12px 0;font-size:12.5px;line-height:1.45;white-space:pre-wrap;max-height:160px;overflow:auto;color:#eee}
+.ig-cap b{font-weight:600;color:#fff}
+.nomedia{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);text-align:center;padding:20px;font-size:13px}
+
+/* Editor */
+.editor{display:flex;flex-direction:column;gap:16px;min-width:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{border:0;border-radius:10px;padding:9px 14px;font-weight:600;font-size:13px}
+.btn:disabled{opacity:.5;cursor:default}
+.b-approve{background:var(--green);color:#03241a}
+.b-changes{background:var(--amber);color:#2b1a00}
+.b-reject{background:var(--red);color:#fff}
+.b-ghost{background:var(--card);border:1px solid var(--line);color:var(--text)}
+.b-primary{background:var(--accent);color:var(--accent-ink)}
+.b-blue{background:var(--blue);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.tabs{display:flex;gap:4px;margin-bottom:10px}
+.tab{background:transparent;border:1px solid var(--line);border-radius:8px;padding:5px 12px;color:var(--muted);font-size:12px;font-weight:600}
+.tab.on{background:var(--blue);border-color:var(--blue);color:#fff}
+label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 6px}
+textarea,input[type=text],input[type=date]{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--text);line-height:1.5;resize:vertical}
+input[type=date]{color-scheme:dark;width:auto}
+textarea:focus,input:focus{outline:none;border-color:var(--blue)}
+textarea.cap{min-height:220px}
+textarea[readonly]{opacity:.9}
+.meter{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:8px;flex-wrap:wrap}
+.meter .over{color:var(--red);font-weight:700}
+.grid2{display:grid;grid-template-columns:auto 1fr;gap:12px}
+@media (max-width:600px){.grid2{grid-template-columns:1fr}}
+.sources{margin:0;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.6}
+.dirty{color:var(--amber);font-size:12px;font-weight:600}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--line);padding:10px 16px;border-radius:10px;z-index:20;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+.toast.err{border-color:var(--red)}
+.kbd{color:var(--muted);font-size:11px}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>LiraTek <span>·</span> Instagram review</h1>
+  <div class="counts" id="counts"></div>
+  <div class="chips" id="chips"></div>
+</header>
+<main>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden></div>
+  <p class="kbd" style="margin-top:16px">Keys: ←/→ slides · J/K next/prev post · A approve · R reject · Esc close</p>
+</main>
+
+<div class="overlay" id="overlay"></div>
+<aside class="panel" id="panel" aria-label="Post detail">
+  <div class="ph-head">
+    <button class="iconbtn" id="prevPost" title="Previous post (K)">‹</button>
+    <button class="iconbtn" id="nextPost" title="Next post (J)">›</button>
+    <h2 id="dTitle"></h2>
+    <span class="badge" id="dBadge"></span>
+    <span class="dirty" id="dDirty" hidden>Unsaved changes</span>
+    <button class="iconbtn" id="closeBtn" title="Close (Esc)">✕</button>
+  </div>
+  <div class="ph-body">
+    <div class="phone">
+      <div class="ig-top"><div class="ig-av"></div>liratek</div>
+      <div class="stage r45" id="stage"></div>
+      <div class="dots" id="dots"></div>
+      <div class="ig-cap" id="igCap"></div>
+    </div>
+    <div class="editor">
+      <div class="row">
+        <button class="btn b-approve" data-status="approved" title="A">Approve</button>
+        <button class="btn b-changes" data-status="changes">Request changes</button>
+        <button class="btn b-reject" data-status="rejected" title="R">Reject</button>
+        <button class="btn b-ghost" data-status="draft">Reset to draft</button>
+        <span style="flex:1"></span>
+        <button class="btn b-blue" id="renderBtn">Re-render</button>
+      </div>
+
+      <div class="card">
+        <div class="tabs" id="capTabs">
+          <button class="tab on" data-tab="en">EN</button>
+          <button class="tab" data-tab="ar">AR</button>
+          <button class="tab" data-tab="combined">Combined</button>
+        </div>
+        <div data-pane="en"><textarea class="cap" id="fEn" spellcheck="true"></textarea></div>
+        <div data-pane="ar" hidden><textarea class="cap ar" id="fAr" dir="rtl" lang="ar"></textarea></div>
+        <div data-pane="combined" hidden>
+          <textarea class="cap" id="fCombined" readonly dir="auto"></textarea>
+          <div class="row" style="margin-top:8px"><button class="btn b-ghost" id="copyBtn">Copy caption</button><span class="kbd">This is exactly what gets posted.</span></div>
+        </div>
+        <div class="meter"><span id="mChars"></span><span id="mTags"></span></div>
+      </div>
+
+      <div class="card">
+        <label for="fTags">Hashtags (space-separated)</label>
+        <input type="text" id="fTags" dir="auto" spellcheck="false">
+      </div>
+
+      <div class="card grid2">
+        <div><label for="fDate">Planned date</label><input type="date" id="fDate"></div>
+        <div><label for="fNotes">Notes</label><textarea id="fNotes" rows="3" dir="auto"></textarea></div>
+      </div>
+
+      <div class="row">
+        <button class="btn b-primary" id="saveBtn" disabled>Save</button>
+        <button class="btn b-ghost" id="revertBtn" disabled>Discard edits</button>
+      </div>
+
+      <div class="card">
+        <label>Claim sources</label>
+        <ul class="sources" id="sources"></ul>
+      </div>
+    </div>
+  </div>
+</aside>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+  const IG_CHARS = 2200, IG_TAGS = 30;
+  const STATUSES = ["draft","approved","changes","rejected"];
+  const LABEL = {draft:"Draft",approved:"Approved",changes:"Changes",rejected:"Rejected"};
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  let posts = [];
+  let filter = "all";
+  let current = null;   // post id
+  let slide = 0;
+  let tab = "en";
+  let rendering = false;
+
+  // ---------- helpers ----------
+  function mediaUrl(p, m){
+    const t = p.rendered_at ? "?t=" + encodeURIComponent(p.rendered_at) : "";
+    return "/posts/" + encodeURIComponent(p.id) + "/" + m.split("/").map(encodeURIComponent).join("/") + t;
+  }
+  function coverOf(p){
+    const media = p.media || [];
+    if (p.type === "reel") return media.find((m) => /cover\.(jpe?g|png)$/i.test(m)) || null;
+    return media.find((m) => /\.(png|jpe?g)$/i.test(m)) || null;
+  }
+  function slidesOf(p){
+    return (p.media || []).filter((m) => /\.(png|jpe?g)$/i.test(m));
+  }
+  function sorted(){
+    return posts.slice().sort((a, b) => (a.planned_date || "9999").localeCompare(b.planned_date || "9999") || a.id.localeCompare(b.id));
+  }
+  function visible(){ return sorted().filter((p) => filter === "all" || p.status === filter); }
+  function byId(id){ return posts.find((p) => p.id === id); }
+  function parseTags(s){ return s.split(/\s+/).map((t) => t.trim()).filter(Boolean); }
+  function combined(en, ar, tags){ return en + "\n\n" + ar + "\n\n" + tags.join(" "); }
+  function charLen(s){ return Array.from(s).length; }
+  function fmtDate(d){
+    if (!d) return "no date";
+    const dt = new Date(d + "T00:00:00");
+    if (isNaN(dt)) return d;
+    return dt.toLocaleDateString("en-GB", {weekday:"short", day:"numeric", month:"short"});
+  }
+  let toastTimer;
+  function toast(msg, err){
+    const t = $("toast"); t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = "toast"; }, 2600);
+  }
+  async function api(method, url, body){
+    const res = await fetch(url, {method, headers: body ? {"Content-Type":"application/json"} : {}, body: body ? JSON.stringify(body) : undefined});
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* ignore */ }
+    if (!res.ok) throw new Error((data && data.error) || ("HTTP " + res.status));
+    return data;
+  }
+  function replacePost(p){
+    const i = posts.findIndex((x) => x.id === p.id);
+    if (i >= 0) posts[i] = p; else posts.push(p);
+  }
+
+  // ---------- type icons (SVG built via DOM, no innerHTML) ----------
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function typeIcon(type){
+    if (type !== "carousel" && type !== "reel") return null;
+    const s = document.createElementNS(SVGNS, "svg");
+    s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("class", "type");
+    s.setAttribute("fill", "none"); s.setAttribute("stroke", "#fff"); s.setAttribute("stroke-width", "2");
+    const add = (tag, attrs) => { const n = document.createElementNS(SVGNS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); s.appendChild(n); };
+    if (type === "carousel"){
+      add("rect", {x:"7", y:"7", width:"13", height:"13", rx:"2"});
+      add("path", {d:"M4 16V6a2 2 0 0 1 2-2h10"});
+    } else {
+      add("rect", {x:"3", y:"3", width:"18", height:"18", rx:"4"});
+      add("path", {d:"M3 8h18M8 3l3 5M14 3l3 5"});
+      add("path", {d:"M10 11.5v5l4.5-2.5z", fill:"#fff", stroke:"none"});
+    }
+    const title = document.createElementNS(SVGNS, "title"); title.textContent = type; s.appendChild(title);
+    return s;
+  }
+
+  // ---------- header + grid ----------
+  function renderHeader(){
+    const counts = {all: posts.length};
+    STATUSES.forEach((s) => counts[s] = posts.filter((p) => p.status === s).length);
+    const c = $("counts"); c.replaceChildren();
+    STATUSES.forEach((s) => { const sp = el("span"); sp.append(el("b", null, String(counts[s])), " " + LABEL[s].toLowerCase()); c.appendChild(sp); });
+    const chips = $("chips"); chips.replaceChildren();
+    ["all"].concat(STATUSES).forEach((s) => {
+      const b = el("button", "chip" + (filter === s ? " on" : ""), (s === "all" ? "All" : LABEL[s]) + " (" + counts[s] + ")");
+      b.addEventListener("click", () => { filter = s; renderAll(); });
+      chips.appendChild(b);
+    });
+  }
+  function renderGrid(){
+    const g = $("grid"); g.replaceChildren();
+    const list = visible();
+    $("empty").hidden = list.length > 0;
+    $("empty").textContent = posts.length ? "No posts with this status." : "No posts found.";
+    list.forEach((p) => {
+      const t = el("button", "tile" + (p.id === current ? " active" : ""));
+      t.type = "button"; t.title = p.id;
+      const cov = coverOf(p);
+      if (cov){
+        const img = el("img"); img.alt = p.id; img.loading = "lazy"; img.src = mediaUrl(p, cov);
+        img.addEventListener("error", () => { img.remove(); t.prepend(el("div", "ph", p.id + " — media missing")); });
+        t.appendChild(img);
+      } else {
+        t.appendChild(el("div", "ph", p.id + " — not rendered yet"));
+      }
+      const top = el("div", "top");
+      top.appendChild(el("span", "badge st-" + p.status, LABEL[p.status] || p.status));
+      const ic = typeIcon(p.type); if (ic) top.appendChild(ic);
+      t.appendChild(top);
+      const d = el("div", "date"); d.append(el("span", null, fmtDate(p.planned_date)), el("span", null, p.id));
+      t.appendChild(d);
+      t.addEventListener("click", () => open(p.id));
+      g.appendChild(t);
+    });
+  }
+  function renderAll(){ renderHeader(); renderGrid(); }
+
+  // ---------- detail ----------
+  function formValues(){
+    return {
+      caption_en: $("fEn").value,
+      caption_ar: $("fAr").value,
+      hashtags: parseTags($("fTags").value),
+      planned_date: $("fDate").value || null,
+      notes: $("fNotes").value,
+    };
+  }
+  function dirtyFields(){
+    const p = byId(current); if (!p) return {};
+    const f = formValues(), out = {};
+    if (f.caption_en !== (p.caption_en || "")) out.caption_en = f.caption_en;
+    if (f.caption_ar !== (p.caption_ar || "")) out.caption_ar = f.caption_ar;
+    if (f.hashtags.join(" ") !== (p.hashtags || []).join(" ")) out.hashtags = f.hashtags;
+    if ((f.planned_date || "") !== (p.planned_date || "")) out.planned_date = f.planned_date;
+    if (f.notes !== (p.notes || "")) out.notes = f.notes;
+    return out;
+  }
+  function isDirty(){ return current != null && Object.keys(dirtyFields()).length > 0; }
+  function confirmLeave(){ return !isDirty() || confirm("You have unsaved changes to this post. Discard them?"); }
+
+  function fillForm(p){
+    $("fEn").value = p.caption_en || "";
+    $("fAr").value = p.caption_ar || "";
+    $("fTags").value = (p.hashtags || []).join(" ");
+    $("fDate").value = p.planned_date || "";
+    $("fNotes").value = p.notes || "";
+  }
+  function updateLive(){
+    const f = formValues();
+    const text = combined(f.caption_en, f.caption_ar, f.hashtags);
+    $("fCombined").value = text;
+    const n = charLen(text), tags = f.hashtags.length;
+    const mc = $("mChars"); mc.textContent = n + " / " + IG_CHARS + " characters" + (n > IG_CHARS ? " — over limit by " + (n - IG_CHARS) : ""); mc.className = n > IG_CHARS ? "over" : "";
+    const mt = $("mTags"); mt.textContent = tags + " / " + IG_TAGS + " hashtags" + (tags > IG_TAGS ? " — too many" : ""); mt.className = tags > IG_TAGS ? "over" : "";
+    const cap = $("igCap"); cap.replaceChildren(el("b", null, "liratek "), document.createTextNode(text));
+    const d = isDirty();
+    $("dDirty").hidden = !d; $("saveBtn").disabled = !d; $("revertBtn").disabled = !d;
+  }
+  function renderMeta(p){
+    $("dTitle").textContent = p.id + " · " + p.type + " · " + fmtDate(p.planned_date);
+    const b = $("dBadge"); b.className = "badge st-" + p.status; b.textContent = LABEL[p.status] || p.status;
+    const s = $("sources"); s.replaceChildren();
+    const src = p.sources || [];
+    if (!src.length) s.appendChild(el("li", null, "No sources listed."));
+    src.forEach((x) => s.appendChild(el("li", null, String(x))));
+  }
+  function renderStage(){
+    const p = byId(current); if (!p) return;
+    const stage = $("stage"); stage.replaceChildren();
+    const dots = $("dots"); dots.replaceChildren();
+    if (p.type === "reel"){
+      stage.className = "stage r916";
+      const vid = (p.media || []).find((m) => /\.mp4$/i.test(m));
+      const cov = coverOf(p);
+      if (vid){
+        const v = el("video"); v.controls = true; v.playsInline = true; v.setAttribute("playsinline", ""); v.preload = "metadata";
+        if (cov) v.poster = mediaUrl(p, cov);
+        v.src = mediaUrl(p, vid);
+        stage.appendChild(v);
+      } else stage.appendChild(el("div", "nomedia", "Reel not rendered yet — click Re-render."));
+      return;
+    }
+    stage.className = "stage r45";
+    const list = slidesOf(p);
+    if (!list.length){ stage.appendChild(el("div", "nomedia", "No media yet — click Re-render.")); return; }
+    if (slide >= list.length) slide = list.length - 1;
+    if (slide < 0) slide = 0;
+    const img = el("img"); img.alt = p.id + " slide " + (slide + 1); img.src = mediaUrl(p, list[slide]);
+    stage.appendChild(img);
+    if (list.length > 1){
+      const prev = el("button", "nav prev", "‹"); prev.hidden = slide === 0; prev.setAttribute("aria-label", "Previous slide");
+      const next = el("button", "nav next", "›"); next.hidden = slide === list.length - 1; next.setAttribute("aria-label", "Next slide");
+      prev.addEventListener("click", () => go(-1)); next.addEventListener("click", () => go(1));
+      stage.append(prev, next, el("div", "counter", (slide + 1) + "/" + list.length));
+      list.forEach((_, i) => {
+        const d = el("button", "dot" + (i === slide ? " on" : "")); d.setAttribute("aria-label", "Slide " + (i + 1));
+        d.addEventListener("click", () => { slide = i; renderStage(); });
+        dots.appendChild(d);
+      });
+      // touch swipe
+      let x0 = null;
+      stage.ontouchstart = (e) => { x0 = e.touches[0].clientX; };
+      stage.ontouchend = (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1); x0 = null; };
+    } else { stage.ontouchstart = stage.ontouchend = null; }
+  }
+  function go(d){
+    const p = byId(current); if (!p || p.type === "reel") return;
+    const n = slidesOf(p).length; const s = slide + d;
+    if (s < 0 || s >= n) return;
+    slide = s; renderStage();
+  }
+  function setTab(t){
+    tab = t;
+    document.querySelectorAll("#capTabs .tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
+    document.querySelectorAll("[data-pane]").forEach((p) => p.hidden = p.dataset.pane !== t);
+  }
+
+  function open(id, skipConfirm){
+    if (id === current) { showPanel(true); return; }
+    if (!skipConfirm && !confirmLeave()) return;
+    const p = byId(id); if (!p) return;
+    current = id; slide = 0;
+    fillForm(p); renderMeta(p); renderStage(); updateLive();
+    showPanel(true); renderGrid();
+    try { history.replaceState(null, "", "#" + id); } catch (e) { /* ignore */ }
+  }
+  function close(){
+    if (!confirmLeave()) return;
+    current = null; showPanel(false); renderGrid();
+    const v = document.querySelector("#stage video"); if (v) v.pause();
+    try { history.replaceState(null, "", location.pathname); } catch (e) { /* ignore */ }
+  }
+  function showPanel(on){ $("panel").classList.toggle("open", on); $("overlay").classList.toggle("open", on); }
+  function step(d){
+    const list = visible(); if (!list.length) return;
+    const i = list.findIndex((p) => p.id === current);
+    const j = i < 0 ? 0 : i + d;
+    if (j < 0 || j >= list.length) return;
+    open(list[j].id);
+  }
+
+  // ---------- actions ----------
+  async function patch(fields, msg){
+    const id = current;
+    try {
+      const p = await api("PATCH", "/api/posts/" + encodeURIComponent(id), fields);
+      replacePost(p);
+      if (current === id){ fillForm(p); renderMeta(p); renderStage(); updateLive(); }
+      renderAll(); toast(msg);
+    } catch (e) { toast("Save failed: " + e.message, true); }
+  }
+  function save(){ const f = dirtyFields(); if (Object.keys(f).length) patch(f, "Saved"); }
+  function setStatus(s){
+    if (!current) return;
+    // Status changes also save any pending edits so nothing is lost.
+    const f = Object.assign(dirtyFields(), {status: s});
+    patch(f, "Marked " + LABEL[s].toLowerCase());
+  }
+  async function rerender(){
+    if (!current || rendering) return;
+    if (isDirty() && !confirm("Re-render uses the saved post. Unsaved edits stay in the form but are not rendered. Continue?")) return;
+    const id = current, btn = $("renderBtn");
+    rendering = true; btn.disabled = true; btn.replaceChildren(el("span", "spin"), document.createTextNode("Rendering…"));
+    try {
+      const p = await api("POST", "/api/posts/" + encodeURIComponent(id) + "/render");
+      // keep unsaved form edits: only refresh media/meta
+      replacePost(p);
+      if (current === id){ renderMeta(p); renderStage(); updateLive(); }
+      renderAll(); toast("Re-rendered " + id);
+    } catch (e) { toast("Render failed: " + e.message, true); }
+    finally { rendering = false; btn.disabled = false; btn.textContent = "Re-render"; }
+  }
+  async function copyCaption(){
+    updateLive();
+    try { await navigator.clipboard.writeText($("fCombined").value); toast("Caption copied"); }
+    catch (e) { $("fCombined").select(); toast("Clipboard blocked — text selected, press Cmd/Ctrl+C", true); }
+  }
+
+  // ---------- wiring ----------
+  ["fEn","fAr","fTags","fDate","fNotes"].forEach((id) => $(id).addEventListener("input", updateLive));
+  $("saveBtn").addEventListener("click", save);
+  $("revertBtn").addEventListener("click", () => { const p = byId(current); if (p){ fillForm(p); updateLive(); } });
+  document.querySelectorAll("[data-status]").forEach((b) => b.addEventListener("click", () => setStatus(b.dataset.status)));
+  $("renderBtn").addEventListener("click", rerender);
+  $("copyBtn").addEventListener("click", copyCaption);
+  $("closeBtn").addEventListener("click", close);
+  $("overlay").addEventListener("click", close);
+  $("prevPost").addEventListener("click", () => step(-1));
+  $("nextPost").addEventListener("click", () => step(1));
+  document.querySelectorAll("#capTabs .tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s" && current){ e.preventDefault(); save(); }
+      return;
+    }
+    const tag = (e.target && e.target.tagName) || "";
+    const typing = tag === "TEXTAREA" || tag === "INPUT" || (e.target && e.target.isContentEditable);
+    if (e.key === "Escape"){
+      if (typing){ e.target.blur(); return; }
+      if (current){ e.preventDefault(); close(); }
+      return;
+    }
+    if (typing) return;
+    const k = e.key.toLowerCase();
+    if (e.key === "ArrowLeft" && current){ e.preventDefault(); go(-1); }
+    else if (e.key === "ArrowRight" && current){ e.preventDefault(); go(1); }
+    else if (k === "j"){ e.preventDefault(); current ? step(1) : (visible()[0] && open(visible()[0].id)); }
+    else if (k === "k"){ e.preventDefault(); step(-1); }
+    else if (k === "a" && current){ e.preventDefault(); setStatus("approved"); }
+    else if (k === "r" && current){ e.preventDefault(); setStatus("rejected"); }
+  });
+  window.addEventListener("beforeunload", (e) => { if (isDirty()){ e.preventDefault(); e.returnValue = ""; } });
+
+  async function load(){
+    try {
+      posts = await api("GET", "/api/posts");
+      renderAll();
+      const h = decodeURIComponent(location.hash.slice(1));
+      if (h && byId(h)) open(h, true);
+    } catch (e) {
+      $("empty").hidden = false; $("empty").textContent = "Could not load posts: " + e.message;
+    }
+  }
+  load();
+})();
+</script>
+</body>
+</html>

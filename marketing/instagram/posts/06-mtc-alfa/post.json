@@ -1,0 +1,44 @@
+{
+  "id": "06-mtc-alfa",
+  "type": "image",
+  "status": "draft",
+  "planned_date": "2026-10-30",
+  "slides": [
+    {
+      "template": "shot",
+      "eyebrow": "MTC and Alfa",
+      "title": "Credit and days recharges, *in a few taps*.",
+      "body": "With what you owe each supplier kept up to date.",
+      "shot": {
+        "file": "recharge.png",
+        "crop": [
+          420,
+          100,
+          850,
+          840
+        ]
+      }
+    }
+  ],
+  "caption_en": "MTC and Alfa recharges — credit and days — with what you owe each supplier kept up to date.\n\n(Screen from our demo shop.)\n\nWant to see it in your shop? Message us on WhatsApp: +961 81 077 357 (link in bio).",
+  "caption_ar": "تشريج رصيد وأيام MTC وAlfa، مع تحديث ما عليك لكل مورّد.\n\n(الصورة من محل تجريبي.)\n\nتريد أن تراه في محلك؟ راسلنا على واتساب: 357 077 81 961+",
+  "hashtags": [
+    "#LiraTek",
+    "#Lebanon",
+    "#لبنان",
+    "#PhoneShop",
+    "#محل_خليوي",
+    "#POS",
+    "#MTC",
+    "#Alfa",
+    "#Recharge"
+  ],
+  "sources": [
+    "landing/index.html \"MTC and Alfa\"",
+    "assets/shots/recharge.png"
+  ],
+  "notes": "",
+  "media": [],
+  "public_urls": [],
+  "published_id": null
+}

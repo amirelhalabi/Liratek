@@ -1,0 +1,38 @@
+{
+  "id": "03-demo-reel",
+  "type": "reel",
+  "status": "draft",
+  "planned_date": "2026-10-23",
+  "reel": {
+    "kind": "framed-video",
+    "video": "demo.mp4",
+    "eyebrow": "LiraTek in action",
+    "title": "Two currencies. *One counter.*",
+    "sub_ar": "دولار وليرة، على صندوق واحد.",
+    "body": "Sales, OMT fees and drawers — in dollars and lira."
+  },
+  "caption_en": "Two currencies. One counter. 🇱🇧\n\nWatch a sale, an OMT transfer with its fee worked out, and the drawers balancing — all in dollars and lira.\n\nWant to see it in your shop? Message us on WhatsApp: +961 81 077 357 (link in bio).",
+  "caption_ar": "عملتان. صندوق واحد. 🇱🇧\n\nشاهد عملية بيع، وتحويل OMT مع حساب العمولة، والصناديق مضبوطة — كلها بالدولار والليرة.\n\nتريد أن تراه في محلك؟ راسلنا على واتساب: 357 077 81 961+",
+  "hashtags": [
+    "#LiraTek",
+    "#Lebanon",
+    "#لبنان",
+    "#PhoneShop",
+    "#محل_خليوي",
+    "#POS",
+    "#OMT",
+    "#Reels"
+  ],
+  "sources": [
+    "landing/assets/demo.mp4 (the landing page's own demo video)",
+    "brag-output/brag-plan.md storyboard"
+  ],
+  "notes": "",
+  "media": [
+    "media/reel.mp4",
+    "media/cover.jpg"
+  ],
+  "public_urls": [],
+  "published_id": null,
+  "rendered_at": "2026-10-16T19:50:36.967Z"
+}

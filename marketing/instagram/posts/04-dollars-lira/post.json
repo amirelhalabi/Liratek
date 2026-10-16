@@ -1,0 +1,95 @@
+{
+  "id": "04-dollars-lira",
+  "type": "carousel",
+  "status": "draft",
+  "planned_date": "2026-10-26",
+  "slides": [
+    {
+      "template": "numbers",
+      "eyebrow": "Dollars and lira together",
+      "lines": [
+        {
+          "text": "$33.00",
+          "size": 150
+        },
+        {
+          "text": "≈ 2,970,000 LBP",
+          "size": 84,
+          "color": "var(--accent)",
+          "label": "at 90,000 LBP to the dollar"
+        }
+      ],
+      "title": "Every price, *in both currencies*.",
+      "sub_ar": "الأسعار والدفعات والفكّة بالدولار والليرة."
+    },
+    {
+      "template": "shot",
+      "eyebrow": "Checkout",
+      "title": "The total in dollars, *and in lira*.",
+      "body": "Split a payment across both currencies.",
+      "shot": {
+        "file": "checkout.png",
+        "crop": [
+          24,
+          80,
+          1872,
+          890
+        ],
+        "ring": [
+          96,
+          826,
+          800,
+          110
+        ]
+      }
+    },
+    {
+      "template": "shot",
+      "eyebrow": "Exchange",
+      "title": "Run currency exchange *at the same counter*.",
+      "shot": {
+        "file": "exchange.png",
+        "crop": [
+          420,
+          200,
+          1000,
+          810
+        ]
+      }
+    },
+    {
+      "template": "cta",
+      "title": "Want to see it in *your shop*?",
+      "body": "Message us — we'll show you how it works and talk about pricing.",
+      "sub_ar": "تريد أن تراه في محلك؟"
+    }
+  ],
+  "caption_en": "Customer pays half in dollars, half in lira? No calculator needed.\n\nIn LiraTek, prices, payments, change and drawers are all in USD and LBP. Split a payment across both, and run currency exchange from the same system.\n\n(Screens from our demo shop.)\n\nWant to see it in your shop? Message us on WhatsApp: +961 81 077 357 (link in bio).",
+  "caption_ar": "الزبون بدّو يدفع نص بالدولار ونص بالليرة؟ ما في داعي للآلة الحاسبة.\n\nفي LiraTek، الأسعار والدفعات والفكّة والصناديق كلها بالدولار والليرة. قسّم الدفعة بين العملتين، وصرّف العملات من النظام نفسه.\n\n(الصور من محل تجريبي.)\n\nتريد أن تراه في محلك؟ راسلنا على واتساب: 357 077 81 961+",
+  "hashtags": [
+    "#LiraTek",
+    "#Lebanon",
+    "#لبنان",
+    "#PhoneShop",
+    "#محل_خليوي",
+    "#POS",
+    "#USD",
+    "#LBP",
+    "#Exchange"
+  ],
+  "sources": [
+    "landing/index.html \"Dollars and lira together\"",
+    "assets/shots/checkout.png ($33.00 ≈ 2,970,000 LBP at 90,000 rate, demo shop)",
+    "assets/shots/exchange.png"
+  ],
+  "notes": "",
+  "media": [
+    "media/slide-01.png",
+    "media/slide-02.png",
+    "media/slide-03.png",
+    "media/slide-04.png"
+  ],
+  "public_urls": [],
+  "published_id": null,
+  "rendered_at": "2026-10-16T19:53:06.755Z"
+}

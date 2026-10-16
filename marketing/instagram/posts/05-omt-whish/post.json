@@ -1,0 +1,68 @@
+{
+  "id": "05-omt-whish",
+  "type": "carousel",
+  "status": "draft",
+  "planned_date": "2026-10-28",
+  "slides": [
+    {
+      "template": "hero",
+      "eyebrow": "OMT and Whish",
+      "title": "Transfers with the *fee worked out*.",
+      "body": "Type the amount. LiraTek adds the fee and shows what the customer pays.",
+      "sub_ar": "أرسل واستلم التحويلات مع حساب العمولة تلقائياً."
+    },
+    {
+      "template": "shot",
+      "eyebrow": "OMT send",
+      "title": "$150 sent. *+$2.00 fee.* $152 to pay.",
+      "shot": {
+        "file": "omt.png",
+        "crop": [
+          420,
+          180,
+          1460,
+          610
+        ],
+        "ring": [
+          500,
+          672,
+          290,
+          82
+        ]
+      }
+    },
+    {
+      "template": "hero",
+      "eyebrow": "End of day",
+      "title": "Check your balance against *OMT's statement*.",
+      "body": "Every transfer is in your books, so matching OMT's statement is quick."
+    },
+    {
+      "template": "cta",
+      "title": "Want to see it in *your shop*?",
+      "body": "Message us — we'll show you how it works and talk about pricing.",
+      "sub_ar": "تريد أن تراه في محلك؟"
+    }
+  ],
+  "caption_en": "Stop working out OMT fees by hand.\n\nSend and receive OMT and Whish transfers with the fee worked out, and check your balance against OMT's statement.\n\n(Screen from our demo shop.)\n\nWant to see it in your shop? Message us on WhatsApp: +961 81 077 357 (link in bio).",
+  "caption_ar": "ما عاد في داعي تحسب عمولة OMT عالورقة.\n\nأرسل واستلم تحويلات OMT وWhish مع حساب العمولة تلقائياً، وطابق رصيدك مع كشف OMT.\n\n(الصورة من محل تجريبي.)\n\nتريد أن تراه في محلك؟ راسلنا على واتساب: 357 077 81 961+",
+  "hashtags": [
+    "#LiraTek",
+    "#Lebanon",
+    "#لبنان",
+    "#PhoneShop",
+    "#محل_خليوي",
+    "#POS",
+    "#OMT",
+    "#Whish",
+    "#MoneyTransfer"
+  ],
+  "sources": [
+    "landing/index.html \"OMT and Whish\"",
+    "assets/shots/omt.png ($150, +$2.00 fee, $152.00 total, demo shop)"
+  ],
+  "notes": "",
+  "media": [],
+  "public_urls": [],
+  "published_id": null
+}

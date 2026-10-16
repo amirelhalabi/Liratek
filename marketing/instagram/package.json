@@ -1,0 +1,11 @@
+{
+  "name": "liratek-instagram",
+  "private": true,
+  "type": "module",
+  "description": "LiraTek Instagram content: render posts locally and approve them before publishing. Not a workspace.",
+  "scripts": {
+    "render": "node render.mjs",
+    "review": "node review/server.mjs",
+    "publish": "node publish.mjs"
+  }
+}

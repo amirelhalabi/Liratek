@@ -1,0 +1,108 @@
+{
+  "id": "07-one-counter-reel",
+  "type": "reel",
+  "status": "draft",
+  "planned_date": "2026-11-02",
+  "reel": {
+    "kind": "scenes",
+    "duration": 17,
+    "cover_at": 1.2,
+    "scenes": [
+      {
+        "kind": "text",
+        "t0": 0,
+        "t1": 2.8,
+        "eyebrow": "Lebanese phone shops",
+        "title": "One counter. *Two currencies.*",
+        "sub_ar": "صندوق واحد. عملتان."
+      },
+      {
+        "kind": "shot",
+        "t0": 2.6,
+        "t1": 6.6,
+        "eyebrow": "Checkout",
+        "title": "$33.00 *≈ 2,970,000 LBP*",
+        "sub_ar": "بِع بالدولار أو بالليرة",
+        "shot": {
+          "file": "checkout.png",
+          "crop": [
+            60,
+            640,
+            860,
+            320
+          ]
+        },
+        "top": 820
+      },
+      {
+        "kind": "shot",
+        "t0": 6.4,
+        "t1": 10.4,
+        "eyebrow": "OMT",
+        "title": "Fees, *worked out*.",
+        "sub_ar": "عمولة OMT محسوبة تلقائياً",
+        "shot": {
+          "file": "omt.png",
+          "crop": [
+            420,
+            180,
+            1460,
+            610
+          ],
+          "ring": [
+            500,
+            672,
+            290,
+            82
+          ]
+        },
+        "top": 800
+      },
+      {
+        "kind": "shot",
+        "t0": 10.2,
+        "t1": 14.2,
+        "eyebrow": "Closing",
+        "title": "Every drawer, *balanced*.",
+        "sub_ar": "كل صندوق مضبوط",
+        "shot": {
+          "file": "dashboard.png",
+          "crop": [
+            410,
+            500,
+            1490,
+            260
+          ]
+        },
+        "top": 860
+      },
+      {
+        "kind": "logo",
+        "t0": 14,
+        "t1": 17,
+        "title": "The shop system for *Lebanese phone shops*.",
+        "button": "Talk to us on WhatsApp"
+      }
+    ]
+  },
+  "caption_en": "One counter. Two currencies. Zero mental math.\n\nSell in dollars or lira, let LiraTek work out the OMT fee, and close the day with every drawer balanced.\n\n(Screens from our demo shop.)\n\nWant to see it in your shop? Message us on WhatsApp: +961 81 077 357 (link in bio).",
+  "caption_ar": "صندوق واحد. عملتان. بلا حسابات بالراس.\n\nبِع بالدولار أو بالليرة، خلّي LiraTek يحسب عمولة OMT، وأقفل اليوم وكل صندوق مضبوط.\n\n(الصور من محل تجريبي.)\n\nتريد أن تراه في محلك؟ راسلنا على واتساب: 357 077 81 961+",
+  "hashtags": [
+    "#LiraTek",
+    "#Lebanon",
+    "#لبنان",
+    "#PhoneShop",
+    "#محل_خليوي",
+    "#POS",
+    "#OMT",
+    "#Reels"
+  ],
+  "sources": [
+    "assets/shots/checkout.png, omt.png, dashboard.png (demo shop)",
+    "landing/index.html hero + modules"
+  ],
+  "notes": "",
+  "media": [],
+  "public_urls": [],
+  "published_id": null
+}
