@@ -259,8 +259,11 @@ export function roundMoneyForCurrency(
   amount: number,
   currencyCode: string,
 ): number {
-  const unit = currencyCode === "LBP" ? 1 : 0.01;
-  return Math.round(amount / unit) * unit;
+  // Divide by the unit count, never multiply by 0.01: `n * 0.01` is not the
+  // nearest double to n cents (35 * 0.01 = 0.35000000000000003), and that
+  // noise lands in drawer balances when a refund leg is posted.
+  if (currencyCode === "LBP") return Math.round(amount);
+  return Math.round(amount * 100) / 100;
 }
 
 /**

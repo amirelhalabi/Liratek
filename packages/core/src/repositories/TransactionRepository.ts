@@ -21,6 +21,7 @@ import {
   uncoverBasketMember,
 } from "./basketMemberCoverage.js";
 import { localDayExpr } from "./reportingTimeFragments.js";
+import { saleItemRefundOriginalIdSql } from "./saleRefundOriginalFragment.js";
 import {
   MODULE_DEBT_TRANSACTION_TYPES,
   NON_REVERSIBLE_TRANSACTION_TYPES,
@@ -1318,6 +1319,31 @@ export interface TransactionWithUser extends TransactionEntity {
    * row of that session. Always `false` for a non-session row.
    */
   session_fully_refunded: boolean;
+  /**
+   * Shop-day 2026-10-16 — on a sale-item REFUND row (POS "Refund item",
+   * warranty refund, session-basket item refund): the id of the SALE row it
+   * belongs to, so the table can show "↩ #<sale>". These rows deliberately
+   * keep `reverses_id` NULL (that means "whole refund" to the guards and to
+   * `reversed_by_id`), so the link is resolved through the sale
+   * (`saleItemRefundOriginalIdSql`, the same link the profit reports use).
+   * NULL on every other row, including a whole refund (read `reverses_id`).
+   */
+  item_refund_of_id: number | null;
+  /**
+   * Shop-day 2026-10-16 — on an ACTIVE, not-whole-refunded SALE row: true
+   * when at least one of its lines has been item-refunded (the SAME
+   * "touched" predicate the whole void/refund guard refuses on —
+   * `_assertNoPartialItemRefunds`). Follows "Undo refund" (it reads
+   * `sale_items.refunded_quantity`). Whenever true, a whole Void/Refund of
+   * this row is refused by the server. Always false on other rows.
+   */
+  item_refunded: boolean;
+  /**
+   * With `item_refunded`: true while some quantity is still refundable item
+   * by item ("PARTLY REFUNDED"); false once every line has been refunded
+   * item by item (fully refunded, though `reversed_by_id` stays NULL).
+   */
+  item_refund_remaining: boolean;
 }
 
 export interface DebtAgingBuckets {
@@ -1879,7 +1905,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
                 WHERE r.reverses_id = t.id
                   AND r.type = 'REFUND'
                   AND r.tenant_id = t.tenant_id
-                LIMIT 1) AS reversed_by_id
+                LIMIT 1) AS reversed_by_id,
+              CASE WHEN t.reverses_id IS NULL
+                   THEN ${saleItemRefundOriginalIdSql("t", "'REFUND'")}
+              END AS item_refund_of_id
        FROM transactions t
        LEFT JOIN users u ON u.id = t.user_id AND u.tenant_id = ?
        LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
@@ -1957,6 +1986,41 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           ? (fullyRefundedBySession.get(row.session_id) ?? false)
           : false,
     }));
+
+    // Shop-day 2026-10-16 — `item_refunded` / `item_refund_remaining`, one
+    // set-based query for every sale on the page (same counts the whole
+    // void/refund guard reads — `_saleItemRefundCounts`, rule 14).
+    const saleIds = Array.from(
+      new Set(
+        rows
+          .filter(
+            (r) =>
+              r.type === TRANSACTION_TYPES.SALE &&
+              r.source_table === "sales" &&
+              r.source_id != null &&
+              r.status === "ACTIVE" &&
+              r.reverses_id == null &&
+              r.reversed_by_id == null,
+          )
+          .map((r) => r.source_id as number),
+      ),
+    );
+    const itemRefundCounts = this._saleItemRefundCounts(saleIds);
+    for (const row of rows) {
+      const counts =
+        row.type === TRANSACTION_TYPES.SALE &&
+        row.source_table === "sales" &&
+        row.source_id != null &&
+        row.status === "ACTIVE" &&
+        row.reverses_id == null &&
+        row.reversed_by_id == null
+          ? itemRefundCounts.get(row.source_id)
+          : undefined;
+      row.item_refunded = (counts?.touched ?? 0) > 0;
+      row.item_refund_remaining =
+        row.item_refunded && (counts?.remaining ?? 0) > 0;
+      row.item_refund_of_id = row.item_refund_of_id ?? null;
+    }
 
     return this._attachPaymentLegs(rows);
   }
@@ -7855,21 +7919,48 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   /** A line that still has quantity left to refund individually from the sale detail. */
   private static readonly SALE_ITEM_HAS_REFUNDABLE_REMAINDER = `(COALESCE(is_refunded, 0) = 0 AND COALESCE(refunded_quantity, 0) < quantity)`;
 
+  /**
+   * Per sale: how many lines are item-refund "touched" and how many still
+   * have quantity left to refund individually. ONE query for any number of
+   * sales — read by the whole void/refund guard below and by `getRecent`'s
+   * `item_refunded`/`item_refund_remaining`, so the badge and the refusal
+   * can never disagree (rule 14). Sales with no lines are absent.
+   */
+  private _saleItemRefundCounts(
+    saleIds: number[],
+  ): Map<number, { touched: number; remaining: number }> {
+    const out = new Map<number, { touched: number; remaining: number }>();
+    if (saleIds.length === 0) return out;
+    const placeholders = saleIds.map(() => "?").join(", ");
+    const rows = this.query<{
+      sale_id: number;
+      touched: number | null;
+      remaining: number | null;
+    }>(
+      `SELECT sale_id,
+         SUM(CASE WHEN ${TransactionRepository.SALE_ITEM_REFUND_TOUCHED} THEN 1 ELSE 0 END) AS touched,
+         SUM(CASE WHEN ${TransactionRepository.SALE_ITEM_HAS_REFUNDABLE_REMAINDER} THEN 1 ELSE 0 END) AS remaining
+       FROM sale_items
+       WHERE sale_id IN (${placeholders}) AND tenant_id = ?
+       GROUP BY sale_id`,
+      ...saleIds,
+      getCurrentTenantId(),
+    );
+    for (const r of rows) {
+      out.set(r.sale_id, {
+        touched: r.touched ?? 0,
+        remaining: r.remaining ?? 0,
+      });
+    }
+    return out;
+  }
+
   private _assertNoPartialItemRefunds(original: TransactionEntity): void {
     if (original.source_table !== "sales" || original.source_id == null) {
       return;
     }
-    const counts = this.queryOne<{
-      touched: number | null;
-      remaining: number | null;
-    }>(
-      `SELECT
-         SUM(CASE WHEN ${TransactionRepository.SALE_ITEM_REFUND_TOUCHED} THEN 1 ELSE 0 END) AS touched,
-         SUM(CASE WHEN ${TransactionRepository.SALE_ITEM_HAS_REFUNDABLE_REMAINDER} THEN 1 ELSE 0 END) AS remaining
-       FROM sale_items
-       WHERE sale_id = ? AND tenant_id = ?`,
+    const counts = this._saleItemRefundCounts([original.source_id]).get(
       original.source_id,
-      getCurrentTenantId(),
     );
     const touched = counts?.touched ?? 0;
     if (touched === 0) return;

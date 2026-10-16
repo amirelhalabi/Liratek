@@ -16,6 +16,7 @@ import {
 } from "../utils/errors.js";
 import { salesLogger } from "../utils/logger.js";
 import { lineGrossMarginUsd } from "../utils/saleMargin.js";
+import { roundMoneyForCurrency } from "../utils/omtFees.js";
 import {
   getTransactionRepository,
   isOverridableLeg,
@@ -2095,6 +2096,79 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
+   * The share of the sale's PRE-discount total already item-refunded —
+   * Σ `sold_price_usd × refunded_quantity` over its lines, on the same
+   * denominator as `_computeLineShareOfSale` (rule 14). Read BEFORE this
+   * refund bumps `refunded_quantity`; an undo decrements it, so the share
+   * follows undos too.
+   */
+  private _refundedShareOfSale(
+    saleId: number,
+    sale: Pick<SaleEntity, "total_amount_usd">,
+  ): number {
+    const saleTotalUsd = sale.total_amount_usd || 0;
+    if (saleTotalUsd <= 0) return 0;
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(sold_price_usd * COALESCE(refunded_quantity, 0)), 0) AS refunded
+           FROM sale_items WHERE sale_id = ? AND tenant_id = ?`,
+      )
+      .get(saleId, getCurrentTenantId()) as { refunded: number };
+    return row.refunded / saleTotalUsd;
+  }
+
+  /** A product's name for refund text, or `product <id>` if it is gone. */
+  private _productLabel(productId: number): string {
+    const row = this.db
+      .prepare(`SELECT name FROM products WHERE id = ? AND tenant_id = ?`)
+      .get(productId, getCurrentTenantId()) as
+      | { name: string | null }
+      | undefined;
+    const name = row?.name?.trim();
+    return name ? name : `product ${productId}`;
+  }
+
+  /**
+   * Shop-day 2026-10-16 — ONE definition (rule 14) of the payment rows an
+   * item refund mirrors, used by the preview (`getItemRefundPreview`), the
+   * override check and the drawer money-back (`_applySaleItemMoneyBack`), so
+   * the three can never disagree.
+   *
+   * Each sale payment row `a` gives back `round(a × after) − round(a ×
+   * before)`, where `before`/`after` are the sale's item-refunded share
+   * without/with this refund. Every leg is a whole cent / whole LBP, and the
+   * amounts telescope: refunding every line one by one hands back exactly
+   * `a` per row, so each drawer returns to where it was before the sale —
+   * unless an earlier item refund on the sale was undone in between (the
+   * undo re-posts that refund's own rounded rows, so the closing refund can
+   * land 1 cent / 1 LBP off; measured −1 LBP on the Sale #182 shape).
+   * Rounding each refund on its own (`round(a × lineShare)`) cannot promise
+   * that — on a $823 sale paid $700, the 2 × $12 cases refunded one at a
+   * time would give back $10.21 + $10.21 and the $799 phone $679.59: $700.01.
+   * Before this, the share was posted unrounded ($679.587, 11,164,641.555
+   * LBP on the real Sale #182 refund).
+   */
+  private _itemRefundLegRows<
+    T extends { currency_code: string; amount: number },
+  >(rows: T[], shareBefore: number, shareAfter: number): T[] {
+    const isFull = shareAfter >= 1 - 1e-9;
+    return rows.map((row) => {
+      const cur = row.currency_code;
+      const before = roundMoneyForCurrency(row.amount * shareBefore, cur);
+      const after = isFull
+        ? row.amount
+        : roundMoneyForCurrency(row.amount * shareAfter, cur);
+      // A legacy row that is not itself a whole unit closes out with its own
+      // fraction rather than leaving it stranded in the drawer.
+      const exact = roundMoneyForCurrency(row.amount, cur) === row.amount;
+      const amount = exact
+        ? roundMoneyForCurrency(after - before, cur)
+        : after - before;
+      return { ...row, amount };
+    });
+  }
+
+  /**
    * LIRA-231 — POS refund preview for one line item: this item's
    * PROPORTIONAL share of the sale's own customer-facing payment legs (same
    * `TransactionPaymentLeg[]` shape RefundMethodModal already consumes on the
@@ -2173,10 +2247,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       sale.exchange_rate_snapshot,
       "sale",
     );
+    const shareBefore = this._refundedShareOfSale(params.saleId, sale);
     return {
       legs: paymentRowsToLegs(
-        txnRepo.getPaymentsByTransactionId(txnId),
-        lineShareOfSale,
+        this._itemRefundLegRows(
+          txnRepo.getPaymentsByTransactionId(txnId),
+          shareBefore,
+          shareBefore + lineShareOfSale,
+        ),
       ),
       sessionLinked: linkage != null,
       ...(linkage ?? {}),
@@ -2340,6 +2418,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       sale,
       params.refundQuantity,
     );
+    // The sale's item-refunded share before/after this refund — drives the
+    // whole-unit leg amounts (`_itemRefundLegRows`).
+    const shareBefore = this._refundedShareOfSale(params.saleId, sale);
+    const shareAfter = shareBefore + lineShareOfSale;
 
     // LIRA-231: validate the operator's chosen return legs (if any) against
     // THIS ITEM's proportional share of the sale's customer-facing net,
@@ -2364,11 +2446,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       const originalPaymentRows = txnRepo.getPaymentsByTransactionId(
         originalTxn.id,
       );
-      const saleNet = overridableNetByCurrency(originalPaymentRows);
-      const itemNet: Record<string, number> = {};
-      for (const [currency, amount] of Object.entries(saleNet)) {
-        itemNet[currency] = amount * lineShareOfSale;
-      }
+      // This item's net = the same whole-unit rows the no-override refund
+      // and the preview use, so an untouched default override matches it.
+      const itemNet = overridableNetByCurrency(
+        this._itemRefundLegRows(originalPaymentRows, shareBefore, shareAfter),
+      );
       const resolved = txnRepo.resolvePartialRefundKeptChange({
         originalTxnId: originalTxn.id,
         owedNet: itemNet,
@@ -2429,6 +2511,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           params.refundQuantity,
           originalTxn.extra_usd ?? 0,
         );
+      // The cashier reads the product's name, not its id (shop-day
+      // 2026-10-16: "1x product 122"). Falls back to the id if it is gone.
+      const productLabel = this._productLabel(item.product_id);
 
       // 6. Create REFUND transaction for this item via TransactionRepository
       const refundTxnId = txnRepo.createTransaction({
@@ -2454,7 +2539,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         client_id: originalTxn.client_id,
         // LIRA-329 (T038): the sale's own client name and phone.
         ...reversalClientOf(originalTxn),
-        summary: `ITEM REFUND: ${params.refundQuantity}x product ${item.product_id} from Sale #${params.saleId}`,
+        summary: `ITEM REFUND: ${params.refundQuantity}x ${productLabel} from Sale #${params.saleId}`,
         metadata_json: {
           refundType: "item",
           saleItemId: params.saleItemId,
@@ -2546,9 +2631,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       this._applySaleItemMoneyBack({
         originalTxnId: originalTxn.id,
         refundTxnId,
-        productId: item.product_id,
+        productLabel,
         refundQuantity: params.refundQuantity,
-        lineShareOfSale,
+        shareBefore,
+        shareAfter,
         userId: params.userId,
         refundLegs,
         itemNetByCurrency,
@@ -3458,9 +3544,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   private _applySaleItemMoneyBack(params: {
     originalTxnId: number;
     refundTxnId: number;
-    productId: number;
+    productLabel: string;
     refundQuantity: number;
-    lineShareOfSale: number;
+    /** The sale's item-refunded share without/with this refund — see
+     *  `_itemRefundLegRows`. */
+    shareBefore: number;
+    shareAfter: number;
     userId: number;
     refundLegs?: RefundLegOverride[];
     itemNetByCurrency?: Record<string, number>;
@@ -3485,20 +3574,26 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
     const hasOverride = !!params.refundLegs && params.refundLegs.length > 0;
 
-    // Pro-rate the tender by the SAME base the profit arm uses — see
-    // `lineShareOfSale`. Every OTHER (internal bookkeeping) leg still
+    // Pro-rate the tender by the SAME base the profit arm uses (the line's
+    // share), in whole cents / whole LBP — `_itemRefundLegRows`, the rows
+    // the preview shows. Every OTHER (internal bookkeeping) leg still
     // mirrors exactly as before, regardless of the override — only
     // overridable (customer-facing, drawer-affecting) legs are replaced.
-    for (const payment of originalPayments) {
+    const shareRows = this._itemRefundLegRows(
+      originalPayments,
+      params.shareBefore,
+      params.shareAfter,
+    );
+    for (const payment of shareRows) {
       if (hasOverride && isOverridableLeg(payment)) continue;
-      const negatedAmount = -(payment.amount * params.lineShareOfSale);
+      const negatedAmount = -payment.amount;
       insertPaymentRow(db, {
         transactionId: params.refundTxnId,
         method: payment.method,
         drawerName: payment.drawer_name,
         currencyCode: payment.currency_code,
         amount: negatedAmount,
-        note: `Item refund - ${params.refundQuantity}x product ${params.productId}`,
+        note: `Item refund - ${params.refundQuantity}x ${params.productLabel}`,
         createdBy: params.userId,
         tenantId,
       });

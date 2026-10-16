@@ -43,6 +43,7 @@ import {
   isToday,
   dateRange,
 } from "./reportingTimeFragments.js";
+import { saleItemRefundOriginalIdSql } from "./saleRefundOriginalFragment.js";
 import {
   TRANSACTION_TYPES,
   SESSION_ITEM_REFUND_LINK_TYPE,
@@ -3648,13 +3649,7 @@ function refundOriginalJoin(alias: string, origAlias: string): string {
  */
 function refundOriginalIdExpr(alias: string): string {
   return `COALESCE(${alias}.reverses_id,
-          CASE WHEN ${alias}.type IN (${REFUND_ADJUSTMENT_TYPES_SQL}) AND ${alias}.source_table = 'sales' THEN (
-            SELECT MIN(o.id) FROM transactions o
-            WHERE o.tenant_id = ${alias}.tenant_id
-              AND o.source_table = 'sales'
-              AND o.source_id = ${alias}.source_id
-              AND o.type = 'SALE'
-          ) END)`;
+          ${saleItemRefundOriginalIdSql(alias, REFUND_ADJUSTMENT_TYPES_SQL)})`;
 }
 
 /**
