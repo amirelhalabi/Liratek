@@ -14,9 +14,11 @@ import {
   Clock,
   X as CloseIcon,
   Upload,
+  Download,
   Plus,
   Eraser,
 } from "lucide-react";
+import { saveAs } from "file-saver";
 import {
   appEvents,
   BALANCE_BORDER_COLOR,
@@ -78,6 +80,11 @@ import { getDebtAging } from "@/api/backendApi";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import {
+  buildDebtExportWorkbook,
+  isPaymentLedgerType,
+  type DebtExportClient,
+} from "../../utils/debtExcelExport";
 import type { Client } from "@liratek/ui";
 
 type DebtAgingBuckets = {
@@ -104,6 +111,7 @@ export default function Debts() {
   const { buyRate: EXCHANGE_RATE } = useSellRate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [parsedClients, setParsedClients] = useState<ImportClient[] | null>(
     null,
   );
@@ -377,14 +385,12 @@ export default function Debts() {
     }
   };
 
-  // Split history into debts (purchases) and payments (repayments + credit deposits)
-  // CREDIT_DEPOSIT reduces what client owes (or increases shop's debt to client) → payment side
-  // CREDIT_USED charges against credit balance → purchase side
-  const PAYMENT_TYPES = new Set(["Repayment", "CREDIT_DEPOSIT"]);
-
+  // Split history into debts (purchases) and payments (repayments + credit
+  // deposits) — the rule lives in isPaymentLedgerType, shared with the Excel
+  // export so the file splits rows exactly as this screen does.
   const debtEntries = useMemo(() => {
     return [...history]
-      .filter((item) => !PAYMENT_TYPES.has(item.transaction_type))
+      .filter((item) => !isPaymentLedgerType(item.transaction_type))
       .sort((a, b) => {
         const dateA = parseDbDate(a.created_at).getTime();
         const dateB = parseDbDate(b.created_at).getTime();
@@ -394,7 +400,7 @@ export default function Debts() {
 
   const paymentEntries = useMemo(() => {
     return [...history]
-      .filter((item) => PAYMENT_TYPES.has(item.transaction_type))
+      .filter((item) => isPaymentLedgerType(item.transaction_type))
       .sort((a, b) => {
         const dateA = parseDbDate(a.created_at).getTime();
         const dateB = parseDbDate(b.created_at).getTime();
@@ -1380,6 +1386,58 @@ export default function Debts() {
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Excel Export — every client with account history, in the import template
+  // ---------------------------------------------------------------------------
+  const handleExportExcel = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      const allDebtors = await apiRef.current.getDebtors();
+      const clients: DebtExportClient[] = new Array(allDebtors.length);
+      // A few histories at a time: hundreds of clients in one burst would
+      // flood the web backend, one at a time is needlessly slow.
+      const BATCH = 8;
+      for (let i = 0; i < allDebtors.length; i += BATCH) {
+        await Promise.all(
+          allDebtors.slice(i, i + BATCH).map(async (d, j) => {
+            const history = await apiRef.current.getClientDebtHistory(d.id);
+            clients[i + j] = {
+              name: d.full_name,
+              phone: d.phone_number ?? "",
+              history: history ?? [],
+            };
+          }),
+        );
+      }
+      clients.sort((a, b) => a.name.localeCompare(b.name));
+
+      if (clients.length === 0) {
+        alert("No client accounts to export.");
+        return;
+      }
+
+      const wb = buildDebtExportWorkbook(clients);
+      const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      const now = new Date();
+      const day = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, "0"),
+        String(now.getDate()).padStart(2, "0"),
+      ].join("-");
+      saveAs(
+        new Blob([buf], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+        `accounts-${day}.xlsx`,
+      );
+    } catch (err) {
+      logger.error("Excel export failed", { error: err });
+      alert("Failed to export: " + getApiErrorMessage(err, "Unknown error"));
+    } finally {
+      setIsExporting(false);
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Excel Import — parse file and show cleanup modal if needed
   // ---------------------------------------------------------------------------
 
@@ -1684,6 +1742,14 @@ export default function Debts() {
             >
               <Upload size={18} />
               {isImporting ? "Importing..." : "Import Excel"}
+            </button>
+            <button
+              onClick={handleExportExcel}
+              disabled={isExporting}
+              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
+            >
+              <Download size={18} />
+              {isExporting ? "Exporting..." : "Export Excel"}
             </button>
           </div>
         }

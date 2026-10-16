@@ -6680,6 +6680,16 @@ Spec Kit: `specs/324-whish-usd-mode/` (spec, plan, tasks). Owner decisions: MTC/
 
 **What users will notice:** Recharge → Whish App → Bills has an LBP | USD switch; in USD the items show and sell at their dollar price and the cost comes out of the Whish App dollar balance; dollar-only items appear only in USD; prepaid cards stay LBP; set dollar selling prices in Settings → Mobile Services.
 
+## LIRA-330: Export client accounts to Excel in the import template — BUILT (owner request 2026-10-16)
+
+Owner decisions 2026-10-16: export **every client with account history** (not only non-zero balances), for **backup / print / share** (re-import into the same shop is not a goal: the import still stamps every row "yesterday" and its duplicate check was not reviewed).
+
+**Built:** "Export Excel" button on Accounts, next to Import. Frontend only, through the existing dual-transport reads `getDebtors` (already returns every client with any `debt_ledger` row) + `getClientDebtHistory` (8 at a time), so it works on desktop and web with no new IPC/REST. Workbook builder `frontend/src/features/debts/utils/debtExcelExport.ts`: `List Name` sheet (`NAME | Phone`), then one sheet per client in the layout `handleImportFile` reads (B1 name, D1 phone, row 2 headers, purchases A–D, payments F–I as positive amounts, `TOTAL ON ACCOUNT`/`TOTAL PAID` SUM formulas, `Balance Remaining in USD/LBP` formulas = the ledger's own sum). Sheet names cleaned (31 chars, no `:\/?*[]`, unique, never `List Name`/`Sheet1`/`Sheet2`/`NAME (…`); the real name stays in B1. The Purchases/Payments split (`Repayment`, `CREDIT_DEPOSIT` → payments) is now one shared `isPaymentLedgerType`, used by both the page's history tables and the export (rule 14).
+
+**Tests:** `debtExcelExport.test.ts` (new feature, not a fix — not failing-first). Written, typechecked, NOT run yet (awaiting owner OK).
+
+**What users will notice:** Accounts has an "Export Excel" button that saves every client's account in the same Excel layout used for importing, with real dates, totals and remaining balance.
+
 ## LIRA-329: Full transaction details — every field the cashier fills is kept on the transaction — BUILT 2026-10-16 (all phases, T001–T042)
 
 Spec Kit: `specs/329-transaction-full-details/` (spec, plan, research, data model, contract, quickstart, tasks). Gap list: `docs/plans/ongoing_plans/TRANSACTION_DETAIL_AUDIT.md`. Owner decisions: details live in `metadata_json.details` (one typed set per kind) plus `metadata_json.payment_snapshot`; the row's own `client_name`/`client_phone` are filled whenever known; new transactions only; display is a later ticket; the audit's suspected bugs are handled separately.

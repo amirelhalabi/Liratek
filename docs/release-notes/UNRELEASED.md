@@ -138,6 +138,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 ## 📒 Accounts
 
+- Accounts: new "Export Excel" button. It saves every client who has account history into one Excel file laid out like the import sheet: a list of names and phones, then one page per client with purchases on the left, payments on the right, totals, and the remaining balance in USD and LBP. Rows keep their real dates.
 - Accounts: when you click another client, their account shows "Loading..." until it has loaded. Before, the previous client's charges and their Cash Out button stayed on screen for a moment under the new client's name.
 
 ## ⚙️ Settings
