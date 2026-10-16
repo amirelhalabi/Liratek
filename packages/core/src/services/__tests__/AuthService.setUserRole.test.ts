@@ -62,9 +62,10 @@ function roleOf(db: Database.Database, id: number): string | undefined {
   )?.role;
 }
 
-// AuthService's constructor takes a sessionRepo too, but setUserRole never
-// touches it — a bare unused-but-typed stand-in is enough.
-const noopSessionRepo = {} as SessionRepository;
+// setUserRole ends the user's sessions when the role actually changes
+// (AuthService.adminChangesRevokeSessions.test.ts guards that); here a no-op
+// stand-in is enough.
+const noopSessionRepo = { deleteByUserId: () => 0 } as unknown as SessionRepository;
 
 describe("AuthService.setUserRole", () => {
   let db: Database.Database;

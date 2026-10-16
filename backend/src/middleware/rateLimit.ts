@@ -312,7 +312,39 @@ export const signupRequestLimiter = rateLimit({
   },
 });
 
-export const authLimiter = rateLimit({
+/**
+ * Failure-counting limiters (`skipSuccessfulRequests`) must see a refusal
+ * answered with the IPC envelope as a FAILURE. express-rate-limit's default
+ * test is `statusCode < 400`, but most routes answer refusals with HTTP 200
+ * `{ success: false }` (rule 19c), so without this a wrong password on
+ * /api/offline/pair or /api/profits/unlock was never counted at all.
+ * `countEnvelopeFailures` records a `success: false` body on `res.locals`
+ * before the limiter runs; `envelopeSucceeded` is its `requestWasSuccessful`.
+ */
+const ENVELOPE_FAILED = "rateLimitEnvelopeFailed";
+
+function envelopeSucceeded(_req: Request, res: Response): boolean {
+  return res.statusCode < 400 && res.locals[ENVELOPE_FAILED] !== true;
+}
+
+function countEnvelopeFailures(limiter: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    const json = res.json.bind(res);
+    res.json = (body?: unknown) => {
+      if (
+        body !== null &&
+        typeof body === "object" &&
+        (body as { success?: unknown }).success === false
+      ) {
+        res.locals[ENVELOPE_FAILED] = true;
+      }
+      return json(body);
+    };
+    return limiter(req, res, next);
+  };
+}
+
+export const authLimiter = countEnvelopeFailures(rateLimit({
   keyGenerator: clientKey,
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: envLimit("AUTH_RATE_LIMIT_MAX", 5), // failed attempts per window
@@ -325,6 +357,7 @@ export const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful logins
+  requestWasSuccessful: envelopeSucceeded,
   handler: (req, res) => {
     logger.warn(
       {
@@ -341,7 +374,7 @@ export const authLimiter = rateLimit({
       retryAfter: "15 minutes",
     });
   },
-});
+}));
 
 /**
  * Strict rate limiter for sensitive operations
@@ -386,7 +419,7 @@ export const strictLimiter = rateLimit({
  *   page 10 times in 15 minutes would get 429'd on correct passwords if
  *   successes counted toward the limit.
  */
-export const profitsUnlockLimiter = rateLimit({
+export const profitsUnlockLimiter = countEnvelopeFailures(rateLimit({
   keyGenerator: clientKey,
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: envLimit("PROFITS_UNLOCK_RATE_LIMIT_MAX", 5), // failed attempts per window
@@ -399,6 +432,7 @@ export const profitsUnlockLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful unlocks
+  requestWasSuccessful: envelopeSucceeded,
   handler: (req, res) => {
     logger.warn(
       {
@@ -414,7 +448,7 @@ export const profitsUnlockLimiter = rateLimit({
       retryAfter: "15 minutes",
     });
   },
-});
+}));
 
 /**
  * Lenient rate limiter for read-only operations

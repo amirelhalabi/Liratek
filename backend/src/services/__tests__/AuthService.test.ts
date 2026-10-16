@@ -89,6 +89,7 @@ describe("AuthService", () => {
       findValidSession: jest.fn(() => null),
       validateSession: jest.fn(() => null),
       deleteSession: jest.fn(() => ({ success: true })),
+      deleteByUserId: jest.fn(() => 0),
       updateActivity: jest.fn(),
       delete: jest.fn(),
     };

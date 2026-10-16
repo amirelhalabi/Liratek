@@ -599,7 +599,11 @@ export class AuthService {
       throw new BusinessRuleError("Failed to reset password");
     }
 
-    return { success: true };
+    // A password set by an admin is a credential change like any other: sign
+    // the user out everywhere, as changePassword and the emailed reset link do.
+    const sessionsRevoked = this.sessionRepo.deleteByUserId(userId);
+
+    return { success: true, sessionsRevoked };
   }
 
   /**
@@ -686,7 +690,14 @@ export class AuthService {
     }
 
     const updated = this.userRepo.updateUser(userId, { role });
-    if (updated !== null) this.syncDirectory(userId);
+    if (updated !== null) {
+      this.syncDirectory(userId);
+      // The web session carries the role it was signed in with, so a changed
+      // role must end the user's sessions — otherwise a demoted admin keeps
+      // admin rights until they stop using the app. They sign in again and
+      // get the new role.
+      if (user?.role !== role) this.sessionRepo.deleteByUserId(userId);
+    }
     return updated !== null;
   }
 

@@ -52,6 +52,23 @@ const JWT_TEST_SECRET = "wp8-rt-test-secret-0123456789-0123456789-0123456789";
 // parses process.env at module load.
 process.env.JWT_SECRET = JWT_TEST_SECRET;
 
+// The handshake also checks the DB session (isLiveSession). This suite is
+// about room isolation, so every session is live and belongs to the tenant
+// the check runs under (socketHandshake.revokedSession.test.ts covers the
+// ended-session refusal).
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getAuthService: () => ({
+      validateSession: async () => ({
+        tenant_id: actual.isTenantBypass() ? null : actual.getCurrentTenantId(),
+      }),
+    }),
+  };
+});
+
 function mintToken(tenantId: number, userId: number): string {
   return jwt.sign(
     {

@@ -9,7 +9,7 @@ import type {
 } from "../repositories/AuditRepository.js";
 import { runWithTenant, runWithoutTenant } from "../db/tenantContext.js";
 import logger from "../utils/logger.js";
-import { SENSITIVE_SETTING_KEYS } from "../constants/sensitiveSettings.js";
+import { isAuditRedactedSettingKey } from "../constants/sensitiveSettings.js";
 
 const auditLogger = logger.child({ module: "audit" });
 
@@ -31,7 +31,7 @@ function isSensitiveSettingAuditEntity(
   return (
     entityType === "setting" &&
     !!entityId &&
-    SENSITIVE_SETTING_KEYS.has(entityId)
+    isAuditRedactedSettingKey(entityId)
   );
 }
 

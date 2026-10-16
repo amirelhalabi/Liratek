@@ -32,3 +32,29 @@ export const SENSITIVE_SETTING_KEYS = new Set<string>([
 export function isSensitiveSettingKey(key: string): boolean {
   return SENSITIVE_SETTING_KEYS.has(key);
 }
+
+/**
+ * Secrets an ADMIN saves and reads back through the generic settings pipe
+ * (unlike `SENSITIVE_SETTING_KEYS`, which never round-trip at all), but which
+ * no other role may read. `whatsapp_api_key` is the shop's live Meta WhatsApp
+ * Cloud API bearer token: a staff member who copied it could send messages as
+ * the shop from outside LiraTek, even after their account is switched off.
+ *
+ * `SettingsService` hides these from every non-admin read; `AuditService`
+ * redacts them from the audit trail for everyone (nobody needs the token
+ * from the audit log, and its readers include staff).
+ */
+export const ADMIN_ONLY_SETTING_KEYS = new Set<string>(["whatsapp_api_key"]);
+
+/** True when `key` must not be shown to `viewerRole` (anything but admin). */
+export function isHiddenSettingFor(
+  key: string,
+  viewerRole: string | null | undefined,
+): boolean {
+  return ADMIN_ONLY_SETTING_KEYS.has(key) && viewerRole !== "admin";
+}
+
+/** True when an audit row about `key` must have its values redacted. */
+export function isAuditRedactedSettingKey(key: string): boolean {
+  return SENSITIVE_SETTING_KEYS.has(key) || ADMIN_ONLY_SETTING_KEYS.has(key);
+}

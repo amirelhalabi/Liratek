@@ -157,6 +157,27 @@ function isPlatformHost(req: Request): boolean {
   return !isHostTenancyActive(realm) || realm.kind === "platform";
 }
 
+/**
+ * True when the browser says this request came from another site: the
+ * Fetch Metadata header is "cross-site", or the Origin is not our base
+ * domain or one of its shop subdomains (an opaque "null" Origin counts as
+ * foreign). A request with neither header (old clients, server-to-server)
+ * is not treated as cross-site.
+ */
+function isCrossSiteSubmission(req: Request, platformBaseUrl: string): boolean {
+  if (req.get("sec-fetch-site") === "cross-site") return true;
+  const origin = req.get("origin");
+  if (!origin) return false;
+  let originHost: string;
+  try {
+    originHost = new URL(origin).hostname.toLowerCase();
+  } catch {
+    return true;
+  }
+  const base = new URL(platformBaseUrl).hostname.toLowerCase().replace(/^www\./, "");
+  return originHost !== base && !originHost.endsWith(`.${base}`);
+}
+
 function activeTenant(tenantId: number): TenantEntity | null {
   const tenant = runWithoutTenant(() =>
     getTenantRepository().getById(tenantId),
@@ -288,6 +309,14 @@ router.post("/start", (req, res): void => {
     return;
   }
   const { intent, shop, ticket } = parsed.data;
+  // A link ticket is a bearer value. Submitted from another website in a
+  // victim's browser, it would link the VICTIM's Google account to the
+  // ticket owner's shop user. The real form posts from a page on our own
+  // domain, so a cross-site submission is refused before any state is set.
+  if (intent === "link" && isCrossSiteSubmission(req, config.platformBaseUrl)) {
+    res.redirect(302, errorUrl(config, "expired"));
+    return;
+  }
   const link =
     intent === "link" ? readLinkTicket(verifyTicket("link", ticket)) : null;
   const join =

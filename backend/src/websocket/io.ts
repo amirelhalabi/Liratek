@@ -4,7 +4,7 @@ import type {
   DefaultEventsMap,
   ExtendedError,
 } from "socket.io";
-import { verifyJwt } from "../middleware/auth.js";
+import { isLiveSession, verifyJwt } from "../middleware/auth.js";
 import { logger } from "../server.js";
 
 /**
@@ -89,12 +89,12 @@ function extractHandshakeToken(socket: LiratekSocket): string | null {
  * missing, malformed, expired, or badly signed. No anonymous or
  * unauthenticated socket is ever admitted.
  *
- * Deliberately does NOT call `authService.validateSession()` — a socket
- * only ever RECEIVES broadcast events (no data-mutating action flows
- * through it), so the lighter signature+shape check is judged sufficient
- * for v1. This means a session revoked mid-connection is not immediately
- * evicted from its tenant room; documented as a known v1 gap, not an
- * oversight (follow-up: disconnect on session invalidation).
+ * Then checks the DB session (`isLiveSession`, the same check
+ * `authenticateJWT` runs per HTTP request), so a token whose session was
+ * logged out, revoked, or belongs to a switched-off user or a suspended shop
+ * cannot open a socket. A session revoked AFTER the socket connected is
+ * still not evicted from its tenant room until it reconnects (known gap;
+ * follow-up: disconnect on session invalidation).
  *
  * On success, stashes the decoded identity on `socket.data` and joins the
  * socket to its tenant's room (`tenant:<tenantId>`) so `emitEvent()` can
@@ -121,6 +121,27 @@ export function socketAuthMiddleware(
     return;
   }
 
+  // A valid signature is not a live session: refuse a token whose session
+  // was logged out, revoked, or belongs to a switched-off user or a
+  // suspended shop — the same check every HTTP request gets.
+  void isLiveSession(payload).then((live) => {
+    if (!live) {
+      logger.warn(
+        { socketId: socket.id, userId: payload.userId },
+        "Socket rejected: session ended",
+      );
+      next(new Error("Invalid or expired token"));
+      return;
+    }
+    admitSocket(socket, payload);
+    next();
+  });
+}
+
+function admitSocket(
+  socket: LiratekSocket,
+  payload: NonNullable<ReturnType<typeof verifyJwt>>,
+): void {
   socket.data.userId = payload.userId;
   socket.data.role = payload.role;
   socket.data.tenantId = payload.tenantId;
@@ -136,7 +157,6 @@ export function socketAuthMiddleware(
     { socketId: socket.id, tenantId: payload.tenantId, userId: payload.userId },
     "Socket authenticated",
   );
-  next();
 }
 
 export function setIO(io: LiratekSocketServer): void {

@@ -447,6 +447,33 @@ describe("start: authorization code with PKCE, state in a signed cookie", () => 
     expect(svc.buildAuthorizationUrl).not.toHaveBeenCalled();
   });
 
+  // Security audit run-1, fingerprint
+  // googleAuth.ts:POST-start:link-ticket-not-bound-to-initiating-session.
+  // A link ticket is a bearer value. If an attacker mints one for their OWN
+  // user and auto-submits it from their site in a victim's browser, the
+  // state cookie lands in the victim's browser and the callback links the
+  // VICTIM's Google account to the ATTACKER's shop user. The real Settings
+  // form posts from a *.liratek.shop page (same-site), never cross-site.
+  it("a valid link ticket submitted from another site is refused", async () => {
+    enable();
+    const app = buildApp();
+    const minted = await request(app)
+      .post("/api/auth/google/link/start")
+      .set("x-test-role", "admin");
+    const ticket = minted.body.data.ticket as string;
+
+    const res = await request(app)
+      .post("/api/auth/google/start")
+      .set("Host", WWW)
+      .set("Origin", "https://evil.example")
+      .set("Sec-Fetch-Site", "cross-site")
+      .type("form")
+      .send({ intent: "link", ticket });
+
+    expect(svc.buildAuthorizationUrl).not.toHaveBeenCalled();
+    expect(res.headers["set-cookie"]).toBeUndefined();
+  });
+
   it("intent=link without a valid link ticket is refused", async () => {
     enable();
     const res = await request(buildApp())

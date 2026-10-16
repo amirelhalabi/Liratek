@@ -17,7 +17,7 @@ import {
   canIncludeProfit,
   type CreateExpenseData,
 } from "@liratek/core";
-import { requireRole, hasProfitsUnlock } from "../session.js";
+import { requireRole, hasProfitsUnlock, getSession } from "../session.js";
 import { audit } from "./auditHelper.js";
 import {
   AddExpenseSchema,
@@ -38,19 +38,24 @@ export function registerDatabaseHandlers(): void {
 
   // ==================== SETTINGS ====================
 
+  // Settings reads are open to every role (and before sign-in), but the
+  // viewer's role decides whether admin-only secrets (the WhatsApp token,
+  // ADMIN_ONLY_SETTING_KEYS) are included — same rule as GET /api/settings.
+  const viewerRole = (webContentsId: number) => getSession(webContentsId)?.role;
+
   // Get system settings
-  ipcMain.handle("db:get-settings", () => {
-    return settingsService.getAllSettings();
+  ipcMain.handle("db:get-settings", (e) => {
+    return settingsService.getAllSettings(viewerRole(e.sender.id));
   });
 
   // Alias for settings:get-all
-  ipcMain.handle("settings:get-all", () => {
-    return settingsService.getAllSettings();
+  ipcMain.handle("settings:get-all", (e) => {
+    return settingsService.getAllSettings(viewerRole(e.sender.id));
   });
 
   // Get setting by key
-  ipcMain.handle("db:get-setting", (_event, key: string) => {
-    return settingsService.getSettingValue(key);
+  ipcMain.handle("db:get-setting", (e, key: string) => {
+    return settingsService.getSettingValue(key, viewerRole(e.sender.id));
   });
 
   // Update setting

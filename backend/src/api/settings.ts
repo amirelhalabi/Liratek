@@ -28,10 +28,12 @@ const router = express.Router();
 router.use(authenticateJWT);
 
 // GET /api/settings — every setting for the signed-in tenant
-router.get("/", async (_req, res): Promise<void> => {
+router.get("/", async (req: AuthRequest, res): Promise<void> => {
   try {
     const settingsService = getSettingsService();
-    const settings = await settingsService.getAllSettings();
+    // The viewer's role decides whether admin-only secrets (the WhatsApp
+    // token) are included — see ADMIN_ONLY_SETTING_KEYS.
+    const settings = await settingsService.getAllSettings(req.user?.role);
     res.json({ success: true, settings });
   } catch (error) {
     logger.error({ error }, "Get all settings error");
@@ -44,14 +46,15 @@ router.get("/", async (_req, res): Promise<void> => {
 // DELIBERATELY left open to ANY authenticated role (no requireRole here) —
 // settings drive UI rendering for every role, and SettingsService already
 // redacts sensitive keys (SENSITIVE_SETTING_KEYS, e.g. the profits password
-// hash) service-side, so an authenticated staff read of an arbitrary key
-// cannot leak anything sensitive. This is a choice, not the oversight the
-// PUT below used to be (LIRA-178).
-router.get("/:key", async (req, res): Promise<void> => {
+// hash) service-side, and hides admin-only secrets (ADMIN_ONLY_SETTING_KEYS,
+// the WhatsApp token) from anyone but an admin, so an authenticated staff
+// read of an arbitrary key cannot leak anything sensitive. This is a choice,
+// not the oversight the PUT below used to be (LIRA-178).
+router.get("/:key", async (req: AuthRequest, res): Promise<void> => {
   try {
     const { key } = req.params;
     const settingsService = getSettingsService();
-    const setting = await settingsService.getSetting(key);
+    const setting = await settingsService.getSetting(key, req.user?.role);
 
     if (!setting) {
       res.status(404).json({ success: false, error: "Setting not found" });

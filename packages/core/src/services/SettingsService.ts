@@ -5,7 +5,10 @@ import {
   getSettingsRepository,
 } from "../repositories/SettingsRepository.js";
 import { settingsLogger } from "../utils/logger.js";
-import { SENSITIVE_SETTING_KEYS } from "../constants/sensitiveSettings.js";
+import {
+  SENSITIVE_SETTING_KEYS,
+  isHiddenSettingFor,
+} from "../constants/sensitiveSettings.js";
 import {
   WARRANTY_TERMS_SETTING_KEY,
   warrantyTermsTextSchema,
@@ -68,17 +71,24 @@ export class SettingsService {
    * and the UI rendered blank fields that looked like unsaved data. An
    * empty list is a valid ANSWER; it must not double as an error signal.
    */
-  getAllSettings(): SettingEntity[] {
+  getAllSettings(viewerRole?: string | null): SettingEntity[] {
     return this.repo
       .getAllSettings()
-      .filter((setting) => !SENSITIVE_SETTING_KEYS.has(setting.key_name));
+      .filter(
+        (setting) =>
+          !SENSITIVE_SETTING_KEYS.has(setting.key_name) &&
+          !isHiddenSettingFor(setting.key_name, viewerRole),
+      );
   }
 
   /**
-   * Get a setting by key
+   * Get a setting by key. `viewerRole` is the signed-in user's role:
+   * ADMIN_ONLY_SETTING_KEYS come back only for "admin"; an unknown viewer
+   * (no role passed) is treated as not admin.
    */
-  getSetting(key: string): SettingEntity | undefined {
+  getSetting(key: string, viewerRole?: string | null): SettingEntity | undefined {
     if (SENSITIVE_SETTING_KEYS.has(key)) return undefined;
+    if (isHiddenSettingFor(key, viewerRole)) return undefined;
     try {
       return this.repo.getSetting(key);
     } catch (error) {
@@ -90,8 +100,12 @@ export class SettingsService {
   /**
    * Get setting value by key
    */
-  getSettingValue(key: string): { value: string } | undefined {
+  getSettingValue(
+    key: string,
+    viewerRole?: string | null,
+  ): { value: string } | undefined {
     if (SENSITIVE_SETTING_KEYS.has(key)) return undefined;
+    if (isHiddenSettingFor(key, viewerRole)) return undefined;
     try {
       const value = this.repo.getSettingValue(key);
       return value !== undefined ? { value } : undefined;

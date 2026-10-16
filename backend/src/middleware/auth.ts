@@ -175,6 +175,38 @@ function maybeRenewToken(res: Response, payload: LiratekJwtPayload): void {
   }
 }
 
+/**
+ * Validate the DB session a verified token points at, scoped by the token's
+ * OWN signed tenant claim (see the long comment in `authenticateJWT`): the
+ * shop's database for a tenant token, the platform database for `null`.
+ */
+export function validateSessionScoped(
+  payload: LiratekJwtPayload,
+): Promise<SafeUser | null> {
+  const authService = getAuthService();
+  return payload.tenantId === null
+    ? runWithoutTenant(() => authService.validateSession(payload.sessionToken))
+    : runWithTenant(payload.tenantId, () =>
+        authService.validateSession(payload.sessionToken),
+      );
+}
+
+/**
+ * True only when the token's session is still live: not logged out, revoked
+ * or expired, the user is active, the shop is active, and the session belongs
+ * to the token's own tenant. For transports that cannot run
+ * `authenticateJWT` (websocket handshakes) but must refuse exactly what it
+ * refuses. A lookup failure counts as not live (fail closed).
+ */
+export async function isLiveSession(payload: LiratekJwtPayload): Promise<boolean> {
+  try {
+    const user = await validateSessionScoped(payload);
+    return user !== null && user.tenant_id === payload.tenantId;
+  } catch {
+    return false;
+  }
+}
+
 export function verifyJwt(token: string): LiratekJwtPayload | null {
   if (!JWT_SECRET) return null;
   try {
@@ -234,17 +266,7 @@ export function authenticateJWT(
     // `runWithoutTenant()` — never the ambient ("no scope") ALS state, which
     // in `per-tenant` mode is what THIS very check exists to stop meaning "the
     // platform file by accident".
-    const authService = getAuthService();
-    const validateSessionScoped = (): Promise<SafeUser | null> =>
-      payload.tenantId === null
-        ? runWithoutTenant(() =>
-            authService.validateSession(payload.sessionToken),
-          )
-        : runWithTenant(payload.tenantId, () =>
-            authService.validateSession(payload.sessionToken),
-          );
-
-    validateSessionScoped()
+    validateSessionScoped(payload)
       .then((user: SafeUser | null) => {
         if (!user) {
           logger.warn({ userId: payload.userId }, "Session expired or invalid");

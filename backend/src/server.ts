@@ -164,7 +164,6 @@ import productUnitsRoutes from "./api/productUnits.js";
 import warrantyRoutes from "./api/warranty.js";
 import partnersRoutes from "./api/partners.js";
 import vouchersRoutes from "./api/vouchers.js";
-import voiceRoutes, { initVoiceWebSocketServer } from "./api/voice.js";
 import adminRoutes from "./api/admin.js";
 import subscriptionRoutes from "./api/subscription.js";
 import carrierLinesRoutes from "./api/carrierLines.js";
@@ -247,7 +246,11 @@ app.use("/api/product-units", productUnitsRoutes);
 app.use("/api/warranty", warrantyRoutes);
 app.use("/api/partners", partnersRoutes);
 app.use("/api/vouchers", vouchersRoutes);
-app.use("/api/voice", voiceRoutes);
+// /api/voice is NOT mounted (owner decision 2026-10-16): voice is not built
+// on web yet, and api/voice.ts runs ONE transcription session for the whole
+// server, so every shop's transcripts reached every connected shop. Mount it
+// again only once sessions are kept per connection and the upgrade checks
+// the session (isLiveSession).
 app.use("/api/admin", adminRoutes);
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/carrier-lines", carrierLinesRoutes);
@@ -271,9 +274,6 @@ app.use("/api/user-email", userEmailRoutes);
 app.use("/api/password-reset", passwordResetRoutes);
 // LIRA-306 offline desktop fallback: PC device-key routes (review routes: US3).
 app.use("/api/offline", offlineRoutes);
-
-// Initialize WebSocket server for voice transcription
-initVoiceWebSocketServer(httpServer);
 
 app.get("/api", (_req, res) => {
   res.json({ message: "LiraTek API Server", version: "1.0.0" });

@@ -55,6 +55,23 @@ jest.mock("../server.js", () => ({
 
 const JWT_TEST_SECRET = "wp8-test-secret-0123456789-0123456789-0123456789";
 
+// The handshake now also checks the DB session (isLiveSession). These tests
+// are about token sources and room joining, so every session is live and
+// belongs to the tenant the check runs under (socketHandshake.revokedSession
+// .test.ts covers the ended-session refusal).
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getAuthService: () => ({
+      validateSession: async () => ({
+        tenant_id: actual.isTenantBypass() ? null : actual.getCurrentTenantId(),
+      }),
+    }),
+  };
+});
+
 // Must be set BEFORE the first @liratek/core import (transitively pulled in
 // by middleware/auth.ts) — core's env.ts parses process.env at module load.
 process.env.JWT_SECRET = JWT_TEST_SECRET;
@@ -252,35 +269,44 @@ describe("emitEvent", () => {
 // 4. socketAuthMiddleware — the io.use() handshake gate
 // ---------------------------------------------------------------------------
 
+/** The handshake checks the DB session asynchronously; let it settle. */
+async function handshake(
+  socket: LiratekSocket,
+  next: (err?: Error) => void,
+): Promise<void> {
+  ioModule.socketAuthMiddleware(socket, next);
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 describe("socketAuthMiddleware", () => {
-  it("rejects a connection with no token anywhere in the handshake", () => {
+  it("rejects a connection with no token anywhere in the handshake", async () => {
     const { socket, join } = makeMockSocket({});
     const next = jest.fn();
 
-    ioModule.socketAuthMiddleware(socket, next);
+    await handshake(socket, next);
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(next.mock.calls[0]?.[0]).toBeInstanceOf(Error);
     expect(join).not.toHaveBeenCalled();
   });
 
-  it("rejects a connection with an invalid/malformed token", () => {
+  it("rejects a connection with an invalid/malformed token", async () => {
     const { socket, join } = makeMockSocket({ authToken: "garbage-token" });
     const next = jest.fn();
 
-    ioModule.socketAuthMiddleware(socket, next);
+    await handshake(socket, next);
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(next.mock.calls[0]?.[0]).toBeInstanceOf(Error);
     expect(join).not.toHaveBeenCalled();
   });
 
-  it("accepts a valid tenant token: stashes identity and joins tenant:<id>", () => {
+  it("accepts a valid tenant token: stashes identity and joins tenant:<id>", async () => {
     const token = mintToken({ userId: 42, role: "admin", tenantId: 9 });
     const { socket, join } = makeMockSocket({ authToken: token });
     const next = jest.fn();
 
-    ioModule.socketAuthMiddleware(socket, next);
+    await handshake(socket, next);
 
     expect(next).toHaveBeenCalledWith(); // called with no error
     expect(socket.data.tenantId).toBe(9);
@@ -289,45 +315,45 @@ describe("socketAuthMiddleware", () => {
     expect(join).toHaveBeenCalledWith("tenant:9");
   });
 
-  it("accepts a valid super_admin token (tenantId null) but joins NO room", () => {
+  it("accepts a valid super_admin token (tenantId null) but joins NO room", async () => {
     const token = mintToken({ userId: 1, role: "super_admin", tenantId: null });
     const { socket, join } = makeMockSocket({ authToken: token });
     const next = jest.fn();
 
-    ioModule.socketAuthMiddleware(socket, next);
+    await handshake(socket, next);
 
     expect(next).toHaveBeenCalledWith();
     expect(socket.data.tenantId).toBeNull();
     expect(join).not.toHaveBeenCalled();
   });
 
-  it("falls back to the Authorization header when handshake.auth.token is absent", () => {
+  it("falls back to the Authorization header when handshake.auth.token is absent", async () => {
     const token = mintToken({ userId: 3, role: "staff", tenantId: 4 });
     const { socket, join } = makeMockSocket({
       authorizationHeader: `Bearer ${token}`,
     });
     const next = jest.fn();
 
-    ioModule.socketAuthMiddleware(socket, next);
+    await handshake(socket, next);
 
     expect(next).toHaveBeenCalledWith();
     expect(socket.data.tenantId).toBe(4);
     expect(join).toHaveBeenCalledWith("tenant:4");
   });
 
-  it("falls back to the ?token= query string when auth and header are both absent", () => {
+  it("falls back to the ?token= query string when auth and header are both absent", async () => {
     const token = mintToken({ userId: 8, role: "admin", tenantId: 6 });
     const { socket, join } = makeMockSocket({ queryToken: token });
     const next = jest.fn();
 
-    ioModule.socketAuthMiddleware(socket, next);
+    await handshake(socket, next);
 
     expect(next).toHaveBeenCalledWith();
     expect(socket.data.tenantId).toBe(6);
     expect(join).toHaveBeenCalledWith("tenant:6");
   });
 
-  it("stashes impersonatorId when present on the token", () => {
+  it("stashes impersonatorId when present on the token", async () => {
     const token = mintToken({
       userId: 3,
       role: "admin",
@@ -337,7 +363,7 @@ describe("socketAuthMiddleware", () => {
     const { socket } = makeMockSocket({ authToken: token });
     const next = jest.fn();
 
-    ioModule.socketAuthMiddleware(socket, next);
+    await handshake(socket, next);
 
     expect(socket.data.impersonatorId).toBe(1);
   });

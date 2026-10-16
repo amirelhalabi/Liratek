@@ -25,6 +25,7 @@ import { getOfflineSnapshotRepository, type OfflineSnapshotRepository } from "..
 import { checkinSchema, pairDeviceSchema, type CheckinInput, type PairDeviceInput } from "../validators/offline.js";
 import type { MobileAuthService } from "./MobileAuthService.js";
 import { offlineLogger } from "../utils/logger.js";
+import { getUserRepository } from "../repositories/UserRepository.js";
 
 const KEY_RE = /^ltd_(\d{1,9})_([0-9a-f]{12})_([0-9a-f]{64})$/;
 
@@ -46,7 +47,7 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 export type VerifyKeyResult =
   | { ok: true; tenantId: number; deviceId: number; deviceNo: number; keyId: string }
-  | { ok: false; code: "INVALID_DEVICE_KEY" | "DEVICE_REVOKED"; error: string };
+  | { ok: false; code: "INVALID_DEVICE_KEY" | "DEVICE_REVOKED" | "SHOP_INACTIVE"; error: string };
 
 export interface PairResult {
   success: boolean;
@@ -85,6 +86,8 @@ export interface OfflineDeviceServiceDeps {
   snapshots?: OfflineSnapshotRepository;
   reviews?: OfflineReviewRepository;
   serverSchemaVersion?: () => number;
+  /** The platform's status for a shop; defaults to UserRepository.getTenantStatus. */
+  shopStatus?: (tenantId: number) => "active" | "suspended" | "archived" | null;
 }
 
 
@@ -100,6 +103,7 @@ export class OfflineDeviceService {
   private readonly snapshots: OfflineSnapshotRepository;
   private readonly reviews: OfflineReviewRepository;
   private readonly schemaVersion: () => number;
+  private readonly shopStatus: NonNullable<OfflineDeviceServiceDeps["shopStatus"]>;
 
   constructor(deps: OfflineDeviceServiceDeps) {
     this.mobileAuth = deps.mobileAuth;
@@ -109,6 +113,7 @@ export class OfflineDeviceService {
     this.snapshots = deps.snapshots ?? getOfflineSnapshotRepository();
     this.reviews = deps.reviews ?? getOfflineReviewRepository();
     this.schemaVersion = deps.serverSchemaVersion ?? (() => MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0);
+    this.shopStatus = deps.shopStatus ?? ((tenantId) => getUserRepository().getTenantStatus(tenantId));
   }
 
   async pair(input: PairDeviceInput, meta: { ipAddress?: string } = {}): Promise<PairResult> {
@@ -184,6 +189,19 @@ export class OfflineDeviceService {
     const b = Buffer.from(row.key_hash, "hex");
     if (a.length !== b.length || !timingSafeEqual(a, b)) return invalid;
     if (row.revoked_at) return { ok: false, code: "DEVICE_REVOKED", error: "This PC was unpaired — pair it again" };
+    // Same rule as a web session (AuthService.validateSession): a suspended
+    // or archived shop's PCs are refused on their next contact, without
+    // unpairing them, so the key works again if the shop is re-activated.
+    // A PC that stays offline keeps its local copy; only the server door shuts.
+    let status: ReturnType<typeof this.shopStatus>;
+    try {
+      status = this.shopStatus(parsed.tenantId);
+    } catch {
+      return invalid;
+    }
+    if (status !== "active") {
+      return { ok: false, code: "SHOP_INACTIVE", error: "This shop is not active — contact LiraTek support" };
+    }
     return { ok: true, tenantId: parsed.tenantId, deviceId: row.id, deviceNo: row.device_no, keyId: parsed.keyId };
   }
 
