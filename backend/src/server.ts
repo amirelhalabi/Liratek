@@ -170,6 +170,8 @@ import subscriptionRoutes from "./api/subscription.js";
 import carrierLinesRoutes from "./api/carrierLines.js";
 import resaleLinesRoutes from "./api/resaleLines.js";
 import wrongNumbersRoutes from "./api/wrongNumbers.js";
+// LIRA-326 — Mobile Recharge basket checkout (one payment, many providers).
+import rechargeBasketRoutes from "./api/rechargeBasket.js";
 import mobileServiceItemsRoutes from "./api/mobileServiceItems.js";
 import databaseResetRoutes from "./api/databaseReset.js";
 import whatsappRoutes from "./api/whatsapp.js";
@@ -252,6 +254,7 @@ app.use("/api/carrier-lines", carrierLinesRoutes);
 app.use("/api/resale-lines", resaleLinesRoutes);
 // LIRA-312 — wrong-number card recharges.
 app.use("/api/wrong-numbers", wrongNumbersRoutes);
+app.use("/api/recharge-basket", rechargeBasketRoutes);
 app.use("/api/mobile-service-items", mobileServiceItemsRoutes);
 // Final URLs: GET /api/database/reset/preview, POST /api/database/reset
 // (LIRA-165 — routes live in databaseReset.ts, paths are relative there).

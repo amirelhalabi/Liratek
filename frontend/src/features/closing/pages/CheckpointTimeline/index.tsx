@@ -3,6 +3,7 @@ import { PageHeader, Select, useApi, DateRangeFilter } from "@liratek/ui";
 import { Clock, Eye, X, Check, AlertTriangle } from "lucide-react";
 import { DataTable, appEvents } from "@liratek/ui";
 import { DRAWER_CONFIGS, DRAWER_ORDER } from "../../config/drawers";
+import { BrandedLabel } from "@/shared/components/BrandedLabel";
 import {
   formatCurrencyAmount,
   formatDayVariance,
@@ -540,7 +541,10 @@ export default function CheckpointTimeline() {
         {renderTimeCell(checkpoint.created_at, dayUnderTime)}
         <td className="p-2 text-slate-300">
           <span className="inline-flex items-center gap-1">
-            {drawerLabel(checkpoint.drawer_name)}
+            <BrandedLabel
+              code={checkpoint.drawer_name}
+              label={drawerLabel(checkpoint.drawer_name)}
+            />
             {checkpoint.drawer_name === ALL_DRAWERS && (
               <span className="text-[10px] uppercase tracking-wide text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">
                 All drawers

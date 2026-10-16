@@ -32,6 +32,7 @@ export * from "./account.js";
 export * from "./signinCode.js";
 export * from "./loto.js";
 export * from "./session.js";
+export * from "./rechargeBasket.js";
 export * from "./holdMoney.js";
 export * from "./partner.js";
 export * from "./voucher.js";

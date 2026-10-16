@@ -1,3 +1,8 @@
+import {
+  PROVIDER_BRANDS,
+  type ProviderBrandKey,
+} from "@/shared/brand/providerBrands";
+
 // =============================================================================
 // Provider Types
 // =============================================================================
@@ -95,6 +100,9 @@ export interface ProviderConfig {
   badgeCls: string;
   iconKey: string;
   hasSupplier: boolean;
+  /** The provider's brand: the tab shows its logo, and the colour classes
+   *  above come from `PROVIDER_BRANDS`. */
+  brand?: ProviderBrandKey;
 }
 
 export const PROVIDER_CONFIGS: ProviderConfig[] = [
@@ -104,13 +112,14 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     module: "recharge",
     drawer: "MTC",
     formMode: "telecom",
-    color: "text-cyan-400",
-    bgTint: "bg-cyan-400/10",
-    activeBg: "bg-cyan-600",
+    color: PROVIDER_BRANDS.MTC.text,
+    bgTint: PROVIDER_BRANDS.MTC.tint,
+    activeBg: PROVIDER_BRANDS.MTC.solid,
     activeText: "text-white",
-    badgeCls: "bg-cyan-400/10 text-cyan-400",
+    badgeCls: PROVIDER_BRANDS.MTC.badge,
     iconKey: "Signal",
     hasSupplier: false,
+    brand: "MTC",
   },
   {
     key: "Alfa",
@@ -118,13 +127,14 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     module: "recharge",
     drawer: "Alfa",
     formMode: "telecom",
-    color: "text-red-400",
-    bgTint: "bg-red-400/10",
-    activeBg: "bg-red-600",
+    color: PROVIDER_BRANDS.ALFA.text,
+    bgTint: PROVIDER_BRANDS.ALFA.tint,
+    activeBg: PROVIDER_BRANDS.ALFA.solid,
     activeText: "text-white",
-    badgeCls: "bg-red-400/10 text-red-400",
+    badgeCls: PROVIDER_BRANDS.ALFA.badge,
     iconKey: "Wifi",
     hasSupplier: false,
+    brand: "ALFA",
   },
   {
     key: "iPick",
@@ -132,13 +142,14 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     module: "ipec_katch",
     drawer: "iPick",
     formMode: "financial",
-    color: "text-sky-400",
-    bgTint: "bg-sky-400/10",
-    activeBg: "bg-sky-500",
+    color: PROVIDER_BRANDS.IPICK.text,
+    bgTint: PROVIDER_BRANDS.IPICK.tint,
+    activeBg: PROVIDER_BRANDS.IPICK.solid,
     activeText: "text-white",
-    badgeCls: "bg-sky-400/10 text-sky-400",
+    badgeCls: PROVIDER_BRANDS.IPICK.badge,
     iconKey: "Zap",
     hasSupplier: true,
+    brand: "IPICK",
   },
   {
     key: "Katsh",
@@ -146,13 +157,14 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     module: "ipec_katch",
     drawer: "Katsh",
     formMode: "financial",
-    color: "text-orange-400",
-    bgTint: "bg-orange-400/10",
-    activeBg: "bg-orange-500",
-    activeText: "text-white",
-    badgeCls: "bg-orange-400/10 text-orange-400",
+    color: PROVIDER_BRANDS.KATSH.text,
+    bgTint: PROVIDER_BRANDS.KATSH.tint,
+    activeBg: PROVIDER_BRANDS.KATSH.solid,
+    activeText: "text-[#0057b7]",
+    badgeCls: PROVIDER_BRANDS.KATSH.badge,
     iconKey: "Zap",
     hasSupplier: true,
+    brand: "KATSH",
   },
   {
     key: "WHISH_APP",
@@ -160,13 +172,14 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     module: "ipec_katch",
     drawer: "Whish_App",
     formMode: "financial",
-    color: "text-[#ff0a46]",
-    bgTint: "bg-[#ff0a46]/10",
-    activeBg: "bg-[#ff0a46]",
+    color: PROVIDER_BRANDS.WHISH.text,
+    bgTint: PROVIDER_BRANDS.WHISH.tint,
+    activeBg: PROVIDER_BRANDS.WHISH.solid,
     activeText: "text-white",
-    badgeCls: "bg-[#ff0a46]/10 text-[#ff0a46]",
+    badgeCls: PROVIDER_BRANDS.WHISH.badge,
     iconKey: "Zap",
     hasSupplier: true,
+    brand: "WHISH",
   },
   {
     key: "OMT_APP",
@@ -174,13 +187,14 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     module: "ipec_katch",
     drawer: "OMT_App",
     formMode: "financial",
-    color: "text-[#ffde00]",
-    bgTint: "bg-[#ffde00]/10",
-    activeBg: "bg-[#ffde00]",
+    color: PROVIDER_BRANDS.OMT.text,
+    bgTint: PROVIDER_BRANDS.OMT.tint,
+    activeBg: PROVIDER_BRANDS.OMT.solid,
     activeText: "text-black",
-    badgeCls: "bg-[#ffde00]/10 text-[#ffde00]",
+    badgeCls: PROVIDER_BRANDS.OMT.badge,
     iconKey: "Zap",
     hasSupplier: true,
+    brand: "OMT",
   },
   {
     key: "BINANCE",
@@ -188,13 +202,14 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     module: "binance",
     drawer: "Binance",
     formMode: "crypto",
-    color: "text-amber-400",
-    bgTint: "bg-amber-400/10",
-    activeBg: "bg-amber-600",
-    activeText: "text-white",
-    badgeCls: "bg-amber-400/10 text-amber-400",
+    color: PROVIDER_BRANDS.BINANCE.text,
+    bgTint: PROVIDER_BRANDS.BINANCE.tint,
+    activeBg: PROVIDER_BRANDS.BINANCE.solid,
+    activeText: "text-[#0b0e11]",
+    badgeCls: PROVIDER_BRANDS.BINANCE.badge,
     iconKey: "Bitcoin",
     hasSupplier: false,
+    brand: "BINANCE",
   },
 ];
 
@@ -251,4 +266,11 @@ export interface ProviderAnalytics {
     byCurrency?: CurrencyStats[];
   };
   byProvider: { provider: string; commission: number; count: number }[];
+}
+
+/** The brand of a provider key (e.g. "iPick" → "IPICK"), from its config. */
+export function providerBrandOf(
+  key: string | null | undefined,
+): ProviderBrandKey | undefined {
+  return PROVIDER_CONFIGS.find((p) => p.key === key)?.brand;
 }

@@ -35,7 +35,11 @@ import type {
   WrongNumberCardItem,
 } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
-import type { SessionCheckoutPayload } from "@liratek/core";
+import type {
+  SessionCheckoutPayload,
+  RechargeBasketCheckoutPayload,
+  RechargePartnerOrderPayload,
+} from "@liratek/core";
 // LIRA-306 — offline desktop fallback controls (desktop-only, E1; rule 21).
 import type {
   DesktopPairInput,
@@ -2960,7 +2964,10 @@ export async function hasOpeningBalanceToday(day?: string) {
 export async function getTransactionsSinceLastCount(
   drawers: string[],
 ): Promise<SinceLastCountDrawer[] | null> {
-  const res = await ipcOrHttp<{ success: boolean; data?: SinceLastCountDrawer[] }>(
+  const res = await ipcOrHttp<{
+    success: boolean;
+    data?: SinceLastCountDrawer[];
+  }>(
     () => (window as any).api.closing.getSinceLastCount({ drawers }),
     () =>
       requestJson(
@@ -3253,89 +3260,153 @@ function offlineQs(q: Record<string, unknown>): string {
   return text ? `?${text}` : "";
 }
 
-export async function getOfflineReviewItems(query: ReviewListQuery = {}): Promise<{
+export async function getOfflineReviewItems(
+  query: ReviewListQuery = {},
+): Promise<{
   success: boolean;
-  data?: { items: ReviewItemView[]; groups: Array<{ kind: string; label: string; count: number }> };
+  data?: {
+    items: ReviewItemView[];
+    groups: Array<{ kind: string; label: string; count: number }>;
+  };
   error?: string;
 }> {
   return ipcOrHttp<{
-  success: boolean;
-  data?: { items: ReviewItemView[]; groups: Array<{ kind: string; label: string; count: number }> };
-  error?: string;
-}>(
+    success: boolean;
+    data?: {
+      items: ReviewItemView[];
+      groups: Array<{ kind: string; label: string; count: number }>;
+    };
+    error?: string;
+  }>(
     async () => ({ success: false, error: WEB_ONLY }),
     async () => requestJson(`/api/offline/review${offlineQs(query)}`),
   );
 }
 
-export async function getOfflineHistory(query: OfflineHistoryQuery = {}): Promise<{
+export async function getOfflineHistory(
+  query: OfflineHistoryQuery = {},
+): Promise<{
   success: boolean;
   data?: { events: OfflineHistoryView[] };
   error?: string;
 }> {
   return ipcOrHttp<{
-  success: boolean;
-  data?: { events: OfflineHistoryView[] };
-  error?: string;
-}>(
+    success: boolean;
+    data?: { events: OfflineHistoryView[] };
+    error?: string;
+  }>(
     async () => ({ success: false, error: WEB_ONLY }),
     async () => requestJson(`/api/offline/history${offlineQs(query)}`),
   );
 }
 
-export async function applyOfflineReviewItem(id: number): Promise<ReviewActionResult> {
+export async function applyOfflineReviewItem(
+  id: number,
+): Promise<ReviewActionResult> {
   return ipcOrHttp<ReviewActionResult>(
     async () => ({ success: false, error: WEB_ONLY }),
-    async () => requestJson<ReviewActionResult>(`/api/offline/review/${id}/apply`, { method: "POST" }),
+    async () =>
+      requestJson<ReviewActionResult>(`/api/offline/review/${id}/apply`, {
+        method: "POST",
+      }),
   );
 }
 
-export async function dismissOfflineReviewItem(id: number, payload: ReviewDismissInput = {}): Promise<ReviewActionResult> {
+export async function dismissOfflineReviewItem(
+  id: number,
+  payload: ReviewDismissInput = {},
+): Promise<ReviewActionResult> {
   return ipcOrHttp<ReviewActionResult>(
     async () => ({ success: false, error: WEB_ONLY }),
-    async () => requestJson<ReviewActionResult>(`/api/offline/review/${id}/dismiss`, { method: "POST", body: payload }),
+    async () =>
+      requestJson<ReviewActionResult>(`/api/offline/review/${id}/dismiss`, {
+        method: "POST",
+        body: payload,
+      }),
   );
 }
 
-export async function markOfflineReviewItemReviewed(id: number): Promise<ReviewActionResult> {
+export async function markOfflineReviewItemReviewed(
+  id: number,
+): Promise<ReviewActionResult> {
   return ipcOrHttp<ReviewActionResult>(
     async () => ({ success: false, error: WEB_ONLY }),
-    async () => requestJson<ReviewActionResult>(`/api/offline/review/${id}/reviewed`, { method: "POST" }),
+    async () =>
+      requestJson<ReviewActionResult>(`/api/offline/review/${id}/reviewed`, {
+        method: "POST",
+      }),
   );
 }
 
-export async function bookOfflineReviewItemAnyway(id: number): Promise<ReviewActionResult> {
+export async function bookOfflineReviewItemAnyway(
+  id: number,
+): Promise<ReviewActionResult> {
   return ipcOrHttp<ReviewActionResult>(
     async () => ({ success: false, error: WEB_ONLY }),
-    async () => requestJson<ReviewActionResult>(`/api/offline/review/${id}/book-anyway`, { method: "POST" }),
+    async () =>
+      requestJson<ReviewActionResult>(`/api/offline/review/${id}/book-anyway`, {
+        method: "POST",
+      }),
   );
 }
 
-export async function getOfflineReviewPreview(id: number): Promise<{ success: boolean; data?: OfflineReviewPreview; error?: string }> {
-  return ipcOrHttp<{ success: boolean; data?: OfflineReviewPreview; error?: string }>(
+export async function getOfflineReviewPreview(
+  id: number,
+): Promise<{ success: boolean; data?: OfflineReviewPreview; error?: string }> {
+  return ipcOrHttp<{
+    success: boolean;
+    data?: OfflineReviewPreview;
+    error?: string;
+  }>(
     async () => ({ success: false, error: WEB_ONLY }),
     async () => requestJson(`/api/offline/review/${id}/preview`),
   );
 }
 
-export async function renumberPairedPc(id: number): Promise<{ success: boolean; data?: { renumberRequested: true }; error?: string }> {
-  return ipcOrHttp<{ success: boolean; data?: { renumberRequested: true }; error?: string }>(
+export async function renumberPairedPc(
+  id: number,
+): Promise<{
+  success: boolean;
+  data?: { renumberRequested: true };
+  error?: string;
+}> {
+  return ipcOrHttp<{
+    success: boolean;
+    data?: { renumberRequested: true };
+    error?: string;
+  }>(
     async () => ({ success: false, error: WEB_ONLY }),
-    async () => requestJson(`/api/offline/devices/${id}/renumber`, { method: "POST" }),
+    async () =>
+      requestJson(`/api/offline/devices/${id}/renumber`, { method: "POST" }),
   );
 }
 
-export async function getPairedPcs(): Promise<{ success: boolean; data?: { devices: PairedDeviceView[] }; error?: string }> {
-  return ipcOrHttp<{ success: boolean; data?: { devices: PairedDeviceView[] }; error?: string }>(
+export async function getPairedPcs(): Promise<{
+  success: boolean;
+  data?: { devices: PairedDeviceView[] };
+  error?: string;
+}> {
+  return ipcOrHttp<{
+    success: boolean;
+    data?: { devices: PairedDeviceView[] };
+    error?: string;
+  }>(
     async () => ({ success: false, error: WEB_ONLY }),
     async () => requestJson(`/api/offline/devices`),
   );
 }
 
-export async function revokePairedPc(id: number): Promise<{ success: boolean; data?: { revoked: true }; error?: string }> {
-  return ipcOrHttp<{ success: boolean; data?: { revoked: true }; error?: string }>(
+export async function revokePairedPc(
+  id: number,
+): Promise<{ success: boolean; data?: { revoked: true }; error?: string }> {
+  return ipcOrHttp<{
+    success: boolean;
+    data?: { revoked: true };
+    error?: string;
+  }>(
     async () => ({ success: false, error: WEB_ONLY }),
-    async () => requestJson(`/api/offline/devices/${id}/revoke`, { method: "POST" }),
+    async () =>
+      requestJson(`/api/offline/devices/${id}/revoke`, { method: "POST" }),
   );
 }
 
@@ -3506,12 +3577,16 @@ export async function getSupplierAccountExpectedStatement(
         success: boolean;
         statement?: AccountExpectedStatement;
         error?: string;
-      }>(`/api/suppliers/${accountSupplierId}/account-expected-statement${query}`);
+      }>(
+        `/api/suppliers/${accountSupplierId}/account-expected-statement${query}`,
+      );
       // LIRA-256 — a refused choice must surface as an error on BOTH
       // transports (the IPC handler throws), never as a silent zeroed
       // statement that would look like "nothing owed".
       if (res.success === false) {
-        throw new Error(res.error ?? "Failed to get account expected statement");
+        throw new Error(
+          res.error ?? "Failed to get account expected statement",
+        );
       }
       return (
         res.statement ?? {
@@ -5591,6 +5666,43 @@ export async function processSessionCheckout(data: SessionCheckoutPayload) {
   );
 }
 
+// ── LIRA-326: Mobile Recharge basket checkout (dual-mode) ──
+// A basket of 2+ providers paid once; the server records it as an automatic
+// walk-in customer session. Writes return the envelope.
+export async function rechargeBasketCheckout(
+  data: RechargeBasketCheckoutPayload,
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().rechargeBasket.checkout(data),
+    async () =>
+      requestJson<{
+        success: boolean;
+        sessionId?: number;
+        checkoutTotalUsd?: number;
+        checkoutTotalLbp?: number;
+        itemCount?: number;
+        error?: string;
+      }>("/api/recharge-basket/checkout", { method: "POST", body: data }),
+  );
+}
+
+// ── LIRA-327: basket-wide For Partner submit (dual-mode) ──
+// Every provider's partner sales in one all-or-nothing write; the envelope.
+export async function rechargePartnerOrder(data: RechargePartnerOrderPayload) {
+  return ipcOrHttp(
+    async () => getElectronApi().rechargeBasket.partnerOrder(data),
+    async () =>
+      requestJson<{
+        success: boolean;
+        ids?: number[];
+        error?: string;
+      }>("/api/recharge-basket/partner-order", {
+        method: "POST",
+        body: data,
+      }),
+  );
+}
+
 // ── Hold money (dual-mode) — cash held in / collected out of the General drawer ──
 
 export async function holdMoneyList(filter?: {
@@ -7660,9 +7772,10 @@ export async function getResaleLines(
         params.set("include_sold", String(query.include_sold));
       }
       const qs = params.toString();
-      const res = await requestJson<{ success: boolean; data?: ResaleLineRow[] }>(
-        `/api/resale-lines${qs ? `?${qs}` : ""}`,
-      );
+      const res = await requestJson<{
+        success: boolean;
+        data?: ResaleLineRow[];
+      }>(`/api/resale-lines${qs ? `?${qs}` : ""}`);
       return res.success ? (res.data ?? []) : [];
     },
   );
@@ -7675,17 +7788,22 @@ export async function saveResaleLine(
   return ipcOrHttp(
     async () => getElectronApi().resaleLines.save(data),
     async () =>
-      requestJson<{ success: boolean; data?: ResaleLineEntity; error?: string }>(
-        `/api/resale-lines/${data.product_id}`,
-        { method: "PUT", body: data },
-      ),
+      requestJson<{
+        success: boolean;
+        data?: ResaleLineEntity;
+        error?: string;
+      }>(`/api/resale-lines/${data.product_id}`, { method: "PUT", body: data }),
   );
 }
 
 /** Admin: write off a LOST line held for sale (books its cost as a loss). */
 export async function writeOffResaleLine(
   data: WriteOffResaleLineInput,
-): Promise<{ success: boolean; data?: { expense_id: number }; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: { expense_id: number };
+  error?: string;
+}> {
   return ipcOrHttp(
     async () => getElectronApi().resaleLines.writeOff(data),
     async () =>

@@ -362,7 +362,8 @@ html.dark .text-white {
    split by mode — light keeps a white label on Signal Blue (7.68:1), dark gets
    a Cosmic Navy label on Pastel Violet (9.15:1), both via --a-label. The
    semantic fills (emerald / red / rose / orange) keep white labels in both
-   modes; the #ff0a46 provider brand is unaffected. */
+   modes; the provider brand fills (Whish #ff0a46, Alfa #e41e2d, MTC #009cbc,
+   the iPick gradient — see shared/brand/providerBrands.ts) keep white too. */
 html:not(.dark) .bg-emerald-600.text-white,
 html:not(.dark) .bg-emerald-500.text-white,
 html:not(.dark) .bg-red-600.text-white,
@@ -372,6 +373,9 @@ html:not(.dark) .bg-rose-500.text-white,
 html:not(.dark) .bg-orange-600.text-white,
 html:not(.dark) .bg-orange-500.text-white,
 html:not(.dark) [class*="bg-\[#ff0a46\]"].text-white,
+html:not(.dark) [class*="bg-\[#e41e2d\]"].text-white,
+html:not(.dark) [class*="bg-\[#009cbc\]"].text-white,
+html:not(.dark) [class*="bg-\[linear-gradient(to_right,#569a59"].text-white,
 html.dark .bg-emerald-600.text-white,
 html.dark .bg-emerald-500.text-white,
 html.dark .bg-red-600.text-white,
@@ -380,7 +384,10 @@ html.dark .bg-rose-600.text-white,
 html.dark .bg-rose-500.text-white,
 html.dark .bg-orange-600.text-white,
 html.dark .bg-orange-500.text-white,
-html.dark [class*="bg-\[#ff0a46\]"].text-white {
+html.dark [class*="bg-\[#ff0a46\]"].text-white,
+html.dark [class*="bg-\[#e41e2d\]"].text-white,
+html.dark [class*="bg-\[#009cbc\]"].text-white,
+html.dark [class*="bg-\[linear-gradient(to_right,#569a59"].text-white {
   color: #ffffff !important;
 }
 /* The accent fills -- the violet- shades, plus the blue- and indigo- shades
@@ -1699,6 +1706,36 @@ html:not(.dark) .border-l-slate-500,
 html.dark .border-l-slate-500 {
   border-left-color: var(--b-600) !important;
 }
+/* Provider brand edges (`accentEdge` in shared/brand/providerBrands.ts) —
+   keep these hexes in step with that file. Same colour in both modes. */
+html:not(.dark) [class*="border-l-\[#ff0a46\]"],
+html.dark [class*="border-l-\[#ff0a46\]"] {
+  border-left-color: #ff0a46 !important;
+}
+html:not(.dark) [class*="border-l-\[#ffd800\]"],
+html.dark [class*="border-l-\[#ffd800\]"] {
+  border-left-color: #ffd800 !important;
+}
+html:not(.dark) [class*="border-l-\[#3db387\]"],
+html.dark [class*="border-l-\[#3db387\]"] {
+  border-left-color: #3db387 !important;
+}
+html:not(.dark) [class*="border-l-\[#97d700\]"],
+html.dark [class*="border-l-\[#97d700\]"] {
+  border-left-color: #97d700 !important;
+}
+html:not(.dark) [class*="border-l-\[#009cbc\]"],
+html.dark [class*="border-l-\[#009cbc\]"] {
+  border-left-color: #009cbc !important;
+}
+html:not(.dark) [class*="border-l-\[#e41e2d\]"],
+html.dark [class*="border-l-\[#e41e2d\]"] {
+  border-left-color: #e41e2d !important;
+}
+html:not(.dark) [class*="border-l-\[#f0b90b\]"],
+html.dark [class*="border-l-\[#f0b90b\]"] {
+  border-left-color: #f0b90b !important;
+}
 
 /* Hover border accents */
 html:not(.dark) .hover\:border-blue-500\/50:hover,
@@ -1937,4 +1974,83 @@ html.theme-transition {
 
 .animate-scale-in {
   animation: scale-in 0.2s ease-out;
+}
+
+/* Swipe up: a panel that opens under a card (e.g. the "Only Days" box on a
+   Mobile Recharge card) rises into place instead of popping in. */
+@keyframes swipe-up {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-swipe-up {
+  animation: swipe-up 0.22s ease-out;
+}
+
+/* The reverse, for the same panel closing. `forwards` keeps it hidden for the
+   last frame; usePresence (shared/hooks) removes it after 180 ms. */
+@keyframes swipe-down {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.animate-swipe-down {
+  animation: swipe-down 0.18s ease-in forwards;
+}
+
+/* Height open / close for a panel that sits in a card grid: animating
+   grid-template-rows 0fr <-> 1fr animates the panel's real height, so the
+   grid row (and every card stretched to it) grows and shrinks with it.
+   Markup: <div class="grid animate-expand-rows"><div class="min-h-0
+   overflow-hidden">…panel…</div></div>. Close runs 180 ms to match
+   usePresence (shared/hooks), which removes the panel afterwards. */
+@keyframes expand-rows {
+  0% {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  100% {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+@keyframes collapse-rows {
+  0% {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  100% {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+.animate-expand-rows {
+  animation: expand-rows 0.22s ease-out;
+}
+
+.animate-collapse-rows {
+  animation: collapse-rows 0.18s ease-in forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-swipe-up,
+  .animate-swipe-down,
+  .animate-expand-rows,
+  .animate-collapse-rows {
+    animation: none;
+  }
 }

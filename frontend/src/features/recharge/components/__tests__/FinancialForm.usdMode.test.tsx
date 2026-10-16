@@ -18,6 +18,8 @@ import { FinancialForm } from "../FinancialForm";
 import type { ServiceItem } from "../../hooks/useMobileServiceItems";
 import type { ProviderConfig } from "../../types";
 import type { CatalogCurrency } from "@liratek/core";
+import type { PaymentSheetItem } from "../PaymentSheet";
+import { cardGroupLabel } from "../../utils/cardGroupLabel";
 
 const mockAddOMTTransaction = jest
   .fn()
@@ -77,17 +79,23 @@ jest.mock("@/shared/utils/clientVouchers", () => ({
 const sheetProps: {
   totalAmountCurrency?: string | undefined;
   currency?: string | undefined;
+  totalAmount?: number | undefined;
+  items?: PaymentSheetItem[] | undefined;
 } = {};
 jest.mock("../PaymentSheet", () => ({
   PaymentSheet: (props: {
     open: boolean;
     totalAmountCurrency?: string;
     currency?: string;
+    totalAmount: number;
+    items?: PaymentSheetItem[];
     onPaymentChange: (lines: unknown[]) => void;
     onConfirm: () => void;
   }) => {
     sheetProps.totalAmountCurrency = props.totalAmountCurrency;
     sheetProps.currency = props.currency;
+    sheetProps.totalAmount = props.totalAmount;
+    sheetProps.items = props.items;
     return props.open ? (
       <div data-testid="stub-payment-sheet">
         <button
@@ -357,6 +365,67 @@ describe("FinancialForm — USD mode (LIRA-324)", () => {
       expect(onChange).toHaveBeenCalledWith("USD");
       expect(screen.getByText("RAZER $1")).toBeInTheDocument();
       expect(proceed()).toBeDisabled();
+    });
+  });
+
+  describe("picked items in the payment window", () => {
+    /** Pick `label`, raise it to `qty` with the card's "+", open the sheet. */
+    async function pickAndOpen(label: string, qty: number) {
+      fireEvent.click(screen.getByText(label));
+      for (let n = 1; n < qty; n++) {
+        fireEvent.click(screen.getByRole("button", { name: "+" }));
+      }
+      fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+      await screen.findByTestId("stub-payment-sheet");
+    }
+    const lineSum = (items: PaymentSheetItem[]) =>
+      items.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0);
+
+    it("lists each cart line with its group, quantity and LBP unit price", async () => {
+      renderForm();
+      await pickAndOpen("PSN $10 - LEBANON", 2);
+      const items = sheetProps.items ?? [];
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        key: BOTH.key,
+        name: "PSN $10 - LEBANON",
+        group: cardGroupLabel(BOTH),
+        provider: "WHISH",
+        quantity: 2,
+        unitPrice: 900000,
+        currency: "LBP",
+      });
+      expect(lineSum(items)).toBe(sheetProps.totalAmount);
+      expect(sheetProps.totalAmount).toBe(1800000);
+    });
+
+    it("in USD mode lists the USD unit price and currency", async () => {
+      renderForm("USD");
+      await pickAndOpen("PSN $10 - LEBANON", 2);
+      const items = sheetProps.items ?? [];
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        name: "PSN $10 - LEBANON",
+        group: "PlayStation LEB",
+        quantity: 2,
+        unitPrice: 10,
+        currency: "USD",
+      });
+      expect(lineSum(items)).toBe(sheetProps.totalAmount);
+      expect(sheetProps.totalAmount).toBe(20);
+    });
+
+    it("two different lines add up to the sheet's total", async () => {
+      renderForm("USD");
+      fireEvent.click(screen.getByText("RAZER $1"));
+      await pickAndOpen("PSN $10 - LEBANON", 1);
+      const items = sheetProps.items ?? [];
+      expect(items.map((it) => it.name).sort()).toEqual([
+        "PSN $10 - LEBANON",
+        "RAZER $1",
+      ]);
+      expect(lineSum(items)).toBe(11);
+      expect(sheetProps.totalAmount).toBe(11);
     });
   });
 });

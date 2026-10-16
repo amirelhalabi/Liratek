@@ -290,6 +290,38 @@ export type {
   CheckoutResult,
 } from "./SessionCheckoutService.js";
 
+// Recharge Basket Service (LIRA-326 — one Mobile Recharge basket across
+// providers, paid once through an automatic session checkout). Node-only:
+// exported from index.ts, never browser.ts (rule 29).
+export {
+  RechargeBasketService,
+  getRechargeBasketService,
+  resetRechargeBasketService,
+  findRechargeBasketRefusal,
+  RECHARGE_BASKET_SESSION_NOTE,
+  RECHARGE_BASKET_WALK_IN,
+  RECHARGE_BASKET_EMPTY_ERROR,
+  RECHARGE_BASKET_ITEM_ERROR,
+} from "./RechargeBasketService.js";
+export type {
+  RechargeBasketCheckoutRequest,
+  RechargeBasketCheckoutResult,
+} from "./RechargeBasketService.js";
+
+// Recharge Partner Order Service (LIRA-327 — "For Partner" across the Mobile
+// Recharge basket, all providers booked in one DB transaction). Node-only:
+// exported from index.ts, never browser.ts (rule 29).
+export {
+  RechargePartnerOrderService,
+  getRechargePartnerOrderService,
+  resetRechargePartnerOrderService,
+  findPartnerOrderRefusal,
+} from "./RechargePartnerOrderService.js";
+export type {
+  RechargePartnerOrderRequest,
+  RechargePartnerOrderResult,
+} from "./RechargePartnerOrderService.js";
+
 // WhatsApp Service
 export {
   WhatsAppService,

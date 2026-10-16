@@ -16,7 +16,14 @@ import { ensureRechargeClient } from "../utils/ensureClient";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
 import { getCardImage } from "../utils/cardImages";
+import {
+  PROVIDER_BRANDS,
+  type ProviderBrand,
+} from "@/shared/brand/providerBrands";
 import { CardArtwork } from "./CardArtwork";
+import { CardGroupTag } from "./CardGroupTag";
+import { cardGroupLabel } from "../utils/cardGroupLabel";
+import { Collapsible } from "@/shared/components/Collapsible";
 import {
   type PaymentLine,
   type CarrierLineEntity,
@@ -47,6 +54,7 @@ import {
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
 import type { ProviderConfig, FinancialTransaction } from "../types";
+import { providerBrandOf } from "../types";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { NewServiceItemInlineForm } from "./NewServiceItemInlineForm";
 import {
@@ -59,11 +67,31 @@ import { getCategoryColor } from "../utils/categoryColors";
 import { isSelfChargeEligible } from "../utils/selfChargeEligibility";
 import { localDay } from "@/shared/utils/localDay";
 import { HistoryModal } from "./HistoryModal";
-import { PaymentSheet } from "./PaymentSheet";
+import { PaymentSheet, type PaymentSheetItem } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { SUPPLIER_KEYS } from "@/features/suppliers/hooks/useSuppliers";
+import {
+  useBasketBills,
+  useBasketPartner,
+  useCatalogBasket,
+} from "../context/RechargeBasketContext";
+import {
+  useRechargeBasketCheckout,
+  useRechargePartnerOrder,
+} from "../hooks/useRechargeBasketCheckout";
+import {
+  basketEntries,
+  basketItemCount,
+  basketProviders,
+  basketSheetSummary,
+  catalogBatchSubItems,
+  isBasketProvider,
+  withClient,
+} from "../utils/basketCheckout";
+import { partnerConfirmMessage } from "../utils/partnerConfirm";
+import type { CatalogCartLine, PricedLine } from "../types/basket";
 
 // ─── Module-level pure helpers ────────────────────────────────────────────────
 
@@ -252,42 +280,49 @@ function calcPrice(
   return onlyDaysTotal ?? sellPrice - returnedCredits * sellRate;
 }
 
-// Bill card follows each provider's own brand color (iPick = sky, Katsh =
-// orange) instead of a fixed color — mirrors the accent lookup pattern in
-// CardGridPayView.tsx so Tailwind's static scanner can see every literal class.
-const BILL_ACCENTS: Record<
-  "sky" | "orange",
-  {
-    border: string;
-    toggleActive: string;
-    inputFocus: string;
-    button: string;
-    pendingLabel: string;
-    pendingAmount: string;
-  }
-> = {
-  sky: {
-    border: "border-sky-700/40",
-    toggleActive: "bg-sky-600 text-white",
-    inputFocus: "focus:border-sky-500",
-    button: "bg-sky-600 hover:bg-sky-500",
-    pendingLabel: "text-sky-300",
-    pendingAmount: "text-sky-400",
-  },
-  orange: {
-    border: "border-orange-700/40",
-    toggleActive: "bg-orange-600 text-white",
-    inputFocus: "focus:border-orange-500",
-    button: "bg-orange-600 hover:bg-orange-500",
-    pendingLabel: "text-orange-300",
-    pendingAmount: "text-orange-400",
-  },
-};
+/** The price ONE unit of a cart line is charged at (the Only Days price for an
+ *  Only Days line). Shared by the totals, the payment window's item list and
+ *  the published basket lines, so they always agree. */
+function lineUnitPriceOf(
+  line: CartLineItem,
+  catalogPricing: Map<number, CatalogPricingRow>,
+  tenantCreditSellPriceLbp: number | null,
+  alfaCreditSellRate: number,
+): number {
+  return calcPrice(
+    line.item,
+    line.onlyDays,
+    line.returnedCreditsUsd,
+    alfaCreditSellRate,
+    resolveOnlyDaysPricing(line, catalogPricing, tenantCreditSellPriceLbp)
+      .total,
+  );
+}
+
+// Bill card, Proceed to Pay and the payment sheet follow the active provider's
+// own brand (iPick = its green→blue gradient, Katsh = lime with Katsh-blue
+// labels), read from the shared PROVIDER_BRANDS module (rule 14). Every class
+// there is a literal string, so Tailwind's static scanner can see it.
+function billAccentFor(provider: ProviderKey) {
+  const brand = PROVIDER_BRANDS[provider === "iPick" ? "IPICK" : "KATSH"];
+  return {
+    brand,
+    border: brand.border,
+    toggleActive: brand.solid,
+    inputFocus: brand.focusBorder,
+    button: brand.button,
+    pendingLabel: brand.text,
+    pendingAmount: brand.text,
+  };
+}
 
 // ─── ItemCard (memo'd, module scope) ─────────────────────────────────────────
 
 interface ItemCardProps {
   item: ServiceItem;
+  /** The active provider's brand: selected border/ring, −/+ buttons and
+   *  input focus take its colour (shared/brand/providerBrands.ts). */
+  brand: ProviderBrand;
   qty: number;
   isExpanded: boolean;
   onlyDays: boolean;
@@ -315,6 +350,7 @@ interface ItemCardProps {
 
 const ItemCard = memo(function ItemCard({
   item,
+  brand,
   qty,
   isExpanded,
   onlyDays,
@@ -337,19 +373,23 @@ const ItemCard = memo(function ItemCard({
   const cardImage = getCardImage(item);
 
   return (
-    <div className="relative">
+    <div className="relative flex flex-col">
       <div
-        className={`w-full p-3 rounded-lg border transition-all ${
-          qty > 0
-            ? "border-orange-500/40 ring-1 ring-orange-500/30"
-            : "border-white/10 hover:border-white/20"
-        } ${isExpanded && qty > 0 ? "ring-2 ring-orange-500/50" : ""}`}
+        className={`flex-1 flex flex-col w-full p-3 rounded-lg border transition-all ${
+          qty > 0 ? brand.selected : "border-white/10 hover:border-white/20"
+        } ${isExpanded && qty > 0 ? brand.selectedStrong : ""}`}
         style={{ backgroundColor: `${getCategoryColor(item.category)}18` }}
       >
-        <div onClick={() => onCardClick(item)} className="cursor-pointer">
+        <div
+          onClick={() => onCardClick(item)}
+          className="flex-1 flex flex-col cursor-pointer"
+        >
           <div className="flex items-center justify-between gap-2 mb-1">
-            <div className="text-white font-medium text-sm truncate">
-              {item.label}
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <div className="text-white font-medium text-sm truncate">
+                {item.label}
+              </div>
+              {cardImage && <CardGroupTag item={item} />}
             </div>
             {qty > 0 && (
               <div className="flex items-center gap-1 shrink-0">
@@ -358,12 +398,14 @@ const ItemCard = memo(function ItemCard({
                     e.stopPropagation();
                     onQtyDecrease(item);
                   }}
-                  className="w-5 h-5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
+                  className={`w-5 h-5 rounded-full ${brand.stepper} flex items-center justify-center transition-colors cursor-pointer text-xs font-bold`}
                   type="button"
                 >
                   −
                 </button>
-                <span className="w-4 text-center text-xs font-bold text-orange-400">
+                <span
+                  className={`w-4 text-center text-xs font-bold ${brand.text}`}
+                >
                   {qty}
                 </span>
                 <button
@@ -371,7 +413,7 @@ const ItemCard = memo(function ItemCard({
                     e.stopPropagation();
                     onQtyIncrease(item);
                   }}
-                  className="w-5 h-5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
+                  className={`w-5 h-5 rounded-full ${brand.stepper} flex items-center justify-center transition-colors cursor-pointer text-xs font-bold`}
                   type="button"
                 >
                   +
@@ -385,7 +427,9 @@ const ItemCard = memo(function ItemCard({
               alt={`${item.category} ${item.label}`}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center gap-0.5">
+            // flex-1: in a row where another card has artwork, this grows
+            // to the artwork's height so Cost / Sell line up below it.
+            <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
               {item.subcategory === "alfa" || item.category === "alfa" ? (
                 <AlfaLogo className="h-4 w-auto" />
               ) : item.subcategory === "mtc" || item.category === "mtc" ? (
@@ -446,7 +490,7 @@ const ItemCard = memo(function ItemCard({
         )}
       </div>
 
-      {qty > 0 && isExpanded && (
+      <Collapsible open={qty > 0 && isExpanded}>
         <div className="mt-2 p-3 bg-slate-900 rounded-lg border border-slate-700">
           {isTelecom && (
             <div className="flex flex-col gap-2">
@@ -457,7 +501,7 @@ const ItemCard = memo(function ItemCard({
                     id={`onlydays-${item.key}`}
                     checked={onlyDays}
                     onChange={(e) => onOnlyDaysChange(item, e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-600 text-orange-500 focus:ring-orange-500 cursor-pointer"
+                    className={`w-4 h-4 rounded border-slate-600 ${brand.text} ${brand.focusRing} cursor-pointer`}
                   />
                   <label
                     htmlFor={`onlydays-${item.key}`}
@@ -483,7 +527,7 @@ const ItemCard = memo(function ItemCard({
                           parseFloat(e.target.value) || 0,
                         )
                       }
-                      className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
+                      className={`w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none ${brand.focusBorder}`}
                     />
                   </div>
                 )}
@@ -505,7 +549,7 @@ const ItemCard = memo(function ItemCard({
                       decimals={0}
                       zeroAsEmpty={false}
                       aria-label="Only-Days price"
-                      className="w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none focus:border-orange-500"
+                      className={`w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none ${brand.focusBorder}`}
                     />
                   </div>
                   <PriceChangeWarning
@@ -524,7 +568,7 @@ const ItemCard = memo(function ItemCard({
                       decimals={0}
                       zeroAsEmpty={false}
                       aria-label="Only-Days credit price"
-                      className="w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none focus:border-orange-500"
+                      className={`w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none ${brand.focusBorder}`}
                     />
                   </div>
                   <PriceChangeWarning
@@ -554,43 +598,15 @@ const ItemCard = memo(function ItemCard({
             </div>
           )}
         </div>
-      )}
+      </Collapsible>
     </div>
   );
 });
 
 // ─── KatshFormInner ──────────────────────────────────────────────────────────
 
-interface CartLineItem {
-  item: ServiceItem;
-  quantity: number;
-  onlyDays: boolean;
-  returnedCreditsUsd: number;
-  /**
-   * LIRA-090 B2: true when the operator explicitly changed the returnedCreditsUsd
-   * field from the computed default. When false (default was shown but not touched),
-   * the submit path omits `returnedCreditsUsd` and lets the repo compute its own
-   * default from `mobileServiceItemId`. When true, forwards the typed value as an
-   * explicit override that always wins (including 0 — "no credit returned").
-   */
-  returnedCreditsEdited: boolean;
-  /**
-   * Owner pricing model (2026-08-05): editable override for the Only-Days
-   * sell price. Undefined = use the catalog default
-   * (`resolveOnlyDaysPricing`'s `catalogSellDaysLbp`). Only ever set via
-   * `handleSellDaysLbpChange`, which only fires from a panel that renders
-   * exclusively when the catalog already provides a `sell_days_lbp` — so an
-   * override can never exist on an item the FALLBACK path governs.
-   */
-  sellDaysLbpOverride?: number | undefined;
-  /**
-   * Owner pricing model (2026-08-05): editable override for the LBP price of
-   * $1 of kept credit. Undefined = use the 3-level default (per-item
-   * `sell_credit_lbp` -> the tenant `telecom_credit_sell_price_lbp` setting
-   * -> `DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP`).
-   */
-  creditPriceLbpOverride?: number | undefined;
-}
+/** LIRA-326: the cart line type is shared with the basket context. */
+type CartLineItem = CatalogCartLine;
 
 interface KatshFormProps {
   activeConfig: ProviderConfig | undefined;
@@ -644,7 +660,22 @@ function KatshFormInner({
   // checkout, W1.b). Never fires from handleForPartnerSubmit — a partner
   // order collects no cash from a walk-in customer, so there's no receipt.
   const autoPrintReceipt = useAutoPrintReceipt();
-  const [cart, setCart] = useState<Map<string, CartLineItem>>(new Map());
+  // LIRA-326: the cart lives in the Mobile Recharge basket (app shell), so
+  // picks survive switching to Whish App and back, or leaving the page.
+  // `others` = the Whish App group's priced lines.
+  const {
+    cart,
+    setCart,
+    setPriced,
+    others,
+    clearAll: clearBasket,
+    shared: basketShared,
+  } = useCatalogBasket();
+  const checkoutBasket = useRechargeBasketCheckout();
+  const submitPartnerOrder = useRechargePartnerOrder();
+  // LIRA-327: staged bills live in the basket too (each under the tab it was
+  // added on), so they survive tab switches and are paid with everything.
+  const { bills, setBills, billLines } = useBasketBills();
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
     new Set(),
@@ -665,10 +696,14 @@ function KatshFormInner({
   // the partner owes exactly the selling price (backend books provider
   // drawer −cost + partner owes price, payments: []). Kept separate from
   // localSubmitting so the normal PaymentSheet path stays untouched.
-  const [forPartner, setForPartner] = useState(false);
-  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
-    null,
-  );
+  // LIRA-327: For Partner is basket-wide — on in one basket tab, on in all.
+  const {
+    forPartner,
+    setForPartner,
+    partnerId: selectedPartnerId,
+    setPartnerId: setSelectedPartnerId,
+    shared: partnerShared,
+  } = useBasketPartner(true);
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
 
   // Autofill client name + phone from active customer session
@@ -719,12 +754,11 @@ function KatshFormInner({
   const [extraCharge, setExtraCharge] = useState(0);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   const [itemsReady, setItemsReady] = useState(false);
-  // Bill card state (LBP default per spec)
+  // Bill card state (LBP default per spec). The staged bills themselves live
+  // in the basket (LIRA-327, `bills` above).
   const [billAmount, setBillAmount] = useState("");
   const [billCurrency, setBillCurrency] = useState<"USD" | "LBP">("LBP");
-  const [pendingBills, setPendingBills] = useState<
-    Array<{ amount: number; currency: "USD" | "LBP" }>
-  >([]);
+  const pendingBills = bills;
   // Bills check out as their OWN transactions (per-bill supplier commission +
   // audit row), but ONE PaymentSheet payment covers the whole checkout: the
   // legs book against exactly one CARRIER transaction — the aggregated items
@@ -754,22 +788,24 @@ function KatshFormInner({
       ? `${Math.round(amount).toLocaleString()} LBP`
       : `$${amount.toFixed(2)}`;
 
-  // Report selection counts to the provider tabs (quantities per the item's
-  // own provider — the cart survives Katsh↔iPick switches — plus staged bills
-  // under the tab they were added on).
+  // Report selection counts to the provider tabs. With the shared basket
+  // (LIRA-326/327) the page counts the picks AND the staged bills itself, for
+  // every tab; standalone, they are reported here, each bill under the tab it
+  // was added on.
   useEffect(() => {
     if (!onCartCountChange) return;
     const counts: Record<string, number> = { Katsh: 0, iPick: 0 };
-    for (const line of cart.values()) {
-      counts[line.item.provider] =
-        (counts[line.item.provider] ?? 0) + line.quantity;
-    }
-    if (activeProvider) {
-      counts[activeProvider] =
-        (counts[activeProvider] ?? 0) + pendingBills.length;
+    if (!basketShared) {
+      for (const line of cart.values()) {
+        counts[line.item.provider] =
+          (counts[line.item.provider] ?? 0) + line.quantity;
+      }
+      for (const bill of pendingBills) {
+        counts[bill.provider] = (counts[bill.provider] ?? 0) + 1;
+      }
     }
     onCartCountChange(counts);
-  }, [cart, pendingBills, activeProvider, onCartCountChange]);
+  }, [cart, pendingBills, onCartCountChange, basketShared]);
   useEffect(() => {
     return () => onCartCountChange?.({});
   }, [onCartCountChange]);
@@ -853,6 +889,54 @@ function KatshFormInner({
     };
   }, [api]);
 
+  // LIRA-326: this group's cart, PRICED, published to the basket so another
+  // tab can list and pay it. Memoised on exactly what pricing reads (rule 25:
+  // a fresh array per render would re-publish forever).
+  const pricedLines = useMemo<PricedLine[]>(
+    () =>
+      Array.from(cart.entries()).flatMap(([key, line]): PricedLine[] => {
+        const provider = line.item.provider;
+        if (!isBasketProvider(provider)) return [];
+        const unitPrice = lineUnitPriceOf(
+          line,
+          catalogPricing,
+          tenantCreditSellPriceLbp,
+          alfaCreditSellRate,
+        );
+        const cost = calcCost(line.item);
+        const subItems = catalogBatchSubItems(line, unitPrice, cost);
+        return [
+          {
+            key,
+            provider,
+            label: `${formatCatalogItemName(line.item)} x${line.quantity}`,
+            // Today's partner-order note for this line (LIRA-327).
+            partnerNote: `${formatCatalogItemName(line.item)}${line.quantity > 1 ? ` x${line.quantity}` : ""}${line.onlyDays ? " [Only Days]" : ""}`,
+            sheetItem: {
+              key,
+              name: line.item.label,
+              group: cardGroupLabel(line.item),
+              image: getCardImage(line.item),
+              quantity: line.quantity,
+              unitPrice,
+              currency: "LBP",
+              note: line.onlyDays ? "Only days" : undefined,
+              provider: providerBrandOf(line.item.provider),
+            },
+            currency: "LBP",
+            amount: unitPrice * line.quantity,
+            cost: cost * line.quantity,
+            commission: subItems.reduce((s, x) => s + x.commission, 0),
+            subItems,
+          },
+        ];
+      }),
+    [cart, catalogPricing, tenantCreditSellPriceLbp, alfaCreditSellRate],
+  );
+  useEffect(() => {
+    setPriced(pricedLines);
+  }, [pricedLines, setPriced]);
+
   // ── Self-charge (LIRA-090 §5.2, carrier-lines-validity plan Phase 5 / D5) ──
   // Item-card entry point: charge an eligible iPick/Katsh item straight to
   // the shop's own primary MTC/Alfa line — no customer, no sale row, no
@@ -903,54 +987,21 @@ function KatshFormInner({
     return () => cancelAnimationFrame(rafId);
   }, [activeProvider]);
 
-  // ─── Stable callbacks (empty deps — use only functional setState) ─────────
+  // ─── Stable callbacks (functional setState only; setCart is stable) ───────
 
-  const handleCardClick = useCallback((item: ServiceItem) => {
-    if (isTelecomVoucher(item)) {
-      setExpandedKeys((prev) => {
-        if (prev.has(item.key)) return prev;
-        const next = new Set(prev);
-        next.add(item.key);
-        return next;
-      });
-    }
-    setCart((prev) => {
-      if (prev.has(item.key)) return prev;
-      const next = new Map(prev);
-      next.set(item.key, {
-        item,
-        quantity: 1,
-        onlyDays: false,
-        returnedCreditsUsd: 0,
-        returnedCreditsEdited: false,
-      });
-      return next;
-    });
-  }, []);
-
-  const handleQtyDecrease = useCallback((item: ServiceItem) => {
-    setCart((prev) => {
-      const existing = prev.get(item.key);
-      if (!existing) return prev;
-      const newQty = existing.quantity - 1;
-      if (newQty <= 0) {
-        const next = new Map(prev);
-        next.delete(item.key);
-        return next;
+  const handleCardClick = useCallback(
+    (item: ServiceItem) => {
+      if (isTelecomVoucher(item)) {
+        setExpandedKeys((prev) => {
+          if (prev.has(item.key)) return prev;
+          const next = new Set(prev);
+          next.add(item.key);
+          return next;
+        });
       }
-      const next = new Map(prev);
-      next.set(item.key, { ...existing, quantity: newQty });
-      return next;
-    });
-  }, []);
-
-  const handleQtyIncrease = useCallback((item: ServiceItem) => {
-    setCart((prev) => {
-      const existing = prev.get(item.key);
-      const next = new Map(prev);
-      if (existing) {
-        next.set(item.key, { ...existing, quantity: existing.quantity + 1 });
-      } else {
+      setCart((prev) => {
+        if (prev.has(item.key)) return prev;
+        const next = new Map(prev);
         next.set(item.key, {
           item,
           quantity: 1,
@@ -958,10 +1009,52 @@ function KatshFormInner({
           returnedCreditsUsd: 0,
           returnedCreditsEdited: false,
         });
-      }
-      return next;
-    });
-  }, []);
+        return next;
+      });
+    },
+    [setCart],
+  );
+
+  const handleQtyDecrease = useCallback(
+    (item: ServiceItem) => {
+      setCart((prev) => {
+        const existing = prev.get(item.key);
+        if (!existing) return prev;
+        const newQty = existing.quantity - 1;
+        if (newQty <= 0) {
+          const next = new Map(prev);
+          next.delete(item.key);
+          return next;
+        }
+        const next = new Map(prev);
+        next.set(item.key, { ...existing, quantity: newQty });
+        return next;
+      });
+    },
+    [setCart],
+  );
+
+  const handleQtyIncrease = useCallback(
+    (item: ServiceItem) => {
+      setCart((prev) => {
+        const existing = prev.get(item.key);
+        const next = new Map(prev);
+        if (existing) {
+          next.set(item.key, { ...existing, quantity: existing.quantity + 1 });
+        } else {
+          next.set(item.key, {
+            item,
+            quantity: 1,
+            onlyDays: false,
+            returnedCreditsUsd: 0,
+            returnedCreditsEdited: false,
+          });
+        }
+        return next;
+      });
+    },
+    [setCart],
+  );
 
   const handleOnlyDaysChange = useCallback(
     (item: ServiceItem, checked: boolean) => {
@@ -1020,7 +1113,7 @@ function KatshFormInner({
         return next;
       });
     },
-    [],
+    [setCart],
   );
 
   const handleReturnedCreditsChange = useCallback(
@@ -1040,7 +1133,7 @@ function KatshFormInner({
         return next;
       });
     },
-    [],
+    [setCart],
   );
 
   // Owner pricing model (2026-08-05): editable overrides for the Only-Days
@@ -1058,7 +1151,7 @@ function KatshFormInner({
         return next;
       });
     },
-    [],
+    [setCart],
   );
 
   const handleCreditPriceLbpChange = useCallback(
@@ -1071,7 +1164,7 @@ function KatshFormInner({
         return next;
       });
     },
-    [],
+    [setCart],
   );
 
   const toggleCategoryCollapse = useCallback((category: string) => {
@@ -1190,8 +1283,7 @@ function KatshFormInner({
 
   if (!activeConfig || !activeProvider) return null;
 
-  const billAccent =
-    BILL_ACCENTS[activeProvider === "iPick" ? "sky" : "orange"];
+  const billAccent = billAccentFor(activeProvider);
 
   const categories = getCategoriesForProvider(activeProvider);
 
@@ -1218,24 +1310,30 @@ function KatshFormInner({
     );
   };
 
-  const totalPrice = Array.from(cart.values()).reduce((sum, line) => {
-    const onlyDaysTotal = resolveOnlyDaysPricing(
+  // The price ONE unit of a cart line is charged at (the Only Days price for
+  // an Only Days line). Shared by the total and the payment window's item
+  // list, so the listed lines always add up to what is charged.
+  const lineUnitPrice = (line: CartLineItem): number =>
+    lineUnitPriceOf(
       line,
       catalogPricing,
       tenantCreditSellPriceLbp,
-    ).total;
-    return (
-      sum +
-      calcPrice(
-        line.item,
-        line.onlyDays,
-        line.returnedCreditsUsd,
-        alfaCreditSellRate,
-        onlyDaysTotal,
-      ) *
-        line.quantity
+      alfaCreditSellRate,
     );
-  }, 0);
+
+  const totalPrice = Array.from(cart.values()).reduce(
+    (sum, line) => sum + lineUnitPrice(line) * line.quantity,
+    0,
+  );
+
+  // Items listed at the top of the payment window: one per cart line, then
+  // one per pending bill (in its own currency). Plain const like totalPrice —
+  // this sits after the early return above, so it cannot be a hook.
+  // LIRA-327: each bill under its OWN provider (the tab it was added on).
+  const paymentSheetItems: PaymentSheetItem[] = [
+    ...pricedLines.map((l) => l.sheetItem),
+    ...billLines.map((l) => l.sheetItem),
+  ];
 
   // LIRA-090 B1: cost is always GROSS (full cost_lbp). The repo nets it to
   // days_cost_lbp via processTelecomCreditReturn when mobileServiceItemId is
@@ -1247,10 +1345,42 @@ function KatshFormInner({
   // Max discount = total commission (sell - cost), discount cannot exceed profit
   const maxDiscount = Math.max(0, totalPrice - totalCost);
 
+  // LIRA-326 — the providers this payment would book: this cart's lines (each
+  // under its OWN provider), the bills (LIRA-327: each under the tab it was
+  // added on) and the Whish App group's lines. One provider → today's single
+  // sale under that provider; two or more → ONE basket payment.
+  const basketLines = [...pricedLines, ...billLines, ...others];
+  const payingProviders = basketProviders(basketLines);
+  const isMixedBasket =
+    !activeSession && !forPartner && payingProviders.size > 1;
+  const basketSheet = basketSheetSummary(basketLines);
+  // Everything in the basket (every tab's cards + bills) — what a partner
+  // order submits and what turning For Partner on asks about.
+  const basketCount = basketItemCount(basketLines);
+  // The single-sale path books under the cart's own provider (an iPick-only
+  // cart paid from the Katsh tab is an iPick sale); each bill under its own.
+  const ownProviders = basketProviders(pricedLines);
+  const saleProvider: "Katsh" | "iPick" =
+    ownProviders.size === 1 && ownProviders.has("iPick")
+      ? "iPick"
+      : ownProviders.size === 1 && ownProviders.has("Katsh")
+        ? "Katsh"
+        : activeProvider === "iPick"
+          ? "iPick"
+          : "Katsh";
+
   const totalItems = Array.from(cart.values()).reduce(
     (sum, line) => sum + line.quantity,
     0,
   );
+  // The Bill card lists the bills added on THIS tab (LIRA-327); the header
+  // and the payment window show every staged bill.
+  const tabBills = pendingBills.filter((b) => b.provider === activeProvider);
+  // A partner order submits the WHOLE basket (every tab), so it can go even
+  // when this tab's own grid is empty.
+  const proceedDisabled = forPartner
+    ? basketCount === 0 || !selectedPartnerId || isSubmittingPartner
+    : totalItems === 0 && pendingBills.length === 0;
 
   const getCartCountForCategory = (category: string): number =>
     Array.from(cart.values())
@@ -1345,24 +1475,42 @@ function KatshFormInner({
         return;
       }
     }
-    setPendingBills((prev) => [
+    // LIRA-327: the bill belongs to THIS tab's provider, wherever it is paid.
+    setBills((prev) => [
       ...prev,
-      { amount: parsed, currency: billCurrency },
+      {
+        id: crypto.randomUUID(),
+        provider: activeProvider === "Katsh" ? "Katsh" : "iPick",
+        amount: parsed,
+        currency: billCurrency,
+      },
     ]);
     setBillAmount("");
   };
 
-  // PFT-3b: direct submission for a "for partner" Katsh/iPick checkout —
-  // bypasses the session basket, the PaymentSheet, and the client/discount/
-  // kept-change/bill-carrier machinery entirely (those exist only to
-  // coordinate ONE customer payment across several transactions — there is
-  // no payment here). Reuses the same cart-aggregation + pending-bills
-  // iteration as handleSubmit, simplified: every unit/bill goes out with
-  // partnerId, partnerMode: "FOR", payments: [] — the backend books the
-  // provider drawer −cost and the partner owes exactly the selling price.
-  const handleForPartnerSubmit = async () => {
-    if ((cart.size === 0 && pendingBills.length === 0) || isSubmittingPartner)
+  // LIRA-327 — turning For Partner on while the basket already holds items
+  // makes ALL of them (every tab's) a partner order: ask first.
+  const handleForPartnerChange = (next: boolean) => {
+    if (
+      next &&
+      partnerShared &&
+      basketCount > 0 &&
+      !window.confirm(partnerConfirmMessage(basketCount))
+    ) {
       return;
+    }
+    setForPartner(next);
+  };
+
+  // PFT-3b / LIRA-327: a "for partner" order bypasses the session basket,
+  // the PaymentSheet, and the client/discount/kept-change/bill-carrier
+  // machinery entirely (no walk-in customer, no counter payment). It is
+  // basket-wide: ONE submit books every provider's partner sales — each tab's
+  // cards and bills, the Whish App units too — exactly as today's per-tab
+  // submit wrote them, each costed against its own provider, all or nothing
+  // (core RechargePartnerOrderService).
+  const handleForPartnerSubmit = async () => {
+    if (basketLines.length === 0 || isSubmittingPartner) return;
     if (!selectedPartnerId) {
       appEvents.emit(
         "notification:show",
@@ -1373,132 +1521,35 @@ function KatshFormInner({
     }
 
     setIsSubmittingPartner(true);
-
-    // true when there are no catalog items to process (bill-only checkout)
-    let allSucceeded = cart.size === 0;
-
-    if (cart.size > 0) {
-      const cartItems = Array.from(cart.values());
-
-      const totalSellPrice = cartItems.reduce((sum, line) => {
-        const onlyDaysTotal = resolveOnlyDaysPricing(
-          line,
-          catalogPricing,
-          tenantCreditSellPriceLbp,
-        ).total;
-        return (
-          sum +
-          calcPrice(
-            line.item,
-            line.onlyDays,
-            line.returnedCreditsUsd,
-            alfaCreditSellRate,
-            onlyDaysTotal,
-          ) *
-            line.quantity
-        );
-      }, 0);
-
-      const aggregatedCost = cartItems.reduce(
-        (sum, line) => sum + calcCost(line.item) * line.quantity,
-        0,
-      );
-
-      const aggregatedCommission = Math.max(0, totalSellPrice - aggregatedCost);
-
-      const noteLines = cartItems.map((line) => {
-        const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
-        const onlyDays = line.onlyDays ? " [Only Days]" : "";
-        return `${formatCatalogItemName(line.item)}${qty}${onlyDays}`;
-      });
-      const note = noteLines.join(", ");
-
-      try {
-        const result = await api.addOMTTransaction({
-          provider: activeProvider,
-          serviceType: "SEND",
-          amount: totalSellPrice,
-          cost: aggregatedCost,
-          currency: "LBP",
-          commission: aggregatedCommission,
-          payments: [],
-          partnerId: selectedPartnerId,
-          partnerMode: "FOR" as const,
-          note,
-          transaction_time: transactionTime,
-        });
-
-        if (result?.success) {
-          allSucceeded = true;
-        } else {
-          logger.error("Katsh partner submit failed:", result?.error);
-          alert(result?.error || "Failed to process partner transaction");
-        }
-      } catch (err) {
-        logger.error("Katsh partner submit error:", err);
-        alert("Failed to process partner transaction");
-      }
-    }
-
-    // Each pending bill is its own BILL transaction, same as the normal
-    // path — but with no legs to carry across bills, every bill submits
-    // independently (no isCarrier/deferPayment distinction needed).
-    if (pendingBills.length > 0 && allSucceeded) {
-      for (let i = 0; i < pendingBills.length; i++) {
-        const bill = pendingBills[i];
-        try {
-          const billResult = await api.addOMTTransaction({
-            provider: activeProvider,
-            serviceType: "BILL",
-            amount: bill.amount,
-            cost: bill.amount,
-            price: bill.amount,
-            currency: bill.currency,
-            commission: 0,
-            payments: [],
-            partnerId: selectedPartnerId,
-            partnerMode: "FOR" as const,
-            transaction_time: transactionTime,
-          });
-          if (!billResult?.success) {
-            allSucceeded = false;
-            setPendingBills(pendingBills.slice(i));
-            logger.error("Partner bill submit failed:", billResult?.error);
-            alert(billResult?.error || "Failed to process bill");
-            break;
-          }
-        } catch (err) {
-          allSucceeded = false;
-          setPendingBills(pendingBills.slice(i));
-          logger.error("Partner bill submit error:", err);
-          alert("Failed to process bill");
-          break;
-        }
-      }
-      if (allSucceeded) {
-        setPendingBills([]);
-      }
-      // A Katsh/iPick BILL is `commission_model = 1` (COMMISSION_AT_SETTLEMENT_
-      // PLAN.md §4 Phase 1) — it joins the Suppliers -> Settle unsettled queue
-      // immediately, but that query has no per-query staleTime override
-      // (frontend/src/app/App.tsx's app-wide 30s applies) and nothing on this
-      // path ever invalidated it, so a freshly created bill stayed invisible
-      // there for up to 30s. Invalidate unconditionally: even a break above
-      // may have posted one or more bills before the failure.
-      queryClient.invalidateQueries({
-        queryKey: SUPPLIER_KEYS.unsettled(activeProvider),
-      });
-    }
-
-    if (allSucceeded) {
+    const billProviders = new Set(pendingBills.map((b) => b.provider));
+    const result = await submitPartnerOrder({
+      lines: basketLines,
+      partnerId: selectedPartnerId,
+      transactionTime,
+    });
+    if (result.success) {
       appEvents.emit(
         "notification:show",
-        "Partner bills processed successfully",
+        "Partner order submitted successfully",
         "success",
       );
-      setCart(new Map());
+      // A Katsh/iPick BILL is `commission_model = 1` (COMMISSION_AT_
+      // SETTLEMENT_PLAN.md §4 Phase 1) — it joins the Suppliers -> Settle
+      // unsettled queue immediately; refresh each bill provider's queue
+      // (App.tsx's app-wide 30s staleTime would hide it otherwise).
+      for (const provider of billProviders) {
+        queryClient.invalidateQueries({
+          queryKey: SUPPLIER_KEYS.unsettled(provider),
+        });
+      }
+      // Everything was booked: empty the whole basket (For Partner off).
+      clearBasket();
       setExpandedKeys(new Set());
       setTransactionTime(undefined);
+    } else {
+      // Nothing was booked — the basket stays as it was.
+      logger.error("Partner order submit failed:", result.error);
+      alert(result.error);
     }
     loadFinancialData();
     setIsSubmittingPartner(false);
@@ -1529,79 +1580,28 @@ function KatshFormInner({
     // (paidByMethod / payments) and no per-item discount — the Session Checkout
     // modal collects payment once for the whole basket and applies any discount
     // there (capped at each item's profit).
+    //
+    // LIRA-326: ONE session cart entry PER PROVIDER — each item is booked
+    // under its own provider at checkout (an iPick item picked on the iPick
+    // tab and added from the Katsh tab is an iPick sale, never a Katsh one).
     if (activeSession) {
-      const cartItems = Array.from(cart.values());
-      const providerLabel = activeProvider === "Katsh" ? "Katsh" : "iPick";
-      const itemLabels = cartItems
-        .map((line) => `${formatCatalogItemName(line.item)} x${line.quantity}`)
-        .join(", ");
-      const label =
-        itemLabels.length > 60
-          ? `${providerLabel} (${cartItems.length} items) - ${totalPrice.toLocaleString()} LBP`
-          : `${providerLabel}: ${itemLabels}`;
-
-      // Store each line item for replay at checkout
-      const formDataItems = cartItems.flatMap((line) => {
-        const onlyDaysTotal = resolveOnlyDaysPricing(
-          line,
-          catalogPricing,
-          tenantCreditSellPriceLbp,
-        ).total;
-        const sellPrice = calcPrice(
-          line.item,
-          line.onlyDays,
-          line.returnedCreditsUsd,
-          alfaCreditSellRate,
-          onlyDaysTotal,
-        );
-        // LIRA-090 B1: GROSS cost — the session recorder sends it through to the
-        // repository unchanged, and the repo nets to days_cost_lbp when
-        // mobileServiceItemId is present (processTelecomCreditReturn).
-        const cost = calcCost(line.item);
-        const commission = sellPrice - cost;
-        const splitComplete =
-          line.onlyDays &&
-          isTelecomSplitComplete({
-            cost_lbp: line.item.catalogCost,
-            days_cost_lbp: line.item.days_cost_lbp,
-            credits: line.item.credits,
-          });
-        return Array.from({ length: line.quantity }, () => ({
-          provider: activeProvider,
-          serviceType: "SEND",
-          amount: sellPrice,
-          cost,
-          currency: "LBP",
-          commission: Math.max(0, commission),
-          clientId: resolvedClientId || undefined,
-          clientName: clientName || undefined,
-          itemKey: line.item.key,
-          itemCategory: line.item.category,
-          // LIRA-090 B1/B2: for split-complete items, send mobileServiceItemId so
-          // the repo can compute the carrier-line movement and the returned credits.
-          // Send returnedCreditsUsd ONLY when the operator explicitly edited it.
-          ...(splitComplete && line.item.id != null
-            ? { mobileServiceItemId: line.item.id }
-            : {}),
-          returnedCreditsUsd:
-            line.onlyDays && (line.returnedCreditsEdited || !splitComplete)
-              ? line.returnedCreditsUsd
-              : undefined,
-          note: `${formatCatalogItemName(line.item)}${line.onlyDays ? " [Only Days]" : ""}`,
-        }));
-      });
-
-      addToSessionCart({
-        module: activeProvider === "Katsh" ? "katsh" : "ipick",
-        label,
-        amount: totalPrice,
-        currency: "LBP",
-        ipcChannel: "financial:create",
-        formData: {
-          _batch: true,
-          items: formDataItems,
-        },
-      });
+      const client = {
+        clientId: resolvedClientId,
+        ...(clientName ? { clientName } : {}),
+      };
+      for (const entry of basketEntries(pricedLines)) {
+        addToSessionCart({
+          module: entry.module,
+          label: entry.label,
+          amount: entry.amount,
+          currency: entry.currency,
+          ipcChannel: "financial:create",
+          formData: {
+            _batch: true,
+            items: withClient(entry.items, client),
+          },
+        });
+      }
 
       // Reset form
       setCart(new Map());
@@ -1611,6 +1611,70 @@ function KatshFormInner({
       setExpandedKeys(new Set());
       setReturnLegs([]);
       setKeptChange(null);
+      return;
+    }
+
+    // LIRA-326 — items from two or more providers: ONE payment for the whole
+    // basket (every tab's cards, the staged bills — LIRA-327 — and the Whish
+    // App lines), recorded by the server as a walk-in customer session with
+    // one sale per provider and one BILL per bill.
+    if (isMixedBasket) {
+      setLocalSubmitting(true);
+      const result = await checkoutBasket({
+        lines: basketLines,
+        discount: basketSheet.singleCurrency ? discount : 0,
+        payments: paymentLines,
+        returnLegs,
+        paidByMethod: isSplitPayment ? "MULTI" : paymentMethod,
+        exchangeRate: effectiveRate ?? exchangeRate,
+        keptChange,
+        extra:
+          basketSheet.currency === "USD"
+            ? { usd: extraCharge, lbp: 0 }
+            : { usd: 0, lbp: extraCharge },
+        client: {
+          clientId: resolvedClientId,
+          clientName,
+          clientPhone,
+        },
+      });
+      if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          "Basket paid successfully",
+          "success",
+        );
+        // LIRA-327: paid bills join their provider's Settle queue.
+        for (const provider of new Set(pendingBills.map((b) => b.provider))) {
+          queryClient.invalidateQueries({
+            queryKey: SUPPLIER_KEYS.unsettled(provider),
+          });
+        }
+        clearBasket();
+        setClientName("");
+        setClientPhone("");
+        setClientId(null);
+        setExpandedKeys(new Set());
+        setReturnLegs([]);
+        setKeptChange(null);
+        setExtraCharge(0);
+        setTransactionTime(undefined);
+        if (
+          paymentMethod === "CUSTOMER_ACCOUNT" ||
+          paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT") ||
+          returnLegs.some((l) => l.method === "CUSTOMER_ACCOUNT")
+        ) {
+          window.dispatchEvent(new CustomEvent("debt-ledger-changed"));
+        }
+        // Booked as a session checkout: an on-account part is a Session
+        // Debt row — let the TopBar's session balance badge refresh.
+        appEvents.emit("debt:changed");
+      } else {
+        // The basket stays as it was — nothing was booked.
+        alert(result.error);
+      }
+      loadFinancialData();
+      setLocalSubmitting(false);
       return;
     }
 
@@ -1686,8 +1750,11 @@ function KatshFormInner({
             line.onlyDays,
             line.returnedCreditsUsd,
             alfaCreditSellRate,
-            resolveOnlyDaysPricing(line, catalogPricing, tenantCreditSellPriceLbp)
-              .total,
+            resolveOnlyDaysPricing(
+              line,
+              catalogPricing,
+              tenantCreditSellPriceLbp,
+            ).total,
           ),
         },
         quantity: line.quantity,
@@ -1730,7 +1797,8 @@ function KatshFormInner({
       try {
         const result = await api.addOMTTransaction({
           ...buildCatalogSalePayload({
-            provider: activeProvider as "Katsh" | "iPick",
+            // LIRA-326: the cart's own provider, never the tab's.
+            provider: saleProvider,
             lines: catalogLines,
             paidByMethod: finalPaymentMethod,
             payments: paymentsPayload,
@@ -1823,7 +1891,8 @@ function KatshFormInner({
         const isCarrier = !itemsCarriedLegs && i === 0;
         try {
           const billResult = await api.addOMTTransaction({
-            provider: activeProvider,
+            // LIRA-327: the bill's OWN provider (the tab it was added on).
+            provider: bill.provider,
             serviceType: "BILL",
             amount: bill.amount,
             cost: bill.amount,
@@ -1873,29 +1942,32 @@ function KatshFormInner({
             if (isCarrier) carrierSourceId = billResult.id;
           } else {
             allSucceeded = false;
-            setPendingBills(pendingBills.slice(i));
+            setBills(pendingBills.slice(i));
             logger.error("Bill submit failed:", billResult?.error);
             alert(billResult?.error || "Failed to process bill");
             break;
           }
         } catch (err) {
           allSucceeded = false;
-          setPendingBills(pendingBills.slice(i));
+          setBills(pendingBills.slice(i));
           logger.error("Bill submit error:", err);
           alert("Failed to process bill");
           break;
         }
       }
       if (allSucceeded) {
-        setPendingBills([]);
+        setBills([]);
       }
-      // See the matching comment in handleForPartnerSubmit's bills loop above
-      // — a Katsh/iPick BILL is commission_model = 1 and joins the Suppliers
+      // See the matching comment in handleForPartnerSubmit above — a
+      // Katsh/iPick BILL is commission_model = 1 and joins the Suppliers
       // -> Settle unsettled queue immediately, but nothing on this path ever
-      // invalidated that query, so it stayed stale for up to 30s.
-      queryClient.invalidateQueries({
-        queryKey: SUPPLIER_KEYS.unsettled(activeProvider),
-      });
+      // invalidated that query, so it stayed stale for up to 30s. One per
+      // bill provider (LIRA-327: a bill keeps its own provider).
+      for (const provider of new Set(pendingBills.map((b) => b.provider))) {
+        queryClient.invalidateQueries({
+          queryKey: SUPPLIER_KEYS.unsettled(provider),
+        });
+      }
     }
 
     if (allSucceeded) {
@@ -1906,7 +1978,10 @@ function KatshFormInner({
       );
       void autoPrintReceipt({
         type: "FINANCIAL_SERVICE",
-        provider: activeProvider,
+        provider:
+          cart.size > 0
+            ? saleProvider
+            : (pendingBills[0]?.provider ?? saleProvider),
         sourceTable: "financial_services",
         sourceId: carrierSourceId,
         hasActiveSession: !!activeSession,
@@ -1934,14 +2009,14 @@ function KatshFormInner({
   return (
     <div className="flex flex-col gap-3">
       {/* Top Row: Search Bar + Proceed to Pay — sticky so it never scrolls away */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
+      <div className="sticky -top-1 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
         <div className="relative flex-1">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={`Search ${activeProvider} items...`}
-            className="w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all"
+            className={`w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none ${billAccent.brand.searchFocus} transition-all`}
           />
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
@@ -2028,15 +2103,11 @@ function KatshFormInner({
                 setShowPaymentSheet(true);
               }
             }}
-            disabled={
-              (totalItems === 0 && pendingBills.length === 0) ||
-              (forPartner && (!selectedPartnerId || isSubmittingPartner))
-            }
+            disabled={proceedDisabled}
             className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
-              (totalItems === 0 && pendingBills.length === 0) ||
-              (forPartner && (!selectedPartnerId || isSubmittingPartner))
+              proceedDisabled
                 ? "bg-slate-700 text-slate-300 cursor-not-allowed"
-                : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20"
+                : billAccent.button
             }`}
           >
             {forPartner
@@ -2057,7 +2128,7 @@ function KatshFormInner({
         <ForPartnerToggle
           testId="katsh-for-partner-toggle"
           checked={forPartner}
-          onChange={setForPartner}
+          onChange={handleForPartnerChange}
           selectedPartnerId={selectedPartnerId}
           onPartnerChange={setSelectedPartnerId}
           autoSelectSingle
@@ -2068,9 +2139,9 @@ function KatshFormInner({
             testId="katsh-partner-no-payment-notice"
             className="w-full text-xs text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-2"
           >
-            No payment is collected for a partner transaction. The full selling
-            price goes on the selected partner&apos;s account, settled later on
-            the Partners page.
+            No payment is collected for a partner transaction. Everything in the
+            basket, on every tab, goes on the selected partner&apos;s account at
+            its full selling price, settled later on the Partners page.
           </ForPartnerNotice>
         )}
       </div>
@@ -2134,18 +2205,18 @@ function KatshFormInner({
                   disabled={
                     !billAmount || parseFloat(billAmount.replace(/,/g, "")) <= 0
                   }
-                  className={`w-1/2 py-2 ${billAccent.button} disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors`}
+                  className={`w-1/2 py-2 ${billAccent.button} disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-lg transition-colors`}
                 >
                   {activeSession && !forPartner
                     ? "Add Bill to Cart"
                     : "Add Bill"}
                 </button>
               </div>
-              {pendingBills.length > 0 && (!activeSession || forPartner) && (
+              {tabBills.length > 0 && (!activeSession || forPartner) && (
                 <div className="mt-2 flex flex-col items-center gap-1">
-                  {pendingBills.map((bill, idx) => (
+                  {tabBills.map((bill) => (
                     <div
-                      key={idx}
+                      key={bill.id}
                       className={`flex items-center gap-2 text-xs font-mono ${billAccent.pendingLabel}`}
                     >
                       <span>
@@ -2154,8 +2225,8 @@ function KatshFormInner({
                       <button
                         type="button"
                         onClick={() =>
-                          setPendingBills((prev) =>
-                            prev.filter((_, i) => i !== idx),
+                          setBills((prev) =>
+                            prev.filter((b) => b.id !== bill.id),
                           )
                         }
                         className="text-slate-500 hover:text-red-400 transition-colors"
@@ -2192,7 +2263,9 @@ function KatshFormInner({
                     />
                     {category}
                     {getCartCountForCategory(category) > 0 && (
-                      <span className="px-1.5 py-0.5 bg-orange-500/20 text-orange-400 text-[10px] font-bold rounded-full leading-none">
+                      <span
+                        className={`px-1.5 py-0.5 ${billAccent.brand.badge} text-[10px] font-bold rounded-full leading-none`}
+                      >
                         {getCartCountForCategory(category)}
                       </span>
                     )}
@@ -2237,7 +2310,7 @@ function KatshFormInner({
                       onCancel={cancelNewItem}
                     />
                   )}
-                {!collapsedCategories.has(category) && (
+                <Collapsible open={!collapsedCategories.has(category)}>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
                     {categoryItems.map((item) => {
                       const inCart = cart.get(item.key);
@@ -2251,6 +2324,7 @@ function KatshFormInner({
                       return (
                         <ItemCard
                           key={item.key}
+                          brand={billAccent.brand}
                           item={item}
                           qty={inCart?.quantity ?? 0}
                           isExpanded={expandedKeys.has(item.key)}
@@ -2279,7 +2353,7 @@ function KatshFormInner({
                       );
                     })}
                   </div>
-                )}
+                </Collapsible>
               </div>
             );
           })}
@@ -2322,25 +2396,45 @@ function KatshFormInner({
         onConfirm={handleSubmit}
         isSubmitting={localSubmitting}
         title={activeSession ? "Add to Cart" : "Confirm Payment"}
-        subtitle={
-          pendingBills.length > 0
-            ? cart.size > 0
-              ? `${totalItems} items + ${pendingBills.length} ${pendingBills.length > 1 ? "bills" : "bill"} — ${fmtBill(totalPrice + billsLbpValue, "LBP")}`
-              : `${pendingBills.length > 1 ? `${pendingBills.length} BILLS` : "BILL"} — ${fmtBill(billsTotal, billsCurrency)}`
-            : `${totalItems} items — ${totalPrice.toLocaleString()} LBP`
-        }
-        accentColor="bg-orange-500 hover:bg-orange-600 text-white"
-        totalAmount={billsOnlyUsd ? billsTotal : totalPrice + billsLbpValue}
-        totalAmountCurrency={billsCurrency}
-        currency={billsCurrency}
+        accentColor={billAccent.brand.button}
         paymentMethods={methods}
         clientId={clientId}
         fetchClientVouchers={fetchClientVouchers}
         exchangeRate={exchangeRate}
         onExchangeRateChange={setEffectiveRate}
-        showDiscount={totalItems > 0}
-        maxDiscount={maxDiscount}
         onDiscountChange={setDiscount}
+        {...(isMixedBasket
+          ? {
+              // LIRA-326 — every provider's picks, paid once. A discount only
+              // on a one-currency basket (never converted), capped at the
+              // basket's profit and spread over the sales by profit.
+              subtitle: `${basketSheet.count} items — ${basketSheet.totals
+                .map((t) => fmtBill(t.amount, t.currency))
+                .join(" + ")}`,
+              items: basketSheet.items,
+              totals: basketSheet.totals,
+              totalAmount: basketSheet.totalAmount,
+              totalAmountCurrency: basketSheet.currency,
+              currency: basketSheet.currency,
+              showDiscount: basketSheet.singleCurrency,
+              maxDiscount: basketSheet.maxDiscount,
+            }
+          : {
+              subtitle:
+                pendingBills.length > 0
+                  ? cart.size > 0
+                    ? `${totalItems} items + ${pendingBills.length} ${pendingBills.length > 1 ? "bills" : "bill"} — ${fmtBill(totalPrice + billsLbpValue, "LBP")}`
+                    : `${pendingBills.length > 1 ? `${pendingBills.length} BILLS` : "BILL"} — ${fmtBill(billsTotal, billsCurrency)}`
+                  : `${totalItems} items — ${totalPrice.toLocaleString()} LBP`,
+              items: paymentSheetItems,
+              totalAmount: billsOnlyUsd
+                ? billsTotal
+                : totalPrice + billsLbpValue,
+              totalAmountCurrency: billsCurrency,
+              currency: billsCurrency,
+              showDiscount: totalItems > 0,
+              maxDiscount,
+            })}
         // LIRA-319: "− Discount | + Extra" (extra-only on a bills-only
         // checkout, which has no discount). Walk-in only.
         {...(!activeSession && !forPartner
@@ -2393,7 +2487,7 @@ function KatshFormInner({
               setPaymentInputKey((k) => k + 1);
             }}
             placeholder="Client name (optional)"
-            className="w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
+            className={`w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${billAccent.brand.focusBorder}`}
           />
           <div className="relative">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
@@ -2405,7 +2499,7 @@ function KatshFormInner({
               value={clientPhone}
               onChange={(e) => setClientPhone(e.target.value)}
               placeholder="Phone number (registers a new client)"
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-10 pr-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-orange-500"
+              className={`w-full bg-slate-800 border border-slate-600 rounded-lg pl-10 pr-3 py-2 text-sm text-white font-mono focus:outline-none ${billAccent.brand.focusBorder}`}
             />
           </div>
           {clientName.trim() && clientPhone.trim() && !clientId && (
@@ -2413,10 +2507,14 @@ function KatshFormInner({
               New client will be created on confirm.
             </p>
           )}
-          <TransactionTimeOverride
-            value={transactionTime}
-            onChange={setTransactionTime}
-          />
+          {/* LIRA-326: a combined basket is booked "now" — the basket
+              checkout takes no backdated time, so the field is not offered. */}
+          {!isMixedBasket && (
+            <TransactionTimeOverride
+              value={transactionTime}
+              onChange={setTransactionTime}
+            />
+          )}
         </div>
       </PaymentSheet>
 

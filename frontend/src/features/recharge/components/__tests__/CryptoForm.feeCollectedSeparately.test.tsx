@@ -176,7 +176,9 @@ function openPaymentSheet() {
 function customerLines() {
   const section = screen.getByTestId("counter-flow-section");
   return Array.from(
-    section.querySelectorAll<HTMLElement>('[data-testid^="counter-flow-line-"]'),
+    section.querySelectorAll<HTMLElement>(
+      '[data-testid^="counter-flow-line-"]',
+    ),
   ).map((row) => ({
     method: row.querySelector<HTMLSelectElement>(
       '[data-testid^="counter-flow-method-"]',

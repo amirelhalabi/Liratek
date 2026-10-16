@@ -135,7 +135,11 @@ import type { SaveMaintenanceJobPayload } from "@liratek/core";
 // LIRA-306 T093 — maintenance metadata edit payload (rule 21).
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 // Session basket checkout payload, derived from the core schema (rule 21).
-import type { SessionCheckoutPayload } from "@liratek/core";
+import type {
+  SessionCheckoutPayload,
+  RechargeBasketCheckoutPayload,
+  RechargePartnerOrderPayload,
+} from "@liratek/core";
 // LIRA-297 item 3 — session / daily-closing / voucher-image / setup write
 // payloads, derived from the core schemas (rule 21).
 import type {
@@ -216,8 +220,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   updateProductSupplier = (id: number, name: string) =>
     api.updateProductSupplier(id, name);
   deleteProductSupplier = (id: number) => api.deleteProductSupplier(id);
-  createProduct = (payload: CreateProductPayload) =>
-    api.createProduct(payload);
+  createProduct = (payload: CreateProductPayload) => api.createProduct(payload);
   updateProduct = (id: number, payload: Omit<UpdateProductPayload, "id">) =>
     api.updateProduct(id, payload);
   deleteProduct = (id: number) => api.deleteProduct(id);
@@ -449,6 +452,12 @@ export class ElectronApiAdapter implements ApiAdapter {
   getOMTAnalytics = (providers?: string[]) => api.getOMTAnalytics(providers);
   addOMTTransaction = (payload: CreateFinancialServicePayload) =>
     api.addOMTTransaction(payload);
+  /** LIRA-326 — Mobile Recharge basket across providers, paid once. */
+  rechargeBasketCheckout = (payload: RechargeBasketCheckoutPayload) =>
+    api.rechargeBasketCheckout(payload);
+  /** LIRA-327 — basket-wide For Partner submit (all-or-nothing). */
+  rechargePartnerOrder = (payload: RechargePartnerOrderPayload) =>
+    api.rechargePartnerOrder(payload);
   /** A single financial_services record by id — the Debts page's
    *  service-backed debt-detail "eye" button. */
   getFinancialServiceById = (id: number) => api.getFinancialServiceById(id);
@@ -514,12 +523,17 @@ export class ElectronApiAdapter implements ApiAdapter {
   openWebApp = () => api.openWebApp();
   installOfflineUpdate = () => api.installOfflineUpdate();
   // LIRA-306 — offline work review + paired PCs (web-only, E1).
-  getOfflineReviewItems = (query?: ReviewListQuery) => api.getOfflineReviewItems(query);
-  getOfflineHistory = (query?: OfflineHistoryQuery) => api.getOfflineHistory(query);
+  getOfflineReviewItems = (query?: ReviewListQuery) =>
+    api.getOfflineReviewItems(query);
+  getOfflineHistory = (query?: OfflineHistoryQuery) =>
+    api.getOfflineHistory(query);
   applyOfflineReviewItem = (id: number) => api.applyOfflineReviewItem(id);
-  dismissOfflineReviewItem = (id: number, data?: ReviewDismissInput) => api.dismissOfflineReviewItem(id, data);
-  markOfflineReviewItemReviewed = (id: number) => api.markOfflineReviewItemReviewed(id);
-  bookOfflineReviewItemAnyway = (id: number) => api.bookOfflineReviewItemAnyway(id);
+  dismissOfflineReviewItem = (id: number, data?: ReviewDismissInput) =>
+    api.dismissOfflineReviewItem(id, data);
+  markOfflineReviewItemReviewed = (id: number) =>
+    api.markOfflineReviewItemReviewed(id);
+  bookOfflineReviewItemAnyway = (id: number) =>
+    api.bookOfflineReviewItemAnyway(id);
   getPairedPcs = () => api.getPairedPcs();
   revokePairedPc = (id: number) => api.revokePairedPc(id);
   getOfflineReviewPreview = (id: number) => api.getOfflineReviewPreview(id);

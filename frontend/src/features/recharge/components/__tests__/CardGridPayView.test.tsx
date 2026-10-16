@@ -15,6 +15,28 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { CardGridPayView, type CardGridPayItem } from "../CardGridPayView";
+import type { PaymentSheetItem } from "../PaymentSheet";
+
+// The real sheet mounts MultiPaymentInput (API/context wiring); a stub that
+// records the props is enough to check what the grid hands it.
+const sheetProps: {
+  totalAmount?: number;
+  items?: PaymentSheetItem[] | undefined;
+} = {};
+jest.mock("../PaymentSheet", () => ({
+  PaymentSheet: (props: {
+    open: boolean;
+    title?: string;
+    totalAmount: number;
+    items?: PaymentSheetItem[];
+  }) => {
+    sheetProps.totalAmount = props.totalAmount;
+    sheetProps.items = props.items;
+    return props.open ? (
+      <div data-testid="stub-payment-sheet">{props.title}</div>
+    ) : null;
+  },
+}));
 
 const items: CardGridPayItem[] = [
   {
@@ -35,7 +57,7 @@ function renderView(overrides: Partial<Props> = {}) {
     items,
     selectedId: "tier-a",
     onSelect: jest.fn(),
-    accent: "red",
+    brand: "ALFA",
     showProfit: false,
     sheetTitle: "Alfa Gift Payment",
     onConfirm,
@@ -78,5 +100,32 @@ describe("CardGridPayView active-session gating", () => {
 
     // The PaymentSheet must never open in session mode.
     expect(screen.queryByText("Alfa Gift Payment")).not.toBeInTheDocument();
+  });
+});
+
+describe("CardGridPayView picked items in the payment window", () => {
+  it("lists the selected card with its LBP price, adding up to the total", () => {
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: /pay/i }));
+    expect(screen.getByTestId("stub-payment-sheet")).toBeInTheDocument();
+    const listed = sheetProps.items ?? [];
+    expect(listed).toEqual([
+      expect.objectContaining({
+        key: "tier-a",
+        name: "5$ Gift",
+        quantity: 1,
+        unitPrice: 450000,
+        currency: "LBP",
+        note: "Value $5",
+      }),
+    ]);
+    expect(
+      listed.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0),
+    ).toBe(sheetProps.totalAmount);
+  });
+
+  it("lists nothing when no card is selected", () => {
+    renderView({ selectedId: null });
+    expect(sheetProps.items ?? []).toEqual([]);
   });
 });

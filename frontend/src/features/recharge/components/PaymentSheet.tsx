@@ -1,3 +1,8 @@
+import {
+  PROVIDER_BRANDS,
+  type ProviderBrandKey,
+} from "@/shared/brand/providerBrands";
+import { ProviderLogo } from "@/shared/components/ProviderLogo";
 import { useEffect, useState } from "react";
 import {
   MultiPaymentInput,
@@ -20,6 +25,48 @@ interface SummaryLine {
   color?: string;
 }
 
+/** One picked item shown at the top of the payment window (card grids). */
+export interface PaymentSheetItem {
+  key: string;
+  name: string;
+  /** Subcategory, or category when there is none. */
+  group?: string | undefined;
+  /** Card artwork URL; a placeholder shows when absent. */
+  image?: string | undefined;
+  quantity: number;
+  /** Price of one unit, as charged (e.g. the Only Days price). */
+  unitPrice: number;
+  currency: string;
+  /** Short extra detail, e.g. "Only days". */
+  note?: string | undefined;
+  /** The provider it comes from — a cart can mix providers (iPick + Katsh). */
+  provider?: ProviderBrandKey | undefined;
+}
+
+/** Items grouped by provider, in first-seen order, with a subtotal per
+ *  currency (a group can hold LBP items and a USD bill). Items with no
+ *  provider form one group without a header. */
+function groupItemsByProvider(items: PaymentSheetItem[]) {
+  const groups: Array<{
+    provider: ProviderBrandKey | undefined;
+    items: PaymentSheetItem[];
+    subtotals: Array<{ currency: string; amount: number }>;
+  }> = [];
+  for (const it of items) {
+    let g = groups.find((x) => x.provider === it.provider);
+    if (!g) {
+      g = { provider: it.provider, items: [], subtotals: [] };
+      groups.push(g);
+    }
+    g.items.push(it);
+    const sub = g.subtotals.find((t) => t.currency === it.currency);
+    const line = it.unitPrice * it.quantity;
+    if (sub) sub.amount += line;
+    else g.subtotals.push({ currency: it.currency, amount: line });
+  }
+  return groups;
+}
+
 export interface PaymentSheetProps {
   open: boolean;
   onClose: () => void;
@@ -34,9 +81,18 @@ export interface PaymentSheetProps {
   /** Custom confirm button text */
   confirmLabel?: string;
   /** Summary lines to display at the top */
+  /** Items picked on a card grid, listed above the summary. */
+  items?: PaymentSheetItem[];
   summary?: SummaryLine[];
   /** MultiPaymentInput props */
   totalAmount: number;
+  /**
+   * LIRA-326 — what is owed PER CURRENCY, when the sheet covers items in more
+   * than one (a Mobile Recharge basket with LBP and USD lines). Forwarded to
+   * MultiPaymentInput's `totals`; legs reconcile against each currency. When
+   * absent, the sheet owes `[{ totalAmount, totalAmountCurrency }]`.
+   */
+  totals?: Array<{ amount: number; currency: string }>;
   totalAmountCurrency?: string;
   currency?: string;
   paymentMethods: PaymentMethod[];
@@ -140,7 +196,9 @@ export function PaymentSheet({
   accentColor = "bg-violet-600 hover:bg-violet-500",
   confirmLabel,
   summary = [],
+  items = [],
   totalAmount,
+  totals,
   totalAmountCurrency = "USD",
   currency = "USD",
   paymentMethods,
@@ -209,8 +267,12 @@ export function PaymentSheet({
     ? singleLine.currencyCode
     : totalAmountCurrency;
 
-  const defaultConfirmLabel =
-    confirmLabel || `Pay ${fmtMoney(displayAmount, displayCurrency)}`;
+  // Several currencies owed and no single tender line: name each one.
+  const owedLabel =
+    !singleLine && totals && totals.length > 1
+      ? totals.map((t) => fmtMoney(t.amount, t.currency)).join(" + ")
+      : fmtMoney(displayAmount, displayCurrency);
+  const defaultConfirmLabel = confirmLabel || `Pay ${owedLabel}`;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -256,7 +318,98 @@ export function PaymentSheet({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 min-h-0 flex flex-col overflow-y-auto px-5 py-4 gap-4 [&>*:not([data-shrinkable])]:shrink-0">
+          {/* Picked items */}
+          {items.length > 0 && (
+            <div
+              data-testid="payment-sheet-items"
+              data-shrinkable
+              // The ONE body section that may shrink: it gives up height so
+              // Summary / Payment Method below always stay in view, and its
+              // rows scroll inside it. Never below ~2 rows (min-h-36).
+              className="min-h-36 flex flex-col rounded-xl bg-slate-800/60 border border-slate-700/40 p-4 gap-3"
+            >
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                {`Items (${items.reduce((n, it) => n + it.quantity, 0)})`}
+              </h3>
+              <div
+                data-testid="payment-sheet-items-scroll"
+                className="min-h-0 overflow-y-auto -mr-2 pr-2 space-y-3"
+              >
+                {groupItemsByProvider(items).map((grp) => (
+                  <div
+                    key={grp.provider ?? "none"}
+                    data-testid="payment-sheet-item-group"
+                    className="space-y-2"
+                  >
+                    {grp.provider && (
+                      <div className="flex items-center gap-2">
+                        <ProviderLogo brand={grp.provider} size={16} />
+                        <span className="flex-1 text-xs font-semibold text-slate-200">
+                          {PROVIDER_BRANDS[grp.provider].name}
+                        </span>
+                        <span className="text-xs font-mono text-slate-400">
+                          {grp.subtotals
+                            .map((t) => fmtMoney(t.amount, t.currency))
+                            .join(" + ")}
+                        </span>
+                      </div>
+                    )}
+                    <ul className={`space-y-2.5 ${grp.provider ? "pl-6" : ""}`}>
+                      {grp.items.map((it) => {
+                        const detail = [it.group, it.note]
+                          .filter(Boolean)
+                          .join(" · ");
+                        return (
+                          <li key={it.key} className="flex items-center gap-3">
+                            {it.image ? (
+                              <img
+                                src={it.image}
+                                alt={it.name}
+                                draggable={false}
+                                className="w-14 aspect-[8/5] shrink-0 rounded object-cover"
+                              />
+                            ) : (
+                              <div
+                                aria-hidden="true"
+                                className="w-14 aspect-[8/5] shrink-0 rounded bg-slate-700/60 flex items-center justify-center text-[10px] font-bold text-slate-400"
+                              >
+                                {it.name.slice(0, 3).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium text-white truncate">
+                                {it.name}
+                              </div>
+                              {detail && (
+                                <div className="text-[11px] text-slate-400 truncate">
+                                  {detail}
+                                </div>
+                              )}
+                            </div>
+                            <div className="shrink-0 text-right">
+                              {it.quantity > 1 && (
+                                <div className="text-[11px] text-slate-400 font-mono">
+                                  {`${it.quantity} × ${fmtMoney(it.unitPrice, it.currency)}`}
+                                </div>
+                              )}
+                              <div className="text-sm font-mono font-semibold text-white">
+                                {fmtMoney(
+                                  it.unitPrice * it.quantity,
+                                  it.currency,
+                                )}
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Summary */}
           {summary.length > 0 && (
             <div className="rounded-xl bg-slate-800/60 border border-slate-700/40 p-4 space-y-2">
@@ -286,7 +439,11 @@ export function PaymentSheet({
             </h3>
             <MultiPaymentInput
               key={paymentInputKey}
-              totals={[{ amount: totalAmount, currency: totalAmountCurrency }]}
+              totals={
+                totals ?? [
+                  { amount: totalAmount, currency: totalAmountCurrency },
+                ]
+              }
               totalAmountCurrency={totalAmountCurrency}
               currency={currency}
               onChange={(lines) => {

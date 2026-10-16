@@ -486,7 +486,12 @@ describe("OmtWhishAppTransferForm — Customer pays (LIRA-321 US3)", () => {
       "true",
     );
 
-    globalThis.__cpState = { ...globalThis.__cpState, paid: 100, overpaid: false, balanced: true };
+    globalThis.__cpState = {
+      ...globalThis.__cpState,
+      paid: 100,
+      overpaid: false,
+      balanced: true,
+    };
     fireEvent.click(screen.getByTestId("stub-report-state"));
     expect(screen.getByTestId("stub-confirm-disabled")).toHaveTextContent(
       "false",

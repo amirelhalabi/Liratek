@@ -195,11 +195,15 @@ describe("CryptoForm — LBP equivalent follows the sheet's rate", () => {
 
   it("shows the seeded rate until the sheet reports another one", () => {
     const pageSpy = jest.fn();
-    render(<Harness initialCryptoType="RECEIVE" onExchangeRateChange={pageSpy} />);
+    render(
+      <Harness initialCryptoType="RECEIVE" onExchangeRateChange={pageSpy} />,
+    );
     // payout = $100 (fee charged on top) → 100 × 89,000
     expect(lbpLine()).toContain((100 * 89000).toLocaleString());
 
-    const report = mockSheetProps.last?.onExchangeRateChange as (r: number) => void;
+    const report = mockSheetProps.last?.onExchangeRateChange as (
+      r: number,
+    ) => void;
     act(() => report(90000));
 
     expect(lbpLine()).toContain((100 * 90000).toLocaleString());

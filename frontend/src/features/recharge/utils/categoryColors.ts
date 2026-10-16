@@ -3,11 +3,16 @@
  *
  * Returns a Tailwind border-left color class based on the top-level category.
  * Used in KatshForm and FinancialForm card grids.
+ *
+ * The `alfa` / `mtc` categories are the carriers themselves, so they take the
+ * carrier brand hex from the shared brand module (rule 14).
  */
 
+import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
+
 const CATEGORY_COLORS: Record<string, string> = {
-  alfa: "#ef4444", // red-500
-  mtc: "#06b6d4", // cyan-500
+  alfa: PROVIDER_BRANDS.ALFA.hex,
+  mtc: PROVIDER_BRANDS.MTC.hex,
   internet: "#22c55e", // green-500
   Gaming: "#a855f7", // purple-500
 };

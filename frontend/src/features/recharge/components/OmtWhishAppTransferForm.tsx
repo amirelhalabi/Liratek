@@ -11,6 +11,7 @@ import {
   type LinesSectionState,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
+import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type { FinancialTransaction } from "../types";
 import { HistoryModal } from "./HistoryModal";
@@ -68,6 +69,8 @@ function OmtWhishAppTransferFormInner({
   onRefreshBalances,
 }: OmtWhishAppTransferFormProps) {
   const api = useApi();
+  // Input focus and radios take the active wallet's brand colour.
+  const brand = PROVIDER_BRANDS[activeProvider === "OMT_APP" ? "OMT" : "WHISH"];
   const {
     activeSession,
     linkTransaction,
@@ -634,7 +637,11 @@ function OmtWhishAppTransferFormInner({
         }
       }}
       accentColor={activeProvider === "OMT_APP" ? "amber" : "red"}
-      customColor={activeProvider === "OMT_APP" ? "#ffde00" : "#ff0a46"}
+      customColor={
+        activeProvider === "OMT_APP"
+          ? PROVIDER_BRANDS.OMT.hex
+          : PROVIDER_BRANDS.WHISH.hex
+      }
       customTextColor={activeProvider === "OMT_APP" ? "black" : "white"}
       size="sm"
     />
@@ -736,7 +743,7 @@ function OmtWhishAppTransferFormInner({
             id="transfer-amount"
             value={parseFloat(amount) || 0}
             onChange={(n) => setAmount(n ? String(n) : "")}
-            className={`w-full bg-slate-900 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-14 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all`}
+            className={`w-full bg-slate-900 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-14 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
             placeholder={currency === "LBP" ? "0" : "0.00"}
           />
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-medium">
@@ -782,7 +789,7 @@ function OmtWhishAppTransferFormInner({
                   id="transfer-fee"
                   value={parseFloat(manualFee) || 0}
                   onChange={(n) => setManualFee(String(n))}
-                  className={`w-full bg-slate-800 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all`}
+                  className={`w-full bg-slate-800 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-4 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
                   placeholder={
                     autoFee > 0
                       ? autoFee.toFixed(2) + " (auto)"
@@ -838,7 +845,7 @@ function OmtWhishAppTransferFormInner({
                       data-testid="fee-mode-sender"
                       checked={feeMode === "SENDER"}
                       onChange={() => setFeeMode("SENDER")}
-                      className="w-4 h-4 border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
+                      className={`w-4 h-4 border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
                     />
                     <span className="text-sm font-medium">
                       Sender (added to transfer)
@@ -852,7 +859,7 @@ function OmtWhishAppTransferFormInner({
                         data-testid="fee-mode-deducted"
                         checked={feeMode === "DEDUCTED"}
                         onChange={() => setFeeMode("DEDUCTED")}
-                        className="w-4 h-4 border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
+                        className={`w-4 h-4 border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
                       />
                       <span className="text-sm font-medium">
                         Deducted from payout
@@ -867,7 +874,7 @@ function OmtWhishAppTransferFormInner({
                         data-testid="fee-mode-separate"
                         checked={feeMode === "SEPARATE"}
                         onChange={() => setFeeMode("SEPARATE")}
-                        className="w-4 h-4 border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
+                        className={`w-4 h-4 border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
                       />
                       <span className="text-sm font-medium">
                         Customer pays separately
@@ -934,7 +941,7 @@ function OmtWhishAppTransferFormInner({
                   value: m.code,
                   label: m.label,
                 }))}
-                buttonClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500"
+                buttonClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder}"
               />
             </div>
           )}
@@ -992,7 +999,7 @@ function OmtWhishAppTransferFormInner({
                         setPaymentInputKey((k) => k + 1);
                       }
                     }}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                    className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
                     placeholder="Sender name"
                   />
                 </div>
@@ -1021,7 +1028,7 @@ function OmtWhishAppTransferFormInner({
                       }
                     }}
                     searchByPhone
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                    className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
                     placeholder="Sender phone"
                   />
                 </div>
@@ -1053,7 +1060,7 @@ function OmtWhishAppTransferFormInner({
                         setPaymentInputKey((k) => k + 1);
                       }
                     }}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                    className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
                     placeholder="Receiver name"
                   />
                 </div>
@@ -1082,7 +1089,7 @@ function OmtWhishAppTransferFormInner({
                       }
                     }}
                     searchByPhone
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                    className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
                     placeholder="Receiver phone"
                   />
                 </div>
@@ -1160,8 +1167,8 @@ function OmtWhishAppTransferFormInner({
               (forPartner && !selectedPartnerId)
                 ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                 : activeProvider === "OMT_APP"
-                  ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
-                  : "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
+                  ? PROVIDER_BRANDS.OMT.button
+                  : PROVIDER_BRANDS.WHISH.button
             }`}
           >
             {forPartner
@@ -1187,8 +1194,8 @@ function OmtWhishAppTransferFormInner({
           subtitle={`${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"} ${serviceType === "SEND" ? "Send" : "Receive"} — ${formatAmount(parsedAmount, currency)}`}
           accentColor={
             activeProvider === "OMT_APP"
-              ? "bg-[#ffde00] hover:bg-[#ffde00]/90 text-black"
-              : "bg-[#ff0a46] hover:bg-[#ff0a46]/90 text-white"
+              ? PROVIDER_BRANDS.OMT.button
+              : PROVIDER_BRANDS.WHISH.button
           }
           confirmLabel={
             activeSession

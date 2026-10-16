@@ -43,6 +43,7 @@ import {
   formatAmount,
   formatCheckpointAmounts,
   formatPaymentMethods,
+  paymentMethodsBrand,
   getTypeColor,
   getTypeLabel,
   methodLegsFor,
@@ -53,6 +54,7 @@ import {
 import { CashFlowBadge } from "./CashFlowBadge";
 import type { RowDerived } from "../rowDerived";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { ProviderLogo } from "@/shared/components/ProviderLogo";
 import type { TransactionRow } from "../hooks/useTransactionRows";
 
 /** Strike-through applied to a VOIDED row's type/summary/amount text. */
@@ -309,8 +311,20 @@ export function MethodCell({
   row: TransactionRow;
   methodLabelByCode: Map<string, string>;
 }) {
+  // Whish/OMT icon only when every named leg is that one wallet; the text
+  // itself is unchanged (still one text node).
+  const brand =
+    row.type === "CHECKPOINT" ? null : paymentMethodsBrand(methodLegsFor(row));
   return (
     <td className="p-2 truncate" style={{ width: 120 }}>
+      {brand && (
+        <ProviderLogo
+          brand={brand}
+          variant="icon"
+          size={14}
+          className="mr-1 align-middle"
+        />
+      )}
       {row.type === "CHECKPOINT"
         ? "—"
         : formatPaymentMethods(

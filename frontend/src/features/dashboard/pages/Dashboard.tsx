@@ -47,6 +47,8 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useSellRate } from "@/hooks/useSellRate";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { BrandedLabel } from "@/shared/components/BrandedLabel";
+import { PROVIDER_BRANDS, brandOf } from "@/shared/brand/providerBrands";
 import {
   computeCarrierLineAlerts,
   carrierLineAlertText,
@@ -882,16 +884,17 @@ export default function Dashboard() {
       : []),
   ];
 
-  const DRAWER_COLORS: Record<
-    string,
-    {
-      label: string;
-      btn: string;
-      borderL: string;
-      glow: string;
-      hoverShadow: string;
-    }
-  > = {
+  type DrawerAccent = {
+    label: string;
+    btn: string;
+    borderL: string;
+    glow: string;
+    hoverShadow: string;
+  };
+  // Branded drawers (OMT, Whish, iPick, Katsh, MTC, Alfa, Binance) take
+  // their accent from PROVIDER_BRANDS — see `drawerAccent` below. Only the
+  // unbranded till keeps a hand-picked one here.
+  const DRAWER_COLORS: Record<string, DrawerAccent> = {
     General: {
       label: "text-blue-400",
       btn: "text-blue-400    hover:text-white hover:bg-slate-700",
@@ -899,76 +902,28 @@ export default function Dashboard() {
       glow: "bg-blue-500",
       hoverShadow: "hover:shadow-blue-500/20 hover:border-blue-500/50",
     },
-    OMT_System: {
-      label: "text-green-400",
-      btn: "text-green-400   hover:text-white hover:bg-slate-700",
-      borderL: "border-l-green-500",
-      glow: "bg-green-500",
-      hoverShadow: "hover:shadow-green-500/20 hover:border-green-500/50",
-    },
-    OMT_App: {
-      label: "text-lime-400",
-      btn: "text-lime-400    hover:text-white hover:bg-slate-700",
-      borderL: "border-l-lime-500",
-      glow: "bg-lime-500",
-      hoverShadow: "hover:shadow-lime-500/20 hover:border-lime-500/50",
-    },
-    Whish_App: {
-      label: "text-emerald-400",
-      btn: "text-emerald-400 hover:text-white hover:bg-slate-700",
-      borderL: "border-l-emerald-500",
-      glow: "bg-emerald-500",
-      hoverShadow: "hover:shadow-emerald-500/20 hover:border-emerald-500/50",
-    },
-    Whish_System: {
-      label: "text-fuchsia-400",
-      btn: "text-fuchsia-400 hover:text-white hover:bg-slate-700",
-      borderL: "border-l-fuchsia-500",
-      glow: "bg-fuchsia-500",
-      hoverShadow: "hover:shadow-fuchsia-500/20 hover:border-fuchsia-500/50",
-    },
-    Binance: {
-      label: "text-yellow-400",
-      btn: "text-yellow-400  hover:text-white hover:bg-slate-700",
-      borderL: "border-l-yellow-500",
-      glow: "bg-yellow-500",
-      hoverShadow: "hover:shadow-yellow-500/20 hover:border-yellow-500/50",
-    },
-    MTC: {
-      label: "text-orange-400",
-      btn: "text-orange-400  hover:text-white hover:bg-slate-700",
-      borderL: "border-l-orange-500",
-      glow: "bg-orange-500",
-      hoverShadow: "hover:shadow-orange-500/20 hover:border-orange-500/50",
-    },
-    Alfa: {
-      label: "text-red-400",
-      btn: "text-red-400     hover:text-white hover:bg-slate-700",
-      borderL: "border-l-red-500",
-      glow: "bg-red-500",
-      hoverShadow: "hover:shadow-red-500/20 hover:border-red-500/50",
-    },
-    iPick: {
-      label: "text-sky-400",
-      btn: "text-sky-400     hover:text-white hover:bg-slate-700",
-      borderL: "border-l-sky-500",
-      glow: "bg-sky-500",
-      hoverShadow: "hover:shadow-sky-500/20 hover:border-sky-500/50",
-    },
-    Katsh: {
-      label: "text-amber-400",
-      btn: "text-amber-400   hover:text-white hover:bg-slate-700",
-      borderL: "border-l-amber-500",
-      glow: "bg-amber-500",
-      hoverShadow: "hover:shadow-amber-500/20 hover:border-amber-500/50",
-    },
   };
-  const DRAWER_COLOR_DEFAULT = {
+  const DRAWER_COLOR_DEFAULT: DrawerAccent = {
     label: "text-slate-400",
     btn: "text-slate-400 hover:text-white hover:bg-slate-700",
     borderL: "border-l-violet-500",
     glow: "bg-violet-500",
     hoverShadow: "hover:shadow-violet-500/20 hover:border-violet-500/50",
+  };
+  /** A drawer card's accent: its provider brand's when it has one. */
+  const drawerAccent = (name: string): DrawerAccent => {
+    const brand = brandOf(name);
+    if (brand) {
+      const b = PROVIDER_BRANDS[brand];
+      return {
+        label: b.accentText,
+        btn: `${b.accentText} hover:text-white hover:bg-slate-700`,
+        borderL: b.accentEdge,
+        glow: b.accentFill,
+        hoverShadow: b.accentHover,
+      };
+    }
+    return DRAWER_COLORS[name] ?? DRAWER_COLOR_DEFAULT;
   };
 
   type CardAccent = {
@@ -1392,11 +1347,11 @@ export default function Dashboard() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 {drawerCards.map((stat) => {
-                  const accent =
-                    DRAWER_COLORS[stat.name] ?? DRAWER_COLOR_DEFAULT;
+                  const accent = drawerAccent(stat.name);
                   return (
                     <div
                       key={stat.label}
+                      data-testid={`drawer-card-${stat.name}`}
                       className={`relative bg-slate-800 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
                     >
                       {/* Corner glow orb */}
@@ -1409,7 +1364,7 @@ export default function Dashboard() {
                           <h3
                             className={`text-[11px] font-bold uppercase tracking-widest truncate ${accent.label}`}
                           >
-                            {stat.label}
+                            <BrandedLabel code={stat.name} label={stat.label} />
                           </h3>
                           {checkpointsEnabled && (
                             <button

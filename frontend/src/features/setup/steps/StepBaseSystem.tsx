@@ -1,9 +1,23 @@
+import {
+  PROVIDER_BRANDS,
+  type ProviderBrandKey,
+} from "@/shared/brand/providerBrands";
+import { ProviderLogo } from "@/shared/components/ProviderLogo";
 import { useSetup } from "../context/SetupContext";
+
+const BASE_OPTIONS: ReadonlyArray<{
+  brand: ProviderBrandKey;
+  partner: ProviderBrandKey;
+  ownLine: string;
+}> = [
+  { brand: "OMT", partner: "WHISH", ownLine: "I own an OMT system." },
+  { brand: "WHISH", partner: "OMT", ownLine: "I own a Whish system." },
+];
 
 export default function StepBaseSystem() {
   const { updatePayload, setStep } = useSetup();
 
-  const handleSelect = (base: "OMT" | "WHISH") => {
+  const handleSelect = (base: ProviderBrandKey) => {
     updatePayload({ base_system: base } as never);
     setStep(3);
   };
@@ -20,37 +34,28 @@ export default function StepBaseSystem() {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        {/* OMT */}
-        <button
-          onClick={() => handleSelect("OMT")}
-          className="flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-slate-700 hover:border-[#ffde00] bg-slate-900/60 hover:bg-slate-900 transition-all group"
-        >
-          <div className="w-14 h-14 rounded-full bg-[#ffde00]/10 flex items-center justify-center group-hover:bg-[#ffde00]/20 transition-colors">
-            <span className="text-2xl font-black text-[#ffde00]">O</span>
-          </div>
-          <span className="text-white font-bold text-lg">OMT</span>
-          <span className="text-slate-400 text-xs text-center">
-            I own an OMT system.
-            <br />
-            Whish will require a partner.
-          </span>
-        </button>
-
-        {/* WHISH */}
-        <button
-          onClick={() => handleSelect("WHISH")}
-          className="flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-slate-700 hover:border-[#ff0a46] bg-slate-900/60 hover:bg-slate-900 transition-all group"
-        >
-          <div className="w-14 h-14 rounded-full bg-[#ff0a46]/10 flex items-center justify-center group-hover:bg-[#ff0a46]/20 transition-colors">
-            <span className="text-2xl font-black text-[#ff0a46]">W</span>
-          </div>
-          <span className="text-white font-bold text-lg">Whish</span>
-          <span className="text-slate-400 text-xs text-center">
-            I own a Whish system.
-            <br />
-            OMT will require a partner.
-          </span>
-        </button>
+        {BASE_OPTIONS.map(({ brand, partner, ownLine }) => (
+          <button
+            key={brand}
+            onClick={() => handleSelect(brand)}
+            className={`flex flex-col items-center gap-3 p-6 rounded-xl border-2 border-slate-700 ${PROVIDER_BRANDS[brand].hoverBorder} bg-slate-900/60 hover:bg-slate-900 transition-all group`}
+          >
+            <ProviderLogo
+              brand={brand}
+              variant="icon"
+              size={56}
+              className="transition-transform group-hover:scale-105"
+            />
+            <span className="text-white font-bold text-lg">
+              {PROVIDER_BRANDS[brand].name}
+            </span>
+            <span className="text-slate-400 text-xs text-center">
+              {ownLine}
+              <br />
+              {PROVIDER_BRANDS[partner].name} will require a partner.
+            </span>
+          </button>
+        ))}
       </div>
 
       <p className="text-xs text-slate-500 text-center">

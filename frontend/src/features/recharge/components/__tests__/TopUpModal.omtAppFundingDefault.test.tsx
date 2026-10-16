@@ -124,7 +124,9 @@ describe("TopUpModal — OMT App funding choice (D4)", () => {
       />,
     );
 
-    expect(screen.queryByTestId("topup-funding-credit")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("topup-funding-credit"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("topup-funding-transfer"),
     ).not.toBeInTheDocument();

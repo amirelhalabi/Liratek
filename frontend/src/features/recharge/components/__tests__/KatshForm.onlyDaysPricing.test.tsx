@@ -754,7 +754,9 @@ describe("Only-Days price-change warning (LIRA-260)", () => {
       name: "Only-Days price",
     });
     await waitFor(() => expect(daysPriceInput).toHaveValue("250,000"));
-    expect(screen.queryByTestId("price-change-warning")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("price-change-warning"),
+    ).not.toBeInTheDocument();
 
     fireEvent.change(daysPriceInput, { target: { value: "200000" } });
     expect(await screen.findByTestId("price-change-warning")).toHaveTextContent(

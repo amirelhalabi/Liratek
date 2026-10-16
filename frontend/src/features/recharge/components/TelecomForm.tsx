@@ -50,6 +50,7 @@ import {
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 import type { ResaleLineRow } from "@liratek/core";
 import { ResaleLineRechargePanel } from "@/features/phoneLines/components/ResaleLineRechargePanel";
+import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 
 /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — Days/Alfa Gift block + redirect
  *  shown when the typed phone number is this carrier's own shop line.
@@ -398,7 +399,13 @@ export function TelecomForm({
   void giftPriceLbp;
   void giftCostLbp;
 
-  const accent = isMTC ? "cyan" : "red";
+  // Carrier brand colours, from the ONE shared brand module (rule 14). Every
+  // class there is a literal string; never build `bg-${...}` here — Tailwind
+  // only generates classes it can see written out.
+  const brandKey = isMTC ? "MTC" : "ALFA";
+  const brand = PROVIDER_BRANDS[brandKey];
+  // Focus ring: width on focus, colour from the brand's ring class.
+  const inputFocus = `${brand.focusBorder} focus:ring-1 ${brand.ring}`;
   const carrierLabel = isMTC ? "MTC" : "Alfa";
 
   // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7): the Credit tab flips to a
@@ -591,7 +598,8 @@ export function TelecomForm({
         }
         value={rechargeType}
         onChange={(val) => setRechargeType(val as RechargeType)}
-        accentColor={isMTC ? "cyan" : "red"}
+        customColor={brand.hex}
+        customTextColor={brand.onHex}
         size="sm"
       />
 
@@ -619,7 +627,7 @@ export function TelecomForm({
             setGiftPriceLbp(String(item.sellLbp));
             setGiftCostLbp(String(item.costLbp));
           }}
-          accent={accent}
+          brand={brandKey}
           showProfit={isAdmin}
           sheetTitle="Alfa Gift Payment"
           onConfirm={handleAlfaGiftSubmit}
@@ -681,9 +689,7 @@ export function TelecomForm({
                           type="checkbox"
                           data-testid="shop-line-buyback-checkbox"
                           checked={shopLineBuyback}
-                          onChange={(e) =>
-                            setShopLineBuyback(e.target.checked)
-                          }
+                          onChange={(e) => setShopLineBuyback(e.target.checked)}
                           className="w-4 h-4 rounded border-amber-500/40 bg-slate-900 text-amber-500 focus:ring-amber-500"
                         />
                         <span className="text-xs font-medium">
@@ -694,10 +700,10 @@ export function TelecomForm({
                   )}
                   <div className="relative">
                     <div
-                      className={`absolute left-0 top-0 bottom-0 flex items-center pl-4 pr-3 rounded-l-xl bg-${accent}-500/10 border-r border-slate-700`}
+                      className={`absolute left-0 top-0 bottom-0 flex items-center pl-4 pr-3 rounded-l-xl ${brand.tint} border-r border-slate-700`}
                     >
                       <span
-                        className={`text-${accent}-400 text-2xl font-bold font-mono tracking-widest`}
+                        className={`${brand.text} text-2xl font-bold font-mono tracking-widest`}
                       >
                         +961
                       </span>
@@ -707,7 +713,7 @@ export function TelecomForm({
                       type="text"
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
-                      className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-28 pr-4 py-4 text-2xl font-bold text-white focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all tracking-widest font-mono`}
+                      className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-28 pr-4 py-4 text-2xl font-bold text-white focus:outline-none ${inputFocus} transition-all tracking-widest font-mono`}
                       placeholder="XX XXX XXX"
                       maxLength={8}
                     />
@@ -738,7 +744,9 @@ export function TelecomForm({
                 ) : (
                   <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                     {`This is your ${resaleLineMatch.carrier === "mtc" ? "MTC" : "Alfa"} line for sale (${resaleLineMatch.name}).`}{" "}
-                    Open the {resaleLineMatch.carrier === "mtc" ? "MTC" : "Alfa"} tab to recharge it.
+                    Open the{" "}
+                    {resaleLineMatch.carrier === "mtc" ? "MTC" : "Alfa"} tab to
+                    recharge it.
                   </div>
                 ))}
               {rechargeType === "CREDIT_TRANSFER" && (
@@ -756,7 +764,7 @@ export function TelecomForm({
                         onClick={() => handleQuickAmount(amt)}
                         className={`py-4 rounded-xl font-bold text-lg transition-all border ${
                           telecomAmount === amt.toString()
-                            ? `bg-${accent}-500/15 text-${accent}-400 border-${accent}-500/40 shadow-lg`
+                            ? `${brand.tint} ${brand.text} ${brand.border} shadow-lg`
                             : "bg-slate-900/50 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white"
                         }`}
                       >
@@ -790,7 +798,7 @@ export function TelecomForm({
                         onClick={() => handleQuickAmount(days)}
                         className={`py-4 rounded-xl font-bold text-base transition-all border ${
                           telecomAmount === days.toString()
-                            ? `bg-${accent}-500/15 text-${accent}-400 border-${accent}-500/40 shadow-lg`
+                            ? `${brand.tint} ${brand.text} ${brand.border} shadow-lg`
                             : "bg-slate-900/50 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white"
                         }`}
                       >
@@ -812,7 +820,7 @@ export function TelecomForm({
                 <div className="relative">
                   {rechargeType !== "DAYS" && (
                     <span
-                      className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold text-${accent}-400`}
+                      className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold ${brand.text}`}
                     >
                       $
                     </span>
@@ -833,7 +841,7 @@ export function TelecomForm({
                       if (snapped !== e.target.value)
                         onTelecomAmountChange(snapped);
                     }}
-                    className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl ${rechargeType !== "DAYS" ? "pl-9" : "pl-4"} pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
+                    className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl ${rechargeType !== "DAYS" ? "pl-9" : "pl-4"} pr-4 py-3 text-white font-bold focus:outline-none ${inputFocus} transition-all`}
                     placeholder={rechargeType === "DAYS" ? "0" : "0.00"}
                   />
                 </div>
@@ -866,7 +874,7 @@ export function TelecomForm({
                   </label>
                   <div className="relative mb-1.5">
                     <span
-                      className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold text-${accent}-400`}
+                      className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold ${brand.text}`}
                     >
                       $
                     </span>
@@ -875,7 +883,7 @@ export function TelecomForm({
                       type="number"
                       value={telecomDaysCostUsd}
                       onChange={(e) => setTelecomDaysCostUsd(e.target.value)}
-                      className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
+                      className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white font-bold focus:outline-none ${inputFocus} transition-all`}
                       placeholder="0.00"
                       min="0"
                       step="0.1"
@@ -909,7 +917,7 @@ export function TelecomForm({
                           }}
                           className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
                             daysPriceCurrency === cur
-                              ? `bg-${accent}-600 text-white`
+                              ? brand.solid
                               : "text-slate-400 hover:text-slate-200"
                           }`}
                         >
@@ -924,7 +932,7 @@ export function TelecomForm({
                   <>
                     <div className="relative mb-1.5">
                       <span
-                        className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold text-${accent}-400`}
+                        className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold ${brand.text}`}
                       >
                         $
                       </span>
@@ -939,7 +947,7 @@ export function TelecomForm({
                             num > 0 ? (num * exchangeRate).toString() : "",
                           );
                         }}
-                        className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
+                        className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white font-bold focus:outline-none ${inputFocus} transition-all`}
                         placeholder="0.00"
                       />
                     </div>
@@ -1095,7 +1103,7 @@ export function TelecomForm({
                   {...(isCreditBuyback
                     ? { confirmLabel: "Confirm Cashout" }
                     : {})}
-                  accentColor={`bg-${accent}-600 hover:bg-${accent}-500 text-white`}
+                  accentColor={brand.button}
                   totalAmount={
                     telecomPrice
                       ? parseFloat(telecomPrice)
@@ -1266,7 +1274,7 @@ export function TelecomForm({
                                 searchClients(telecomClientName);
                               }
                             }}
-                            className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
+                            className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none ${brand.focusBorder} focus:ring-1 ${brand.ring} transition-all`}
                             placeholder="Search client by name..."
                           />
                           {showClientSearch &&
@@ -1314,7 +1322,7 @@ export function TelecomForm({
                                 searchClients(val.trim());
                               }
                             }}
-                            className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white font-mono focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
+                            className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white font-mono focus:outline-none ${brand.focusBorder} focus:ring-1 ${brand.ring} transition-all`}
                             placeholder="Phone number (registers a new client)"
                           />
                         </div>
@@ -1360,7 +1368,7 @@ export function TelecomForm({
                   </div>
                 )}
                 <div
-                  className={`text-xs text-${accent}-400 font-mono font-semibold`}
+                  className={`text-xs ${brand.text} font-mono font-semibold`}
                 >
                   {rechargeType === "DAYS"
                     ? `${telecomAmount} days`
@@ -1406,7 +1414,7 @@ export function TelecomForm({
                 (forPartner && (!telecomPrice || !selectedPartnerId)) ||
                 isBuybackBlockedBySession
                   ? "bg-slate-700 text-slate-300 cursor-not-allowed"
-                  : `bg-${accent}-600 hover:bg-${accent}-500 text-white shadow-lg shadow-${accent}-500/20`
+                  : brand.button
               }`}
               title={
                 isBuybackBlockedBySession

@@ -2,9 +2,13 @@ import { useState } from "react";
 import { CheckCircle, CreditCard, Info } from "lucide-react";
 import type { PaymentLine } from "@liratek/ui";
 import { maxRechargeDiscount } from "@liratek/core";
-import { PaymentSheet } from "./PaymentSheet";
+import { PaymentSheet, type PaymentSheetItem } from "./PaymentSheet";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
+import {
+  PROVIDER_BRANDS,
+  type ProviderBrandKey,
+} from "@/shared/brand/providerBrands";
 
 /** A single selectable card in the grid (Alfa gift tier or MTC voucher). */
 export interface CardGridPayItem {
@@ -17,33 +21,21 @@ export interface CardGridPayItem {
   valueUsd?: number;
 }
 
-type Accent = "cyan" | "red";
+/** The carriers whose screens use this card grid (Alfa Gift, MTC Voucher). */
+export type CardGridBrand = Extract<ProviderBrandKey, "MTC" | "ALFA">;
 
-const ACCENTS: Record<
-  Accent,
-  {
-    selectedCard: string;
-    check: string;
-    payButton: string;
-    sheetAccent: string;
-    inputFocus: string;
-  }
-> = {
-  cyan: {
-    selectedCard: "border-cyan-500/40 bg-cyan-500/5 ring-2 ring-cyan-500/50",
-    check: "text-cyan-400",
-    payButton: "bg-cyan-600 hover:bg-cyan-500 shadow-lg shadow-cyan-500/20",
-    sheetAccent: "bg-cyan-600 hover:bg-cyan-500 text-white",
-    inputFocus: "focus:border-cyan-500",
-  },
-  red: {
-    selectedCard: "border-red-500/40 bg-red-500/5 ring-2 ring-red-500/50",
-    check: "text-red-400",
-    payButton: "bg-red-600 hover:bg-red-500 shadow-lg shadow-red-500/20",
-    sheetAccent: "bg-red-600 hover:bg-red-500 text-white",
-    inputFocus: "focus:border-red-500",
-  },
-};
+/** Every accent class comes from the shared brand module (rule 14) — literal
+ *  strings there, so Tailwind's scanner sees them. */
+function themeFor(brand: CardGridBrand) {
+  const b = PROVIDER_BRANDS[brand];
+  return {
+    selectedCard: `${b.border} ${b.tint} ring-2 ${b.ring}`,
+    check: b.text,
+    payButton: b.button,
+    sheetAccent: b.button,
+    inputFocus: b.focusBorder,
+  };
+}
 
 interface CardGridPayViewProps {
   /** Label shown above the grid, e.g. "Select MTC Voucher". */
@@ -51,7 +43,8 @@ interface CardGridPayViewProps {
   items: CardGridPayItem[];
   selectedId: string | null;
   onSelect: (item: CardGridPayItem) => void;
-  accent: Accent;
+  /** Carrier whose brand colours paint the selection, Pay button and sheet. */
+  brand: CardGridBrand;
   /** Show cost + profit margin on cards. Gate behind admin to avoid leaking margin. */
   showProfit: boolean;
   sheetTitle: string;
@@ -103,7 +96,7 @@ export function CardGridPayView({
   items,
   selectedId,
   onSelect,
-  accent,
+  brand,
   showProfit,
   sheetTitle,
   onConfirm,
@@ -124,8 +117,23 @@ export function CardGridPayView({
   hasActiveSession = false,
 }: CardGridPayViewProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
-  const theme = ACCENTS[accent];
+  const theme = themeFor(brand);
   const selected = items.find((i) => i.id === selectedId) ?? null;
+  // The one picked card, as the payment window lists it (charged in LBP).
+  const sheetItems: PaymentSheetItem[] = selected
+    ? [
+        {
+          key: selected.id,
+          name: selected.label,
+          quantity: 1,
+          unitPrice: selected.sellLbp,
+          currency: "LBP",
+          ...(selected.valueUsd !== undefined
+            ? { note: `Value $${selected.valueUsd}` }
+            : {}),
+        },
+      ]
+    : [];
 
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
@@ -248,6 +256,7 @@ export function CardGridPayView({
         title={sheetTitle}
         {...(selected ? { subtitle: selected.label } : {})}
         accentColor={theme.sheetAccent}
+        items={sheetItems}
         totalAmount={selected?.sellLbp ?? 0}
         totalAmountCurrency="LBP"
         currency="LBP"

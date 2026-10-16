@@ -1,4 +1,13 @@
 import type { ReactNode } from "react";
+import {
+  TrendingUp,
+  Sigma,
+  Hash,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownLeft,
+  type LucideIcon,
+} from "lucide-react";
 import type { ProviderConfig, CurrencyStats } from "../types";
 
 function formatCurrencyAmount(amount: number, currency: string): string {
@@ -17,7 +26,7 @@ function formatDrawerBalance(
   if (balance.lbpBalance !== 0)
     parts.push(`${Math.round(balance.lbpBalance).toLocaleString()} LBP`);
   if (balance.usdtBalance) parts.push(`${balance.usdtBalance.toFixed(2)} USDT`);
-  return parts.length > 0 ? parts.join(" + ") : fallback;
+  return parts.length > 0 ? parts.join(" · ") : fallback;
 }
 
 function formatByCurrency(byCurrency: CurrencyStats[]): string {
@@ -36,26 +45,36 @@ interface DrawerBalance {
   usdtBalance?: number;
 }
 
-/** A single read-only metric cell inside the grouped stats panel. */
+/**
+ * A single read-only metric chip inside the grouped stats panel: an icon and
+ * its value. The name is visually hidden (screen readers and tests still read
+ * it) and shown on hover through `title`.
+ */
 function Metric({
+  icon: Icon,
   label,
+  hint,
   value,
   valueClass = "text-white",
   accentBg,
 }: {
+  icon: LucideIcon;
   label: string;
+  /** Tooltip text; defaults to the label. */
+  hint?: string | undefined;
   value: string | number;
   valueClass?: string;
   accentBg?: string | undefined;
 }) {
   return (
     <div
-      className={`flex flex-col justify-center px-3.5 py-1.5 ${accentBg ?? ""}`}
+      data-stat-chip
+      title={hint ?? label}
+      className={`flex items-center gap-2 px-3 ${accentBg ?? ""}`}
     >
-      <span className="text-[10px] uppercase tracking-wide text-slate-500 leading-tight">
-        {label}
-      </span>
-      <span className={`text-sm font-bold leading-tight ${valueClass}`}>
+      <Icon size={15} className="shrink-0 text-slate-500" aria-hidden="true" />
+      <span className="sr-only">{label}</span>
+      <span className={`text-sm font-bold whitespace-nowrap ${valueClass}`}>
         {value}
       </span>
     </div>
@@ -117,30 +136,40 @@ export function CompactStats({
       <StatsPanel>
         {isAdmin && (
           <Metric
+            icon={TrendingUp}
             label="Profit"
+            hint="Profit today"
             value={profitDisplay}
             valueClass={activeConfig?.color ?? "text-white"}
             accentBg={activeConfig?.bgTint}
           />
         )}
         <Metric
+          icon={ArrowUpRight}
           label="Sent"
+          hint="Sent today"
           value={`$${cryptoOutToday?.toFixed(2) ?? "0.00"}`}
           valueClass="text-red-400"
         />
         <Metric
+          icon={ArrowDownLeft}
           label="Received"
+          hint="Received today"
           value={`$${cryptoInToday?.toFixed(2) ?? "0.00"}`}
           valueClass="text-emerald-400"
         />
         <Metric
+          icon={Hash}
           label="Count"
+          hint="Sales today"
           value={todayCount ?? 0}
           valueClass="text-slate-300"
         />
         {drawerBalance && (
           <Metric
+            icon={Wallet}
             label="Drawer"
+            hint={`${activeConfig?.label ?? "Provider"} drawer`}
             value={formatDrawerBalance(drawerBalance)}
             valueClass="text-emerald-400"
           />
@@ -153,7 +182,9 @@ export function CompactStats({
     <StatsPanel>
       {isAdmin && (
         <Metric
+          icon={TrendingUp}
           label="Profit"
+          hint="Profit today"
           value={profitDisplay}
           valueClass={activeConfig?.color ?? "text-white"}
           accentBg={activeConfig?.bgTint}
@@ -162,7 +193,9 @@ export function CompactStats({
 
       {allProvidersCommission !== undefined && (
         <Metric
+          icon={Sigma}
           label="Total Profit"
+          hint="Total profit today (all providers)"
           value={
             (allProvidersByCurrency && allProvidersByCurrency.length > 0
               ? formatByCurrency(allProvidersByCurrency)
@@ -177,14 +210,18 @@ export function CompactStats({
       )}
 
       <Metric
+        icon={Hash}
         label="Count"
+        hint="Sales today"
         value={todayCount ?? 0}
         valueClass="text-slate-300"
       />
 
       {drawerBalance && (
         <Metric
+          icon={Wallet}
           label="Drawer"
+          hint={`${activeConfig?.label ?? "Provider"} drawer`}
           value={formatDrawerBalance(drawerBalance)}
           valueClass="text-emerald-400"
         />

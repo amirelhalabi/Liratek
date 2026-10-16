@@ -10,6 +10,7 @@ import {
   type LinesSectionState,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
+import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type {
   ProviderConfig,
@@ -210,6 +211,9 @@ export function CryptoForm({
 
   if (!activeConfig) return null;
 
+  // Binance yellow with near-black labels, from the shared brand module.
+  const brand = PROVIDER_BRANDS[activeConfig.brand ?? "BINANCE"];
+
   const parsedAmount = parseFloat(cryptoAmount || "0");
   const fee = parseFloat(cryptoFee || "0");
 
@@ -355,7 +359,8 @@ export function CryptoForm({
         value={cryptoType}
         onChange={(val) => setCryptoType(val as "SEND" | "RECEIVE")}
         accentColor="amber"
-        customColor="#f59e0b"
+        customColor={brand.hex}
+        customTextColor={brand.onHex}
         size="sm"
       />
       <p className="text-xs text-slate-400 text-center -mt-3 mb-1">
@@ -377,10 +382,12 @@ export function CryptoForm({
             id="crypto-amount"
             value={parseFloat(cryptoAmount) || 0}
             onChange={(n) => setCryptoAmount(n ? String(n) : "")}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-4 pr-16 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
+            className={`w-full bg-slate-900 border border-slate-700 rounded-lg pl-4 pr-16 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
             placeholder="0.00"
           />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-400 font-bold text-xs">
+          <span
+            className={`absolute right-3 top-1/2 -translate-y-1/2 ${brand.text} font-bold text-xs`}
+          >
             USDT
           </span>
         </div>
@@ -407,7 +414,7 @@ export function CryptoForm({
               id="crypto-fee"
               value={parseFloat(cryptoFee) || 0}
               onChange={(n) => setCryptoFee(n ? String(n) : "")}
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
+              className={`w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
               placeholder="0.00"
             />
           </div>
@@ -421,7 +428,7 @@ export function CryptoForm({
               type="checkbox"
               checked={feeIncluded}
               onChange={(e) => setFeeIncluded(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
+              className={`w-4 h-4 rounded border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
             />
             <span className="text-sm font-medium">Fee included in amount</span>
           </label>
@@ -447,7 +454,7 @@ export function CryptoForm({
                   setFeeIncluded(false);
                   setFeeCollectedSeparately(false);
                 }}
-                className="w-4 h-4 border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
+                className={`w-4 h-4 border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
               />
               <span className="text-sm font-medium">
                 Sender (added to payout)
@@ -463,7 +470,7 @@ export function CryptoForm({
                   setFeeIncluded(true);
                   setFeeCollectedSeparately(false);
                 }}
-                className="w-4 h-4 border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
+                className={`w-4 h-4 border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
               />
               <span className="text-sm font-medium">Deducted from payout</span>
             </label>
@@ -482,7 +489,7 @@ export function CryptoForm({
                     setFeeIncluded(false);
                     setFeeCollectedSeparately(true);
                   }}
-                  className="w-4 h-4 border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
+                  className={`w-4 h-4 border-slate-600 bg-slate-900 ${brand.text} ${brand.focusRing}`}
                 />
                 <span className="text-sm font-medium">
                   Customer pays separately
@@ -559,7 +566,7 @@ export function CryptoForm({
           selectedPartnerId={selectedPartnerId}
           onPartnerChange={setSelectedPartnerId}
           autoSelectSingle
-          checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+          checkboxClassName={`w-4 h-4 rounded border-slate-600 bg-slate-900 ${brand.text} focus:outline-none focus:ring-1 ${brand.focusRing}`}
         />
       </div>
 
@@ -595,7 +602,7 @@ export function CryptoForm({
                   setInitialPaymentMethod("CUSTOMER_ACCOUNT");
                   setPaymentInputKey((k) => k + 1);
                 }}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
+                className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
                 placeholder="Optional"
               />
             </div>
@@ -621,7 +628,7 @@ export function CryptoForm({
                   setPaymentInputKey((k) => k + 1);
                 }}
                 searchByPhone
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-amber-500 transition-all"
+                className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white font-mono focus:outline-none ${brand.focusBorder} transition-all`}
                 placeholder="Registers new client"
               />
             </div>
@@ -639,7 +646,7 @@ export function CryptoForm({
             type="text"
             value={cryptoDescription}
             onChange={(e) => setCryptoDescription(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
+            className={`w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
             placeholder="Wallet, reference..."
           />
         </div>
@@ -704,7 +711,7 @@ export function CryptoForm({
               className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
                 submitDisabled
                   ? "bg-slate-700 text-slate-300 cursor-not-allowed"
-                  : "bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-500/20"
+                  : brand.button
               }`}
             >
               {forPartner
@@ -745,7 +752,7 @@ export function CryptoForm({
               ? `Cash Out — Payout $${payout.toFixed(2)}`
               : `Crypto — $${(sendCustomerPays + sendExtra).toFixed(2)}`
           }
-          accentColor="bg-amber-600 hover:bg-amber-500 text-white"
+          accentColor={brand.button}
           confirmLabel={
             cryptoType === "RECEIVE"
               ? `Confirm Cash Out $${payout.toFixed(2)}`

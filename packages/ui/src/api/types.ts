@@ -148,6 +148,9 @@ import type {
   CreateExpenseRequest,
   // Session basket checkout payload, derived from the core schema (rule 21).
   SessionCheckoutPayload,
+  RechargeBasketCheckoutPayload,
+  // LIRA-327 — basket-wide For Partner submit payload (rule 21).
+  RechargePartnerOrderPayload,
   // Partner settle payload, derived from partnerSettleSchema (rule 21).
   PartnerSettleInput,
   // Supplier settle payload, derived from supplierSettleSchema (rule 21).
@@ -1649,6 +1652,21 @@ export type ApiAdapter = {
   addOMTTransaction: (
     payload: CreateFinancialServicePayload,
   ) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;
+  /** LIRA-326 — Mobile Recharge basket of 2+ providers, paid once; recorded
+   *  as an automatic walk-in customer session. */
+  rechargeBasketCheckout: (payload: RechargeBasketCheckoutPayload) => Promise<
+    ApiResult & {
+      sessionId?: number;
+      checkoutTotalUsd?: number;
+      checkoutTotalLbp?: number;
+      itemCount?: number;
+    }
+  >;
+  /** LIRA-327 — "For Partner" across the Mobile Recharge basket: every
+   *  provider's partner sales booked in one all-or-nothing submit. */
+  rechargePartnerOrder: (
+    payload: RechargePartnerOrderPayload,
+  ) => Promise<ApiResult & { ids?: number[] }>;
   /** A single financial_services record by id — the Debts page's
    *  service-backed debt-detail "eye" button. Raw read (null when missing). */
   getFinancialServiceById: (id: number) => Promise<any | null>;
@@ -1792,7 +1810,9 @@ export type ApiAdapter = {
     error?: string;
     code?: string;
   }>;
-  unpairThisPc: (payload: DesktopUnpairInput) => Promise<OfflineControlEnvelope>;
+  unpairThisPc: (
+    payload: DesktopUnpairInput,
+  ) => Promise<OfflineControlEnvelope>;
   goOffline: () => Promise<OfflineControlEnvelope>;
   backToWeb: () => Promise<OfflineControlEnvelope>;
   sendOfflineNow: () => Promise<{
@@ -1809,7 +1829,10 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getOfflineReviewItems: (query?: ReviewListQuery) => Promise<{
     success: boolean;
-    data?: { items: ReviewItemView[]; groups: Array<{ kind: string; label: string; count: number }> };
+    data?: {
+      items: ReviewItemView[];
+      groups: Array<{ kind: string; label: string; count: number }>;
+    };
     error?: string;
   }>;
   getOfflineHistory: (query?: OfflineHistoryQuery) => Promise<{
@@ -1818,13 +1841,34 @@ export type ApiAdapter = {
     error?: string;
   }>;
   applyOfflineReviewItem: (id: number) => Promise<ReviewActionResult>;
-  dismissOfflineReviewItem: (id: number, payload?: ReviewDismissInput) => Promise<ReviewActionResult>;
+  dismissOfflineReviewItem: (
+    id: number,
+    payload?: ReviewDismissInput,
+  ) => Promise<ReviewActionResult>;
   markOfflineReviewItemReviewed: (id: number) => Promise<ReviewActionResult>;
   bookOfflineReviewItemAnyway: (id: number) => Promise<ReviewActionResult>;
-  getPairedPcs: () => Promise<{ success: boolean; data?: { devices: PairedDeviceView[] }; error?: string }>;
-  revokePairedPc: (id: number) => Promise<{ success: boolean; data?: { revoked: true }; error?: string }>;
-  getOfflineReviewPreview: (id: number) => Promise<{ success: boolean; data?: OfflineReviewPreview; error?: string }>;
-  renumberPairedPc: (id: number) => Promise<{ success: boolean; data?: { renumberRequested: true }; error?: string }>;
+  getPairedPcs: () => Promise<{
+    success: boolean;
+    data?: { devices: PairedDeviceView[] };
+    error?: string;
+  }>;
+  revokePairedPc: (
+    id: number,
+  ) => Promise<{ success: boolean; data?: { revoked: true }; error?: string }>;
+  getOfflineReviewPreview: (
+    id: number,
+  ) => Promise<{
+    success: boolean;
+    data?: OfflineReviewPreview;
+    error?: string;
+  }>;
+  renumberPairedPc: (
+    id: number,
+  ) => Promise<{
+    success: boolean;
+    data?: { renumberRequested: true };
+    error?: string;
+  }>;
 
   // ---------------------------------------------------------------------------
   // Suppliers
@@ -2046,7 +2090,9 @@ export type ApiAdapter = {
   // Resale lines (LIRA-309 — phone lines the shop holds for sale)
   // ---------------------------------------------------------------------------
   /** Raw list (reads return the raw shape); unsold lines unless include_sold. */
-  getResaleLines: (query?: ListResaleLinesQueryInput) => Promise<ResaleLineRow[]>;
+  getResaleLines: (
+    query?: ListResaleLinesQueryInput,
+  ) => Promise<ResaleLineRow[]>;
   /** Admin: create or update a for-sale line's carrier/credit/expiry. */
   saveResaleLine: (
     data: SaveResaleLineInput,
@@ -2058,7 +2104,11 @@ export type ApiAdapter = {
   /** Admin: write off a LOST line held for sale (books its cost as a loss). */
   writeOffResaleLine: (
     data: WriteOffResaleLineInput,
-  ) => Promise<{ success: boolean; data?: { expense_id: number }; error?: string }>;
+  ) => Promise<{
+    success: boolean;
+    data?: { expense_id: number };
+    error?: string;
+  }>;
 
   // ---------------------------------------------------------------------------
   // Wrong-number cards (LIRA-312)

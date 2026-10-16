@@ -6680,6 +6680,66 @@ Spec Kit: `specs/324-whish-usd-mode/` (spec, plan, tasks). Owner decisions: MTC/
 
 **What users will notice:** Recharge → Whish App → Bills has an LBP | USD switch; in USD the items show and sell at their dollar price and the cost comes out of the Whish App dollar balance; dollar-only items appear only in USD; prepaid cards stay LBP; set dollar selling prices in Settings → Mobile Services.
 
+## LIRA-327: Bills and For Partner across the Mobile Recharge basket — BUILT, not committed (owner decisions 2026-10-16)
+
+Notes (owner waived the full Spec Kit cycle): `specs/327-recharge-basket-bills-partner/notes.md`. Builds on LIRA-326.
+
+**Bugs this fixes (LIRA-326 v1 limits):**
+- Staged bills were KatshForm-local (`{amount, currency}`, no provider). A bill was lost when the form unmounted, for example on switching to Whish App.
+- A bill was booked under the tab that was active at Pay time: a Katsh bill paid from the iPick tab became an iPick bill.
+- A mixed basket with bills was refused.
+- For Partner was per tab and booked only the active tab's lines.
+
+**Built:**
+- **A. Bills.**
+  - Bills live in `RechargeBasketContext` as `{id, provider, amount, currency}` (`useBasketBills`). They are priced there by `billPricedLine`, so either form can list and pay them, and they count on their own tab (`useRechargeBasketCounts`).
+  - Every path books a bill under its own provider. The walk-in single sale, the Settle-queue refresh and the receipt use `bill.provider`. The session cart already used the tab it was added on.
+  - On a mixed basket, each bill rides `recharge-basket:checkout` as its own non-batch cart entry. That is the session-cart bill shape: serviceType BILL, cost = price = amount, commission 0.
+  - Core `findRechargeBasketRefusal` accepts that entry only on ipick/katsh (`RECHARGE_BASKET_BILL_MODULES`), and only when provider, currency and amount match the entry and the cost/commission are a bill's. The discount is spread over the cards only.
+  - The "Pay or remove the bill first" refusal is removed.
+- **B. For Partner.**
+  - The toggle and the partner live in the context (`useBasketPartner`). They are shared by the Katsh, iPick and Whish App basket tabs; other FinancialForm providers keep their own.
+  - Turning it on with items asks "Make all N items in the basket a partner order?". Cancel leaves it off; an empty basket is not asked.
+  - Submit to Partner sends the whole basket through the new `recharge-basket:partner-order` / `POST /api/recharge-basket/partner-order`. Core `RechargePartnerOrderService` books today's per-tab rows in ONE `FinancialServiceRepository.transaction`: one aggregated SEND per iPick/Katsh, one BILL per bill, one SEND per Whish App unit. A failed sale throws and rolls back the ones before it.
+  - Refused before any write:
+    - a provider outside the basket;
+    - a bill on Whish App;
+    - a RECEIVE;
+    - customer IN legs, customer payments, fee payments or CUSTOMER_ACCOUNT;
+    - a walk-in client;
+    - another partner.
+  - The schema is `rechargePartnerOrderSchema` (`createFinancialServiceSchema` sales, the same schema desktop already used, so the rule-23 diff is empty).
+  - Wiring: IPC handler, schemas re-export, preload, `electron.d.ts`, channelPolicy `online_only`, REST route, and the adapter (`rechargePartnerOrder`, payload `z.input`).
+  - The LIRA-326 per-tab `partnerLines` filter is removed. Session behaviour is unchanged.
+- **Reversal.**
+  - A bill in a basket is reversed by the session-basket void/refund.
+  - Partner sales are reversed one by one by the generic void, which reverses `partner_ledger` and the drawer. They have no pooled payment, so per-sale reversal is safe.
+
+**Tests:**
+- Seen failing first:
+  - core `RechargeBasketService.test.ts` "bills (LIRA-327)": 6 of 8 failed with "Only iPick, Katsh and Whish App items can be paid in a Mobile Recharge basket.";
+  - core `RechargePartnerOrderService.test.ts` (11): failed as "Cannot find module" — a missing-module failure, not a behaviour one;
+  - frontend `RechargeBasket.crossProvider.test.tsx` (+5, replacing the bill-refusal test): 5 failed. The bill showed and booked as `IPICK`; the bill was lost and counts were `{}`; the partner confirm was never called.
+- Written after the code, NOT proven failing-first:
+  - `basketCheckout.test.ts` (+5);
+  - `RechargeBasketContext.test.tsx` (+2);
+  - electron `rechargeBasketHandlers.test.ts` (+4);
+  - backend `rechargeBasket.api.test.ts` (+5);
+  - `channelPolicy.complete.test.ts` counts 112/432 → 113/433.
+- Web e2e `lira-web-069-recharge-basket-bills-partner` (written, not run).
+
+**What users will notice:** on Mobile Recharge, a bill added on iPick or Katsh stays in the basket across tabs, is saved under the tab it was added on, and is paid together with items from other providers in one payment. "For Partner" ticked on one of iPick, Katsh or Whish App stays ticked on all three and sends the whole basket to the partner at once.
+
+## LIRA-326: One Mobile Recharge basket across providers — IN PROGRESS (owner request 2026-10-16)
+
+Spec Kit: `specs/326-recharge-cross-provider-basket/`. Owner: picks on iPick, Katsh and Whish App must survive tab switches; picking from another provider makes it a walk-in customer session automatically; one payment window, pay once.
+
+**Bug found while scoping:** KatshForm sent a mixed iPick + Katsh cart as ONE sale under the tab paid from (`provider: activeProvider`), so the other provider's item costs hit the wrong balance and supplier — on the walk-in path and on the session-cart path.
+
+**Design:** a 2+-provider basket is paid through `recharge-basket:checkout` / `POST /api/recharge-basket/checkout` → core `RechargeBasketService` creates a walk-in customer session ("Mobile Recharge basket") and runs the existing `SessionCheckoutService` on one `_batch` entry per provider (one payment, one sale per provider, whole-basket void/refund, single-item reversal refused). Single-provider baskets keep the single-sale path, booked under the lines' own provider. The basket lives in an app-level context (lost on reload). v1 limits: no discount on a mixed-currency basket; bills stay per tab; MTC/Alfa card grid not in the basket.
+
+**What users will notice:** picks on iPick, Katsh and Whish App stay when switching tabs; a basket from several providers is paid once and saved as a walk-in session with one sale per provider.
+
 ## LIRA-325: Wrong number — the sold card is locked; the wrong number is optional — DONE (owner request 2026-10-16)
 
 Owner request: "Wrong number…" on an iPick/Katsh/Whish App card sale showed a dropdown of every MTC/Alfa card and only guessed the sold one from the summary text. We sold it, so we know what we sold: lock it. Also: record a wrong number without typing it.

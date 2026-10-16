@@ -51,22 +51,22 @@ const mockAddOMTTransaction = jest
 
 // One stable api object (rule 25): useApi() must not return a new identity per render.
 const mockApi = {
-    addOMTTransaction: mockAddOMTTransaction,
-    getAllSettings: jest.fn().mockResolvedValue([]),
-    // createMobileServiceItem is also on useApi() — not called in these tests
-    createMobileServiceItem: jest.fn().mockResolvedValue({ success: true }),
-    // Only-Days pricing model (2026-08-05): KatshForm fetches the catalog's
-    // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — these
-    // gross-cost tests are about the COST side, untouched by the pricing
-    // model; the pricing panel stays hidden and the legacy price formula
-    // governs (proved separately in KatshForm.onlyDaysPricing.test.tsx).
-    getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
-    // loadPrimaryLines (self-charge, D5) fires unconditionally on mount —
-    // unmocked, it logs "api.getPrimaryCarrierLine is not a function" noise
-    // even though the (caught) error doesn't fail these tests.
-    getPrimaryCarrierLine: jest
-      .fn()
-      .mockResolvedValue({ success: true, data: null }),
+  addOMTTransaction: mockAddOMTTransaction,
+  getAllSettings: jest.fn().mockResolvedValue([]),
+  // createMobileServiceItem is also on useApi() — not called in these tests
+  createMobileServiceItem: jest.fn().mockResolvedValue({ success: true }),
+  // Only-Days pricing model (2026-08-05): KatshForm fetches the catalog's
+  // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — these
+  // gross-cost tests are about the COST side, untouched by the pricing
+  // model; the pricing panel stays hidden and the legacy price formula
+  // governs (proved separately in KatshForm.onlyDaysPricing.test.tsx).
+  getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
+  // loadPrimaryLines (self-charge, D5) fires unconditionally on mount —
+  // unmocked, it logs "api.getPrimaryCarrierLine is not a function" noise
+  // even though the (caught) error doesn't fail these tests.
+  getPrimaryCarrierLine: jest
+    .fn()
+    .mockResolvedValue({ success: true, data: null }),
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -155,7 +155,9 @@ const CONFIG_KATSH: ProviderConfig = {
 };
 
 function renderForm() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
     <QueryClientProvider client={queryClient}>
       <KatshForm
@@ -191,15 +193,38 @@ describe("KatshForm walk-in cart = core buildCatalogSalePayload (LIRA-302)", () 
     fireEvent.click(screen.getByTestId("stub-confirm"));
     await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
 
-    const sent = mockAddOMTTransaction.mock.calls[0][0] as Record<string, unknown>;
+    const sent = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
     const expected = buildCatalogSalePayload({
       provider: "Katsh",
       lines: [
-        { item: { category: "alfa", label: "Card22", subcategory: "Prepaid", cost_lbp: 1_900_000, sell_lbp: 2_000_000 }, quantity: 2 },
-        { item: { category: "PUBG", label: "60 UC", subcategory: "", cost_lbp: 80_000, sell_lbp: 100_000 }, quantity: 1 },
+        {
+          item: {
+            category: "alfa",
+            label: "Card22",
+            subcategory: "Prepaid",
+            cost_lbp: 1_900_000,
+            sell_lbp: 2_000_000,
+          },
+          quantity: 2,
+        },
+        {
+          item: {
+            category: "PUBG",
+            label: "60 UC",
+            subcategory: "",
+            cost_lbp: 80_000,
+            sell_lbp: 100_000,
+          },
+          quantity: 1,
+        },
       ],
       paidByMethod: "CUSTOMER_ACCOUNT",
-      payments: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: CART_TOTAL }],
+      payments: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: CART_TOTAL },
+      ],
       // The web always sends the sheet's rate with legs (harmless for an LBP leg).
       tenderExchangeRate: 89_500,
       client: { id: 7 },

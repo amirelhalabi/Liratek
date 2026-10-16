@@ -153,7 +153,6 @@ function renderForm() {
   );
 }
 
-
 async function cartOneCardAndPay() {
   await screen.findByText("60UC");
   fireEvent.click(screen.getByText("60UC"));
@@ -203,7 +202,11 @@ describe("KatshForm — handing back less change than due (LIRA-259)", () => {
     await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
     const payload = lastPayload();
     expect(payload.payments).toEqual([
-      expect.objectContaining({ method: "CASH", currencyCode: "USD", amount: 6 }),
+      expect.objectContaining({
+        method: "CASH",
+        currencyCode: "USD",
+        amount: 6,
+      }),
       expect.objectContaining({
         method: "CASH",
         currencyCode: "LBP",
@@ -232,7 +235,11 @@ describe("KatshForm — handing back less change than due (LIRA-259)", () => {
     expect(payload.checkoutTotal).toEqual({ usd: 0, lbp: 450000 });
     expect(payload.tender_exchange_rate).toBe(80000);
     expect(payload.payments).toEqual([
-      expect.objectContaining({ method: "CASH", currencyCode: "USD", amount: 6 }),
+      expect.objectContaining({
+        method: "CASH",
+        currencyCode: "USD",
+        amount: 6,
+      }),
       expect.objectContaining({
         method: "CASH",
         currencyCode: "LBP",

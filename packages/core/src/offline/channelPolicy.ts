@@ -163,6 +163,11 @@ const ONLINE_ONLY: readonly string[] = [
   // LIRA-312 — money writes, rare: online only.
   "wrong-numbers:record",
   "wrong-numbers:credits",
+  // LIRA-326 — Mobile Recharge basket checkout (creates its own session): a
+  // money write, online only (research R5).
+  "recharge-basket:checkout",
+  // LIRA-327 — the basket-wide For Partner submit: a money write, online only.
+  "recharge-basket:partner-order",
   "users:create",
   "users:set-password",
   "users:set-active",

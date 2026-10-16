@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ChevronDown, Phone, Search, X, Plus } from "lucide-react";
 import {
   appEvents,
@@ -9,7 +9,8 @@ import {
   Select,
   ConfirmModal,
 } from "@liratek/ui";
-import { PaymentSheet } from "./PaymentSheet";
+import { PaymentSheet, type PaymentSheetItem } from "./PaymentSheet";
+import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
@@ -25,6 +26,9 @@ import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
 import { getCardImage } from "../utils/cardImages";
 import { CardArtwork } from "./CardArtwork";
+import { CardGroupTag } from "./CardGroupTag";
+import { cardGroupLabel } from "../utils/cardGroupLabel";
+import { Collapsible } from "@/shared/components/Collapsible";
 import { WhishCurrencySwitch } from "./WhishCurrencySwitch";
 import {
   isLbpSellable,
@@ -37,6 +41,7 @@ import type {
   ProviderConfig,
   AnyProvider,
 } from "../types";
+import { providerBrandOf } from "../types";
 import { HistoryModal } from "./HistoryModal";
 import { useSellRate } from "@/hooks/useSellRate";
 import logger from "@/utils/logger";
@@ -47,11 +52,24 @@ import {
   ForPartnerToggle,
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
-
-interface CartLineItem {
-  item: ServiceItem;
-  quantity: number;
-}
+import {
+  useBasketPartner,
+  useWhishBasket,
+} from "../context/RechargeBasketContext";
+import {
+  useRechargeBasketCheckout,
+  useRechargePartnerOrder,
+} from "../hooks/useRechargeBasketCheckout";
+import { partnerConfirmMessage } from "../utils/partnerConfirm";
+import {
+  basketItemCount,
+  basketProviders,
+  basketSheetSummary,
+  isBasketProvider,
+  whishBatchSubItems,
+  withClient,
+} from "../utils/basketCheckout";
+import type { PricedLine } from "../types/basket";
 
 interface FinancialFormProps {
   activeConfig: ProviderConfig | undefined;
@@ -115,6 +133,9 @@ export function FinancialForm({
 }: FinancialFormProps) {
   const api = useApi();
   const isUsd = currency === "USD";
+  // The active provider's brand colours the selected card, its −/+ buttons
+  // and the input focus (shared/brand/providerBrands.ts).
+  const brand = PROVIDER_BRANDS[activeConfig?.brand ?? "WHISH"];
   /** Money as the active currency shows it: "$10.00" or "897,000 LBP". */
   const money = (n: number) =>
     isUsd
@@ -154,18 +175,34 @@ export function FinancialForm({
   // checkout, W1.b). Never fires from handleForPartnerSubmit — a partner
   // order collects no cash from a walk-in customer, so there's no receipt.
   const autoPrintReceipt = useAutoPrintReceipt();
-  const [cart, setCart] = useState<Map<string, CartLineItem>>(new Map());
+  // LIRA-326: on the Whish App tab the cart lives in the Mobile Recharge
+  // basket (app shell), so picks survive switching tabs and leaving the page;
+  // `others` = the iPick / Katsh group's priced lines. Any other provider this
+  // form serves keeps a cart of its own.
+  const isWhishApp = activeProvider === "WHISH_APP";
+  const {
+    cart,
+    setCart,
+    setPriced,
+    others,
+    clearAll: clearBasket,
+    shared: basketShared,
+  } = useWhishBasket(isWhishApp);
+  const checkoutBasket = useRechargeBasketCheckout();
+  const submitPartnerOrder = useRechargePartnerOrder();
   // Report selection counts to the provider tabs (quantities, keyed by each
-  // cart item's own provider).
+  // cart item's own provider). With the shared basket the page counts the
+  // picks itself, for every tab.
   useEffect(() => {
     if (!onCartCountChange) return;
+    if (basketShared) return;
     const counts: Record<string, number> = {};
     for (const line of cart.values()) {
       counts[line.item.provider] =
         (counts[line.item.provider] ?? 0) + line.quantity;
     }
     onCartCountChange(counts);
-  }, [cart, onCartCountChange]);
+  }, [cart, onCartCountChange, basketShared]);
   useEffect(() => {
     return () => onCartCountChange?.({});
   }, [onCartCountChange]);
@@ -204,7 +241,8 @@ export function FinancialForm({
   const [pendingCurrency, setPendingCurrency] =
     useState<CatalogCurrency | null>(null);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
-  const [partnerId, setPartnerId] = useState<number | null>(null);
+  // LIRA-327: on the Whish App tab, For Partner is the basket's (on in one
+  // basket tab = on in all); every other provider keeps its own.
   // PFT-3b (Partner FOR-Transactions): a "for partner" order has NO walk-in
   // customer and collects NO counter cash — every cart unit is booked
   // straight to the selected partner's ledger (partnerMode: "FOR"), settled
@@ -213,7 +251,13 @@ export function FinancialForm({
   // exactly one partner in the system, mis-painted "Partner: <name>" on
   // every walk-in transaction — the reused `partnerId` state above is now
   // ONLY ever set while this checkbox is on).
-  const [forPartner, setForPartner] = useState(false);
+  const {
+    forPartner,
+    setForPartner,
+    partnerId,
+    setPartnerId,
+    shared: partnerShared,
+  } = useBasketPartner(isWhishApp);
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
   const [partnerPaidFromMethod, setPartnerPaidFromMethod] = useState("CASH");
   const [clientId, setClientId] = useState<number | null>(null);
@@ -239,6 +283,50 @@ export function FinancialForm({
       setPaymentInputKey((k) => k + 1);
     }
   }, [clientId, clientName, clientPhone, initialPaymentMethod]);
+
+  // LIRA-326: this cart, PRICED (items are already in the active currency),
+  // published to the basket so another tab can list and pay it. Memoised on
+  // exactly what pricing reads (rule 25: a fresh array per render would
+  // re-publish forever).
+  const pricedLines = useMemo<PricedLine[]>(
+    () =>
+      Array.from(cart.values()).flatMap((line): PricedLine[] => {
+        const provider = line.item.provider;
+        if (!isBasketProvider(provider)) return [];
+        const subItems = whishBatchSubItems(
+          line,
+          serviceType || "SEND",
+          currency,
+        );
+        const unitPrice = line.item.catalogSellPrice ?? 0;
+        return [
+          {
+            key: line.item.key,
+            provider,
+            label: `${formatCatalogItemName(line.item)} x${line.quantity}`,
+            sheetItem: {
+              key: line.item.key,
+              name: line.item.label,
+              group: cardGroupLabel(line.item),
+              image: getCardImage(line.item),
+              quantity: line.quantity,
+              unitPrice,
+              currency,
+              provider: providerBrandOf(line.item.provider),
+            },
+            currency,
+            amount: unitPrice * line.quantity,
+            cost: (line.item.catalogCost ?? 0) * line.quantity,
+            commission: subItems.reduce((s, x) => s + x.commission, 0),
+            subItems,
+          },
+        ];
+      }),
+    [cart, currency, serviceType],
+  );
+  useEffect(() => {
+    setPriced(pricedLines);
+  }, [pricedLines, setPriced]);
 
   // Determine exchange rate based on transaction type
   //   - SEND = customer sends money (money IN) → sellRate (customer pays us more LBP)
@@ -308,6 +396,40 @@ export function FinancialForm({
     const unitPrice = line.item.catalogSellPrice ?? 0;
     return sum + unitPrice * line.quantity;
   }, 0);
+
+  // The cart lines as the payment window lists them. Cart items are already
+  // priced in the active currency (inCurrency, LIRA-324), so each unit price
+  // here is the one totalPrice sums: Σ unitPrice × quantity === totalPrice.
+  // Plain derivation like totalPrice — a hook cannot sit after the early
+  // return above.
+  const sheetItems: PaymentSheetItem[] = isWhishApp
+    ? pricedLines.map((l) => l.sheetItem)
+    : Array.from(cart.values()).map((line) => ({
+        key: line.item.key,
+        name: line.item.label,
+        group: cardGroupLabel(line.item),
+        image: getCardImage(line.item),
+        quantity: line.quantity,
+        unitPrice: line.item.catalogSellPrice ?? 0,
+        currency,
+        provider: providerBrandOf(line.item.provider),
+      }));
+
+  // LIRA-326 — Whish App picks plus iPick / Katsh picks from the other tab:
+  // ONE payment for the whole basket (the server books one sale per
+  // provider). A Whish-only basket stays today's single sale.
+  // `others` carries the staged iPick / Katsh bills too (LIRA-327).
+  const basketLines = [...pricedLines, ...others];
+  const isMixedBasket =
+    isWhishApp &&
+    !activeSession &&
+    !forPartner &&
+    basketProviders(basketLines).size > 1;
+  const basketSheet = basketSheetSummary(basketLines);
+  // LIRA-327 — what a basket-wide partner order submits (every tab).
+  const basketCount = partnerShared
+    ? basketItemCount(basketLines)
+    : Array.from(cart.values()).reduce((n, l) => n + l.quantity, 0);
 
   const totalCost = Array.from(cart.values()).reduce((sum, line) => {
     const unitCost = line.item.catalogCost ?? 0;
@@ -410,24 +532,16 @@ export function FinancialForm({
           : `${providerLabel}: ${itemLabels}`;
 
       // Store each line item for replay at checkout
-      const formDataItems = cartItems.flatMap((line) => {
-        const sellPrice = line.item.catalogSellPrice ?? 0;
-        const cost = line.item.catalogCost ?? 0;
-        const commission = sellPrice - cost;
-        return Array.from({ length: line.quantity }, () => ({
-          provider: activeProvider,
-          serviceType: serviceType || "SEND",
-          amount: sellPrice,
-          cost,
-          currency,
-          commission: Math.max(0, commission),
-          clientId: resolvedClientId || undefined,
-          clientName: clientName || undefined,
-          itemKey: line.item.key,
-          itemCategory: line.item.category,
-          note: `${formatCatalogItemName(line.item)}`,
-        }));
-      });
+      // One shared builder (rule 14) — each unit under its own provider.
+      const formDataItems = withClient(
+        cartItems.flatMap((line) =>
+          whishBatchSubItems(line, serviceType || "SEND", currency),
+        ),
+        {
+          clientId: resolvedClientId,
+          ...(clientName ? { clientName } : {}),
+        },
+      );
 
       addToSessionCart({
         module: activeProvider === "WHISH_APP" ? "whish_app" : "omt_app",
@@ -450,6 +564,60 @@ export function FinancialForm({
       setClientId(null);
       setExpandedKeys(new Set());
       setSearchQuery("");
+      return;
+    }
+
+    // LIRA-326 — items from two or more providers: ONE payment for the whole
+    // basket, recorded by the server as a walk-in customer session with one
+    // sale per provider.
+    if (isMixedBasket) {
+      setLocalSubmitting(true);
+      const result = await checkoutBasket({
+        lines: basketLines,
+        discount: basketSheet.singleCurrency ? discount : 0,
+        payments: paymentLines,
+        returnLegs,
+        paidByMethod: derivePaidByMethod(paymentLines, paymentMethod),
+        exchangeRate: effectiveRate ?? exchangeRate,
+        keptChange,
+        extra:
+          basketSheet.currency === "USD"
+            ? { usd: extraCharge, lbp: 0 }
+            : { usd: 0, lbp: extraCharge },
+        client: { clientId: resolvedClientId, clientName, clientPhone },
+      });
+      if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          "Basket paid successfully",
+          "success",
+        );
+        clearBasket();
+        setKeptChange(null);
+        setExtraCharge(0);
+        setReturnLegs([]);
+        setClientName("");
+        setClientPhone("");
+        setClientId(null);
+        setExpandedKeys(new Set());
+        setSearchQuery("");
+        setTransactionTime(undefined);
+        if (
+          paymentMethod === "CUSTOMER_ACCOUNT" ||
+          paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT") ||
+          returnLegs.some((l) => l.method === "CUSTOMER_ACCOUNT")
+        ) {
+          window.dispatchEvent(new CustomEvent("debt-ledger-changed"));
+        }
+        // Booked as a session checkout: an on-account part is a Session
+        // Debt row — let the TopBar's session balance badge refresh.
+        appEvents.emit("debt:changed");
+      } else {
+        // The basket stays as it was — nothing was booked.
+        alert(result.error);
+      }
+      loadFinancialData();
+      setLocalSubmitting(false);
       return;
     }
 
@@ -694,6 +862,10 @@ export function FinancialForm({
   //     disbursement as ONE OUT leg so the partner owes exactly that total.
   //     On RECEIVE the backend credits its own drawer — no leg needed.
   const handleForPartnerSubmit = async () => {
+    if (partnerShared) {
+      await handleBasketPartnerSubmit();
+      return;
+    }
     if (cart.size === 0 || isSubmittingPartner) return;
     if (!partnerId) {
       alert("Select a partner for this order.");
@@ -769,6 +941,62 @@ export function FinancialForm({
     setIsSubmittingPartner(false);
   };
 
+  // LIRA-327 — the Whish App tab inside the Mobile Recharge basket: ONE
+  // submit books every provider's partner sales (this tab's units, the iPick
+  // / Katsh cards and the staged bills), exactly as each tab's own submit
+  // wrote them, all or nothing (core RechargePartnerOrderService).
+  const handleBasketPartnerSubmit = async () => {
+    if (basketLines.length === 0 || isSubmittingPartner) return;
+    if (!partnerId) {
+      alert("Select a partner for this order.");
+      return;
+    }
+    setIsSubmittingPartner(true);
+    const result = await submitPartnerOrder({
+      lines: basketLines,
+      partnerId,
+      transactionTime,
+      paidFromMethod: partnerPaidFromMethod,
+    });
+    if (result.success) {
+      appEvents.emit(
+        "notification:show",
+        "Partner order submitted successfully",
+        "success",
+      );
+      // Everything was booked: empty the whole basket (For Partner off).
+      clearBasket();
+      setExpandedKeys(new Set());
+      setSearchQuery("");
+      setTransactionTime(undefined);
+    } else {
+      // Nothing was booked — the basket stays as it was.
+      logger.error("Partner order submit failed:", result.error);
+      alert(result.error);
+    }
+    loadFinancialData();
+    setIsSubmittingPartner(false);
+  };
+
+  // LIRA-327 — turning For Partner on while the basket already holds items
+  // makes ALL of them a partner order: ask first.
+  const handleForPartnerChange = (next: boolean) => {
+    if (
+      next &&
+      partnerShared &&
+      basketCount > 0 &&
+      !window.confirm(partnerConfirmMessage(basketCount))
+    ) {
+      return;
+    }
+    setForPartner(next);
+  };
+
+  // A basket-wide partner order can go even when this tab's grid is empty.
+  const proceedDisabled = forPartner
+    ? basketCount === 0 || isSubmittingPartner || !partnerId
+    : totalItems === 0;
+
   // Filter items by search query
   const filterItemsBySearch = (items: ServiceItem[]): ServiceItem[] => {
     if (!searchQuery.trim()) return items;
@@ -795,16 +1023,22 @@ export function FinancialForm({
                 ]}
                 value={serviceType || "SEND"}
                 onChange={(val) => setServiceType?.(val as ServiceType)}
-                accentColor={
-                  activeProvider === "iPick" || activeProvider === "Katsh"
-                    ? "orange"
-                    : "violet"
-                }
+                accentColor="violet"
                 customColor={
-                  activeProvider === "OMT_APP" ? "#ffde00" : undefined
+                  activeProvider === "OMT_APP"
+                    ? PROVIDER_BRANDS.OMT.hex
+                    : activeProvider === "iPick"
+                      ? PROVIDER_BRANDS.IPICK.hex
+                      : activeProvider === "Katsh"
+                        ? PROVIDER_BRANDS.KATSH.hex
+                        : undefined
                 }
                 customTextColor={
-                  activeProvider === "OMT_APP" ? "black" : "white"
+                  activeProvider === "OMT_APP"
+                    ? "black"
+                    : activeProvider === "Katsh"
+                      ? PROVIDER_BRANDS.KATSH.onHex
+                      : "white"
                 }
                 size="sm"
               />
@@ -813,7 +1047,7 @@ export function FinancialForm({
         )}
 
         {/* Sticky top row: Search + Proceed to Pay — never scrolls away */}
-        <div className="sticky top-0 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
+        <div className="sticky -top-1 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
           {(activeProvider === "iPick" ||
             activeProvider === "Katsh" ||
             activeProvider === "WHISH_APP") && (
@@ -823,7 +1057,7 @@ export function FinancialForm({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={`Search ${activeProvider === "iPick" ? "iPick" : activeProvider === "Katsh" ? "Katsh" : "Whish App"} items...`}
-                className="w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all"
+                className={`w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none ${brand.searchFocus} transition-all`}
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
               {searchQuery && (
@@ -864,7 +1098,7 @@ export function FinancialForm({
             <ForPartnerToggle
               testId="financial-for-partner-toggle"
               checked={forPartner}
-              onChange={setForPartner}
+              onChange={handleForPartnerChange}
               selectedPartnerId={partnerId}
               onPartnerChange={setPartnerId}
               autoSelectSingle
@@ -900,18 +1134,14 @@ export function FinancialForm({
                   setShowPaymentSheet(true);
                 }
               }}
-              disabled={
-                totalItems === 0 ||
-                (forPartner && (isSubmittingPartner || !partnerId))
-              }
+              disabled={proceedDisabled}
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
-                totalItems === 0 ||
-                (forPartner && (isSubmittingPartner || !partnerId))
+                proceedDisabled
                   ? "bg-slate-700 text-slate-300 cursor-not-allowed"
                   : activeProvider === "WHISH_APP"
-                    ? "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
+                    ? PROVIDER_BRANDS.WHISH.button
                     : activeProvider === "OMT_APP"
-                      ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
+                      ? PROVIDER_BRANDS.OMT.button
                       : "bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20"
               }`}
             >
@@ -933,12 +1163,21 @@ export function FinancialForm({
             testId="financial-partner-no-payment-notice"
             className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
           >
-            <span>
-              No payment is collected from a customer for a partner order. The
-              full <span className="font-bold">{money(totalPrice)}</span> goes
-              on the selected partner&apos;s account, settled later on the
-              Partners page.
-            </span>
+            {partnerShared ? (
+              <span>
+                No payment is collected from a customer for a partner order.
+                Everything in the basket, on every tab, goes on the selected
+                partner&apos;s account at its full selling price, settled later
+                on the Partners page.
+              </span>
+            ) : (
+              <span>
+                No payment is collected from a customer for a partner order. The
+                full <span className="font-bold">{money(totalPrice)}</span> goes
+                on the selected partner&apos;s account, settled later on the
+                Partners page.
+              </span>
+            )}
             {hasTransferUnit && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-orange-300/80 uppercase tracking-wider">
@@ -1039,7 +1278,7 @@ export function FinancialForm({
                         onCancel={cancelNewItem}
                       />
                     )}
-                  {!collapsedCategories.has(category) && (
+                  <Collapsible open={!collapsedCategories.has(category)}>
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
                       {filteredItems.map((item) => {
                         const inCart = cart.get(item.key);
@@ -1050,24 +1289,30 @@ export function FinancialForm({
                         const cardImage = getCardImage(item);
 
                         return (
-                          <div key={item.key} className="relative">
+                          <div
+                            key={item.key}
+                            className="relative flex flex-col"
+                          >
                             <div
-                              className={`w-full p-3 rounded-lg border transition-all ${
+                              className={`flex-1 flex flex-col w-full p-3 rounded-lg border transition-all ${
                                 qty > 0
-                                  ? "border-violet-500/40 ring-1 ring-violet-500/30"
+                                  ? brand.selected
                                   : "border-white/10 hover:border-white/20"
-                              } ${isExpanded ? "ring-2 ring-violet-500/50" : ""}`}
+                              } ${isExpanded ? brand.selectedStrong : ""}`}
                               style={{
                                 backgroundColor: `${getCategoryColor(item.category)}18`,
                               }}
                             >
                               <div
                                 onClick={() => handleCardClick(item)}
-                                className="cursor-pointer"
+                                className="flex-1 flex flex-col cursor-pointer"
                               >
                                 <div className="flex items-center justify-between gap-2 mb-1">
-                                  <div className="text-white font-medium text-sm truncate">
-                                    {item.label}
+                                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                    <div className="text-white font-medium text-sm truncate">
+                                      {item.label}
+                                    </div>
+                                    {cardImage && <CardGroupTag item={item} />}
                                   </div>
                                   {qty > 0 && (
                                     <div className="flex items-center gap-1 shrink-0">
@@ -1076,12 +1321,14 @@ export function FinancialForm({
                                           e.stopPropagation();
                                           handleQuantityChange(item, -1);
                                         }}
-                                        className="w-5 h-5 rounded-full bg-violet-500/20 hover:bg-violet-500/30 text-violet-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
+                                        className={`w-5 h-5 rounded-full ${brand.stepper} flex items-center justify-center transition-colors cursor-pointer text-xs font-bold`}
                                         type="button"
                                       >
                                         −
                                       </button>
-                                      <span className="w-4 text-center text-xs font-bold text-violet-400">
+                                      <span
+                                        className={`w-4 text-center text-xs font-bold ${brand.text}`}
+                                      >
                                         {qty}
                                       </span>
                                       <button
@@ -1089,7 +1336,7 @@ export function FinancialForm({
                                           e.stopPropagation();
                                           handleQuantityChange(item, 1);
                                         }}
-                                        className="w-5 h-5 rounded-full bg-violet-500/20 hover:bg-violet-500/30 text-violet-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
+                                        className={`w-5 h-5 rounded-full ${brand.stepper} flex items-center justify-center transition-colors cursor-pointer text-xs font-bold`}
                                         type="button"
                                       >
                                         +
@@ -1103,7 +1350,10 @@ export function FinancialForm({
                                     alt={`${item.category} ${item.label}`}
                                   />
                                 ) : (
-                                  <div className="h-4 flex items-center justify-center">
+                                  // flex-1: in a row where another card has
+                                  // artwork, this grows to the artwork's
+                                  // height so Cost / Sell line up below it.
+                                  <div className="min-h-4 flex-1 flex items-center justify-center">
                                     <span className="text-slate-500 text-xs truncate">
                                       {item.subcategory}
                                     </span>
@@ -1131,7 +1381,7 @@ export function FinancialForm({
                         );
                       })}
                     </div>
-                  )}
+                  </Collapsible>
                 </div>
               );
             })}
@@ -1187,19 +1437,44 @@ export function FinancialForm({
           onConfirm={handleSubmit}
           isSubmitting={localSubmitting}
           title={activeSession ? "Add to Cart" : "Confirm Payment"}
-          subtitle={`${totalItems} items — ${money(totalPrice)}`}
           accentColor={
             activeProvider === "WHISH_APP"
-              ? "bg-[#ff0a46] hover:bg-[#ff0a46]/90 text-white"
+              ? PROVIDER_BRANDS.WHISH.button
               : activeProvider === "OMT_APP"
-                ? "bg-[#ffde00] hover:bg-[#ffde00]/90 text-black"
+                ? PROVIDER_BRANDS.OMT.button
                 : "bg-violet-600 hover:bg-violet-500 text-white"
           }
-          totalAmount={totalPrice}
+          {...(isMixedBasket
+            ? {
+                // LIRA-326 — every provider's picks, paid once. A discount
+                // only on a one-currency basket (never converted), capped at
+                // the basket's profit and spread over the sales by profit.
+                subtitle: `${basketSheet.count} items — ${basketSheet.totals
+                  .map((t) =>
+                    t.currency === "LBP"
+                      ? `${Math.round(t.amount).toLocaleString()} LBP`
+                      : `$${t.amount.toFixed(2)}`,
+                  )
+                  .join(" + ")}`,
+                items: basketSheet.items,
+                totals: basketSheet.totals,
+                totalAmount: basketSheet.totalAmount,
+                totalAmountCurrency: basketSheet.currency,
+                currency: basketSheet.currency,
+                showDiscount: basketSheet.singleCurrency,
+                maxDiscount: basketSheet.maxDiscount,
+              }
+            : {
+                subtitle: `${totalItems} items — ${money(totalPrice)}`,
+                items: sheetItems,
+                totalAmount: totalPrice,
+                totalAmountCurrency: currency,
+                currency,
+                showDiscount: true,
+                maxDiscount,
+              })}
           onKeptChange={setKeptChange}
           onReturnChange={setReturnLegs}
-          totalAmountCurrency={currency}
-          currency={currency}
           paymentMethods={methods}
           clientId={clientId}
           fetchClientVouchers={fetchClientVouchers}
@@ -1227,8 +1502,6 @@ export function FinancialForm({
             : {})}
           paymentInputKey={paymentInputKey}
           initialPaymentMethod={initialPaymentMethod}
-          showDiscount={true}
-          maxDiscount={maxDiscount}
           onDiscountChange={setDiscount}
           // LIRA-319: "− Discount | + Extra" on a walk-in sale only (a
           // session or a partner order never opens this sheet; a RECEIVE is
@@ -1266,7 +1539,7 @@ export function FinancialForm({
                 setPaymentInputKey((k) => k + 1);
               }}
               placeholder="Client name (optional)"
-              className="w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500"
+              className={`w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${brand.focusBorder}`}
             />
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
@@ -1278,7 +1551,7 @@ export function FinancialForm({
                 value={clientPhone}
                 onChange={(e) => setClientPhone(e.target.value)}
                 placeholder="Phone number (registers a new client)"
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-10 pr-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-violet-500"
+                className={`w-full bg-slate-800 border border-slate-600 rounded-lg pl-10 pr-3 py-2 text-sm text-white font-mono focus:outline-none ${brand.focusBorder}`}
               />
             </div>
             {clientName.trim() && clientPhone.trim() && !clientId && (
@@ -1287,10 +1560,14 @@ export function FinancialForm({
               </p>
             )}
           </div>
-          <TransactionTimeOverride
-            value={transactionTime}
-            onChange={setTransactionTime}
-          />
+          {/* LIRA-326: a combined basket is booked "now" — the basket
+              checkout takes no backdated time, so the field is not offered. */}
+          {!isMixedBasket && (
+            <TransactionTimeOverride
+              value={transactionTime}
+              onChange={setTransactionTime}
+            />
+          )}
         </PaymentSheet>
       </div>
 

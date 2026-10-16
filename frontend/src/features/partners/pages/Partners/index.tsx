@@ -27,6 +27,8 @@ import {
   Eraser,
 } from "lucide-react";
 import { useShopBase } from "@/hooks/useShopBase";
+import { PROVIDER_BRANDS, brandOf } from "@/shared/brand/providerBrands";
+import { ProviderLogo } from "@/shared/components/ProviderLogo";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSellRate } from "@/hooks/useSellRate";
 import type {
@@ -1474,7 +1476,14 @@ function DetailPanel({
                 </span>
               )}
               {partner.system_association && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-[#ff0a46]/15 text-[#ff0a46] border border-[#ff0a46]/30 font-semibold">
+                <span
+                  className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-semibold ${PROVIDER_BRANDS[brandOf(partner.system_association) ?? "WHISH"].badge} ${PROVIDER_BRANDS[brandOf(partner.system_association) ?? "WHISH"].border}`}
+                >
+                  <ProviderLogo
+                    brand={brandOf(partner.system_association) ?? "WHISH"}
+                    variant="icon"
+                    size={14}
+                  />
                   {partner.system_association} System
                 </span>
               )}
@@ -1843,7 +1852,14 @@ function PartnerCard({
             </span>
           )}
           {p.system_association && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#ff0a46]/15 text-[#ff0a46] font-semibold">
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-semibold ${PROVIDER_BRANDS[brandOf(p.system_association) ?? "WHISH"].badge}`}
+            >
+              <ProviderLogo
+                brand={brandOf(p.system_association) ?? "WHISH"}
+                variant="icon"
+                size={14}
+              />
               {p.system_association}
             </span>
           )}

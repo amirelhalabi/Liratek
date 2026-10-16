@@ -47,6 +47,8 @@ import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggl
 import type { Partner } from "@/types/electron";
 import type { CreateFinancialServicePayload } from "@liratek/core";
 import { getLoadErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
+import { ProviderLogo } from "@/shared/components/ProviderLogo";
 import {
   OMT_COMMISSION_RATES,
   INTRA_FEE_TIERS,
@@ -138,8 +140,8 @@ const PROVIDER_DEFAULT_METHOD: Record<Provider, string> = {
 };
 
 const PROVIDER_BADGE_COLORS: Record<Provider, string> = {
-  OMT: "bg-[#ffde00]/10 text-[#ffde00]",
-  WHISH: "bg-[#ff0a46]/10 text-[#ff0a46]",
+  OMT: PROVIDER_BRANDS.OMT.badge,
+  WHISH: PROVIDER_BRANDS.WHISH.badge,
 };
 
 const SERVICE_TYPE_ICONS: Record<ServiceType, typeof Send> = {
@@ -349,8 +351,7 @@ export default function Services() {
   // amount or the fee, so the provider fee and the supplier amount stay
   // exactly as without it.
   const [extraCharge, setExtraCharge] = useState(0);
-  const extraApplies =
-    serviceType === "SEND" && !activeSession && !forPartner;
+  const extraApplies = serviceType === "SEND" && !activeSession && !forPartner;
   // Bumped after a successful submit so the payment box remounts empty
   // (its extra field is its own state).
   const [paymentBoxNonce, setPaymentBoxNonce] = useState(0);
@@ -630,7 +631,10 @@ export default function Services() {
       logger.error("Failed to load data:", error);
       // LIRA-282: a rate-limit refusal says "wait a minute" instead.
       setLoadError(
-        getLoadErrorMessage(error, "Failed to load data. Tap refresh to retry."),
+        getLoadErrorMessage(
+          error,
+          "Failed to load data. Tap refresh to retry.",
+        ),
       );
     } finally {
       setIsLoading(false);
@@ -1498,10 +1502,10 @@ export default function Services() {
 
   // Derived accent colors based on active provider
   const providerAccent = useMemo(
-    () =>
-      provider === "OMT"
-        ? { ring: "ring-[#ffde00]/30", glow: "shadow-[#ffde00]/10" }
-        : { ring: "ring-[#ff0a46]/30", glow: "shadow-[#ff0a46]/10" },
+    () => ({
+      ring: PROVIDER_BRANDS[provider].ring,
+      glow: PROVIDER_BRANDS[provider].glow,
+    }),
     [provider],
   );
 
@@ -1610,12 +1614,13 @@ export default function Services() {
                           ? "bg-slate-900/60 text-slate-600 cursor-not-allowed opacity-50"
                           : isActive
                             ? isOmt
-                              ? "bg-[#ffde00] text-black"
-                              : "bg-[#ff0a46] text-white"
+                              ? PROVIDER_BRANDS.OMT.solid
+                              : PROVIDER_BRANDS.WHISH.solid
                             : "bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800"
                       }`}
                     >
                       <Icon size={14} />
+                      <ProviderLogo brand={prov} variant="icon" size={18} />
                       <span>{prov}</span>
                       <span
                         className={`text-[11px] font-medium ${isActive ? "opacity-80" : "opacity-50"}`}
@@ -2447,9 +2452,7 @@ export default function Services() {
                     key={`${currency}-${paymentBoxNonce}`}
                     // LIRA-319: an extra-only line on a walk-in SEND
                     // (showDiscount stays false — see below).
-                    {...(extraApplies
-                      ? { onExtraChange: setExtraCharge }
-                      : {})}
+                    {...(extraApplies ? { onExtraChange: setExtraCharge } : {})}
                     // No discount on an OMT/Whish system transfer: the whole
                     // fee is owed to the provider and the shop's commission
                     // is only booked at settlement (Whish system: none), so
@@ -2758,9 +2761,7 @@ export default function Services() {
                 className={`w-full py-3.5 rounded-xl font-bold text-base shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${
                   isSubmitting || feeSectionBlocksSubmit
                     ? "bg-slate-700 text-slate-300 cursor-not-allowed"
-                    : provider === "OMT"
-                      ? "bg-[#ffde00] hover:bg-[#ffe933] text-black shadow-[#ffde00]/20"
-                      : "bg-[#ff0a46] hover:bg-[#ff2d5e] text-white shadow-[#ff0a46]/20"
+                    : PROVIDER_BRANDS[provider].button
                 }`}
               >
                 {isSubmitting ? (
@@ -2911,8 +2912,13 @@ export default function Services() {
                     >
                       <td className="px-6 py-4">
                         <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${PROVIDER_BADGE_COLORS[tx.provider]}`}
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${PROVIDER_BADGE_COLORS[tx.provider]}`}
                         >
+                          <ProviderLogo
+                            brand={tx.provider}
+                            variant="icon"
+                            size={18}
+                          />
                           {tx.provider}
                         </span>
                       </td>

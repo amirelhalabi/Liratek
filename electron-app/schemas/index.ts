@@ -29,6 +29,8 @@ import {
   lotoCheckpointSettleSchema,
   lotoCheckpointsSettleBatchSchema,
   sessionCheckoutSchema,
+  rechargeBasketCheckoutSchema,
+  rechargePartnerOrderSchema,
   holdMoneyCreateSchema,
   holdMoneyCollectSchema,
   holdMoneyVoidPickupSchema,
@@ -146,6 +148,8 @@ import {
   type LotoCheckpointSettleInput,
   type LotoCheckpointsSettleBatchInput,
   type SessionCheckoutInput,
+  type RechargeBasketCheckoutInput,
+  type RechargePartnerOrderInput,
   type SupplierLedgerEntryInput,
   type SupplierSettleInput,
   type SupplierSettleAccountInput,
@@ -1073,6 +1077,18 @@ export const VoucherCreateSchema =
 // against zod 3); the runtime API is identical.
 export const SessionCheckoutSchema =
   sessionCheckoutSchema as unknown as z.ZodSchema<SessionCheckoutInput>;
+
+// LIRA-326 — Mobile Recharge basket checkout: the session checkout envelope
+// minus sessionId (the core service creates the session), plus clientPhone.
+// One core contract shared with POST /api/recharge-basket/checkout (rule 14);
+// cast bridges the zod major mismatch, same as SessionCheckoutSchema above.
+export const RechargeBasketCheckoutSchema =
+  rechargeBasketCheckoutSchema as unknown as z.ZodSchema<RechargeBasketCheckoutInput>;
+// LIRA-327 — the basket-wide For Partner submit (every provider's partner
+// sales, all-or-nothing). One core contract shared with
+// POST /api/recharge-basket/partner-order (rule 14).
+export const RechargePartnerOrderSchema =
+  rechargePartnerOrderSchema as unknown as z.ZodSchema<RechargePartnerOrderInput>;
 
 // LIRA-297 item 3 — the non-checkout session writes, the daily-closing edit
 // and voucher-image save, each shared with its REST twin via

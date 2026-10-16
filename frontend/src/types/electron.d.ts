@@ -35,6 +35,8 @@ import type {
   CreateCustomServicePayload,
   // Rule 21 — session:checkout payload (core schema input).
   SessionCheckoutPayload,
+  RechargeBasketCheckoutPayload,
+  RechargePartnerOrderPayload,
   // LIRA-293 — change your own password (core schema input + answer).
   ChangeOwnPasswordInput,
   ChangeOwnPasswordResult,
@@ -80,7 +82,12 @@ import type {
 } from "@liratek/core";
 
 /** LIRA-306 — the plain envelope the offline:* channels reply with. */
-type OfflineEnvelope = { success: boolean; data?: unknown; error?: string; code?: string };
+type OfflineEnvelope = {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  code?: string;
+};
 // LIRA-297 item 3 — session / daily-closing / voucher-image / setup payloads
 // (core schema inputs, rule 21). Must match preload.ts's bindings.
 import type {
@@ -1646,7 +1653,10 @@ export interface ElectronAPI {
     addTransaction: (
       data: import("@liratek/core").CreateFinancialServicePayload,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
-    getHistory: (provider?: string, opts?: { all?: boolean }) => Promise<
+    getHistory: (
+      provider?: string,
+      opts?: { all?: boolean },
+    ) => Promise<
       Array<{
         id: number;
         provider: string;
@@ -3564,7 +3574,11 @@ export interface ElectronAPI {
    * `useApi()` (getOfflineStatus, pairThisPc, …), never directly.
    */
   offline: {
-    status: () => Promise<{ success: boolean; data?: OfflineStatusView; error?: string }>;
+    status: () => Promise<{
+      success: boolean;
+      data?: OfflineStatusView;
+      error?: string;
+    }>;
     pair: (payload: DesktopPairInput) => Promise<{
       success: boolean;
       data?: { deviceNo: number; shopName: string };
@@ -3574,7 +3588,11 @@ export interface ElectronAPI {
     unpair: (payload: DesktopUnpairInput) => Promise<OfflineEnvelope>;
     goOffline: () => Promise<OfflineEnvelope>;
     backToWeb: () => Promise<OfflineEnvelope>;
-    sendNow: () => Promise<{ success: boolean; data?: { sent: number; waiting: number }; error?: string }>;
+    sendNow: () => Promise<{
+      success: boolean;
+      data?: { sent: number; waiting: number };
+      error?: string;
+    }>;
     openWebApp: () => Promise<OfflineEnvelope>;
     installUpdate: () => Promise<OfflineEnvelope>;
   };
@@ -3628,7 +3646,9 @@ export interface ElectronAPI {
     getAllActive: () => Promise<{
       success: boolean;
       data?: CarrierLine[];
-    recharge: (data: RechargeResaleLineInput) => Promise<ResaleLineRechargeResult>;
+      recharge: (
+        data: RechargeResaleLineInput,
+      ) => Promise<ResaleLineRechargeResult>;
       error?: string;
     }>;
     getAllAdmin: () => Promise<{
@@ -3844,6 +3864,31 @@ export interface ElectronAPI {
       id: number;
       work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  };
+
+  // LIRA-326 — Mobile Recharge basket checkout (automatic walk-in session).
+  rechargeBasket: {
+    checkout: (data: RechargeBasketCheckoutPayload) => Promise<{
+      success: boolean;
+      sessionId?: number;
+      results?: Array<{
+        cartItemId: string;
+        module: string;
+        transactionId: number;
+        success: boolean;
+        error?: string;
+      }>;
+      checkoutTotalUsd?: number;
+      checkoutTotalLbp?: number;
+      itemCount?: number;
+      error?: string;
+    }>;
+    // LIRA-327 — basket-wide For Partner submit (all-or-nothing).
+    partnerOrder: (data: RechargePartnerOrderPayload) => Promise<{
+      success: boolean;
+      ids?: number[];
+      error?: string;
+    }>;
   };
 
   // Hold Money (cash held on behalf of a client)

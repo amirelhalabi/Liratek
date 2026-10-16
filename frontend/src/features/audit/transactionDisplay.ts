@@ -38,6 +38,7 @@ import {
   transactionSummary,
   transactionTitle,
 } from "@liratek/core";
+import { brandOf, type ProviderBrandKey } from "@/shared/brand/providerBrands";
 import {
   formatLegAmount,
   extraCurrencyLegs,
@@ -171,14 +172,6 @@ export function formatAmount(
 // Transaction amount vs cash movement (production test 2026-10-07)
 // ---------------------------------------------------------------------------
 
-
-
-
-
-
-
-
-
 /** The summary line to SHOW for a row — core's shared wording (LIRA-301). */
 export function displaySummary(row: TransactionRow): string | null {
   return transactionSummary(row);
@@ -188,7 +181,6 @@ export function displaySummary(row: TransactionRow): string | null {
 // Structured payment legs (LIRA-064) — formatPaymentLegs now lives in
 // ../cashFlow (imported above).
 // ---------------------------------------------------------------------------
-
 
 /**
  * Per-leg method label for the payment-detail rows (LIRA-067 expander /
@@ -231,32 +223,43 @@ export function formatPaymentMethods(
   labelByCode: Map<string, string>,
 ): string {
   if (!legs || legs.length === 0) return "—";
-  const hasInLeg = legs.some((leg) => leg.direction === "in");
-  const relevant = hasInLeg
-    ? legs.filter((leg) => leg.direction === "in")
-    : legs;
   const labels = new Set<string>();
-  for (const leg of relevant) {
+  for (const leg of methodColumnLegs(legs)) {
     labels.add(labelByCode.get(leg.method) ?? fallbackMethodLabel(leg.method));
   }
   return labels.size ? [...labels].join(" + ") : "—";
 }
 
+/** The legs the Method column names: "in" legs when any exist, else all. */
+function methodColumnLegs(
+  legs: TransactionPaymentLeg[],
+): TransactionPaymentLeg[] {
+  const hasInLeg = legs.some((leg) => leg.direction === "in");
+  return hasInLeg ? legs.filter((leg) => leg.direction === "in") : legs;
+}
 
-
-
+/**
+ * The Whish/OMT brand of the Method column's text, for its icon — only when
+ * EVERY leg the column names belongs to that one brand. A mixed split
+ * ("Cash + OMT Wallet") returns null: one icon in front would read as if the
+ * whole payment went through that wallet.
+ */
+export function paymentMethodsBrand(
+  legs: TransactionPaymentLeg[] | undefined,
+): ProviderBrandKey | null {
+  if (!legs || legs.length === 0) return null;
+  const brands = new Set(methodColumnLegs(legs).map((l) => brandOf(l.method)));
+  if (brands.size !== 1) return null;
+  return [...brands][0] ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Checkpoint drawer-amount breakdown (shown in the summary column)
 // ---------------------------------------------------------------------------
 
-
-
-
 // ---------------------------------------------------------------------------
 // Cash flow direction
 // ---------------------------------------------------------------------------
-
 
 /**
  * A supplier credit booked in our favour with NO cash movement — e.g. the fixed
@@ -285,9 +288,6 @@ export {
   sessionReversalLine,
 };
 export type { CheckpointAmountEntry } from "@liratek/core";
-
-
-
 
 /**
  * LIRA-137 owner follow-up (2026-08-15) — "either method picked, should

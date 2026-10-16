@@ -4,6 +4,7 @@ import { Suspense, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { SessionProvider } from "@/features/sessions/context/SessionContext";
+import { RechargeBasketProvider } from "@/features/recharge/context/RechargeBasketContext";
 import { ModuleProvider } from "@/contexts/ModuleContext";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import { ActiveModuleProvider } from "@/contexts/ActiveModuleContext";
@@ -553,7 +554,13 @@ function App() {
                             runs with an authenticated session (seeding requires
                             admin/staff role) and re-runs when the user logs in. */}
                             <MobileServiceItemsProvider>
-                              <AppRoutes />
+                              {/* LIRA-326: the Mobile Recharge basket sits
+                              above the routes so picks survive switching
+                              provider tabs and leaving the page (not kept
+                              across a reload). */}
+                              <RechargeBasketProvider>
+                                <AppRoutes />
+                              </RechargeBasketProvider>
                             </MobileServiceItemsProvider>
                           </SessionProvider>
                         </CurrencyProvider>

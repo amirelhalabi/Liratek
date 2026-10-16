@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useApi, Select } from "@liratek/ui";
 import type { PaymentMethodEntity } from "@liratek/ui";
+import { BrandedLabel } from "@/shared/components/BrandedLabel";
 
 interface FormData {
   code: string;
@@ -182,7 +183,9 @@ export default function PaymentMethodsManager() {
                     <span className="ml-1 text-[10px] text-amber-400">🔒</span>
                   )}
                 </td>
-                <td className="py-2 px-3 text-white">{m.label}</td>
+                <td className="py-2 px-3 text-white">
+                  <BrandedLabel code={m.code} label={m.label} />
+                </td>
                 <td className="py-2 px-3 text-slate-300 font-mono text-xs">
                   {m.drawer_name}
                 </td>

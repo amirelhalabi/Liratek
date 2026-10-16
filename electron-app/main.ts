@@ -662,6 +662,8 @@ async function registerHandlers() {
       await import("./handlers/resaleLineHandlers.js");
     const wrongNumberHandlers =
       await import("./handlers/wrongNumberHandlers.js");
+    const rechargeBasketHandlers =
+      await import("./handlers/rechargeBasketHandlers.js");
     const warrantyHandlers = await import("./handlers/warrantyHandlers.js");
     const databaseResetHandlers =
       await import("./handlers/databaseResetHandlers.js");
@@ -712,6 +714,7 @@ async function registerHandlers() {
     carrierLineHandlers.registerCarrierLineHandlers();
     resaleLineHandlers.registerResaleLineHandlers();
     wrongNumberHandlers.registerWrongNumberHandlers();
+    rechargeBasketHandlers.registerRechargeBasketHandlers();
     warrantyHandlers.registerWarrantyHandlers();
     licenseHandlers.registerLicenseHandlers();
     databaseResetHandlers.registerDatabaseResetHandlers();

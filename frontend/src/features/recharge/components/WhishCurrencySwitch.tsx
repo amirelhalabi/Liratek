@@ -1,4 +1,5 @@
 import type { CatalogCurrency } from "@liratek/core";
+import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 
 /**
  * LIRA-324 — the LBP | USD switch on Whish App → Bills, like the currency
@@ -32,7 +33,7 @@ export function WhishCurrencySwitch({
             }}
             className={`min-w-[3.5rem] rounded-md px-3 py-1 text-sm font-semibold transition-colors ${
               active
-                ? "bg-[#ff0a46] text-white shadow"
+                ? `${PROVIDER_BRANDS.WHISH.solid} shadow`
                 : "text-slate-400 hover:text-white"
             }`}
           >

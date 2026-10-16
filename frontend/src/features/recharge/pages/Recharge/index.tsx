@@ -1,3 +1,5 @@
+import { History, CirclePlus, ArrowUpFromLine } from "lucide-react";
+import { ExpandingIconButton } from "@/shared/components/ExpandingIconButton";
 import {
   useState,
   useEffect,
@@ -10,6 +12,7 @@ import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
+import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 import { appEvents, useApi } from "@liratek/ui";
 import type { ResaleLineRow } from "@liratek/core";
 import { costOfValidityDaysUsd } from "@liratek/core";
@@ -23,6 +26,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useSellRate } from "@/hooks/useSellRate";
+import { useRechargeBasketCounts } from "../../context/RechargeBasketContext";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import type { PaymentLine, CarrierLineEntity } from "@liratek/ui";
 import { isSameLebanesePhone } from "@liratek/core";
@@ -116,6 +120,17 @@ export default function MobileRecharge() {
   const [tabCartCounts, setTabCartCounts] = useState<Record<string, number>>(
     {},
   );
+  // LIRA-326: the picks live in the shared Mobile Recharge basket, so every
+  // tab shows its count, whichever form is mounted; the mounted form adds
+  // what only it knows (staged bills).
+  const basketCounts = useRechargeBasketCounts();
+  const cartCounts = useMemo(() => {
+    const out: Record<string, number> = { ...basketCounts };
+    for (const [k, v] of Object.entries(tabCartCounts)) {
+      out[k] = (out[k] ?? 0) + v;
+    }
+    return out;
+  }, [basketCounts, tabCartCounts]);
 
   const [finTransactions, setFinTransactions] = useState<
     FinancialTransaction[]
@@ -544,6 +559,10 @@ export default function MobileRecharge() {
       PROVIDER_CONFIGS.find((p: ProviderConfig) => p.key === activeProvider),
     [activeProvider],
   );
+  // The active provider's brand colours (logo colours from its own app).
+  const activeBrand = activeConfig?.brand
+    ? PROVIDER_BRANDS[activeConfig.brand]
+    : undefined;
 
   // LIRA-250: `api` read via `apiRef` (declared above near `loadShopLines`),
   // not the `api` identity directly — this function sits in the
@@ -1853,7 +1872,7 @@ export default function MobileRecharge() {
           onSelectProvider={(p) => {
             startTransition(() => setActiveProvider(p));
           }}
-          cartCounts={tabCartCounts}
+          cartCounts={cartCounts}
         />
 
         {/* Right zone: today's metrics, then a divider, then actions */}
@@ -1924,17 +1943,16 @@ export default function MobileRecharge() {
               {(activeConfig.formMode === "financial" ||
                 activeConfig.formMode === "crypto" ||
                 activeConfig.formMode === "telecom") && (
-                <button
+                <ExpandingIconButton
+                  icon={History}
+                  label="History"
                   onClick={async () => {
                     if (activeConfig?.formMode === "telecom") {
                       await loadRechargeHistory();
                     }
                     setShowHistory(true);
                   }}
-                  className="h-11 px-4 inline-flex items-center rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
-                >
-                  History
-                </button>
+                />
               )}
 
               {/* MTC/Alfa deliberately excluded (Phase 8.2): the "Customer
@@ -1945,23 +1963,21 @@ export default function MobileRecharge() {
                 activeConfig.key === "WHISH_APP" ||
                 activeConfig.key === "iPick" ||
                 activeConfig.key === "Katsh") && (
-                <button
+                <ExpandingIconButton
+                  icon={CirclePlus}
+                  label="Top-Up"
                   onClick={handleTopUpClick}
-                  className="h-11 px-4 inline-flex items-center rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
-                >
-                  Top-Up
-                </button>
+                />
               )}
 
               {/* LIRA-192 (D10/D12/D16): OMT App only, no iPick/Katsh symmetry. */}
               {activeConfig.key === "OMT_APP" && (
-                <button
+                <ExpandingIconButton
                   data-testid="omt-app-cashout-button"
+                  icon={ArrowUpFromLine}
+                  label="Cash Out to OMT"
                   onClick={() => setShowCashoutModal(true)}
-                  className="h-11 px-4 inline-flex items-center rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
-                >
-                  Cash Out to OMT
-                </button>
+                />
               )}
             </div>
           </div>
@@ -2119,7 +2135,8 @@ export default function MobileRecharge() {
                 value={whishAppMode}
                 onChange={(val) => setWhishAppMode(val as "bills" | "transfer")}
                 accentColor="red"
-                customColor="#ff0a46"
+                customColor={activeBrand?.hex}
+                customTextColor={activeBrand?.onHex}
                 size="sm"
                 className="mb-4"
               />

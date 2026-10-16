@@ -25,6 +25,10 @@ import type {
   CreateExpenseRequest,
   // Rule 21 — session:checkout and custom-services:add payloads.
   SessionCheckoutPayload,
+  // LIRA-326 — Mobile Recharge basket checkout payload (rule 21).
+  RechargeBasketCheckoutPayload,
+  // LIRA-327 — basket-wide For Partner submit payload (rule 21).
+  RechargePartnerOrderPayload,
   CreateCustomServicePayload,
   // LIRA-293 — change your own password (core schema input, rule 21).
   ChangeOwnPasswordInput,
@@ -1897,6 +1901,16 @@ contextBridge.exposeInMainWorld("api", {
       id: number;
       work_status: "Received" | "In_Progress" | "Ready" | "Delivered";
     }) => ipcRenderer.invoke("custom-services:set-work-status", data),
+  },
+
+  // LIRA-326 — Mobile Recharge basket across providers: paid once, recorded
+  // as an automatic walk-in customer session (core RechargeBasketService).
+  rechargeBasket: {
+    checkout: (data: RechargeBasketCheckoutPayload) =>
+      ipcRenderer.invoke("recharge-basket:checkout", data),
+    // LIRA-327 — every provider's partner sales in one all-or-nothing submit.
+    partnerOrder: (data: RechargePartnerOrderPayload) =>
+      ipcRenderer.invoke("recharge-basket:partner-order", data),
   },
 
   // Hold Money (cash held on behalf of a client)

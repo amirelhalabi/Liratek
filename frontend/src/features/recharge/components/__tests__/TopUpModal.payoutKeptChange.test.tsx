@@ -67,7 +67,9 @@ describe("TopUpModal — From Client payout keeps a small leftover as profit", (
     submit();
 
     expect(onConfirmClient).toHaveBeenCalledTimes(1);
-    const parsed = topUpFromClientSchema.parse(onConfirmClient.mock.calls[0][0]);
+    const parsed = topUpFromClientSchema.parse(
+      onConfirmClient.mock.calls[0][0],
+    );
     expect(parsed.payments).toEqual([
       expect.objectContaining({ currencyCode: "USD", amount: 98.5 }),
     ]);
@@ -80,7 +82,9 @@ describe("TopUpModal — From Client payout keeps a small leftover as profit", (
     renderModal(onConfirmClient);
     submit();
 
-    const parsed = topUpFromClientSchema.parse(onConfirmClient.mock.calls[0][0]);
+    const parsed = topUpFromClientSchema.parse(
+      onConfirmClient.mock.calls[0][0],
+    );
     expect(parsed.kept_change_usd ?? 0).toBe(0);
     expect(parsed.kept_change_lbp ?? 0).toBe(0);
   });

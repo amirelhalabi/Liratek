@@ -63,9 +63,9 @@ describe("OmtAppCashoutModal", () => {
     });
 
     expect(mockCommission).toHaveBeenCalledWith(100, "USD");
-    expect(screen.getByTestId("omt-app-cashout-commission-preview")).toHaveTextContent(
-      "$0.10",
-    );
+    expect(
+      screen.getByTestId("omt-app-cashout-commission-preview"),
+    ).toHaveTextContent("$0.10");
     // Resulting account credit = principal + commission (D11).
     expect(screen.getByText("$100.10")).toBeInTheDocument();
   });

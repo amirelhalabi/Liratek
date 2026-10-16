@@ -17,6 +17,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { DecimalInput } from "@liratek/ui";
+import { BrandedLabel } from "@/shared/components/BrandedLabel";
+import { PROVIDER_BRANDS, brandOf } from "@/shared/brand/providerBrands";
 import type { DrawerType, Currency } from "../types";
 import { DRAWER_CONFIGS } from "../config/drawers";
 import {
@@ -101,6 +103,14 @@ export function DrawerCard({
   usdTotal,
 }: DrawerCardProps) {
   const config = DRAWER_CONFIGS[drawer];
+  // Branded drawers take their frame and title colour from the provider
+  // brand (same as the Dashboard cards); General keeps its config colours.
+  const brandKey = brandOf(drawer);
+  const brand = brandKey ? PROVIDER_BRANDS[brandKey] : null;
+  const frameClass = brand
+    ? `${brand.border} ${brand.tint}`
+    : `${config.color.border} ${config.color.background}`;
+  const titleClass = brand ? brand.accentText : "text-white";
 
   const getIcon = () => {
     switch (config.icon) {
@@ -237,7 +247,9 @@ export function DrawerCard({
           </div>
         </div>
         <div className="flex items-center gap-2 pl-[4.75rem] text-[11px] text-slate-500">
-          <span>Expected: {formatCurrencyAmount(line.expectedCredits, "USD")}</span>
+          <span>
+            Expected: {formatCurrencyAmount(line.expectedCredits, "USD")}
+          </span>
           {isDirty && (
             <button
               type="button"
@@ -321,13 +333,15 @@ export function DrawerCard({
 
   return (
     <div
-      className={`border-2 rounded-xl p-5 transition-all hover:shadow-lg ${config.color.border} ${config.color.background}`}
+      className={`border-2 rounded-xl p-5 transition-all hover:shadow-lg ${frameClass}`}
     >
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <div className="bg-white/10 p-2 rounded-lg text-white">{getIcon()}</div>
         <div className="flex-1">
-          <h3 className="font-bold text-lg text-white">{config.label}</h3>
+          <h3 className={`font-bold text-lg ${titleClass}`}>
+            <BrandedLabel code={drawer} label={config.label} size={16} />
+          </h3>
           <p className="text-xs text-slate-400">
             {carrierLines && carrierLines.length > 0
               ? `${carrierLines.length} active line${carrierLines.length > 1 ? "s" : ""}`

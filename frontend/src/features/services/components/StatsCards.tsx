@@ -1,4 +1,5 @@
 import { TrendingUp, Calendar } from "lucide-react";
+import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 
 interface CurrencyStats {
   currency: string;
@@ -71,9 +72,13 @@ export function StatsCards({
     <div className="flex flex-wrap gap-2">
       {/* Today */}
       <div className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white">
-        <TrendingUp className="w-4 h-4 shrink-0 text-[#ffde00]" />
+        <TrendingUp
+          className={`w-4 h-4 shrink-0 ${PROVIDER_BRANDS.OMT.text}`}
+        />
         <span className="font-medium whitespace-nowrap">Today</span>
-        <span className="font-bold text-[#ffde00] flex flex-col items-end leading-tight">
+        <span
+          className={`font-bold ${PROVIDER_BRANDS.OMT.text} flex flex-col items-end leading-tight`}
+        >
           <span>
             {todayByCurrency && todayByCurrency.length > 0
               ? formatByCurrency(todayByCurrency)
