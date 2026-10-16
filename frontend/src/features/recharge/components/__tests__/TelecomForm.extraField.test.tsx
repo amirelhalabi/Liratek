@@ -11,7 +11,7 @@
  * (stable useApi mock, rule 25).
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { TelecomForm } from "../TelecomForm";
 import type { FinancialTransaction } from "../../types";
 
@@ -123,7 +123,6 @@ describe("TelecomForm — payment-sheet extra (LIRA-319)", () => {
         {...buildProps({ isShopLineMatch: false, onExtraChange })}
       />,
     );
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /proceed to pay/i }));
     fireEvent.click(await screen.findByTestId("discount-mode-extra"));
     fireEvent.change(screen.getByLabelText("Extra", { selector: "input" }), {
@@ -142,7 +141,6 @@ describe("TelecomForm — payment-sheet extra (LIRA-319)", () => {
         })}
       />,
     );
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
     fireEvent.click(
       screen.getByRole("button", { name: /proceed to pay out/i }),
     );

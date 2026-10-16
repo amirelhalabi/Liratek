@@ -25,7 +25,7 @@
  * 100,000/$).
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { TelecomForm } from "../TelecomForm";
 import type { FinancialTransaction } from "../../types";
 
@@ -138,7 +138,6 @@ describe("TelecomForm — Alfa Gift grid prices from the configured sell rate (L
     expect(localStorage.getItem("alfa_credit_sell_rate_lbp")).toBeNull();
 
     render(<TelecomForm {...buildProps({ alfaCreditSellRate: 110000 })} />);
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 
     expect(await screen.findByText("1 GB")).toBeInTheDocument();
     expect(screen.getByText("Sell: 385,000 LBP")).toBeInTheDocument();
@@ -152,7 +151,6 @@ describe("TelecomForm — Alfa Gift grid prices from the configured sell rate (L
         {...buildProps({ alfaCreditSellRate: 110000, setGiftPriceLbp })}
       />,
     );
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 
     const card = await screen.findByText("1 GB");
     card.click();

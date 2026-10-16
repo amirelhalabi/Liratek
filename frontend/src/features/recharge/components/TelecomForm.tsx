@@ -32,7 +32,6 @@ import { HistoryModal } from "./HistoryModal";
 import { useSellRate } from "@/hooks/useSellRate";
 import { PaymentSheet } from "./PaymentSheet";
 import { CardGridPayView, type CardGridPayItem } from "./CardGridPayView";
-import { CarrierLinesPanel } from "./CarrierLinesPanel";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { localDay } from "@/shared/utils/localDay";
 import { snapValidityDaysUp } from "../utils/validityDays";
@@ -99,9 +98,8 @@ const BUYBACK_PAYMENT_METHOD_CODES = new Set([
 
 interface TelecomFormProps {
   isMTC: boolean;
-  /** The active carrier drawer's USD balance, for the SIM-lines mismatch
-   *  warning (LIRA-252 E). */
-  carrierDrawerUsd?: number | undefined;
+  /** LIRA-328 — the shop line picked on the page; null = the primary. */
+  carrierLineId?: number | null;
   rechargeType: RechargeType;
   setRechargeType: (type: RechargeType) => void;
   isSubmitting: boolean;
@@ -218,7 +216,7 @@ interface TelecomFormProps {
 
 export function TelecomForm({
   isMTC,
-  carrierDrawerUsd,
+  carrierLineId = null,
   rechargeType,
   setRechargeType,
   isSubmitting,
@@ -521,6 +519,7 @@ export function TelecomForm({
     try {
       const result = await api.processRecharge({
         provider: isMTC ? "MTC" : "Alfa",
+        ...(carrierLineId ? { carrier_line_id: carrierLineId } : {}),
         // `RechargeType` also lists the internal TOP_UP, which this form's
         // tabs never produce (rule 21: payload checked against the schema).
         type: rechargeType as CreateRechargePayload["type"],
@@ -579,13 +578,9 @@ export function TelecomForm({
 
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
-      {/* W6.a: compact panel of the shop's own SIM lines for this carrier —
-          credits + days-remaining, inline quick-update. Informational only
-          (no drawer legs, no checkout/closing involvement). */}
-      <CarrierLinesPanel
-        carrier={isMTC ? "mtc" : "alfa"}
-        drawerUsd={carrierDrawerUsd}
-      />
+      {/* The shop's own SIM lines (W6.a) are no longer shown here: the
+          Recharge page renders them as a chip in its top row that opens a
+          "shop lines" modal (CarrierLinesPanel). */}
 
       {/* Service Type Tabs */}
       <ServiceTypeTabs

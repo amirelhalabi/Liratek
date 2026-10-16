@@ -1925,6 +1925,18 @@ html.dark ::-webkit-scrollbar-corner {
   background-color: transparent;
 }
 
+/* Sidebar menu scrollbar: hidden with no reserved space at rest; a thin bar
+   while the pointer is over the menu (Sidebar.tsx toggles the class). Once
+   scrollbar-width/-color are set, Chrome draws this element's bar from them
+   instead of the ::-webkit-scrollbar rules above. */
+.sidebar-scroll {
+  scrollbar-width: none;
+}
+.sidebar-scroll.sidebar-scroll--visible {
+  scrollbar-width: thin;
+  scrollbar-color: var(--b-600) transparent;
+}
+
 /* === DATE PICKER CALENDAR ICON === */
 /* Dark mode: invert the browser's dark icon so it reads on the navy surface */
 html.dark input[type="date"]::-webkit-calendar-picker-indicator {

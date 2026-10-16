@@ -29,7 +29,7 @@
  * hidden even with `shopLineBuyback={false}`.
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { TelecomForm } from "../TelecomForm";
 import type { FinancialTransaction } from "../../types";
 
@@ -136,7 +136,6 @@ function buildProps(
 describe("TelecomForm — shop-line checkbox (owner note #21, LIRA-088 case 2)", () => {
   it("renders NO checkbox and NO amber note when the phone does not match a shop line", async () => {
     render(<TelecomForm {...buildProps({ isShopLineMatch: false })} />);
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 
     expect(
       screen.queryByTestId("shop-line-buyback-checkbox"),
@@ -152,7 +151,6 @@ describe("TelecomForm — shop-line checkbox (owner note #21, LIRA-088 case 2)",
         {...buildProps({ isShopLineMatch: true, shopLineBuyback: true })}
       />,
     );
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 
     const checkbox = screen.getByTestId(
       "shop-line-buyback-checkbox",
@@ -175,7 +173,6 @@ describe("TelecomForm — shop-line checkbox (owner note #21, LIRA-088 case 2)",
         {...buildProps({ isShopLineMatch: true, shopLineBuyback: false })}
       />,
     );
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 
     const checkbox = screen.getByTestId(
       "shop-line-buyback-checkbox",
@@ -203,7 +200,6 @@ describe("TelecomForm — shop-line checkbox (owner note #21, LIRA-088 case 2)",
         })}
       />,
     );
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 
     fireEvent.click(screen.getByTestId("shop-line-buyback-checkbox"));
 

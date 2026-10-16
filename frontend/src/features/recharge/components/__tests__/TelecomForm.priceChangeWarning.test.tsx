@@ -13,7 +13,7 @@
  */
 
 import { useState } from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { TelecomForm } from "../TelecomForm";
 import type { FinancialTransaction } from "../../types";
 
@@ -117,7 +117,6 @@ function buildProps(
   };
 }
 
-
 /** Owns telecomPrice so typing in the field round-trips like the page does. */
 function StatefulTelecomForm(
   overrides: Partial<React.ComponentProps<typeof TelecomForm>> = {},
@@ -143,8 +142,9 @@ function priceInput(): HTMLInputElement {
 describe("TelecomForm — price-change warning (LIRA-260)", () => {
   it("edit the credit price -> warning with saved vs new price; restore -> gone", async () => {
     render(<StatefulTelecomForm />);
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
-    expect(screen.queryByTestId("price-change-warning")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("price-change-warning"),
+    ).not.toBeInTheDocument();
 
     fireEvent.change(priceInput(), { target: { value: "250000" } });
     const warning = await screen.findByTestId("price-change-warning");
@@ -153,12 +153,13 @@ describe("TelecomForm — price-change warning (LIRA-260)", () => {
     );
 
     fireEvent.change(priceInput(), { target: { value: "270000" } });
-    expect(screen.queryByTestId("price-change-warning")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("price-change-warning"),
+    ).not.toBeInTheDocument();
   });
 
   it("the sale is not blocked while the warning shows", async () => {
     render(<StatefulTelecomForm />);
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
     fireEvent.change(priceInput(), { target: { value: "250000" } });
     await screen.findByTestId("price-change-warning");
     expect(
@@ -170,8 +171,9 @@ describe("TelecomForm — price-change warning (LIRA-260)", () => {
     render(
       <StatefulTelecomForm isShopLineMatch={true} shopLineBuyback={true} />,
     );
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
     fireEvent.change(priceInput(), { target: { value: "250000" } });
-    expect(screen.queryByTestId("price-change-warning")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("price-change-warning"),
+    ).not.toBeInTheDocument();
   });
 });

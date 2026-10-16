@@ -11,7 +11,7 @@
  * TelecomForm.shopLineUseCheckbox.test.tsx (stable useApi mock, rule 25).
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { TelecomForm } from "../TelecomForm";
 import type { FinancialTransaction } from "../../types";
 
@@ -118,7 +118,6 @@ function buildProps(
 describe("TelecomForm — payment-sheet Discount field (LIRA-185 #1)", () => {
   it("a credit SALE offers the Discount field", async () => {
     render(<TelecomForm {...buildProps({ isShopLineMatch: false })} />);
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /proceed to pay/i }));
     expect(await screen.findByText("Discount")).toBeInTheDocument();
   });
@@ -129,7 +128,6 @@ describe("TelecomForm — payment-sheet Discount field (LIRA-185 #1)", () => {
         {...buildProps({ isShopLineMatch: true, shopLineBuyback: true })}
       />,
     );
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
     fireEvent.click(
       screen.getByRole("button", { name: /proceed to pay out/i }),
     );

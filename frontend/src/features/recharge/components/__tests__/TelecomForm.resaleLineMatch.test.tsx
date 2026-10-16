@@ -134,10 +134,16 @@ describe("TelecomForm — the shop's own line for sale (LIRA-309)", () => {
   it("on the Alfa tab: banner + recharge panel, and no customer sale", async () => {
     render(
       <TelecomForm
-        {...buildProps({ phoneNumber: "+961 70 444 202", telecomAmount: "3", resaleLineMatch: ALFA_LINE })}
+        {...buildProps({
+          phoneNumber: "+961 70 444 202",
+          telecomAmount: "3",
+          resaleLineMatch: ALFA_LINE,
+        })}
       />,
     );
-    expect(screen.getByText("This is your line for sale: Alfa line 70 444 202")).toBeTruthy();
+    expect(
+      screen.getByText("This is your line for sale: Alfa line 70 444 202"),
+    ).toBeTruthy();
     expect(await screen.findByText(/Recharge 70444202/)).toBeTruthy();
     const proceed = screen.getByRole("button", { name: /Proceed to Pay/i });
     expect(proceed).toBeDisabled();
@@ -146,7 +152,12 @@ describe("TelecomForm — the shop's own line for sale (LIRA-309)", () => {
   it("on the MTC tab: explains it is an Alfa line, with no panel", () => {
     render(
       <TelecomForm
-        {...buildProps({ isMTC: true, activeProvider: "MTC", phoneNumber: "70444202", resaleLineMatch: ALFA_LINE })}
+        {...buildProps({
+          isMTC: true,
+          activeProvider: "MTC",
+          phoneNumber: "70444202",
+          resaleLineMatch: ALFA_LINE,
+        })}
       />,
     );
     expect(screen.getByText(/This is your Alfa line for sale/)).toBeTruthy();
@@ -154,7 +165,11 @@ describe("TelecomForm — the shop's own line for sale (LIRA-309)", () => {
   });
 
   it("an ordinary number shows nothing new", () => {
-    render(<TelecomForm {...buildProps({ phoneNumber: "03999999", resaleLineMatch: null })} />);
+    render(
+      <TelecomForm
+        {...buildProps({ phoneNumber: "03999999", resaleLineMatch: null })}
+      />,
+    );
     expect(screen.queryByText(/line for sale/)).toBeNull();
   });
 });

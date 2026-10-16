@@ -103,6 +103,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 ## 🌐 Web app
 
+- The side menu's scroll bar only shows while your pointer is over the menu, and takes no space otherwise.
 - Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.
 
 ## 📱 MTC / Alfa
@@ -118,6 +119,8 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 - Whish App: the Bills list now has everything the Whish app sells in LBP, not only the Alfa and MTC prepaid cards. That includes the Alfa 1.22 card, Alfa data bundles (Mobile Internet, Broadband, Alfa Go, Weekly, Boosters, Surf & Talk, Weekender), MTC validity days, internet (Terranet, Mobi, Wise, Connect), gaming, gift cards, streaming, DU / Etisalat / STC pins and ACTC tickets. Each new item starts with its selling price equal to its cost; change it in Settings → Mobile Services. Items you already had keep their prices.
 - Whish App: Bills now has an LBP | USD switch next to "Proceed to Pay", like the currency choice in the Whish app. In USD, each item shows and sells at its dollar price, and the cost comes out of your Whish App dollar balance. Items Whish sells only in dollars (for example Razer $1, Netflix $20, Yalla Live) show only in USD. MTC and Alfa prepaid cards stay in LBP. Each dollar price starts equal to its cost; change it in Settings → Mobile Services. The app remembers your last choice on each device. If you switch with items picked, it asks first, then clears them.
 - iPick, Katsh and Whish App items: cards of the same kind now sit together, for example all Terranet Army DSL cards, then all Fiber cards, each from smallest to biggest (500MB now comes before 1.5GB and 5GB).
+- Mobile Recharge, MTC and Alfa: your shop line now sits at the top, between the logos and the totals: the phone number with its credit. Your main line is picked when the page opens; the small arrow next to it lists your other lines, and the one you pick is the line the next sales send credits from (just for that screen; your main line stays the default). A small dot shows when something needs a look (a line running out of days, expired or burned, the balance not matching your lines, or days still owed to a customer).
+- Mobile Recharge: click the phone number to record usage on that line straight away. Days still owed to customers (Mark sent) and a balance mismatch show in the same window. To edit or add a line, use Settings → Shop lines.
 
 ## 🧾 Expenses
 

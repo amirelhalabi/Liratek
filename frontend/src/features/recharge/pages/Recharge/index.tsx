@@ -47,6 +47,8 @@ import {
   OmtWhishAppTransferForm,
   OmtAppCashoutModal,
 } from "../../components";
+// Imported by path, not through the barrel: the page tests stub the barrel.
+import { CarrierLinesPanel } from "../../components/CarrierLinesPanel";
 import {
   loadWhishBillsCurrency,
   saveWhishBillsCurrency,
@@ -170,6 +172,15 @@ export default function MobileRecharge() {
   const [telecomAmount, setTelecomAmount] = useState("");
   const [telecomPrice, setTelecomPrice] = useState("");
   const [telecomDaysCostUsd, setTelecomDaysCostUsd] = useState("");
+  // LIRA-328 — the MTC/Alfa shop line credits are sent from, picked with the
+  // chevron next to the phone chip. null = the primary line (the server's
+  // default). Reset whenever the carrier changes (the panel remounts).
+  const [selectedCarrierLineId, setSelectedCarrierLineId] = useState<
+    number | null
+  >(null);
+  const carrierLineField = selectedCarrierLineId
+    ? { carrier_line_id: selectedCarrierLineId }
+    : {};
   const [phoneNumber, setPhoneNumber] = useState("");
   const [paidBy, setPaidBy] = useState("CASH");
   const [showClientSearch, setShowClientSearch] = useState(false);
@@ -899,6 +910,7 @@ export default function MobileRecharge() {
         formData: {
           provider: activeProvider,
           type: submittedRechargeType,
+          ...carrierLineField,
           phoneNumber:
             rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
           amount,
@@ -927,6 +939,7 @@ export default function MobileRecharge() {
     try {
       const result = await api.processRecharge({
         provider: activeProvider,
+        ...carrierLineField,
         // Phase 6 (D7/D8): a shop-line match on the Credit tab, with the
         // checkbox left ON, flips the submitted type to CREDIT_BUYBACK —
         // everything else about this payload (amount = credits gained,
@@ -1373,6 +1386,7 @@ export default function MobileRecharge() {
         formData: {
           provider: "Alfa",
           type: "ALFA_GIFT",
+          ...carrierLineField,
           amount,
           cost,
           price,
@@ -1391,6 +1405,7 @@ export default function MobileRecharge() {
       const result = await api.processRecharge({
         provider: "Alfa",
         type: "ALFA_GIFT",
+        ...carrierLineField,
         amount,
         cost,
         price,
@@ -1865,20 +1880,41 @@ export default function MobileRecharge() {
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col overflow-hidden animate-in fade-in duration-500">
       {/* Header — two zones: provider controls (left) vs. read-only metrics + actions (right) */}
-      <div className="flex items-start justify-between gap-4 mb-3">
+      {/* Grid, not flex-wrap: the provider tabs keep shrinking and wrapping
+          internally (as before) instead of pushing the stats to a new line.
+          xl+: tabs | shop-lines chip (centred) | stats. Below xl the chip
+          takes its own row under the logos. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-[minmax(0,auto)_minmax(max-content,1fr)_auto] items-start gap-x-4 gap-y-2 mb-3">
         {/* Left zone: provider selection (the controls) */}
         <ProviderTabs
           providers={PROVIDER_CONFIGS}
           activeProvider={activeProvider}
           onSelectProvider={(p) => {
-            startTransition(() => setActiveProvider(p));
+            startTransition(() => {
+              setActiveProvider(p);
+              setSelectedCarrierLineId(null);
+            });
           }}
           cartCounts={cartCounts}
         />
 
+        {/* MTC/Alfa: the shop-lines chip. Clicking it opens the "shop
+            lines" modal. */}
+        {isTelecomFormMode && (
+          <div className="col-span-2 row-start-2 flex xl:col-span-1 xl:col-start-2 xl:row-start-1 xl:justify-center">
+            <CarrierLinesPanel
+              key={isMTC ? "mtc" : "alfa"}
+              carrier={isMTC ? "mtc" : "alfa"}
+              drawerUsd={activeDrawerBalance?.usdBalance}
+              selectedLineId={selectedCarrierLineId}
+              onSelectedLineChange={setSelectedCarrierLineId}
+            />
+          </div>
+        )}
+
         {/* Right zone: today's metrics, then a divider, then actions */}
         {activeConfig && (
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="col-start-2 row-start-1 xl:col-start-3 flex shrink-0 items-center gap-3">
             <CompactStats
               activeConfig={activeConfig}
               // LIRA-250 follow-up: MTC/Alfa's Count/Profit card is fed by
@@ -1935,6 +1971,9 @@ export default function MobileRecharge() {
               cryptoInToday={binanceStats.totalReceived}
               showCryptoStats={activeConfig.formMode === "crypto"}
               isAdmin={isAdmin}
+              // MTC/Alfa included: the wallet segment is the carrier drawer,
+              // i.e. the total of all its SIM lines (§0.1). The shop-lines
+              // chip shows only the main line's number, never a balance.
               drawerBalance={activeDrawerBalance}
             />
 
@@ -1992,7 +2031,7 @@ export default function MobileRecharge() {
         {activeConfig?.formMode === "telecom" && (
           <TelecomForm
             isMTC={isMTC}
-            carrierDrawerUsd={activeDrawerBalance?.usdBalance}
+            carrierLineId={selectedCarrierLineId}
             rechargeType={rechargeType}
             setRechargeType={(type) => {
               setRechargeType(type);

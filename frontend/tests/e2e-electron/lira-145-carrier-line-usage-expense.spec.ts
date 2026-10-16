@@ -340,22 +340,28 @@ async function openMtcPanel(page: Page, lineId: number): Promise<void> {
   // MTC is the first PROVIDER_CONFIGS entry, so a fresh mount lands on it —
   // clicking is belt-and-braces against a future default change, and a
   // click on the already-active tab is a no-op.
-  const mtcTab = page.locator("button").filter({ hasText: /^MTC$/ }).first();
+  const mtcTab = page.getByRole("button", { name: "MTC", exact: true }).first();
   if (await mtcTab.isVisible({ timeout: 8_000 }).catch(() => false)) {
     await mtcTab.click({ force: true }).catch(() => {});
   }
 
-  await expect(page.getByTestId(`carrier-line-${lineId}`)).toBeVisible({
-    timeout: 15_000,
-  });
+  // LIRA-328: the top-row phone chip shows the selected line; the chevron
+  // lists the carrier's lines. The line must be in that list.
+  await page.getByTestId("carrier-lines-picker-mtc").click({ timeout: 15_000 });
+  await expect(
+    page.getByTestId(`carrier-lines-picker-option-${lineId}`),
+  ).toBeVisible({ timeout: 15_000 });
+  await page.keyboard.press("Escape");
 }
 
 /**
- * The panel renders one "Record usage" trigger per line, testid
- * `carrier-line-usage-open-<id>` — unique per row, so no row-scoping needed.
+ * LIRA-328: pick the line with the chevron, then click the phone chip — that
+ * opens the line's Record usage window directly.
  */
 async function clickUsageOpen(page: Page, lineId: number): Promise<void> {
-  await page.getByTestId(`carrier-line-usage-open-${lineId}`).click();
+  await page.getByTestId("carrier-lines-picker-mtc").click();
+  await page.getByTestId(`carrier-lines-picker-option-${lineId}`).click();
+  await page.getByTestId("carrier-lines-chip-mtc").click();
   // The form is open once its NEW-balance field is on screen.
   await expect(page.getByTestId("carrier-line-usage-new-balance")).toBeVisible({
     timeout: 10_000,

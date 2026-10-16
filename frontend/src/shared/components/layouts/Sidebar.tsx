@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -89,6 +89,20 @@ export default function Sidebar({
   toggleSidebar,
   onOpenWhatsNew,
 }: SidebarProps) {
+  // Sidebar scrollbar: no bar (and no space) at rest; shown while the
+  // pointer is over the menu. Driven by state rather than CSS :hover, which
+  // Chrome does not reliably repaint on a scrollbar (it stuck after a drag).
+  const navRef = useRef<HTMLElement>(null);
+  const [showScrollbar, setShowScrollbar] = useState(false);
+  useEffect(() => {
+    if (!showScrollbar) return;
+    const onUp = (e: PointerEvent) => {
+      const nav = navRef.current;
+      if (nav && !nav.contains(e.target as Node)) setShowScrollbar(false);
+    };
+    window.addEventListener("pointerup", onUp);
+    return () => window.removeEventListener("pointerup", onUp);
+  }, [showScrollbar]);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   // LIRA-296: the Warranty lookup is for admins and staff (the search is
@@ -261,7 +275,19 @@ export default function Sidebar({
         </button>
       </div>
 
-      <nav className="flex-1 p-3 overflow-y-auto overflow-x-hidden">
+      <nav
+        ref={navRef}
+        onPointerEnter={() => setShowScrollbar(true)}
+        onPointerLeave={(e) => {
+          // While the bar is being dragged the pointer is captured; hide it
+          // on release instead (window listener below).
+          if (e.buttons === 0) setShowScrollbar(false);
+        }}
+        className={clsx(
+          "flex-1 p-3 overflow-y-auto overflow-x-hidden sidebar-scroll",
+          showScrollbar && "sidebar-scroll--visible",
+        )}
+      >
         {/* Pinned items */}
         {favoriteItems.map(renderNavItem)}
 

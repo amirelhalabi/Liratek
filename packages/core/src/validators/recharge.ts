@@ -163,6 +163,11 @@ export const createRechargeSchema = z
     // PFT-3a (Partner FOR-Transactions): the unpaid remainder routes to
     // partner_ledger instead of the client's debt_ledger when set. Only "FOR"
     // is valid for recharges.
+    // LIRA-328: the shop line the cashier picked on Mobile Recharge (the
+    // chevron next to the phone). Credits move on THIS line instead of the
+    // primary; omitted = the primary line, exactly as before. The repository
+    // checks it is an active line of the same carrier.
+    carrier_line_id: z.number().int().positive().optional(),
     partnerId: z.number().int().positive().optional(),
     partnerMode: z.enum(["FOR"]).optional(),
     // Payment-Legs Integrity plan (false-reject fix, 2026-07-2x): the USD→LBP

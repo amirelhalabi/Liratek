@@ -104,6 +104,13 @@ jest.mock("../../../components", () => ({
   ),
 }));
 
+// The header's shop-lines chip (CarrierLinesPanel) refetches lines on the
+// same `carrier-lines:changed` event — stubbed so the call-count guard below
+// measures the PAGE's own shop-lines refetch, not the panel's.
+jest.mock("../../../components/CarrierLinesPanel", () => ({
+  CarrierLinesPanel: () => null,
+}));
+
 jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => ({
     activeSession: null,

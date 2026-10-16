@@ -141,7 +141,6 @@ beforeEach(() => {
 describe("TelecomForm — SMS-aware discount cap (LIRA-185 #1 follow-up)", () => {
   it("CREDIT_TRANSFER: maxDiscount is the margin MINUS the SMS transfer fee, not the plain margin", async () => {
     render(<TelecomForm {...buildProps()} />);
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /proceed to pay/i }));
     await waitFor(() => expect(capturedOpen).toBe(true));
 
@@ -161,7 +160,6 @@ describe("TelecomForm — SMS-aware discount cap (LIRA-185 #1 follow-up)", () =>
         })}
       />,
     );
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /proceed to pay/i }));
     await waitFor(() => expect(capturedOpen).toBe(true));
 

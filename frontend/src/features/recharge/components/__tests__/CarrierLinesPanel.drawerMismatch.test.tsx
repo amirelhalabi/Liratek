@@ -6,7 +6,7 @@
  * surfaces legacy drift so the shop fixes it with a checkpoint.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { CarrierLinesPanel } from "../CarrierLinesPanel";
 import type { CarrierLineEntity } from "@liratek/ui";
 
@@ -26,6 +26,14 @@ jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
   useApi: () => mockApi,
 }));
+
+// The warning lives in the shop-lines modal — open it from the chip first.
+async function openModal() {
+  // LIRA-328: the phone chip opens the Record usage window, which also
+  // holds "Days still to send" and the drawer-mismatch warning.
+  fireEvent.click(await screen.findByTestId("carrier-lines-chip-mtc"));
+  await screen.findByRole("dialog");
+}
 
 function line(id: number, credits: number): CarrierLineEntity {
   return {
@@ -53,6 +61,7 @@ describe("CarrierLinesPanel — drawer vs SIM lines mismatch warning (LIRA-252 E
 
   it("warns when the drawer differs from the sum of the active lines, naming both amounts", async () => {
     render(<CarrierLinesPanel carrier="mtc" drawerUsd={10000} />);
+    await openModal();
 
     const warning = await screen.findByTestId("carrier-drawer-mismatch");
     expect(warning).toHaveTextContent("$10,000.00");
@@ -66,7 +75,8 @@ describe("CarrierLinesPanel — drawer vs SIM lines mismatch warning (LIRA-252 E
     await waitFor(() =>
       expect(mockGetActiveCarrierLines).toHaveBeenCalledWith("mtc"),
     );
-    await screen.findByText("03111111");
+    await openModal();
+    await screen.findByTestId(/carrier-line-usage-form-/);
     expect(
       screen.queryByTestId("carrier-drawer-mismatch"),
     ).not.toBeInTheDocument();
@@ -75,7 +85,8 @@ describe("CarrierLinesPanel — drawer vs SIM lines mismatch warning (LIRA-252 E
   it("shows no warning while the drawer balance is unknown", async () => {
     render(<CarrierLinesPanel carrier="mtc" />);
 
-    await screen.findByText("03111111");
+    await openModal();
+    await screen.findByTestId(/carrier-line-usage-form-/);
     expect(
       screen.queryByTestId("carrier-drawer-mismatch"),
     ).not.toBeInTheDocument();

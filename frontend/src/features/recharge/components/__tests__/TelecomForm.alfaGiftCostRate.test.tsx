@@ -130,7 +130,6 @@ describe("TelecomForm — Alfa Gift cost uses the configured cost rate (LIRA-185
       />,
     );
     await waitFor(() => expect(mockGetAllSettings).toHaveBeenCalled());
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 
     const card = await screen.findByText("1 GB");
     await waitFor(() => {

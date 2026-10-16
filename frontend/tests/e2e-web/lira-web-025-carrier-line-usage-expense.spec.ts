@@ -242,11 +242,18 @@ async function txnBySourceId(
 // Driving the REAL panel in the browser
 // ---------------------------------------------------------------------------
 
-/** Resolve the per-row "Record usage" trigger for one line — testid
- *  `carrier-line-usage-open-<id>`, unique per row. Kept in sync with the
- *  desktop spec deliberately. */
+/** LIRA-328: the top-row phone chip shows the selected line; the chevron
+ *  lists the carrier's lines. Pick the line, then click the chip — that
+ *  opens its Record usage window directly. Kept in sync with the desktop
+ *  spec. */
+async function selectLine(page: Page, lineId: number): Promise<void> {
+  await page.getByTestId("carrier-lines-picker-mtc").click({ timeout: 20_000 });
+  await page.getByTestId(`carrier-lines-picker-option-${lineId}`).click();
+}
+
 async function clickUsageOpen(page: Page, lineId: number): Promise<void> {
-  await page.getByTestId(`carrier-line-usage-open-${lineId}`).click();
+  await selectLine(page, lineId);
+  await page.getByTestId("carrier-lines-chip-mtc").click();
   await expect(page.getByTestId("carrier-line-usage-new-balance")).toBeVisible({
     timeout: 10_000,
   });
@@ -277,7 +284,7 @@ test.describe("LIRA-145 carrier-line usage expense over REST", () => {
       "Something went wrong",
     );
     // MTC is the first PROVIDER_CONFIGS entry, so a fresh mount lands on it.
-    await expect(page.getByTestId(`carrier-line-${lineId}`)).toBeVisible({
+    await expect(page.getByTestId("carrier-lines-chip-mtc")).toBeVisible({
       timeout: 20_000,
     });
 

@@ -6680,6 +6680,16 @@ Spec Kit: `specs/324-whish-usd-mode/` (spec, plan, tasks). Owner decisions: MTC/
 
 **What users will notice:** Recharge → Whish App → Bills has an LBP | USD switch; in USD the items show and sell at their dollar price and the cost comes out of the Whish App dollar balance; dollar-only items appear only in USD; prepaid cards stay LBP; set dollar selling prices in Settings → Mobile Services.
 
+## LIRA-328: Mobile Recharge — selected shop line chip; sales send from the picked line — DONE (owner requests 2026-10-16)
+
+Owner requests: the shop line no longer takes its own row; one phone chip at the top (between the logos and the stats card) shows the SELECTED line's number and credit; the stats card keeps the total of all lines. The primary line is selected when the page opens; a chevron lists the carrier's other lines and picking one makes it the line the next sales send credits from (screen-only, never changes the primary). Clicking the number opens that line's Record usage window directly; "Days still to send" (Mark sent) and the drawer-mismatch warning show inside it. No settings button, no "Manage lines", no shop-lines list window (editing/adding lines = Settings → Shop lines).
+
+**Built:** core `createRechargeSchema.carrier_line_id` (optional) + `RechargeRepository.saleLine()` — the picked line (must be an active line of the same carrier, else refused up-front: "That MTC line is not active any more — pick another shop line.") else the primary; used by the DAYS sale, credit sale and credit buy-back movements. Frontend: `CarrierLinesPanel` single chip + chevron picker (`selectedLineId`/`onSelectedLineChange`), Record-usage-only window, restyled form; `Recharge` page holds `selectedCarrierLineId` (reset on provider change, dropped when the line is no longer active) and sends it on every MTC/Alfa sale (direct, session basket, Alfa Gift, For Partner). Also: sidebar scrollbar shown only on hover with no reserved width (state-driven, `.sidebar-scroll`).
+
+**Tests:** core `RechargeRepository.pickedLine.lira328.test.ts` written first — 3 of 4 failed on the old code (the primary was charged; a wrong-carrier and an unknown line were accepted), now 4/4; related recharge/line suites 44/44. Frontend affected suites (CarrierLinesPanel ×3, Recharge.shopLinesChip, Recharge.carrierLinesRefreshAfterSubmit) 31/31 — rewritten for the new flow, not proven failing-first. Web e2e lira-web-025 (picker → chip → Record usage) 4 passed. Desktop lira-125/145 updated, NOT run (no Electron on this Mac). Core typecheck clean; eslint clean on changed files. Note: the LIRA-326 recharge basket checkout does not yet carry the picked line (it books from the primary).
+
+**What users will notice:** on Mobile Recharge (MTC/Alfa) the shop line is a phone button at the top with its credit; the arrow next to it switches the line sales send from; clicking the number records usage on it right away.
+
 ## LIRA-327: Bills and For Partner across the Mobile Recharge basket — BUILT, not committed (owner decisions 2026-10-16)
 
 Notes (owner waived the full Spec Kit cycle): `specs/327-recharge-basket-bills-partner/notes.md`. Builds on LIRA-326.

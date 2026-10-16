@@ -63,6 +63,15 @@ const LINE: CarrierLineEntity = {
   updated_at: "2026-07-01 00:00:00",
 };
 
+// The lines live in a modal opened from the top-row chip — open it first.
+async function renderOpen() {
+  render(<CarrierLinesPanel carrier="mtc" />);
+  // LIRA-328: the phone chip opens the Record usage window, which also
+  // holds "Days still to send" and the drawer-mismatch warning.
+  fireEvent.click(await screen.findByTestId("carrier-lines-chip-mtc"));
+  await screen.findByRole("dialog");
+}
+
 describe("CarrierLinesPanel", () => {
   beforeEach(() => {
     mockGetActiveCarrierLines.mockReset().mockResolvedValue([LINE]);
@@ -91,16 +100,15 @@ describe("CarrierLinesPanel", () => {
   it("shows an '+ Add line' chip (not empty) when there are no active lines", async () => {
     mockGetActiveCarrierLines.mockResolvedValue([]);
     render(<CarrierLinesPanel carrier="mtc" />);
-    expect(await screen.findByTestId("add-carrier-line-mtc")).toHaveTextContent(
-      "+ Add MTC line",
-    );
+    expect(
+      await screen.findByTestId("carrier-lines-chip-mtc"),
+    ).toHaveTextContent("+ Add MTC line");
   });
 
   it("add-a-line: opens the inline form, requires a phone number, and creates via useApi().createCarrierLine", async () => {
     mockGetActiveCarrierLines.mockResolvedValue([]);
-    render(<CarrierLinesPanel carrier="mtc" />);
-
-    fireEvent.click(await screen.findByTestId("add-carrier-line-mtc"));
+    // The empty chip opens the modal straight on the add-line form.
+    await renderOpen();
     expect(
       await screen.findByTestId("add-carrier-line-form-mtc"),
     ).toBeInTheDocument();
@@ -136,40 +144,12 @@ describe("CarrierLinesPanel", () => {
     );
   });
 
-  it("shows the line's label, credits, and days-remaining", async () => {
-    render(<CarrierLinesPanel carrier="mtc" />);
-    expect(mockGetActiveCarrierLines).toHaveBeenCalledWith("mtc");
-    expect(await screen.findByText("Shop Line 1")).toBeInTheDocument();
-    expect(await screen.findByText("$5")).toBeInTheDocument();
-    expect(await screen.findByText("10d left")).toBeInTheDocument();
-  });
 
-  it("quick-update: 'days from today' resolves to a date and persists credits + validity_expires_at", async () => {
-    render(<CarrierLinesPanel carrier="mtc" />);
-    fireEvent.click(await screen.findByTestId("carrier-line-1"));
-
-    const daysInput = screen.getByPlaceholderText("30");
-    fireEvent.change(daysInput, { target: { value: "15" } });
-
-    const creditsInputs = screen.getAllByRole("spinbutton");
-    const creditsInput = creditsInputs[0]!;
-    fireEvent.change(creditsInput, { target: { value: "22.5" } });
-
-    fireEvent.click(screen.getByText("Save"));
-
-    await waitFor(() =>
-      expect(mockUpdateCarrierLineBalance).toHaveBeenCalledWith(1, {
-        credits: 22.5,
-        validity_expires_at: todayPlus(15),
-      }),
-    );
-  });
 
   // ── Record usage (LIRA-145) ───────────────────────────────────────────
   describe("record usage", () => {
     const openUsageForm = async () => {
-      render(<CarrierLinesPanel carrier="mtc" />);
-      fireEvent.click(await screen.findByTestId("carrier-line-usage-open-1"));
+      await renderOpen();
       return {
         newBalance: screen.getByTestId("carrier-line-usage-new-balance"),
         used: screen.getByTestId("carrier-line-usage-used"),
@@ -234,10 +214,11 @@ describe("CarrierLinesPanel", () => {
           note: "customer top-up",
         }),
       );
-      // Success feedback names the amount the SERVER booked, not the local math.
-      expect(
-        await screen.findByTestId("carrier-line-usage-success"),
-      ).toHaveTextContent("Recorded a $1.25 MTC line-usage expense");
+      // LIRA-328: the Record usage window closes on success (the amount the
+      // server booked is shown as a toast).
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
       await waitFor(() =>
         expect(mockGetActiveCarrierLines).toHaveBeenCalledTimes(2),
       );
@@ -371,26 +352,7 @@ describe("CarrierLinesPanel", () => {
   });
 
   describe("sold-ahead days (#28, LIRA-218)", () => {
-    it("shows a 'sold ahead' chip when the line carries days_owed, never the burned badge for it", async () => {
-      mockGetActiveCarrierLines.mockResolvedValue([
-        { ...LINE, days_owed: 210 },
-      ]);
-      render(<CarrierLinesPanel carrier="mtc" />);
-      expect(
-        await screen.findByTestId("carrier-line-sold-ahead-1"),
-      ).toHaveTextContent("210 sold ahead");
-      expect(
-        screen.queryByTestId("carrier-line-burned-1"),
-      ).not.toBeInTheDocument();
-    });
 
-    it("shows no sold-ahead chip for a line with no owed balance", async () => {
-      render(<CarrierLinesPanel carrier="mtc" />);
-      await screen.findByTestId("carrier-line-1");
-      expect(
-        screen.queryByTestId("carrier-line-sold-ahead-1"),
-      ).not.toBeInTheDocument();
-    });
 
     it("lists a pending 'days still to send' delivery and marks it sent on click", async () => {
       mockGetPendingCarrierLineOwedDeliveries.mockResolvedValue({
@@ -416,10 +378,8 @@ describe("CarrierLinesPanel", () => {
         data: { id: 7, status: "SENT" },
       });
 
-      render(<CarrierLinesPanel carrier="mtc" />);
-      const row = await screen.findByTestId(
-        "carrier-line-owed-delivery-7",
-      );
+      await renderOpen();
+      const row = await screen.findByTestId("carrier-line-owed-delivery-7");
       expect(row).toHaveTextContent("210d");
       expect(row).toHaveTextContent("Jean");
 
@@ -455,8 +415,8 @@ describe("CarrierLinesPanel", () => {
           },
         ],
       });
-      render(<CarrierLinesPanel carrier="mtc" />);
-      await screen.findByTestId("carrier-line-1");
+      await renderOpen();
+      await screen.findByTestId("carrier-line-usage-form-1");
       expect(
         screen.queryByTestId("carrier-lines-owed-deliveries"),
       ).not.toBeInTheDocument();
@@ -471,10 +431,12 @@ describe("CarrierLinesPanel", () => {
         new Error("network down"),
       );
 
-      render(<CarrierLinesPanel carrier="mtc" />);
+      await renderOpen();
       // Pre-fix, this threw an unhandled rejection instead of resolving to
       // an empty, harmless deliveries list.
-      expect(await screen.findByTestId("carrier-line-1")).toBeInTheDocument();
+      expect(
+        await screen.findByTestId("carrier-line-usage-form-1"),
+      ).toBeInTheDocument();
       expect(
         screen.queryByTestId("carrier-lines-owed-deliveries"),
       ).not.toBeInTheDocument();
@@ -504,7 +466,7 @@ describe("CarrierLinesPanel", () => {
         error: "delivery already sent",
       });
 
-      render(<CarrierLinesPanel carrier="mtc" />);
+      await renderOpen();
       fireEvent.click(
         await screen.findByTestId("carrier-line-owed-delivery-mark-sent-7"),
       );

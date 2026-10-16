@@ -162,32 +162,36 @@ test.describe("LIRA W6.a — Carrier Lines: Settings CRUD + Recharge-tab panel",
     expect(created!.is_active).toBe(1);
     const lineId = created!.id;
 
-    // ── Recharge → MTC tab: the compact panel shows the new line ─────────
+    // ── Recharge → MTC tab: the line is in the chip's line list ──────────
+    // LIRA-328: the shop lines are a phone chip + chevron list on Recharge;
+    // editing a line's credits/validity moved to Settings → Shop lines, so
+    // the quick update below goes through the same IPC call that screen uses.
     await navigateTo(appPage, "/recharge");
-    // Recharge defaults to the MTC tab (first ProviderTabs entry).
-    await expect(appPage.getByTestId(`carrier-line-${lineId}`)).toBeVisible({
-      timeout: 10_000,
-    });
-    await expect(appPage.getByTestId(`carrier-line-${lineId}`)).toContainText(
-      uniqueLabel,
-    );
-    await expect(appPage.getByTestId(`carrier-line-${lineId}`)).toContainText(
-      "$8",
-    );
+    await appPage
+      .getByTestId("carrier-lines-picker-mtc")
+      .click({ timeout: 10_000 });
+    const option = appPage.getByTestId(`carrier-lines-picker-option-${lineId}`);
+    await expect(option).toBeVisible({ timeout: 10_000 });
+    await expect(option).toContainText(uniqueLabel);
+    await expect(option).toContainText("$8");
+    await appPage.keyboard.press("Escape");
 
-    // ── Inline quick-update: "days from today" resolves to a date ────────
-    await appPage.getByTestId(`carrier-line-${lineId}`).click();
     const expectedNewExpiry = addDaysToToday(5);
-
-    const panel = appPage.getByTestId("carrier-lines-panel");
-    await panel.locator("input[type='number']").first().fill("3.5");
-    await panel.getByPlaceholder("30").fill("5");
-    await panel.getByText("Save").click();
-
-    // Panel reflects the new credits after the save round-trips.
-    await expect(appPage.getByTestId(`carrier-line-${lineId}`)).toContainText(
-      "$3.5",
-      { timeout: 10_000 },
+    await appPage.evaluate(
+      async ([id, expiry]) => {
+        const w = window as unknown as {
+          api: {
+            carrierLines: {
+              updateBalance: (id: number, d: unknown) => Promise<unknown>;
+            };
+          };
+        };
+        await w.api.carrierLines.updateBalance(id, {
+          credits: 3.5,
+          validity_expires_at: expiry,
+        });
+      },
+      [lineId, expectedNewExpiry] as const,
     );
 
     // Read back via IPC — exact values (credits AND the resolved date).

@@ -188,9 +188,6 @@ describe("TelecomForm onUpdateMetadata (LIRA-109)", () => {
     const onRefreshHistory = jest.fn();
     render(<TelecomForm {...buildProps({ onRefreshHistory })} />);
 
-    // Wait for CarrierLinesPanel's mount fetch so its loading state settles
-    // before interacting with the History modal.
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 
     fireEvent.click(screen.getByTitle("Edit metadata"));
 
@@ -226,7 +223,6 @@ describe("TelecomForm onUpdateMetadata (LIRA-109)", () => {
 
   it("edits phone_number and client_name too, all three fields reaching the adapter in one call", async () => {
     render(<TelecomForm {...buildProps()} />);
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
 
     fireEvent.click(screen.getByTitle("Edit metadata"));
 

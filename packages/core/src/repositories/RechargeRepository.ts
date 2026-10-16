@@ -192,6 +192,8 @@ export interface RechargeData {
    * voucher's expiry is checked against (`VoucherRepository.redeemByCode`).
    * Optional; falls back to the server's own `localDay()`.
    */
+  /** LIRA-328 — the shop line picked on screen; omitted = the primary. */
+  carrier_line_id?: number;
   client_day?: string;
   /** T3 keep-change (KC-3): kept (not returned) change per currency —
    *  added to the transaction's profit stamp (tender-native amounts). */
@@ -938,6 +940,23 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
   /**
    * Process a recharge transaction (creates recharges row, updates drawers, logs activity)
    */
+  /**
+   * LIRA-328 — the shop line a sale moves credits/validity on: the line the
+   * cashier picked (`carrier_line_id`), else the carrier's primary line.
+   * `processRecharge` has already refused a picked id that is not an active
+   * line of this carrier, so a picked id resolves here.
+   */
+  private saleLine(carrier: CarrierKey, data: RechargeData) {
+    const repo = getCarrierLineRepository();
+    if (data.carrier_line_id != null) {
+      const line = repo.getById(data.carrier_line_id);
+      return line && line.is_active === 1 && line.carrier === carrier
+        ? line
+        : null;
+    }
+    return repo.getPrimary(carrier);
+  }
+
   processRecharge(input: RechargeData): {
     success: boolean;
     id?: number;
@@ -948,6 +967,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     // else — nothing may be written for a refused extra.
     if ((input.extra_usd ?? 0) < 0 || (input.extra_lbp ?? 0) < 0) {
       return { success: false, error: "The extra can't be negative." };
+    }
+    if (input.carrier_line_id != null) {
+      const carrier: CarrierKey = input.provider === "MTC" ? "mtc" : "alfa";
+      if (!this.saleLine(carrier, input)) {
+        return {
+          success: false,
+          error: `That ${input.provider} line is not active any more — pick another shop line.`,
+        };
+      }
     }
     const extra = rechargeExtraInSaleCurrency(input);
     if (extra === null) {
@@ -1465,7 +1493,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // line for this carrier yet, not a missing table.
         if (data.type === "DAYS") {
           const carrier: CarrierKey = data.provider === "MTC" ? "mtc" : "alfa";
-          const primaryLine = getCarrierLineRepository().getPrimary(carrier);
+          const primaryLine = this.saleLine(carrier, data);
           if (primaryLine) {
             const validityMovement = getCarrierLineService().applyMovement({
               carrierLineId: primaryLine.id,
@@ -1575,7 +1603,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           // method never calls into it, so there is no double-write to
           // guard against here.
           const carrier: CarrierKey = data.provider === "MTC" ? "mtc" : "alfa";
-          const primaryLine = getCarrierLineRepository().getPrimary(carrier);
+          const primaryLine = this.saleLine(carrier, data);
           if (primaryLine) {
             const creditMovement = getCarrierLineService().applyMovement({
               carrierLineId: primaryLine.id,
@@ -1869,7 +1897,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const carrier: CarrierKey = data.provider === "MTC" ? "mtc" : "alfa";
       const providerDrawerName = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const carrierLineRepo = getCarrierLineRepository();
-      const primaryLine = carrierLineRepo.getPrimary(carrier);
+      const primaryLine = this.saleLine(carrier, data);
       if (!primaryLine) {
         return {
           success: false,
