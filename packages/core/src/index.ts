@@ -70,6 +70,9 @@ export * from "./utils/requestDay.js";
 export * from "./utils/telecomCredit.js";
 export * from "./utils/rechargeDiscount.js";
 export * from "./utils/walletReceivePayout.js";
+// Owner decision 2026-10-16 — the LBP change note rounding (pure; the
+// payment box and the change-rounding expense share it, rule 14).
+export * from "./utils/changeRounding.js";
 export * from "./utils/walletTransfer.js";
 // LIRA-301 — transaction titles and summary wording, shared by web, desktop and phone (pure).
 export * from "./utils/transactionText.js";

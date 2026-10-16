@@ -182,6 +182,17 @@ export interface CreateExpenseData {
    *  kind than `expense` for this row (the wrong-number record passes
    *  `wrong_number`). No transport schema carries it. */
   details_override?: TransactionDetails;
+  /**
+   * Owner decision 2026-10-16 — internal writers only (no transport schema
+   * carries it): a BOOKS-ONLY expense. The row, its EXPENSE transaction and
+   * its details are written, but NO payments row and NO drawer movement —
+   * the cash already left through the parent's own legs. Used by the LBP
+   * change-rounding expense (`bookChangeRoundingExpense`): the sale's change
+   * leg already debited the 90,000 LBP handed back; this records that 4,000
+   * of it was a rounding gift, so a second debit would double-count it.
+   * Same "no drawer moves" exit as an inventory stock-use expense.
+   */
+  books_only?: boolean;
 }
 
 /**
@@ -599,8 +610,10 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         // `source_ref_table` (v166), the generic parent link a sibling
         // carries — derived once here rather than passed by each call
         // site, so a future auto writer gets it for free and none can
-        // drift. Today the ONLY writer that passes it is
-        // RechargeRepository's `SMS_Transfer_Fee` (parent: the recharge).
+        // drift. Writers that pass it: RechargeRepository's
+        // `SMS_Transfer_Fee` (parent: the recharge) and
+        // `bookChangeRoundingExpense` ("Change rounding", parent: the POS
+        // sale or repair job — owner decision 2026-10-16).
         // The other two callers are deliberately NOT auto (rule 26 —
         // operator-initiated, no parent to link): ExpenseService (manual
         // expense) and CarrierLineRepository.recordUsage (`Line_Usage`,
@@ -621,7 +634,9 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     const createdBy = userId;
 
     // LIRA-262: the shop used its own inventory — no drawer moves at all.
-    if (isInventoryUse) {
+    // Owner decision 2026-10-16: a books-only expense (see `books_only`) —
+    // the parent's legs already moved the cash.
+    if (isInventoryUse || data.books_only) {
       return expenseId;
     }
 

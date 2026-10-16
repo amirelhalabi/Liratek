@@ -39,10 +39,15 @@ function renderModal(onConfirmClient: jest.Mock) {
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: /from client/i }));
-  // $100 credits → 1% auto fee → the shop owes $99.00.
+  // $100 credits → 1% auto fee → the shop owes $99.00. "Fee included" is
+  // ticked so the fee comes out of the credits (owner decision 2026-10-16:
+  // unticked, the client sends $101 and is owed the full $100).
   fireEvent.change(screen.getAllByPlaceholderText("0.00")[0], {
     target: { value: "100" },
   });
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: /fee included in amount/i }),
+  );
 }
 
 function setPayout(value: string) {

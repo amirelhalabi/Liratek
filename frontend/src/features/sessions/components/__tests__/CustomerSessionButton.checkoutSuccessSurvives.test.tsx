@@ -184,10 +184,9 @@ describe("CustomerSessionButton — checkout success view survives the session c
   it("shows 'Checkout Complete' after checkout even though activeSession goes null", async () => {
     render(<CustomerSessionButton />);
 
-    // Hover the session button to mount the popup panel.
-    fireEvent.mouseEnter(
-      screen.getByRole("button", { name: /Customer Session/i }).parentElement!,
-    );
+    // Click the session button to open the popup panel (it opens on click,
+    // not hover — owner decision 2026-10-16).
+    fireEvent.click(screen.getByRole("button", { name: /Customer Session/i }));
     fireEvent.click(
       await screen.findByRole("button", { name: /Checkout \(1 items\)/ }),
     );

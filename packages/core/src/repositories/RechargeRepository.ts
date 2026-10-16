@@ -11,6 +11,7 @@ import { rechargeLogger } from "../utils/logger.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { requestNow } from "../utils/requestNow.js";
 import { clientDay } from "../utils/requestDay.js";
+import { walletReceiveAmounts } from "../utils/walletReceivePayout.js";
 
 import {
   paymentMethodToDrawerName,
@@ -1776,7 +1777,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             // reverses the movement, which restores days_owed through the
             // existing generic path; this row is a standalone checklist
             // item, not money or validity).
-            const soldAhead = validityMovement.data?.movement.days_owed_delta ?? 0;
+            const soldAhead =
+              validityMovement.data?.movement.days_owed_delta ?? 0;
             if (soldAhead > 0) {
               getCarrierLineOwedDeliveryRepository().create({
                 carrier_line_id: primaryLine.id,
@@ -1895,7 +1897,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               amount_lbp: 0,
               // LIRA-306 FR-021 / rule 27: the request's own day (the browser's on
               // web, the event's in a replay), like every other expense_date.
-              expense_date: data.transaction_time ?? data.client_day ?? clientDay(),
+              expense_date:
+                data.transaction_time ?? data.client_day ?? clientDay(),
               transaction_time: data.transaction_time,
               drawer_override: {
                 drawer_name: providerDrawerName,
@@ -3203,7 +3206,16 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             `cannot keep more than it received`,
         };
       }
-      const payoutTarget = amount - fee;
+      // What the client is paid: the credits received minus the shop's fee
+      // — the same RECEIVE payout rule every wallet receive pays out by
+      // (`walletReceiveAmounts`, rule 14). `amount` is already the credits
+      // that arrived: the modal folds the "Fee included" choice into it
+      // (`walletReceiveInflow`, owner decision 2026-10-16), so an unticked
+      // $100 arrives as 101 credits and pays out the full $100.
+      const payoutTarget = walletReceiveAmounts({
+        walletInflow: amount,
+        fee,
+      }).payout;
       if (payoutTarget <= 0) {
         return {
           success: false,

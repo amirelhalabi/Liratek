@@ -683,7 +683,11 @@ test("lira-web-057 basket checkout modal: a $20 basket paid $17 shows Waive; cli
     await page.goto("/#/");
     await expect(sessionButton).toBeVisible({ timeout: 20_000 });
     await expect(async () => {
-      await sessionButton.hover();
+      // The session panel opens on click, not hover (owner 2026-10-16). A
+      // click toggles it, so a retry only clicks while it is still closed.
+      if ((await sessionButton.getAttribute("aria-expanded")) !== "true") {
+        await sessionButton.click();
+      }
       await page
         .getByRole("button", { name: /Checkout \(1 items?\)/i })
         .click({ timeout: 3_000 });

@@ -181,7 +181,8 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
       .locator("button")
       .filter({ hasText: /Session - / })
       .first();
-    await sessionButton.hover();
+    // The session panel opens on click, not hover (owner 2026-10-16).
+    await sessionButton.click();
     const grossSplit = appPage.getByTestId("session-cart-gross-split");
     await expect(grossSplit).toBeVisible({ timeout: 10_000 });
     await expect(grossSplit).toContainText("$50.00");

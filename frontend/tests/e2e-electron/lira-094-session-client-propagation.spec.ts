@@ -683,7 +683,8 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
     await appPage
       .locator("button")
       .filter({ hasText: `Session - ${CLIENT_NAME}` })
-      .hover();
+      // The session panel opens on click, not hover (owner 2026-10-16).
+      .click();
     await appPage
       .locator("button")
       .filter({ hasText: /Checkout \(24 items\)/ })

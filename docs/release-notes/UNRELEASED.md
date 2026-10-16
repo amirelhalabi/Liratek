@@ -133,6 +133,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 - iPick, Katsh and Whish App items: cards of the same kind now sit together, for example all Terranet Army DSL cards, then all Fiber cards, each from smallest to biggest (500MB now comes before 1.5GB and 5GB).
 - Mobile Recharge, MTC and Alfa: your shop line now sits at the top, between the logos and the totals: the phone number with its credit. Your main line is picked when the page opens; the small arrow next to it lists your other lines, and the one you pick is the line the next sales send credits from (just for that screen; your main line stays the default). A small dot shows when something needs a look (a line running out of days, expired or burned, the balance not matching your lines, or days still owed to a customer).
 - Mobile Recharge: click the phone number to record usage on that line straight away. Days still owed to customers (Mark sent) and a balance mismatch show in the same window. To edit or add a line, use Settings → Shop lines.
+- Whish App top-up from a client: "Fee included in amount" now changes what you pay out. Ticked: the client sends $100 and you pay out $99 (the fee comes out of the credits). Not ticked: the client sends $101 and you pay out the full $100. The window shows what the client sends and what you pay out. Before, the payout was always the amount minus the fee, ticked or not.
 - Mobile Recharge: the Top-Up window for OMT App, Whish App, iPick and Katsh now opens as soon as you click Top-Up. Drawer balances show "Loading..." for a moment, and if they can't be loaded you see why, with a Retry button.
 - Wrong number: the window now says "Loading cards..." while your MTC and Alfa cards load, instead of "No MTC or Alfa card". If they can't be loaded, you see why, with a Retry button.
 - Mobile Recharge: from now on every sale keeps what you entered on the transaction itself: the customer's name and phone, the shop line used, the Alfa Gift chosen, Days cost and price as typed in dollars, each iPick / Katsh / Whish App item picked, the discount as typed, the Whish / OMT App fee and who paid it, the Binance reference, a wrong number's right number and original sale, and how the customer paid. Items paid in one basket also keep which customer session paid for them.
@@ -151,6 +152,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 ## 🧾 Expenses
 
 - When you use an MTC or Alfa card from iPick, Katsh or Whish App, a "Wrong number" tick records it as a card sent to the wrong number, so the credits sent back can be entered later from the Transactions page.
+- From now on, when a POS sale or a repair checkout hands back change in Lebanese pounds rounded up to the next 5,000 note, the extra is recorded as a small "Change rounding" expense, so your profits match the cash in the drawer. Example: a $26 sale paid with 2,400,000 LBP at 89,000 owes 86,000 LBP of change; you hand back 90,000, and the 4,000 LBP extra shows on the Expenses page. The drawer is not changed a second time. Voiding or refunding the sale removes the expense. On the Transactions page it shows only when you filter for Expenses.
 
 ## 📊 Profits page
 
@@ -188,7 +190,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 - The session checkout window now has "Set custom time". The time you pick is used for everything in that checkout: every item, the extra, the kept change or forgiven amount, the payment, and any amount put on the customer's account. An item that already had its own custom time when you added it keeps that time. Before, a session checkout was always saved at the time you checked out.
 - A Binance send or cash-out, an OMT App or Whish App transfer, and iPick, Katsh or Whish App items added to a customer session now keep the custom time you set on them. Before, that time was ignored and they were saved at checkout time.
-- The session window under the top-bar session button now opens only when you rest the pointer on the button. It closes as soon as the pointer leaves it, or with Escape. Before, it could stay open over the page, for example over the MTC / Alfa / iPick tabs on Mobile Recharge.
+- The session window under the top-bar session button now opens only when you click the button, and closes when you click it again, click anywhere else, or press Escape. Moving the pointer over the top bar no longer opens it, so it can't cover the page by accident (for example the MTC / Alfa / iPick tabs on Mobile Recharge). To start a new session or switch to another one, use the small arrow next to the session button.
 - Mobile Recharge, MTC and Alfa Credit: in a customer session, the phone number now starts filled with the session customer's phone. A number you type is never replaced.
 
 ## 👥 Clients

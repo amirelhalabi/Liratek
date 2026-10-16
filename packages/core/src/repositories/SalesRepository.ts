@@ -50,6 +50,7 @@ import {
   type ReconciliationLeg,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { bookChangeRoundingExpense } from "./changeRoundingExpense.js";
 import {
   DISCOUNT_AND_EXTRA_MESSAGE,
   EXTRA_ABOVE_TOTAL_MESSAGE,
@@ -1642,6 +1643,47 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               tenantId,
             );
             upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
+          }
+
+          // Owner decision 2026-10-16 — the LBP change the payment box
+          // rounded UP to the next note is booked as a small books-only
+          // expense linked to this sale (bookChangeRoundingExpense: amount
+          // from the shared note rule, is_auto from the link, reversed by
+          // the void/refund cascade). Only on a plain customer-pays sale:
+          // a session item (the basket owns the payment), a FOR-partner
+          // sale (no counter cash), and a sale whose change was kept or put
+          // on the account (the kept-change check already settled it) are
+          // left out.
+          if (
+            !deferPayment &&
+            sale.partnerMode !== "FOR" &&
+            keptProfitUsd === 0 &&
+            keptProfitLbp === 0 &&
+            !hasAccountChange
+          ) {
+            const outCash = { usd: changeUsd, lbp: changeLbp };
+            for (const r of outLegs) {
+              if (!isDrawerAffectingMethod(r.method)) continue;
+              if (r.currency_code === "USD") outCash.usd += Math.abs(r.amount);
+              else if (r.currency_code === "LBP")
+                outCash.lbp += Math.abs(r.amount);
+            }
+            bookChangeRoundingExpense({
+              parentSourceTable: "sales",
+              parentSourceId: saleId as number,
+              parentLabel: `Sale #${saleId}`,
+              due: { usd: amountDueUsd, lbp: 0 },
+              inLegs: inLegs.map((l) => ({
+                method: l.method,
+                currencyCode: l.currency_code,
+                amount: l.amount,
+              })),
+              cashChange: outCash,
+              exchangeRate: sale.exchange_rate,
+              userId: createdBy,
+              transactionTime: sale.transaction_time,
+              clientDay: sale.client_day,
+            });
           }
 
           // Handle Debt (If Partial Payment) — deferred (session basket): the
@@ -4633,9 +4675,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    * never on `sales`). Read + rename (updateMetadata) hit the SAME field so a
    * reprint reflects an edit (RCP-1).
    */
-  getSaleWithCustomer(
-    saleId: number,
-  ):
+  getSaleWithCustomer(saleId: number):
     | (SaleEntity & {
         client_name: string | null;
         client_phone: string | null;

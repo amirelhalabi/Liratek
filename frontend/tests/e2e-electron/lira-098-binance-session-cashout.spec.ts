@@ -165,7 +165,8 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
       .locator("button")
       .filter({ hasText: /Session - / })
       .first();
-    await sessionButtonWrap.hover();
+    // The session panel opens on click, not hover (owner 2026-10-16).
+    await sessionButtonWrap.click();
     const cartLine = appPage
       .locator("li")
       .filter({ hasText: /Binance Cash Out/ })

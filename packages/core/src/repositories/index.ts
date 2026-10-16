@@ -378,6 +378,12 @@ export type {
   ExpenseDrawerOverride,
   ExpenseStockItem,
 } from "./ExpenseRepository.js";
+// Owner decision 2026-10-16 — LBP change rounding booked as an expense.
+export {
+  bookChangeRoundingExpense,
+  CHANGE_ROUNDING_EXPENSE_CATEGORY,
+} from "./changeRoundingExpense.js";
+export type { ChangeRoundingExpenseInput } from "./changeRoundingExpense.js";
 
 // Closing Repository
 export {

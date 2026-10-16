@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import { Wallet, X, AlertTriangle, Info, UserRound, Users } from "lucide-react";
 import type { TopUpFromClientInput } from "@liratek/core";
+import { walletReceiveAmounts, walletReceiveInflow } from "@liratek/core";
 import MultiPaymentInput from "./MultiPaymentInput";
 import { useModalFocusFix } from "../../hooks/useModalFocusFix";
 import type { PaymentLine } from "./MultiPaymentInput";
@@ -249,7 +250,24 @@ export default function TopUpModal({
     currency === "USD" && whishParsedAmount > 0 ? whishParsedAmount * 0.01 : 0;
   const whishManualFee = parseFloat(manualFee) || 0;
   const whishProviderFee = whishManualFee > 0 ? whishManualFee : whishAutoFee;
-  const whishCashPaid = Math.max(0, whishParsedAmount - whishProviderFee);
+  // Owner decision 2026-10-16 — "Fee included in amount" follows the usual
+  // RECEIVE rule (core `walletReceiveInflow` / `walletReceiveAmounts`, the
+  // same rule the server pays out by): ticked → the client sends the typed
+  // credits and the fee comes out of them; unticked → the client sends
+  // credits + fee and is paid the full typed amount. `whishCreditsIn` is
+  // what arrives in the Whish App wallet — the API's `amount`.
+  const whishCreditsIn = walletReceiveInflow({
+    typedAmount: whishParsedAmount,
+    fee: whishProviderFee,
+    feeIncluded: includingFees,
+  });
+  const whishCashPaid = Math.max(
+    0,
+    walletReceiveAmounts({
+      walletInflow: whishCreditsIn,
+      fee: whishProviderFee,
+    }).payout,
+  );
   // Nothing left to pay out once the fee consumes the whole amount — offering
   // MultiPaymentInput (which requires a positive leg amount) would just
   // reject with a confusing schema error at submit; surface it up front.
@@ -336,7 +354,8 @@ export default function TopUpModal({
       try {
         const trimmedClientName = selectedClientName?.trim();
         await onConfirmClient({
-          amount: amountNum,
+          // The credits that arrive (the fee folded in when it is on top).
+          amount: whishCreditsIn,
           currency,
           // `fee` is REQUIRED by `topUpFromClientSchema` and may legitimately
           // be 0 (owner: the shop's profit on this transaction IS the fee,
@@ -344,8 +363,8 @@ export default function TopUpModal({
           // a truthiness/`?? undefined` guard, or a genuine $0 fee would be
           // dropped from the wire (rule 22).
           fee: whishProviderFee,
-          // LIRA-329: the "Fee included in amount" choice, kept on the
-          // transaction's details (informational; `fee` stays the money).
+          // The "Fee included in amount" choice, kept on the transaction's
+          // details; it is already folded into `amount` above.
           includingFees,
           payments: payoutLegs,
           ...(hasCrossCurrencyLeg && clientPayoutExchangeRate
@@ -613,14 +632,14 @@ export default function TopUpModal({
                           Fee included in amount
                         </span>
                       </label>
-                      {whishParsedAmount > 0 && includingFees && (
+                      {whishParsedAmount > 0 && (
                         <div className="text-xs space-y-0.5 pl-6 border-l border-slate-600 ml-2">
                           <p className="text-slate-400">
-                            Credits in:{" "}
+                            Client sends:{" "}
                             <span className="text-white font-mono font-medium">
                               {currency === "LBP"
-                                ? `${whishParsedAmount.toLocaleString()} LBP`
-                                : `$${whishParsedAmount.toFixed(2)}`}
+                                ? `${whishCreditsIn.toLocaleString()} LBP`
+                                : `$${whishCreditsIn.toFixed(2)}`}
                             </span>
                           </p>
                           <p className="text-slate-400">

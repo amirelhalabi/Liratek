@@ -1,17 +1,18 @@
-/** @jest-environment jsdom */
 /**
- * The session hover panel must not sit over the page by accident
- * (shop-day test 2026-10-16: on Mobile Recharge it covered the provider
- * tabs, so clicks on MTC/Alfa/... landed on the panel instead).
+ * The session panel opens on CLICK, never on hover (owner decision
+ * 2026-10-16). It hangs under the top-bar session button, so while open it
+ * covers whatever is below (shop-day test: on Mobile Recharge it covered the
+ * provider tabs). A cursor passing over the top bar must never open it.
  *
- * The panel hangs under the top-bar session button, so while it is open it
- * covers whatever is below. It now:
- *  - opens only after the pointer RESTS on the button (a cursor passing
- *    through the top bar on its way into the page no longer opens it);
- *  - keeps a short grace only for crossing from the button to the panel;
- *  - closes as soon as the pointer leaves the panel itself;
- *  - closes on Escape.
- * Trigger -> panel -> Checkout still opens the checkout.
+ *  - clicking the session button toggles the panel;
+ *  - it closes on a click outside, on Escape, or on clicking the button
+ *    again;
+ *  - the session switcher (New Session / Walk-In / other sessions) moved to
+ *    the small "Switch or start a session" button next to it;
+ *  - button -> panel -> Checkout still opens the session checkout.
+ *
+ * Rule 17: "hover does NOT open the panel" was run against the hover version
+ * first and seen failing (the panel opened after the 250 ms rest).
  *
  * Harness copied from CustomerSessionButton.checkoutSuccessSurvives.test.tsx
  * (stateful useSession store, stable useApi — rule 25).
@@ -169,12 +170,12 @@ jest.mock("@/utils/logger", () => ({
   },
 }));
 
-const trigger = () =>
-  screen.getByRole("button", { name: /Customer Session/i }).parentElement!;
+const sessionButton = () =>
+  screen.getByRole("button", { name: /Customer Session/i });
 const panelCheckout = () =>
   screen.queryByRole("button", { name: /Checkout \(1 items\)/ });
 
-describe("CustomerSessionButton — hover panel", () => {
+describe("CustomerSessionButton — session panel opens on click", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockState = {
@@ -186,66 +187,76 @@ describe("CustomerSessionButton — hover panel", () => {
     jest.useRealTimers();
   });
 
-  it("a pointer passing over the button does not open the panel", () => {
+  it("hovering the button (even resting on it) does NOT open the panel", () => {
     render(<CustomerSessionButton />);
-    fireEvent.mouseEnter(trigger());
+    fireEvent.mouseEnter(sessionButton().parentElement!);
+    fireEvent.mouseOver(sessionButton());
     act(() => {
-      jest.advanceTimersByTime(100);
-    });
-    expect(panelCheckout()).toBeNull();
-    fireEvent.mouseLeave(trigger());
-    act(() => {
-      jest.advanceTimersByTime(1000);
+      // Well past the old 250 ms rest + 200 ms grace.
+      jest.advanceTimersByTime(2000);
     });
     expect(panelCheckout()).toBeNull();
   });
 
-  it("resting on the button opens the panel", () => {
+  it("clicking the button opens the panel; clicking it again closes it", () => {
     render(<CustomerSessionButton />);
-    fireEvent.mouseEnter(trigger());
+    fireEvent.click(sessionButton());
+    expect(panelCheckout()).not.toBeNull();
+    expect(sessionButton().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(sessionButton());
     expect(panelCheckout()).toBeNull();
+    expect(sessionButton().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("a click outside closes it; a click inside the panel does not", () => {
+    render(
+      <div>
+        <CustomerSessionButton />
+        <button type="button">Page tab</button>
+      </div>,
+    );
+    fireEvent.click(sessionButton());
+    fireEvent.mouseDown(screen.getByTestId("session-hover-panel"));
+    expect(panelCheckout()).not.toBeNull();
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Page tab" }));
+    expect(panelCheckout()).toBeNull();
+  });
+
+  it("leaving the panel with the pointer does not close it", () => {
+    render(<CustomerSessionButton />);
+    fireEvent.click(sessionButton());
+    fireEvent.mouseLeave(screen.getByTestId("session-hover-panel"), {
+      relatedTarget: document.body,
+    });
+    fireEvent.mouseLeave(sessionButton().parentElement!);
     act(() => {
-      jest.advanceTimersByTime(300);
+      jest.advanceTimersByTime(2000);
     });
     expect(panelCheckout()).not.toBeNull();
   });
 
-  it("leaving the panel into the page closes it at once", () => {
-    render(<CustomerSessionButton />);
-    fireEvent.mouseEnter(trigger());
-    act(() => {
-      jest.advanceTimersByTime(300);
-    });
-    const panel = screen.getByTestId("session-hover-panel");
-    fireEvent.mouseLeave(panel, { relatedTarget: document.body });
-    expect(panelCheckout()).toBeNull();
-  });
-
   it("Escape closes the panel", () => {
     render(<CustomerSessionButton />);
-    fireEvent.mouseEnter(trigger());
-    act(() => {
-      jest.advanceTimersByTime(300);
-    });
+    fireEvent.click(sessionButton());
     fireEvent.keyDown(document, { key: "Escape" });
     expect(panelCheckout()).toBeNull();
   });
 
+  it("the switcher button opens the session list instead of the panel", () => {
+    render(<CustomerSessionButton />);
+    fireEvent.click(sessionButton());
+    fireEvent.click(
+      screen.getByRole("button", { name: /switch or start a session/i }),
+    );
+    expect(panelCheckout()).toBeNull();
+    // The switcher's header (its New Session / Walk-In rows wait for the
+    // client list to load).
+    expect(screen.getByText("Customer Sessions")).toBeTruthy();
+  });
+
   it("button -> panel -> Checkout still opens the session checkout", () => {
     render(<CustomerSessionButton />);
-    fireEvent.mouseEnter(trigger());
-    act(() => {
-      jest.advanceTimersByTime(300);
-    });
-    // Crossing the gap: leave the button, enter the panel within the grace.
-    fireEvent.mouseLeave(trigger());
-    act(() => {
-      jest.advanceTimersByTime(100);
-    });
-    fireEvent.mouseEnter(trigger());
-    act(() => {
-      jest.advanceTimersByTime(500);
-    });
+    fireEvent.click(sessionButton());
     fireEvent.click(panelCheckout()!);
     expect(
       screen.getByRole("button", { name: /Confirm Checkout/i }),

@@ -183,8 +183,8 @@ describe("TopUpModal — Whish App 'From Client' payout (LIRA-195)", () => {
 
     switchToFromClient();
     fireEvent.change(getAmountInput(), { target: { value: "100" } });
-    // Overtype the single payout line above the target (target is 99 after
-    // the 1% auto fee) — if onReturnChange were ever wired, this is exactly
+    // Overtype the single payout line above the target (target is $100 —
+    // the fee is on top by default) — if onReturnChange were ever wired, this is exactly
     // the shape that would emit a change/return OUT leg.
     const amountLeg = document.querySelector<HTMLInputElement>(
       '[data-testid^="payment-amount-"]',
@@ -220,7 +220,9 @@ describe("TopUpModal — Whish App 'From Client' payout (LIRA-195)", () => {
     );
 
     switchToFromClient();
-    // 1% auto fee on $100 USD → payout target = $99.00
+    // 1% auto fee on $100 USD, "Fee included" left unticked (the default):
+    // the client sends $101 and the payout target is the full $100.00
+    // (owner decision 2026-10-16 — was $99 before the fee mode counted).
     fireEvent.change(getAmountInput(), { target: { value: "100" } });
 
     fireEvent.click(screen.getByTestId("split-toggle"));
@@ -245,8 +247,9 @@ describe("TopUpModal — Whish App 'From Client' payout (LIRA-195)", () => {
       (sum: number, leg: { amount: number }) => sum + leg.amount,
       0,
     );
-    expect(total).toBeCloseTo(99, 2);
-    // The same $1 auto fee this split payout target (99 = 100 - 1) was
+    // Owner-approved expectation change 2026-10-16: 99 → 100.
+    expect(total).toBeCloseTo(100, 2);
+    // The same $1 auto fee this split payout target (100 = 101 − 1) was
     // derived from must also travel on the wire (LIRA-195 fee follow-on).
     expect(payload.fee).toBe(1);
   });
@@ -317,7 +320,10 @@ describe("TopUpModal — Whish App 'From Client' payout (LIRA-195)", () => {
       const parsed = topUpFromClientSchema.parse(payload);
       expect(parsed.fee).toBe(5);
       const total = parsed.payments.reduce((sum, leg) => sum + leg.amount, 0);
-      expect(total).toBeCloseTo(95, 2);
+      // Owner-approved expectation change 2026-10-16: 95 → 100. "Fee
+      // included" is unticked, so the client sends $105 and is paid $100.
+      expect(total).toBeCloseTo(100, 2);
+      expect(parsed.amount).toBeCloseTo(105, 6);
     });
 
     it("emits fee: 0 literally — not omitted — when there is no fee", () => {

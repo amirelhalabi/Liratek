@@ -8,6 +8,7 @@ import {
   Check,
   Footprints,
   Trash2,
+  ChevronDown,
 } from "lucide-react";
 import { StartSessionModal } from "./StartSessionModal";
 import { SessionPopupPanel } from "./SessionFloatingWindow";
@@ -23,17 +24,13 @@ type SessionFilter = "all" | "active" | "closed";
 /**
  * Embedded Customer Session Button - Compact design for topbar
  * Shows "Customer Session - ClientName" when active.
- * Hover: shows cart/transaction popup panel.
- * Click: opens session switcher dropdown.
+ * Click (with an active session): toggles the cart/transaction panel.
+ * The small switcher button next to it (or the main button when no session
+ * is active) opens the session switcher dropdown.
  */
 interface CustomerSessionButtonProps {
   isKnownClient?: boolean;
 }
-
-/** Rest this long on the session button before its panel opens. */
-const HOVER_OPEN_DELAY_MS = 250;
-/** Grace to cross from the button to the panel below it. */
-const HOVER_CLOSE_GRACE_MS = 200;
 
 export function CustomerSessionButton({
   isKnownClient = false,
@@ -64,68 +61,36 @@ export function CustomerSessionButton({
   const [sessionFilter, setSessionFilter] = useState<SessionFilter>("active");
   const editNameRef = useRef<HTMLInputElement>(null);
 
-  // Hover popup state. The panel hangs under this top-bar button, so while
-  // it is open it covers the page below (shop-day 2026-10-16: the Mobile
-  // Recharge provider tabs). So it opens only after the pointer RESTS on
-  // the button, keeps a short grace only for crossing to the panel, closes
-  // as soon as the pointer leaves the panel, and closes on Escape.
-  const [isHovered, setIsHovered] = useState(false);
-  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Session panel (owner decision 2026-10-16): it hangs under this top-bar
+  // button and covers the page below while open (shop-day: the Mobile
+  // Recharge provider tabs), so it opens only on a CLICK — never on hover —
+  // and closes on a click outside, on Escape, or on clicking the button
+  // again.
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
-  const clearHoverTimers = () => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    if (openTimeoutRef.current) clearTimeout(openTimeoutRef.current);
-    hoverTimeoutRef.current = null;
-    openTimeoutRef.current = null;
-  };
-
-  const handleMouseEnter = () => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    hoverTimeoutRef.current = null;
-    if (isHovered || openTimeoutRef.current) return;
-    openTimeoutRef.current = setTimeout(() => {
-      openTimeoutRef.current = null;
-      setIsHovered(true);
-    }, HOVER_OPEN_DELAY_MS);
-  };
-
-  const handleMouseLeave = () => {
-    if (openTimeoutRef.current) clearTimeout(openTimeoutRef.current);
-    openTimeoutRef.current = null;
-    // Short grace to cross the gap from the button to the panel.
-    hoverTimeoutRef.current = setTimeout(
-      () => setIsHovered(false),
-      HOVER_CLOSE_GRACE_MS,
-    );
-  };
-
-  /** Leaving the panel itself — unless back onto the button — closes it. */
-  const handlePanelMouseLeave = (e: React.MouseEvent) => {
-    const to = e.relatedTarget;
-    if (to instanceof Node && wrapperRef.current?.contains(to)) return;
-    clearHoverTimers();
-    setIsHovered(false);
-  };
-
   useEffect(() => {
-    if (!isHovered) return;
+    if (!isPanelOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsHovered(false);
+      if (e.key === "Escape") setIsPanelOpen(false);
+    };
+    // The button and the panel both live inside the wrapper, so a press on
+    // either is not "outside" (the button's own click does the toggling).
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target;
+      if (target instanceof Node && wrapperRef.current?.contains(target)) {
+        return;
+      }
+      setIsPanelOpen(false);
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [isHovered]);
-
-  useEffect(
-    () => () => {
-      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-      if (openTimeoutRef.current) clearTimeout(openTimeoutRef.current);
-    },
-    [],
-  );
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [isPanelOpen]);
 
   const getInitials = (name?: string) => {
     if (!name) return "?";
@@ -150,7 +115,18 @@ export function CustomerSessionButton({
   };
 
   const handleMainButtonClick = () => {
-    // Always show dropdown (which has New Session + Walk-In options)
+    // With an active session the button toggles its panel; without one
+    // there is no panel, so it opens the switcher (New Session + Walk-In).
+    if (hasActiveSession) {
+      setShowDropdown(false);
+      setIsPanelOpen((open) => !open);
+      return;
+    }
+    setShowDropdown(!showDropdown);
+  };
+
+  const handleSwitcherClick = () => {
+    setIsPanelOpen(false);
     setShowDropdown(!showDropdown);
   };
 
@@ -355,15 +331,16 @@ export function CustomerSessionButton({
         />
       )}
 
-      {/* Session Button with Dropdown + Hover Popup */}
-      <div
-        ref={wrapperRef}
-        className="relative"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-      >
+      {/* Session Button with Dropdown + click-to-open panel */}
+      <div ref={wrapperRef} className="relative flex items-center gap-1">
         <button
           onClick={handleMainButtonClick}
+          {...(hasActiveSession
+            ? {
+                "aria-expanded": isPanelOpen,
+                "aria-haspopup": "dialog" as const,
+              }
+            : {})}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${
             hasActiveSession
               ? "bg-gradient-to-r from-violet-600 to-violet-700 text-white shadow-lg"
@@ -372,7 +349,9 @@ export function CustomerSessionButton({
           title={
             activeCount === 0
               ? "Start Customer Session"
-              : `${activeCount} active session${activeCount > 1 ? "s" : ""}`
+              : hasActiveSession
+                ? "Show this session's cart"
+                : `${activeCount} active session${activeCount > 1 ? "s" : ""}`
           }
         >
           {activeCount > 0 ? (
@@ -403,12 +382,27 @@ export function CustomerSessionButton({
           )}
         </button>
 
-        {/* Hover Popup: Session cart/transaction content */}
-        {isHovered && hasActiveSession && !showDropdown && (
+        {/* Session switcher — next to the session button while one is
+            active (the button itself opens the panel). Carries the "N active
+            sessions" title the e2e fixtures click to reach New Session. */}
+        {hasActiveSession && (
+          <button
+            type="button"
+            onClick={handleSwitcherClick}
+            aria-label="Switch or start a session"
+            aria-expanded={showDropdown}
+            title={`${activeCount} active session${activeCount > 1 ? "s" : ""}`}
+            className="flex items-center px-1.5 py-1.5 rounded-lg bg-violet-700 text-white hover:bg-violet-600 transition-all"
+          >
+            <ChevronDown size={16} />
+          </button>
+        )}
+
+        {/* Session panel: cart/transaction content (opens on click) */}
+        {isPanelOpen && hasActiveSession && !showDropdown && (
           <div
             ref={popupRef}
             data-testid="session-hover-panel"
-            onMouseLeave={handlePanelMouseLeave}
             className="absolute top-full left-0 mt-2 z-50 animate-in fade-in zoom-in-95 duration-200"
           >
             <SessionPopupPanel onCheckout={() => setIsCheckoutOpen(true)} />

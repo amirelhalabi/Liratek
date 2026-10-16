@@ -68,6 +68,31 @@ export function walletReceiveAmounts({
 }
 
 /**
+ * What arrives in the shop's wallet for a typed RECEIVE amount — the fold
+ * every wallet RECEIVE form applies before calling the API (owner decision
+ * 2026-10-16 extends it to the Whish App top-up from a client):
+ *
+ *   fee included (ticked)     → the typed amount; the fee comes out of it,
+ *                               so the payout is amount − fee.
+ *   fee on top (not included) → typed amount + fee; the client sends the
+ *                               fee too, so the payout is the full amount.
+ *
+ * Its result is `walletInflow` for {@link walletReceiveAmounts} and the
+ * API's `amount`.
+ */
+export function walletReceiveInflow({
+  typedAmount,
+  fee,
+  feeIncluded,
+}: {
+  typedAmount: number;
+  fee: number;
+  feeIncluded: boolean;
+}): number {
+  return feeIncluded ? typedAmount : typedAmount + fee;
+}
+
+/**
  * LIRA-269 follow-up — what a wallet SEND (Binance SEND, OMT App / Whish App
  * SEND) charges, in ONE place (rule 14). Same meaning as a RECEIVE discount:
  * it comes off the SHOP'S FEE, capped at the fee (owner rule, MTC/Alfa

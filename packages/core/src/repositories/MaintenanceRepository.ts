@@ -18,6 +18,7 @@ import {
   type ReconciliationLeg,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { bookChangeRoundingExpense } from "./changeRoundingExpense.js";
 import { BusinessRuleError } from "../utils/errors.js";
 import {
   normalizeMaintenancePhone,
@@ -1149,6 +1150,35 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         createdBy,
       );
       upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
+    }
+
+    // Owner decision 2026-10-16 — the LBP change the payment box rounded UP
+    // to the next note is booked as a small books-only expense linked to
+    // this job (bookChangeRoundingExpense — same writer as the POS sale).
+    // Not when change was kept or put on the account: the kept-change check
+    // above already settled those.
+    if (
+      claimedKeptUsd === 0 &&
+      claimedKeptLbp === 0 &&
+      accountOutLegs.length === 0
+    ) {
+      bookChangeRoundingExpense({
+        parentSourceTable: "maintenance",
+        parentSourceId: jobId,
+        parentLabel: `Maintenance Job #${jobId}`,
+        due: isLbp
+          ? { usd: partsPriceUsd + extraUsd, lbp: opts.finalAmount + extraLbp }
+          : { usd: opts.finalAmount + partsPriceUsd + extraUsd, lbp: extraLbp },
+        inLegs: inLegs.map((l) => ({
+          method: l.method,
+          currencyCode: l.currency_code,
+          amount: l.amount,
+        })),
+        cashChange: { usd: changeUsd, lbp: changeLbp },
+        exchangeRate: opts.exchangeRate,
+        userId: createdBy,
+        transactionTime: opts.transactionTime,
+      });
     }
 
     // Change kept on the client's account: a store-credit deposit linked to

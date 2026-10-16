@@ -1,3 +1,5 @@
+import { roundLbpUpToNote } from "@liratek/core";
+
 /**
  * Bill denominations available in the shop
  */
@@ -76,12 +78,14 @@ const ROUND_UP_EPSILON = 1e-6;
 /**
  * Round LBP amount up to nearest payable bill
  * Example: 57,380 -> 60,000 (rounds up to 10,000 + 50,000 combination)
+ *
+ * Owner decision 2026-10-16: the ONE definition lives in core
+ * (`roundLbpUpToNote`, utils/changeRounding.ts) because the server books the
+ * rounding it produces as a small expense — the box and the books must agree
+ * on what a "rounded" change is (rule 14).
  */
 export function roundLBPUp(amount: number): number {
-  if (amount <= 0) return 0;
-
-  // Round up to nearest 5,000 (smallest denomination)
-  return Math.ceil(amount / 5000 - ROUND_UP_EPSILON) * 5000;
+  return roundLbpUpToNote(amount);
 }
 
 /**

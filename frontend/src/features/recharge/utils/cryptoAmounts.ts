@@ -1,4 +1,8 @@
-import { walletReceiveAmounts, walletSendAmounts } from "@liratek/core";
+import {
+  walletReceiveAmounts,
+  walletReceiveInflow,
+  walletSendAmounts,
+} from "@liratek/core";
 
 /**
  * Binance (crypto) SEND / cash-out amounts, in ONE place for the form's
@@ -62,8 +66,14 @@ export function cryptoAmounts({
 }: CryptoAmountsInput): CryptoAmounts {
   const sendUsdt = feeIncluded ? parsedAmount - fee : parsedAmount;
   const sendTotal = feeIncluded ? parsedAmount : parsedAmount + fee;
-  const receiveUsdt =
-    feeIncluded || feeCollectedSeparately ? parsedAmount : parsedAmount + fee;
+  // The RECEIVE fold, from core (rule 14 — the Whish App top-up from a
+  // client uses the same one). Mode C collects the fee separately, so the
+  // wallet receives just the typed amount.
+  const receiveUsdt = walletReceiveInflow({
+    typedAmount: parsedAmount,
+    fee,
+    feeIncluded: feeIncluded || feeCollectedSeparately,
+  });
   const receive = walletReceiveAmounts({
     walletInflow: receiveUsdt,
     fee,
