@@ -110,6 +110,17 @@ function createTestDb(): Database.Database {
       exchange_rate_snapshot REAL
     );
 
+    -- getRecent's item_refunded/item_refund_remaining read per-sale line
+    -- counts via _saleItemRefundCounts; only the columns it reads.
+    CREATE TABLE IF NOT EXISTS sale_items (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_id           INTEGER NOT NULL,
+      quantity          INTEGER NOT NULL DEFAULT 1,
+      is_refunded       INTEGER DEFAULT 0,
+      refunded_quantity INTEGER DEFAULT 0,
+      tenant_id         INTEGER DEFAULT 1
+    );
+
     CREATE TABLE debt_ledger (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id        INTEGER,

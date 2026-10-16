@@ -345,10 +345,14 @@ describe("LIRA-185 profit audit — financial_services", () => {
     it("lead 11: the Services page imports the OMT/Whish tables from core and declares no copy", () => {
       const src = fs.readFileSync(SERVICES_PAGE_PATH, "utf-8");
       const names = Object.keys({ OMT_COMMISSION_RATES, INTRA_FEE_TIERS, WESTERN_UNION_FEE_TIERS, WHISH_FEE_TIERS });
+      // WHISH_FEE_TIERS is no longer imported on purpose: a Whish system send never carries a payment-method fee.
+      const mustImport = names.filter((n) => n !== "WHISH_FEE_TIERS");
       const coreImport = src.match(/import\s*\{([^}]*)\}\s*from\s*"@liratek\/core"/);
       expect(coreImport).not.toBeNull();
       for (const name of names) {
         expect([name, new RegExp(`\\bconst\\s+${name}\\b`).test(src)]).toEqual([name, false]);
+      }
+      for (const name of mustImport) {
         expect([name, new RegExp(`\\b${name}\\b`).test(coreImport![1])]).toEqual([name, true]);
       }
     });
