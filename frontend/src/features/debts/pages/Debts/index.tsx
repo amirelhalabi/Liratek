@@ -82,7 +82,10 @@ import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteI
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   buildDebtExportWorkbook,
+  exportedRowDate,
+  isLiraTekAccountsExport,
   isPaymentLedgerType,
+  looksLikeSameShop,
   type DebtExportClient,
 } from "../../utils/debtExcelExport";
 import type { Client } from "@liratek/ui";
@@ -1475,13 +1478,18 @@ export default function Debts() {
           raw: true,
         });
 
-        // Imported entries don't carry a trustworthy per-row date (ledger
-        // sheets are handwritten and inconsistently formatted). Stamp every
-        // entry with yesterday's date so bulk-imported history never shows
-        // up under "today" on the dashboard.
+        // Handwritten ledger sheets don't carry a trustworthy per-row date
+        // (inconsistently formatted, sometimes mistyped). Stamp every entry
+        // with yesterday's date so bulk-imported history never shows up
+        // under "today" on the dashboard. A file made by our own Export
+        // carries a marker and real dates: its rows keep their own time
+        // (an empty or unreadable date cell still falls back to yesterday).
         const importDate = new Date(
           Date.now() - 24 * 60 * 60 * 1000,
         ).toISOString();
+        const fromOurExport = isLiraTekAccountsExport(workbook);
+        const rowDate = (cell: unknown): string =>
+          (fromOurExport ? exportedRowDate(cell) : null) ?? importDate;
 
         type ImportEntryLocal = {
           date: string | null;
@@ -1590,7 +1598,7 @@ export default function Debts() {
               !isSummaryRowLabel(leftDate)
             ) {
               entries.push({
-                date: importDate,
+                date: rowDate(leftDate),
                 amount_usd: leftUsdVal,
                 amount_lbp: leftLbpVal,
                 description: String(leftDesc ?? "").trim(),
@@ -1617,7 +1625,7 @@ export default function Debts() {
               !isSummaryRowLabel(rightDate)
             ) {
               entries.push({
-                date: importDate,
+                date: rowDate(rightDate),
                 amount_usd: rightUsdVal,
                 amount_lbp: rightLbpVal,
                 description: String(rightDesc ?? "").trim(),
@@ -1642,7 +1650,22 @@ export default function Debts() {
 
         if (pages.length === 0 && listNameClients.length === 0) {
           alert("No client data found in the Excel file.");
+          setIsImporting(false);
           return;
+        }
+
+        // An Export brought back into the shop it came from would add every
+        // balance a second time (the imported rows never match the originals).
+        if (fromOurExport) {
+          const shopBalances = await apiRef.current.getDebtors();
+          if (looksLikeSameShop(pages, shopBalances)) {
+            alert(
+              "This file was exported from this shop — these balances are already here.\n\n" +
+                "Importing it would double every client's balance, so nothing was imported.",
+            );
+            setIsImporting(false);
+            return;
+          }
         }
 
         // ---------------------------------------------------------------

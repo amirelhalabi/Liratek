@@ -6686,9 +6686,15 @@ Owner decisions 2026-10-16: export **every client with account history** (not on
 
 **Built:** "Export Excel" button on Accounts, next to Import. Frontend only, through the existing dual-transport reads `getDebtors` (already returns every client with any `debt_ledger` row) + `getClientDebtHistory` (8 at a time), so it works on desktop and web with no new IPC/REST. Workbook builder `frontend/src/features/debts/utils/debtExcelExport.ts`: `List Name` sheet (`NAME | Phone`), then one sheet per client in the layout `handleImportFile` reads (B1 name, D1 phone, row 2 headers, purchases A–D, payments F–I as positive amounts, `TOTAL ON ACCOUNT`/`TOTAL PAID` SUM formulas, `Balance Remaining in USD/LBP` formulas = the ledger's own sum). Sheet names cleaned (31 chars, no `:\/?*[]`, unique, never `List Name`/`Sheet1`/`Sheet2`/`NAME (…`); the real name stays in B1. The Purchases/Payments split (`Repayment`, `CREDIT_DEPOSIT` → payments) is now one shared `isPaymentLedgerType`, used by both the page's history tables and the export (rule 14).
 
-**Tests:** `debtExcelExport.test.ts` (new feature, not a fix — not failing-first). Written, typechecked, NOT run yet (awaiting owner OK).
+**Tests:** `debtExcelExport.test.ts` (new feature, not a fix — not failing-first). 15/15 green.
 
-**What users will notice:** Accounts has an "Export Excel" button that saves every client's account in the same Excel layout used for importing, with real dates, totals and remaining balance.
+**Re-import (owner decision 2026-10-16, "ok go"):** an export can be imported into ANOTHER shop.
+- Export splits rows by SIGN per currency, not by type: a refund/reversal (negative purchase) goes to the paid side as a positive amount, because the import reads only amounts > 0 — otherwise it was dropped and the imported balance was wrong. The page's history tables still split by type (`isPaymentLedgerType`).
+- Export stamps a custom workbook property (`LiraTekAccountsExport = "1"`) and writes the full timestamp (shown dd/mm/yyyy). Only a file with that marker has its dates kept by the import (`exportedRowDate`, rounded to the second because Excel returns times 1 ms off); handwritten sheets still get "yesterday". Real dates also make the core duplicate check (`countIdenticalRawEntries`, matches created_at) work, so importing the same export twice into the new shop doubles nothing.
+- Same shop refused: when the file carries the marker and at least half of its clients with a non-zero balance are found here by phone with the same USD+LBP balance (`looksLikeSameShop`), the import stops with a message. Known limit: a retry after a half-finished import into a new shop can be refused by the same test.
+- Also fixed: the "No client data found" early return left the Import button stuck on "Importing...".
+
+**What users will notice:** Accounts has an "Export Excel" button that saves every client's account in the same Excel layout used for importing, with real dates, totals and remaining balance. That file can be imported into another shop with its dates and balances intact; importing it back into the same shop is refused.
 
 ## LIRA-329: Full transaction details — every field the cashier fills is kept on the transaction — BUILT 2026-10-16 (all phases, T001–T042)
 

@@ -2,8 +2,12 @@ import * as XLSX from "xlsx";
 import type { DebtLedgerEntity } from "@liratek/ui";
 import {
   buildDebtExportWorkbook,
+  exportedRowDate,
+  isLiraTekAccountsExport,
   isPaymentLedgerType,
+  looksLikeSameShop,
   type DebtExportClient,
+  type ImportedPageForShopCheck,
 } from "../debtExcelExport";
 
 let nextId = 1;
@@ -174,5 +178,152 @@ describe("isPaymentLedgerType", () => {
     expect(isPaymentLedgerType("CREDIT_DEPOSIT")).toBe(true);
     expect(isPaymentLedgerType("CREDIT_USED")).toBe(false);
     expect(isPaymentLedgerType("Sale Debt")).toBe(false);
+  });
+});
+
+describe("re-importing an export", () => {
+  const SHEET = "Refund Client";
+  const refundClient: DebtExportClient = {
+    name: SHEET,
+    phone: "70111222",
+    history: [
+      entry({
+        transaction_type: "Sale Debt",
+        created_at: "2025-11-01 08:00:00",
+        amount_usd: 70,
+        note: "Sale #12",
+      }),
+      // A refund is a NEGATIVE purchase in the ledger.
+      entry({
+        transaction_type: "Sale Debt",
+        created_at: "2025-11-02 08:00:00",
+        amount_usd: -20,
+        note: "Refund of Sale #12",
+      }),
+      // Mixed signs in one row: +$5 owed, 100,000 LBP back.
+      entry({
+        transaction_type: "Manual Debt",
+        created_at: "2025-11-03 08:00:00",
+        amount_usd: 5,
+        amount_lbp: -100_000,
+        note: "swap",
+      }),
+      entry({
+        transaction_type: "Imported Debt",
+        created_at: "2025-10-01 08:00:00",
+        amount_lbp: 300_000,
+        note: "old sheet",
+      }),
+    ],
+  };
+
+  it("never writes a negative amount — refunds land on the paid side", () => {
+    const rows = rowsOf(roundTrip([refundClient]), SHEET);
+    const body = rows.slice(2, 6);
+    for (const r of body) {
+      for (const i of [1, 2, 6, 7]) {
+        if (typeof r[i] === "number") expect(r[i]).toBeGreaterThan(0);
+      }
+    }
+    const paid = body.filter((r) => r[8] !== "").map((r) => r.slice(6, 9));
+    expect(paid).toEqual([
+      [20, "", "Refund of Sale #12"],
+      ["", 100_000, "Manual Debt — swap"],
+    ]);
+  });
+
+  it("keeps the balance equal to the ledger's own sum", () => {
+    const rows = rowsOf(roundTrip([refundClient]), SHEET);
+    const balUsd = rows.find((r) => r[3] === "Balance Remaining in USD")!;
+    const balLbp = rows.find((r) => r[3] === "Balance Remaining in LBP")!;
+    expect(balUsd[4]).toBe(70 - 20 + 5);
+    expect(balLbp[4]).toBe(300_000 - 100_000);
+  });
+
+  it("does not re-label imported rows", () => {
+    const rows = rowsOf(roundTrip([refundClient]), SHEET);
+    expect(rows[2]!.slice(2, 4)).toEqual([300_000, "old sheet"]);
+  });
+
+  it("marks the file as ours and gives back each row's exact time", () => {
+    const wb = roundTrip([refundClient]);
+    expect(isLiraTekAccountsExport(wb)).toBe(true);
+    const rows = rowsOf(wb, SHEET);
+    expect(exportedRowDate(rows[2]![0])).toBe("2025-10-01T08:00:00.000Z");
+    expect(exportedRowDate(rows[2]![5])).toBe("2025-11-02T08:00:00.000Z");
+  });
+
+  it("does not treat a handwritten sheet as ours", () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["x"]]), "A");
+    const back = XLSX.read(
+      XLSX.write(wb, { bookType: "xlsx", type: "array" }),
+      {
+        type: "array",
+      },
+    );
+    expect(isLiraTekAccountsExport(back)).toBe(false);
+    expect(exportedRowDate("15/11/2025")).toBeNull();
+    expect(exportedRowDate("")).toBeNull();
+  });
+});
+
+describe("looksLikeSameShop", () => {
+  const page = (
+    phone: string,
+    usd: number,
+    lbp = 0,
+  ): ImportedPageForShopCheck => ({
+    phone,
+    entries: [
+      { amount_usd: usd + 10, amount_lbp: lbp, type: "debt" },
+      { amount_usd: 10, amount_lbp: 0, type: "payment" },
+    ],
+  });
+  const here = (phone: string, usd: number, lbp = 0) => ({
+    phone_number: phone,
+    total_debt_usd: usd,
+    total_debt_lbp: lbp,
+  });
+  const file = [
+    page("70111111", 50),
+    page("71/222222", 20, 500_000),
+    page("76333333", 5),
+  ];
+
+  it("is false for a new shop", () => {
+    expect(looksLikeSameShop(file, [])).toBe(false);
+  });
+
+  it("is true for the shop the file came from (phones compared as digits)", () => {
+    expect(
+      looksLikeSameShop(file, [
+        here("70 111 111", 50),
+        here("71222222", 20, 500_000),
+        here("76333333", 5),
+      ]),
+    ).toBe(true);
+  });
+
+  it("is still true after a few clients moved on since the export", () => {
+    expect(
+      looksLikeSameShop(file, [
+        here("70111111", 50),
+        here("71222222", 20, 500_000),
+        here("76333333", 0),
+      ]),
+    ).toBe(true);
+  });
+
+  it("is false when only a minority of balances match", () => {
+    expect(
+      looksLikeSameShop(file, [here("70111111", 50), here("71222222", 3)]),
+    ).toBe(false);
+  });
+
+  it("ignores clients whose file balance is zero", () => {
+    expect(
+      looksLikeSameShop([page("70111111", 0)], [here("70111111", 0)]),
+    ).toBe(false);
   });
 });

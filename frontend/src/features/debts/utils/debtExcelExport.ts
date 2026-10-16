@@ -3,10 +3,11 @@ import type { DebtLedgerEntity } from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 /**
- * Ledger types shown on the Payments (right) side of a client's account —
- * everything else is a Purchase (left side). One definition, shared by the
- * Debts page's two history tables and the Excel export, so the file always
- * splits rows exactly the way the screen does.
+ * Ledger types shown on the Payments (right) side of a client's account on
+ * the Debts page — everything else is a Purchase (left side). One definition
+ * for the page's two history tables. (The Excel export splits by sign
+ * instead — see `buildClientSheet` — because the import only reads amounts
+ * above zero.)
  *
  * CREDIT_DEPOSIT reduces what the client owes (or raises the shop's debt to
  * the client) → payment side. CREDIT_USED charges against credit → purchase.
@@ -18,6 +19,31 @@ export const PAYMENT_LEDGER_TYPES: ReadonlySet<string> = new Set([
 
 export function isPaymentLedgerType(type: string): boolean {
   return PAYMENT_LEDGER_TYPES.has(type);
+}
+
+/**
+ * Custom document property our export stamps on the workbook. The import
+ * trusts a file's dates only when it carries this marker: the shop's old
+ * handwritten ledgers hold mistyped dates, so for them every row keeps the
+ * "yesterday" stamp it has always had.
+ */
+export const EXPORT_MARKER_PROP = "LiraTekAccountsExport";
+export const EXPORT_MARKER_VERSION = "1";
+
+export function isLiraTekAccountsExport(wb: XLSX.WorkBook): boolean {
+  const props = wb.Custprops as Record<string, unknown> | undefined;
+  return props?.[EXPORT_MARKER_PROP] === EXPORT_MARKER_VERSION;
+}
+
+/**
+ * The real time of an exported row, as an ISO string for the import, or null
+ * when the cell holds no usable date. Excel stores times as fractions of a
+ * day, so they come back a millisecond off — rounded to the second here,
+ * which keeps the import's same-row duplicate check exact.
+ */
+export function exportedRowDate(cell: unknown): string | null {
+  if (!(cell instanceof Date) || Number.isNaN(cell.getTime())) return null;
+  return new Date(Math.round(cell.getTime() / 1000) * 1000).toISOString();
 }
 
 export interface DebtExportClient {
@@ -55,7 +81,9 @@ function sheetNameFor(raw: string, used: Set<string>): string {
 function ledgerTypeLabel(type: string): string {
   if (type === "CREDIT_DEPOSIT") return "Credit Deposit";
   if (type === "CREDIT_USED") return "Credit Used";
-  if (type === "Repayment" || type === "Sale Debt") return "";
+  // Imported rows: the label would be re-imported into the note each round.
+  if (type === "Repayment" || type === "Sale Debt" || type === "Imported Debt")
+    return "";
   return type;
 }
 
@@ -68,11 +96,12 @@ function describe(entry: DebtLedgerEntity): string {
   return text;
 }
 
-/** Day-only date cell (time dropped), shown as dd/mm/yyyy like the template. */
+/**
+ * Shown as dd/mm/yyyy like the template, but the cell keeps the full time so
+ * an import of this file restores each row exactly.
+ */
 function dateCell(createdAt: string): XLSX.CellObject {
-  const d = parseDbDate(createdAt);
-  const day = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  return { t: "d", v: day, z: "dd/mm/yyyy" };
+  return { t: "d", v: parseDbDate(createdAt), z: "dd/mm/yyyy" };
 }
 
 function numCell(value: number): XLSX.CellObject | null {
@@ -92,11 +121,46 @@ function sumCell(
     : { t: "n", v: 0 };
 }
 
-function byDateAsc(a: DebtLedgerEntity, b: DebtLedgerEntity): number {
+/** One side of one ledger row, amounts always ≥ 0. */
+interface SideRow {
+  entry: DebtLedgerEntity;
+  usd: number;
+  lbp: number;
+}
+
+function byDateAsc(a: SideRow, b: SideRow): number {
   return (
-    parseDbDate(a.created_at).getTime() - parseDbDate(b.created_at).getTime() ||
-    a.id - b.id
+    parseDbDate(a.entry.created_at).getTime() -
+      parseDbDate(b.entry.created_at).getTime() || a.entry.id - b.entry.id
   );
+}
+
+/**
+ * Split by SIGN, per currency: what adds to the balance goes on the left,
+ * what takes from it goes on the right as a positive amount. A refund or
+ * reversal (negative purchase) therefore shows as money back on the paid
+ * side — the import reads only amounts above zero, so a negative left-side
+ * figure would be dropped and the imported balance would be wrong.
+ */
+function splitBySign(history: DebtLedgerEntity[]): {
+  left: SideRow[];
+  right: SideRow[];
+} {
+  const left: SideRow[] = [];
+  const right: SideRow[] = [];
+  for (const entry of history) {
+    const up = {
+      usd: Math.max(entry.amount_usd, 0),
+      lbp: Math.max(entry.amount_lbp, 0),
+    };
+    const down = {
+      usd: Math.max(-entry.amount_usd, 0),
+      lbp: Math.max(-entry.amount_lbp, 0),
+    };
+    if (up.usd || up.lbp) left.push({ entry, ...up });
+    if (down.usd || down.lbp) right.push({ entry, ...down });
+  }
+  return { left: left.sort(byDateAsc), right: right.sort(byDateAsc) };
 }
 
 /**
@@ -106,17 +170,12 @@ function byDateAsc(a: DebtLedgerEntity, b: DebtLedgerEntity): number {
  *   rows   purchases on the left, payments on the right, oldest first
  *   then   TOTAL ON ACCOUNT / TOTAL PAID and Balance Remaining in USD / LBP
  *
- * Payments are written as positive amounts (the ledger stores them negative),
- * so Balance Remaining = total on account − total paid = the ledger's sum,
- * i.e. the same balance the Debts page shows.
+ * Every amount is written positive (see `splitBySign`), so Balance Remaining
+ * = total on account − total paid = the ledger's sum, i.e. the same balance
+ * the Debts page shows.
  */
 function buildClientSheet(client: DebtExportClient): XLSX.WorkSheet {
-  const debts = client.history
-    .filter((e) => !isPaymentLedgerType(e.transaction_type))
-    .sort(byDateAsc);
-  const payments = client.history
-    .filter((e) => isPaymentLedgerType(e.transaction_type))
-    .sort(byDateAsc);
+  const { left: debts, right: payments } = splitBySign(client.history);
 
   const rows: (XLSX.CellObject | string | null)[][] = [
     ["CUSTOMER NAME :", client.name, "mobile # ", client.phone],
@@ -138,24 +197,24 @@ function buildClientSheet(client: DebtExportClient): XLSX.WorkSheet {
     const d = debts[i];
     const p = payments[i];
     rows.push([
-      d ? dateCell(d.created_at) : null,
-      d ? numCell(d.amount_usd) : null,
-      d ? numCell(d.amount_lbp) : null,
-      d ? describe(d) : null,
+      d ? dateCell(d.entry.created_at) : null,
+      d ? numCell(d.usd) : null,
+      d ? numCell(d.lbp) : null,
+      d ? describe(d.entry) : null,
       null,
-      p ? dateCell(p.created_at) : null,
-      p ? numCell(-p.amount_usd) : null,
-      p ? numCell(-p.amount_lbp) : null,
-      p ? describe(p) : null,
+      p ? dateCell(p.entry.created_at) : null,
+      p ? numCell(p.usd) : null,
+      p ? numCell(p.lbp) : null,
+      p ? describe(p.entry) : null,
     ]);
   }
 
-  const sum = (list: DebtLedgerEntity[], key: "amount_usd" | "amount_lbp") =>
-    list.reduce((s, e) => s + e[key], 0);
-  const onAccountUsd = sum(debts, "amount_usd");
-  const onAccountLbp = sum(debts, "amount_lbp");
-  const paidUsd = -sum(payments, "amount_usd");
-  const paidLbp = -sum(payments, "amount_lbp");
+  const sum = (list: SideRow[], key: "usd" | "lbp") =>
+    list.reduce((s, r) => s + r[key], 0);
+  const onAccountUsd = sum(debts, "usd");
+  const onAccountLbp = sum(debts, "lbp");
+  const paidUsd = sum(payments, "usd");
+  const paidLbp = sum(payments, "lbp");
 
   const firstDataRow = 3; // 1-based Excel rows
   const lastDataRow = firstDataRow + count - 1;
@@ -212,6 +271,7 @@ export function buildDebtExportWorkbook(
   clients: DebtExportClient[],
 ): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
+  wb.Custprops = { [EXPORT_MARKER_PROP]: EXPORT_MARKER_VERSION };
 
   const list = XLSX.utils.aoa_to_sheet([
     ["NAME", "Phone "],
@@ -229,4 +289,70 @@ export function buildDebtExportWorkbook(
     );
   }
   return wb;
+}
+
+/** What the same-shop check needs from one parsed client page. */
+export interface ImportedPageForShopCheck {
+  phone: string;
+  entries: {
+    amount_usd: number;
+    amount_lbp: number;
+    type: "debt" | "payment";
+  }[];
+}
+
+/** What the same-shop check needs from this shop's account list. */
+export interface ShopBalanceForShopCheck {
+  phone_number: string | null;
+  total_debt_usd: number;
+  total_debt_lbp: number;
+}
+
+const digitsOnly = (raw: string | null | undefined) =>
+  String(raw ?? "").replace(/\D/g, "");
+
+/**
+ * True when importing this exported file here would add balances the shop
+ * already holds — i.e. it is being imported back into the shop it came from
+ * (or one that already received it). The import writes new "Imported Debt"
+ * rows that never match the shop's original rows, so going ahead would double
+ * every one of those clients' balances.
+ *
+ * Test: of the file's clients with a non-zero balance, at least half are
+ * found here by phone with the SAME balance in both currencies. A genuinely
+ * new shop matches none. A shop that moved on since the export (a few
+ * clients paid or bought more) still matches most of them.
+ */
+export function looksLikeSameShop(
+  pages: ImportedPageForShopCheck[],
+  shopBalances: ShopBalanceForShopCheck[],
+): boolean {
+  const byPhone = new Map<string, ShopBalanceForShopCheck>();
+  for (const b of shopBalances) {
+    const phone = digitsOnly(b.phone_number);
+    if (phone) byPhone.set(phone, b);
+  }
+
+  let withBalance = 0;
+  let matching = 0;
+  for (const page of pages) {
+    let usd = 0;
+    let lbp = 0;
+    for (const e of page.entries) {
+      const sign = e.type === "payment" ? -1 : 1;
+      usd += sign * e.amount_usd;
+      lbp += sign * e.amount_lbp;
+    }
+    if (Math.abs(usd) < 0.005 && Math.abs(lbp) < 0.5) continue;
+    withBalance++;
+    const here = byPhone.get(digitsOnly(page.phone));
+    if (
+      here &&
+      Math.abs(here.total_debt_usd - usd) < 0.005 &&
+      Math.abs(here.total_debt_lbp - lbp) < 0.5
+    ) {
+      matching++;
+    }
+  }
+  return matching > 0 && matching * 2 >= withBalance;
 }
