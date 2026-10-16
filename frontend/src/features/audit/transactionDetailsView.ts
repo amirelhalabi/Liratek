@@ -54,6 +54,8 @@ export interface PaymentLineView {
   method: string;
   currency: string;
   amount: string;
+  /** The amount as a number (the export's Payments sheet). */
+  value: number;
   note: string | null;
 }
 
@@ -64,6 +66,8 @@ export interface MoneyItemView {
   method: string;
   currency: string;
   amount: string;
+  /** The amount as a number (the export's Payments sheet). */
+  value: number;
 }
 
 export interface PaymentView {
@@ -846,6 +850,7 @@ function buildPayment(
           method: methodLabel(l.method),
           currency: l.currency_code,
           amount: formatDetailMoney(l.amount, l.currency_code),
+          value: l.amount,
           note: null,
         }))
       : snapLines
@@ -860,6 +865,7 @@ function buildPayment(
             method: methodLabel(String(l.method ?? "")),
             currency: l.currency,
             amount: formatDetailMoney(l.amount, l.currency),
+            value: l.amount,
             note: typeof l.note === "string" && l.note ? l.note : null,
           }));
 
@@ -877,6 +883,7 @@ function buildPayment(
       method: methodLabel(String(c.method ?? "")),
       currency: c.currency,
       amount: formatDetailMoney(c.amount, c.currency),
+      value: c.amount,
     }));
 
   const kept = isPlainObject(snap?.kept) ? snap.kept : null;
@@ -891,6 +898,7 @@ function buildPayment(
       method: "",
       currency: k.currency,
       amount: formatDetailMoney(k.value, k.currency),
+      value: k.value,
     }));
 
   return {

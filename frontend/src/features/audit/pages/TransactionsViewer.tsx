@@ -25,7 +25,6 @@ import {
   useApi,
   appEvents,
   type DataTableColumn,
-  type ExportSheet,
 } from "@liratek/ui";
 import logger from "@/utils/logger";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -48,19 +47,9 @@ import {
   UserCell,
   type RowActionHandlers,
 } from "../components/TransactionCells";
-import { amountCellText, deriveRow } from "../rowDerived";
-import { displaySummary, getTypeLabel } from "../transactionDisplay";
-import {
-  clientText,
-  methodText,
-  timeText,
-  userText,
-} from "../transactionCellText";
-import {
-  detailsLineText,
-  transactionExtraSheets,
-  type ExportContext,
-} from "../transactionExport";
+import { deriveRow } from "../rowDerived";
+import { methodText } from "../transactionCellText";
+import { transactionsExportTemplate } from "../export/transactionsExportTemplate";
 import {
   computeSessionGroupHeaders,
   isSessionGroupHeader,
@@ -86,7 +75,6 @@ import {
 } from "@/features/wrongNumbers/components/WrongNumberDialog";
 import {
   extraChargeText,
-  fallbackMethodLabel,
   isSwapTransactionType,
   REFUND_KEPT_CHANGE_TYPES,
   type RefundKeptChangeInput,
@@ -160,9 +148,9 @@ export interface TransactionsViewerProps {
 }
 
 /**
- * The table's columns — ONE list for the screen header, the export column
- * picker and the export's plain-text cells (`exportText` maps every header
- * here to its text; the type makes a missing header a compile error).
+ * The table's columns (screen header and sort keys). The export does not
+ * read them: it is the Transactions export template
+ * (`../export/transactionsExportTemplate`), with its own columns.
  */
 const TRANSACTION_COLUMNS = [
   {
@@ -212,8 +200,6 @@ const TRANSACTION_COLUMNS = [
     className: "p-2 text-xs font-semibold uppercase text-slate-400",
   },
 ] as const satisfies readonly DataTableColumn[];
-
-type TransactionColumnHeader = (typeof TRANSACTION_COLUMNS)[number]["header"];
 
 export default function TransactionsViewer({
   limit,
@@ -296,27 +282,29 @@ export default function TransactionsViewer({
     return map;
   }, [paymentMethods]);
 
-  // Owner decision 2026-10-16 — every export carries each transaction's
-  // details, with costs for admins only (the Details panel's own rules).
-  const exportContext = useMemo<ExportContext>(
-    () => ({
+  // Owner decisions 2026-10-16 — the Transactions export is a designed
+  // report: Excel Summary / Transactions / Payments / Details sheets and a
+  // PDF grouped by day (`../export/transactionsExportTemplate`), costs for
+  // admins only (the Details panel's own rules).
+  const exportTemplate = useMemo(
+    () =>
+      transactionsExportTemplate({
+        isAdmin,
+        methodLabelByCode,
+        shopName: shopInfo.name || undefined,
+        exportedBy: user?.username ?? "",
+        filters: { from, to, search, types: selectedFilters },
+      }),
+    [
       isAdmin,
-      methodLabel: (code) =>
-        methodLabelByCode.get(code) ?? fallbackMethodLabel(code),
-    }),
-    [isAdmin, methodLabelByCode],
-  );
-  const exportRowNotes = useMemo(
-    () => ({
-      header: "Details",
-      get: (row: TransactionRow) => detailsLineText(row, exportContext),
-    }),
-    [exportContext],
-  );
-  const exportExtraSheets = useCallback(
-    (items: TransactionRow[]): ExportSheet[] =>
-      transactionExtraSheets(items, exportContext),
-    [exportContext],
+      methodLabelByCode,
+      shopInfo.name,
+      user?.username,
+      from,
+      to,
+      search,
+      selectedFilters,
+    ],
   );
 
   // The "System Transactions" sandwich fold — a ⚙ toggle that collapsed the
@@ -833,8 +821,8 @@ export default function TransactionsViewer({
   /**
    * LIRA-067: the structured per-leg detail row, indented one column in
    * (blank Time cell, everything else merged under Summary via colSpan) —
-   * printed on export unconditionally, and shown on screen only when the
-   * row is in expandedLegRows. Null when the row has no customer-facing legs
+   * shown on screen when the row is in expandedLegRows (the export has its
+   * own Payments sheet, owner decision 2026-10-16). Null when the row has no customer-facing legs
    * AND no bills-only commission-mode line to show (methodLegsFor already
    * covers payments + account_payments, same set the Method column reads;
    * `billsCommissionModeLine` — LIRA-137 owner follow-up, "either method
@@ -845,7 +833,7 @@ export default function TransactionsViewer({
    * including on the session's chosen group-header row. The basket's
    * pooled legs (when this row is that header) render in their own
    * labelled "Session #N pooled:" section below the own legs — never
-   * merged into the same list — so the printed/exported detail matches
+   * merged into the same list — so the detail matches
    * exactly what the Summary column's own line + "Session:" line show on
    * screen for that one row.
    */
@@ -887,35 +875,6 @@ export default function TransactionsViewer({
             })),
           )
         : [];
-    if (keySuffix === "export") {
-      // The shared export reads a cell's text by joining its children with
-      // nothing between them, so the lines below ran together ("In — Cash:
-      // $50Out — Cash: $5", shop-day test 2026-10-16). The export gets the
-      // same lines as ONE string, " · " between them — local to this table,
-      // so no other page's export changes.
-      const lineText = (line: (typeof ownLines)[number]) =>
-        `${line.direction === "in" ? "In" : "Out"} — ${line.method}: ${line.amountText}` +
-        (line.drawersText ? `  {${line.drawersText}}` : "");
-      const parts = [
-        modeLine,
-        extraText ? `Extra charged: ${extraText}` : null,
-        ...ownLines.map(lineText),
-        pooledLines.length > 0
-          ? `Session #${row.session_id} pooled: ` +
-            pooledLines
-              .map(
-                (l) => lineText(l) + (l.reversal ? " (basket reversal)" : ""),
-              )
-              .join(" · ")
-          : null,
-      ].filter((p): p is string => !!p);
-      return (
-        <tr key={`legdetail-${row.id}-${keySuffix}`}>
-          <td />
-          <td colSpan={7}>{parts.join(" · ")}</td>
-        </tr>
-      );
-    }
     return (
       <tr
         key={`legdetail-${row.id}-${keySuffix}`}
@@ -1041,33 +1000,6 @@ export default function TransactionsViewer({
     );
   }
 
-  /**
-   * The row as the export reads it: one plain-text `<td>` per column. The
-   * screen cells are components, whose text the shared DataTable export
-   * cannot see (every row exported blank from 3a2be48e on). Summary is the
-   * plain summary — the status / reversal / credits tags are in the Details
-   * text instead.
-   */
-  function buildExportTr(row: TransactionRow) {
-    const exportText: Record<TransactionColumnHeader, () => string> = {
-      Time: () => timeText(row),
-      Summary: () => displaySummary(row) ?? "",
-      Type: () => getTypeLabel(row),
-      Client: () => clientText(row),
-      Amount: () => amountCellText(row, deriveRow(row, isRowGroupHeader(row))),
-      Method: () => methodText(row, methodLabelByCode),
-      User: () => userText(row),
-      Actions: () => "",
-    };
-    return (
-      <tr key={row.id}>
-        {TRANSACTION_COLUMNS.map((c) => (
-          <td key={c.header}>{exportText[c.header]()}</td>
-        ))}
-      </tr>
-    );
-  }
-
   /** Wrap an already-built row `<tr>` with its leg-detail sub-row (screen-only,
    *  gated on expandedLegRows) when one applies; otherwise return it as-is. */
   function withLegDetail(row: TransactionRow, mainTr: ReactElement) {
@@ -1097,9 +1029,7 @@ export default function TransactionsViewer({
         exportExcel
         exportPdf
         exportFilename="transactions"
-        exportSheetName="Transactions"
-        exportRowNotes={exportRowNotes}
-        exportExtraSheets={exportExtraSheets}
+        exportTemplate={exportTemplate}
         className="w-full text-left"
         theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
         tbodyClassName=""
@@ -1112,19 +1042,6 @@ export default function TransactionsViewer({
             // export and sort share it).
             return methodText(row, methodLabelByCode);
           return String((row as Record<string, unknown>)[key] ?? "");
-        }}
-        exportRow={(row) => {
-          // LIRA-067: the printed/exported report always includes the leg
-          // detail (unconditionally — a static export has no "expand" state),
-          // indented one column in under the transaction row.
-          const legDetail = buildLegDetailTr(row, "export");
-          if (!legDetail) return buildExportTr(row);
-          return (
-            <Fragment key={row.id}>
-              {buildExportTr(row)}
-              {legDetail}
-            </Fragment>
-          );
         }}
         renderRow={(row) => {
           // Regular row — session accent applied if it belongs to a session

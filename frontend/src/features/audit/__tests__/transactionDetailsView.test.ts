@@ -313,6 +313,7 @@ describe("buildTransactionDetailsView", () => {
         method: "Cash",
         currency: "USD",
         amount: "$20.00",
+        value: 20,
         note: null,
       },
       {
@@ -320,6 +321,7 @@ describe("buildTransactionDetailsView", () => {
         method: "Cash",
         currency: "LBP",
         amount: "89,500 LBP",
+        value: 89500,
         note: null,
       },
     ]);

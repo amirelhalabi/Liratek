@@ -3,3 +3,4 @@ export * from "./tableExport";
 export * from "./number";
 export * from "./customerAccount";
 export * from "./balanceColor";
+export * from "./exportTemplate";

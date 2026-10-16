@@ -4,8 +4,9 @@
  * panel / export fixes, on REAL rows from that day
  * (`../../__fixtures__/shopDayRows.ts`, rule 24):
  *
- *  - the export's payment line under a row no longer runs its parts together
- *    ("In — Cash: $50Out — Cash: $5");
+ *  - the export's payment lines no longer run together ("In — Cash: $50Out
+ *    — Cash: $5"): since the export template (owner decision 2026-10-16)
+ *    each one is its own row on the Payments sheet;
  *  - an item refund's original is tagged PARTLY REFUNDED, offers no whole
  *    Void / Refund, and the refund row links back to it (server fields
  *    `item_refunded` / `item_refund_remaining` / `item_refund_of_id`);
@@ -23,7 +24,7 @@ import {
 } from "@testing-library/react";
 import TransactionsViewer from "../TransactionsViewer";
 import { getRecentTransactions } from "@/api/backendApi";
-import type { TableData } from "@liratek/ui";
+import type { ExportTableBlock } from "@liratek/ui";
 import { shopDayRow } from "../../__fixtures__/shopDayRows";
 
 const exportToExcel = jest.fn();
@@ -31,6 +32,13 @@ const exportToPdf = jest.fn();
 jest.mock("../../../../../../packages/ui/src/utils/tableExport", () => ({
   exportToExcel: (...args: unknown[]) => exportToExcel(...args),
   exportToPdf: (...args: unknown[]) => exportToPdf(...args),
+}));
+const exportTemplateToExcel = jest.fn();
+jest.mock("../../../../../../packages/ui/src/utils/exportTemplate", () => ({
+  ...jest.requireActual(
+    "../../../../../../packages/ui/src/utils/exportTemplate",
+  ),
+  exportTemplateToExcel: (...args: unknown[]) => exportTemplateToExcel(...args),
 }));
 
 const mockUser = { id: 1, username: "tester", role: "staff" };
@@ -117,13 +125,22 @@ describe("TransactionsViewer — shop-day fixes", () => {
     mockUser.role = "staff";
   });
 
-  it("the export's payment line separates its parts", async () => {
+  it("the export's payment lines are separate rows", async () => {
     await renderRows([10933], "Generator subscription");
     fireEvent.click(screen.getByTitle("Export to Excel"));
-    const data = exportToExcel.mock.calls[0][0] as TableData;
-    const legLine = data.rows[1]?.find((c) => c.includes("Cash")) ?? "";
-    expect(legLine).toContain(" · ");
-    expect(legLine).not.toMatch(/\d(In|Out) —/);
+    const [template, ctx] = exportTemplateToExcel.mock.calls[0] as [
+      { excel: (c: unknown) => { name: string; blocks: ExportTableBlock[] }[] },
+      unknown,
+    ];
+    const payments = template.excel(ctx).find((s) => s.name === "Payments")!;
+    const lines = payments.blocks[0]!.rows.map((r) =>
+      r.cells.slice(4, 9).map((c) => c.value),
+    );
+    expect(lines).toEqual([
+      ["line", "Out", "Cash", "USD", 20],
+      ["change received", "In", "Cash", "USD", 1],
+      ["kept by them", null, null, "USD", 0.5],
+    ]);
   });
 
   it("an item refund's original is PARTLY REFUNDED; the refund links back", async () => {

@@ -1,21 +1,22 @@
 /**
- * E2E: LIRA-073 — DataTable export with customizable columns
+ * E2E: LIRA-073 — DataTable export on the Transactions page
  *
- * Validates the shared DataTable column picker (DataTable.tsx):
- *   - The export bar exposes a "Columns" picker button next to the
- *     Excel / PDF export buttons whenever a table with rows is exporting.
- *   - Opening the picker reveals a checkbox list of the table's exportable
- *     columns (Actions / select-all checkbox columns excluded).
- *   - The default selection is Time / Summary / User (preselected/checked),
- *     while the other columns (Type, Client, Amount, Method) start
- *     unchecked. (Status / Reverses / Ret. Credits were removed from the
- *     table on 2026-10-16 — they are Summary tags now.)
- *   - The picker drives BOTH export paths — Excel and PDF buttons remain
- *     present alongside it (no regression to existing export).
+ * Originally validated the shared DataTable column picker on Audit →
+ * Transactions. Since the Transactions export became a designed export
+ * TEMPLATE (owner decision 2026-10-16 — Summary / Transactions / Payments /
+ * Details sheets and a PDF report), that table no longer offers the picker:
+ * the template, not the picker, chooses the columns. The picker itself
+ * (defaults, add / remove a column, Actions excluded) is still the default
+ * for every other exporting table and is covered by the jest suites
+ * `DataTable.test.tsx` / `DataTable.templateLessExport.test.tsx`.
+ *
+ * This spec now checks that the Transactions export bar keeps its Excel /
+ * PDF buttons and shows no column picker. Updated without being run (no
+ * desktop e2e on the machine it was edited on) — unverified.
  *
  * Page under test: Audit → Transactions (/audit). To guarantee at least one
  * exporting row, an OMT App SEND transaction is created first (mirrors the
- * LIRA-063 flow), so the picker (hidden when rowCount === 0) is shown.
+ * LIRA-063 flow), since the export bar is hidden when rowCount === 0.
  *
  * Uses the shared Electron instance / fresh DB (same as the other specs).
  */
@@ -27,13 +28,8 @@ test.describe.configure({ retries: 0 });
 
 const AMOUNT_USD = "30";
 
-/** Default-checked headers per the ticket. */
-const DEFAULT_COLUMNS = ["Time", "Summary", "User"] as const;
-/** Headers that exist on the Transactions table but are NOT default-checked. */
-const NON_DEFAULT_COLUMNS = ["Type", "Client", "Amount", "Method"] as const;
-
 test.describe("LIRA-073 — DataTable export customizable columns", () => {
-  test("export column picker defaults to Time/Summary/User and toggles columns", async ({
+  test("Transactions export: Excel + PDF buttons, no column picker (template)", async ({
     appPage,
   }) => {
     // ── Ensure the Transactions table has at least one exporting row ────────
@@ -57,53 +53,10 @@ test.describe("LIRA-073 — DataTable export customizable columns", () => {
     await expect(excelBtn).toBeVisible({ timeout: 8_000 });
     await expect(pdfBtn).toBeVisible();
 
-    // ── The new column picker button is present ─────────────────────────────
-    const pickerBtn = appPage.getByTestId("export-column-picker-button");
-    await expect(pickerBtn).toBeVisible();
-
-    // Open the picker.
-    await pickerBtn.click();
-    const menu = appPage.getByTestId("export-column-picker-menu");
-    await expect(menu).toBeVisible();
-
-    // ── Default selection: Time / Summary / User are checked ────────────────
-    for (const header of DEFAULT_COLUMNS) {
-      const checkbox = menu
-        .getByTestId(`export-column-option-${header}`)
-        .locator('input[type="checkbox"]');
-      await expect(checkbox).toBeChecked();
-    }
-
-    // ── The other exportable columns start unchecked ────────────────────────
-    for (const header of NON_DEFAULT_COLUMNS) {
-      const checkbox = menu
-        .getByTestId(`export-column-option-${header}`)
-        .locator('input[type="checkbox"]');
-      await expect(checkbox).not.toBeChecked();
-    }
-
-    // The "Actions" column is excluded from the picker entirely.
-    await expect(menu.getByTestId("export-column-option-Actions")).toHaveCount(
-      0,
-    );
-
-    // ── User can ADD a column before exporting ──────────────────────────────
-    const amountCheckbox = menu
-      .getByTestId("export-column-option-Amount")
-      .locator('input[type="checkbox"]');
-    await amountCheckbox.check();
-    await expect(amountCheckbox).toBeChecked();
-
-    // ── User can REMOVE a default column before exporting ───────────────────
-    const userCheckbox = menu
-      .getByTestId("export-column-option-User")
-      .locator('input[type="checkbox"]');
-    await userCheckbox.uncheck();
-    await expect(userCheckbox).not.toBeChecked();
-
-    // Export buttons remain available with the modified selection (both paths).
-    await expect(excelBtn).toBeVisible();
-    await expect(pdfBtn).toBeVisible();
+    // ── The export template picks its own columns: no picker ────────────────
+    await expect(
+      appPage.getByTestId("export-column-picker-button"),
+    ).toHaveCount(0);
   });
 });
 

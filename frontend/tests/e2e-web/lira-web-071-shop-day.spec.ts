@@ -1962,7 +1962,8 @@ test.describe.serial("lira-web-071 Shop Day", () => {
   });
 
   test("8.5 session checkout: Whish Wallet $10 + Cash $40, + $1 extra, change kept", async () => {
-    await sessionButton().hover();
+    // The session panel opens on click, not hover (owner 2026-10-16).
+    await sessionButton().click();
     await page.getByRole("button", { name: /Checkout \(3 items?\)/i }).click();
     await expect(page.getByText("Session Checkout")).toBeVisible();
     const pay = page.getByTestId("multi-payment-input");
@@ -2475,7 +2476,7 @@ test.describe.serial("lira-web-071 Shop Day", () => {
 
   // ══ Part 12 — Export ═══════════════════════════════════════════════════
 
-  test("12.1 Excel export: 3 sheets, today's void, refund and wrong number present [bug 3]", async () => {
+  test("12.1 Excel export: 4 sheets, today's void, refund and wrong number present [bug 3]", async () => {
     await go("/audit", page.getByPlaceholder(/Search summary, client, user/));
     const box = page.getByPlaceholder(/Search summary, client, user/);
     await box.fill("");
@@ -2492,7 +2493,13 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     const file = test.info().outputPath("shop-day-export.xlsx");
     await download.saveAs(file);
     const wb = XLSX.read(fs.readFileSync(file), { type: "buffer" });
-    expect(wb.SheetNames).toEqual(["Transactions", "Details", "Payments"]);
+    // Export template (owner decision 2026-10-16).
+    expect(wb.SheetNames).toEqual([
+      "Summary",
+      "Transactions",
+      "Payments",
+      "Details",
+    ]);
     const sheetIds = (name: string) =>
       new Set(
         (

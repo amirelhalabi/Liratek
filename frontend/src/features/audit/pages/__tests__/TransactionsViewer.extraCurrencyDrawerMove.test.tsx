@@ -386,12 +386,10 @@ describe("TransactionsViewer — Summary tags replace Ret. Credits / Status / Re
     );
     expect(headers.join("|")).not.toMatch(/Ret\. Credits|Status|Reverses/i);
     expect(headers).toHaveLength(8);
-    // The export column picker counts the same columns (Actions excluded):
-    // Time / Summary / User preselected out of 7.
-    expect(
-      screen.getByTestId("export-column-picker-button").textContent,
-    ).toContain("(3/7)");
-    // Screen and export both read cells by header index — they must line up.
+    // The export is the Transactions export template (owner decision
+    // 2026-10-16), which picks its own columns — no column picker.
+    expect(screen.queryByTestId("export-column-picker-button")).toBeNull();
+    // Every row has one cell per header.
     expect(rowFor(CREDIT_RETURN_SUMMARY).querySelectorAll("td")).toHaveLength(
       headers.length,
     );

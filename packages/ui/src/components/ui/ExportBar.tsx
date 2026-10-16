@@ -28,6 +28,10 @@ export interface ExportBarProps {
   tableRef: React.RefObject<HTMLTableElement | null>;
   /** When provided, this callback supplies ALL rows (ignoring pagination). */
   getExportData?: () => TableData;
+  /** A table with an export template: these write the file instead of
+   *  the plain export (given the dated filename). */
+  onExcel?: (filename: string) => void;
+  onPdf?: (filename: string) => void;
   rowCount?: number | undefined;
   /** Optional content rendered on the left side of the bar (e.g. batch action buttons). */
   headerActions?: React.ReactNode;
@@ -57,27 +61,33 @@ export function ExportBar({
   exportFilename = "export",
   tableRef,
   getExportData,
+  onExcel,
+  onPdf,
   rowCount,
   headerActions,
   countLabel,
 }: ExportBarProps) {
   const handleExcel = useCallback(() => {
     const filename = `${exportFilename}-${dateSuffix()}`;
-    if (getExportData) {
+    if (onExcel) {
+      onExcel(filename);
+    } else if (getExportData) {
       exportToExcel(getExportData(), filename);
     } else if (tableRef.current) {
       exportToExcel(tableRef.current, filename);
     }
-  }, [tableRef, exportFilename, getExportData]);
+  }, [tableRef, exportFilename, getExportData, onExcel]);
 
   const handlePdf = useCallback(() => {
     const filename = `${exportFilename}-${dateSuffix()}`;
-    if (getExportData) {
+    if (onPdf) {
+      onPdf(filename);
+    } else if (getExportData) {
       exportToPdf(getExportData(), filename);
     } else if (tableRef.current) {
       exportToPdf(tableRef.current, filename);
     }
-  }, [tableRef, exportFilename, getExportData]);
+  }, [tableRef, exportFilename, getExportData, onPdf]);
 
   const hasExport =
     (exportExcel || exportPdf) && (rowCount === undefined || rowCount > 0);

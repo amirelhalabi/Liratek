@@ -18,6 +18,11 @@ import {
 import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { ExportBar } from "./ExportBar";
 import type { ExportSheet, TableData } from "../../utils/tableExport";
+import {
+  exportTemplateToExcel,
+  exportTemplateToPdf,
+  type ExportTemplate,
+} from "../../utils/exportTemplate";
 
 /* ------------------------------------------------------------------ */
 /*  Export column-picker defaults                                      */
@@ -102,6 +107,16 @@ export interface DataTableProps<T> {
   /** Extra Excel worksheets, built from the exported items in their
    *  current (filtered, sorted) order. */
   exportExtraSheets?: (items: T[]) => ExportSheet[];
+  /**
+   * A designed export for this table (owner decision 2026-10-16): the
+   * template decides the Excel sheets and the PDF report, built from every
+   * row in its current filter and sort. Without one, the export is the
+   * plain column export above, exactly as before. With one, the column
+   * picker is hidden (the template, not the picker, chooses the columns)
+   * and `exportRow` / `exportSheetName` / `exportRowNotes` /
+   * `exportExtraSheets` are not used.
+   */
+  exportTemplate?: ExportTemplate<T>;
 
   // ── Header actions ─────────────────────────────────────────────────
   /** Content rendered on the left side of the header bar (e.g. batch action buttons). */
@@ -210,6 +225,7 @@ function DataTableInner<T>({
   exportSheetName,
   exportRowNotes,
   exportExtraSheets,
+  exportTemplate,
   headerActions,
   loading = false,
   emptyMessage = "No data",
@@ -590,6 +606,37 @@ function DataTableInner<T>({
     extractRowsCells,
   ]);
 
+  // ── Template export: every row in its current sort, not the page ──
+  const templateRows = useCallback(
+    (): T[] =>
+      table.getSortedRowModel().rows.map((row) => row.original.__original as T),
+    [table],
+  );
+  const onTemplateExcel = useMemo(
+    () =>
+      exportTemplate
+        ? (filename: string) =>
+            exportTemplateToExcel(
+              exportTemplate,
+              { rows: templateRows(), now: new Date() },
+              filename,
+            )
+        : undefined,
+    [exportTemplate, templateRows],
+  );
+  const onTemplatePdf = useMemo(
+    () =>
+      exportTemplate
+        ? (filename: string) =>
+            exportTemplateToPdf(
+              exportTemplate,
+              { rows: templateRows(), now: new Date() },
+              filename,
+            )
+        : undefined,
+    [exportTemplate, templateRows],
+  );
+
   const countLabel = showRowCount
     ? `Showing ${data.length} of ${totalRowCount ?? data.length} entries`
     : undefined;
@@ -599,7 +646,10 @@ function DataTableInner<T>({
   // and there is at least one exportable column to pick from.
   const exportEnabled = exportExcel || exportPdf;
   const showColumnPicker =
-    exportEnabled && data.length > 0 && exportableColumns.length > 0;
+    !exportTemplate &&
+    exportEnabled &&
+    data.length > 0 &&
+    exportableColumns.length > 0;
 
   const selectedCount = exportableColumns.filter((c) =>
     selectedColumnKeys.has(c.key),
@@ -715,6 +765,8 @@ function DataTableInner<T>({
         exportFilename={exportFilename}
         tableRef={tableRef}
         getExportData={getExportData}
+        {...(onTemplateExcel ? { onExcel: onTemplateExcel } : {})}
+        {...(onTemplatePdf ? { onPdf: onTemplatePdf } : {})}
         rowCount={data.length}
         headerActions={mergedHeaderActions}
         countLabel={countLabel}

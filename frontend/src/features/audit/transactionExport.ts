@@ -40,7 +40,7 @@ export interface ExportContext {
 
 type Section = "Transaction" | "Details" | "Other saved data";
 
-interface FieldRow {
+export interface FieldRow {
   section: Section;
   field: string;
   value: string;
@@ -119,7 +119,9 @@ function viewOf(
   });
 }
 
-function fieldRows(row: TransactionRow, ctx: ExportContext): FieldRow[] {
+/** Every saved field of a row as Section / Field / Value — the Details
+ *  sheet's rows (Transactions export template). */
+export function fieldRows(row: TransactionRow, ctx: ExportContext): FieldRow[] {
   const view = viewOf(row, ctx);
   return [
     ...transactionFacts(row),
