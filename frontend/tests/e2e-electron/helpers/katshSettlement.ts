@@ -84,7 +84,7 @@ export async function payCashWithClient(
 
 /**
  * Select the Katsh supplier tile on the Suppliers page (Companies list, left
- * panel) and wait for its "Transactions" tab (default `activeTab`) to
+ * panel) and wait for its "Settle" tab (default `activeTab`) to
  * actually render the Settle-tab header — not just that the tile itself
  * became visible/clickable.
  *

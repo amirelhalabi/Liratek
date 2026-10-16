@@ -12,9 +12,16 @@
  * full-suite pass.
  */
 
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Suppliers from "../index";
+import { openSupplierTable } from "@/features/suppliers/testing/supplierTableModals";
 
 const mockGetSuppliers = jest.fn();
 const mockGetSupplierBalances = jest.fn();
@@ -298,9 +305,7 @@ describe("Suppliers page — OMT open-credit account rollup (LIRA-188)", () => {
     renderPage();
 
     const card = await screen.findByTestId("supplier-account-card-OMT");
-    const ipickRow = within(card).getByTestId(
-      "supplier-account-subrow-iPick",
-    );
+    const ipickRow = within(card).getByTestId("supplier-account-subrow-iPick");
     // The sub-row's unsettled count comes from `useSupplierAccountUnsettledQuery`
     // — a SEPARATE async query from the one `findByTestId` above waits on
     // (the account balances query that renders the card/sub-rows
@@ -341,6 +346,7 @@ describe("Suppliers page — OMT open-credit account rollup (LIRA-188)", () => {
     renderPage();
 
     fireEvent.click(await screen.findByTestId("supplier-tile-OMT"));
+    await openSupplierTable("payments");
 
     const typeCells = await screen.findAllByTestId("supplier-ledger-type-cell");
     expect(typeCells.map((el) => el.textContent)).toEqual(
@@ -352,6 +358,7 @@ describe("Suppliers page — OMT open-credit account rollup (LIRA-188)", () => {
     renderPage();
 
     fireEvent.click(await screen.findByTestId("supplier-tile-OMT"));
+    await openSupplierTable("payments");
     await screen.findAllByTestId("supplier-ledger-type-cell");
 
     const filter = screen.getByTestId(

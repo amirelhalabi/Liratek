@@ -37,6 +37,7 @@
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Suppliers from "../index";
+import { openSupplierTable } from "@/features/suppliers/testing/supplierTableModals";
 
 const mockGetSuppliers = jest.fn();
 const mockGetSupplierBalances = jest.fn();
@@ -233,6 +234,7 @@ describe("Suppliers page — ledger badge/amount direction agreement (LIRA-129)"
     renderPage();
 
     fireEvent.click((await screen.findAllByText("OMT"))[0]);
+    await openSupplierTable("payments");
 
     const amountCell = await screen.findByText("-45.50");
     // Owner's rule (2026-08-11): DOWN ("supplier owes us more") is RED —
@@ -258,6 +260,7 @@ describe("Suppliers page — ledger badge/amount direction agreement (LIRA-129)"
     renderPage();
 
     fireEvent.click((await screen.findAllByText("OMT"))[0]);
+    await openSupplierTable("payments");
 
     const amountCell = await screen.findByText("+80.00");
     // Owner's rule: UP ("we owe the supplier more") is GREEN — the reverse
@@ -287,6 +290,7 @@ describe("Suppliers page — ledger badge/amount direction agreement (LIRA-129)"
     renderPage();
 
     fireEvent.click((await screen.findAllByText("LOTO"))[0]);
+    await openSupplierTable("payments");
 
     const amountCell = await screen.findByText("+15,000");
     // Owner's rule: UP is GREEN (was red pre-audit).

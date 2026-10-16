@@ -309,6 +309,8 @@ test("lira-web-065 OMT settle by amount: USD only while LBP is owed, a previewed
 
   // ── 2. Suppliers → OMT → Transactions: "Partial · $47.00" ──────────────
   await page.getByTestId("supplier-tile-OMT").click();
+  // The history opens in its own modal from the header (owner 2026-10-16).
+  await page.getByTestId("supplier-open-transactions").click();
   await expect(page.getByTestId(`supplier-txn-row-${B.id}`)).toContainText(
     "Partial · $47.00",
     { timeout: 15_000 },

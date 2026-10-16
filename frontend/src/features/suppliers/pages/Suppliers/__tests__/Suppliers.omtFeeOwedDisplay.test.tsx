@@ -23,6 +23,7 @@
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Suppliers from "../index";
+import { openSupplierTable } from "@/features/suppliers/testing/supplierTableModals";
 
 const mockGetSuppliers = jest.fn();
 const mockGetSupplierBalances = jest.fn();
@@ -190,6 +191,7 @@ describe("Suppliers page — OMT SEND fee owed display (owner report 2026-10-02)
 
     renderPage();
     await selectOmt();
+    await openSupplierTable("transactions");
 
     const row = await screen.findByTestId("supplier-txn-row-701");
     const amountCell = within(row).getByTestId("supplier-txn-amount");
@@ -225,6 +227,7 @@ describe("Suppliers page — OMT SEND fee owed display (owner report 2026-10-02)
 
     renderPage();
     await selectOmt();
+    await openSupplierTable("transactions");
 
     const rows = await screen.findAllByTestId(/^supplier-txn-row-/);
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
@@ -242,8 +245,6 @@ describe("Suppliers page — OMT SEND fee owed display (owner report 2026-10-02)
 
     const amountCell = await screen.findByTestId("settle-row-amount");
     expect(within(amountCell).getByText("$50.00")).toBeInTheDocument();
-    expect(
-      within(amountCell).queryByTestId("settle-row-breakdown"),
-    ).toBeNull();
+    expect(within(amountCell).queryByTestId("settle-row-breakdown")).toBeNull();
   });
 });

@@ -35,6 +35,7 @@
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Suppliers from "../index";
+import { openSupplierTable } from "@/features/suppliers/testing/supplierTableModals";
 
 const mockGetSuppliers = jest.fn();
 const mockGetSupplierBalances = jest.fn();
@@ -275,6 +276,7 @@ describe("Suppliers page — bills-only settlement commission display (read-only
 
     renderPage();
     await selectKatsh();
+    await openSupplierTable("payments");
 
     const noteEl = await screen.findByText("Settlement: 1 txns");
     const row = noteEl.closest(".items-center") as HTMLElement;
@@ -292,6 +294,7 @@ describe("Suppliers page — bills-only settlement commission display (read-only
 
     renderPage();
     await selectKatsh();
+    await openSupplierTable("payments");
 
     const noteEl = await screen.findByText("Settlement: 3 txns");
     const row = noteEl.closest(".items-center") as HTMLElement;
@@ -311,6 +314,7 @@ describe("Suppliers page — bills-only settlement commission display (read-only
 
     renderPage();
     await selectKatsh();
+    await openSupplierTable("transactions");
 
     const typeEl = await screen.findByText("BILL");
     const row = typeEl.closest(".items-center") as HTMLElement;
@@ -323,6 +327,7 @@ describe("Suppliers page — bills-only settlement commission display (read-only
 
     renderPage();
     await selectKatsh();
+    await openSupplierTable("transactions");
 
     const typeEl = await screen.findByText("BILL");
     const row = typeEl.closest(".items-center") as HTMLElement;

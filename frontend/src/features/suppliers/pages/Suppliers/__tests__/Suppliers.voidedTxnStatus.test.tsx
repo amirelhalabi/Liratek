@@ -4,6 +4,7 @@
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Suppliers from "../index";
+import { openSupplierTable } from "@/features/suppliers/testing/supplierTableModals";
 
 const mockGetSuppliers = jest.fn();
 const mockGetSupplierBalances = jest.fn();
@@ -165,6 +166,7 @@ describe("Suppliers page — voided rows in the Transactions history (G40)", () 
   it("shows a voided row as Voided, never Unpaid", async () => {
     renderPage();
     fireEvent.click((await screen.findAllByText("Katsh"))[0]);
+    await openSupplierTable("transactions");
 
     const voided = await screen.findByTestId("supplier-txn-row-501");
     expect(within(voided).queryByText("Unpaid")).toBeNull();
@@ -177,6 +179,7 @@ describe("Suppliers page — voided rows in the Transactions history (G40)", () 
   it("leaves the voided row out of the unpaid count and the Outstanding total", async () => {
     renderPage();
     fireEvent.click((await screen.findAllByText("Katsh"))[0]);
+    await openSupplierTable("transactions");
 
     await screen.findByTestId("supplier-txn-row-501");
     expect(screen.getByText(/1\s*unpaid/)).toBeInTheDocument();

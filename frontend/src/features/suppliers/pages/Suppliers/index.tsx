@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   appEvents,
   BALANCE_EPS,
@@ -14,6 +14,7 @@ import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { SupplierTableModal } from "@/features/suppliers/components/SupplierTableModal";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   useSuppliersQuery,
@@ -652,11 +653,10 @@ function AccountLedgerTable({
       ? rows
       : rows.filter((r) => r.source_name === typeFilter);
   return (
-    <div className="mt-6">
-      <div className="flex items-center justify-between mb-2 px-1">
-        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-          Payments
-        </h3>
+    <div>
+      {/* Rendered inside the "<Supplier> — Payments" modal (owner request
+          2026-10-16), whose title already names the table. */}
+      <div className="flex items-center justify-end mb-2 px-1">
         <select
           data-testid="supplier-ledger-type-filter"
           value={typeFilter}
@@ -684,7 +684,7 @@ function AccountLedgerTable({
           <div>Note</div>
           <div>Date</div>
         </div>
-        <div className="max-h-[30vh] overflow-y-auto">
+        <div className="max-h-[65vh] overflow-y-auto">
           {filtered.map((row) => (
             <div
               key={row.id}
@@ -1015,6 +1015,14 @@ export default function SuppliersPage() {
   useEffect(() => {
     if (isAccountMember && activeTab === "manual") setActiveTab("settle");
   }, [isAccountMember, activeTab]);
+  // Owner request (2026-10-16) — the Transactions history moved into its own
+  // modal, so the "settle" tab now holds only the Commission Settlement tick
+  // list, which is admin-only and hidden for account members. Show the tab
+  // only when that list can render (no empty tab for staff). Staff are not
+  // switched onto Pay / Receive: recording a payment is admin-only on both
+  // transports, so the header's Transactions / Payments buttons are their
+  // view, as the read-only history was before.
+  const showSettleTab = isAdmin && !isAccountMember;
 
   const accountLedgerQuery = useSupplierAccountLedgerQuery(
     isSelectedAccountParent ? selectedSupplierId : null,
@@ -1037,6 +1045,18 @@ export default function SuppliersPage() {
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState<string>("ALL");
   useEffect(() => {
     setLedgerTypeFilter("ALL");
+  }, [selectedSupplierId]);
+
+  // Owner request (2026-10-16) — Transactions and Payments each open in
+  // their own modal from a header button. Closed whenever the selection
+  // changes, so a modal never shows a previous supplier's rows.
+  const [openTable, setOpenTable] = useState<
+    "transactions" | "payments" | null
+  >(null);
+  const closeTable = useCallback(() => setOpenTable(null), []);
+  useModalFocusFix(openTable !== null);
+  useEffect(() => {
+    setOpenTable(null);
   }, [selectedSupplierId]);
 
   /** Shared by every left-list click target (plain tile, account card
@@ -1897,6 +1917,26 @@ export default function SuppliersPage() {
     }
   };
 
+  // Owner request (2026-10-16) — the "settle" tab was labelled
+  // "Transactions (N)" because it also held the full history; that history
+  // now opens from the header's Transactions button, so the tab is "Settle"
+  // and only exists where its Commission Settlement list renders.
+  const selectedTabs: {
+    id: "settle" | "manual" | "items";
+    label: string;
+  }[] = isProductSupplier
+    ? [
+        { id: "items", label: "Purchases" },
+        { id: "manual", label: "Pay / Receive" },
+      ]
+    : [
+        ...(showSettleTab ? [{ id: "settle" as const, label: "Settle" }] : []),
+        // LIRA-322 — account members pay via Settle Account.
+        ...(isAccountMember
+          ? []
+          : [{ id: "manual" as const, label: "Pay / Receive" }]),
+      ];
+
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
       <PageHeader
@@ -2139,6 +2179,34 @@ export default function SuppliersPage() {
                       "Write off" button/modal is REMOVED — the bundled
                       Pay-form discount (Pay/Receive tab) is the only
                       surviving forgiveness path. */}
+                  {/* Owner request (2026-10-16) — the two long tables open
+                      in their own modal; the count shows once loaded. */}
+                  {selectedSupplier.is_active !== 0 && !isProductSupplier && (
+                    <button
+                      type="button"
+                      data-testid="supplier-open-transactions"
+                      onClick={() => setOpenTable("transactions")}
+                      className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
+                    >
+                      Transactions
+                      {allTxnsQuery.isLoading ? "" : ` (${allTxns.length})`}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="supplier-open-payments"
+                    onClick={() => setOpenTable("payments")}
+                    className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
+                  >
+                    Payments
+                    {(
+                      isSelectedAccountParent
+                        ? accountLedgerQuery.isLoading
+                        : ledgerQuery.isLoading
+                    )
+                      ? ""
+                      : ` (${isSelectedAccountParent ? accountLedgerRows.length : ledger.length})`}
+                  </button>
                   <button
                     onClick={() => {
                       suppliersQuery.refetch();
@@ -2194,26 +2262,9 @@ export default function SuppliersPage() {
               )}
 
               {/* Tabs */}
-              {selectedSupplier.is_active !== 0 && (
+              {selectedSupplier.is_active !== 0 && selectedTabs.length > 0 && (
                 <div className="flex gap-1 mb-4 border-b border-slate-700">
-                  {(isProductSupplier
-                    ? [
-                        { id: "items" as const, label: "Purchases" },
-                        { id: "manual" as const, label: "Pay / Receive" },
-                      ]
-                    : [
-                        {
-                          id: "settle" as const,
-                          label: `Transactions${allTxns.length > 0 ? ` (${allTxns.length})` : ""}`,
-                        },
-                        // LIRA-322 — account members pay via Settle Account.
-                        ...(isAccountMember
-                          ? []
-                          : [
-                              { id: "manual" as const, label: "Pay / Receive" },
-                            ]),
-                      ]
-                  ).map((tab) => (
+                  {selectedTabs.map((tab) => (
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
@@ -2568,232 +2619,6 @@ export default function SuppliersPage() {
                   </div>
                 )}
 
-              {/* Tab: Transactions (full history, read-only) */}
-              {selectedSupplier.is_active !== 0 && activeTab === "settle" && (
-                <div className="space-y-3">
-                  {allTxnsQuery.isLoading ? (
-                    <div className="text-slate-400 text-sm py-6 text-center">
-                      Loading transactions…
-                    </div>
-                  ) : allTxns.length === 0 ? (
-                    <div className="text-slate-500 text-sm py-6 text-center">
-                      No transactions found for {selectedSupplier.name}
-                    </div>
-                  ) : (
-                    <div className="border border-slate-700 rounded-xl overflow-hidden">
-                      <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-300 text-xs font-semibold px-3 py-2">
-                        <div
-                          className={hasOmtFee ? "col-span-2" : "col-span-3"}
-                        >
-                          Type
-                        </div>
-                        <div
-                          className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right`}
-                        >
-                          Amount
-                        </div>
-                        {hasOmtFee && (
-                          <div className="col-span-2 text-right">OMT Fee</div>
-                        )}
-                        <div className="col-span-2 text-right">Commission</div>
-                        <div className="col-span-2 text-right">Status</div>
-                        <div className="col-span-2">Date</div>
-                      </div>
-                      <div className="max-h-[40vh] overflow-y-auto">
-                        {sortedAllTxns.map((t) => (
-                          <div
-                            key={t.id}
-                            data-testid={`supplier-txn-row-${t.id}`}
-                            className={`grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30 ${isVoidedTxn(t) ? "opacity-60" : ""}`}
-                          >
-                            <div
-                              className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-xs text-slate-300`}
-                            >
-                              {t.omt_service_type || t.service_type}
-                            </div>
-                            {(() => {
-                              // Owner decision (2026-10-02) — same
-                              // supplier_owed-first treatment as the
-                              // settlement checkbox list above (rule 14, one
-                              // `formatOwedCell`).
-                              const cell = formatOwedCell(
-                                t.supplier_owed,
-                                t.amount,
-                                t.omt_fee,
-                                t.currency,
-                              );
-                              return (
-                                <div
-                                  data-testid="supplier-txn-amount"
-                                  className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right font-mono text-white leading-tight`}
-                                >
-                                  <div>{cell.main}</div>
-                                  {cell.breakdown && (
-                                    <div
-                                      data-testid="supplier-txn-breakdown"
-                                      className="text-[9px] text-slate-500 font-normal"
-                                    >
-                                      {cell.breakdown}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                            {hasOmtFee && (
-                              <div className="col-span-2 text-right font-mono text-amber-400">
-                                {t.omt_fee ? `$${t.omt_fee.toFixed(2)}` : "—"}
-                              </div>
-                            )}
-                            <div className="col-span-2 text-right font-mono text-emerald-400">
-                              {t.commission > 0 ? (
-                                t.currency === "LBP" ? (
-                                  `${Math.round(t.commission).toLocaleString()} LBP`
-                                ) : (
-                                  `$${t.commission.toFixed(4)}`
-                                )
-                              ) : (t.settled_commission_usd ?? 0) > 0 ||
-                                (t.settled_commission_lbp ?? 0) > 0 ? (
-                                // BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up
-                                // — a settled BILL row's OWN `commission` is 0
-                                // by design (entered AT settlement, not
-                                // creation); this is the allocated share from
-                                // settlement_commission_allocations, joined in
-                                // by getAllByProvider for display only.
-                                [
-                                  (t.settled_commission_lbp ?? 0) > 0
-                                    ? `${Math.round(t.settled_commission_lbp!).toLocaleString()} LBP`
-                                    : null,
-                                  (t.settled_commission_usd ?? 0) > 0
-                                    ? `$${t.settled_commission_usd!.toFixed(2)}`
-                                    : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(" + ")
-                              ) : (
-                                <span className="text-slate-600">—</span>
-                              )}
-                            </div>
-                            <div className="col-span-2 text-right">
-                              {isVoidedTxn(t) ? (
-                                // G40 — same grey "voided" treatment the
-                                // ledger rows above already use.
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-600/50 text-slate-300">
-                                  Voided
-                                </span>
-                              ) : t.supplier_owed === 0 &&
-                                t.settlement_id == null ? (
-                                // Wallet-provider transfer (prepaid balance):
-                                // nothing is owed to the supplier, so a
-                                // paid/unpaid status is meaningless here.
-                                <span className="text-slate-600">—</span>
-                              ) : t.settlement_id != null ? (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-900/50 text-blue-300">
-                                  Settled
-                                </span>
-                              ) : t.fifo_status === "paid" ? (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
-                                  Paid
-                                </span>
-                              ) : t.fifo_status === "partial" ? (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
-                                  {partialLabel(t)}
-                                </span>
-                              ) : (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/50 text-red-400">
-                                  Unpaid
-                                </span>
-                              )}
-                            </div>
-                            <div className="col-span-2 text-xs text-slate-400">
-                              {parseDbDate(t.created_at).toLocaleString()}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
-                        <span>
-                          {/* Rows that owe nothing (wallet-provider transfers)
-                              carry no payment status — exclude them from the
-                              counts, matching the "—" status cell above. */}
-                          {
-                            liveTxns.filter(
-                              (t) =>
-                                t.supplier_owed > 0 && t.fifo_status === "paid",
-                            ).length
-                          }{" "}
-                          paid ·{" "}
-                          {
-                            liveTxns.filter(
-                              (t) =>
-                                t.supplier_owed > 0 &&
-                                t.fifo_status === "partial",
-                            ).length
-                          }{" "}
-                          partial ·{" "}
-                          {
-                            liveTxns.filter(
-                              (t) =>
-                                t.supplier_owed > 0 &&
-                                t.fifo_status === "unpaid",
-                            ).length
-                          }{" "}
-                          unpaid
-                        </span>
-                        <span className="font-mono font-bold text-white">
-                          {(() => {
-                            // supplier_owed is the repository's single
-                            // owed-per-row definition — wallet-provider
-                            // transfers contribute 0 (nothing is owed for
-                            // consuming the shop's own prepaid balance).
-                            const outstandingUsd = liveTxns
-                              .filter((t) => t.currency !== "LBP")
-                              .reduce(
-                                (s, t) =>
-                                  s +
-                                  Math.max(
-                                    0,
-                                    t.supplier_owed - t.fifo_paid_usd,
-                                  ),
-                                0,
-                              );
-                            // LIRA-322 (FR-017) — LBP rows count only where
-                            // the server gives a per-row LBP paid figure
-                            // (OMT account members, from coverage).
-                            // Elsewhere LBP rows stay out, as before.
-                            const outstandingLbp = liveTxns
-                              .filter(
-                                (t) =>
-                                  t.currency === "LBP" &&
-                                  t.fifo_paid_lbp !== undefined,
-                              )
-                              .reduce(
-                                (s, t) =>
-                                  s +
-                                  Math.max(
-                                    0,
-                                    t.supplier_owed - (t.fifo_paid_lbp ?? 0),
-                                  ),
-                                0,
-                              );
-                            const parts = [
-                              outstandingUsd > 0
-                                ? `$${outstandingUsd.toFixed(2)}`
-                                : null,
-                              outstandingLbp >= 0.5
-                                ? `${Math.round(outstandingLbp).toLocaleString()} LBP`
-                                : null,
-                            ].filter(Boolean);
-                            return parts.length > 0
-                              ? `Outstanding: ${parts.join(" · ")}`
-                              : "Fully covered";
-                          })()}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* Tab: Pay / Receive — CQ-11: shared CounterpartySettleModal,
                   inline variant (no backdrop/title — embedded in the tab). */}
               {selectedSupplier.is_active !== 0 &&
@@ -2909,52 +2734,287 @@ export default function SuppliersPage() {
                     </div>
                   </CounterpartySettleModal>
                 )}
+            </>
+          )}
+        </div>
+      </div>
 
-              {/* Ledger history — LIRA-188 (D6): an account parent shows
+      {/* Owner request (2026-10-16) — the selected supplier's Transactions
+          history and Payments ledger, each in its own modal (opened from the
+          two header buttons) instead of stacked under the tabs. The table
+          markup is moved here unchanged. */}
+      {openTable === "transactions" &&
+        selectedSupplier &&
+        selectedSupplier.is_active !== 0 &&
+        !isProductSupplier && (
+          <SupplierTableModal
+            title={`${selectedSupplier.name} — Transactions`}
+            onClose={closeTable}
+          >
+            <div className="space-y-3">
+              {allTxnsQuery.isLoading ? (
+                <div className="text-slate-400 text-sm py-6 text-center">
+                  Loading transactions…
+                </div>
+              ) : allTxns.length === 0 ? (
+                <div className="text-slate-500 text-sm py-6 text-center">
+                  No transactions found for {selectedSupplier.name}
+                </div>
+              ) : (
+                <div className="border border-slate-700 rounded-xl overflow-hidden">
+                  <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-300 text-xs font-semibold px-3 py-2">
+                    <div className={hasOmtFee ? "col-span-2" : "col-span-3"}>
+                      Type
+                    </div>
+                    <div
+                      className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right`}
+                    >
+                      Amount
+                    </div>
+                    {hasOmtFee && (
+                      <div className="col-span-2 text-right">OMT Fee</div>
+                    )}
+                    <div className="col-span-2 text-right">Commission</div>
+                    <div className="col-span-2 text-right">Status</div>
+                    <div className="col-span-2">Date</div>
+                  </div>
+                  <div className="max-h-[65vh] overflow-y-auto">
+                    {sortedAllTxns.map((t) => (
+                      <div
+                        key={t.id}
+                        data-testid={`supplier-txn-row-${t.id}`}
+                        className={`grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30 ${isVoidedTxn(t) ? "opacity-60" : ""}`}
+                      >
+                        <div
+                          className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-xs text-slate-300`}
+                        >
+                          {t.omt_service_type || t.service_type}
+                        </div>
+                        {(() => {
+                          // Owner decision (2026-10-02) — same
+                          // supplier_owed-first treatment as the
+                          // settlement checkbox list above (rule 14, one
+                          // `formatOwedCell`).
+                          const cell = formatOwedCell(
+                            t.supplier_owed,
+                            t.amount,
+                            t.omt_fee,
+                            t.currency,
+                          );
+                          return (
+                            <div
+                              data-testid="supplier-txn-amount"
+                              className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right font-mono text-white leading-tight`}
+                            >
+                              <div>{cell.main}</div>
+                              {cell.breakdown && (
+                                <div
+                                  data-testid="supplier-txn-breakdown"
+                                  className="text-[9px] text-slate-500 font-normal"
+                                >
+                                  {cell.breakdown}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {hasOmtFee && (
+                          <div className="col-span-2 text-right font-mono text-amber-400">
+                            {t.omt_fee ? `$${t.omt_fee.toFixed(2)}` : "—"}
+                          </div>
+                        )}
+                        <div className="col-span-2 text-right font-mono text-emerald-400">
+                          {t.commission > 0 ? (
+                            t.currency === "LBP" ? (
+                              `${Math.round(t.commission).toLocaleString()} LBP`
+                            ) : (
+                              `$${t.commission.toFixed(4)}`
+                            )
+                          ) : (t.settled_commission_usd ?? 0) > 0 ||
+                            (t.settled_commission_lbp ?? 0) > 0 ? (
+                            // BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up
+                            // — a settled BILL row's OWN `commission` is 0
+                            // by design (entered AT settlement, not
+                            // creation); this is the allocated share from
+                            // settlement_commission_allocations, joined in
+                            // by getAllByProvider for display only.
+                            [
+                              (t.settled_commission_lbp ?? 0) > 0
+                                ? `${Math.round(t.settled_commission_lbp!).toLocaleString()} LBP`
+                                : null,
+                              (t.settled_commission_usd ?? 0) > 0
+                                ? `$${t.settled_commission_usd!.toFixed(2)}`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" + ")
+                          ) : (
+                            <span className="text-slate-600">—</span>
+                          )}
+                        </div>
+                        <div className="col-span-2 text-right">
+                          {isVoidedTxn(t) ? (
+                            // G40 — same grey "voided" treatment the
+                            // ledger rows above already use.
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-600/50 text-slate-300">
+                              Voided
+                            </span>
+                          ) : t.supplier_owed === 0 &&
+                            t.settlement_id == null ? (
+                            // Wallet-provider transfer (prepaid balance):
+                            // nothing is owed to the supplier, so a
+                            // paid/unpaid status is meaningless here.
+                            <span className="text-slate-600">—</span>
+                          ) : t.settlement_id != null ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-900/50 text-blue-300">
+                              Settled
+                            </span>
+                          ) : t.fifo_status === "paid" ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
+                              Paid
+                            </span>
+                          ) : t.fifo_status === "partial" ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
+                              {partialLabel(t)}
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/50 text-red-400">
+                              Unpaid
+                            </span>
+                          )}
+                        </div>
+                        <div className="col-span-2 text-xs text-slate-400">
+                          {parseDbDate(t.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
+                    <span>
+                      {/* Rows that owe nothing (wallet-provider transfers)
+                              carry no payment status — exclude them from the
+                              counts, matching the "—" status cell above. */}
+                      {
+                        liveTxns.filter(
+                          (t) =>
+                            t.supplier_owed > 0 && t.fifo_status === "paid",
+                        ).length
+                      }{" "}
+                      paid ·{" "}
+                      {
+                        liveTxns.filter(
+                          (t) =>
+                            t.supplier_owed > 0 && t.fifo_status === "partial",
+                        ).length
+                      }{" "}
+                      partial ·{" "}
+                      {
+                        liveTxns.filter(
+                          (t) =>
+                            t.supplier_owed > 0 && t.fifo_status === "unpaid",
+                        ).length
+                      }{" "}
+                      unpaid
+                    </span>
+                    <span className="font-mono font-bold text-white">
+                      {(() => {
+                        // supplier_owed is the repository's single
+                        // owed-per-row definition — wallet-provider
+                        // transfers contribute 0 (nothing is owed for
+                        // consuming the shop's own prepaid balance).
+                        const outstandingUsd = liveTxns
+                          .filter((t) => t.currency !== "LBP")
+                          .reduce(
+                            (s, t) =>
+                              s +
+                              Math.max(0, t.supplier_owed - t.fifo_paid_usd),
+                            0,
+                          );
+                        // LIRA-322 (FR-017) — LBP rows count only where
+                        // the server gives a per-row LBP paid figure
+                        // (OMT account members, from coverage).
+                        // Elsewhere LBP rows stay out, as before.
+                        const outstandingLbp = liveTxns
+                          .filter(
+                            (t) =>
+                              t.currency === "LBP" &&
+                              t.fifo_paid_lbp !== undefined,
+                          )
+                          .reduce(
+                            (s, t) =>
+                              s +
+                              Math.max(
+                                0,
+                                t.supplier_owed - (t.fifo_paid_lbp ?? 0),
+                              ),
+                            0,
+                          );
+                        const parts = [
+                          outstandingUsd > 0
+                            ? `$${outstandingUsd.toFixed(2)}`
+                            : null,
+                          outstandingLbp >= 0.5
+                            ? `${Math.round(outstandingLbp).toLocaleString()} LBP`
+                            : null,
+                        ].filter(Boolean);
+                        return parts.length > 0
+                          ? `Outstanding: ${parts.join(" · ")}`
+                          : "Fully covered";
+                      })()}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </SupplierTableModal>
+        )}
+      {openTable === "payments" && selectedSupplier && (
+        <SupplierTableModal
+          title={`${selectedSupplier.name} — Payments`}
+          onClose={closeTable}
+        >
+          {/* Ledger history — LIRA-188 (D6): an account parent shows
                   the MERGED account ledger (Type column + filter) instead
                   of its own single-provider one. Everything else about the
                   selected supplier's panel is unaffected. */}
-              {isSelectedAccountParent ? (
-                <AccountLedgerTable
-                  rows={accountLedgerRows}
-                  typeFilter={ledgerTypeFilter}
-                  onTypeFilterChange={setLedgerTypeFilter}
-                  typeOptions={ledgerTypeOptions}
-                />
-              ) : (
-                <div className="mt-6">
-                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
-                    Payments
-                  </h3>
-                  <div className="border border-slate-700 rounded-xl overflow-hidden">
-                    <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
-                      <div className="col-span-2">Type</div>
-                      <div className="col-span-2 text-right">USD</div>
-                      <div className="col-span-2 text-right">LBP</div>
-                      <div className="col-span-4">Note</div>
-                      <div className="col-span-2">Date</div>
-                    </div>
-                    <div className="max-h-[30vh] overflow-y-auto">
-                      {ledger.map((row) => (
-                        <div
-                          key={row.id}
-                          className={`grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center ${row.is_refunded ? "opacity-60" : ""}`}
-                        >
-                          <div className="col-span-2 flex items-center gap-1">
-                            <EntryTypeBadge
-                              type={row.entry_type}
-                              direction={ledgerRowDirection(
-                                row.amount_usd,
-                                row.amount_lbp,
-                              )}
-                            />
-                            {!!row.is_refunded && (
-                              <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
-                                VOIDED
-                              </span>
-                            )}
-                          </div>
-                          {/* BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up — a
+          {isSelectedAccountParent ? (
+            <AccountLedgerTable
+              rows={accountLedgerRows}
+              typeFilter={ledgerTypeFilter}
+              onTypeFilterChange={setLedgerTypeFilter}
+              typeOptions={ledgerTypeOptions}
+            />
+          ) : (
+            <div>
+              <div className="border border-slate-700 rounded-xl overflow-hidden">
+                <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
+                  <div className="col-span-2">Type</div>
+                  <div className="col-span-2 text-right">USD</div>
+                  <div className="col-span-2 text-right">LBP</div>
+                  <div className="col-span-4">Note</div>
+                  <div className="col-span-2">Date</div>
+                </div>
+                <div className="max-h-[65vh] overflow-y-auto">
+                  {ledger.map((row) => (
+                    <div
+                      key={row.id}
+                      className={`grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center ${row.is_refunded ? "opacity-60" : ""}`}
+                    >
+                      <div className="col-span-2 flex items-center gap-1">
+                        <EntryTypeBadge
+                          type={row.entry_type}
+                          direction={ledgerRowDirection(
+                            row.amount_usd,
+                            row.amount_lbp,
+                          )}
+                        />
+                        {!!row.is_refunded && (
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
+                            VOIDED
+                          </span>
+                        )}
+                      </div>
+                      {/* BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up — a
                             bills-only SETTLEMENT row is contractually
                             amount_usd = amount_lbp = 0 (the commission goes
                             straight into the provider's own drawer via a
@@ -2967,87 +3027,79 @@ export default function SuppliersPage() {
                             a row with a real amount (whose commission is
                             already visible via the adjacent SUPPLIER_PAYS_US
                             row) keeps rendering its own amount, unchanged. */}
-                          {(() => {
-                            const isZeroRow =
-                              row.amount_usd === 0 && row.amount_lbp === 0;
-                            const commissionUsd =
-                              row.settlement_commission_usd ?? 0;
-                            const commissionLbp =
-                              row.settlement_commission_lbp ?? 0;
-                            const showUsdCommission =
-                              isZeroRow && commissionUsd > 0;
-                            const showLbpCommission =
-                              isZeroRow && commissionLbp > 0;
-                            const commissionTitle =
-                              "Commission collected at settlement — does not change the balance";
-                            return (
-                              <>
-                                <div
-                                  className={`col-span-2 text-right font-mono ${
-                                    row.is_refunded
-                                      ? "line-through text-slate-500"
-                                      : showUsdCommission
-                                        ? "text-emerald-400"
-                                        : balanceColor(row.amount_usd)
-                                  }`}
-                                  title={
-                                    showUsdCommission
-                                      ? commissionTitle
-                                      : undefined
-                                  }
-                                >
-                                  {row.amount_usd !== 0
-                                    ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
-                                    : showUsdCommission
-                                      ? commissionUsd.toFixed(2)
-                                      : "—"}
-                                </div>
-                                <div
-                                  className={`col-span-2 text-right font-mono ${
-                                    row.is_refunded
-                                      ? "line-through text-slate-500"
-                                      : showLbpCommission
-                                        ? "text-emerald-400"
-                                        : balanceColor(row.amount_lbp)
-                                  }`}
-                                  title={
-                                    showLbpCommission
-                                      ? commissionTitle
-                                      : undefined
-                                  }
-                                >
-                                  {row.amount_lbp !== 0
-                                    ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
-                                    : showLbpCommission
-                                      ? Math.round(
-                                          commissionLbp,
-                                        ).toLocaleString()
-                                      : "—"}
-                                </div>
-                              </>
-                            );
-                          })()}
-                          <div className="col-span-4 text-slate-300 truncate text-xs">
-                            {row.note || ""}
-                          </div>
-                          <div className="col-span-2 text-slate-400 text-xs">
-                            {parseDbDate(row.created_at).toLocaleString()}
-                          </div>
-                        </div>
-                      ))}
-                      {ledger.length === 0 && (
-                        <div className="text-slate-500 text-sm p-3">
-                          No payment entries yet.
-                        </div>
-                      )}
+                      {(() => {
+                        const isZeroRow =
+                          row.amount_usd === 0 && row.amount_lbp === 0;
+                        const commissionUsd =
+                          row.settlement_commission_usd ?? 0;
+                        const commissionLbp =
+                          row.settlement_commission_lbp ?? 0;
+                        const showUsdCommission =
+                          isZeroRow && commissionUsd > 0;
+                        const showLbpCommission =
+                          isZeroRow && commissionLbp > 0;
+                        const commissionTitle =
+                          "Commission collected at settlement — does not change the balance";
+                        return (
+                          <>
+                            <div
+                              className={`col-span-2 text-right font-mono ${
+                                row.is_refunded
+                                  ? "line-through text-slate-500"
+                                  : showUsdCommission
+                                    ? "text-emerald-400"
+                                    : balanceColor(row.amount_usd)
+                              }`}
+                              title={
+                                showUsdCommission ? commissionTitle : undefined
+                              }
+                            >
+                              {row.amount_usd !== 0
+                                ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
+                                : showUsdCommission
+                                  ? commissionUsd.toFixed(2)
+                                  : "—"}
+                            </div>
+                            <div
+                              className={`col-span-2 text-right font-mono ${
+                                row.is_refunded
+                                  ? "line-through text-slate-500"
+                                  : showLbpCommission
+                                    ? "text-emerald-400"
+                                    : balanceColor(row.amount_lbp)
+                              }`}
+                              title={
+                                showLbpCommission ? commissionTitle : undefined
+                              }
+                            >
+                              {row.amount_lbp !== 0
+                                ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
+                                : showLbpCommission
+                                  ? Math.round(commissionLbp).toLocaleString()
+                                  : "—"}
+                            </div>
+                          </>
+                        );
+                      })()}
+                      <div className="col-span-4 text-slate-300 truncate text-xs">
+                        {row.note || ""}
+                      </div>
+                      <div className="col-span-2 text-slate-400 text-xs">
+                        {parseDbDate(row.created_at).toLocaleString()}
+                      </div>
                     </div>
-                  </div>
+                  ))}
+                  {ledger.length === 0 && (
+                    <div className="text-slate-500 text-sm p-3">
+                      No payment entries yet.
+                    </div>
+                  )}
                 </div>
-              )}
-            </>
+              </div>
+            </div>
           )}
-        </div>
-      </div>
+        </SupplierTableModal>
+      )}
 
       {/* LIRA-080: "Add Credit / Debt" modal — a manual supplier_ledger
           correction. CREDIT = shop owes the supplier more (ledger +); DEBIT =

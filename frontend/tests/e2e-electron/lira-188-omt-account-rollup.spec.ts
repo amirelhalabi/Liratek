@@ -408,6 +408,9 @@ test.describe("LIRA-188 — OMT account rollup on the Suppliers page", () => {
 
     await openCompaniesTab(appPage);
     await refreshAccountData(appPage);
+    // The Payments ledger opens in its own modal from the supplier header
+    // (owner request 2026-10-16).
+    await appPage.getByTestId("supplier-open-payments").click();
 
     // `AccountLedgerTable` (Suppliers/index.tsx ~:535-645) renders each row
     // as a `<div class="grid grid-cols-12 ... border-t ...">`, never a real

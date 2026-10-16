@@ -24,6 +24,7 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Suppliers from "../index";
+import { openSupplierTable } from "@/features/suppliers/testing/supplierTableModals";
 
 const mockGetSuppliers = jest.fn();
 const mockGetAllSupplierTransactions = jest.fn();
@@ -228,6 +229,7 @@ describe("Suppliers page — OMT account members pay only through Settle Account
     const card = await screen.findByTestId("supplier-account-card-OMT");
     fireEvent.click(within(card).getByTestId("supplier-tile-OMT"));
 
+    await openSupplierTable("transactions");
     await screen.findByTestId("supplier-txn-row-701");
     expectAccountMemberPanel();
     expect(
@@ -284,6 +286,7 @@ describe("Suppliers page — coverage labels for an account member (LIRA-322 US2
     const card = await screen.findByTestId("supplier-account-card-OMT");
     fireEvent.click(within(card).getByTestId("supplier-tile-OMT"));
 
+    await openSupplierTable("transactions");
     const usdRow = await screen.findByTestId("supplier-txn-row-701");
     expect(within(usdRow).getByText("Partial · $47.00")).toBeInTheDocument();
     const lbpRow = screen.getByTestId("supplier-txn-row-702");
@@ -297,6 +300,7 @@ describe("Suppliers page — coverage labels for an account member (LIRA-322 US2
     const card = await screen.findByTestId("supplier-account-card-OMT");
     fireEvent.click(within(card).getByTestId("supplier-tile-OMT"));
 
+    await openSupplierTable("transactions");
     await screen.findByTestId("supplier-txn-row-701");
     expect(
       screen.getByText("Outstanding: $54.00 · 800,000 LBP"),

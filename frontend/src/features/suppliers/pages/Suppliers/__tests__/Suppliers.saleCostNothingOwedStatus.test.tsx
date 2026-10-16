@@ -45,6 +45,7 @@
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Suppliers from "../index";
+import { openSupplierTable } from "@/features/suppliers/testing/supplierTableModals";
 
 const mockGetSuppliers = jest.fn();
 const mockGetSupplierBalances = jest.fn();
@@ -212,6 +213,7 @@ describe("Suppliers page — Transactions tab status badge (LIRA-122)", () => {
     renderPage();
 
     fireEvent.click((await screen.findAllByText("Katsh"))[0]);
+    await openSupplierTable("transactions");
 
     // Suppliers decision (2026-10-02): the Amount cell now shows
     // `supplier_owed` (0 for this row — nothing owed), not the raw
@@ -236,6 +238,7 @@ describe("Suppliers page — Transactions tab status badge (LIRA-122)", () => {
     renderPage();
 
     fireEvent.click((await screen.findAllByText("Katsh"))[0]);
+    await openSupplierTable("transactions");
 
     await screen.findByText("$90.00");
     const row = await screen.findByTestId("supplier-txn-row-402");

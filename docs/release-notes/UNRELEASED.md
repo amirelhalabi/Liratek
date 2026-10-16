@@ -83,6 +83,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 ## 💸 OMT / Whish & suppliers
 
+- Suppliers: the Transactions and Payments lists open in their own window from two buttons, so the supplier page stays short. The tab for picking transactions to settle is now called "Settle".
 - OMT/Whish page: a send or receive no longer adds the sender (or receiver) to your clients when "Save as client" is unticked. If a client with that phone is already saved, the transaction is still linked to them. Paying on the customer's account still needs a client, so one is still saved in that case.
 - OMT/Whish page, OMT send with "Online Brokerage": a BINANCE fee charged to the customer is now recorded with the send. Before, any such send with a fee was refused with "the payment is more than the total".
 - OMT/Whish page: from now on each OMT or Whish send and receive keeps everything you enter on the transaction itself — service type, reference number, the customer's name and phone, OMT or Whish fee, whether the fee was included, the partner, the fee for paying by wallet, the note, and how the customer paid.

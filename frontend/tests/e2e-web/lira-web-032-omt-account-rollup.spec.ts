@@ -428,6 +428,8 @@ test.describe("OMT open-credit account rollup over REST (LIRA-188)", () => {
     // is selected (AccountLedgerTable's own doc comment:
     // `isSelectedAccountParent`) — select it via the card header first.
     await card.getByTestId("supplier-tile-OMT").click();
+    // The Payments ledger opens in its own modal (owner request 2026-10-16).
+    await page.getByTestId("supplier-open-payments").click();
     await expect(page.getByTestId("supplier-ledger-type-filter")).toBeVisible();
   });
 });
