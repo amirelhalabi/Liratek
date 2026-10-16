@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import type { DebtLedgerEntity } from "@liratek/ui";
+import type { ApiAdapter, DebtLedgerEntity } from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 /**
@@ -355,4 +355,32 @@ export function looksLikeSameShop(
     }
   }
   return matching > 0 && matching * 2 >= withBalance;
+}
+
+/**
+ * Every client with account history and that history, ready for
+ * `buildDebtExportWorkbook`, sorted by name.
+ */
+export async function loadAccountsForExport(
+  api: Pick<ApiAdapter, "getDebtors" | "getAllDebtHistory">,
+): Promise<DebtExportClient[]> {
+  // TWO requests for the whole shop. One history request per client made
+  // ~400 web requests for a real shop, past the API's per-user rate limit.
+  const [allDebtors, allHistory] = await Promise.all([
+    api.getDebtors(),
+    api.getAllDebtHistory(),
+  ]);
+  const byClient = new Map<number, DebtLedgerEntity[]>();
+  for (const row of allHistory ?? []) {
+    const list = byClient.get(row.client_id);
+    if (list) list.push(row);
+    else byClient.set(row.client_id, [row]);
+  }
+  return allDebtors
+    .map((d) => ({
+      name: d.full_name,
+      phone: d.phone_number ?? "",
+      history: byClient.get(d.id) ?? [],
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

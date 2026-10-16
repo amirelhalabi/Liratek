@@ -36,6 +36,16 @@ router.get("/debtors", (_req, res) => {
   res.json({ success: true, debtors });
 });
 
+// GET /api/debts/history — LIRA-330: every client's history in ONE request
+// (Accounts Excel export). One request per client tripped the per-user rate
+// limit on a real shop. Mirrors IPC `debt:get-all-history`; same access as the
+// per-client history route below (router-level authenticateJWT).
+router.get("/history", (_req, res) => {
+  const service = getDebtService();
+  const history = service.getAllHistory();
+  res.json({ success: true, history });
+});
+
 // GET /api/debts/clients/:clientId/history
 router.get("/clients/:clientId/history", (req, res) => {
   const clientId = Number(req.params.clientId);

@@ -400,11 +400,34 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * exact `= 0` silently let through as a visible "−$0.00" row).
    */
   findClientHistory(clientId: number): DebtLedgerEntity[] {
-    // LIRA-241 — own SELECT (not the shared `getColumns()`) because this is
-    // the one read path that also needs `created_by_username`: a `dl.`-
-    // qualified column list plus a `users` LEFT JOIN. findById()/findAll()
-    // keep using getColumns() unqualified against the bare table, so this
-    // must not touch that shared method (it has no JOIN to alias against).
+    return this.selectHistory("dl.client_id = ?", [clientId]);
+  }
+
+  /**
+   * LIRA-330 — every client's history in ONE read, for the Accounts Excel
+   * export. Asking per client made one web request per account (~400 for a
+   * real shop), past the API's per-user rate limit. Same rows, columns and
+   * hidden 0/0 marker as `findClientHistory`, ordered by client then newest
+   * first.
+   */
+  findAllHistory(): DebtLedgerEntity[] {
+    return this.selectHistory(null, []);
+  }
+
+  /**
+   * The one history SELECT both reads share (rule 14: the hidden 0/0
+   * 'Refund Reversal' predicate lives here only).
+   *
+   * LIRA-241 — own SELECT (not the shared `getColumns()`) because this is
+   * the one read path that also needs `created_by_username`: a `dl.`-
+   * qualified column list plus a `users` LEFT JOIN. findById()/findAll()
+   * keep using getColumns() unqualified against the bare table, so this
+   * must not touch that shared method (it has no JOIN to alias against).
+   */
+  private selectHistory(
+    clientFilter: string | null,
+    params: number[],
+  ): DebtLedgerEntity[] {
     const stmt = this.db.prepare(`
       SELECT dl.id, dl.client_id, dl.transaction_type, dl.amount_usd, dl.amount_lbp,
              dl.transaction_id, dl.note, dl.created_at, dl.created_by, dl.edited_by,
@@ -412,15 +435,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
              u.username AS created_by_username
       FROM debt_ledger dl
       LEFT JOIN users u ON u.id = dl.created_by AND u.tenant_id = dl.tenant_id
-      WHERE dl.client_id = ? AND dl.tenant_id = ?
+      WHERE dl.tenant_id = ?
+        ${clientFilter ? `AND ${clientFilter}` : ""}
         AND NOT (
           dl.transaction_type = 'Refund Reversal'
           AND ABS(dl.amount_usd) < 0.005
           AND ABS(dl.amount_lbp) < 0.5
         )
-      ORDER BY dl.created_at DESC
+      ORDER BY ${clientFilter ? "" : "dl.client_id, "}dl.created_at DESC
     `);
-    return stmt.all(clientId, getCurrentTenantId()) as DebtLedgerEntity[];
+    return stmt.all(getCurrentTenantId(), ...params) as DebtLedgerEntity[];
   }
 
   /**

@@ -13,6 +13,7 @@ import type { SaveMaintenanceJobPayload } from "@liratek/core";
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 import type { SinceLastCountDrawer } from "@liratek/core";
 import type { UnitWarrantyDisplay } from "@liratek/core";
+import type { DebtLedgerEntity } from "@liratek/ui";
 // LIRA-309 — phone lines held for sale (schema-derived payloads, rule 21).
 import type {
   ListResaleLinesQueryInput,
@@ -1737,6 +1738,19 @@ export async function getClientDebtHistory(clientId: number) {
     `/api/debts/clients/${clientId}/history`,
   );
   return res.history;
+}
+
+/** LIRA-330 — every client's debt history in one call (Accounts export). */
+export async function getAllDebtHistory(): Promise<DebtLedgerEntity[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().debt.getAllHistory(),
+    async () =>
+      (
+        await requestJson<{ success: boolean; history: DebtLedgerEntity[] }>(
+          `/api/debts/history`,
+        )
+      ).history,
+  );
 }
 
 export async function getClientDebtTotal(clientId: number) {

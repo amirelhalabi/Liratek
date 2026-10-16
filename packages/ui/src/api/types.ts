@@ -1450,6 +1450,8 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getDebtors: () => Promise<DebtorSummary[]>;
   getClientDebtHistory: (clientId: number) => Promise<DebtLedgerEntity[]>;
+  /** LIRA-330 — every client's history in one call (Accounts export). */
+  getAllDebtHistory: () => Promise<DebtLedgerEntity[]>;
   getClientDebtTotal: (clientId: number) => Promise<number>;
   /**
    * Payload type is DERIVED from `addRepaymentSchema`

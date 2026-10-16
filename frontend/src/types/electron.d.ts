@@ -1334,6 +1334,8 @@ export interface ElectronAPI {
         created_by_username?: string | null;
       }>
     >;
+    /** LIRA-330 — every client's history in one call (Accounts export). */
+    getAllHistory: () => ReturnType<ElectronAPI["debt"]["getClientHistory"]>;
     addRepayment: (data: {
       clientId: number;
       amountUSD: number;

@@ -85,8 +85,8 @@ import {
   exportedRowDate,
   isLiraTekAccountsExport,
   isPaymentLedgerType,
+  loadAccountsForExport,
   looksLikeSameShop,
-  type DebtExportClient,
 } from "../../utils/debtExcelExport";
 import type { Client } from "@liratek/ui";
 
@@ -1394,24 +1394,7 @@ export default function Debts() {
   const handleExportExcel = useCallback(async () => {
     setIsExporting(true);
     try {
-      const allDebtors = await apiRef.current.getDebtors();
-      const clients: DebtExportClient[] = new Array(allDebtors.length);
-      // A few histories at a time: hundreds of clients in one burst would
-      // flood the web backend, one at a time is needlessly slow.
-      const BATCH = 8;
-      for (let i = 0; i < allDebtors.length; i += BATCH) {
-        await Promise.all(
-          allDebtors.slice(i, i + BATCH).map(async (d, j) => {
-            const history = await apiRef.current.getClientDebtHistory(d.id);
-            clients[i + j] = {
-              name: d.full_name,
-              phone: d.phone_number ?? "",
-              history: history ?? [],
-            };
-          }),
-        );
-      }
-      clients.sort((a, b) => a.name.localeCompare(b.name));
+      const clients = await loadAccountsForExport(apiRef.current);
 
       if (clients.length === 0) {
         alert("No client accounts to export.");

@@ -352,6 +352,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   getDebtors = () => api.getDebtors();
   getClientDebtHistory = (clientId: number) =>
     api.getClientDebtHistory(clientId);
+  getAllDebtHistory = () => api.getAllDebtHistory();
   getClientDebtTotal = (clientId: number) => api.getClientDebtTotal(clientId);
   addRepayment = (payload: AddRepaymentPayload) => api.addRepayment(payload);
   getOpenDebtItems = (clientId: number) => api.getOpenDebtItems(clientId);

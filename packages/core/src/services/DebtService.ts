@@ -178,6 +178,13 @@ export class DebtService {
   }
 
   /**
+   * Every client's debt history in one read (Accounts Excel export).
+   */
+  getAllHistory(): DebtLedgerEntity[] {
+    return this.debtRepo.findAllHistory();
+  }
+
+  /**
    * Get total debt amount for a specific client
    */
   getClientTotal(clientId: number): number {

@@ -67,6 +67,11 @@ export function registerDebtHandlers(): void {
     return debtService.getClientHistory(clientId);
   });
 
+  // LIRA-330 — every client's history in one call (Accounts Excel export)
+  ipcMain.handle("debt:get-all-history", () => {
+    return debtService.getAllHistory();
+  });
+
   // Get total debt for a client
   ipcMain.handle("debt:get-client-total", (_event, clientId: number) => {
     return debtService.getClientTotal(clientId);
