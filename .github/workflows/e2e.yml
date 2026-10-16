@@ -117,9 +117,12 @@ jobs:
 
       - name: Run Electron E2E tests
         env:
-          LOG_LEVEL: ${{ github.event.inputs.log_level }}
+          INPUT_LOG_LEVEL: ${{ github.event.inputs.log_level }}
           E2E_GREP: ${{ github.event.inputs.grep }}
+        # LOG_LEVEL is exported only when given: an EMPTY value fails core's
+        # env schema ("Invalid environment configuration") and stops the run.
         run: |
+          if [ -n "$INPUT_LOG_LEVEL" ]; then export LOG_LEVEL="$INPUT_LOG_LEVEL"; fi
           if [ -n "$E2E_GREP" ]; then
             xvfb-run --auto-servernum -- node scripts/run-e2e.mjs electron -g "$E2E_GREP" --retries=0
           else
@@ -194,9 +197,12 @@ jobs:
       # floor already use.
       - name: Run Web E2E tests
         env:
-          LOG_LEVEL: ${{ github.event.inputs.log_level }}
+          INPUT_LOG_LEVEL: ${{ github.event.inputs.log_level }}
           E2E_GREP: ${{ github.event.inputs.grep }}
+        # LOG_LEVEL is exported only when given: an EMPTY value fails core's
+        # env schema ("Invalid environment configuration") and stops the run.
         run: |
+          if [ -n "$INPUT_LOG_LEVEL" ]; then export LOG_LEVEL="$INPUT_LOG_LEVEL"; fi
           if [ -n "$E2E_GREP" ]; then
             node scripts/run-e2e.mjs web -g "$E2E_GREP"
           else
