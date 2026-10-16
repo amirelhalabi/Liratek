@@ -1601,10 +1601,8 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     expectDetails(t, { kind: "exchange", from: "EUR", to: "LBP", via: "USD" });
     const legs = (t.details?.legs ?? []) as Array<Record<string, unknown>>;
     expect(legs).toHaveLength(2);
-    // bug 6: leg 1's profit is saved as sent.
-    bugCheck(6, "leg 1 profit saved as sent", () =>
-      expect(legs[0].profitUsd).toBeCloseTo(Number(request.leg1ProfitUsd), 4),
-    );
+    // Leg 1's profit staying 0 is by design (owner 2026-10-16), so it is
+    // not checked here. Only the amount_usd float noise is still open.
     bugCheck(6, `amount_usd in whole cents (${t.amount_usd})`, () =>
       expect(isWholeUnit(t.amount_usd, "USD")).toBe(true),
     );
