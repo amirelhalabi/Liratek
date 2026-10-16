@@ -22,6 +22,14 @@ on:
           - web
           - both
         default: electron
+      grep:
+        description: "Optional Playwright -g filter (empty = full suite)"
+        type: string
+        default: ""
+      log_level:
+        description: "LOG_LEVEL for the app under test (debug shows the desktop main process boot)"
+        type: string
+        default: ""
 
 # Same convention as ci.yml, scoped to this workflow's own group name so a
 # manual e2e dispatch never cancels (or gets cancelled by) an in-flight CI
@@ -49,7 +57,8 @@ jobs:
     name: E2E Tests (Electron)
     if: ${{ github.event.inputs.suite == 'electron' || github.event.inputs.suite == 'both' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 323 specs at ~2-3 s each plus app boots do not fit in 20 minutes.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -86,14 +95,24 @@ jobs:
       # it fails the step if the run reports fewer than --min completed
       # tests, even if the underlying process's own exit code was 0.
       - name: Run Electron E2E tests
-        run: xvfb-run --auto-servernum -- node scripts/run-e2e.mjs electron --min=150
+        env:
+          LOG_LEVEL: ${{ github.event.inputs.log_level }}
+          E2E_GREP: ${{ github.event.inputs.grep }}
+        run: |
+          if [ -n "$E2E_GREP" ]; then
+            xvfb-run --auto-servernum -- node scripts/run-e2e.mjs electron -g "$E2E_GREP" --retries=0
+          else
+            xvfb-run --auto-servernum -- node scripts/run-e2e.mjs electron --min=150
+          fi
 
       - name: Upload Playwright report (Electron)
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: playwright-report-electron
-          path: frontend/playwright-report/
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -131,6 +150,12 @@ jobs:
       - name: Ensure better-sqlite3 is built for Node (not Electron)
         run: yarn rebuild:node
 
+      # The web backend imports @liratek/core's built dist; without this the
+      # test server dies at startup ("Cannot find package
+      # .../@liratek/core/dist/index.js") and no test runs.
+      - name: Build core
+        run: yarn workspace @liratek/core build
+
       - name: Install Playwright browsers (Chromium)
         working-directory: frontend
         run: npx playwright install --with-deps chromium
@@ -147,7 +172,15 @@ jobs:
       # roughly-half-of-baseline margin the electron floor and core-tests
       # floor already use.
       - name: Run Web E2E tests
-        run: node scripts/run-e2e.mjs web
+        env:
+          LOG_LEVEL: ${{ github.event.inputs.log_level }}
+          E2E_GREP: ${{ github.event.inputs.grep }}
+        run: |
+          if [ -n "$E2E_GREP" ]; then
+            node scripts/run-e2e.mjs web -g "$E2E_GREP"
+          else
+            node scripts/run-e2e.mjs web
+          fi
 
       - name: Upload Playwright report (Web)
         uses: actions/upload-artifact@v4
