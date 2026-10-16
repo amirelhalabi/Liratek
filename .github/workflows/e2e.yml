@@ -164,7 +164,8 @@ jobs:
     name: E2E Tests (Web)
     if: ${{ github.event.inputs.suite == 'web' || github.event.inputs.suite == 'both' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 517 specs (web + desktop specs over the web shim) need ~40 minutes.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -214,6 +215,8 @@ jobs:
         if: always()
         with:
           name: playwright-report-web
-          path: frontend/playwright-report/
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
           retention-days: 7
           if-no-files-found: ignore
