@@ -191,6 +191,8 @@ export class RechargeService {
     exchangeRate?: number;
     clientName?: string;
     clientId?: number;
+    /** LIRA-329 — informational: the "Fee included in amount" choice. */
+    includingFees?: boolean;
     /** Payout kept change — verified by the repository (resolveKeptChange). */
     kept_change_usd?: number;
     kept_change_lbp?: number;

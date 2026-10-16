@@ -70,6 +70,8 @@ Source of each field: `docs/plans/ongoing_plans/TRANSACTION_DETAIL_AUDIT.md` §2
 
 `claimId`\*, `action`, `unitId`, `replacementUnitId`, `notes`, `overrideReason`, `saleItemId` or `maintenanceId`.
 
+Written on every WARRANTY_COST row of the claim and on the warranty REFUND row (`refundSaleItem` with a claim). That REFUND row keeps these details instead of `reversal` ones (phase 8 decision: explicit details win). It still copies the sale's client, and it reaches its sale through `saleItemId` and the row's `originalSaleId` metadata.
+
 ### Exchange: `exchange`
 
 `from`_, `to`_, `via`, `amountIn`, `amountOut`, `legs[] { rate, marketRate, overridden, profitUsd }`, `payoutRate`.
@@ -84,7 +86,7 @@ Source of each field: `docs/plans/ongoing_plans/TRANSACTION_DETAIL_AUDIT.md` §2
 
 ### Expense: `expense`
 
-`category`, `description` (full), `billAmount {amount, currency}` (as typed, before change kept), `expenseDate`, `stockUse {source, itemId, quantity}`.
+`category`, `description` (full), `billAmount {amount, currency}` (as typed, before change kept), `expenseDate` (as stored: an ISO instant from the Expenses page, a day from internal writers), `stockUse {source, itemId, quantity}`.
 
 ### Debts / accounts: `account_entry`
 
@@ -92,7 +94,7 @@ Source of each field: `docs/plans/ongoing_plans/TRANSACTION_DETAIL_AUDIT.md` §2
 
 ### Supplier: `supplier_entry`
 
-`supplierId`_, `action`_ (PAY | RECEIVE | ADJUSTMENT | RECORDED_DEBT | BATCH_SETTLE | ACCOUNT_SETTLE), `commissionRate`, `unitCount`.
+`supplierId`_, `action`_ (PAY | RECEIVE | ADJUSTMENT | RECORDED_DEBT | BATCH_SETTLE | ACCOUNT_SETTLE | DISCOUNT), `commissionRate`, `unitCount`. Automatic sibling ledger rows (`is_auto`) carry no details; their parent transaction holds them.
 
 ### Partner: `partner_entry`
 
@@ -102,9 +104,17 @@ Source of each field: `docs/plans/ongoing_plans/TRANSACTION_DETAIL_AUDIT.md` §2
 
 `sessionId`\*, `role` (EXTRA | KEPT_CHANGE | WAIVED), `paidByMethod`.
 
+On the basket's own rows (EXTRA_CHARGE, KEPT_CHANGE, WAIVED_SHORTFALL). `paidByMethod` is the method exactly as the checkout window sent it; it is informational only, and the money still goes by the basket's payment lines. The rows carry the session customer's name and phone. Their payment snapshot is `{ lines: [], session_id }`, plus `kept` on the KEPT_CHANGE row: the basket owns the lines. The LIRA-321 forgiven-leftover WAIVED_SHORTFALL row on an exchange or cash-out belongs to no session. It is an automatic sibling (`is_auto`) and carries no details, because its parent holds them.
+
 ### Void / refund: `reversal`
 
 `originalTransactionId`\*, `reason` (when a field exists later), `refundUnits[] { unitId, flags }`.
+
+- **Rows that get it:** voids, refunds and refund undos (an undo names the refund it undoes), and the COUNTERPARTY_DISCOUNT reversal (it names the discount row).
+- **Flags:** `DEFECTIVE`, `NOT_DEFECTIVE`, `WARRANTY_UNTIL:<YYYY-MM-DD>` and `WARRANTY_OVERRIDE_CLEARED`, from the refund's per-unit choices (`REFUND_UNIT_FLAGS`).
+- **Client:** the row's `client_name` / `client_phone` are copied from the original transaction (`reversalClientOf`).
+- **Payment snapshot:** none. The reversal's legs are written by `_reversePayments` after the row exists.
+- **Warranty refund:** it keeps its `warranty_claim` details, because explicit details win. It is still linked to its sale through `warranty_claim.saleItemId` and the row's `originalSaleId` metadata, and it copies the client like any refund.
 
 ## Payment snapshot
 

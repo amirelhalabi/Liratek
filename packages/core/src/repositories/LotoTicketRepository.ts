@@ -42,6 +42,55 @@ import {
   NO_EXTRA_FOR_PARTNER_MESSAGE,
 } from "../validators/common.js";
 import { LOTO_EXTRA_LBP_ONLY_MESSAGE } from "../validators/loto.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type LotoSaleDetails,
+} from "../validators/transactionDetails.js";
+
+function nonBlank(v: string | null | undefined): string | undefined {
+  return v != null && v.trim() !== "" ? v : undefined;
+}
+
+/**
+ * LIRA-329 — the `loto_sale` details: everything the cashier entered, built
+ * from the input this repository already holds (pure). The discount is the
+ * one typed (LBP — the only currency a ticket discount may be in); the
+ * commission rate is the one applied. Empty fields are omitted.
+ */
+export function buildLotoSaleDetails(
+  data: LotoTicketCreate,
+  ctx: {
+    commissionRate: number;
+    isForPartner: boolean;
+    partnerName: string | undefined;
+  },
+): LotoSaleDetails {
+  const ticketNumber = nonBlank(data.ticket_number);
+  const note = nonBlank(data.note);
+  const discountLbp = data.discount_lbp ?? 0;
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "loto_sale",
+    saleAmount: data.sale_amount,
+    commissionRate: ctx.commissionRate,
+    ...(ticketNumber ? { ticketNumber } : {}),
+    ...(discountLbp > 0
+      ? { discount: { amount: discountLbp, currency: "LBP" } }
+      : {}),
+    ...(ctx.isForPartner && data.partnerId
+      ? {
+          partner: {
+            id: data.partnerId,
+            ...(nonBlank(ctx.partnerName) ? { name: ctx.partnerName } : {}),
+            mode: "FOR" as const,
+          },
+        }
+      : {}),
+    ...(note ? { note } : {}),
+    ...(data.paid_in_session ? { paid_in_session: data.paid_in_session } : {}),
+  };
+}
 
 function fmtPaymentMethod(method: string): string {
   return method.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -193,6 +242,10 @@ export interface LotoTicketCreate {
   extra_lbp?: number;
   clientId?: number | null;
   clientName?: string | null;
+  /** LIRA-329 — informational only: the customer's phone, kept on the
+   *  transaction's `client_phone` next to `clientName` (never read by any
+   *  money step). */
+  clientPhone?: string | null;
   /**
    * Structured payment legs in the currency the customer ACTUALLY paid
    * (e.g. a 500,000 LBP ticket paid with $5). When present, each
@@ -222,6 +275,9 @@ export interface LotoTicketCreate {
    * callers leave this falsy → behavior is unchanged.
    */
   deferPayment?: boolean;
+  /** LIRA-329 — the session whose basket paid for this. Server-injected by
+   *  `SessionCheckoutService` (like `deferPayment`), never on the wire. */
+  paid_in_session?: number;
   /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
   exchange_rate?: number;
   /**
@@ -468,6 +524,46 @@ export class LotoTicketRepository {
       // mode instead of silently defaulting to a phantom CASH payment for the
       // full amount when no payment info is sent.
 
+      // LIRA-329 — the partner's name, read once: the For-Partner client
+      // label and the ticket's details both use it (rule 14).
+      const partnerName =
+        isForPartner && data.partnerId
+          ? getPartnerRepository().getById(data.partnerId)?.name
+          : undefined;
+      const commissionRate = data.commission_rate ?? 0.0445;
+      // LIRA-329 — how the customer paid, as at saving: the lines (or the
+      // single legacy payment the fallback books) and the verified kept
+      // change. Same predicates as step 3 below. None for a session-basket
+      // ticket (the basket owns the payment) or a partner ticket (no counter
+      // payment).
+      const legacyLeg =
+        paymentMethod === "CUSTOMER_ACCOUNT" ||
+        isDrawerAffectingMethod(paymentMethod)
+          ? {
+              method: paymentMethod,
+              currencyCode: ticketCurrency,
+              amount:
+                paymentMethod === "CUSTOMER_ACCOUNT" && ticketCurrency === "USD"
+                  ? data.sale_amount
+                  : amountDueLbp,
+            }
+          : null;
+      // LIRA-329 — a session-basket ticket records its session (the basket
+      // owns the money); a For-Partner ticket has no counter payment.
+      const ticketSnapshot = data.deferPayment
+        ? buildPaymentSnapshot({ sessionId: data.paid_in_session })
+        : isForPartner
+          ? undefined
+          : buildPaymentSnapshot({
+              payments: legs.length > 0 ? legs : legacyLeg ? [legacyLeg] : [],
+              keptChange: { usd: keptUsd, lbp: keptLbp },
+            });
+      const ticketClientName = nonBlank(data.clientName);
+      const ticketClientPhone =
+        !isForPartner && (ticketClientName || data.clientId)
+          ? nonBlank(data.clientPhone)
+          : undefined;
+
       // 2. Create unified transaction record
       const txnRepo = getTransactionRepository();
       const txnId = txnRepo.createTransaction({
@@ -496,8 +592,17 @@ export class LotoTicketRepository {
         // transactions table shows "<partner> [partner]").
         client_name:
           isForPartner && data.partnerId
-            ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
+            ? `${partnerName ?? `#${data.partnerId}`} [partner]`
             : (data.clientName ?? null),
+        // LIRA-329: the customer's phone next to the name (never under a
+        // partner label).
+        ...(ticketClientPhone ? { client_phone: ticketClientPhone } : {}),
+        details: buildLotoSaleDetails(data, {
+          commissionRate,
+          isForPartner,
+          partnerName,
+        }),
+        ...(ticketSnapshot ? { payment_snapshot: ticketSnapshot } : {}),
         summary: txnSummary,
         metadata_json: {
           commission_amount: data.commission_amount,

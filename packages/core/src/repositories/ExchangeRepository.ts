@@ -42,6 +42,11 @@ import {
   exchangeCustomerCanOwe,
   exchangeOwingBlockedMessage,
 } from "../validators/exchange.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type ExchangeDetails,
+} from "../validators/transactionDetails.js";
 
 // =============================================================================
 // Entity Types
@@ -183,6 +188,93 @@ export interface CreateExchangeData {
   /** LIRA-321 — the forgiven leftover, in `fromCurrency` (on screen:
    *  "Forgive"). Recorded as a WAIVED_SHORTFALL sibling row. */
   customer_waived_amount?: number;
+  /** LIRA-329 — informational only (kept on the transaction's details;
+   *  never read by any money step): whether the cashier typed their own
+   *  rate for leg 1 / leg 2 instead of the shop's rate. Absent = not sent. */
+  leg1RateOverridden?: boolean;
+  leg2RateOverridden?: boolean;
+  /** LIRA-329 — informational only: the customer's phone, kept on the
+   *  transaction's `client_phone` next to `clientName`. */
+  clientPhone?: string;
+}
+
+function nonBlank(v: string | null | undefined): string | undefined {
+  return v != null && v.trim() !== "" ? v : undefined;
+}
+
+/**
+ * LIRA-329 — the `exchange` details: everything the cashier entered, built
+ * from the validated input this repository already holds (pure). Each leg
+ * carries the profit actually BOOKED on `exchange_transactions` (the
+ * lot-adjusted one when a leg is lot-tracked), not the screen's estimate.
+ * The payout rate is the rate the payment sheet converted the payout lines
+ * at (`tender_exchange_rate`). Empty fields are omitted.
+ *
+ * No `note`: the Exchange screen has no note field — it always sends its
+ * own generated label ("Exchange USD → LBP"), which the repository cannot
+ * tell from a typed note, so copying it would save a note nobody typed.
+ * That text stays on `exchange_transactions.note` and `payments.note`.
+ */
+export function buildExchangeDetails(
+  data: CreateExchangeData,
+  ctx: {
+    leg1ProfitUsd: number;
+    leg2ProfitUsd: number | null;
+    partnerName: string | undefined;
+  },
+): ExchangeDetails {
+  const leg = (
+    rate: number | undefined,
+    marketRate: number | undefined,
+    overridden: boolean | undefined,
+    profitUsd: number | null | undefined,
+  ): NonNullable<ExchangeDetails["legs"]>[number] => ({
+    ...(rate != null ? { rate } : {}),
+    ...(marketRate != null ? { marketRate } : {}),
+    ...(overridden !== undefined ? { overridden } : {}),
+    ...(profitUsd != null ? { profitUsd } : {}),
+  });
+  const hasLeg2 = data.leg2Rate != null;
+  const via = nonBlank(data.viaCurrency);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "exchange",
+    from: data.fromCurrency,
+    to: data.toCurrency,
+    ...(via ? { via } : {}),
+    amountIn: data.amountIn,
+    amountOut: data.amountOut,
+    legs: [
+      leg(
+        data.leg1Rate,
+        data.leg1MarketRate,
+        data.leg1RateOverridden,
+        ctx.leg1ProfitUsd,
+      ),
+      ...(hasLeg2
+        ? [
+            leg(
+              data.leg2Rate,
+              data.leg2MarketRate,
+              data.leg2RateOverridden,
+              ctx.leg2ProfitUsd,
+            ),
+          ]
+        : []),
+    ],
+    ...(data.tender_exchange_rate != null
+      ? { payoutRate: data.tender_exchange_rate }
+      : {}),
+    ...(data.partnerMode === "FOR" && data.partnerId
+      ? {
+          partner: {
+            id: data.partnerId,
+            ...(nonBlank(ctx.partnerName) ? { name: ctx.partnerName } : {}),
+            mode: "FOR" as const,
+          },
+        }
+      : {}),
+  };
 }
 
 /**
@@ -528,6 +620,53 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // EUR → LBP or LBP → EUR handled by LBP cases above.
 
       const exchangeSummary = `Exchange: ${formatMoneyAmount(data.amountIn, data.fromCurrency)} → ${formatMoneyAmount(data.amountOut, data.toCurrency)}${data.viaCurrency ? ` (via ${data.viaCurrency})` : ""}`;
+
+      // The payout lines the cashier entered (zero lines dropped) — defined
+      // ONCE here and read by both the payment snapshot below and the
+      // payout booking further down (rule 14).
+      const payoutLegs = (data.payments ?? []).filter(
+        (p) => Math.abs(p.amount) > 0,
+      );
+      // LIRA-329 — the partner's name, read once: the For-Partner client
+      // label and the exchange's details both use it (rule 14).
+      const partnerName =
+        isForPartner && data.partnerId
+          ? getPartnerRepository().getById(data.partnerId)?.name
+          : undefined;
+      // LIRA-329 — how the money moved, as at saving: the customer's lines
+      // (or the single CASH lump of amountIn the fallback books), the payout
+      // lines (or the single CASH lump of amountOut), and the verified kept
+      // change. Same predicates as the bookings below. A partner exchange
+      // takes nothing from a customer, but its payout is real.
+      const exchangeSnapshot = buildPaymentSnapshot({
+        payments:
+          payoutLegs.length > 0
+            ? payoutLegs
+            : [
+                {
+                  method: "CASH",
+                  currencyCode: data.toCurrency,
+                  amount: data.amountOut,
+                },
+              ],
+        customerPayments: isForPartner
+          ? []
+          : usesCustomerPays
+            ? customerLegs
+            : [
+                {
+                  method: "CASH",
+                  currencyCode: data.fromCurrency,
+                  amount: data.amountIn,
+                },
+              ],
+        keptChange: { usd: kept.usd, lbp: kept.lbp },
+      });
+      const clientPhone =
+        !isForPartner && (nonBlank(data.clientName) || data.clientId)
+          ? nonBlank(data.clientPhone)
+          : undefined;
+
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.EXCHANGE,
         source_table: "exchange_transactions",
@@ -544,8 +683,17 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // matches Recharge/Loto: the transactions table shows "<partner> [partner]").
         client_name:
           isForPartner && data.partnerId
-            ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
+            ? `${partnerName ?? `#${data.partnerId}`} [partner]`
             : (data.clientName ?? null),
+        // LIRA-329: the customer's phone next to the name (never under a
+        // partner label).
+        ...(clientPhone ? { client_phone: clientPhone } : {}),
+        details: buildExchangeDetails(data, {
+          leg1ProfitUsd: lotEffects.leg1ProfitUsd,
+          leg2ProfitUsd: lotEffects.leg2ProfitUsd,
+          partnerName,
+        }),
+        ...(exchangeSnapshot ? { payment_snapshot: exchangeSnapshot } : {}),
         // Thousands separators come from the ONE shared summary formatter
         // (`formatMoneyAmount`) so the stored text and the row's cash-flow
         // badge never disagree on the same number — a live row showed
@@ -659,9 +807,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
 
       // Outflow: shop gives toCurrency to customer → shop drawer decreases.
       // Real regardless of partner mode — this value genuinely leaves the till.
-      const payoutLegs = (data.payments ?? []).filter(
-        (p) => Math.abs(p.amount) > 0,
-      );
+      // (`payoutLegs` is defined above, before the unified row.)
       if (payoutLegs.length > 0) {
         // Split payout (owner-requested 2026-07-30): the shop pays the
         // customer's amountOut across several lines (e.g. $100 +

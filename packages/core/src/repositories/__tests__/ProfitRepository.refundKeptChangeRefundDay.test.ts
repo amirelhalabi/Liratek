@@ -763,7 +763,9 @@ describe("refund kept change lands on the REFUND's day (owner decision 2026-10-0
           `SELECT user_id, client_name, reverses_id FROM transactions WHERE id = ?`,
         )
         .get(refundId),
-    ).toEqual({ user_id: cashier2, client_name: null, reverses_id: null });
+      // LIRA-329: a refund row now carries the sale's client; By Client
+      // still credits the refunded sale's client (asserted below).
+    ).toEqual({ user_id: cashier2, client_name: "Ali", reverses_id: null });
     const svc = new ProfitService(new ProfitRepository());
     const users = svc
       .getByUser(wed, wed)

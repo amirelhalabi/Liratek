@@ -12,6 +12,7 @@
  * Spec: `specs/312-wrong-number-recharge/spec.md`.
  */
 import {
+  buildWrongNumberDetails,
   getWrongNumberRepository,
   withTotals,
   type WrongNumberCardItem,
@@ -245,6 +246,17 @@ export class WrongNumberService {
             expense_date: input.expense_date,
           },
           userId,
+          {
+            // LIRA-329 — the expense row says which card, both numbers and
+            // the sale (the record itself does not exist yet).
+            details: buildWrongNumberDetails({
+              mobile_service_item_id: card.id,
+              wrong_number: wrongNumber,
+              right_number: rightNumber,
+              sale_transaction_id: saleTransactionId,
+              note,
+            }),
+          },
         );
         const expenseTransactionId =
           this.repo.getExpenseTransactionId(expenseId);

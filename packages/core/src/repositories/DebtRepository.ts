@@ -53,6 +53,47 @@ import {
   usdEquivalent,
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type AccountEntryDetails,
+} from "../validators/transactionDetails.js";
+
+/**
+ * LIRA-329 — the `account_entry` details on a debts / accounts transaction:
+ * what kind of entry it is, the note exactly as typed (never the screen's
+ * default wording), the debt items the cashier ticked, and a bundled
+ * discount as typed (one currency, only when exactly one side is set).
+ * The client's name and phone go to the row's own columns (filled from
+ * `client_id` by createTransaction's resolver), not here. Pure.
+ */
+export function buildAccountEntryDetails(input: {
+  action: AccountEntryDetails["action"];
+  note?: string | null;
+  targets?: ReadonlyArray<DebtItemRef> | null;
+  discount?: { amount_usd?: number; amount_lbp?: number } | null;
+}): AccountEntryDetails {
+  const note =
+    input.note != null && input.note.trim() !== "" ? input.note : undefined;
+  const dUsd = Math.abs(input.discount?.amount_usd || 0);
+  const dLbp = Math.abs(input.discount?.amount_lbp || 0);
+  const discount =
+    dUsd > 0 && dLbp === 0
+      ? { amount: dUsd, currency: "USD" }
+      : dLbp > 0 && dUsd === 0
+        ? { amount: dLbp, currency: "LBP" }
+        : undefined;
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "account_entry",
+    action: input.action,
+    ...(note ? { note } : {}),
+    ...(input.targets && input.targets.length > 0
+      ? { targets: input.targets.map((t) => ({ type: t.kind, id: t.id })) }
+      : {}),
+    ...(discount ? { discount } : {}),
+  };
+}
 
 /** LIRA-308 answer 2 — the label of the "Earlier balance" line and the
  *  noise floor below which an uncovered balance is not shown as one. */
@@ -596,6 +637,18 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
               : undefined,
           }),
         },
+        // LIRA-329: the note, the ticked items, the discount as typed, and
+        // the legs as booked with the verified kept change.
+        details: buildAccountEntryDetails({
+          action: "REPAYMENT",
+          note: data.note,
+          targets: data.targets,
+          discount: data.discount,
+        }),
+        payment_snapshot: buildPaymentSnapshot({
+          payments: paymentLegs,
+          keptChange: { usd: kept.keptUsd, lbp: kept.keptLbp },
+        }),
         transaction_time: data.transaction_time,
       });
 
@@ -943,6 +996,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       client_id: clientId,
       summary: `Discount: $${amountUsd.toFixed(2)}${amountLbp ? ` + ${amountLbp.toLocaleString()} LBP` : ""} forgiven — ${clientName}`,
       metadata_json: posting.metadata_json,
+      // LIRA-329: a write-off keeps its reason (as the note) and, when
+      // bundled with a repayment, the items the cashier ticked.
+      details: buildAccountEntryDetails({
+        action: "WRITE_OFF",
+        note: discount.reason,
+        targets,
+      }),
       transaction_time: transactionTime,
     });
 
@@ -1906,6 +1966,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             ledgerEntryId: ledgerId,
           }),
         },
+        // LIRA-329: the note as typed and the payout legs with any verified
+        // kept change.
+        details: buildAccountEntryDetails({
+          action: "CREDIT_CASH_OUT",
+          note: data.note,
+        }),
+        payment_snapshot: buildPaymentSnapshot({
+          payments: legs,
+          keptChange: { usd: kept.keptUsd, lbp: kept.keptLbp },
+        }),
         transaction_time: data.transaction_time,
       });
 
@@ -2137,6 +2207,21 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             ledgerEntryId: ledgerId,
           }),
         },
+        // LIRA-329: the entry kind, the note as typed, and — when cash moved
+        // — the legs that move a drawer (exactly the ones booked below).
+        details: buildAccountEntryDetails({
+          action: moveCash
+            ? isCredit
+              ? "CREDIT_CASH_IN"
+              : "DEBT_CASH_OUT"
+            : "ADJUSTMENT",
+          note: data.note,
+        }),
+        payment_snapshot: moveCash
+          ? buildPaymentSnapshot({
+              payments: legs.filter((l) => isDrawerAffectingMethod(l.method)),
+            })
+          : undefined,
         transaction_time: data.transaction_time,
       });
 

@@ -1746,6 +1746,8 @@ function KatshFormInner({
       // returns via telecomCreditReturns below).
       const catalogLines = cartItems.map((line) => ({
         item: {
+          // LIRA-329: the catalog key, kept on the sale's details.
+          key: line.item.key,
           category: line.item.category,
           label: line.item.label,
           subcategory: line.item.subcategory,
@@ -1764,6 +1766,9 @@ function KatshFormInner({
         },
         quantity: line.quantity,
         noteSuffix: line.onlyDays ? " [Only Days]" : undefined,
+        ...(line.onlyDays
+          ? { onlyDays: true, returnedCreditsUsd: line.returnedCreditsUsd }
+          : {}),
       }));
       const totals = catalogCartTotals(catalogLines);
       const discountedTotal = totals.price - discount;
@@ -1812,6 +1817,10 @@ function KatshFormInner({
           // customer pays (and the margin) …
           amount: discountedTotal,
           commission: aggregatedCommission,
+          // LIRA-329: … and is kept as typed on the sale's details.
+          ...(discount > 0
+            ? { typedDiscount: { amount: discount, currency: "LBP" } }
+            : {}),
           // … and the carrier's checkout total covers the WHOLE checkout
           // (items + bills), not just this cart.
           checkoutTotal:

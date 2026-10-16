@@ -49,6 +49,11 @@ import {
   EXTRA_ABOVE_TOTAL_MESSAGE,
 } from "../validators/common.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type TransactionDetails,
+} from "../validators/transactionDetails.js";
 
 export interface CheckoutCartItem {
   id: string;
@@ -137,6 +142,57 @@ export interface CheckoutResult {
   error?: string;
 }
 
+type SessionSiblingDetails = Extract<
+  TransactionDetails,
+  { kind: "session_sibling" }
+>;
+
+/**
+ * LIRA-329 (T037) — the details of a row the checkout writes for the WHOLE
+ * basket (the extra, the kept change, the waived gap): the session, the
+ * row's role, and the payment method exactly as the checkout window sent it
+ * (`paidByMethod` — informational only: the money goes by the payment
+ * lines, unchanged). A blank method is omitted, never saved blank.
+ */
+export function buildSessionSiblingDetails(input: {
+  sessionId: number;
+  role: SessionSiblingDetails["role"];
+  paidByMethod?: string | null;
+}): SessionSiblingDetails {
+  const method = input.paidByMethod?.trim();
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "session_sibling",
+    sessionId: input.sessionId,
+    ...(input.role ? { role: input.role } : {}),
+    ...(method ? { paidByMethod: method } : {}),
+  };
+}
+
+/**
+ * LIRA-329 (T022) — the session customer's phone on a Mobile Recharge item
+ * whose client is the session customer (its name was just injected), in the
+ * key that module reads for the CUSTOMER's phone: `clientPhone` on a
+ * recharge (its `phoneNumber` is the number being recharged), `phoneNumber`
+ * on a financial service. Never overwrites a phone the item already has.
+ */
+function injectSessionCustomerPhone(
+  formData: Record<string, unknown>,
+  channel: string,
+  phone: string,
+): void {
+  if (channel === "recharge:process" || channel === "recharge:create") {
+    if (!formData.clientPhone) formData.clientPhone = phone;
+  } else if (
+    channel === "financial:create" ||
+    channel === "omt:add-transaction"
+  ) {
+    if (!formData.phoneNumber && !formData.senderPhone) {
+      formData.phoneNumber = phone;
+    }
+  }
+}
+
 /**
  * Process a single cart item by calling the appropriate service in
  * SESSION-BASKET deferred mode (deferPayment: true) — each service creates its
@@ -151,11 +207,20 @@ export function processCartItem(
   item: CheckoutCartItem,
   exchangeRate: number | undefined,
   userId: number,
+  /** LIRA-329: the session whose basket payment covers this item. */
+  sessionId?: number,
 ): ProcessedItem {
   const data = { ...item.formData, deferPayment: true } as Record<
     string,
     unknown
   >;
+  // LIRA-329 (T022, T037): every item's transaction says which session paid
+  // for it (`details.paid_in_session`, and the session on its payment
+  // snapshot). Server-injected for EVERY channel, like `deferPayment` —
+  // never accepted from the wire.
+  if (sessionId) {
+    data.paid_in_session = sessionId;
+  }
   if (exchangeRate && exchangeRate > 0) {
     if (data.exchange_rate === undefined) data.exchange_rate = exchangeRate;
     if (data.exchangeRate === undefined) data.exchangeRate = exchangeRate;
@@ -327,6 +392,7 @@ function processBatchCartItem(
   item: CheckoutCartItem,
   exchangeRate: number | undefined,
   userId: number,
+  sessionId?: number,
 ): ProcessedItem[] {
   const results: ProcessedItem[] = [];
   const items = item.formData.items as Array<Record<string, unknown>>;
@@ -337,7 +403,7 @@ function processBatchCartItem(
   }
   for (const subItem of items) {
     const subCartItem: CheckoutCartItem = { ...item, formData: subItem };
-    results.push(processCartItem(subCartItem, exchangeRate, userId));
+    results.push(processCartItem(subCartItem, exchangeRate, userId, sessionId));
   }
   return results;
 }
@@ -519,6 +585,7 @@ export class SessionCheckoutService {
         waived_lbp,
         extra_usd,
         extra_lbp,
+        paidByMethod,
       } = request;
 
       if (!cartItems || cartItems.length === 0) {
@@ -609,6 +676,13 @@ export class SessionCheckoutService {
         sessionCustomerPhone,
         userId,
       );
+      // LIRA-329 (T037): the session customer's phone on the basket's own
+      // rows (extra / kept change / waived), next to the name — never
+      // without it ("client_phone requires client_name").
+      const siblingClientPhone =
+        sessionCustomerName && sessionCustomerPhone
+          ? sessionCustomerPhone
+          : null;
 
       // Inject session customer into cart items lacking a client name.
       //
@@ -636,6 +710,13 @@ export class SessionCheckoutService {
               if (!sub.clientName && !sub.senderName && !sub.client_name) {
                 sub.clientName = sessionCustomerName;
                 sub.client_name = sessionCustomerName;
+                if (sessionCustomerPhone) {
+                  injectSessionCustomerPhone(
+                    sub,
+                    item.ipcChannel,
+                    sessionCustomerPhone,
+                  );
+                }
               }
               if (!sub.clientId && !sub.client_id && sessionClientId) {
                 sub.clientId = sessionClientId;
@@ -646,6 +727,13 @@ export class SessionCheckoutService {
             if (!fd.clientName && !fd.senderName && !fd.client_name) {
               fd.clientName = sessionCustomerName;
               fd.client_name = sessionCustomerName;
+              if (sessionCustomerPhone) {
+                injectSessionCustomerPhone(
+                  fd,
+                  item.ipcChannel,
+                  sessionCustomerPhone,
+                );
+              }
             }
             if (!fd.clientId && !fd.client_id && sessionClientId) {
               fd.clientId = sessionClientId;
@@ -671,6 +759,7 @@ export class SessionCheckoutService {
                 item,
                 exchangeRate,
                 userId,
+                sessionId,
               );
               const batchItems = item.formData.items as
                 | Array<Record<string, unknown>>
@@ -726,7 +815,12 @@ export class SessionCheckoutService {
                 });
               }
             } else {
-              const result = processCartItem(item, exchangeRate, userId);
+              const result = processCartItem(
+                item,
+                exchangeRate,
+                userId,
+                sessionId,
+              );
 
               if (
                 result.sourceTable === "financial_services" &&
@@ -845,6 +939,15 @@ export class SessionCheckoutService {
             // Same reason as KEPT_CHANGE below (LIRA-230): no formData to
             // inject the session's walk-in name into.
             client_name: sessionCustomerName ?? null,
+            client_phone: siblingClientPhone,
+            // LIRA-329 (T037): the session, the role and the method as sent;
+            // the basket's payment lines own the money.
+            details: buildSessionSiblingDetails({
+              sessionId,
+              role: "EXTRA",
+              paidByMethod,
+            }),
+            payment_snapshot: buildPaymentSnapshot({ sessionId }),
             summary: `Extra (session checkout): ${[
               extra.usd > 0 ? `$${extra.usd}` : null,
               extra.lbp > 0 ? `${extra.lbp.toLocaleString()} LBP` : null,
@@ -953,6 +1056,18 @@ export class SessionCheckoutService {
             // folds it into the unnamed "Walk-in" bucket instead of the
             // customer's own name.
             client_name: sessionCustomerName ?? null,
+            client_phone: siblingClientPhone,
+            // LIRA-329 (T037): the session, the role, the method as sent and
+            // the change the customer left with the shop.
+            details: buildSessionSiblingDetails({
+              sessionId,
+              role: "KEPT_CHANGE",
+              paidByMethod,
+            }),
+            payment_snapshot: buildPaymentSnapshot({
+              sessionId,
+              keptChange: { usd: keptUsd, lbp: keptLbp },
+            }),
             summary: `Kept change (session checkout): ${[
               keptUsd > 0 ? `$${keptUsd}` : null,
               keptLbp > 0 ? `${keptLbp.toLocaleString()} LBP` : null,
@@ -1000,6 +1115,14 @@ export class SessionCheckoutService {
             // Same reason as KEPT_CHANGE above (LIRA-230): no formData to
             // inject the session's walk-in name into.
             client_name: sessionCustomerName ?? null,
+            client_phone: siblingClientPhone,
+            // LIRA-329 (T037): the session, the role and the method as sent.
+            details: buildSessionSiblingDetails({
+              sessionId,
+              role: "WAIVED",
+              paidByMethod,
+            }),
+            payment_snapshot: buildPaymentSnapshot({ sessionId }),
             summary: `Waived (session checkout): ${[
               waivedUsd > 0 ? `$${waivedUsd}` : null,
               waivedLbp > 0 ? `${waivedLbp.toLocaleString()} LBP` : null,

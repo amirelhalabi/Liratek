@@ -27,6 +27,10 @@ import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import { getCarrierLineService } from "../services/CarrierLineService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { activeWrongNumberCreditsSql, reversedSql } from "./wrongNumberSql.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type TransactionDetails,
+} from "../validators/transactionDetails.js";
 import type {
   ListWrongNumbersQuery,
   WrongNumberProvider,
@@ -40,6 +44,40 @@ export type WrongNumberCarrier = "mtc" | "alfa";
 export const TELECOM_CREDIT_SELL_PRICE_SETTING = "telecom_credit_sell_price_lbp";
 /** Its seeded default (TenantRepository, migration v140). */
 export const TELECOM_CREDIT_SELL_PRICE_FALLBACK_LBP = 100000;
+
+/**
+ * LIRA-329 — the `wrong_number` details: the record (card) — once it exists
+ * — the catalog item, both numbers, the sale it came from and the note.
+ * Used for the record's own expense row (no record id yet) and for each
+ * credits-received entry. Empty values are omitted.
+ */
+export function buildWrongNumberDetails(
+  record: Pick<
+    WrongNumberCardEntity,
+    | "mobile_service_item_id"
+    | "wrong_number"
+    | "right_number"
+    | "sale_transaction_id"
+  > & { id?: number; note?: string | null },
+): Extract<TransactionDetails, { kind: "wrong_number" }> {
+  const wrong = record.wrong_number?.trim() ? record.wrong_number : undefined;
+  const right = record.right_number?.trim() ? record.right_number : undefined;
+  const note = record.note?.trim() ? record.note : undefined;
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "wrong_number",
+    ...(record.id ? { cardId: record.id } : {}),
+    ...(record.mobile_service_item_id
+      ? { itemId: record.mobile_service_item_id }
+      : {}),
+    ...(wrong ? { wrongNumber: wrong } : {}),
+    ...(right ? { rightNumber: right } : {}),
+    ...(record.sale_transaction_id
+      ? { saleTransactionId: record.sale_transaction_id }
+      : {}),
+    ...(note ? { note } : {}),
+  };
+}
 
 export interface WrongNumberCardEntity {
   id: number;
@@ -456,6 +494,8 @@ export class WrongNumberRepository extends BaseRepository<WrongNumberCardEntity>
         wrong_number: record.wrong_number,
         card_label: record.card_label,
       },
+      // LIRA-329 — which card this recovers, both numbers and the sale.
+      details: buildWrongNumberDetails(record),
     });
 
     const drawerRow = this.db

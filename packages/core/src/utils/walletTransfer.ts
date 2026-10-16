@@ -254,9 +254,30 @@ export interface WalletTransferPayloadInput {
   feeCollectedSeparately?: boolean;
   /** RECEIVE only: how the shop pays the customer out. */
   cashoutMethod?: "CASH" | "CUSTOMER_ACCOUNT" | "OMT" | "WHISH" | "BINANCE";
+  /** LIRA-329: the sheet's discount as typed (in `currency`), kept on the
+   *  transaction's details. `fees` already has it folded in. */
+  discount?: number;
   /** Kept change that joins the profit stamp, when it applies to this direction. */
   keptChange?: { usd: number; lbp: number };
   transactionTime?: string;
+}
+
+/**
+ * LIRA-329 — who pays the provider fee on a wallet / crypto transfer, from
+ * the fee mode the form already has (ONE derivation for the OMT App / Whish
+ * App form and the Binance form, rule 14). `undefined` when there is no fee.
+ *  - paid separately over the counter → SEPARATELY;
+ *  - included in the amount → DEDUCTED;
+ *  - otherwise on top, by the sender → SENDER.
+ */
+export function transferFeePaidBy(input: {
+  fee: number;
+  includingFees: boolean;
+  feeCollectedSeparately?: boolean;
+}): "SENDER" | "DEDUCTED" | "SEPARATELY" | undefined {
+  if (!(input.fee > 0)) return undefined;
+  if (input.feeCollectedSeparately) return "SEPARATELY";
+  return input.includingFees ? "DEDUCTED" : "SENDER";
 }
 
 /**
@@ -276,6 +297,16 @@ export function buildWalletTransferPayload(
     input.customerPayments.length > 0
       ? input.customerPayments
       : undefined;
+  const feePaidBy = transferFeePaidBy({
+    fee: fees.providerFee,
+    includingFees: serviceType === "RECEIVE" && input.includingFees,
+    feeCollectedSeparately:
+      serviceType === "RECEIVE" &&
+      (input.feeCollectedSeparately === true ||
+        (!customerPayments &&
+          !!input.feePayments &&
+          input.feePayments.length > 0)),
+  });
   return {
     provider,
     serviceType,
@@ -329,5 +360,10 @@ export function buildWalletTransferPayload(
         }
       : {}),
     transaction_time: input.transactionTime,
+    // LIRA-329: informational — who pays the fee and the discount as typed.
+    ...(feePaidBy ? { feePaidBy } : {}),
+    ...(input.discount && input.discount > 0
+      ? { typedDiscount: { amount: input.discount, currency } }
+      : {}),
   };
 }

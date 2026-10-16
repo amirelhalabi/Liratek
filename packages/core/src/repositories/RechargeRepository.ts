@@ -89,6 +89,11 @@ import {
   notDebtPending,
   ownCurrencyProfit,
 } from "./ProfitRepository.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type TransactionDetails,
+} from "../validators/transactionDetails.js";
 
 // =============================================================================
 // SMS transfer fee → expense constants (owner decision 2026-09-06) — rule 14:
@@ -254,6 +259,18 @@ export interface RechargeData {
    */
   extra_usd?: number;
   extra_lbp?: number;
+  // ── LIRA-329: informational only — kept on the transaction's details /
+  // client columns; no money step reads them. ──────────────────────────
+  /** The customer's phone typed next to the name (`phoneNumber` is the
+   *  number being recharged). */
+  clientPhone?: string;
+  /** Alfa Gift: the tier picked, as shown. */
+  giftTier?: { key: string; label?: string };
+  /** Days: cost and price exactly as typed in USD. */
+  daysTypedUsd?: { costUsd?: number; priceUsd?: number };
+  /** Session id when booked by a customer-session checkout. Server-injected
+   *  by `SessionCheckoutService` (like `deferPayment`), never on the wire. */
+  paid_in_session?: number;
 }
 
 export interface RechargeEntity {
@@ -552,6 +569,158 @@ function isShopOwnLine(
 // Recharge Repository Class
 // =============================================================================
 
+// =============================================================================
+// LIRA-329 — Mobile Recharge transaction details (MTC / Alfa, buy-back,
+// wallet top-ups). Pure builders from the input the repository already
+// holds; empty fields are omitted. The session checkout reaches the same
+// `processRecharge`, so a basket item gets the same details (FR-002).
+// =============================================================================
+
+type DetailsOf<K extends TransactionDetails["kind"]> = Extract<
+  TransactionDetails,
+  { kind: K }
+>;
+export type TelecomRechargeDetails = DetailsOf<"telecom_recharge">;
+export type TelecomBuybackDetails = DetailsOf<"telecom_buyback">;
+export type WalletTopupDetails = DetailsOf<"wallet_topup">;
+
+const TELECOM_DETAIL_TYPES: ReadonlySet<string> = new Set<
+  TelecomRechargeDetails["type"]
+>(["CREDIT_TRANSFER", "DAYS", "SHOP_LINE_USE", "ALFA_GIFT", "VOUCHER"]);
+
+function textOrUndefined(v: string | null | undefined): string | undefined {
+  return v != null && v.trim() !== "" ? v : undefined;
+}
+
+function detailCarrier(provider: RechargeData["provider"]): "MTC" | "ALFA" {
+  return provider === "MTC" ? "MTC" : "ALFA";
+}
+
+/**
+ * `telecom_recharge` — an MTC / Alfa sale (credit, days, shop-line use, Alfa
+ * Gift). `data.price` is the charged price (after the discount); `discount`
+ * is the typed discount in the sale currency. On DAYS `amount` is a day
+ * count, so it is kept as `days`, never as `amount`. Returns `undefined` for
+ * a type that has no telecom kind (e.g. an internal TOP_UP).
+ */
+export function buildTelecomRechargeDetails(
+  data: RechargeData,
+  ctx: {
+    discount: number;
+    currency: string;
+    carrierLineId?: number;
+    partnerName?: string;
+  },
+): TelecomRechargeDetails | undefined {
+  if (!TELECOM_DETAIL_TYPES.has(data.type)) return undefined;
+  const isDays = data.type === "DAYS";
+  const phone = textOrUndefined(data.phoneNumber);
+  const typedCost = data.daysTypedUsd?.costUsd;
+  const typedPrice = data.daysTypedUsd?.priceUsd;
+  const giftKey = textOrUndefined(data.giftTier?.key);
+  const giftLabel = textOrUndefined(data.giftTier?.label);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "telecom_recharge",
+    carrier: detailCarrier(data.provider),
+    type: data.type as TelecomRechargeDetails["type"],
+    ...(phone ? { phone } : {}),
+    ...(isDays
+      ? Number.isInteger(data.amount) && data.amount >= 0
+        ? { days: data.amount }
+        : {}
+      : { amount: data.amount }),
+    ...(ctx.carrierLineId ? { carrierLineId: ctx.carrierLineId } : {}),
+    ...(data.default_price_to_client != null
+      ? { defaultPrice: data.default_price_to_client }
+      : {}),
+    ...(isDays && (typedCost != null || typedPrice != null)
+      ? {
+          typed: {
+            ...(typedCost != null ? { costUsd: typedCost } : {}),
+            ...(typedPrice != null ? { priceUsd: typedPrice } : {}),
+          },
+        }
+      : {}),
+    ...(data.type === "ALFA_GIFT" && giftKey
+      ? {
+          giftTier: {
+            key: giftKey,
+            ...(giftLabel ? { label: giftLabel } : {}),
+          },
+        }
+      : {}),
+    ...(ctx.discount > 0
+      ? { discount: { amount: ctx.discount, currency: ctx.currency } }
+      : {}),
+    ...(data.partnerMode === "FOR" && data.partnerId
+      ? {
+          partner: {
+            id: data.partnerId,
+            ...(textOrUndefined(ctx.partnerName)
+              ? { name: ctx.partnerName }
+              : {}),
+            mode: "FOR" as const,
+          },
+        }
+      : {}),
+    ...(data.paid_in_session ? { paid_in_session: data.paid_in_session } : {}),
+  };
+}
+
+/** `telecom_buyback` — the shop buys credits back (a payout). */
+export function buildTelecomBuybackDetails(
+  data: RechargeData,
+  ctx: { credits: number; payoutMethod: string; carrierLineId?: number },
+): TelecomBuybackDetails {
+  const phone = textOrUndefined(data.phoneNumber);
+  const payoutMethod = textOrUndefined(ctx.payoutMethod);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "telecom_buyback",
+    carrier: detailCarrier(data.provider),
+    credits: ctx.credits,
+    ...(phone ? { phone } : {}),
+    ...(payoutMethod ? { payoutMethod } : {}),
+    ...(ctx.carrierLineId ? { carrierLineId: ctx.carrierLineId } : {}),
+    ...(data.paid_in_session ? { paid_in_session: data.paid_in_session } : {}),
+  };
+}
+
+/** `wallet_topup` — a wallet top-up or cash-out (drawer, supplier, partner,
+ *  client). */
+export function buildWalletTopupDetails(input: {
+  provider: string;
+  source: NonNullable<WalletTopupDetails["source"]>;
+  fee?: number;
+  includingFees?: boolean;
+  partner?: { id: number; name?: string };
+}): WalletTopupDetails {
+  const partnerName = textOrUndefined(input.partner?.name);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "wallet_topup",
+    provider: input.provider,
+    source: input.source,
+    ...(input.fee != null && Number.isFinite(input.fee)
+      ? { fee: input.fee }
+      : {}),
+    ...(typeof input.includingFees === "boolean"
+      ? { includingFees: input.includingFees }
+      : {}),
+    // A partner top-up: the partner sends the credits for the shop.
+    ...(input.partner
+      ? {
+          partner: {
+            id: input.partner.id,
+            ...(partnerName ? { name: partnerName } : {}),
+            mode: "VIA" as const,
+          },
+        }
+      : {}),
+  };
+}
+
 export class RechargeRepository extends BaseRepository<RechargeEntity> {
   constructor() {
     super("recharges", { softDelete: false });
@@ -803,6 +972,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
           summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amountLabel}`,
+          // LIRA-329 — the top-up's provider and where the money came from.
+          details: buildWalletTopupDetails({
+            provider: data.provider,
+            source: "DRAWER",
+          }),
           metadata_json: {
             provider: data.provider,
             amount,
@@ -1174,6 +1348,40 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           extra > 0
             ? ` (+${currency === "LBP" ? "" : "$"}${extra.toLocaleString()} extra)`
             : "";
+        // LIRA-329 — the partner's name, read once: the For-Partner client
+        // label and the sale's details both use it (rule 14).
+        const isForPartnerSale = data.partnerMode === "FOR" && !!data.partnerId;
+        const forPartnerName = isForPartnerSale
+          ? getPartnerRepository().getById(data.partnerId as number)?.name
+          : undefined;
+        // LIRA-329 — everything the cashier entered (`telecom_recharge`),
+        // the shop line the sale draws on (the same `saleLine` the movement
+        // below uses), and how the customer paid. A session-basket item
+        // (`deferPayment`) or a For-Partner sale takes no counter payment
+        // of its own: the basket item records its session instead.
+        const detailCarrierKey: CarrierKey =
+          data.provider === "MTC" ? "mtc" : "alfa";
+        const rechargeDetails = buildTelecomRechargeDetails(data, {
+          discount,
+          currency,
+          carrierLineId: this.saleLine(detailCarrierKey, data)?.id,
+          partnerName: forPartnerName,
+        });
+        const rechargeSnapshot = isForPartnerSale
+          ? undefined
+          : data.deferPayment === true
+            ? buildPaymentSnapshot({ sessionId: data.paid_in_session })
+            : buildPaymentSnapshot({
+                payments: data.payments,
+                keptChange: {
+                  usd: data.kept_change_usd,
+                  lbp: data.kept_change_lbp,
+                },
+              });
+        const rechargeClientPhone =
+          !isForPartnerSale && clientName
+            ? textOrUndefined(data.clientPhone)
+            : undefined;
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE,
           source_table: "recharges",
@@ -1197,10 +1405,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           client_id: data.clientId ?? null,
           // For-partner recharges label the row with the partner (owner ask:
           // the transactions table shows "<partner> [partner]").
-          client_name:
-            data.partnerMode === "FOR" && data.partnerId
-              ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
-              : (clientName ?? null),
+          client_name: isForPartnerSale
+            ? `${forPartnerName ?? `#${data.partnerId}`} [partner]`
+            : (clientName ?? null),
+          ...(rechargeClientPhone ? { client_phone: rechargeClientPhone } : {}),
+          ...(rechargeDetails ? { details: rechargeDetails } : {}),
+          ...(rechargeSnapshot ? { payment_snapshot: rechargeSnapshot } : {}),
           summary: `Recharge: ${data.provider} ${detail} — ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}${extraTail}`,
           metadata_json: {
             provider: data.provider,
@@ -2024,11 +2234,23 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           sellRate,
         );
 
+        // LIRA-329 — the buy-back's own fields and how the customer was paid.
+        const buybackDetails = buildTelecomBuybackDetails(data, {
+          credits,
+          payoutMethod: paidByLabel,
+          carrierLineId: primaryLine?.id,
+        });
+        const buybackSnapshot = buildPaymentSnapshot({
+          payments: payoutLegs,
+          keptChange: { usd: keptUsd, lbp: keptLbp },
+        });
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.TELECOM_CREDIT_BUYBACK,
           source_table: "recharges",
           source_id: rechargeId,
           user_id: createdBy,
+          details: buybackDetails,
+          ...(buybackSnapshot ? { payment_snapshot: buybackSnapshot } : {}),
           amount_usd: currency === "USD" ? payoutAmount : 0,
           amount_lbp: currency === "LBP" ? payoutAmount : 0,
           // Profit = credits gained − cash paid (USD-equivalent) — the same
@@ -2301,6 +2523,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
           summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up → ${destDrawer}: ${amountLabel}`,
+          // LIRA-329 — the top-up's provider and where the credit came from.
+          details: buildWalletTopupDetails({
+            provider: data.provider,
+            source: "SUPPLIER",
+          }),
           metadata_json: {
             provider: data.provider,
             amount,
@@ -2530,6 +2757,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           profit_usd: 0,
           profit_lbp: 0,
           summary: `Cash Out to OMT: ${destDrawer} -${amountLabel} → OMT account +${creditedLabel}`,
+          // LIRA-329 — the cash-out's provider, its counterparty (the OMT
+          // supplier account) and the commission it earns.
+          details: buildWalletTopupDetails({
+            provider: data.provider,
+            source: "SUPPLIER",
+            fee: commission,
+          }),
           metadata_json: {
             provider: data.provider,
             amount,
@@ -2624,9 +2858,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       // Validate the partner exists and is active
       const partner = this.db
         .prepare(
-          "SELECT id FROM partners WHERE id = ? AND is_active = 1 AND tenant_id = ?",
+          "SELECT id, name FROM partners WHERE id = ? AND is_active = 1 AND tenant_id = ?",
         )
-        .get(data.partnerId, tenantId) as { id: number } | undefined;
+        .get(data.partnerId, tenantId) as
+        | { id: number; name: string }
+        | undefined;
       if (!partner) {
         return { success: false, error: "Partner not found" };
       }
@@ -2678,6 +2914,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
           summary: `Whish App top-up via partner: +${amountLabel}`,
+          // LIRA-329 — the top-up's provider and the partner by id and name.
+          details: buildWalletTopupDetails({
+            provider: data.provider,
+            source: "PARTNER",
+            partner: { id: data.partnerId, name: partner?.name },
+          }),
           metadata_json: {
             provider: data.provider,
             partnerId: data.partnerId,
@@ -2829,6 +3071,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     exchangeRate?: number;
     clientName?: string;
     clientId?: number;
+    /** LIRA-329 — informational: the "Fee included in amount" choice. */
+    includingFees?: boolean;
     /** Payout kept change (owner decisions 2026-10-07): the shop hands out
      *  a round figure a little short of `amount − fee` and keeps the
      *  leftover as profit. Verified by `resolveKeptChange` — never trusted. */
@@ -3110,6 +3354,24 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           client_id: data.clientId ?? null,
           client_name: clientName,
           summary: `Whish App top-up from client: +${creditsLabel} credits, -${cashLabel} cash`,
+          // LIRA-329 — the fee, the including-fees choice and how the
+          // client was paid out. Name/phone come from the client record
+          // through the transaction's own client resolver.
+          details: buildWalletTopupDetails({
+            provider: "WHISH_APP",
+            source: "CLIENT",
+            fee,
+            ...(typeof data.includingFees === "boolean"
+              ? { includingFees: data.includingFees }
+              : {}),
+          }),
+          ...(() => {
+            const snapshot = buildPaymentSnapshot({
+              payments: payoutLegs,
+              keptChange: { usd: keptUsd, lbp: keptLbp },
+            });
+            return snapshot ? { payment_snapshot: snapshot } : {};
+          })(),
           metadata_json: {
             provider: "WHISH_APP",
             amount,

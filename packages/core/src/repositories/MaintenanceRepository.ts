@@ -19,8 +19,17 @@ import {
 } from "./moneyPosting.js";
 import { resolveKeptChange } from "./keptChange.js";
 import { BusinessRuleError } from "../utils/errors.js";
-import { normalizeMaintenancePhone } from "../validators/maintenance.js";
+import {
+  normalizeMaintenancePhone,
+  maintenanceDiscountOf,
+} from "../validators/maintenance.js";
 import { EXTRA_ABOVE_TOTAL_MESSAGE } from "../validators/common.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import { nonBlankText } from "../utils/nonBlankText.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type MaintenanceJobDetails,
+} from "../validators/transactionDetails.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import {
   restoreMaintenanceJobParts,
@@ -288,6 +297,74 @@ function txnClientIdentity(
   const clientName = name?.trim() ? name.trim() : null;
   const clientPhone = clientName && phone?.trim() ? phone.trim() : null;
   return { client_name: clientName, client_phone: clientPhone };
+}
+
+/**
+ * LIRA-329 — the `maintenance_job` details: the job as it stands at checkout
+ * (read after the save's status, parts and warranty writes), built purely
+ * from the stored job and its part lines. Empty fields are omitted. The issue
+ * is kept in full (the summary still cuts it); the price is the labour price
+ * BEFORE the discount, and the discount is kept as typed in the job's
+ * currency (`maintenanceDiscountOf` — an LBP job's discount is price − final,
+ * the one definition). Parts carry their product, price and cost.
+ *
+ * `job` is null only on a connection where the row cannot be read back; the
+ * details then hold what the checkout itself was given.
+ */
+export function buildMaintenanceJobDetails(
+  jobId: number,
+  job: MaintenanceRow | null | undefined,
+  parts: ReadonlyArray<MaintenancePartRow>,
+  fallback: {
+    deviceName?: string | null;
+    issueDescription?: string | null;
+    note?: string | null;
+    warrantyUntil?: string | null;
+  },
+): MaintenanceJobDetails {
+  const device = nonBlankText(job?.device_name ?? fallback.deviceName);
+  const issue = nonBlankText(
+    job?.issue_description ?? fallback.issueDescription,
+  );
+  const status = nonBlankText(job?.status);
+  const note = nonBlankText(job?.note ?? fallback.note);
+  const warrantyUntil = nonBlankText(
+    job?.warranty_until ?? fallback.warrantyUntil,
+  );
+  const discount = job ? maintenanceDiscountOf(job) : 0;
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "maintenance_job",
+    jobId,
+    ...(device ? { device } : {}),
+    ...(issue ? { issue } : {}),
+    ...(status ? { status } : {}),
+    ...(job
+      ? {
+          repairCost: { usd: job.cost_usd ?? 0, lbp: job.cost_lbp ?? 0 },
+          price: { usd: job.price_usd ?? 0, lbp: job.price_lbp ?? 0 },
+        }
+      : {}),
+    ...(job && discount > 0
+      ? { discount: { amount: discount, currency: job.currency || "USD" } }
+      : {}),
+    ...(job?.warranty_months != null
+      ? { warrantyMonths: job.warranty_months }
+      : {}),
+    ...(warrantyUntil ? { warrantyUntil } : {}),
+    ...(parts.length > 0
+      ? {
+          parts: parts.map((p) => ({
+            productId: p.product_id,
+            ...(nonBlankText(p.product_name) ? { name: p.product_name } : {}),
+            quantity: p.quantity,
+            unitPrice: p.unit_price_usd,
+            unitCost: p.unit_cost_usd,
+          })),
+        }
+      : {}),
+    ...(note ? { note } : {}),
+  };
 }
 
 export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
@@ -652,6 +729,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
        * are skipped — the basket recorder owns those.
        */
       defer?: boolean;
+      /** LIRA-329 — the session whose basket paid for this job (a `defer`
+       *  checkout): recorded on the details and the payment snapshot. */
+      paidInSession?: number;
       /** note 14 — thin-summary enrichment: the job's device/issue, appended
        *  after the existing "Maintenance Job #N: $X" prefix so prefix-matching
        *  tests/e2e specs stay intact. */
@@ -848,6 +928,52 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       : "";
     const summary = `${prefix}${extraTail}${deviceLabel}${issueLabel}`;
 
+    // LIRA-329 — the job's details, read back NOW: the save has already
+    // written its status, parts and warranty (MaintenanceService.saveJob),
+    // so the row is what the customer is paying for.
+    const details = {
+      ...buildMaintenanceJobDetails(
+        jobId,
+        this.findById(jobId),
+        this.getParts(jobId),
+        {
+          deviceName: opts.deviceName,
+          issueDescription: opts.issueDescription,
+          note: opts.note,
+          warrantyUntil: opts.warrantyUntil,
+        },
+      ),
+      ...(defer && opts.paidInSession
+        ? { paid_in_session: opts.paidInSession }
+        : {}),
+    };
+    // How the customer paid, as at saving: the legs (an OUT leg here is
+    // only change put on the account), the cash change handed back (posted
+    // as "Change given" rows, never sent as a leg) and the checked kept
+    // change. A session-basket job records its session instead — the
+    // basket owns the payment.
+    const paymentSnapshot = defer
+      ? buildPaymentSnapshot({ sessionId: opts.paidInSession })
+      : buildPaymentSnapshot({
+          payments: [
+            ...paymentLines,
+            ...(
+              [
+                ["USD", Math.abs(opts.changeUsd || 0)],
+                ["LBP", Math.abs(opts.changeLbp || 0)],
+              ] as const
+            )
+              .filter(([, amount]) => amount > 0)
+              .map(([currency_code, amount]) => ({
+                method: "CASH",
+                currency_code,
+                amount,
+                direction: "OUT" as const,
+              })),
+          ],
+          keptChange: { usd: keptProfitUsd, lbp: keptProfitLbp },
+        });
+
     // Create unified transaction row.
     //
     // Governing rule (owner decision 2026-09-07, "option 4"): parts are
@@ -887,6 +1013,8 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       exchange_rate: opts.exchangeRate,
       summary,
       transaction_time: opts.transactionTime,
+      details,
+      ...(paymentSnapshot ? { payment_snapshot: paymentSnapshot } : {}),
       metadata_json: {
         // Labour-only — unaffected for jobs with no parts (pre-existing
         // meaning preserved). The receipt combines this with

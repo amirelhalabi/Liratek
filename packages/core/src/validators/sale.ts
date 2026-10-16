@@ -101,6 +101,12 @@ export const saleProcessSchema = z
     // pair is shared with every other write schema (`extraChargeFields`).
     ...extraChargeFields,
     exchange_rate: z.number().positive(),
+    // LIRA-329 (rule 23 three-way diff): the currency the checkout's total /
+    // discount / final amount are expressed in. CheckoutModal's PaymentData
+    // has always sent it (POS: "USD"); with no key here Zod stripped it on
+    // both transports. Informational only — kept on the SALE row's details
+    // (`paymentCurrency`), it moves no money. Optional with NO default.
+    currency: z.enum(["USD", "LBP"]).optional(),
     drawer_name: z.string().optional(),
     id: z.number().int().positive().optional(),
     status: z.enum(["completed", "draft", "cancelled"]).optional(),

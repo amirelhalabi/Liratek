@@ -57,6 +57,18 @@ import {
 } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
+  paymentSnapshotSchema,
+  transactionDetailsSchema,
+  type PaymentSnapshot,
+  type TransactionDetails,
+} from "../validators/transactionDetails.js";
+import { resolveTransactionClient } from "../utils/transactionClient.js";
+import {
+  buildReversalDetails,
+  reversalClientOf,
+} from "../utils/reversalDetails.js";
+import { dbLogger } from "../utils/logger.js";
+import {
   applyDrawerDelta,
   insertPaymentRow,
   type KeptChange,
@@ -849,6 +861,153 @@ export interface CashFlowByDateRow {
   total_out: number;
 }
 
+// ---------------------------------------------------------------------------
+// LIRA-329 — transaction details on the row (ONE merge, rule 14)
+// ---------------------------------------------------------------------------
+
+/** The `metadata_json` keys only the dedicated `details` /
+ *  `payment_snapshot` inputs may set. A copy that rides in through
+ *  `metadata_json` itself (a refund/void/undo copying the original's
+ *  metadata) is dropped, so a reversal never presents the original's
+ *  payment lines or details as its own. */
+const DETAIL_METADATA_KEYS = ["details", "payment_snapshot"] as const;
+
+/** Tests fail hard on an invalid details object; production logs it and
+ *  saves what is valid — the transaction itself is never refused (research
+ *  R4). */
+function isStrictDetailsValidation(): boolean {
+  return (
+    process.env.NODE_ENV === "test" || process.env.JEST_WORKER_ID !== undefined
+  );
+}
+
+/** Validate one of the two inputs. Production: drop the top-level fields
+ *  the schema rejects and retry once; still invalid → omitted, logged. */
+function validateDetailInput<T>(
+  schema: {
+    safeParse: (v: unknown) =>
+      | { success: true; data: T }
+      | {
+          success: false;
+          error: {
+            issues: ReadonlyArray<{ path: PropertyKey[]; message: string }>;
+          };
+        };
+  },
+  value: unknown,
+  key: (typeof DETAIL_METADATA_KEYS)[number],
+  context: string,
+): T | undefined {
+  const parsed = schema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const issues = parsed.error.issues.map(
+    (i) => `${i.path.map(String).join(".") || "(root)"}: ${i.message}`,
+  );
+  if (isStrictDetailsValidation()) {
+    throw new Error(
+      `Invalid transaction ${key} (${context}): ${issues.join("; ")}`,
+    );
+  }
+  let recovered: T | undefined;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const bad = new Set(
+      parsed.error.issues
+        .map((i) => i.path[0])
+        .filter(
+          (k): k is string =>
+            typeof k === "string" && k !== "v" && k !== "kind",
+        ),
+    );
+    if (bad.size > 0) {
+      const retry = schema.safeParse(
+        Object.fromEntries(
+          Object.entries(value as Record<string, unknown>).filter(
+            ([k]) => !bad.has(k),
+          ),
+        ),
+      );
+      if (retry.success) recovered = retry.data;
+    }
+  }
+  dbLogger.warn(
+    { context, key, issues, kept: recovered !== undefined },
+    `LIRA-329: invalid transaction ${key} — ${recovered !== undefined ? "saved without the invalid fields" : "not saved"}; the transaction itself is saved`,
+  );
+  return recovered;
+}
+
+/**
+ * LIRA-329 — the ONE place `metadata_json.details` / `payment_snapshot` are
+ * written (createTransaction and the void/refund INSERTs all call it).
+ *
+ * `base` is the row's other metadata, as an object (createTransaction) or the
+ * stored JSON text (void/refund copy the original's). Every other key is
+ * kept as-is; `details`/`payment_snapshot` are taken ONLY from `extras`.
+ * When there is nothing to add or drop, the input comes back unchanged
+ * (byte-identical text for a stored string).
+ */
+export function mergeTransactionDetails(
+  base: Record<string, unknown> | string | null | undefined,
+  extras: { details?: unknown; payment_snapshot?: unknown },
+  context: string,
+): string | null {
+  const details =
+    extras.details !== undefined
+      ? validateDetailInput(
+          transactionDetailsSchema,
+          extras.details,
+          "details",
+          context,
+        )
+      : undefined;
+  const snapshot =
+    extras.payment_snapshot !== undefined
+      ? validateDetailInput(
+          paymentSnapshotSchema,
+          extras.payment_snapshot,
+          "payment_snapshot",
+          context,
+        )
+      : undefined;
+
+  let obj: Record<string, unknown> | null;
+  if (typeof base === "string") {
+    try {
+      const parsed: unknown = JSON.parse(base);
+      obj =
+        parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : null;
+    } catch {
+      obj = null;
+    }
+    // Unparsable or non-object text carries none of our keys: returned
+    // untouched when there is nothing to add (the void/refund case).
+    if (obj === null && details === undefined && snapshot === undefined) {
+      return base;
+    }
+  } else {
+    obj = base ?? null;
+  }
+
+  const carriesCopy =
+    obj !== null && DETAIL_METADATA_KEYS.some((k) => k in obj!);
+  if (details === undefined && snapshot === undefined && !carriesCopy) {
+    if (typeof base === "string") return base;
+    return obj ? JSON.stringify(obj) : null;
+  }
+
+  const rest: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj ?? {})) {
+    if (!(DETAIL_METADATA_KEYS as readonly string[]).includes(k)) rest[k] = v;
+  }
+  return JSON.stringify({
+    ...rest,
+    ...(details !== undefined ? { details } : {}),
+    ...(snapshot !== undefined ? { payment_snapshot: snapshot } : {}),
+  });
+}
+
 export interface CreateTransactionInput {
   type: TransactionType;
   source_table: string;
@@ -877,6 +1036,12 @@ export interface CreateTransactionInput {
   /** Required: flow-specific facts (provider, service_type, item_key, …) that
    *  filters and receipts read. Pass {} only if the flow truly has none. */
   metadata_json: Record<string, unknown>;
+  /** LIRA-329 — the kind's typed details, merged into `metadata_json.details`
+   *  (validated against `transactionDetailsSchema`; see `mergeTransactionDetails`). */
+  details?: TransactionDetails;
+  /** LIRA-329 — the payment lines as at saving (`buildPaymentSnapshot`),
+   *  merged into `metadata_json.payment_snapshot`. */
+  payment_snapshot?: PaymentSnapshot;
   device_id?: string;
   transaction_time?: string;
 }
@@ -1355,7 +1520,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         `Transaction summary must be non-empty (type=${data.type}, source=${data.source_table}#${data.source_id})`,
       );
     }
-    if (data.client_phone && !data.client_name) {
+    // LIRA-329 (FR-003): fill the row's own name/phone from the picked
+    // client before the guard below, so a phone-only caller with a
+    // client_id gets the client's name instead of a refusal.
+    const client = this._resolveClientIdentity(data);
+    if (client.client_phone && !client.client_name) {
       throw new Error(
         `client_phone requires client_name (type=${data.type}, source=${data.source_table}#${data.source_id})`,
       );
@@ -1366,9 +1535,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         ? data.exchange_rate
         : this.snapshotExchangeRate();
 
-    const metadataStr = data.metadata_json
-      ? JSON.stringify(data.metadata_json)
-      : null;
+    const metadataStr = mergeTransactionDetails(
+      data.metadata_json,
+      { details: data.details, payment_snapshot: data.payment_snapshot },
+      `type=${data.type}, source=${data.source_table}#${data.source_id}`,
+    );
 
     const result = this.execute(
       `INSERT INTO transactions
@@ -1388,8 +1559,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       data.extra_lbp ?? 0,
       exchangeRate ?? null,
       data.client_id ?? null,
-      data.client_name ?? null,
-      data.client_phone ?? null,
+      client.client_name,
+      client.client_phone,
       data.summary ?? null,
       metadataStr,
       data.device_id ?? null,
@@ -1400,6 +1571,49 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
 
     return result.lastInsertRowid as number;
+  }
+
+  /**
+   * LIRA-329 (FR-003) — the row's client name/phone: what the caller sent,
+   * completed from the picked client (`resolveTransactionClient` holds the
+   * rule). Reading the client never blocks a transaction: a missing
+   * `clients` table (hand-built test schemas) or row just leaves the sent
+   * values as they are.
+   */
+  private _resolveClientIdentity(data: {
+    type: string;
+    client_id?: number | null;
+    client_name?: string | null;
+    client_phone?: string | null;
+  }): { client_name: string | null; client_phone: string | null } {
+    const sent = {
+      client_name: data.client_name ?? null,
+      client_phone: data.client_phone ?? null,
+    };
+    // LIRA-329 (T038): a reversal row (void, refund, refund undo) sends the
+    // ORIGINAL transaction's name and phone (`reversalClientOf`), so the
+    // rule below never replaces them; it only completes a row whose
+    // original had none.
+    if (!data.client_id || (sent.client_name && sent.client_phone)) {
+      return sent;
+    }
+    let record: {
+      full_name: string | null;
+      phone_number: string | null;
+    } | null = null;
+    try {
+      record = this.queryOne<{
+        full_name: string | null;
+        phone_number: string | null;
+      }>(
+        `SELECT full_name, phone_number FROM clients WHERE id = ? AND tenant_id = ?`,
+        data.client_id,
+        getCurrentTenantId(),
+      );
+    } catch {
+      record = null;
+    }
+    return resolveTransactionClient(sent, record);
   }
 
   /**
@@ -1421,9 +1635,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    */
   updateTransactionCore(
     id: number,
+    // LIRA-329: details/payment_snapshot are written once, by
+    // createTransaction — excluded here so a caller cannot pass them and
+    // have them silently dropped.
     data: Omit<
       CreateTransactionInput,
-      "source_table" | "source_id" | "type" | "transaction_time"
+      | "source_table"
+      | "source_id"
+      | "type"
+      | "transaction_time"
+      | "details"
+      | "payment_snapshot"
     >,
   ): void {
     if (!data.summary || data.summary.trim() === "") {
@@ -2562,6 +2784,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       profit_lbp: 0,
       exchange_rate: original.exchange_rate,
       client_id: clientId,
+      // LIRA-329 (T038): the member transaction's own client, and what this
+      // row reverses.
+      ...reversalClientOf(original),
+      details: buildReversalDetails({
+        originalTransactionId: memberTransactionId,
+      }),
       summary: `SESSION BASKET REFUND (remaining lines): Sale #${saleId}`,
       metadata_json: {
         refundType: "sessionItem",
@@ -5115,6 +5343,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           extra_lbp: -extraShareLbp,
           exchange_rate: original.exchange_rate,
           client_id: clientId,
+          // LIRA-329 (T038): the member transaction's own client, what this
+          // row reverses and the returned phones' flags.
+          ...reversalClientOf(original),
+          details: buildReversalDetails({
+            originalTransactionId: transactionId,
+            refundUnitExtras: input.unitExtras,
+          }),
           summary:
             lines.length === 1
               ? `SESSION ITEM REFUND: ${lines[0].quantity}x sale item #${lines[0].saleItemId} from Sale #${saleId}`
@@ -5361,7 +5596,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const refundTxn = db
       .prepare(
         `SELECT id, type, status, source_table, source_id, amount_usd, amount_lbp,
-                profit_usd, profit_lbp, extra_usd, extra_lbp, exchange_rate, client_id, device_id, metadata_json
+                profit_usd, profit_lbp, extra_usd, extra_lbp, exchange_rate, client_id,
+                client_name, client_phone, device_id, metadata_json
          FROM transactions WHERE id = ? AND tenant_id = ?`,
       )
       .get(params.refundTransactionId, tenantId) as
@@ -5380,6 +5616,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           extra_lbp: number | null;
           exchange_rate: number | null;
           client_id: number | null;
+          /** LIRA-329 (T038) — copied onto the undo row. */
+          client_name: string | null;
+          client_phone: string | null;
           device_id: string | null;
           metadata_json: string | null;
         }
@@ -5542,6 +5781,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         extra_lbp: -(refundTxn.extra_lbp ?? 0),
         exchange_rate: refundTxn.exchange_rate,
         client_id: refundTxn.client_id,
+        // LIRA-329 (T038): the refund's own client, and the refund it undoes.
+        ...reversalClientOf(refundTxn),
+        details: buildReversalDetails({
+          originalTransactionId: params.refundTransactionId,
+        }),
         summary: `UNDO SESSION ITEM REFUND: undoes refund #${params.refundTransactionId} (session #${sessionId})`,
         metadata_json: {
           undoType: "sessionItem",
@@ -5741,12 +5985,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       );
 
       // 2. Create reversal row
+      // LIRA-329 (T038): the original's own client name/phone, completed by
+      // the same resolver createTransaction uses.
+      const voidClient = this._resolveClientIdentity({
+        type: original.type,
+        client_id: original.client_id,
+        ...reversalClientOf(original),
+      });
       const result = this.execute(
         `INSERT INTO transactions
           (type, status, source_table, source_id, user_id,
            amount_usd, amount_lbp, exchange_rate,
-           client_id, reverses_id, summary, metadata_json, device_id, tenant_id, created_at)
-         VALUES (?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           client_id, client_name, client_phone, reverses_id, summary, metadata_json, device_id, tenant_id, created_at)
+         VALUES (?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         original.type,
         original.source_table,
         original.source_id,
@@ -5755,9 +6006,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         -original.amount_lbp,
         original.exchange_rate,
         original.client_id,
+        voidClient.client_name,
+        voidClient.client_phone,
         id,
         `VOID: ${original.summary ?? original.type}`,
-        original.metadata_json,
+        // LIRA-329: the shared merge drops the original's details/payment
+        // lines (a void is not that payment) and records what it reverses
+        // (`reversal`); every other key is copied.
+        mergeTransactionDetails(
+          original.metadata_json,
+          { details: buildReversalDetails({ originalTransactionId: id }) },
+          `void of #${id}`,
+        ),
         original.device_id,
         tenantId,
         // LIRA-306 FR-021: this row used to rely on the created_at default
@@ -6278,6 +6538,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
      *  amount and the negated extra, so the row reads "item + its share of
      *  the extra" given back. Omitted → plain negation (every other caller). */
     extraShare?: { usd: number; lbp: number },
+    /** LIRA-329 (T038) — the returned phones' flags, recorded on the row's
+     *  `reversal` details (`refundUnits`). Moves nothing. */
+    refundUnitExtras?: RefundUnitExtra[],
   ): number {
     const tenantId = getCurrentTenantId();
     let metadataStr = original.metadata_json;
@@ -6310,6 +6573,27 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         ...refundKeptMeta,
       });
     }
+    // LIRA-329: the shared merge drops the original's details/payment lines
+    // (a refund is not that payment) and records what it reverses
+    // (`reversal`, with the returned phones' flags); every other key is
+    // kept as built above.
+    metadataStr = mergeTransactionDetails(
+      metadataStr,
+      {
+        details: buildReversalDetails({
+          originalTransactionId: id,
+          refundUnitExtras,
+        }),
+      },
+      `refund of #${id}`,
+    );
+    // LIRA-329 (T038): the original's own client name/phone, completed by
+    // the same resolver createTransaction uses.
+    const refundClient = this._resolveClientIdentity({
+      type: TRANSACTION_TYPES.REFUND,
+      client_id: original.client_id,
+      ...reversalClientOf(original),
+    });
     // The refund carries NEGATED profit: the original stays ACTIVE (profit
     // queries sum SALE + REFUND rows), so without the negative stamp a
     // refunded transaction keeps its full profit forever.
@@ -6318,8 +6602,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         (type, status, source_table, source_id, user_id,
          amount_usd, amount_lbp, exchange_rate, profit_usd, profit_lbp,
          extra_usd, extra_lbp,
-         client_id, reverses_id, summary, metadata_json, device_id, tenant_id, created_at)
-       VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         client_id, client_name, client_phone, reverses_id, summary, metadata_json, device_id, tenant_id, created_at)
+       VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       original.source_table,
       original.source_id,
       userId,
@@ -6333,6 +6617,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       -(original.extra_usd ?? 0) - (extraShare?.usd ?? 0),
       -(original.extra_lbp ?? 0) - (extraShare?.lbp ?? 0),
       original.client_id,
+      refundClient.client_name,
+      refundClient.client_phone,
       id,
       `REFUND: ${original.summary ?? original.type}`,
       metadataStr,
@@ -6385,6 +6671,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       userId,
       extraMetadata,
       opts.kept,
+      undefined,
+      opts.refundUnitExtras,
     );
     this._applyGenericItemReversal(original, id, refundId, userId, opts);
     return refundId;
@@ -7125,6 +7413,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       client_id: null,
       summary,
       metadata_json: { reversed_discount_txn_id: discountTxn.id },
+      // LIRA-329 (T038): the discount row this reverses.
+      details: buildReversalDetails({ originalTransactionId: discountTxn.id }),
     });
     this.execute(
       `UPDATE transactions SET reverses_id = ? WHERE id = ? AND tenant_id = ?`,

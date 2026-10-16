@@ -110,6 +110,26 @@ export const createRechargeSchema = z
     // Walk-in name when no client record is selected (rule 11: the form's
     // client fields must reach the repository, not die at the schema).
     clientName: z.string().optional(),
+    // LIRA-329 — informational only (kept on the transaction's details and
+    // client columns; never read by any money step). The customer's phone
+    // typed next to the name (`phoneNumber` above is the number being
+    // recharged, not the customer's).
+    clientPhone: z.string().max(30).optional(),
+    // LIRA-329 — the Alfa Gift tier the cashier picked (key + label as shown).
+    giftTier: z
+      .object({
+        key: z.string().min(1).max(50),
+        label: z.string().min(1).max(100).optional(),
+      })
+      .optional(),
+    // LIRA-329 — the Days tab's cost and price exactly as typed in USD
+    // (`cost`/`price` above carry their LBP conversions).
+    daysTypedUsd: z
+      .object({
+        costUsd: z.number().nonnegative().optional(),
+        priceUsd: z.number().nonnegative().optional(),
+      })
+      .optional(),
     note: z.string().max(500).optional(),
     /**
      * Multi-payment legs. Legs WITHOUT `direction` are IN legs (customer-paid);
@@ -382,6 +402,10 @@ export const topUpFromClientSchema = z.object({
    */
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
+  /** LIRA-329 — informational only: the "Fee included in amount" choice as
+   *  ticked (kept on the transaction's details; `fee` above stays the
+   *  figure every money step uses). */
+  includingFees: z.boolean().optional(),
 });
 
 /**

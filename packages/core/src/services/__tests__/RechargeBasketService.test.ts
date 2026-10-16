@@ -733,8 +733,24 @@ describe("RechargeBasketService.checkout — one basket across providers", () =>
           )
           .get(fsId) as Record<string, unknown>;
       // The one difference: the basket stamps the rate it was paid at.
-      expect(strip(txnOf(basketBill.id), ["exchange_rate"])).toEqual(
-        strip(txnOf(alone.id!), ["exchange_rate"]),
+      // LIRA-329: how it was paid also lives in the transaction's details —
+      // `paid_in_session` and the payment snapshot (the basket's pooled
+      // payment, not legs of its own) — so those two are left out too.
+      const withoutHowPaid = (r: Record<string, unknown>) => {
+        const meta = JSON.parse(String(r.metadata_json)) as Record<
+          string,
+          unknown
+        >;
+        const { payment_snapshot: _snapshot, ...rest } = meta;
+        if (rest.details && typeof rest.details === "object") {
+          const { paid_in_session: _session, ...details } =
+            rest.details as Record<string, unknown>;
+          rest.details = details;
+        }
+        return { ...strip(r, ["exchange_rate"]), metadata_json: rest };
+      };
+      expect(withoutHowPaid(txnOf(basketBill.id))).toEqual(
+        withoutHowPaid(txnOf(alone.id!)),
       );
       expect(txnOf(basketBill.id).exchange_rate).toBe(RATE);
       expect(billRow(basketBill.id)).toMatchObject({

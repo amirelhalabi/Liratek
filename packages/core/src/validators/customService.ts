@@ -237,7 +237,12 @@ export function exceedsCustomServicePrice(data: {
  */
 export type CreateCustomServiceInput = z.infer<
   typeof createCustomServiceSchema
-> & { deferPayment?: boolean };
+> & {
+  deferPayment?: boolean;
+  /** LIRA-329 — the session whose basket paid for this service. Set by the
+   *  same server-side checkout, never by a client (the schema strips it). */
+  paid_in_session?: number;
+};
 
 /**
  * Rule 21 — the WIRE payload of `custom-services:add` / `POST

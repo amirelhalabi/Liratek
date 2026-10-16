@@ -485,6 +485,11 @@ export default function Services() {
     // An explicitly typed "0" is authoritative too (the operator waiving the
     // fee), which is why this tests `!== ""` rather than truthiness — matching
     // resolvedOmtFee exactly. Same decision, one precedence (rule 14).
+    // Online Brokerage: the fee counts only while it is charged to the
+    // customer — the same condition `resolvedOmtFee` uses, so the seeded
+    // payment total and the payload never disagree.
+    if (provider === "OMT" && omtServiceType === "ONLINE_BROKERAGE" && !payFee)
+      return 0;
     if (omtFee !== "") return parseFloat(omtFee) || 0;
     if (provider === "OMT" && omtServiceType === "INTRA") {
       if (currency === "LBP") {
@@ -979,6 +984,18 @@ export default function Services() {
             lookupOmtFee(omtServiceType as OmtServiceType, amtVal, currency) ??
             undefined;
         }
+      } else if (
+        provider === "OMT" &&
+        omtServiceType === "ONLINE_BROKERAGE" &&
+        payFee &&
+        omtFee !== ""
+      ) {
+        // The BINANCE fee charged to the customer is part of the payment
+        // total (`renderProviderFee`), so it must travel as the transfer's
+        // fee — dropping it made the server refuse every brokerage send with
+        // a fee ("payment is more than the total"). No tier table here: only
+        // a typed fee, and only when it is charged to the customer.
+        resolvedOmtFee = parseFloat(omtFee) || 0;
       }
 
       // Resolve the WHISH fee: user-entered only, no tier table (unlike OMT).

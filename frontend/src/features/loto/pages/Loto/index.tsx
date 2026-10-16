@@ -296,9 +296,11 @@ export function LotoPage() {
     }
 
     const resolvedClientId = clientResult.id;
-    const resolvedClientName = resolvedClientId
-      ? clientName.trim() || undefined
-      : undefined;
+    // LIRA-329: the typed name and phone travel even when no client record
+    // was made (a name with no phone never creates one), so the ticket's
+    // transaction carries who it was sold to.
+    const typedClientName = clientName.trim() || undefined;
+    const typedClientPhone = clientPhone.trim() || undefined;
 
     // Typed from the core schema's input (rule 21) so a key the handler
     // would strip fails typecheck here. (`commission_amount` used to ride
@@ -377,7 +379,8 @@ export function LotoPage() {
         ? { extra_lbp: extraLbp }
         : {}),
       clientId: resolvedClientId,
-      clientName: resolvedClientName,
+      clientName: typedClientName,
+      ...(typedClientPhone ? { clientPhone: typedClientPhone } : {}),
       // PFT-R: routes the FULL sale amount to the selected partner's ledger
       // (FOR_LOTO DEBIT) instead of a client's debt_ledger.
       ...(forPartner && selectedPartnerId

@@ -362,6 +362,34 @@ export const createFinancialServiceSchema = z
         }),
       )
       .optional(),
+    // ── LIRA-329: informational only ─────────────────────────────────────
+    // Kept on the transaction's `details`; no money step reads them (the
+    // amounts, commission and legs above stay the only money inputs).
+    /** Every line of a combined catalog cart (Katsh / iPick), as picked. */
+    catalogItems: z
+      .array(
+        z.object({
+          key: z.string().max(255).optional(),
+          category: z.string().max(500).optional(),
+          label: z.string().max(500).optional(),
+          quantity: z.number().int().positive(),
+          unitPrice: z.number().nonnegative().optional(),
+          onlyDays: z.boolean().optional(),
+          returnedCreditsUsd: z.number().nonnegative().optional(),
+        }),
+      )
+      .optional(),
+    /** The discount exactly as typed on the payment sheet (it is already
+     *  folded into `amount` / `commission`). */
+    typedDiscount: z
+      .object({
+        amount: z.number().positive(),
+        currency: currencyCodeSchema,
+      })
+      .optional(),
+    /** Who pays the provider fee on a wallet / crypto transfer: on top by
+     *  the sender, deducted from the amount, or paid separately. */
+    feePaidBy: z.enum(["SENDER", "DEDUCTED", "SEPARATELY"]).optional(),
   })
   .refine(
     (data) => {

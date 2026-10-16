@@ -726,6 +726,10 @@ export function FinancialForm({
             cost,
             currency,
             commission: Math.max(0, commission),
+            // LIRA-329: this unit's share of the discount the cashier typed.
+            ...(unitDiscountShare > 0
+              ? { typedDiscount: { amount: unitDiscountShare, currency } }
+              : {}),
             paidByMethod: finalPaymentMethod,
             payments: isCarrier ? paymentsPayload : undefined,
             checkoutTotal: isCarrier ? checkoutTotal : undefined,

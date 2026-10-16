@@ -69,6 +69,8 @@ export interface BasketSubItem {
   returnedCreditsUsd?: number;
   /** Card units only — a bill sends no note, like a bill paid alone. */
   note?: string;
+  /** LIRA-329 — this unit's share of the basket's typed discount. */
+  typedDiscount?: { amount: number; currency: "LBP" | "USD" };
 }
 
 /** The providers whose bills can be staged on the Bill card (KatshForm). */

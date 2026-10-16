@@ -105,6 +105,12 @@ import {
 } from "../utils/omtFees.js";
 import { lookupWhishFee } from "../utils/whishFees.js";
 import { financialLogger } from "../utils/logger.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type OmtWhishTransferDetails,
+  type TransactionDetails,
+} from "../validators/transactionDetails.js";
 
 /**
  * The FOR-partner ledger transaction types, narrowed from
@@ -615,6 +621,346 @@ export interface CreateFinancialServiceData {
   split_role?: "carrier" | "sibling";
   /** Total unit count in the checkout this split_group belongs to (≥ 2). */
   split_units?: number;
+  // ── LIRA-329: informational only — kept on the transaction's details;
+  // no money step reads them (validators/financial.ts documents each). ──
+  catalogItems?: Array<{
+    key?: string;
+    category?: string;
+    label?: string;
+    quantity: number;
+    unitPrice?: number;
+    onlyDays?: boolean;
+    returnedCreditsUsd?: number;
+  }>;
+  typedDiscount?: { amount: number; currency: string };
+  feePaidBy?: "SENDER" | "DEDUCTED" | "SEPARATELY";
+  /** Session id when booked by a customer-session checkout. Server-injected
+   *  by `SessionCheckoutService` (like `deferPayment`), never on the wire. */
+  paid_in_session?: number;
+}
+
+// =============================================================================
+// LIRA-329 — OMT / Whish system transfer details (Services page)
+// =============================================================================
+
+/**
+ * True for the Services-page OMT/Whish SYSTEM transfer — the only
+ * financial-service shape delivered in LIRA-329 phase 3. Wallet apps
+ * (OMT_APP/WHISH_APP), Binance, Katsh/iPick and every cost/price (catalog /
+ * bill) row are other kinds, delivered in phase 4.
+ */
+export function isOmtWhishSystemTransfer(
+  data: Pick<CreateFinancialServiceData, "provider" | "serviceType">,
+  useCostPriceFlow: boolean,
+): boolean {
+  return (
+    (data.provider === "OMT" || data.provider === "WHISH") &&
+    (data.serviceType === "SEND" || data.serviceType === "RECEIVE") &&
+    !useCostPriceFlow
+  );
+}
+
+function nonBlank(v: string | null | undefined): string | undefined {
+  return v != null && v.trim() !== "" ? v : undefined;
+}
+
+function personOf(
+  name: string | undefined,
+  phone: string | undefined,
+): { name?: string; phone?: string } | undefined {
+  const n = nonBlank(name);
+  const p = nonBlank(phone);
+  if (!n && !p) return undefined;
+  return { ...(n ? { name: n } : {}), ...(p ? { phone: p } : {}) };
+}
+
+/**
+ * Build the `omt_whish_transfer` details from the validated input the
+ * repository already holds (pure; the partner's name is read by the caller).
+ * Empty fields are omitted. The Services page sends `"<provider> -
+ * <serviceType>"` as the note when the cashier typed none; that placeholder
+ * is not a note and is left out.
+ */
+export function buildOmtWhishTransferDetails(
+  data: CreateFinancialServiceData,
+  partnerName: string | undefined,
+): OmtWhishTransferDetails {
+  const provider = data.provider as "OMT" | "WHISH";
+  const direction = data.serviceType as "SEND" | "RECEIVE";
+  const serviceType =
+    provider === "OMT" && nonBlank(data.omtServiceType)
+      ? (data.omtServiceType as OmtWhishTransferDetails["serviceType"])
+      : undefined;
+  const note = nonBlank(data.note);
+  const placeholderNote = `${data.provider} - ${data.serviceType}`;
+  const sender = personOf(data.senderName, data.senderPhone);
+  const receiver = personOf(data.receiverName, data.receiverPhone);
+  const reference = nonBlank(data.referenceNumber);
+  const supplierItemKey = nonBlank(data.itemKey);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "omt_whish_transfer",
+    provider,
+    direction,
+    ...(serviceType ? { serviceType } : {}),
+    ...(reference ? { reference } : {}),
+    ...(sender ? { sender } : {}),
+    ...(receiver ? { receiver } : {}),
+    ...(provider === "OMT" && data.omtFee != null
+      ? { omtFee: data.omtFee }
+      : {}),
+    ...(provider === "WHISH" && data.whishFee != null
+      ? { whishFee: data.whishFee }
+      : {}),
+    ...(typeof data.includingFees === "boolean"
+      ? { includingFees: data.includingFees }
+      : {}),
+    ...((data.paymentMethodFee ?? 0) > 0
+      ? {
+          paymentMethodFee: {
+            amount: data.paymentMethodFee as number,
+            ...(data.paymentMethodFeeRate != null
+              ? { rate: data.paymentMethodFeeRate }
+              : {}),
+          },
+        }
+      : {}),
+    ...(serviceType === "ONLINE_BROKERAGE"
+      ? {
+          brokerage: {
+            payFee: data.payFee === true,
+            ...(supplierItemKey ? { supplierItemKey } : {}),
+            ...(data.payFee === true && data.omtFee != null
+              ? { fee: data.omtFee }
+              : {}),
+          },
+        }
+      : {}),
+    ...(data.partnerId
+      ? {
+          partner: {
+            id: data.partnerId,
+            ...(nonBlank(partnerName) ? { name: partnerName } : {}),
+            mode: data.partnerMode ?? "THROUGH",
+          },
+        }
+      : {}),
+    ...(note && note !== placeholderNote ? { note } : {}),
+  };
+}
+
+// =============================================================================
+// LIRA-329 phase 4 — Mobile Recharge financial-service details: catalog
+// sales, provider bills, wallet transfers, crypto. Pure builders from the
+// input the repository already holds; the session checkout and the partner
+// order reach the same `createTransaction`, so their rows get the same
+// details (FR-002).
+// =============================================================================
+
+type FinancialDetailsOf<K extends TransactionDetails["kind"]> = Extract<
+  TransactionDetails,
+  { kind: K }
+>;
+export type CatalogSaleDetails = FinancialDetailsOf<"catalog_sale">;
+export type ProviderBillDetails = FinancialDetailsOf<"provider_bill">;
+export type WalletTransferDetails = FinancialDetailsOf<"wallet_transfer">;
+export type CryptoTransferDetails = FinancialDetailsOf<"crypto_transfer">;
+
+/** The details' partner reference (FR-004): id, name, and the mode. */
+function financialPartnerRef(
+  data: Pick<CreateFinancialServiceData, "partnerId" | "partnerMode">,
+  partnerName: string | undefined,
+): { partner?: { id: number; name?: string; mode: "FOR" | "THROUGH" } } {
+  if (!data.partnerId) return {};
+  const name = nonBlank(partnerName);
+  return {
+    partner: {
+      id: data.partnerId,
+      ...(name ? { name } : {}),
+      mode: data.partnerMode ?? "THROUGH",
+    },
+  };
+}
+
+/** Fields every Mobile Recharge kind shares: the typed discount and the
+ *  session that paid for it. */
+function mobileCommonDetails(data: CreateFinancialServiceData): {
+  discount?: { amount: number; currency: string };
+  paid_in_session?: number;
+} {
+  return {
+    ...(data.typedDiscount && data.typedDiscount.amount > 0
+      ? {
+          discount: {
+            amount: data.typedDiscount.amount,
+            currency: data.typedDiscount.currency,
+          },
+        }
+      : {}),
+    ...(data.paid_in_session ? { paid_in_session: data.paid_in_session } : {}),
+  };
+}
+
+function catalogItemsOf(
+  data: CreateFinancialServiceData,
+  unitPrice: number,
+): CatalogSaleDetails["items"] {
+  if (data.catalogItems && data.catalogItems.length > 0) {
+    return data.catalogItems.map((it) => {
+      const key = nonBlank(it.key);
+      const category = nonBlank(it.category);
+      const label = nonBlank(it.label);
+      return {
+        ...(key ? { key } : {}),
+        ...(category ? { category } : {}),
+        ...(label ? { label } : {}),
+        quantity: it.quantity,
+        ...(it.unitPrice != null ? { unitPrice: it.unitPrice } : {}),
+        ...(it.onlyDays ? { onlyDays: true } : {}),
+        ...(it.returnedCreditsUsd != null
+          ? { returnedCreditsUsd: it.returnedCreditsUsd }
+          : {}),
+      };
+    });
+  }
+  // A single unit (Whish App / OMT App grid, a cart sibling unit, a partner
+  // order line): its own item key and category, one of it at its price.
+  const key = nonBlank(data.itemKey);
+  const category = nonBlank(data.itemCategory);
+  if (!key && !category) return undefined;
+  return [
+    {
+      ...(key ? { key } : {}),
+      ...(category ? { category } : {}),
+      quantity: 1,
+      unitPrice,
+      ...(data.mobileServiceItemId && data.returnedCreditsUsd != null
+        ? { onlyDays: true, returnedCreditsUsd: data.returnedCreditsUsd }
+        : {}),
+    },
+  ];
+}
+
+/** `catalog_sale` — a catalog item / cart sold at a price over its cost. */
+export function buildCatalogSaleDetails(
+  data: CreateFinancialServiceData,
+  ctx: { price: number; currency: string; partnerName?: string },
+): CatalogSaleDetails {
+  const items = catalogItemsOf(data, ctx.price);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "catalog_sale",
+    provider: data.provider,
+    ...(items ? { items } : {}),
+    ...(ctx.currency === "LBP" || ctx.currency === "USD"
+      ? { currencyMode: ctx.currency }
+      : {}),
+    ...mobileCommonDetails(data),
+    ...financialPartnerRef(data, ctx.partnerName),
+  };
+}
+
+/** `provider_bill` — a Katsh / iPick bill paid for the customer. */
+export function buildProviderBillDetails(
+  data: CreateFinancialServiceData,
+  ctx: { currency: string; partnerName?: string },
+): ProviderBillDetails {
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "provider_bill",
+    provider: data.provider,
+    amount: data.amount,
+    currency: ctx.currency,
+    ...mobileCommonDetails(data),
+    ...financialPartnerRef(data, ctx.partnerName),
+  };
+}
+
+/** `wallet_transfer` — an OMT App / Whish App send or cash-out. */
+export function buildWalletTransferDetails(
+  data: CreateFinancialServiceData,
+  ctx: { partnerName?: string },
+): WalletTransferDetails {
+  const counterparty = personOf(data.clientName, data.phoneNumber);
+  const providerFee = data.provider === "OMT_APP" ? data.omtFee : data.whishFee;
+  const note = nonBlank(data.note);
+  const placeholderNote = `${data.serviceType} transfer via ${
+    data.provider === "OMT_APP" ? "OMT App" : "Whish App"
+  }`;
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "wallet_transfer",
+    provider: data.provider,
+    direction: data.serviceType as "SEND" | "RECEIVE",
+    ...(counterparty ? { counterparty } : {}),
+    ...(providerFee != null ? { providerFee } : {}),
+    ...(data.feePaidBy ? { feePaidBy: data.feePaidBy } : {}),
+    ...(data.serviceType === "RECEIVE" && data.cashoutMethod
+      ? { cashoutMethod: data.cashoutMethod }
+      : {}),
+    ...(note && note !== placeholderNote ? { note } : {}),
+    ...mobileCommonDetails(data),
+    ...financialPartnerRef(data, ctx.partnerName),
+  };
+}
+
+/** `crypto_transfer` — a Binance send or cash-out. `fee` is the fee as
+ *  booked (after any discount, which is kept on its own). */
+export function buildCryptoTransferDetails(
+  data: CreateFinancialServiceData,
+  ctx: { partnerName?: string },
+): CryptoTransferDetails {
+  const reference = nonBlank(data.referenceNumber);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "crypto_transfer",
+    direction: data.serviceType as "SEND" | "RECEIVE",
+    amountUsdt: data.amount,
+    ...(Number.isFinite(data.commission) ? { fee: data.commission } : {}),
+    ...(data.feePaidBy ? { feePaidBy: data.feePaidBy } : {}),
+    ...(reference ? { walletOrReference: reference } : {}),
+    ...(data.serviceType === "RECEIVE" && data.cashoutMethod
+      ? { cashoutMethod: data.cashoutMethod }
+      : {}),
+    ...mobileCommonDetails(data),
+    ...financialPartnerRef(data, ctx.partnerName),
+  };
+}
+
+/**
+ * The ONE dispatcher from a financial-service input to its details kind
+ * (rule 14). OMT/Whish system transfers keep their phase-3 builder; the
+ * session marker is added to whichever kind is built. Returns `undefined`
+ * for a shape with no kind (e.g. a BOB / OTHER transfer).
+ */
+export function buildFinancialServiceDetails(
+  data: CreateFinancialServiceData,
+  ctx: {
+    useCostPriceFlow: boolean;
+    price: number;
+    currency: string;
+    partnerName?: string;
+  },
+): TransactionDetails | undefined {
+  if (isOmtWhishSystemTransfer(data, ctx.useCostPriceFlow)) {
+    const transfer = buildOmtWhishTransferDetails(data, ctx.partnerName);
+    return data.paid_in_session
+      ? { ...transfer, paid_in_session: data.paid_in_session }
+      : transfer;
+  }
+  if (data.serviceType === "BILL") {
+    return buildProviderBillDetails(data, ctx);
+  }
+  if (ctx.useCostPriceFlow) {
+    return buildCatalogSaleDetails(data, ctx);
+  }
+  if (data.provider === "OMT_APP" || data.provider === "WHISH_APP") {
+    return buildWalletTransferDetails(data, ctx);
+  }
+  if (data.provider === "BINANCE") {
+    return buildCryptoTransferDetails(data, ctx);
+  }
+  return undefined;
 }
 
 // =============================================================================
@@ -2478,6 +2824,49 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         ? Math.max(0, data.customer_waived_amount ?? 0)
         : 0;
 
+      // LIRA-329 — the partner's name, read once: the For-Partner client
+      // label below and the transfer's details both use it (rule 14).
+      const partnerName = data.partnerId
+        ? (
+            this.db
+              .prepare(
+                `SELECT name FROM partners WHERE id = ? AND tenant_id = ?`,
+              )
+              .get(data.partnerId, tenantId) as { name: string } | undefined
+          )?.name
+        : undefined;
+      // LIRA-329 phase 3 — an OMT/Whish SYSTEM transfer keeps every field
+      // the cashier entered (`omt_whish_transfer`), how it was paid, and
+      // the customer's name and phone on the row itself. Other
+      // financial-service kinds follow in phase 4. A session-basket item
+      // (`deferPayment`) gets the same details but no payment snapshot —
+      // the basket owns its money; a For-Partner row has no counter payment.
+      //
+      // LIRA-329 phase 4 — the same for every Mobile Recharge kind (catalog
+      // sale, provider bill, wallet transfer, crypto) through ONE dispatcher
+      // (`buildFinancialServiceDetails`). A session-basket item records the
+      // session that paid for it instead of payment lines of its own.
+      const serviceDetails = buildFinancialServiceDetails(data, {
+        useCostPriceFlow,
+        price,
+        currency,
+        partnerName,
+      });
+      const transferSnapshot =
+        !serviceDetails || isForPartner
+          ? undefined
+          : deferPayment
+            ? buildPaymentSnapshot({ sessionId: data.paid_in_session })
+            : buildPaymentSnapshot({
+                payments: data.payments,
+                feePayments: data.feePayments,
+                customerPayments: data.customerPayments,
+                keptChange: {
+                  usd: data.kept_change_usd,
+                  lbp: data.kept_change_lbp,
+                },
+              });
+
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.FINANCIAL_SERVICE,
         source_table: "financial_services",
@@ -2565,17 +2954,20 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         client_id: resolvedPrimaryClientId ?? null,
         // For-partner services label the row with the partner (owner ask: the
         // transactions table shows "<partner> [partner]" in the client column).
+        // LIRA-329: a walk-in row carries the customer's own name and phone
+        // (sender on a SEND, receiver on a RECEIVE) — every kind with
+        // details; a shape with no kind keeps today's empty columns.
         client_name: isForPartner
-          ? `${
-              (
-                this.db
-                  .prepare(
-                    `SELECT name FROM partners WHERE id = ? AND tenant_id = ?`,
-                  )
-                  .get(data.partnerId, tenantId) as { name: string } | undefined
-              )?.name ?? `#${data.partnerId}`
-            } [partner]`
-          : null,
+          ? `${partnerName ?? `#${data.partnerId}`} [partner]`
+          : serviceDetails
+            ? primaryName || null
+            : null,
+        client_phone:
+          !isForPartner && serviceDetails && primaryName
+            ? primaryPhone || null
+            : null,
+        ...(serviceDetails ? { details: serviceDetails } : {}),
+        ...(transferSnapshot ? { payment_snapshot: transferSnapshot } : {}),
         summary: (() => {
           // iPick/Katsh: a catalog item purchase or bill payment, not a
           // sender/receiver transfer — surface the selected item(s)

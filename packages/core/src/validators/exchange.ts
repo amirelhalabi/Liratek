@@ -277,6 +277,12 @@ export const exchangeSubmitSchema = z
     tender_exchange_rate: z.number().positive().optional(),
     ...keptChangeFields,
     ...customerPaysFields,
+    // LIRA-329 — informational only (kept on the transaction's details and
+    // client columns; never read by any money step): whether the cashier
+    // typed their own rate for each leg, and the picked client's phone.
+    leg1RateOverridden: z.boolean().optional(),
+    leg2RateOverridden: z.boolean().optional(),
+    clientPhone: z.string().max(30).optional(),
   })
   .superRefine((data, ctx) => {
     refineCustomerPays(data, ctx);

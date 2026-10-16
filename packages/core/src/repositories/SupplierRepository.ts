@@ -56,6 +56,60 @@ import {
   TOP_UP_PROVIDER_DRAWERS,
   isTopUpProvider,
 } from "../constants/index.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type SupplierEntryDetails,
+} from "../validators/transactionDetails.js";
+
+/**
+ * LIRA-329 — the `supplier_entry` details on a supplier transaction: the
+ * supplier (by id), what kind of entry it is, the note exactly as typed
+ * (never a default wording), a settlement's commission rate and unit count
+ * as entered, and a bundled discount as typed (one currency, only when
+ * exactly one side is set). Pure.
+ */
+export function buildSupplierEntryDetails(input: {
+  supplierId: number;
+  action: SupplierEntryDetails["action"];
+  note?: string | null;
+  commissionRate?: number | null;
+  unitCount?: number | null;
+  discount?: { amount_usd?: number; amount_lbp?: number } | null;
+}): SupplierEntryDetails {
+  const note =
+    input.note != null && input.note.trim() !== "" ? input.note : undefined;
+  const dUsd = Math.abs(input.discount?.amount_usd || 0);
+  const dLbp = Math.abs(input.discount?.amount_lbp || 0);
+  const discount =
+    dUsd > 0 && dLbp === 0
+      ? { amount: dUsd, currency: "USD" }
+      : dLbp > 0 && dUsd === 0
+        ? { amount: dLbp, currency: "LBP" }
+        : undefined;
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "supplier_entry",
+    supplierId: input.supplierId,
+    action: input.action,
+    ...(note ? { note } : {}),
+    ...(input.commissionRate != null
+      ? { commissionRate: input.commissionRate }
+      : {}),
+    ...(input.unitCount != null ? { unitCount: input.unitCount } : {}),
+    ...(discount ? { discount } : {}),
+  };
+}
+
+/** LIRA-329 — the operator's own `addLedgerEntry` entries and their action.
+ *  Automatic sibling rows (`is_auto`) and the other entry types are system
+ *  bookkeeping: their parent transaction holds the details (rule 26). */
+const MANUAL_LEDGER_ENTRY_ACTIONS: Partial<
+  Record<string, SupplierEntryDetails["action"]>
+> = {
+  PAYMENT: "PAY",
+  ADJUSTMENT: "ADJUSTMENT",
+};
 
 export interface SupplierEntity {
   id: number;
@@ -1771,10 +1825,38 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           return { id: entryId };
         }
 
+        // LIRA-329 — details for the operator's own entries only (see
+        // MANUAL_LEDGER_ENTRY_ACTIONS).
+        const manualAction = data.is_auto
+          ? undefined
+          : MANUAL_LEDGER_ENTRY_ACTIONS[data.entry_type];
+        const ledgerEntryDetails = manualAction
+          ? buildSupplierEntryDetails({
+              supplierId: data.supplier_id,
+              action: manualAction,
+              note: data.note,
+            })
+          : undefined;
+
         // If drawer_name is provided, update drawer_balances
         if (data.drawer_name) {
           // Guaranteed entry_type === "PAYMENT" by the guard above (the only
           // combo drawer_name has ever been paired with).
+          // LIRA-329 (T036): the operator's payment lines — the same one
+          // row per currency the drawer moves below (method, currency,
+          // amount). None on an automatic row: its parent holds them.
+          const drawerPaymentSnapshot = ledgerEntryDetails
+            ? buildPaymentSnapshot({
+                payments: [
+                  { currencyCode: "USD", amount: amountUsd },
+                  { currencyCode: "LBP", amount: amountLbp },
+                ].map((leg) => ({
+                  method: data.method ?? "CASH",
+                  currencyCode: leg.currencyCode,
+                  amount: Math.abs(leg.amount),
+                })),
+              })
+            : undefined;
           // Create unified transaction row for supplier payment
           const txnId = getTransactionRepository().createTransaction({
             type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
@@ -1783,6 +1865,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             user_id: data.created_by,
             amount_usd: Math.abs(amountUsd),
             amount_lbp: Math.abs(amountLbp),
+            // LIRA-329: the operator's payment and its note (none on an
+            // automatic row — its parent holds the details, rule 26).
+            details: ledgerEntryDetails,
+            ...(drawerPaymentSnapshot
+              ? { payment_snapshot: drawerPaymentSnapshot }
+              : {}),
             summary: `Supplier Payment: $${Math.abs(amountUsd)} + ${Math.abs(amountLbp)} LBP — paid to ${this._getSupplierName(data.supplier_id)}`,
             metadata_json: {
               supplier_id: data.supplier_id,
@@ -1949,6 +2037,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             user_id: data.created_by,
             amount_usd: journalUsd,
             amount_lbp: journalLbp,
+            // LIRA-329: a manual paper adjustment / payment and its note;
+            // automatic siblings carry none (rule 26).
+            details: ledgerEntryDetails,
             summary,
             metadata_json: {
               supplier_id: data.supplier_id,
@@ -2154,6 +2245,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             supplier_id: data.supplier_id,
             entry_type: "RECORDED_DEBT",
           },
+          // LIRA-329: the note as TYPED (not the default wording above).
+          details: buildSupplierEntryDetails({
+            supplierId: data.supplier_id,
+            action: "RECORDED_DEBT",
+            note: data.note,
+          }),
         });
 
         this.db
@@ -3706,6 +3803,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           profit_usd: batchModel === 1 ? data.commission_usd : 0,
           profit_lbp: batchModel === 1 ? data.commission_lbp : 0,
           summary: settlementSummary,
+          // LIRA-329: the note, the commission rate and unit count as
+          // entered, the waive as typed, and the settle legs as sent.
+          details: buildSupplierEntryDetails({
+            supplierId: data.supplier_id,
+            action: "BATCH_SETTLE",
+            note: data.note,
+            commissionRate: data.commission_rate,
+            unitCount: data.commission_unit_count,
+            discount: data.discount,
+          }),
+          payment_snapshot: buildPaymentSnapshot({ payments: data.payments }),
           metadata_json: {
             supplier_id: data.supplier_id,
             financial_service_ids: data.financial_service_ids,
@@ -5583,6 +5691,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           // above still settles per currency with no conversion.
           ...cashierRateStamp(data.exchange_rate),
           summary,
+          // LIRA-329: the note, the commission rate and unit count as
+          // entered, the waive as typed, and the settle legs as sent.
+          details: buildSupplierEntryDetails({
+            supplierId: data.account_supplier_id,
+            action: "ACCOUNT_SETTLE",
+            note: data.note,
+            commissionRate: data.commission_rate,
+            unitCount: data.commission_unit_count,
+            discount: data.discount,
+          }),
+          payment_snapshot: buildPaymentSnapshot({ payments: data.payments }),
           metadata_json: {
             account_supplier_id: data.account_supplier_id,
             direction: data.direction,
@@ -6198,6 +6317,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         profit_lbp: commission.lbp + cashout.lbp,
         ...cashierRateStamp(data.exchange_rate),
         summary,
+        // LIRA-329: the note as TYPED (not the default wording above), the
+        // commission rate and unit count as entered, and every section's
+        // legs as sent.
+        details: buildSupplierEntryDetails({
+          supplierId: accountId,
+          action: "ACCOUNT_SETTLE",
+          note: data.note,
+          commissionRate: data.commission_rate,
+          unitCount: data.commission_unit_count,
+        }),
+        payment_snapshot: buildPaymentSnapshot({ payments: allLegs }),
         metadata_json: {
           account_supplier_id: accountId,
           mode: "AMOUNT_FIRST",
@@ -7061,6 +7191,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           // createTransaction keeps its market-rate snapshot.
           ...cashierRateStamp(data.exchange_rate),
           summary,
+          // LIRA-329: pay or receive, the note, the discount as typed, and
+          // the legs as sent (change back included).
+          details: buildSupplierEntryDetails({
+            supplierId: data.supplier_id,
+            action: isPay ? "PAY" : "RECEIVE",
+            note: data.note,
+            discount: data.discount,
+          }),
+          payment_snapshot: buildPaymentSnapshot({ payments: data.payments }),
           metadata_json: {
             supplier_id: data.supplier_id,
             direction: data.direction,
@@ -7340,6 +7479,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           ? `Supplier discount received: ${money} — ${label}`
           : `Supplier discount given: ${money} — ${label}`,
       metadata_json: posting.metadata_json,
+      // LIRA-329: the discount's reason (as the note).
+      details: buildSupplierEntryDetails({
+        supplierId,
+        action: "DISCOUNT",
+        note: discount.reason,
+      }),
     });
 
     const stampSettlement =

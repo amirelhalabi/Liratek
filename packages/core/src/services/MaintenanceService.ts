@@ -84,6 +84,9 @@ export interface SaveJobParams {
    * the job's paid state. Non-session callers leave this falsy → unchanged.
    */
   deferPayment?: boolean;
+  /** LIRA-329 — the session whose basket paid for this job. Server-injected
+   *  by `SessionCheckoutService` (like `deferPayment`), never on the wire. */
+  paid_in_session?: number;
   /**
    * LIRA-176 phase 4 — attached parts (always USD-priced/costed). `undefined`
    * means "leave the job's parts untouched" (see
@@ -334,6 +337,7 @@ export class MaintenanceService {
           // same-call checkout).
           transactionTime: params.transaction_time,
           defer,
+          paidInSession: params.paid_in_session,
           deviceName: baseJobData.device_name,
           issueDescription: baseJobData.issue_description,
           parts: this.repo.getParts(jobId).map((row) => ({

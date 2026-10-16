@@ -329,6 +329,9 @@ export default function TopUpModal({
           // a truthiness/`?? undefined` guard, or a genuine $0 fee would be
           // dropped from the wire (rule 22).
           fee: whishProviderFee,
+          // LIRA-329: the "Fee included in amount" choice, kept on the
+          // transaction's details (informational; `fee` stays the money).
+          includingFees,
           payments: payoutLegs,
           ...(hasCrossCurrencyLeg && clientPayoutExchangeRate
             ? { exchangeRate: clientPayoutExchangeRate }

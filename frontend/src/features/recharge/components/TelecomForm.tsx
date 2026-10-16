@@ -51,6 +51,7 @@ import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
 import type { ResaleLineRow } from "@liratek/core";
 import { ResaleLineRechargePanel } from "@/features/phoneLines/components/ResaleLineRechargePanel";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
+import { daysTypedUsdField } from "../utils/rechargeDetailFields";
 
 /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — Days/Alfa Gift block + redirect
  *  shown when the typed phone number is this carrier's own shop line.
@@ -156,6 +157,9 @@ interface TelecomFormProps {
   alfaCreditSellRate?: number;
   telecomDaysCostUsd: string;
   setTelecomDaysCostUsd: (val: string) => void;
+  /** LIRA-329 — the Days price exactly as typed in USD ("" when typed in
+   *  LBP or cleared), kept on the sale's details. */
+  onDaysPriceUsdChange?: (val: string) => void;
   /** Admin sees cost + profit margin on gift/voucher cards. */
   isAdmin?: boolean;
   onDiscountChange?: (discount: number) => void;
@@ -267,6 +271,7 @@ export function TelecomForm({
   alfaCreditSellRate = 100000,
   telecomDaysCostUsd,
   setTelecomDaysCostUsd,
+  onDaysPriceUsdChange,
   isAdmin = false,
   onDiscountChange,
   onExtraChange,
@@ -364,6 +369,8 @@ export function TelecomForm({
   useEffect(() => {
     setDaysPriceCurrency("USD");
     setDaysPriceUsdInput("");
+    onDaysPriceUsdChange?.("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on tab switch only
   }, [rechargeType]);
 
   const handleDiscountChange = (d: number) => {
@@ -536,6 +543,10 @@ export function TelecomForm({
         cost,
         price,
         currency: "LBP",
+        // LIRA-329: the Days cost and price as typed in USD.
+        ...(rechargeType === "DAYS"
+          ? daysTypedUsdField(telecomDaysCostUsd, daysPriceUsdInput)
+          : {}),
         // No counter payment at all in partner mode — the backend rejects
         // any leg here (payment-leg-contract: IN legs only, and partner mode
         // must have none).
@@ -915,6 +926,7 @@ export function TelecomForm({
                             if (cur === daysPriceCurrency) return;
                             setDaysPriceCurrency(cur);
                             setDaysPriceUsdInput("");
+                            onDaysPriceUsdChange?.("");
                             setTelecomPrice("");
                           }}
                           className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
@@ -944,6 +956,7 @@ export function TelecomForm({
                         value={daysPriceUsdInput}
                         onChange={(e) => {
                           setDaysPriceUsdInput(e.target.value);
+                          onDaysPriceUsdChange?.(e.target.value);
                           const num = parseFloat(e.target.value);
                           setTelecomPrice(
                             num > 0 ? (num * exchangeRate).toString() : "",

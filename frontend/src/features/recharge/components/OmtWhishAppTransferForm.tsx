@@ -30,7 +30,11 @@ import {
 import { useForPartnerOffInSession } from "@/features/partners/hooks/useForPartnerOffInSession";
 import { ensureRechargeClient } from "../utils/ensureClient";
 import { calculateOmtWhishAppFees } from "../utils/omtWhishAppFees";
-import { buildWalletTransferPayload, SHORTFALL_MAX } from "@liratek/core";
+import {
+  buildWalletTransferPayload,
+  SHORTFALL_MAX,
+  transferFeePaidBy,
+} from "@liratek/core";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { WalletExchangePanel } from "./WalletExchangePanel";
 
@@ -391,6 +395,17 @@ function OmtWhishAppTransferFormInner({
             serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
           note: `${serviceType} transfer via ${providerLabel}`,
           includingFees,
+          // LIRA-329: who pays the fee — the SAME derivation the walk-in
+          // payload uses (core `transferFeePaidBy`, rule 14).
+          ...(() => {
+            const feePaidBy = transferFeePaidBy({
+              fee: providerFee,
+              includingFees: serviceType === "RECEIVE" && includingFees,
+              feeCollectedSeparately:
+                serviceType === "RECEIVE" && feeCollectedSeparately,
+            });
+            return feePaidBy ? { feePaidBy } : {};
+          })(),
         },
       });
 
@@ -441,6 +456,8 @@ function OmtWhishAppTransferFormInner({
             customerPays,
           },
           includingFees,
+          // LIRA-329: the sheet's discount as typed (none in a session).
+          discount: activeSession ? 0 : discount,
           client: {
             id: resolvedClientId,
             name: serviceType === "SEND" ? finalSenderName : finalReceiverName,

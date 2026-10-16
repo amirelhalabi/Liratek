@@ -546,6 +546,11 @@ contextBridge.exposeInMainWorld("api", {
         amount: number;
       }>;
       customer_waived_amount?: number;
+      // LIRA-329 (informational, exchangeSubmitSchema): per-leg "rate
+      // overridden" flags and the picked client's phone.
+      leg1RateOverridden?: boolean;
+      leg2RateOverridden?: boolean;
+      clientPhone?: string;
     }) => ipcRenderer.invoke("exchange:add-transaction", data),
     getHistory: (opts?: { all?: boolean }) =>
       ipcRenderer.invoke("exchange:get-history", opts),
@@ -635,6 +640,7 @@ contextBridge.exposeInMainWorld("api", {
       clientId?: number;
       kept_change_usd?: number;
       kept_change_lbp?: number;
+      includingFees?: boolean;
     }) => ipcRenderer.invoke("recharge:top-up-from-client", data),
     updateMetadata: (data: {
       id: number;

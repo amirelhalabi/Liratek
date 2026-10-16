@@ -17,6 +17,35 @@ import {
 } from "../utils/payments.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import { resolveLotoSupplierId } from "./LotoTicketRepository.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type LotoPrizeDetails,
+} from "../validators/transactionDetails.js";
+
+/**
+ * LIRA-329 — the `loto_prize` details: the ticket number and the prize date
+ * the payout was recorded for (pure). Empty fields are omitted.
+ */
+export function buildLotoPrizeDetails(
+  data: LotoCashPrizeCreate,
+): LotoPrizeDetails {
+  const ticketNumber =
+    data.ticket_number != null && data.ticket_number.trim() !== ""
+      ? data.ticket_number
+      : undefined;
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "loto_prize",
+    ...(ticketNumber ? { ticketNumber } : {}),
+    // A calendar day, as every caller sends it; anything else is omitted
+    // rather than saved as a made-up day.
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(data.prize_date ?? "")
+      ? { prizeDate: data.prize_date }
+      : {}),
+    ...(data.paid_in_session ? { paid_in_session: data.paid_in_session } : {}),
+  };
+}
 
 /**
  * LIRA-201c (rule 14) — the ONE "exclude a basket-voided prize" predicate,
@@ -60,6 +89,9 @@ export interface LotoCashPrizeCreate {
    * to the customer. Non-session callers leave this falsy → behavior unchanged.
    */
   deferPayment?: boolean;
+  /** LIRA-329 — the session whose basket paid for this. Server-injected by
+   *  `SessionCheckoutService` (like `deferPayment`), never on the wire. */
+  paid_in_session?: number;
   /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
   exchange_rate?: number;
   /** LIRA-201c (rule 11) — the session's resolved client, injected by
@@ -116,6 +148,28 @@ export class LotoCashPrizeRepository {
         // (LIRA-185 loto lead 9 — was a hardcoded 100,000).
         exchange_rate: data.exchange_rate,
         client_id: data.clientId ?? null,
+        details: buildLotoPrizeDetails(data),
+        // LIRA-329 — the payout line, as at saving (the same CASH / General
+        // LBP lump step 3 books). A session-basket prize records its
+        // session instead: the basket nets it against the customer's charge
+        // and owns the payment.
+        ...(data.deferPayment
+          ? {
+              payment_snapshot: buildPaymentSnapshot({
+                sessionId: data.paid_in_session,
+              }),
+            }
+          : {
+              payment_snapshot: buildPaymentSnapshot({
+                payments: [
+                  {
+                    method: "CASH",
+                    currencyCode: "LBP",
+                    amount: data.prize_amount,
+                  },
+                ],
+              }),
+            }),
         summary: data.ticket_number
           ? `Loto cash prize payout: ${data.ticket_number}`
           : "Loto cash prize payout",

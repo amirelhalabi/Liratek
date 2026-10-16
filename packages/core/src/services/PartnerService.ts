@@ -379,7 +379,11 @@ export class PartnerService {
                 notes: data.discount!.reason ?? data.notes,
                 user_id: data.userId,
               });
-              this.repo.recordDiscount(discountEntry, data.userId);
+              this.repo.recordDiscount(
+                discountEntry,
+                data.userId,
+                data.discount!.reason,
+              );
             });
           }
         }
@@ -469,7 +473,7 @@ export class PartnerService {
         });
         return {
           entryId: entry.id,
-          txnId: this.repo.recordDiscount(entry, data.userId),
+          txnId: this.repo.recordDiscount(entry, data.userId, data.reason),
         };
       });
 

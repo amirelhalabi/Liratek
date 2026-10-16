@@ -142,6 +142,17 @@ import { addMonthsIso } from "../utils/dates.js";
 import { clientDay, clientDayOfUtcTimestamp } from "../utils/requestDay.js";
 import { resolveWarrantyMonths } from "../utils/warrantyState.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import { nonBlankText } from "../utils/nonBlankText.js";
+import {
+  buildReversalDetails,
+  reversalClientOf,
+} from "../utils/reversalDetails.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type PosSaleDetails,
+  type WarrantyClaimDetails,
+} from "../validators/transactionDetails.js";
 
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
@@ -205,6 +216,9 @@ export interface SaleRequest {
   extra_usd?: number;
   extra_lbp?: number;
   exchange_rate: number;
+  /** LIRA-329: the currency the checkout's totals are expressed in (POS:
+   *  "USD"). Kept on the SALE row's details only; moves no money. */
+  currency?: "USD" | "LBP";
   drawer_name?: string;
   id?: number;
   status?: "completed" | "draft" | "cancelled";
@@ -218,6 +232,9 @@ export interface SaleRequest {
    * Non-session callers leave this falsy → behavior is unchanged.
    */
   deferPayment?: boolean;
+  /** LIRA-329 — the session whose basket paid for this sale. Server-injected
+   *  by `SessionCheckoutService` (like `deferPayment`), never on the wire. */
+  paid_in_session?: number;
   /**
    * PFT-R (Partner FOR-Transactions, validated flow catalog): when set
    * together with `partnerMode === "FOR"`, there is NO walk-in customer —
@@ -364,6 +381,80 @@ function formatDiscountLabel(sale: SaleRequest): string | null {
     return `discounted ${lbp.toLocaleString()} LBP`;
   }
   return `discounted $${sale.discount.toLocaleString()}`;
+}
+
+/** LIRA-329 — one sold line as booked: what `processSale` resolved for it
+ *  (the stored serial, the unit it marked sold, the FIFO cost it stamped,
+ *  the warranty length it used). */
+export interface PosSaleDetailsLine {
+  productId: number;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  unitCost: number;
+  imei: string | null;
+  unitId: number | null;
+  warrantyMonths: number | null;
+}
+
+/**
+ * LIRA-329 — the `pos_sale` details: everything the cashier entered, built
+ * from the validated sale and the lines as `processSale` booked them (pure).
+ * Empty fields are omitted. The discount is kept as typed, in the currency
+ * the checkout's totals are in (POS: USD); the partner by id and mode.
+ */
+export function buildPosSaleDetails(
+  sale: SaleRequest,
+  lines: ReadonlyArray<PosSaleDetailsLine>,
+  ctx: { partnerName: string | undefined },
+): PosSaleDetails {
+  const giftCardCodes = (sale.payments ?? [])
+    .filter((p) => p.direction !== "OUT" && p.method === "GIFT_CARD")
+    .map((p) => nonBlankText(p.voucher_code))
+    .filter((c): c is string => c !== undefined);
+  const note = nonBlankText(sale.note);
+  const partnerName = nonBlankText(ctx.partnerName);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "pos_sale",
+    items: lines.map((l) => {
+      const imei = nonBlankText(l.imei);
+      return {
+        productId: l.productId,
+        ...(nonBlankText(l.name) ? { name: l.name } : {}),
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        unitCost: l.unitCost,
+        ...(imei ? { imei } : {}),
+        ...(l.unitId != null ? { unitId: l.unitId } : {}),
+        // An explicit 0 (no warranty, chosen at the till) is kept.
+        ...(l.warrantyMonths != null
+          ? { warrantyMonths: l.warrantyMonths }
+          : {}),
+      };
+    }),
+    ...(giftCardCodes.length > 0 ? { giftCardCodes } : {}),
+    ...(sale.currency ? { paymentCurrency: sale.currency } : {}),
+    ...((sale.discount ?? 0) > 0
+      ? {
+          discount: {
+            amount: sale.discount,
+            currency: sale.currency ?? "USD",
+          },
+        }
+      : {}),
+    ...(sale.partnerMode === "FOR" && sale.partnerId
+      ? {
+          partner: {
+            id: sale.partnerId,
+            ...(partnerName ? { name: partnerName } : {}),
+            mode: "FOR" as const,
+          },
+        }
+      : {}),
+    ...(note ? { note } : {}),
+    ...(sale.paid_in_session ? { paid_in_session: sale.paid_in_session } : {}),
+  };
 }
 
 export class SalesRepository extends BaseRepository<SaleEntity> {
@@ -1001,6 +1092,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             )
           : null;
 
+        // LIRA-329: each line as booked, for the SALE row's details.
+        const posDetailLines: PosSaleDetailsLine[] = [];
+
         sale.items.forEach((item, index) => {
           let imeiToWrite = item.imei || null;
           let matchedUnit: ProductUnitEntity | null = null;
@@ -1203,6 +1297,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           // allowOutOfStock oversell) fall back to that same
           // current-cost_price_usd value via `fallbackUnitCostUsd`, so
           // behaviour for a product with no batch history is unchanged.
+          // LIRA-329: the cost this line is booked at — the FIFO cost below
+          // on a completed sale (a draft writes no transaction row).
+          let lineUnitCostUsd = productMetaByIndex[index].costPriceUsd;
           if (status === "completed") {
             const saleItemId = Number(itemResult.lastInsertRowid);
             const { weightedUnitCostUsd } = getStockBatchRepository().consume(
@@ -1236,7 +1333,19 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             const provisionalCostUsd = productMetaByIndex[index].costPriceUsd;
             saleProfitUsd +=
               (provisionalCostUsd - weightedUnitCostUsd) * item.quantity;
+            lineUnitCostUsd = weightedUnitCostUsd;
           }
+
+          posDetailLines.push({
+            productId: item.product_id,
+            name: productMetaByIndex[index].name,
+            quantity: item.quantity,
+            unitPrice: item.price,
+            unitCost: lineUnitCostUsd,
+            imei: imeiToWrite,
+            unitId: matchedUnit?.id ?? null,
+            warrantyMonths: warrantyMonths ?? null,
+          });
         });
 
         // LIRA-229: the unified `transactions` money-ledger row — and every
@@ -1269,6 +1378,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // retry/double-submit) is refused at the top of this method
         // (LIRA-258 / G12), so this block runs at most once per sale.
         if (status === "completed") {
+          // LIRA-329 — the partner's name, read once: the For-Partner client
+          // label below and the sale's details both use it (rule 14).
+          const partnerName =
+            sale.partnerMode === "FOR" && sale.partnerId
+              ? getPartnerRepository().getById(sale.partnerId)?.name
+              : undefined;
           const txnFields = {
             user_id: userId,
             // Unified-row amounts carry the sale's VALUE in its denominated
@@ -1301,7 +1416,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             // transactions table shows "<partner> [partner]").
             client_name:
               sale.partnerMode === "FOR" && sale.partnerId
-                ? `${getPartnerRepository().getById(sale.partnerId)?.name ?? `#${sale.partnerId}`} [partner]`
+                ? `${partnerName ?? `#${sale.partnerId}`} [partner]`
                 : (sale.client_name ?? null),
             client_phone: sale.client_phone ?? null,
             summary: saleLabel,
@@ -1316,12 +1431,45 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             },
           };
 
+          // LIRA-329 — how the customer paid, as at saving: the legs this
+          // sale books (below), the cash change handed back (posted as
+          // "Change given" rows, never sent as a leg) and the checked kept
+          // change. A session-basket item records its session instead (the
+          // basket owns the payment); a For-Partner sale has no counter
+          // payment, so no lines.
+          const paymentSnapshot =
+            sale.deferPayment === true
+              ? buildPaymentSnapshot({ sessionId: sale.paid_in_session })
+              : buildPaymentSnapshot({
+                  payments: [
+                    ...paymentLines,
+                    ...(
+                      [
+                        ["USD", Math.abs(sale.change_given_usd || 0)],
+                        ["LBP", Math.abs(sale.change_given_lbp || 0)],
+                      ] as const
+                    )
+                      .filter(([, amount]) => amount > 0)
+                      .map(([currency_code, amount]) => ({
+                        method: "CASH" as const,
+                        currency_code,
+                        amount,
+                        direction: "OUT" as const,
+                      })),
+                  ],
+                  keptChange: { usd: keptProfitUsd, lbp: keptProfitLbp },
+                });
+
           const txnId = getTransactionRepository().createTransaction({
             ...txnFields,
             type: TRANSACTION_TYPES.SALE,
             source_table: "sales",
             source_id: saleId,
             transaction_time: sale.transaction_time,
+            details: buildPosSaleDetails(sale, posDetailLines, {
+              partnerName,
+            }),
+            ...(paymentSnapshot ? { payment_snapshot: paymentSnapshot } : {}),
           });
 
           // Persist payment lines + update running balances (drawer_balances)
@@ -2086,6 +2234,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     /** LIRA-296 — the warranty claim this refund belongs to. Stamped on the
      *  REFUND row so only voiding the claim can undo it (rule 20). */
     warrantyClaimId?: number;
+    /** LIRA-329 — that claim's details (`buildWarrantyClaimDetails`), kept
+     *  on the REFUND row instead of the `reversal` details a plain item
+     *  refund gets (explicit details win; data-model.md). */
+    warrantyClaimDetails?: WarrantyClaimDetails;
   }): number {
     const db = this.db;
     const tenantId = getCurrentTenantId();
@@ -2142,8 +2294,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     // reach is the point — nothing here needs it.
     const originalTxn = db
       .prepare(
-        `SELECT id, source_table, source_id, exchange_rate, client_id, device_id,
-                extra_usd, extra_lbp
+        `SELECT id, source_table, source_id, exchange_rate, client_id,
+                client_name, client_phone, device_id, extra_usd, extra_lbp
          FROM transactions
          WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?`,
       )
@@ -2154,6 +2306,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           source_id: number;
           exchange_rate: number;
           client_id: number | null;
+          /** LIRA-329 (T038) — copied onto the refund row. */
+          client_name: string | null;
+          client_phone: string | null;
           device_id: string | null;
           /** LIRA-319 — the extra lives on the SALE row, not on `sales`. */
           extra_usd: number;
@@ -2296,6 +2451,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         profit_lbp: kept.lbp,
         exchange_rate: originalTxn.exchange_rate,
         client_id: originalTxn.client_id,
+        // LIRA-329 (T038): the sale's own client name and phone.
+        ...reversalClientOf(originalTxn),
         summary: `ITEM REFUND: ${params.refundQuantity}x product ${item.product_id} from Sale #${params.saleId}`,
         metadata_json: {
           refundType: "item",
@@ -2322,6 +2479,18 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             ? { warrantyClaimId: params.warrantyClaimId }
             : {}),
         },
+        // LIRA-329: a warranty refund keeps its claim's details (passed
+        // explicitly — the shared merge drops whatever the original sale's
+        // metadata carried); every other item refund records what it
+        // reverses and the returned phones' flags (`reversal`, T038). The
+        // claim's row still points at its sale: `warranty_claim.saleItemId`
+        // and the `originalSaleId` metadata key.
+        details:
+          params.warrantyClaimDetails ??
+          buildReversalDetails({
+            originalTransactionId: originalTxn.id,
+            refundUnitExtras: params.unitExtras,
+          }),
         device_id: originalTxn.device_id ?? undefined,
       });
 
@@ -2674,7 +2843,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       .prepare(
         `SELECT id, type, status, source_table, source_id, amount_usd,
                 profit_usd, profit_lbp, extra_usd, extra_lbp, exchange_rate,
-                client_id, device_id, metadata_json
+                client_id, client_name, client_phone, device_id, metadata_json
          FROM transactions WHERE id = ? AND tenant_id = ?`,
       )
       .get(params.refundTransactionId, tenantId) as
@@ -2693,6 +2862,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           extra_lbp: number | null;
           exchange_rate: number | null;
           client_id: number | null;
+          /** LIRA-329 (T038) — copied onto the undo row. */
+          client_name: string | null;
+          client_phone: string | null;
           device_id: string | null;
           metadata_json: string | null;
         }
@@ -2874,6 +3046,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         extra_lbp: -(refundTxn.extra_lbp ?? 0),
         exchange_rate: refundTxn.exchange_rate,
         client_id: refundTxn.client_id,
+        // LIRA-329 (T038): the refund's own client, and the refund it undoes.
+        ...reversalClientOf(refundTxn),
+        details: buildReversalDetails({
+          originalTransactionId: params.refundTransactionId,
+        }),
         summary: `UNDO REFUND: ${refundQuantity}x product ${item.product_id} from Sale #${originalSaleId} (undoes refund #${params.refundTransactionId})`,
         metadata_json: {
           undoType: "item",

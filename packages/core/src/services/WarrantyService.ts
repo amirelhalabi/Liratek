@@ -20,6 +20,7 @@ import {
 } from "../repositories/WarrantyRepository.js";
 import {
   getWarrantyClaimRepository,
+  buildWarrantyClaimDetails,
   type WarrantyClaimRepository,
   type WarrantyClaimEntity,
 } from "../repositories/WarrantyClaimRepository.js";
@@ -352,6 +353,7 @@ export class WarrantyService {
     const productName = line.product_name ?? "item";
 
     if (data.action === "REFUND") {
+      const storedClaim = this.claims.findById(claimId);
       const refundTransactionId = getSalesRepository().refundSaleItem({
         saleId: line.sale_id,
         saleItemId: line.sale_item_id,
@@ -359,6 +361,10 @@ export class WarrantyService {
         userId: actor.userId,
         restock: false,
         warrantyClaimId: claimId,
+        // LIRA-329: the REFUND row carries the claim it belongs to.
+        ...(storedClaim
+          ? { warrantyClaimDetails: buildWarrantyClaimDetails(storedClaim) }
+          : {}),
         ...(data.refund?.legs ? { refundLegs: data.refund.legs } : {}),
         ...(data.refund?.exchange_rate != null
           ? { exchangeRate: data.refund.exchange_rate }
@@ -789,6 +795,9 @@ export class WarrantyService {
     reversesId?: number;
     supplierReturnId?: number;
   }): number {
+    // LIRA-329 — every cost row says which claim it is and what the claim
+    // was, read from the stored claim (its links are already set).
+    const claim = this.claims.findById(row.claimId);
     const id = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.WARRANTY_COST,
       source_table: "warranty_claims",
@@ -800,6 +809,7 @@ export class WarrantyService {
       profit_lbp: Math.round(row.lbp ?? 0),
       client_id: row.clientId,
       summary: row.summary,
+      ...(claim ? { details: buildWarrantyClaimDetails(claim) } : {}),
       metadata_json: {
         warranty_claim_id: row.claimId,
         is_auto: row.claimId != null,

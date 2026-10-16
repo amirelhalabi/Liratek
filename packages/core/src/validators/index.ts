@@ -43,6 +43,8 @@ export * from "./setup.js";
 export * from "./counterparty.js";
 export * from "./supplier.js";
 export * from "./transaction.js";
+// LIRA-329: per-kind transaction details + payment snapshot (browser-safe).
+export * from "./transactionDetails.js";
 export * from "./carrierLine.js";
 export * from "./mobileServiceItem.js";
 export * from "./drawerCashout.js";

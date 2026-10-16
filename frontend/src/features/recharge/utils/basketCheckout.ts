@@ -201,6 +201,11 @@ export function spreadDiscount<
       ...s,
       amount: fix(s.amount - off),
       commission: fix(Math.max(0, s.commission - off)),
+      // LIRA-329: this unit's share of the typed discount, kept on its
+      // transaction's details (informational — the amounts above carry it).
+      ...(off > 0
+        ? { typedDiscount: { amount: fix(off), currency: s.currency } }
+        : {}),
     };
   });
 }

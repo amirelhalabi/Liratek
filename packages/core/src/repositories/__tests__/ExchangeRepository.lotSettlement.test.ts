@@ -844,7 +844,13 @@ describe("ExchangeRepository.createTransaction() — lot settlement wiring (EXCH
 
       const unified = unifiedRow(db, result.id);
       expect(unified.profit_usd).toBe(5);
-      const meta = JSON.parse(unified.metadata_json);
+      // LIRA-329 adds \`details\` and \`payment_snapshot\`; this snapshot
+      // pins the legacy keys, which must stay exactly as they were.
+      const {
+        details: _details,
+        payment_snapshot: _snapshot,
+        ...meta
+      } = JSON.parse(unified.metadata_json);
       expect(meta).toEqual({
         type: "BUY", // toCurrency !== USD
         from_currency: "USD",
@@ -877,7 +883,13 @@ describe("ExchangeRepository.createTransaction() — lot settlement wiring (EXCH
       expect(countRows(db, "exchange_lot_settlements")).toBe(0);
 
       const unified = unifiedRow(db, result.id);
-      const meta = JSON.parse(unified.metadata_json);
+      // LIRA-329 adds \`details\` and \`payment_snapshot\`; this snapshot
+      // pins the legacy keys, which must stay exactly as they were.
+      const {
+        details: _details,
+        payment_snapshot: _snapshot,
+        ...meta
+      } = JSON.parse(unified.metadata_json);
       expect(meta).toEqual({
         type: "SELL", // toCurrency === USD
         from_currency: "LBP",

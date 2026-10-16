@@ -39,6 +39,11 @@ import type {
   HoldMoneyPaymentLegInput,
 } from "../validators/holdMoney.js";
 import { HOLD_PICKUP_EPSILON } from "../validators/holdMoney.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type HoldMoneyDetails,
+} from "../validators/transactionDetails.js";
 
 // =============================================================================
 // Entity Types
@@ -128,6 +133,23 @@ function derivePaidByLabel(
   if (legs.length > 1) return "MULTI";
   if (legs.length === 1) return legs[0].method;
   return fallback;
+}
+
+/**
+ * LIRA-329 — the `hold_money` details on each of this module's transactions:
+ * which action it records and the hold's notes (kept in full; omitted when
+ * empty). Pure.
+ */
+export function buildHoldMoneyDetails(
+  action: HoldMoneyDetails["action"],
+  notes: string | null | undefined,
+): HoldMoneyDetails {
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "hold_money",
+    action,
+    ...(notes != null && notes.trim() !== "" ? { notes } : {}),
+  };
 }
 
 /**
@@ -284,6 +306,12 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
             lbp_amount: lbp,
             kind: "hold",
           },
+          // LIRA-329: the notes and the legs as sent (none → the CASH
+          // fallback below, which the snapshot does not invent).
+          details: buildHoldMoneyDetails("CREATE", data.notes),
+          ...(legs.length > 0
+            ? { payment_snapshot: buildPaymentSnapshot({ payments: legs }) }
+            : {}),
           transaction_time: data.transaction_time,
         });
 
@@ -495,6 +523,17 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
               ? { kept_change_usd: keptUsd, kept_change_lbp: keptLbp }
               : {}),
           },
+          // LIRA-329: the action, the hold's notes, and the payout legs as
+          // sent with any kept change (no legs → the CASH fallback below).
+          details: buildHoldMoneyDetails("COLLECT", hold.notes),
+          ...(legs.length > 0
+            ? {
+                payment_snapshot: buildPaymentSnapshot({
+                  payments: legs,
+                  keptChange: { usd: keptUsd, lbp: keptLbp },
+                }),
+              }
+            : {}),
           transaction_time: data.transaction_time,
         });
 
@@ -692,6 +731,8 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
             lbp_amount: pickup.lbp_amount,
             kind: "collect_void",
           },
+          // LIRA-329: the action and the hold's notes.
+          details: buildHoldMoneyDetails("VOID_PICKUP", hold.notes),
         });
 
         if (pickup.transaction_id != null) {

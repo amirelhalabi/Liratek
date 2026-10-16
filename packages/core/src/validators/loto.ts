@@ -75,6 +75,10 @@ export const lotoSellSchema = z
     discount_lbp: z.number().min(0).optional(),
     clientId: z.number().int().positive().nullable().optional(),
     clientName: z.string().optional(),
+    // LIRA-329 — informational only (kept on the transaction's client
+    // columns; never read by any money step): the customer's phone typed
+    // next to the name, sent even when no client record was made.
+    clientPhone: z.string().max(30).optional(),
     // PFT-4 (Partner FOR-Transactions): the unpaid remainder routes to
     // partner_ledger instead of the client's debt_ledger when set. Only "FOR"
     // is valid for Loto (the partner analog of CUSTOMER_ACCOUNT).

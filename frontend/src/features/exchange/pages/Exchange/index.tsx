@@ -186,6 +186,24 @@ function legOverrideCurrency(
   return fromCurrency === "USD" ? toCurrency : fromCurrency;
 }
 
+/**
+ * LIRA-329 — the ONE predicate (rule 14) for "the cashier's typed rate is
+ * what leg i actually uses": the leg is marked overridden AND its typed rate
+ * is a positive number. `applyCustomRates` applies a leg-1 override only
+ * when this returns a rate, and the submit payload's `leg1RateOverridden` /
+ * `leg2RateOverridden` flags read the same answer, so the flag saved on the
+ * transaction can never disagree with the rate that was booked.
+ */
+function appliedCustomRate(
+  rateOverridden: { [leg: number]: boolean },
+  customRates: { [leg: number]: string },
+  legIndex: number,
+): number | null {
+  if (!rateOverridden[legIndex]) return null;
+  const rate = parseFloat(customRates[legIndex] ?? "");
+  return isNaN(rate) || rate <= 0 ? null : rate;
+}
+
 // ─── Currency Selector ────────────────────────────────────────────────────────
 
 interface CurrencySelectorProps {
@@ -531,9 +549,8 @@ export default function Exchange() {
 
       const isCross = base.legs.length === 2;
       const legs = base.legs.map((leg, i) => {
-        if (!rateOverridden[i]) return leg;
-        const customRate = parseFloat(customRates[i] ?? "");
-        if (isNaN(customRate) || customRate <= 0) return leg;
+        const customRate = appliedCustomRate(rateOverridden, customRates, i);
+        if (customRate === null) return leg;
 
         const cr = effectiveRates.find(
           (r) =>
@@ -1172,6 +1189,16 @@ export default function Exchange() {
         leg2Rate: leg2?.rate,
         leg2MarketRate: leg2?.marketRate,
         leg2ProfitUsd: leg2?.profitUsd,
+        // LIRA-329 (informational, kept on the transaction's details):
+        // whether each leg used the cashier's own rate.
+        leg1RateOverridden:
+          appliedCustomRate(rateOverridden, customRates, 0) !== null,
+        ...(leg2
+          ? {
+              leg2RateOverridden:
+                appliedCustomRate(rateOverridden, customRates, 1) !== null,
+            }
+          : {}),
         viaCurrency: effectiveResult.viaCurrency ?? undefined,
         totalProfitUsd: effectiveResult.totalProfitUsd,
         clientName: clientName || undefined,
@@ -1185,6 +1212,11 @@ export default function Exchange() {
         // LIRA-321 (rule 11): the picked client travels on every walk-in
         // exchange; a CUSTOMER_ACCOUNT line is booked to it.
         ...(!forPartner && clientId ? { clientId } : {}),
+        // LIRA-329: the picked client's phone rides with the client (picking
+        // fills it; typing a name by hand clears it).
+        ...(!forPartner && clientId && clientPhone.trim()
+          ? { clientPhone: clientPhone.trim() }
+          : {}),
         ...(customerPayments.length > 0 ? { customerPayments } : {}),
         ...(customerWaived > 0
           ? { customer_waived_amount: customerWaived }

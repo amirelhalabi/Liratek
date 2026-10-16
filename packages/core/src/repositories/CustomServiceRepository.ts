@@ -50,6 +50,11 @@ import {
 } from "../utils/insuranceFulfillment.js";
 import { type WorkStatus } from "../utils/customServiceWorkStatus.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type CustomServiceDetails,
+} from "../validators/transactionDetails.js";
 import { getStockBatchRepository } from "./StockBatchRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
@@ -94,6 +99,50 @@ function toReconciliationLegs(
     amount: l.amount,
     ...(l.direction ? { direction: l.direction } : {}),
   }));
+}
+
+function nonBlank(v: string | null | undefined): string | undefined {
+  return v != null && v.trim() !== "" ? v : undefined;
+}
+
+/**
+ * LIRA-329 — the `custom_service` details: everything the cashier entered,
+ * built from the validated input this repository already holds (pure).
+ * Empty fields are omitted. The partner is kept by id and mode — a Via
+ * Partner service used to leave no trace on the transaction.
+ */
+export function buildCustomServiceDetails(
+  data: CreateCustomServiceInput,
+  ctx: { isPayout: boolean; partnerName: string | undefined },
+): CustomServiceDetails {
+  const description = nonBlank(data.description);
+  const category = nonBlank(data.category);
+  const note = nonBlank(data.note);
+  const productId = ctx.isPayout ? undefined : (data.product_id ?? undefined);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "custom_service",
+    ...(description ? { description } : {}),
+    ...(category ? { category } : {}),
+    ...(productId != null ? { productId } : {}),
+    ...(data.fulfillment_status
+      ? { fulfillmentStatus: data.fulfillment_status }
+      : {}),
+    direction: ctx.isPayout ? "OUT" : "IN",
+    cost: { usd: data.cost_usd ?? 0, lbp: data.cost_lbp ?? 0 },
+    price: { usd: data.price_usd ?? 0, lbp: data.price_lbp ?? 0 },
+    ...(data.partnerId && data.partnerMode
+      ? {
+          partner: {
+            id: data.partnerId,
+            ...(nonBlank(ctx.partnerName) ? { name: ctx.partnerName } : {}),
+            mode: data.partnerMode,
+          },
+        }
+      : {}),
+    ...(note ? { note } : {}),
+    ...(data.paid_in_session ? { paid_in_session: data.paid_in_session } : {}),
+  };
 }
 
 // =============================================================================
@@ -559,6 +608,80 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             ? `Custom Service: ${data.description}`
             : "Custom Service";
 
+        // LIRA-329 — the partner's name, read once: the For-Partner client
+        // label below and the service's details both use it (rule 14).
+        const partnerName = data.partnerId
+          ? getPartnerRepository().getById(data.partnerId)?.name
+          : undefined;
+
+        // OWNER_NOTES_REMAINING_BUILD.md #16 fix-round I3 — the payout's OUT
+        // leg(s) are synthesized here as ordinary payments[] legs (CASH,
+        // direction "OUT") and posted through the SAME leg-processing loop
+        // every other payments[] submission uses below (rule 16: ONE shared
+        // end-of-transaction loop, never a second, parallel
+        // insertPayment/upsertBalance call site — that was the pre-fix
+        // shape). CASH/General only, unconditionally — the owner was
+        // explicit ("Syria never touches the Whish system drawer"), so
+        // these synthetic legs never read `data.paid_by`/`data.payments`.
+        // The guards above already require cost_usd/cost_lbp > 0 in at
+        // least one currency; either or both are posted (mirrors the IN
+        // flow's own price-inflow branch further down, which independently
+        // posts USD then LBP).
+        // Explicitly typed as the SAME `payments[]` element type
+        // `data.payments` itself uses (not left to literal inference) so
+        // the `legs = isPayout ? payoutLegs! : data.payments!` ternary
+        // further down produces ONE uniform element type — without this
+        // annotation TS would infer a union of two distinct object-literal
+        // shapes (this one has no optional `voucher_code`), and every
+        // `leg.voucher_code` access inside the shared loop below would then
+        // fail to typecheck against the member that never had the field.
+        const payoutLegs:
+          | NonNullable<CreateCustomServiceInput["payments"]>
+          | undefined = isPayout
+          ? ([
+              (data.cost_usd ?? 0) > 0
+                ? {
+                    method: "CASH",
+                    currency_code: "USD",
+                    amount: data.cost_usd!,
+                    direction: "OUT" as const,
+                  }
+                : null,
+              (data.cost_lbp ?? 0) > 0
+                ? {
+                    method: "CASH",
+                    currency_code: "LBP",
+                    amount: data.cost_lbp!,
+                    direction: "OUT" as const,
+                  }
+                : null,
+            ].filter((leg) => leg !== null) as NonNullable<
+              CreateCustomServiceInput["payments"]
+            >)
+          : undefined;
+
+        // LIRA-329 — how the customer paid (or, on a pay-out, what was
+        // handed out), as at saving. None for a For-Partner service (no
+        // counter payment); a session-basket item records its session
+        // instead (the basket owns the money). A pay-out's legs are the
+        // flow's own legs — IN in the snapshot (contract: "IN = the leg the
+        // flow consumes, or a payout leg"); their booking-only
+        // `direction: "OUT"` would list the recipient's cash as change.
+        const paymentSnapshot = isForPartner
+          ? undefined
+          : data.deferPayment
+            ? buildPaymentSnapshot({ sessionId: data.paid_in_session })
+            : buildPaymentSnapshot({
+                payments: isPayout
+                  ? payoutLegs?.map((leg) => ({
+                      method: leg.method,
+                      currency_code: leg.currency_code,
+                      amount: leg.amount,
+                    }))
+                  : data.payments,
+                keptChange: { usd: keptUsd, lbp: keptLbp },
+              });
+
         // 1b. Create unified transaction row
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.CUSTOM_SERVICE,
@@ -593,9 +716,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // matches Recharge/Loto: "<partner> [partner]").
           client_name:
             isForPartner && data.partnerId
-              ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
+              ? `${partnerName ?? `#${data.partnerId}`} [partner]`
               : (data.client_name ?? null),
           client_phone: data.phone_number ?? null,
+          details: buildCustomServiceDetails(data, { isPayout, partnerName }),
+          ...(paymentSnapshot ? { payment_snapshot: paymentSnapshot } : {}),
           summary: noteText,
           metadata_json: {
             cost_usd: data.cost_usd ?? 0,
@@ -670,52 +795,6 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               tenantId: tenant,
             }),
         };
-
-        // OWNER_NOTES_REMAINING_BUILD.md #16 fix-round I3 — the payout's OUT
-        // leg(s) are synthesized here as ordinary payments[] legs (CASH,
-        // direction "OUT") and posted through the SAME leg-processing loop
-        // every other payments[] submission uses below (rule 16: ONE shared
-        // end-of-transaction loop, never a second, parallel
-        // insertPayment/upsertBalance call site — that was the pre-fix
-        // shape). CASH/General only, unconditionally — the owner was
-        // explicit ("Syria never touches the Whish system drawer"), so
-        // these synthetic legs never read `data.paid_by`/`data.payments`.
-        // The guards above already require cost_usd/cost_lbp > 0 in at
-        // least one currency; either or both are posted (mirrors the IN
-        // flow's own price-inflow branch further down, which independently
-        // posts USD then LBP).
-        // Explicitly typed as the SAME `payments[]` element type
-        // `data.payments` itself uses (not left to literal inference) so
-        // the `legs = isPayout ? payoutLegs! : data.payments!` ternary a
-        // few lines down produces ONE uniform element type — without this
-        // annotation TS would infer a union of two distinct object-literal
-        // shapes (this one has no optional `voucher_code`), and every
-        // `leg.voucher_code` access inside the shared loop below would then
-        // fail to typecheck against the member that never had the field.
-        const payoutLegs:
-          | NonNullable<CreateCustomServiceInput["payments"]>
-          | undefined = isPayout
-          ? ([
-              (data.cost_usd ?? 0) > 0
-                ? {
-                    method: "CASH",
-                    currency_code: "USD",
-                    amount: data.cost_usd!,
-                    direction: "OUT" as const,
-                  }
-                : null,
-              (data.cost_lbp ?? 0) > 0
-                ? {
-                    method: "CASH",
-                    currency_code: "LBP",
-                    amount: data.cost_lbp!,
-                    direction: "OUT" as const,
-                  }
-                : null,
-            ].filter((leg) => leg !== null) as NonNullable<
-              CreateCustomServiceInput["payments"]
-            >)
-          : undefined;
 
         if (isPayout) {
           // Defense in depth, same shape as the isForPartner branch's own

@@ -15,7 +15,7 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 import { appEvents, useApi } from "@liratek/ui";
 import type { ResaleLineRow } from "@liratek/core";
-import { costOfValidityDaysUsd } from "@liratek/core";
+import { costOfValidityDaysUsd, transferFeePaidBy } from "@liratek/core";
 import type {
   TopUpFromClientInput,
   CreateRechargePayload,
@@ -36,6 +36,11 @@ import {
   type ProviderKey,
 } from "../../hooks/useMobileServiceItems";
 import { ensureRechargeClient } from "../../utils/ensureClient";
+import {
+  clientPhoneField,
+  daysTypedUsdField,
+  giftTierField,
+} from "../../utils/rechargeDetailFields";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import {
   CompactStats,
@@ -172,6 +177,8 @@ export default function MobileRecharge() {
   const [telecomAmount, setTelecomAmount] = useState("");
   const [telecomPrice, setTelecomPrice] = useState("");
   const [telecomDaysCostUsd, setTelecomDaysCostUsd] = useState("");
+  // LIRA-329: the Days price as typed in USD (TelecomForm owns the input).
+  const [telecomDaysPriceUsd, setTelecomDaysPriceUsd] = useState("");
   // LIRA-328 — the MTC/Alfa shop line credits are sent from, picked with the
   // chevron next to the phone chip. null = the primary line (the server's
   // default). Reset whenever the carrier changes (the panel remounts).
@@ -536,6 +543,7 @@ export default function MobileRecharge() {
     // after switching back, so there is no form flash either way.
     setRechargeType("CREDIT_TRANSFER");
     setTelecomDaysCostUsd("");
+    setTelecomDaysPriceUsd("");
     setFinAnalytics({
       today: { commission: 0, count: 0, byCurrency: [] },
       byProvider: [],
@@ -867,6 +875,14 @@ export default function MobileRecharge() {
     // LIRA-319: a buy-back is a payout — never an extra.
     const extra = isBuyback ? 0 : telecomExtra;
     const extraField = extra > 0 ? { extra_lbp: extra } : {};
+    // LIRA-329: what the transaction keeps in its details — built ONCE and
+    // sent the same way by the basket item and the direct sale (rule 22).
+    const detailFields = {
+      ...clientPhoneField(telecomClientPhone),
+      ...(rechargeType === "DAYS"
+        ? daysTypedUsdField(telecomDaysCostUsd, telecomDaysPriceUsd)
+        : {}),
+    };
 
     const clientResult = await ensureRechargeClient({
       clientId: telecomClientId,
@@ -921,6 +937,7 @@ export default function MobileRecharge() {
           currency: "LBP",
           clientId: resolvedClientId || undefined,
           clientName: telecomClientName || undefined,
+          ...detailFields,
         },
       });
 
@@ -928,6 +945,7 @@ export default function MobileRecharge() {
       setTelecomAmount("");
       setTelecomPrice("");
       setTelecomDaysCostUsd("");
+      setTelecomDaysPriceUsd("");
       setPhoneNumber("");
       setTelecomClientPhone("");
       setReturnLegs([]);
@@ -981,6 +999,7 @@ export default function MobileRecharge() {
             : undefined,
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
+        ...detailFields,
         // T3 keep-change: kept amounts join the recharge profit stamp — only
         // when reported in the same mode as this submit (sale vs buy-back).
         ...(keptChange &&
@@ -1042,6 +1061,7 @@ export default function MobileRecharge() {
       setTelecomAmount("");
       setTelecomPrice("");
       setTelecomDaysCostUsd("");
+      setTelecomDaysPriceUsd("");
       setPhoneNumber("");
       setTelecomClientPhone("");
       setReturnLegs([]);
@@ -1073,6 +1093,7 @@ export default function MobileRecharge() {
     telecomAmount,
     telecomPrice,
     telecomDaysCostUsd,
+    telecomDaysPriceUsd,
     rechargeType,
     phoneNumber,
     paidBy,
@@ -1357,6 +1378,12 @@ export default function MobileRecharge() {
     const chargedPrice = price - telecomDiscount;
     // LIRA-319: same extra contract as handleTelecomSubmit (sale only).
     const extraField = telecomExtra > 0 ? { extra_lbp: telecomExtra } : {};
+    // LIRA-329: the tier picked and the customer's phone — built ONCE for
+    // the basket item and the direct sale (rule 22).
+    const detailFields = {
+      ...giftTierField(giftTierKey),
+      ...clientPhoneField(telecomClientPhone),
+    };
 
     const clientResult = await ensureRechargeClient({
       clientId: telecomClientId,
@@ -1394,6 +1421,7 @@ export default function MobileRecharge() {
           currency: "LBP",
           clientId: resolvedClientId || undefined,
           clientName: telecomClientName || undefined,
+          ...detailFields,
         },
       });
       resetGiftForm();
@@ -1431,6 +1459,7 @@ export default function MobileRecharge() {
             : undefined,
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
+        ...detailFields,
         // Kept change (owner decision 2026-10-06 — automatic, no button):
         // change the cashier did not hand back joins the recharge profit
         // stamp, same as handleTelecomSubmit. The gift sheet shares the
@@ -1528,6 +1557,21 @@ export default function MobileRecharge() {
       feeCollectedSeparately: cryptoFeeCollectedSeparately,
       discount: activeSession ? 0 : cryptoDiscount,
     });
+    // LIRA-329: who pays the fee (the SAME rule as the OMT/Whish App form,
+    // core `transferFeePaidBy`) and the discount as typed — built ONCE for
+    // the basket item and the direct send (rule 22).
+    const cryptoFeePaidBy = transferFeePaidBy({
+      fee,
+      includingFees: cryptoFeeIncluded,
+      feeCollectedSeparately:
+        cryptoType === "RECEIVE" && cryptoFeeCollectedSeparately,
+    });
+    const cryptoDetailFields = {
+      ...(cryptoFeePaidBy ? { feePaidBy: cryptoFeePaidBy } : {}),
+      ...(!activeSession && cryptoDiscount > 0
+        ? { typedDiscount: { amount: cryptoDiscount, currency: "USD" } }
+        : {}),
+    };
     const isSplitPayment = cryptoPaymentLines.length > 1;
     const paidByMethod =
       cryptoPaymentLines.length === 1
@@ -1611,6 +1655,7 @@ export default function MobileRecharge() {
           clientName: cryptoClientName,
           referenceNumber: cryptoDescription,
           commission: fee,
+          ...cryptoDetailFields,
         },
       });
 
@@ -1650,6 +1695,7 @@ export default function MobileRecharge() {
         clientName: cryptoClientName,
         referenceNumber: cryptoDescription,
         commission,
+        ...cryptoDetailFields,
         paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
         payments: useCryptoStructuredPayments
           ? toCamelLegs(cryptoPaymentLines, cryptoChangeLegs)
@@ -2038,6 +2084,7 @@ export default function MobileRecharge() {
               setTelecomPrice("");
               setTelecomAmount("");
               setTelecomDaysCostUsd("");
+              setTelecomDaysPriceUsd("");
               // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 follow-up (review
               // finding #2): `phoneNumber` is shared across all three
               // telecom tabs, but only Credit has a phone field of its own.
@@ -2129,6 +2176,7 @@ export default function MobileRecharge() {
             alfaCreditSellRate={alfaCreditSellRate}
             telecomDaysCostUsd={telecomDaysCostUsd}
             setTelecomDaysCostUsd={setTelecomDaysCostUsd}
+            onDaysPriceUsdChange={setTelecomDaysPriceUsd}
             isAdmin={isAdmin}
             onReturnChange={setReturnLegs}
             onRefreshHistory={loadRechargeHistory}

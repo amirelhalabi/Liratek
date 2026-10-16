@@ -202,6 +202,8 @@ describe("KatshForm walk-in cart = core buildCatalogSalePayload (LIRA-302)", () 
       lines: [
         {
           item: {
+            // LIRA-329: the catalog key travels with each line.
+            key: "Katsh/alfa/Prepaid/Card22",
             category: "alfa",
             label: "Card22",
             subcategory: "Prepaid",
@@ -212,6 +214,7 @@ describe("KatshForm walk-in cart = core buildCatalogSalePayload (LIRA-302)", () 
         },
         {
           item: {
+            key: "Katsh/PUBG//60 UC",
             category: "PUBG",
             label: "60 UC",
             subcategory: "",

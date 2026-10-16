@@ -6,6 +6,11 @@
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { requestNow } from "../utils/requestNow.js";
+import { nonBlankText } from "../utils/nonBlankText.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type WarrantyClaimDetails,
+} from "../validators/transactionDetails.js";
 
 export type WarrantyClaimAction = "REPAIR" | "REPLACE" | "REFUND";
 export type WarrantyClaimStatus = "OPEN" | "DONE" | "VOIDED";
@@ -40,6 +45,44 @@ export interface NewWarrantyClaimRow {
   overrideReason: string | null;
   notes: string | null;
   userId: number;
+}
+
+/**
+ * LIRA-329 — the `warranty_claim` details every transaction a claim writes
+ * carries (its WARRANTY_COST rows and the warranty REFUND row): what the
+ * claim was, built purely from the stored claim. Empty fields are omitted.
+ */
+export function buildWarrantyClaimDetails(
+  claim: Pick<
+    WarrantyClaimEntity,
+    | "id"
+    | "action"
+    | "unit_id"
+    | "replacement_unit_id"
+    | "notes"
+    | "override_reason"
+    | "sale_item_id"
+    | "maintenance_id"
+  >,
+): WarrantyClaimDetails {
+  const notes = nonBlankText(claim.notes);
+  const overrideReason = nonBlankText(claim.override_reason);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "warranty_claim",
+    claimId: claim.id,
+    action: claim.action,
+    ...(claim.unit_id != null ? { unitId: claim.unit_id } : {}),
+    ...(claim.replacement_unit_id != null
+      ? { replacementUnitId: claim.replacement_unit_id }
+      : {}),
+    ...(notes ? { notes } : {}),
+    ...(overrideReason ? { overrideReason } : {}),
+    ...(claim.sale_item_id != null ? { saleItemId: claim.sale_item_id } : {}),
+    ...(claim.maintenance_id != null
+      ? { maintenanceId: claim.maintenance_id }
+      : {}),
+  };
 }
 
 const COLUMNS =

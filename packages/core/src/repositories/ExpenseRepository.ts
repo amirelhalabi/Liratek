@@ -33,6 +33,12 @@ import type {
   CreateStockExpenseData,
   ExpensePaymentLeg,
 } from "../validators/expense.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type ExpenseDetails,
+  type TransactionDetails,
+} from "../validators/transactionDetails.js";
 
 /**
  * Rows the expense lists show: everything except a row deleted from the
@@ -172,6 +178,10 @@ export interface CreateExpenseData {
   kept_change_lbp?: number;
   /** The rate the till converted at (rule 27). */
   tender_exchange_rate?: number;
+  /** LIRA-329 (phase 4) — internal writers only: a more specific details
+   *  kind than `expense` for this row (the wrong-number record passes
+   *  `wrong_number`). No transport schema carries it. */
+  details_override?: TransactionDetails;
 }
 
 /**
@@ -185,6 +195,57 @@ interface ManualExpenseCash {
   handedUsd: number;
   handedLbp: number;
   returned: ExpensePaymentLeg[];
+  /** LIRA-329 — the bill as the operator typed it (the stored cost may
+   *  include change the vendor kept). */
+  billUsd: number;
+  billLbp: number;
+  /** LIRA-329 — the change the vendor kept, as VERIFIED by
+   *  `resolveKeptChange` (never the raw claim). */
+  notReturnedUsd: number;
+  notReturnedLbp: number;
+}
+
+function nonBlank(v: string | null | undefined): string | undefined {
+  return v != null && v.trim() !== "" ? v : undefined;
+}
+
+/**
+ * LIRA-329 — the `expense` details: what the operator entered, built from
+ * the data `_bookExpense` already holds (pure). The bill is kept as typed —
+ * one currency, only when exactly one side is non-zero (the Expenses page
+ * sends one); it is omitted when the amount was not typed at all (stock
+ * use: the cost is computed). Empty fields are omitted.
+ */
+export function buildExpenseDetails(
+  data: CreateExpenseData,
+  bill: { usd: number; lbp: number } | null,
+): ExpenseDetails {
+  const category = nonBlank(data.category);
+  const description = nonBlank(data.description);
+  const expenseDate = nonBlank(data.expense_date);
+  const billAmount =
+    bill && bill.usd > 0 && !(bill.lbp > 0)
+      ? { amount: bill.usd, currency: "USD" }
+      : bill && bill.lbp > 0 && !(bill.usd > 0)
+        ? { amount: bill.lbp, currency: "LBP" }
+        : undefined;
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "expense",
+    ...(category ? { category } : {}),
+    ...(description ? { description } : {}),
+    ...(billAmount ? { billAmount } : {}),
+    ...(expenseDate ? { expenseDate } : {}),
+    ...(data.stock_item
+      ? {
+          stockUse: {
+            source: data.stock_item.source,
+            itemId: data.stock_item.item_id,
+            quantity: data.stock_item.quantity,
+          },
+        }
+      : {}),
+  };
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -441,6 +502,10 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       handedUsd: h.usd,
       handedLbp: h.lbp,
       returned,
+      billUsd,
+      billLbp,
+      notReturnedUsd: resolved.notReturnedUsd,
+      notReturnedLbp: resolved.notReturnedLbp,
     };
   }
 
@@ -488,6 +553,24 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         .run(amountUsd, expenseId, tenantId);
     }
 
+    // LIRA-329 — the bill as typed: the cash-lines path replaced
+    // `data.amount_*` with the cost, so it comes from `cash`; a stock-use
+    // amount is computed, never typed (no bill).
+    const typedBill = data.stock_item
+      ? null
+      : cash
+        ? { usd: cash.billUsd, lbp: cash.billLbp }
+        : { usd: data.amount_usd || 0, lbp: data.amount_lbp || 0 };
+    // How it was paid: the cash lines as sent plus the change the vendor
+    // kept (verified). Writers that send no lines get no snapshot — the
+    // single paid-by leg below is not invented here.
+    const paymentSnapshot = cash
+      ? buildPaymentSnapshot({
+          payments: data.payments,
+          keptChange: { usd: cash.notReturnedUsd, lbp: cash.notReturnedLbp },
+        })
+      : undefined;
+
     // Create unified transaction row
     const txnId = getTransactionRepository().createTransaction({
       type: data.transaction_type ?? TRANSACTION_TYPES.EXPENSE,
@@ -527,6 +610,8 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         // has no `is_auto` key at all, same as before this change.
         is_auto: data.source_ref_table ? true : undefined,
       },
+      details: data.details_override ?? buildExpenseDetails(data, typedBill),
+      ...(paymentSnapshot ? { payment_snapshot: paymentSnapshot } : {}),
       transaction_time: data.transaction_time,
     });
 
@@ -662,7 +747,11 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   createStockExpense(
     data: CreateStockExpenseData,
     userId: number,
-    opts?: { allowOutOfStock?: boolean },
+    opts?: {
+      allowOutOfStock?: boolean;
+      /** LIRA-329 — see `CreateExpenseData.details_override`. */
+      details?: TransactionDetails;
+    },
   ): number {
     const tenantId = getCurrentTenantId();
     const transactionType = STOCK_EXPENSE_TRANSACTION_TYPES[data.source];
@@ -739,6 +828,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
               quantity: data.quantity,
               fallback_unit_cost_usd: Number(product.cost_price_usd) || 0,
             },
+            ...(opts?.details ? { details_override: opts.details } : {}),
             extra_metadata: {
               item_source: "INVENTORY",
               product_id: product.id,
@@ -799,6 +889,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
             item_id: item.id,
             quantity: data.quantity,
           },
+          ...(opts?.details ? { details_override: opts.details } : {}),
           extra_metadata: {
             item_source: data.source,
             mobile_service_item_id: item.id,

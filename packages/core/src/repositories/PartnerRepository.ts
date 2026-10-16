@@ -24,6 +24,47 @@ import {
   insertPaymentRow,
   buildCounterpartyDiscountPosting,
 } from "./moneyPosting.js";
+import { buildPaymentSnapshot } from "../utils/paymentSnapshot.js";
+import {
+  TRANSACTION_DETAILS_VERSION,
+  type PartnerEntryDetails,
+} from "../validators/transactionDetails.js";
+
+function nonBlank(v: string | null | undefined): string | undefined {
+  return v != null && v.trim() !== "" ? v : undefined;
+}
+
+/**
+ * LIRA-329 — the `partner_entry` details on a partner transaction: the
+ * partner (by id), what kind of entry it is, the notes in full, the type
+ * picked in the Record Tx dropdown, a bundled discount as typed, and a
+ * discount / write-off reason. A note identical to the reason is kept once
+ * (as the reason). Pure.
+ */
+export function buildPartnerEntryDetails(input: {
+  partnerId: number;
+  action: PartnerEntryDetails["action"];
+  notes?: string | null;
+  pickedType?: string | null;
+  reason?: string | null;
+  discount?: { amount: number; currency: string } | null;
+}): PartnerEntryDetails {
+  const reason = nonBlank(input.reason);
+  const note = nonBlank(input.notes);
+  const pickedType = nonBlank(input.pickedType);
+  return {
+    v: TRANSACTION_DETAILS_VERSION,
+    kind: "partner_entry",
+    partnerId: input.partnerId,
+    action: input.action,
+    ...(note && note !== reason ? { note } : {}),
+    ...(pickedType ? { pickedType } : {}),
+    ...(reason ? { reason } : {}),
+    ...(input.discount && input.discount.amount > 0
+      ? { discount: input.discount }
+      : {}),
+  };
+}
 
 // =============================================================================
 // Entity Types
@@ -599,11 +640,60 @@ export class PartnerRepository extends BaseRepository<Partner> {
         : [...legMethods][0]
       : method;
 
+    // LIRA-329 — the bundled discount as typed (partner_ledger is one
+    // currency per row: only the settlement currency's side counts).
+    const typedDiscount = discount
+      ? {
+          amount: Math.abs(
+            (entry.currency === "LBP"
+              ? discount.amount_lbp
+              : discount.amount_usd) || 0,
+          ),
+          currency: entry.currency,
+        }
+      : null;
+    // The legs exactly as booked below (a Binance leg moves USDT); none for
+    // a CLIENT_ACCOUNT settlement, which moves no money.
+    const paymentSnapshot = isClientAccount
+      ? undefined
+      : buildPaymentSnapshot({
+          payments:
+            legs && legs.length > 0
+              ? legs.map((leg) => ({
+                  ...leg,
+                  currency_code:
+                    leg.method === "BINANCE" ? "USDT" : leg.currency_code,
+                }))
+              : [
+                  {
+                    method,
+                    currency_code: drawerCurrency,
+                    amount: Math.abs(entry.amount),
+                  },
+                ],
+        });
+
     const txn = this.db.transaction(() => {
       const txnId = getTransactionRepository().createTransaction({
         type: txnType,
         source_table: "partner_ledger",
         source_id: entry.id,
+        // LIRA-329: settle or payment, the notes, the type picked (a
+        // payment's Record Tx dropdown), the discount as typed, the legs.
+        details: buildPartnerEntryDetails({
+          partnerId: entry.partner_id,
+          action:
+            txnType === TRANSACTION_TYPES.PARTNER_PAYMENT
+              ? "PAYMENT"
+              : "SETTLE",
+          notes: entry.notes,
+          pickedType:
+            txnType === TRANSACTION_TYPES.PARTNER_PAYMENT
+              ? entry.transaction_type
+              : null,
+          discount: typedDiscount,
+        }),
+        ...(paymentSnapshot ? { payment_snapshot: paymentSnapshot } : {}),
         user_id: userId,
         amount_usd: entry.currency === "USD" ? signed : 0,
         amount_lbp: entry.currency === "LBP" ? signed : 0,
@@ -736,6 +826,13 @@ export class PartnerRepository extends BaseRepository<Partner> {
       type: TRANSACTION_TYPES.PARTNER_ADJUSTMENT,
       source_table: "partner_ledger",
       source_id: entry.id,
+      // LIRA-329: the notes and the type picked in the Record Tx dropdown.
+      details: buildPartnerEntryDetails({
+        partnerId: entry.partner_id,
+        action: "ADJUSTMENT",
+        notes: entry.notes,
+        pickedType: entry.transaction_type,
+      }),
       user_id: userId,
       amount_usd: entry.currency === "USD" ? signed : 0,
       amount_lbp: entry.currency === "LBP" ? signed : 0,
@@ -781,7 +878,14 @@ export class PartnerRepository extends BaseRepository<Partner> {
    * the partner forgives what the shop owes them (a payable) → profit
    * POSITIVE, flow OUT.
    */
-  recordDiscount(entry: PartnerLedgerEntry, userId: number): number {
+  recordDiscount(
+    entry: PartnerLedgerEntry,
+    userId: number,
+    /** LIRA-329 (bug #7) — the reason the cashier typed, carried to the
+     *  transaction. Passed explicitly: `entry.notes` cannot tell a reason
+     *  from the settlement's own notes it falls back to. */
+    reason?: string | null,
+  ): number {
     const partner = this.getById(entry.partner_id);
     const label = partner?.name ?? `partner #${entry.partner_id}`;
     const magnitude = Math.abs(entry.amount);
@@ -810,6 +914,14 @@ export class PartnerRepository extends BaseRepository<Partner> {
       type: TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
       source_table: "partner_ledger",
       source_id: entry.id,
+      // LIRA-329 (bug #7): the write-off / discount reason reaches the
+      // transaction, with any other notes on the ledger row.
+      details: buildPartnerEntryDetails({
+        partnerId: entry.partner_id,
+        action: "WRITE_OFF",
+        notes: entry.notes,
+        reason,
+      }),
       user_id: userId,
       amount_usd: 0,
       amount_lbp: 0,

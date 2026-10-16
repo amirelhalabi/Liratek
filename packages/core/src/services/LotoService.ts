@@ -76,6 +76,9 @@ export interface SellTicketData {
   transaction_time?: string;
   clientId?: number | null;
   clientName?: string | null;
+  /** LIRA-329 — informational only: the customer's phone (kept on the
+   *  transaction's `client_phone`). */
+  clientPhone?: string | null;
   /** Structured legs in the currency the customer ACTUALLY paid. */
   payments?: Array<{
     method: string;
@@ -90,6 +93,9 @@ export interface SellTicketData {
   tender_exchange_rate?: number;
   /** Session-basket deferred payment mode (basket owns the customer-cash post). */
   deferPayment?: boolean;
+  /** LIRA-329 — the session whose basket paid for this. Server-injected by
+   *  `SessionCheckoutService` (like `deferPayment`), never on the wire. */
+  paid_in_session?: number;
   /** Operator-edited USD↔LBP rate of record, threaded by the session checkout. */
   exchange_rate?: number;
   /**
@@ -185,8 +191,10 @@ export class LotoService {
         transaction_time: data.transaction_time,
         clientId: data.clientId,
         clientName: data.clientName,
+        clientPhone: data.clientPhone,
         payments: data.payments,
         deferPayment: data.deferPayment,
+        paid_in_session: data.paid_in_session,
         exchange_rate: data.exchange_rate,
         tender_exchange_rate: data.tender_exchange_rate,
         kept_change_usd: data.kept_change_usd,
@@ -1049,6 +1057,9 @@ export class LotoService {
     userId: number;
     /** Session-basket deferred payment mode (basket owns the cash-OUT payout). */
     deferPayment?: boolean;
+    /** LIRA-329 — the session whose basket paid for this prize (server-
+     *  injected by `SessionCheckoutService`, never on the wire). */
+    paid_in_session?: number;
     /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
     exchange_rate?: number;
     /** LIRA-201c (rule 11) — the session's resolved client id, injected into
@@ -1067,6 +1078,7 @@ export class LotoService {
         prize_date: data.prize_date || clientDay(),
         userId: data.userId,
         deferPayment: data.deferPayment,
+        paid_in_session: data.paid_in_session,
         exchange_rate: data.exchange_rate,
         clientId: data.clientId,
       };

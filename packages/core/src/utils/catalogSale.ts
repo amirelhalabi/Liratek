@@ -14,6 +14,9 @@ import type { CreateFinancialServicePayload } from "../validators/financial.js";
 
 /** The catalog fields a cart line needs (`mobile_service_items`). */
 export interface CatalogItem {
+  /** LIRA-329: the catalog item's key (`ServiceItem.key`), kept on the
+   *  sale's details. Optional — a caller without one sends none. */
+  key?: string | undefined;
   category: string;
   label: string;
   subcategory?: string | null | undefined;
@@ -28,6 +31,34 @@ export interface CatalogCartLine {
   quantity: number;
   /** Appended to this line in the note (the web's " [Only Days]"). */
   noteSuffix?: string | undefined;
+  /** LIRA-329: sold as Only Days, and the credits returned (USD) as shown. */
+  onlyDays?: boolean | undefined;
+  returnedCreditsUsd?: number | undefined;
+}
+
+/**
+ * LIRA-329 — the cart as the structured item list the transaction keeps in
+ * its details (`catalogItems`): one entry per line, as picked. Informational
+ * only; the server's money steps never read it.
+ */
+export function catalogCartItems(
+  lines: readonly CatalogCartLine[],
+): NonNullable<CreateFinancialServicePayload["catalogItems"]> {
+  return lines.map((l) => ({
+    ...(l.item.key ? { key: l.item.key } : {}),
+    ...(l.item.category ? { category: l.item.category } : {}),
+    ...(l.item.label ? { label: l.item.label } : {}),
+    quantity: l.quantity,
+    unitPrice: l.item.sell_lbp,
+    ...(l.onlyDays
+      ? {
+          onlyDays: true,
+          ...(l.returnedCreditsUsd !== undefined
+            ? { returnedCreditsUsd: l.returnedCreditsUsd }
+            : {}),
+        }
+      : {}),
+  }));
 }
 
 /** "category: label (subcategory)" — the name shown and written into the sale's note. */
@@ -138,5 +169,6 @@ export function buildCatalogSalePayload(input: CatalogSaleInput): CreateFinancia
     ...(clientId ? { clientId } : {}),
     ...(clientName ? { clientName } : {}),
     note: catalogCartNote(input.lines.map((l) => ({ ...l, suffix: l.noteSuffix }))),
+    catalogItems: catalogCartItems(input.lines),
   };
 }

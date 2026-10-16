@@ -23,6 +23,8 @@ UNVERIFIED were not traced to the end.
 
 ---
 
+> **Status (2026-10-16): sections 1 and 2 are covered by LIRA-329** (`specs/329-transaction-full-details`) for new transactions: every listed field is saved in `metadata_json.details` (per-kind schema), payment lines in `metadata_json.payment_snapshot`, and client name/phone in the row's columns. Display (summary / details view) is a later ticket; it must hide item and part costs from staff.
+
 ## 1. Gaps that apply to many types
 
 | Missing                                                            | Types affected                                                                                                                | Where it lives now                                  |
