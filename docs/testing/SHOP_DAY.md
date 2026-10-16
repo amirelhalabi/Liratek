@@ -1,0 +1,348 @@
+# Shop Day — one realistic day of a phone shop, run through the real UI
+
+Owner decision 2026-10-16. A full day of a phone shop, run end to end through
+the real UI after a tenant reset. It exists in two forms:
+
+1. **This document** — the scenario, readable by the owner, precise enough for
+   an agent or an e2e author.
+2. **`frontend/tests/e2e-web/lira-web-071-shop-day.spec.ts`** — the same day as
+   one serial web e2e spec.
+
+The day was first run by four cashier agents (A, B, C, D) on the test tenant on
+2026-10-16. Transaction ids quoted below (`#10895` …) come from that run and are
+for cross-reference only; a new run gets new ids. **Never assert on an id or a
+row position** — see [Traps](#6-traps-for-automation).
+
+---
+
+## 1. Purpose and how to run it
+
+**Purpose.** Every module that moves money is exercised once, in the order a
+real shop would hit it, and after each step we check what the cashier and the
+owner will later rely on: the drawer moved by the right amount, the transaction
+row carries the right client, its saved details (`metadata_json.details`) hold
+every field the cashier filled, its payment lines carry the right direction (IN
+= money into the shop, OUT = change / payout), and the Transactions page
+**Details** panel shows it in plain words.
+
+### (a) Automated
+
+```bash
+cd frontend && npx playwright test --config playwright.web.config.ts lira-web-071
+```
+
+Runs against the local fresh web-test DB. Ask the owner before running it (it
+is a long suite).
+
+### (b) Manual or agent run on the test tenant
+
+1. Log in as the shop admin.
+2. **Settings → Reset** (type the phrase `RESET ALL DATA`). The admin stays
+   signed in; there is **no setup wizard** afterwards.
+3. Run the day below in order.
+
+What Reset does (source of truth:
+`packages/core/src/constants/resetTables.ts`):
+
+| Bucket     | What                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Kept**   | Users and their sign-ins (`sessions` = login sessions), currencies, drawers config, modules, payment methods, exchange rates, system settings, product **catalog** (products, categories), Mobile Services items + item costs + voucher pictures, service presets, **partners**, **suppliers**, product-supplier picklist, loto settings, carrier lines (the numbers), paired offline PCs. |
+| **Zeroed** | Drawer balances (re-arms the Dashboard "starting drawer amounts not set" prompt), carrier-line credits / days owed (expiry date kept), product stock quantity + minimum stock level.                                                                                                                                                                                                       |
+| **Wiped**  | Every transaction, payment, drawer movement, ledger (supplier, partner, debt, carrier line), client, stock batch / IMEI unit / stock history, closing and checkpoint, customer session, expense, financial service, exchange, loto, hold money, custom service, voucher, audit log.                                                                                                        |
+
+So after a reset: catalog and partners/suppliers exist, every balance is 0,
+there are **no clients**, no stock, no history.
+
+**Partners/suppliers the day needs** (kept by reset on the test tenant; a fresh
+web-test DB must create them first): a partner for "Via Partner" top-ups and
+services (run used **Flow Partner 7619**), a partner for the Whish system
+receive (run used **Smoke Partner 3225**), the **Katsh** supplier (module-owned,
+exists already), and a product supplier name (**Beirut Mobile Distribution**).
+
+---
+
+## 2. Cast — data the day creates
+
+### Clients
+
+| Name           | Phone    | How created                                                  |
+| -------------- | -------- | ------------------------------------------------------------ |
+| Rami Haddad    | 03456789 | Clients page                                                 |
+| Nour Khalil    | 71234567 | Clients page                                                 |
+| Hassan Zein    | 76998877 | Clients page                                                 |
+| Karim Saab     | 70112233 | auto, POS walk-in (typed name + phone)                       |
+| Walid Mansour  | 70445566 | auto, Binance cash out                                       |
+| Fadi Nassar    | 03778899 | auto, OMT send ("Save as client" unchecked — created anyway) |
+| Ali Hamdan     | 71889900 | auto, Whish system receive                                   |
+| Joe Karam      | 76554433 | auto, Mobile Recharge basket                                 |
+| Rana Saleh     | 03667788 | auto, Whish App send                                         |
+| Abu Fadi       | 71555222 | auto, Loto sale (typed, not picked)                          |
+| Samir Aoun     | 70998811 | customer session (also typed, no phone, on a Custom Service) |
+| Maya Fares     | —        | name only, Alfa Gift (no client)                             |
+| Marc Dubois    | —        | name only, EUR exchange (no client)                          |
+| Georges Khoury | 70998811 | name + phone typed on Hold Money (no client)                 |
+
+Phones are **digits only** (`03 456 789` is rejected).
+
+### Stock (Inventory → Adjust stock, supplier Beirut Mobile Distribution)
+
+| Product                      | Qty | Unit cost | Notes                                                                   |
+| ---------------------------- | --- | --------- | ----------------------------------------------------------------------- |
+| iPhone 15 128GB              | 2   | $690      | IMEIs **356938035643809** (sold, then refunded) and **356938035643817** |
+| iPhone 15 Clear MagSafe Case | 10  | catalog   |                                                                         |
+| Apple 20W charger            | 5   | catalog   |                                                                         |
+| iPhone 15 Tempered Glass     | 10  | catalog   | used as a repair part                                                   |
+| Galaxy A55 Clear Case        | 5   | catalog   |                                                                         |
+| USB-C cable                  | 10  | catalog   |                                                                         |
+
+### Other
+
+- Voucher **GIFT-xxxx-xxxx**, $10, for Hassan (code generated).
+- Carrier lines (Phone Lines → Shop lines, info only): Alfa 03222875 $150, MTC
+  03111875 $150, MTC 03111333 $50.
+
+### Preconditions — rates and prices the amounts depend on
+
+Every LBP amount and change figure below assumes these values. Set them on a
+fresh web-test DB (find products by **name**; ids differ).
+
+| Setting                      | Value                |
+| ---------------------------- | -------------------- |
+| USD → LBP tender / sale rate | **89,000**           |
+| USD → LBP market rate        | **89,500**           |
+| EUR → USD rate / market      | **1.16** / **1.18**  |
+| iPhone 15 128GB sale price   | **$799** (cost $690) |
+| iPhone 15 Clear MagSafe Case | **$12**              |
+| Apple 20W charger            | **$19**              |
+| USB-C cable                  | **$7**               |
+| Galaxy A55 Clear Case        | **$6**               |
+| iPhone 15 Tempered Glass     | **$5**               |
+| MTC $6 credit default price  | 600,000 LBP          |
+
+---
+
+## 3. The day
+
+Each step: **Do** (page → action → values) and **Must be true after**.
+"Details" = the transaction's saved details kind and fields; "Lines" = the
+payment snapshot lines with direction; "Panel" = what the Transactions page
+Details panel shows. Drawer = the General drawer unless named.
+
+**Open bugs in "Must be true after".** A check marked **[after fix, bug N]**
+is what must hold once bug N (§5) is fixed; today the app does what §5 row N
+describes. In the serial spec, write those checks as `expect.soft(...)` with a
+`// bug N` comment, so an open bug is reported but does not stop the steps
+after it. Turn them into hard `expect` as each fix lands.
+
+**Before every money step**, snapshot the drawers/ledgers you will check, and
+assert the **delta** afterwards (rule 15).
+
+**After picking or typing a client**, the first payment line silently defaults
+to **Customer Account** — set it back to **Cash** unless the step says
+otherwise. Same for the "Shop pays OUT" select on payouts.
+
+### Part 0 — Opening
+
+| #   | Do                                                                                                                                                                                                                         | Must be true after                                                                                                                                                                                                                                                                 |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.1 | Dashboard → "needs attention" → **Set now** → Initial Drawer Amounts. General USD **500**, General LBP **20,000,000**, OMT LBP **10,000,000**, OMT USD **300**, Whish LBP **5,000,000**, Whish USD **200** → Save Amounts. | A checkpoint `AGGREGATED`, notes "Initial drawer amounts setup", expected = counted. Starting checkpoint and initial balances both report set; the Dashboard warning is gone. **Check the form has 6 inputs before saving** — an all-zero save is accepted and leaves the warning. |
+| 0.2 | Inventory → search "iPhone 15 128GB" → **Adjust stock** → Add +2 (cost prefilled $690), reason → Apply. Then add IMEIs 356938035643809 and 356938035643817 → Done.                                                         | Stock received with a batch at $690; both IMEI units registered; stock count matches units.                                                                                                                                                                                        |
+| 0.3 | Same for the 5 accessories in the stock table (no IMEIs).                                                                                                                                                                  | Each quantity on hand = the amount received.                                                                                                                                                                                                                                       |
+| 0.4 | Clients → Add Client: Rami, Nour, Hassan (name, phone, notes).                                                                                                                                                             | Three clients exist.                                                                                                                                                                                                                                                               |
+| 0.5 | Phone Lines → Shop lines → Edit each line: credits + validity date → Save.                                                                                                                                                 | Line credits saved. No transaction.                                                                                                                                                                                                                                                |
+| 0.6 | Mobile Recharge → **Katsh** → Top-Up → 200 → Confirm Supplier Credit. Same for **iPick** 200 and **OMT App** 200.                                                                                                          | One wallet top-up each. Details `wallet_topup` {provider, source SUPPLIER}. Each wallet drawer +$200; the supplier is owed $200 (Katsh balance $200).                                                                                                                              |
+| 0.7 | Mobile Recharge → **Whish App** → Top-Up → Via Partner → pick **Flow Partner 7619** → 300 → Top Up via Partner.                                                                                                            | Details `wallet_topup` {source PARTNER, partner {mode VIA}}. Whish App drawer +$300; we owe Flow Partner $300.                                                                                                                                                                     |
+
+### Part 1 — POS (Point of Sale)
+
+| #   | Do                                                                                                                                                                                                                                                                             | Must be true after                                                                                                                                                                                                                                                                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.1 | Add **iPhone 15 128GB**, warranty **12** months, pick IMEI **356938035643809**; add **MagSafe case ×2**. Checkout → pick **Rami Haddad** → Split: Cash USD **700** + Cash LBP **11,500,000**. Change box suggests **$6 + 20,000 LBP** → Complete Sale. (run: sale 182, #10895) | SALE, client Rami Haddad 03456789. Details `pos_sale`: each item has product, unit price, unit cost, and the iPhone has IMEI, unit and warranty 12. Lines: 2 IN (700 USD, 11.5M LBP) + 2 OUT (change $6, 20,000 LBP). IMEI unit …809 is SOLD. General: +$694 USD, +11,480,000 LBP. |
+| 1.2 | Walk-in: charger + cable ($26) → checkout → type name **Karim Saab**, phone **70112233** → pay Cash LBP **2,400,000** → Complete. (sale 183, #10896)                                                                                                                           | Client Karim Saab auto-created and on the row. Change returned is **90,000 LBP** while **86,000** was due (rate rounding — see open question in report).                                                                                                                           |
+| 1.3 | 2 × A55 case + glass ($17) → pick **Nour** → Cash → **− Discount $2** → paid **$20** → Complete. (sale 184, #10899)                                                                                                                                                            | Details `discount {2 USD}`; change $5 OUT. General +$15.                                                                                                                                                                                                                           |
+| 1.4 | Vouchers → client **Hassan**, $10, note "Birthday gift" → Create Voucher. Then POS: 2 cases ($24) → Hassan → Split: **Gift card** (code prefilled) $10 + Cash $14 → Complete. (sale 185, #10900)                                                                               | Payment carries the voucher code; details `giftCardCodes: ["GIFT-…"]`. Voucher redeemed. General +$14. (UI also sends an empty Cash 0 line — harmless.)                                                                                                                            |
+
+### Part 2 — OMT / Whish (system transfers)
+
+| #   | Do                                                                                                                                                                                                                                         | Must be true after                                                                                                                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.1 | OMT ↑ Send → service **Cash to Business** → amount **200**, fee **4**, sender **Fadi Nassar 03778899**, reference **C2B-889120** → paid **$210** → Record Send. (#10901 + auto #10902)                                                     | Details `omt_whish_transfer` {serviceType CASH_TO_BUSINESS, reference, sender {name, phone}, omtFee 4, includingFees false}. Change $6 OUT. An auto SUPPLIER_PAYMENT sibling, hidden by default (`is_auto`). C2B has no receiver fields. |
+| 2.2 | WHISH ↓ Receive → partner **Smoke Partner 3225** → amount **100**, **Fee included in payout**, Whish fee **2**, receiver **Ali Hamdan 71889900**, reference → Record Receive. (#10903)                                                     | Details {partner {mode THROUGH}, receiver, whishFee 2, includingFees true}. Payout **$98 cash OUT** — the payout line must read **Out** [after fix, bug 1].                                                                              |
+| 2.3 | OMT ↑ Send → **Online Brokerage** → 50, sender Rami, ref → tick "Charge BINANCE fee to customer", item **BINANCE-Main**, fee **0.5**. The UI auto-adds a Customer Account $0.50 line — set it to **Cash** → Record Send. (#10904 + #10905) | Request has omtFee 0.5, payFee true, item key; details `brokerage {payFee, supplierItemKey, fee}`.                                                                                                                                       |
+| 2.4 | OMT ↑ Send → **Intra** 100 (auto fee $1) → pay method **Whish** wallet; set the payment-method fee to **0** → Record Send. (#10906 + #10907)                                                                                               | Recorded, paid from the Whish wallet $101. **With the automatic 1% method fee it is refused** (open bug 13) — the e2e uses fee 0 until fixed.                                                                                            |
+
+### Part 3 — Mobile Recharge
+
+| #   | Do                                                                                                                                                                                                                                                        | Must be true after                                                                                                                                                                                                                      |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3.1 | **MTC** credit: phone **03123987** → **$6** → Proceed to Pay → client **Rami** → Cash, paid **1,000,000 LBP**, LBP change **350,000** → Pay. Sheet says "50,000 LBP not returned goes to the customer's account as credit". (#10908 + SMS expense #10909) | Details `telecom_recharge` {carrier MTC, CREDIT_TRANSFER, phone, amount, carrier line, default price}. Lines: Cash 1M IN, change 350k OUT, **Customer Account 50,000 LBP OUT** (Rami's account credited). Auto SMS expense row, hidden. |
+| 3.2 | **Alfa** → Days → **1mo** → cost **3.5**, price **6** → Proceed to Pay. Remove the client left from 3.1 (sheet keeps it). Cash USD, paid **$10**, USD change **$3** → "Keeping $1.00 as profit" → Pay. (#10910)                                           | Details `typed {costUsd 3.5, priceUsd 6}`, days 30. Snapshot `kept {usd 1}`. General +$7. (Days form has no phone field.)                                                                                                               |
+| 3.3 | **Alfa Gift** → **7 GB** → Pay → client name **Maya Fares** → **− Discount 50,000 LBP** → Pay. (#10911)                                                                                                                                                   | Details `giftTier {key 7GB}`, `discount {50,000 LBP}`; name on the row, no client created.                                                                                                                                              |
+| 3.4 | Basket: Katsh tab → "10d validity" (Alfa 4.5) + "touch" (MTC 1) → Bill **500,000** → Add Bill → iPick tab → "30d validity" (alfa 7.58) → Proceed to Pay → **Joe Karam 76554433** → Split: Cash USD **20** + Cash LBP **170,000** → Pay. (#10913–10916)    | One customer session checked out; 4 rows (catalog sale ×3 + provider bill), each `paid_in_session`, each with Joe's name and phone; no active session left. Catalog items should carry a readable label [after fix, bug 8].             |
+| 3.5 | **Whish App** → Transfer → Send **50** → sender **Rana Saleh 03667788** → Proceed → Cash, paid **$60** → Pay. (#10924)                                                                                                                                    | Details `wallet_transfer`; change $10 OUT. No fee field on Whish App send (by design).                                                                                                                                                  |
+| 3.6 | Whish App → Receive **80** → fee **1.5** → "Sender (added to transfer)" → receiver: type "Hassan", click the suggestion → Proceed → Shop pays **Cash** → Pay. (#10925)                                                                                    | Details {feePaidBy SENDER, providerFee 1.5, cashoutMethod CASH}; client Hassan linked; payout **$80**, line **Out** [after fix, bug 1].                                                                                                 |
+| 3.7 | **Binance** → Cash Out (customer sells USDT): 150, fee 3, "Deducted from payout", **Walid Mansour 70445566**, reference → Confirm → Shop pays Cash → Confirm. (#10897/10898)                                                                              | Details `crypto_transfer`; payout **$147**, line **Out** [after fix, bug 1]; Binance wallet +150.                                                                                                                                       |
+| 3.8 | Binance → Send Crypto **40**, fee **1** → pick **Karim** → ref → Proceed → Cash LBP **3,700,000** → Pay. (#10926)                                                                                                                                         | Details `crypto_transfer`; change ≈ $0.57.                                                                                                                                                                                              |
+| 3.9 | Whish App → Top-Up → **From Client** → credits **100**, fee **3**, "Fee included" → client **Nour** → Buy Credits from Client. (#10927)                                                                                                                   | Details {source CLIENT, includingFees true, fee 3}; payout **$97**, line **Out** [after fix, bug 1]. (The checkbox does not change the $97.)                                                                                            |
+
+### Part 4 — Repair (Maintenance)
+
+| #   | Do                                                                                                                                                                                                                                                                                                                                                                                                                               | Must be true after                                                                                                                                                                                                                         |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 4.1 | Device **iPhone 13 Pro Max**, issue (> 60 chars, run used 113), warranty **3** months. **LBP** mode: cost **1,300,000**, price **5,400,000**. Part: search "Tempered" → **iPhone 15 Tempered Glass**. Client Hassan. Proceed to Checkout → **re-pick Hassan** (fields arrive empty) → method **Cash** (empty in LBP mode) → **− Discount 345,000 LBP** → paid **6,000,000**, LBP change **450,000** → Complete. (job 43, #10928) | Details `maintenance_job`: full issue text, repair cost/price LBP, warranty 3 + warranty-until date, `parts[]` with unit cost, `discount {345,000 LBP}`. Lines: Cash 6M IN, 450k OUT, **Customer Account 50,000 LBP OUT**. Glass stock −1. |
+
+### Part 5 — Exchange
+
+| #   | Do                                                                                                                                                                                        | Must be true after                                                                                                                                       |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 5.1 | FROM **USD** TO **LBP**, **100**, custom rate **88,500** → client **Walid** → Proceed to Payout → pay **8,800,000 LBP** → "Change kept (profit) 50,000 LBP" → Pay. (exchange 134, #10929) | Leg {rate 88,500, market 89,500, overridden}; snapshot `kept {lbp 50,000}`. General +$100, −8,800,000 LBP.                                               |
+| 5.2 | FROM **More → EUR** TO **LBP**, **50**, name **Marc Dubois** → Payout → Pay (5,162,000 LBP). (exchange 135, #10930)                                                                       | via USD, 2 legs. Row amount must read "50 EUR in / 5,162,000 LBP out" [after fix, bug 6]; leg 1 profit must be saved [after fix, bug 6]. EUR drawer +50. |
+
+### Part 6 — Loto
+
+| #   | Do                                                                                                                                       | Must be true after                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 6.1 | Loto → sell a **500,000 LBP** ticket, typed walk-in **Abu Fadi 71555222**, paid **$6** cash, change **34,000 LBP**. (ticket 149, #10932) | Details `loto_sale`; client Abu Fadi auto-created. No ticket number (not on the form).                                   |
+| 6.2 | Loto → cash prize **2,000,000 LBP**, ticket **LT-48213** → paid from General LBP. (prize 3, #10935)                                      | Details `loto_prize`; General −2,000,000 LBP; payout line **Out** [after fix, bug 1]. Prize date = today (not editable). |
+
+### Part 7 — Custom Services and Hold Money
+
+| #   | Do                                                                                                                                                                                                       | Must be true after                                                                                                                         |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 7.1 | Custom Services → **Repair**, description **"Charging port replacement - Galaxy A52"**, cost **$8**, price **$25**, client **Rami**, note → Split $15 + 900,000 LBP → change 10,000 LBP. (cs 53, #10940) | Details `custom_service` **with the description** [after fix, bug 11] (today: typed without Enter, it is saved as plain "Custom Service"). |
+| 7.2 | Repair **"Screen replacement - iPhone 11"**, **LBP** mode cost **2,500,000** price **4,500,000**, typed name **Samir Aoun** (no phone), note, paid 4.5M LBP. (cs 54, #10942)                             | Description saved; name on row; no client created.                                                                                         |
+| 7.3 | **Other**, **Via Partner Flow Partner 7619**, "Board-level repair Galaxy S21 (no power) - partner lab", cost **$30** price **$45**, client **Hassan**, paid **$50** change $5. (cs 55, #10945)           | Details partner {mode VIA}; we owe Flow Partner +$30.                                                                                      |
+| 7.4 | Hold Money → hold **$200 + 1,000,000 LBP** for **Georges Khoury 70998811**, notes, received split Cash USD + LBP. (hold 3, #10947)                                                                       | Details `hold_money` CREATE; General +$200, +1M LBP. Method list must not be empty [after fix, bug 12].                                    |
+| 7.5 | Pickup **$100** cash. (#10948)                                                                                                                                                                           | COLLECT; General −$100; payout line **Out** [after fix, bug 1]; hold partly collected.                                                     |
+| 7.6 | Final pickup **$100 + 1,000,000 LBP**. (#10949)                                                                                                                                                          | COLLECT; hold fully collected; General back to the pre-7.4 amount.                                                                         |
+
+### Part 8 — Customer session
+
+| #   | Do                                                                                                           | Must be true after                                                                                                                                                                               |
+| --- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 8.1 | Start a session: **Samir Aoun 70998811**, notes "Walk-in, phone + recharge". (session 97)                    | One active session.                                                                                                                                                                              |
+| 8.2 | POS inside the session: USB-C cable ($7) + Apple 20W ($19) → add to the session cart.                        | Cart item "POS Sale (2 items) - $26.00". **For Partner is hidden during a session.**                                                                                                             |
+| 8.3 | Mobile Recharge → **MTC** credit **$3** to 70998811 at **300,000 LBP** (cost 255,000) → add to session cart. | Cart item "MTC Recharge - 70998811 - 300,000 LBP".                                                                                                                                               |
+| 8.4 | Mobile Recharge → Katsh → **alfa 3.03 (Prepaid)** → add to session cart (355,000 LBP, cost 318,978).         | Cart item "Katsh: alfa: 3.03 (Prepaid) x1".                                                                                                                                                      |
+| 8.5 | Check out the session, pay cash.                                                                             | **Not yet run** when this was written (no checkout call in the 2026-10-16 log). Expected: one row per cart item, each `paid_in_session`, Samir's name and phone on each, no active session left. |
+
+### Part 9 — Money and accounts
+
+| #   | Do                                                                                                                                                                                                 | Must be true after                                                                                                                                                                                                                                                                                                            |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 9.1 | Expenses → **Bill**, "Generator subscription (abonnement) October, 5A line - receipt #A-4471", **$18.50**, Cash USD handed **$20**, change **$1**, the $0.50 left kept. (exp 142, #10933)          | Details `expense` {category Bill, full description, billAmount 18.5 USD, expense date}. Lines: $20 handed **Out**, $1 change back **In** — today both read the other way round [after fix, bug 1]; kept $0.50. Row amount −$19. General −$19.                                                                                 |
+| 9.2 | Accounts → Add Credit/Debt → **Debt**, **Nour**, **$30**, note "Cash advance to Nour until Friday payday", cash moved. (#10936)                                                                    | `account_entry` DEBT_CASH_OUT, note; Nour owes $30; General −$30; line **Out** [after fix, bug 1].                                                                                                                                                                                                                            |
+| 9.3 | Nour → Settle Debt: Cash **$25**, Forgive **$5**, reason "Loyal customer - $5 off the advance", note "Repaid from salary, rest forgiven". (#10937 + #10938)                                        | Two rows: REPAYMENT (Cash $25 IN) and the forgiven $5 (`discount {5 USD}`, reason). Nour owes $0. General +$25.                                                                                                                                                                                                               |
+| 9.4 | Suppliers → **Katsh** (owed $200) → Pay Supplier, Cash USD **$80**, note "Partial settlement of Katsh float, handed to rep Georges". (#10941)                                                      | `supplier_entry` PAY, note; Katsh owed $120; General −$80; line **Out** [after fix, bug 1]; panel shows the supplier name [after fix, bug 4].                                                                                                                                                                                 |
+| 9.5 | Partners → **Flow Partner 7619** (we owe $300 from 0.7, plus $30 from 7.3 in this order) → Settle, Split: Cash USD **$200** + Whish USD **$100**, note "Paid back the Whish App float …". (#10943) | `partner_entry` SETTLE. Expected (not yet seen in a run, derived from the step order): we still owe Flow Partner **$30**. The 2026-10-16 run settled before 7.3, when $300 was owed, so it read $0. General −$200, Whish App −$100; lines **Out** [after fix, bug 1]; the Whish leg is not saved as Cash [after fix, bug 16]. |
+| 9.6 | Partners → **Smoke Partner 3225** (owes us) → Write off **$15**, reason "Agreed to absorb the $15 Whish fee dispute on the Hamdan transfer". (#10944)                                              | `partner_entry` WRITE_OFF with reason; Smoke now owes **$85** (was $100; expected, not yet seen in a run); no cash moves; panel shows the $15 amount [after fix, bug 4].                                                                                                                                                      |
+| 9.7 | **OMT App** → header Top-Up → "Transfer from drawer" General, **$15**. (#10946) — substitute for a Binance top-up, which does not exist.                                                           | `wallet_topup` {provider OMT_APP, source DRAWER}; General −$15, OMT App +$15; panel shows amount and drawer [after fix, bug 9].                                                                                                                                                                                               |
+
+### Part 10 — Reversals
+
+| #    | Do                                                                                                                                                                      | Must be true after                                                                                                                                                                                                                                         |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10.1 | Transactions → walk-in sale of step 1.2 (Karim, $26) → **Void** → confirm. (void #10934 of #10896)                                                                      | Original VOIDED; reversal row {kind reversal, original id, client Karim Saab 70112233 copied, amount −26}. General −2,310,000 LBP (the 2,400,000 taken minus the 90,000 change). Stock +1 charger, +1 cable.                                               |
+| 10.2 | POS → Today's Sales → Rami's sale (step 1.1, $823) → **Refund item** iPhone 15 (IMEI …809), qty 1, **Defective** ticked, default return legs. (refund #10939 of #10895) | Refund row linked to the sale (sale shows **Partly refunded**) [after fix, bug 2]; return lines in sensible amounts [after fix, bug 15]; IMEI unit …809 out of sellable stock (defective). Panel names the product, not "product 122" [after fix, bug 15]. |
+
+### Part 11 — Wrong number
+
+| #    | Do                                                                                                                                     | Must be true after                                                                                                              |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 11.1 | Transactions → the iPick alfa 7.58 basket row (step 3.4) → **Wrong number…** → wrong **76554443**, right **76554433**, no credits yet. | A wrong-number record + an expense row (#10950); the original sale unchanged. Screen does not hang loading [after fix, bug 20]. |
+
+### Part 12 — Export
+
+| #    | Do                                       | Must be true after                                                                                                                                                                                                                                                         |
+| ---- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 12.1 | Transactions → clear search → **Excel**. | Sheets **Transactions**, **Details**, **Payments**. The void (10.1), refund (10.2) and wrong number (11.1) are in Transactions and Details; reversals also appear in Payments [after fix, bug 3]; each payment line is its own cell, not run together [after fix, bug 10]. |
+
+### Panel check (any time after the money steps)
+
+Open the Details panel on one row per kind. It must show: names not ids
+(supplier, partner, product), dates formatted, every amount with its currency,
+humanised codes (not CASH / THROUGH / DEDUCTED / REPAYMENT / SETTLE / DRAWER),
+payout and money-out legs as **Out**, and the write-off / forgiven amount — all [after fix, bug 4] (legs: bug 1).
+
+---
+
+## 4. Couldn't do
+
+| What                                                 | Why                                                                                                                                                            |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Binance top-up                                       | No Top-Up on the Binance tab and no Binance in the top-up providers. **Owner: not needed.** Binance is funded by a customer Cash Out (3.7). Replaced by 9.7.   |
+| Loto ticket number on a sale                         | The sell form has no ticket-number field.                                                                                                                      |
+| Loto prize date                                      | Always today; not editable.                                                                                                                                    |
+| Warranty date on an item refund                      | The refund form offers no warranty field.                                                                                                                      |
+| OMT/Whish send paid by wallet with the 1% method fee | Server refuses every combination (open bug 13); recorded with fee 0, so the method-fee details could not be checked.                                           |
+| Mobile Recharge "For Partner" order                  | Partner list showed "No partners available" although partners exist (open bug 14). First attempt lost when the page reloaded (Vite HMR from concurrent edits). |
+| Phone on Alfa Days                                   | The Days form has no phone field.                                                                                                                              |
+| Fee on Whish App send                                | No fee field — by design.                                                                                                                                      |
+
+---
+
+## 5. Bugs found on 2026-10-16
+
+`fixes.md` did not exist yet when this was written, so every row is **open**
+unless a ledger said otherwise. Rows 17–23 come from the owner's brief only;
+their one-line description is a best reading of the title — confirm it. Fix agents append to `fixes.md`; copy their test file here when done.
+
+| #   | Bug                                                                                                                                                                                                         | Found at                        | Fixed?               | Guarding test |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | -------------------- | ------------- |
+| 1   | Payout and money-out payment lines shown as **In** (snapshot direction) — Whish/Binance/Whish App receive, top-up from client, loto prize, hold pickup, expense, cash advance, supplier pay, partner settle | 2.2, 3.6–3.9, 6.2, 7.5, 9.1–9.5 | open                 | —             |
+| 2   | Item refund not linked to its sale (sale not shown **Partly refunded**)                                                                                                                                     | 10.2                            | open                 | —             |
+| 3   | Reversals (void, refund) missing from the export **Payments** sheet — no payment snapshot                                                                                                                   | 12.1                            | open                 | —             |
+| 4   | Details panel: raw codes, raw ISO dates, amounts without currency, rates, ids instead of names, write-off/forgiven amount shown "—"                                                                         | panel check                     | open                 | —             |
+| 5   | EUR exchange row amount text "$1 + −5,162,000 LBP"                                                                                                                                                          | 5.2                             | open                 | —             |
+| 6   | EUR exchange: leg 1 profit saved as 0 though sent 1.0; amount_usd 1.0000000000000009                                                                                                                        | 5.2                             | open                 | —             |
+| 7   | Partner write-off reason not on details                                                                                                                                                                     | 9.6                             | yes (before the run) | —             |
+| 8   | Catalog recharge items have no readable label                                                                                                                                                               | 3.4                             | open                 | —             |
+| 9   | Wallet top-up details thin (amount, currency, source drawer only in metadata; no payment section)                                                                                                           | 9.7, 0.6                        | open                 | —             |
+| 10  | Export: payment lines run together in one cell                                                                                                                                                              | 12.1                            | open                 | —             |
+| 11  | Custom Services description dropped when typed without Enter                                                                                                                                                | 7.1                             | open                 | —             |
+| 12  | Hold Money payment method list empty                                                                                                                                                                        | 7.4                             | open                 | —             |
+| 13  | OMT/Whish send paid by wallet with the auto 1% method fee refused ("expected $102 got $101")                                                                                                                | 2.4                             | open                 | —             |
+| 14  | Mobile Recharge For Partner: "No partners available" while partners exist                                                                                                                                   | couldn't do                     | open                 | —             |
+| 15  | Item refund return legs in fractions (673.762 USD + 11,145,224.787 LBP) and "product 122" instead of the name                                                                                               | 10.2                            | open                 | —             |
+| 16  | Partner split settle saved the Whish leg as CASH                                                                                                                                                            | 9.5                             | open                 | —             |
+| 17  | Services commission booked in LBP + USDT                                                                                                                                                                    | 3.7–3.8                         | open                 | —             |
+| 18  | Accounts page shows a stale client after a change                                                                                                                                                           | 9.2–9.3                         | open                 | —             |
+| 19  | Top-Up modal slow to reflect the new balance                                                                                                                                                                | 0.6, 9.7                        | open                 | —             |
+| 20  | Wrong-number screen stuck loading                                                                                                                                                                           | 11.1                            | open                 | —             |
+| 21  | Reset button / Settings page stuck loading                                                                                                                                                                  | 1(b)                            | open                 | —             |
+| 22  | Customer session can be backdated                                                                                                                                                                           | Part 8                          | open                 | —             |
+| 23  | History edit not recorded on the transaction                                                                                                                                                                | —                               | open                 | —             |
+| 24  | OMT send auto-creates a client although "Save as client" is unchecked                                                                                                                                       | 2.1                             | open                 | —             |
+| 25  | Maintenance checkout: client fields arrive empty; method empty in LBP mode                                                                                                                                  | 4.1                             | open                 | —             |
+| 26  | Walk-in POS LBP change 90,000 while 86,000 due                                                                                                                                                              | 1.2                             | open (unconfirmed)   | —             |
+
+**Decided — not a bug / by design**
+
+| Item                                                                   | Decision                                     |
+| ---------------------------------------------------------------------- | -------------------------------------------- |
+| First payment line defaults to Customer Account after picking a client | Owner Q3: keep it. Specs must reset to Cash. |
+| MTC recharge details have no `smsExpenseTxnId`                         | By design (owner brief).                     |
+| Binance top-up                                                         | Owner: not needed.                           |
+| No fee on Whish App send                                               | By design.                                   |
+
+---
+
+## 6. Traps for automation
+
+| Trap                                                                                                                 | Do this                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shared, accumulating DB; one action can write several rows (auto siblings, CLIENT_CREATED); ids and `created_at` tie | Match rows by **identity** (type + kind + client + amount, reference, `source_id`), never "newest row" or `tbody tr.first()`. Assert **deltas** (rule 15).          |
+| Logins are rate-limited (200 req/min per user; a reload ≈ 25 GETs)                                                   | Log in **once** for the whole serial spec; never reload in a loop. A 429 burst once left the checkpoint form showing "Failed to load currencies" with Save enabled. |
+| Many pickers are custom listboxes, not `<select>`                                                                    | Click the trigger, then the option by text (service picker, partner picker, client suggestions). Native `select` only for payment method/currency lines.            |
+| Modals and sheets are not `role=dialog`                                                                              | Scope to the top overlay (`.fixed.inset-0`, last) or to visible text in it.                                                                                         |
+| `confirm()` dialogs (void, delete)                                                                                   | Register `page.on("dialog", d => d.accept())` before clicking.                                                                                                      |
+| Picking/typing a client flips line 1 to Customer Account                                                             | Set method back to `CASH` after every client pick (and the payout "Shop pays OUT" select).                                                                          |
+| Typed name + phone of an existing client without clicking its suggestion creates a **duplicate**                     | Always click the suggestion button.                                                                                                                                 |
+| Mobile Recharge payment sheet is bound live to the form                                                              | Close the sheet before picking a client suggestion in the form.                                                                                                     |
+| Sheet keeps the previous client between recharges                                                                    | Remove it explicitly (3.2).                                                                                                                                         |
+| Initial drawer amounts accept all zeros                                                                              | Assert 6 inputs are visible before Save.                                                                                                                            |
+| Phones with spaces rejected                                                                                          | Digits only.                                                                                                                                                        |
+| Vite HMR reloads pages when files change during a run                                                                | Don't edit the working tree while a run is going; on a jump back, re-check page state before continuing.                                                            |
+| Product search is debounced                                                                                          | Wait on the result row (content), not a fixed timeout.                                                                                                              |
+| Fixed `waitForTimeout`s are flaky                                                                                    | Wait on content or on the API response (`page.waitForResponse`).                                                                                                    |
+| Catalog ids differ between the test tenant and the fresh web-test DB                                                 | Find products, partners, suppliers by **name**.                                                                                                                     |
