@@ -566,6 +566,8 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     // single paid-by leg below is not invented here.
     const paymentSnapshot = cash
       ? buildPaymentSnapshot({
+          // The shop pays the vendor: handed cash is OUT, change back IN.
+          flow: "PAYOUT",
           payments: data.payments,
           keptChange: { usd: cash.notReturnedUsd, lbp: cash.notReturnedLbp },
         })

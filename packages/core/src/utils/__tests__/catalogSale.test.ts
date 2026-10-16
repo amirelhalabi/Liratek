@@ -8,6 +8,8 @@ import {
   buildCatalogSalePayload,
   catalogCartNote,
   catalogCartTotals,
+  catalogItemKey,
+  catalogItemLabelFromKey,
   formatCatalogItemName,
   usdForLbp,
   type CatalogItem,
@@ -113,4 +115,35 @@ describe("buildCatalogSalePayload", () => {
       expect(() => buildCatalogSalePayload({ provider: "Katsh", lines: bad, paidByMethod: "WHISH" })).toThrow();
     },
   );
+});
+
+// Shop-day fix — NOT proven failing-first (rule 17): the helpers are new; the
+// failing-first proof is the "label from its catalog key" case in
+// FinancialServiceRepository.mobileDetails.test.ts.
+describe("catalog item key", () => {
+  it("is provider/category/subcategory/label, and gives the label back", () => {
+    const key = catalogItemKey({
+      provider: "Katsh",
+      category: "alfa",
+      subcategory: "Prepaid",
+      label: "4.5",
+    });
+    expect(key).toBe("Katsh/alfa/Prepaid/4.5");
+    expect(catalogItemLabelFromKey(key)).toBe("4.5");
+  });
+
+  it("keeps a label that contains a slash, and an empty subcategory", () => {
+    const key = catalogItemKey({
+      provider: "WHISH_APP",
+      category: "Anghami",
+      subcategory: "",
+      label: "1/3 months",
+    });
+    expect(catalogItemLabelFromKey(key)).toBe("1/3 months");
+  });
+
+  it("returns nothing for a key in another format", () => {
+    expect(catalogItemLabelFromKey("anghami-1m")).toBeUndefined();
+    expect(catalogItemLabelFromKey(undefined)).toBeUndefined();
+  });
 });

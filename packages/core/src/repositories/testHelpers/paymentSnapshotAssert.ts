@@ -4,12 +4,11 @@
  * the flow actually booked (the source of truth for drawers).
  *
  * Compared as a multiset of `{ method, currency, amount, direction }`:
- *  - `payments.amount` is a signed DRAWER delta, while a snapshot line keeps
- *    the unsigned amount plus the flow direction (a payout leg is IN in the
- *    snapshot but negative in `payments`), so the sign says nothing about
- *    direction. Direction is read from the change marker instead: the shared
- *    end-of-transaction OUT loops note their rows "Change returned", and
- *    POS / Maintenance cash change is posted as "Change given".
+ *  - `payments.amount` is a signed DRAWER delta, and a snapshot line keeps
+ *    the unsigned amount plus the way the money moved for the shop's drawer
+ *    (shop-day fix: a payout leg is OUT, change handed back on a sale is
+ *    OUT, change a vendor/supplier hands back on a payout is IN). So the
+ *    row's sign IS the line's direction: amount < 0 → OUT, otherwise IN.
  *  - Each caller names what it leaves out, with the reason, through the
  *    options: `payments` rows that are internal bookkeeping (not a line the
  *    customer saw), and snapshot methods this flow books without a
@@ -22,8 +21,6 @@
 import type Database from "better-sqlite3";
 import { paymentSnapshotSchema } from "../../validators/transactionDetails";
 
-const CHANGE_NOTE = /^Change (returned|given)\b/;
-
 export interface PaymentRowForSnapshot {
   method: string;
   currency_code: string;
@@ -34,8 +31,13 @@ export interface PaymentRowForSnapshot {
 
 export interface SnapshotPaymentsOptions {
   /** `payments` rows of the transaction that are NOT customer lines
-   *  (internal bookkeeping) — each caller says which and why. */
-  excludeRow?: (row: PaymentRowForSnapshot) => boolean;
+   *  (internal bookkeeping) — each caller says which and why. Gets the
+   *  transaction too (its parsed `metadata_json`), for a rule that depends
+   *  on the kind of transaction. */
+  excludeRow?: (
+    row: PaymentRowForSnapshot,
+    txn: { id: number; metadata: Record<string, unknown> },
+  ) => boolean;
   /** Snapshot line methods this flow records without a `payments` row. */
   unbookedMethods?: readonly string[];
 }
@@ -83,8 +85,8 @@ export function expectEverySnapshotMatchesPayments(
     .all() as Array<{ id: number; metadata_json: string }>;
   let checked = 0;
   for (const t of txns) {
-    const raw = (JSON.parse(t.metadata_json) as Record<string, unknown>)
-      .payment_snapshot;
+    const metadata = JSON.parse(t.metadata_json) as Record<string, unknown>;
+    const raw = metadata.payment_snapshot;
     const snap = paymentSnapshotSchema.parse(raw);
     if (snap.lines.length === 0) continue;
     const unbooked = new Set(opts.unbookedMethods ?? []);
@@ -107,13 +109,13 @@ export function expectEverySnapshotMatchesPayments(
       )
       .all(t.id) as PaymentRowForSnapshot[];
     const fromPayments = rows
-      .filter((r) => !(opts.excludeRow?.(r) ?? false))
+      .filter((r) => !(opts.excludeRow?.(r, { id: t.id, metadata }) ?? false))
       .map((r) =>
         key({
           method: r.method,
           currency: r.currency_code,
           amount: Math.abs(r.amount),
-          direction: CHANGE_NOTE.test(r.note ?? "") ? "OUT" : "IN",
+          direction: r.amount < 0 ? "OUT" : "IN",
         }),
       )
       .sort();

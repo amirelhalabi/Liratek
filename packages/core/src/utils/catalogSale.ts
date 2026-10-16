@@ -61,6 +61,37 @@ export function catalogCartItems(
   }));
 }
 
+/**
+ * A catalog item's key: "provider/category/subcategory/label". The web builds
+ * the same string for `ServiceItem.key` (frontend MobileServiceItemsContext);
+ * that copy should call this function instead (rule 14) — kept apart for now
+ * only to stay out of a parallel frontend change.
+ */
+export function catalogItemKey(
+  item: Pick<CatalogItem, "category" | "label" | "subcategory"> & {
+    provider: string;
+  },
+): string {
+  return `${item.provider}/${item.category}/${item.subcategory ?? ""}/${item.label}`;
+}
+
+/**
+ * Shop-day fix — the inverse of `catalogItemKey` for the label: everything
+ * after the third "/" (a label may itself contain "/"). A single catalog unit
+ * (a basket unit, a Whish App grid item, a partner order line) sends only its
+ * key and category, so this is how its sale's details keep the item's label.
+ * `undefined` for a key that is not in this format.
+ */
+export function catalogItemLabelFromKey(
+  key: string | null | undefined,
+): string | undefined {
+  if (!key) return undefined;
+  const parts = key.split("/");
+  if (parts.length < 4) return undefined;
+  const label = parts.slice(3).join("/").trim();
+  return label.length > 0 ? label : undefined;
+}
+
 /** "category: label (subcategory)" — the name shown and written into the sale's note. */
 export function formatCatalogItemName(item: Pick<CatalogItem, "category" | "label" | "subcategory">): string {
   const sub = item.subcategory?.trim();

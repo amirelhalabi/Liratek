@@ -7,14 +7,32 @@
  * `payments` table stays the source of truth for drawers; this never posts
  * anything.
  *
- * Legs are classified with `partitionLegs` — the SAME rule every money
- * repository books them by (rule 16): no `direction` → IN (paid by the
- * customer, or a payout leg on a payout flow), `direction: "OUT"` → change.
+ * Each line records the way the money ACTUALLY moved for the shop's drawer
+ * (owner decision, shop-day 2026-10-16) — defined ONCE here, in
+ * `snapshotLineDirection` (rule 14):
+ *   - the flow's own legs move the flow's way: on an IN flow (the customer
+ *     pays the shop) they are IN; on a PAYOUT flow (the shop pays out — a
+ *     prize, a pickup, an expense, a supplier / partner payment, a debt
+ *     cash-out, a transfer payout) they are OUT;
+ *   - a change leg (`direction: "OUT"`, split by `partitionLegs`, the SAME
+ *     rule every money repository books by, rule 16) moves the other way:
+ *     change handed back on a sale is OUT, change a vendor / supplier hands
+ *     back on a payout is IN;
+ *   - a fee collected and what the customer hands over on a cash-out are
+ *     always IN.
+ * That is exactly the sign of the `payments` row each leg books.
  *
  * Pure, imports only pure leaves, so it stays browser-safe (rule 29).
  */
 import { partitionLegs, type PaymentDirection } from "./paymentLegs.js";
 import type { PaymentSnapshot } from "../validators/transactionDetails.js";
+
+/**
+ * Which way a flow's own legs move money for the shop's drawer:
+ * - `IN`     — the customer (or counterparty) pays the shop;
+ * - `PAYOUT` — the shop pays money out.
+ */
+export type PaymentFlow = "IN" | "PAYOUT";
 
 /** A leg as the repositories receive it — camelCase (`currencyCode`) or
  *  snake_case (`currency_code`), both shapes exist on the wire. */
@@ -23,10 +41,30 @@ export interface PaymentSnapshotLegInput {
   amount: number;
   currencyCode?: string;
   currency_code?: string;
+  /** `"OUT"` marks a change leg (it moves against the flow). */
   direction?: PaymentDirection;
+  /** This leg's own flow, when one transaction carries legs of both flows
+   *  (an account settlement paying in one currency and collecting in the
+   *  other). Defaults to the input's `flow`. */
+  flow?: PaymentFlow;
 }
 
-export interface BuildPaymentSnapshotInput {
+/**
+ * The direction a snapshot line records: the flow's own leg moves the flow's
+ * way, a change leg moves the other way. THE one definition (rule 14).
+ */
+export function snapshotLineDirection(
+  flow: PaymentFlow,
+  leg: { direction?: PaymentDirection },
+): PaymentDirection {
+  const own: PaymentDirection = flow === "PAYOUT" ? "OUT" : "IN";
+  const back: PaymentDirection = own === "IN" ? "OUT" : "IN";
+  return partitionLegs([leg]).outLegs.length > 0 ? back : own;
+}
+
+interface SnapshotLegsInput {
+  /** Which way the flow's own legs move money (see `PaymentFlow`). */
+  flow: PaymentFlow;
   /** The flow's payment legs, exactly as the repository books them. */
   payments?: ReadonlyArray<PaymentSnapshotLegInput> | null;
   /** Separate fee-collection legs (e.g. a fee-on-top RECEIVE). Always IN,
@@ -41,6 +79,20 @@ export interface BuildPaymentSnapshotInput {
   /** Paid as part of a customer-session payment. */
   sessionId?: number | null;
 }
+
+/** No lines of its own (a session-basket item, a session sibling row): no
+ *  flow to name. */
+interface SnapshotNoLegsInput {
+  flow?: undefined;
+  payments?: undefined;
+  feePayments?: undefined;
+  customerPayments?: undefined;
+  keptChange?: { usd?: number; lbp?: number } | null;
+  sessionId?: number | null;
+}
+
+/** Any call that records lines must say which way its legs move (`flow`). */
+export type BuildPaymentSnapshotInput = SnapshotLegsInput | SnapshotNoLegsInput;
 
 type SnapshotLine = PaymentSnapshot["lines"][number];
 
@@ -77,7 +129,8 @@ export function buildPaymentSnapshot(
   const lines: SnapshotLine[] = [];
   // Keep the order the cashier entered the legs in.
   for (const leg of input.payments ?? []) {
-    const line = toLine(leg, outLegs.includes(leg) ? "OUT" : "IN");
+    const flow = leg.flow ?? input.flow ?? "IN";
+    const line = toLine(leg, snapshotLineDirection(flow, leg));
     if (line) lines.push(line);
   }
   for (const leg of input.feePayments ?? []) {

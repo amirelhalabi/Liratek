@@ -11,6 +11,7 @@ import { paymentSnapshotSchema } from "../../validators/transactionDetails";
 describe("LIRA-329 buildPaymentSnapshot", () => {
   it("copies a two-currency split with change returned and change kept", () => {
     const snapshot = buildPaymentSnapshot({
+      flow: "IN",
       payments: [
         { method: "CASH", currencyCode: "USD", amount: 50 },
         { method: "WHISH", currencyCode: "LBP", amount: 900000 },
@@ -38,6 +39,7 @@ describe("LIRA-329 buildPaymentSnapshot", () => {
 
   it("classifies with partitionLegs: a leg with no direction is IN, an explicit IN stays IN", () => {
     const snapshot = buildPaymentSnapshot({
+      flow: "IN",
       payments: [
         { method: "CASH", currencyCode: "USD", amount: 10, direction: "IN" },
         { method: "CASH", currencyCode: "USD", amount: 5 },
@@ -49,6 +51,7 @@ describe("LIRA-329 buildPaymentSnapshot", () => {
 
   it("reads the snake_case leg shape too (currency_code) and keeps amounts positive", () => {
     const snapshot = buildPaymentSnapshot({
+      flow: "IN",
       payments: [{ method: "CASH", currency_code: "LBP", amount: -450000 }],
     });
     expect(snapshot?.lines).toEqual([
@@ -58,6 +61,7 @@ describe("LIRA-329 buildPaymentSnapshot", () => {
 
   it("adds fee lines with a note, skips zero lines, and records a session id", () => {
     const snapshot = buildPaymentSnapshot({
+      flow: "IN",
       payments: [
         { method: "CASH", currencyCode: "USD", amount: 0 },
         { method: "CASH", currencyCode: "USD", amount: 100 },
@@ -83,7 +87,11 @@ describe("LIRA-329 buildPaymentSnapshot", () => {
   it("returns undefined when there is nothing to record", () => {
     expect(buildPaymentSnapshot({})).toBeUndefined();
     expect(
-      buildPaymentSnapshot({ payments: [], keptChange: { usd: 0, lbp: 0 } }),
+      buildPaymentSnapshot({
+        flow: "IN",
+        payments: [],
+        keptChange: { usd: 0, lbp: 0 },
+      }),
     ).toBeUndefined();
   });
 });

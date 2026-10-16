@@ -210,6 +210,14 @@ export const walletTopupDetailsSchema = z.object({
   source: z.enum(["DRAWER", "SUPPLIER", "PARTNER", "CLIENT"]).optional(),
   includingFees: z.boolean().optional(),
   fee: money.optional(),
+  /** Shop-day fix: the amount moved, in `currency`. */
+  amount: money.optional(),
+  currency: currencyCode.optional(),
+  /** The shop drawer the money left (a drawer top-up's source; a cash-out's
+   *  wallet). */
+  sourceDrawer: code.optional(),
+  /** The shop drawer the money reached (the wallet topped up). */
+  destDrawer: code.optional(),
 });
 
 export const wrongNumberDetailsSchema = z.object({

@@ -695,13 +695,29 @@ export function buildWalletTopupDetails(input: {
   fee?: number;
   includingFees?: boolean;
   partner?: { id: number; name?: string };
+  /** Shop-day fix: the amount moved and its currency. */
+  amount?: number;
+  currency?: string;
+  /** The shop drawer the money left / reached (omitted when the other side
+   *  is a supplier, partner or client account rather than a shop drawer). */
+  sourceDrawer?: string;
+  destDrawer?: string;
 }): WalletTopupDetails {
   const partnerName = textOrUndefined(input.partner?.name);
+  const currency = textOrUndefined(input.currency);
+  const sourceDrawer = textOrUndefined(input.sourceDrawer);
+  const destDrawer = textOrUndefined(input.destDrawer);
   return {
     v: TRANSACTION_DETAILS_VERSION,
     kind: "wallet_topup",
     provider: input.provider,
     source: input.source,
+    ...(input.amount != null && Number.isFinite(input.amount)
+      ? { amount: input.amount }
+      : {}),
+    ...(currency ? { currency } : {}),
+    ...(sourceDrawer ? { sourceDrawer } : {}),
+    ...(destDrawer ? { destDrawer } : {}),
     ...(input.fee != null && Number.isFinite(input.fee)
       ? { fee: input.fee }
       : {}),
@@ -972,10 +988,29 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
           summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amountLabel}`,
-          // LIRA-329 — the top-up's provider and where the money came from.
+          // LIRA-329 — the top-up's provider, where the money came from, the
+          // amount, and the two drawers it moved between. The snapshot keeps
+          // both lines exactly as booked below: OUT of the source drawer, IN
+          // to the wallet.
           details: buildWalletTopupDetails({
             provider: data.provider,
             source: "DRAWER",
+            amount,
+            currency,
+            sourceDrawer: data.sourceDrawer,
+            destDrawer,
+          }),
+          payment_snapshot: buildPaymentSnapshot({
+            flow: "IN",
+            payments: [
+              {
+                method: data.sourceDrawer,
+                currencyCode: currency,
+                amount,
+                flow: "PAYOUT",
+              },
+              { method: destDrawer, currencyCode: currency, amount },
+            ],
           }),
           metadata_json: {
             provider: data.provider,
@@ -1372,6 +1407,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           : data.deferPayment === true
             ? buildPaymentSnapshot({ sessionId: data.paid_in_session })
             : buildPaymentSnapshot({
+                flow: "IN",
                 payments: data.payments,
                 keptChange: {
                   usd: data.kept_change_usd,
@@ -2241,6 +2277,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           carrierLineId: primaryLine?.id,
         });
         const buybackSnapshot = buildPaymentSnapshot({
+          flow: "PAYOUT",
           payments: payoutLegs,
           keptChange: { usd: keptUsd, lbp: keptLbp },
         });
@@ -2523,10 +2560,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
           summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up → ${destDrawer}: ${amountLabel}`,
-          // LIRA-329 — the top-up's provider and where the credit came from.
+          // LIRA-329 — the top-up's provider, where the credit came from, the
+          // amount and the wallet credited. No payment lines: no shop cash
+          // moves (the other side is the supplier's account).
           details: buildWalletTopupDetails({
             provider: data.provider,
             source: "SUPPLIER",
+            amount,
+            currency,
+            destDrawer,
           }),
           metadata_json: {
             provider: data.provider,
@@ -2759,10 +2801,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           summary: `Cash Out to OMT: ${destDrawer} -${amountLabel} → OMT account +${creditedLabel}`,
           // LIRA-329 — the cash-out's provider, its counterparty (the OMT
           // supplier account) and the commission it earns.
+          // The wallet the money leaves is `destDrawer` (the provider's
+          // drawer); no payment lines — the other side is the OMT account.
           details: buildWalletTopupDetails({
             provider: data.provider,
             source: "SUPPLIER",
             fee: commission,
+            amount,
+            currency,
+            sourceDrawer: destDrawer,
           }),
           metadata_json: {
             provider: data.provider,
@@ -2915,10 +2962,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           amount_lbp: currency === "LBP" ? amount : 0,
           summary: `Whish App top-up via partner: +${amountLabel}`,
           // LIRA-329 — the top-up's provider and the partner by id and name.
+          // No payment lines: no shop cash moves (the partner sends it).
           details: buildWalletTopupDetails({
             provider: data.provider,
             source: "PARTNER",
             partner: { id: data.partnerId, name: partner?.name },
+            amount,
+            currency,
+            destDrawer,
           }),
           metadata_json: {
             provider: data.provider,
@@ -3360,6 +3411,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           details: buildWalletTopupDetails({
             provider: "WHISH_APP",
             source: "CLIENT",
+            amount,
+            currency,
+            destDrawer,
             fee,
             ...(typeof data.includingFees === "boolean"
               ? { includingFees: data.includingFees }
@@ -3367,6 +3421,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           }),
           ...(() => {
             const snapshot = buildPaymentSnapshot({
+              flow: "PAYOUT",
               payments: payoutLegs,
               keptChange: { usd: keptUsd, lbp: keptLbp },
             });

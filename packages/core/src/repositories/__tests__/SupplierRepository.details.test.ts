@@ -155,8 +155,8 @@ describe("LIRA-329 — SupplierRepository: supplier_entry details", () => {
     });
     expectSnapshot(row, {
       lines: [
-        { method: "CASH", currency: "USD", amount: 60, direction: "IN" },
-        { method: "CASH", currency: "USD", amount: 5, direction: "OUT" },
+        { method: "CASH", currency: "USD", amount: 60, direction: "OUT" },
+        { method: "CASH", currency: "USD", amount: 5, direction: "IN" },
       ],
       change_returned: [{ method: "CASH", currency: "USD", amount: 5 }],
     });
@@ -233,7 +233,9 @@ describe("LIRA-329 — SupplierRepository: supplier_entry details", () => {
     // IN in the snapshot, whatever way the drawer moved); the paper
     // adjustment moves no money and has none.
     expectSnapshot(pay, {
-      lines: [{ method: "CASH", currency: "USD", amount: 10, direction: "IN" }],
+      lines: [
+        { method: "CASH", currency: "USD", amount: 10, direction: "OUT" },
+      ],
     });
     expect(meta(adj).payment_snapshot).toBeUndefined();
 
@@ -323,7 +325,7 @@ describe("LIRA-329 — SupplierRepository: supplier_entry details", () => {
     });
     expectSnapshot(row, {
       lines: [
-        { method: "CASH", currency: "USD", amount: 100, direction: "IN" },
+        { method: "CASH", currency: "USD", amount: 100, direction: "OUT" },
       ],
     });
   });
@@ -364,7 +366,7 @@ describe("LIRA-329 — SupplierRepository: supplier_entry details", () => {
       });
       expectSnapshot(row, {
         lines: [
-          { method: "CASH", currency: "USD", amount: 100, direction: "IN" },
+          { method: "CASH", currency: "USD", amount: 100, direction: "OUT" },
         ],
       });
     });
@@ -391,7 +393,7 @@ describe("LIRA-329 — SupplierRepository: supplier_entry details", () => {
       });
       expectSnapshot(row, {
         lines: [
-          { method: "CASH", currency: "USD", amount: 100, direction: "IN" },
+          { method: "CASH", currency: "USD", amount: 100, direction: "OUT" },
         ],
       });
     });

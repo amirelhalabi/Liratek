@@ -107,7 +107,7 @@ describe("LIRA-329 — LotoCashPrizeRepository: loto_prize details", () => {
           method: "CASH",
           currency: "LBP",
           amount: 1_000_000,
-          direction: "IN",
+          direction: "OUT",
         },
       ],
     });

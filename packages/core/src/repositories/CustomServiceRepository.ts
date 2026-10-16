@@ -664,14 +664,15 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         // handed out), as at saving. None for a For-Partner service (no
         // counter payment); a session-basket item records its session
         // instead (the basket owns the money). A pay-out's legs are the
-        // flow's own legs — IN in the snapshot (contract: "IN = the leg the
-        // flow consumes, or a payout leg"); their booking-only
-        // `direction: "OUT"` would list the recipient's cash as change.
+        // flow's own legs — OUT in the snapshot (the PAYOUT flow); their
+        // booking-only `direction: "OUT"` is dropped, because on a payout
+        // flow it would mark them as change coming back (IN).
         const paymentSnapshot = isForPartner
           ? undefined
           : data.deferPayment
             ? buildPaymentSnapshot({ sessionId: data.paid_in_session })
             : buildPaymentSnapshot({
+                flow: isPayout ? "PAYOUT" : "IN",
                 payments: isPayout
                   ? payoutLegs?.map((leg) => ({
                       method: leg.method,

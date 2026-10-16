@@ -555,6 +555,7 @@ export class LotoTicketRepository {
         : isForPartner
           ? undefined
           : buildPaymentSnapshot({
+              flow: "IN",
               payments: legs.length > 0 ? legs : legacyLeg ? [legacyLeg] : [],
               keptChange: { usd: keptUsd, lbp: keptLbp },
             });

@@ -12,6 +12,7 @@ import { buildPaymentSnapshot } from "../paymentSnapshot";
 describe("buildPaymentSnapshot — customer-pays lines (LIRA-329)", () => {
   it("keeps the payout lines, then the customer's lines marked 'customer pays'", () => {
     const snapshot = buildPaymentSnapshot({
+      flow: "PAYOUT",
       payments: [{ method: "CASH", currencyCode: "USD", amount: 98 }],
       customerPayments: [
         { method: "BINANCE", currencyCode: "USDT", amount: 100 },
@@ -20,7 +21,9 @@ describe("buildPaymentSnapshot — customer-pays lines (LIRA-329)", () => {
     });
     expect(paymentSnapshotSchema.parse(snapshot)).toEqual({
       lines: [
-        { method: "CASH", currency: "USD", amount: 98, direction: "IN" },
+        // Shop-day fix (Q1): the payout line is OUT — the cash left the
+        // drawer (it read IN before the fix).
+        { method: "CASH", currency: "USD", amount: 98, direction: "OUT" },
         {
           method: "BINANCE",
           currency: "USDT",

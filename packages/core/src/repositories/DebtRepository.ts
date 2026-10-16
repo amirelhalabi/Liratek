@@ -646,6 +646,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           discount: data.discount,
         }),
         payment_snapshot: buildPaymentSnapshot({
+          flow: "IN",
           payments: paymentLegs,
           keptChange: { usd: kept.keptUsd, lbp: kept.keptLbp },
         }),
@@ -1973,6 +1974,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           note: data.note,
         }),
         payment_snapshot: buildPaymentSnapshot({
+          flow: "PAYOUT",
           payments: legs,
           keptChange: { usd: kept.keptUsd, lbp: kept.keptLbp },
         }),
@@ -2219,6 +2221,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         }),
         payment_snapshot: moveCash
           ? buildPaymentSnapshot({
+              // Credit: the customer hands the shop cash; debt: the shop
+              // hands the customer a cash advance.
+              flow: isCredit ? "IN" : "PAYOUT",
               payments: legs.filter((l) => isDrawerAffectingMethod(l.method)),
             })
           : undefined,

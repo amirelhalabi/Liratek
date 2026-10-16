@@ -657,6 +657,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
     const paymentSnapshot = isClientAccount
       ? undefined
       : buildPaymentSnapshot({
+          // CREDIT: the partner pays the shop; DEBIT: the shop pays the
+          // partner (the same sign the drawer moves by below).
+          flow: entry.direction === "CREDIT" ? "IN" : "PAYOUT",
           payments:
             legs && legs.length > 0
               ? legs.map((leg) => ({

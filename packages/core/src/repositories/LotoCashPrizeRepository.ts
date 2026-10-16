@@ -161,6 +161,7 @@ export class LotoCashPrizeRepository {
             }
           : {
               payment_snapshot: buildPaymentSnapshot({
+                flow: "PAYOUT",
                 payments: [
                   {
                     method: "CASH",

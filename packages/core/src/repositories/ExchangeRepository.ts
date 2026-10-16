@@ -639,6 +639,9 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // change. Same predicates as the bookings below. A partner exchange
       // takes nothing from a customer, but its payout is real.
       const exchangeSnapshot = buildPaymentSnapshot({
+        // `payments` are the payout lines (OUT); the customer's lines go
+        // in `customerPayments` (IN).
+        flow: "PAYOUT",
         payments:
           payoutLegs.length > 0
             ? payoutLegs

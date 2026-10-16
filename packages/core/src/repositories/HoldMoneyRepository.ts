@@ -310,7 +310,12 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           // fallback below, which the snapshot does not invent).
           details: buildHoldMoneyDetails("CREATE", data.notes),
           ...(legs.length > 0
-            ? { payment_snapshot: buildPaymentSnapshot({ payments: legs }) }
+            ? {
+                payment_snapshot: buildPaymentSnapshot({
+                  flow: "IN",
+                  payments: legs,
+                }),
+              }
             : {}),
           transaction_time: data.transaction_time,
         });
@@ -529,6 +534,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           ...(legs.length > 0
             ? {
                 payment_snapshot: buildPaymentSnapshot({
+                  flow: "PAYOUT",
                   payments: legs,
                   keptChange: { usd: keptUsd, lbp: keptLbp },
                 }),

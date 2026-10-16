@@ -325,7 +325,9 @@ describe("LIRA-329 — FinancialServiceRepository: Mobile Recharge details", () 
     expect(row.client_name).toBe("Omar Said");
     expect(row.client_phone).toBe("70333444");
     expect(meta(row).payment_snapshot).toEqual({
-      lines: [{ method: "CASH", currency: "USD", amount: 99, direction: "IN" }],
+      lines: [
+        { method: "CASH", currency: "USD", amount: 99, direction: "OUT" },
+      ],
     });
   });
 
@@ -389,6 +391,37 @@ describe("LIRA-329 — FinancialServiceRepository: Mobile Recharge details", () 
       partner: { id: partnerId, name: "Abu Ali", mode: "FOR" },
     });
     expect(meta(row).payment_snapshot).toBeUndefined();
+  });
+
+  // Shop-day fix: a single catalog unit (a basket unit, a Whish App grid
+  // item, a partner order line) sends only its key and category — the item's
+  // label is read back from the catalog key ("provider/category/sub/label").
+  // Written before the fix and seen failing (no label on the item).
+  it("a Katsh basket unit keeps the item's label from its catalog key", () => {
+    const row = create({
+      provider: "Katsh",
+      serviceType: "SEND",
+      amount: 500_000,
+      cost: 462_075,
+      currency: "LBP",
+      commission: 37_925,
+      deferPayment: true,
+      paid_in_session: 94,
+      itemKey: "Katsh/alfa/Prepaid/4.5",
+      itemCategory: "alfa",
+      note: "alfa: 4.5 (Prepaid)",
+    });
+
+    expect(row).toMatchObject({ amount_lbp: 500_000, profit_lbp: 37_925 });
+    expect(catalogSaleDetailsSchema.parse(meta(row).details).items).toEqual([
+      {
+        key: "Katsh/alfa/Prepaid/4.5",
+        category: "alfa",
+        label: "4.5",
+        quantity: 1,
+        unitPrice: 500_000,
+      },
+    ]);
   });
 
   it("a session-basket item says it was paid in that session", () => {

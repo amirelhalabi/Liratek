@@ -139,7 +139,9 @@ describe("LIRA-329 — HoldMoneyRepository: hold_money details", () => {
       notes: "for the rent, back Friday",
     });
     expect(meta(row).payment_snapshot).toEqual({
-      lines: [{ method: "CASH", currency: "USD", amount: 20, direction: "IN" }],
+      lines: [
+        { method: "CASH", currency: "USD", amount: 20, direction: "OUT" },
+      ],
     });
   });
 

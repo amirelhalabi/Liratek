@@ -182,6 +182,39 @@ describe("LIRA-329 — PartnerRepository: partner_entry details", () => {
     });
   });
 
+  // Shop-day fix (owner decision Q1): when the SHOP owes the partner, the
+  // settlement pays cash out of the drawer, so its line is OUT. NOT proven
+  // failing-first (rule 17): added after the builder fix; the failing-first
+  // proof is paymentSnapshot.direction.test.ts and the sign-based T036 hook.
+  it("a settlement the shop pays out records its line as OUT", () => {
+    const owedPartnerId = Number(
+      db
+        .prepare(
+          `INSERT INTO partners (tenant_id, name) VALUES (1, 'Flow Desk')`,
+        )
+        .run().lastInsertRowid,
+    );
+    // The shop owes this partner $300 (a paper entry).
+    db.prepare(
+      `INSERT INTO partner_ledger (tenant_id, partner_id, transaction_type, amount, currency, direction)
+       VALUES (1, ?, 'ADJUSTMENT', 300, 'USD', 'CREDIT')`,
+    ).run(owedPartnerId);
+    const entry = service.settle({
+      partnerId: owedPartnerId,
+      amount: 200,
+      currency: "USD",
+      settlementMethod: "CASH",
+      userId: 1,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 200 }],
+    });
+    const row = txnOfLedger(db, entry.id);
+    expectSnapshot(row, {
+      lines: [
+        { method: "CASH", currency: "USD", amount: 200, direction: "OUT" },
+      ],
+    });
+  });
+
   it("a stand-alone write-off keeps its reason (bug #7)", () => {
     const result = service.writeOff({
       partnerId,

@@ -166,8 +166,8 @@ describe("LIRA-329 — ExpenseRepository: expense details", () => {
     });
     const snapshot = {
       lines: [
-        { method: "CASH", currency: "USD", amount: 20, direction: "IN" },
-        { method: "CASH", currency: "USD", amount: 1, direction: "OUT" },
+        { method: "CASH", currency: "USD", amount: 20, direction: "OUT" },
+        { method: "CASH", currency: "USD", amount: 1, direction: "IN" },
       ],
       change_returned: [{ method: "CASH", currency: "USD", amount: 1 }],
       kept: { usd: 0.5 },

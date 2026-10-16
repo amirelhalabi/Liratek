@@ -49,6 +49,13 @@ import {
 
 const DAY = "2026-10-16";
 
+function isDrawerToDrawerTopUp(txn: { metadata: Record<string, unknown> }) {
+  const details = txn.metadata.details as
+    | { kind?: string; source?: string }
+    | undefined;
+  return details?.kind === "wallet_topup" && details.source === "DRAWER";
+}
+
 interface TxnRow {
   id: number;
   type: string;
@@ -120,8 +127,11 @@ describe("LIRA-329 — RechargeRepository: Mobile Recharge details", () => {
   afterEach(() => {
     // The carrier line / wallet balance and validity-days cost rows are
     // bookkeeping, not lines the customer paid or received.
+    // A drawer-to-drawer top-up is the exception: its two drawer rows ARE
+    // the lines it records (OUT of the source, IN to the wallet).
     expectEverySnapshotMatchesPayments(db, {
-      excludeRow: isProviderBookkeepingRow,
+      excludeRow: (row, txn) =>
+        isProviderBookkeepingRow(row) && !isDrawerToDrawerTopUp(txn),
     });
   });
 
@@ -342,12 +352,16 @@ describe("LIRA-329 — RechargeRepository: Mobile Recharge details", () => {
     });
     expect(meta(row).payment_snapshot).toEqual({
       lines: [
-        { method: "CASH", currency: "LBP", amount: 400_000, direction: "IN" },
+        { method: "CASH", currency: "LBP", amount: 400_000, direction: "OUT" },
       ],
     });
   });
 
-  it("top-up from a drawer: provider and source", () => {
+  // Shop-day fix: a top-up's details also keep the amount, the currency and
+  // the drawers it moved between; a drawer-to-drawer top-up keeps both
+  // lines (OUT of the source drawer, IN to the wallet). Written before the
+  // fix and seen failing (details had provider + source only, no snapshot).
+  it("top-up from a drawer: provider, source, amount, the two drawers and both lines", () => {
     const result = repo.topUpApp({
       provider: "WHISH_APP",
       amount: 100,
@@ -363,10 +377,20 @@ describe("LIRA-329 — RechargeRepository: Mobile Recharge details", () => {
       kind: "wallet_topup",
       provider: "WHISH_APP",
       source: "DRAWER",
+      amount: 100,
+      currency: "USD",
+      sourceDrawer: "General",
+      destDrawer: "Whish_App",
+    });
+    expect(meta(row).payment_snapshot).toEqual({
+      lines: [
+        { method: "General", currency: "USD", amount: 100, direction: "OUT" },
+        { method: "Whish_App", currency: "USD", amount: 100, direction: "IN" },
+      ],
     });
   });
 
-  it("top-up from the supplier: provider and source", () => {
+  it("top-up from the supplier: provider, source, amount and the wallet credited (no lines: no shop cash moves)", () => {
     const result = repo.topUpFromSupplier({
       provider: "iPick",
       amount: 1_000_000,
@@ -381,7 +405,11 @@ describe("LIRA-329 — RechargeRepository: Mobile Recharge details", () => {
       kind: "wallet_topup",
       provider: "iPick",
       source: "SUPPLIER",
+      amount: 1_000_000,
+      currency: "LBP",
+      destDrawer: "iPick",
     });
+    expect(meta(row).payment_snapshot).toBeUndefined();
   });
 
   it("cash out to OMT: provider, source and the commission as fee", () => {
@@ -401,7 +429,11 @@ describe("LIRA-329 — RechargeRepository: Mobile Recharge details", () => {
       provider: "OMT_APP",
       source: "SUPPLIER",
       fee: result.commission,
+      amount: 100,
+      currency: "USD",
+      sourceDrawer: "OMT_App",
     });
+    expect(meta(row).payment_snapshot).toBeUndefined();
   });
 
   it("top-up via a partner: the partner by id and name", () => {
@@ -428,7 +460,11 @@ describe("LIRA-329 — RechargeRepository: Mobile Recharge details", () => {
       provider: "WHISH_APP",
       source: "PARTNER",
       partner: { id: partnerId, name: "Whish Partner", mode: "VIA" },
+      amount: 50,
+      currency: "USD",
+      destDrawer: "Whish_App",
     });
+    expect(meta(row).payment_snapshot).toBeUndefined();
   });
 
   it("Whish top-up from a client: fee, including-fees choice, client name + phone, payout lines", () => {
@@ -458,11 +494,16 @@ describe("LIRA-329 — RechargeRepository: Mobile Recharge details", () => {
       source: "CLIENT",
       fee: 1,
       includingFees: true,
+      amount: 100,
+      currency: "USD",
+      destDrawer: "Whish_App",
     });
     expect(row.client_name).toBe("Nour Saleh");
     expect(row.client_phone).toBe("76123123");
     expect(meta(row).payment_snapshot).toEqual({
-      lines: [{ method: "CASH", currency: "USD", amount: 99, direction: "IN" }],
+      lines: [
+        { method: "CASH", currency: "USD", amount: 99, direction: "OUT" },
+      ],
     });
   });
 });

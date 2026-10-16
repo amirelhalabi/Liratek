@@ -174,7 +174,12 @@ describe("LIRA-329 — ExchangeRepository: exchange details", () => {
     });
     expect(paymentSnapshotSchema.parse(meta(row).payment_snapshot)).toEqual({
       lines: [
-        { method: "CASH", currency: "LBP", amount: 8_900_000, direction: "IN" },
+        {
+          method: "CASH",
+          currency: "LBP",
+          amount: 8_900_000,
+          direction: "OUT",
+        },
         {
           method: "CASH",
           currency: "USD",
@@ -221,7 +226,7 @@ describe("LIRA-329 — ExchangeRepository: exchange details", () => {
     });
     expect(paymentSnapshotSchema.parse(meta(row).payment_snapshot)).toEqual({
       lines: [
-        { method: "CASH", currency: "USD", amount: 1_000, direction: "IN" },
+        { method: "CASH", currency: "USD", amount: 1_000, direction: "OUT" },
         {
           method: "CASH",
           currency: "LBP",
@@ -278,7 +283,12 @@ describe("LIRA-329 — ExchangeRepository: exchange details", () => {
     });
     expect(paymentSnapshotSchema.parse(meta(row).payment_snapshot)).toEqual({
       lines: [
-        { method: "CASH", currency: "LBP", amount: 8_950_000, direction: "IN" },
+        {
+          method: "CASH",
+          currency: "LBP",
+          amount: 8_950_000,
+          direction: "OUT",
+        },
       ],
     });
     expectSnapshotMatchesPayments(row);

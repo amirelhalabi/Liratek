@@ -1441,6 +1441,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.deferPayment === true
               ? buildPaymentSnapshot({ sessionId: sale.paid_in_session })
               : buildPaymentSnapshot({
+                  flow: "IN",
                   payments: [
                     ...paymentLines,
                     ...(

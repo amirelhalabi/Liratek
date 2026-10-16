@@ -231,7 +231,9 @@ describe("LIRA-329 — DebtRepository: account_entry details", () => {
       note: "needed cash for the doctor",
     });
     expectSnapshot(row, {
-      lines: [{ method: "CASH", currency: "USD", amount: 20, direction: "IN" }],
+      lines: [
+        { method: "CASH", currency: "USD", amount: 20, direction: "OUT" },
+      ],
     });
   });
 

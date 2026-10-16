@@ -38,6 +38,8 @@ Source of each field: `docs/plans/ongoing_plans/TRANSACTION_DETAIL_AUDIT.md` §2
 
 `provider`\*, `items[] { key, category, label, quantity, unitPrice, onlyDays?, returnedCreditsUsd? }`, `currencyMode` (LBP | USD).
 
+A single unit (a basket unit, a Whish App grid item, a partner order line) sends only `itemKey` / `itemCategory`; its `label` is read back from the key (`catalogItemLabelFromKey`: the key is `provider/category/subcategory/label`). A key in another format leaves `label` out.
+
 ### Katsh / iPick bill: `provider_bill`
 
 `provider`\*, `amount`, `currency`.
@@ -52,7 +54,9 @@ Source of each field: `docs/plans/ongoing_plans/TRANSACTION_DETAIL_AUDIT.md` §2
 
 ### Top-ups and cash-outs: `wallet_topup`
 
-`provider`\*, `source` (DRAWER | SUPPLIER | PARTNER | CLIENT), `includingFees`, `fee`. Other fields are kept today.
+`provider`\*, `source` (DRAWER | SUPPLIER | PARTNER | CLIENT), `includingFees`, `fee`, `amount`, `currency`, `sourceDrawer` (the shop drawer the money left: a drawer top-up's source, a cash-out's wallet), `destDrawer` (the wallet topped up).
+
+Payment snapshot: a DRAWER top-up keeps both lines as booked — OUT of the source drawer, IN to the wallet (the methods are the drawer names). A SUPPLIER or PARTNER top-up and a cash-out to OMT have none: no shop cash changes hands, the other side is the supplier's or partner's account. A CLIENT top-up keeps the payout lines (OUT).
 
 ### Wrong number: `wrong_number`
 
@@ -75,6 +79,8 @@ Written on every WARRANTY_COST row of the claim and on the warranty REFUND row (
 ### Exchange: `exchange`
 
 `from`_, `to`_, `via`, `amountIn`, `amountOut`, `legs[] { rate, marketRate, overridden, profitUsd }`, `payoutRate`.
+
+`legs[].profitUsd` is the profit as BOOKED on `exchange_transactions`, after lot tracking — not the figure the screen sent. A leg that buys a lot-tracked currency (EUR and other non-USD/LBP currencies) books 0: a buy earns nothing until the lot is sold (EXCHANGE_LOT_SETTLEMENT Q8), and the profit lands on the sell later. So a cross EUR → LBP exchange shows leg 1 `profitUsd: 0` by design (shop-day check, 2026-10-16). The unified row's `amount_usd` on a cross exchange still carries the screen's leg-1 spread as an informational proxy (unchanged, see `ExchangeRepository`).
 
 ### Loto ticket: `loto_sale`
 
@@ -118,4 +124,4 @@ On the basket's own rows (EXTRA_CHARGE, KEPT_CHANGE, WAIVED_SHORTFALL). `paidByM
 
 ## Payment snapshot
 
-See contracts/transaction-details.md. It is built by `buildPaymentSnapshot` from the legs the repository books.
+See contracts/transaction-details.md. It is built by `buildPaymentSnapshot` from the legs the repository books. Each call names the flow (`IN` or `PAYOUT`), and every line records the way the money actually moved for the shop's drawer (contract, "Line direction"): a payout line is OUT, change on a sale is OUT, change coming back on a payout is IN, fees and customer-pays lines are IN. The T036 test hook (`paymentSnapshotAssert.ts`) checks each line's direction against the sign of the matching `payments` row.

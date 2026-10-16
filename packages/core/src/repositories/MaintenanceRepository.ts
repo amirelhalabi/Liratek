@@ -955,6 +955,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     const paymentSnapshot = defer
       ? buildPaymentSnapshot({ sessionId: opts.paidInSession })
       : buildPaymentSnapshot({
+          flow: "IN",
           payments: [
             ...paymentLines,
             ...(

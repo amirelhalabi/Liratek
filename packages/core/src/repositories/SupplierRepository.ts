@@ -1847,6 +1847,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           // amount). None on an automatic row: its parent holds them.
           const drawerPaymentSnapshot = ledgerEntryDetails
             ? buildPaymentSnapshot({
+                flow: "PAYOUT",
                 payments: [
                   { currencyCode: "USD", amount: amountUsd },
                   { currencyCode: "LBP", amount: amountLbp },
@@ -3813,7 +3814,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             unitCount: data.commission_unit_count,
             discount: data.discount,
           }),
-          payment_snapshot: buildPaymentSnapshot({ payments: data.payments }),
+          // The settle legs pay the supplier (OUT) — except a bills-only
+          // batch's "Other payment" legs, which ARE the commission coming IN.
+          payment_snapshot: buildPaymentSnapshot({
+            flow: isOtherPaymentCommission ? "IN" : "PAYOUT",
+            payments: data.payments,
+          }),
           metadata_json: {
             supplier_id: data.supplier_id,
             financial_service_ids: data.financial_service_ids,
@@ -5701,7 +5707,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             unitCount: data.commission_unit_count,
             discount: data.discount,
           }),
-          payment_snapshot: buildPaymentSnapshot({ payments: data.payments }),
+          payment_snapshot: buildPaymentSnapshot({
+            flow: wantsPay ? "PAYOUT" : "IN",
+            payments: data.payments,
+          }),
           metadata_json: {
             account_supplier_id: data.account_supplier_id,
             direction: data.direction,
@@ -6327,7 +6336,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           commissionRate: data.commission_rate,
           unitCount: data.commission_unit_count,
         }),
-        payment_snapshot: buildPaymentSnapshot({ payments: allLegs }),
+        // Each section has its own direction (PAY: cash out, COLLECT: cash
+        // in) — the same per-section sign the legs are booked by below.
+        payment_snapshot: buildPaymentSnapshot({
+          flow: flow === "PAY" ? "PAYOUT" : "IN",
+          payments: sections.flatMap((s) =>
+            s.payments.map((p) => ({
+              ...p,
+              flow:
+                s.direction === "PAY" ? ("PAYOUT" as const) : ("IN" as const),
+            })),
+          ),
+        }),
         metadata_json: {
           account_supplier_id: accountId,
           mode: "AMOUNT_FIRST",
@@ -7199,7 +7219,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             note: data.note,
             discount: data.discount,
           }),
-          payment_snapshot: buildPaymentSnapshot({ payments: data.payments }),
+          payment_snapshot: buildPaymentSnapshot({
+            flow: isPay ? "PAYOUT" : "IN",
+            payments: data.payments,
+          }),
           metadata_json: {
             supplier_id: data.supplier_id,
             direction: data.direction,

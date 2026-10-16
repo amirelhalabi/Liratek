@@ -79,6 +79,7 @@ import {
 import { resolveKeptChange } from "./keptChange.js";
 import { bookForgivenShortfallSibling } from "./forgivenShortfall.js";
 import { formatMoneyAmount } from "../utils/formatMoney.js";
+import { catalogItemLabelFromKey } from "../utils/catalogSale.js";
 import {
   walletReceiveAmounts,
   walletSendAmounts,
@@ -828,10 +829,14 @@ function catalogItemsOf(
   const key = nonBlank(data.itemKey);
   const category = nonBlank(data.itemCategory);
   if (!key && !category) return undefined;
+  // Shop-day fix: the item's label, read back from its catalog key (the
+  // unit sends no label of its own).
+  const label = catalogItemLabelFromKey(key);
   return [
     {
       ...(key ? { key } : {}),
       ...(category ? { category } : {}),
+      ...(label ? { label } : {}),
       quantity: 1,
       unitPrice,
       ...(data.mobileServiceItemId && data.returnedCreditsUsd != null
@@ -2852,12 +2857,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         currency,
         partnerName,
       });
+      // A RECEIVE hands the customer money (a payout) — except a cost/price
+      // catalog checkout, which is a customer payment whatever its service
+      // type. Read by the payment snapshot here and the payout rules below.
+      const isReceivePayout =
+        data.serviceType === "RECEIVE" && !useCostPriceFlow;
       const transferSnapshot =
         !serviceDetails || isForPartner
           ? undefined
           : deferPayment
             ? buildPaymentSnapshot({ sessionId: data.paid_in_session })
             : buildPaymentSnapshot({
+                flow: isReceivePayout ? "PAYOUT" : "IN",
                 payments: data.payments,
                 feePayments: data.feePayments,
                 customerPayments: data.customerPayments,
@@ -3227,8 +3238,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // checkout (`useCostPriceFlow`) is a customer PAYMENT whatever its
       // service type — its change legs and customer kept change are handled
       // by that flow's own reconcile, so it is out of scope here.
-      const isReceivePayout =
-        data.serviceType === "RECEIVE" && !useCostPriceFlow;
+      // (`isReceivePayout` is defined above, next to the payment snapshot.)
       if (
         isReceivePayout &&
         !isForPartner &&
