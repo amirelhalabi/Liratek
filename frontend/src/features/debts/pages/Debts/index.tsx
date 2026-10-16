@@ -1660,8 +1660,8 @@ export default function Debts() {
           const shopBalances = await apiRef.current.getDebtors();
           if (looksLikeSameShop(pages, shopBalances)) {
             alert(
-              "This file was exported from this shop — these balances are already here.\n\n" +
-                "Importing it would double every client's balance, so nothing was imported.",
+              "These balances are already in this shop.\n\n" +
+                "Importing this file would double them, so nothing was imported.",
             );
             setIsImporting(false);
             return;

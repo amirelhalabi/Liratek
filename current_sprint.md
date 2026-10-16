@@ -6694,6 +6694,10 @@ Owner decisions 2026-10-16: export **every client with account history** (not on
 - Same shop refused: when the file carries the marker and at least half of its clients with a non-zero balance are found here by phone with the same USD+LBP balance (`looksLikeSameShop`), the import stops with a message. Known limit: a retry after a half-finished import into a new shop can be refused by the same test.
 - Also fixed: the "No client data found" early return left the Import button stuck on "Importing...".
 
+**Verified on the test tenant 2026-10-17** (local frontend with the committed code, `/api` proxied to `test.liratek.shop`, real Accounts UI via Playwright): seeded manual debts (USD/LBP/both), paper deposits, a cash repayment, a write-off, credit used, a client in credit, a zero-balance client, a recharge on account refunded (Refund Reversal), a Sale Debt with null LBP, and two long `/` names equal in their first 31 chars. Export of 11 clients in 1.9 s; all 11 file balances = shop balances. Import back into the same shop refused, nothing changed. A copy with new names/phones imported 7 clients / 18 entries; every copy's balance and every row's amount + exact time equal the original's. Importing that copy again refused, nothing changed. Refusal text then reworded to "These balances are already in this shop" (fits both cases).
+
+**Shop day:** steps 12.2–12.5 added to `docs/testing/SHOP_DAY.md` and `lira-web-071-shop-day.spec.ts` (export, same-shop refusal, import as another shop with exact times, second import refused). Spec typechecked (scratch tsconfig — `tsconfig.playwright.json` does not include `tests/e2e-web`) and linted; NOT run.
+
 **What users will notice:** Accounts has an "Export Excel" button that saves every client's account in the same Excel layout used for importing, with real dates, totals and remaining balance. That file can be imported into another shop with its dates and balances intact; importing it back into the same shop is refused.
 
 ## LIRA-329: Full transaction details — every field the cashier fills is kept on the transaction — BUILT 2026-10-16 (all phases, T001–T042)

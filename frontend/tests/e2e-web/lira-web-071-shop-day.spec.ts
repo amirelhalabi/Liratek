@@ -2537,6 +2537,181 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     );
   });
 
+  // ── Accounts export → import (LIRA-330) ──────────────────────────────
+  // The Accounts file is the debt-import template. Imported back into the
+  // shop it came from it must be refused (it would double every balance);
+  // imported as new clients ("another shop") every row must keep its amount
+  // and its exact time.
+
+  /** One ledger row as a comparable key: UTC time to the second + amounts. */
+  const ledgerKeys = (
+    rows: Array<{
+      created_at: string;
+      amount_usd: number;
+      amount_lbp: number | null;
+    }>,
+  ) =>
+    rows
+      .map((r) => {
+        const raw = r.created_at;
+        const iso = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)
+          ? raw
+          : `${raw.replace(" ", "T")}Z`;
+        const t = new Date(iso).toISOString().slice(0, 19);
+        return `${t} ${r.amount_usd.toFixed(2)} ${(r.amount_lbp ?? 0).toFixed(0)}`;
+      })
+      .sort();
+  const historyOf = async (clientId: number) =>
+    (
+      await getJson<{
+        history: Array<{
+          created_at: string;
+          amount_usd: number;
+          amount_lbp: number | null;
+        }>;
+      }>(day, `/api/debts/clients/${clientId}/history`)
+    ).history;
+  const importFile = async (file: string): Promise<string[]> => {
+    await go("/debts", page.getByRole("button", { name: "Import Excel" }));
+    const from = day.dialogs.length;
+    await page
+      .locator('input[type="file"][accept=".xlsx,.xls"]')
+      .setInputFiles(file);
+    await expect
+      .poll(() => day.dialogs.slice(from).some((d) => d.startsWith("alert:")), {
+        timeout: 60_000,
+      })
+      .toBe(true);
+    await expect(
+      page.getByRole("button", { name: "Import Excel" }),
+    ).toBeEnabled();
+    return day.dialogs.slice(from);
+  };
+  let accountsFile = "";
+  let copyFile = "";
+  const copies: Array<{ original: number; name: string }> = [];
+
+  test("12.2 Accounts export: import template, one page per client, balances match", async () => {
+    await go("/debts", page.getByRole("button", { name: "Export Excel" }));
+    const dl = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export Excel" }).click();
+    const download = await dl;
+    expect(download.suggestedFilename()).toMatch(
+      /^accounts-\d{4}-\d{2}-\d{2}\.xlsx$/,
+    );
+    accountsFile = test.info().outputPath("shop-day-accounts.xlsx");
+    await download.saveAs(accountsFile);
+    const wb = XLSX.read(fs.readFileSync(accountsFile), { type: "buffer" });
+    expect(wb.SheetNames[0]).toBe("List Name");
+    expect(
+      (wb.Custprops as Record<string, unknown> | undefined)
+        ?.LiraTekAccountsExport,
+    ).toBe("1");
+    // Today's account clients: each has a page whose balance = the shop's.
+    for (const key of ["nour", "rami", "hassan"] as const) {
+      const name = S[key]!;
+      const sheet = wb.SheetNames.map((n) => wb.Sheets[n]!).find(
+        (ws) => ws.B1?.v === name,
+      );
+      expect(sheet, `page for ${name}`).toBeTruthy();
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet!, {
+        header: 1,
+        defval: "",
+      });
+      expect(rows[1]!.slice(0, 4)).toEqual([
+        "DATE",
+        "USD",
+        "LBP",
+        "DESCRIPTION",
+      ]);
+      const bal = (label: string) =>
+        Number(rows.find((r) => r[3] === label)?.[4]);
+      const shop = await clientDebt(day, (await clientByName(day, name)).id);
+      expect(bal("Balance Remaining in USD")).toBeCloseTo(shop.usd, 2);
+      expect(bal("Balance Remaining in LBP")).toBeCloseTo(shop.lbp, 0);
+    }
+  });
+
+  test("12.3 Accounts import of that file into the same shop is refused, nothing changes", async () => {
+    expect(accountsFile).toBeTruthy();
+    const ids3 = await Promise.all(
+      (["nour", "rami", "hassan"] as const).map(
+        async (k) => (await clientByName(day, S[k]!)).id,
+      ),
+    );
+    const before = await Promise.all(ids3.map((id) => clientDebt(day, id)));
+    const said = await importFile(accountsFile);
+    expect(said.join("\n")).toMatch(/already in this shop/);
+    expect(said.some((d) => d.startsWith("confirm:"))).toBe(false);
+    expect(await Promise.all(ids3.map((id) => clientDebt(day, id)))).toEqual(
+      before,
+    );
+  });
+
+  test("12.4 Accounts import as another shop: same balances, every row keeps its time", async () => {
+    // "Another shop" = today's clients under new names and phones, so none
+    // of them exists here. Everything else in the file is left as exported.
+    const wb = XLSX.read(fs.readFileSync(accountsFile), {
+      type: "buffer",
+      cellDates: true,
+    });
+    const keep: string[] = [];
+    let n = 21; // phoneOf 21…29 are unused by the day
+    for (const sheetName of wb.SheetNames.slice(1)) {
+      const ws = wb.Sheets[sheetName]!;
+      const name = String(ws.B1?.v ?? "");
+      if (!name.endsWith(day.stamp) || n > 29) continue;
+      const original = await clientByName(day, name);
+      if ((await historyOf(original.id)).length === 0) continue;
+      const copy = `Copy ${name}`;
+      ws.B1 = { t: "s", v: copy };
+      ws.D1 = { t: "s", v: phoneOf(day, n++) };
+      copies.push({ original: original.id, name: copy });
+      keep.push(sheetName);
+    }
+    expect(copies.length, "today has account clients to copy").toBeGreaterThan(
+      2,
+    );
+    const list = XLSX.utils.aoa_to_sheet([
+      ["NAME", "Phone "],
+      ...keep.map((k) => [wb.Sheets[k]!.B1!.v, wb.Sheets[k]!.D1!.v]),
+    ]);
+    const out = XLSX.utils.book_new();
+    out.Custprops = wb.Custprops; // the export's marker travels with the file
+    XLSX.utils.book_append_sheet(out, list, "List Name");
+    for (const k of keep) XLSX.utils.book_append_sheet(out, wb.Sheets[k]!, k);
+    copyFile = test.info().outputPath("shop-day-accounts-copy.xlsx");
+    XLSX.writeFile(out, copyFile);
+
+    const said = await importFile(copyFile);
+    expect(said.find((d) => d.startsWith("alert:"))).toMatch(
+      new RegExp(`Clients created: ${copies.length}`),
+    );
+    for (const c of copies) {
+      const made = await clientByName(day, c.name);
+      expect(await clientDebt(day, made.id), c.name).toEqual(
+        await clientDebt(day, c.original),
+      );
+      // Amounts are signed per row; the times are the originals' own.
+      expect(ledgerKeys(await historyOf(made.id)), c.name).toEqual(
+        ledgerKeys(await historyOf(c.original)),
+      );
+    }
+  });
+
+  test("12.5 Accounts import of the same copy again is refused, nothing doubles", async () => {
+    expect(copyFile).toBeTruthy();
+    const madeIds = await Promise.all(
+      copies.map(async (c) => (await clientByName(day, c.name)).id),
+    );
+    const before = await Promise.all(madeIds.map((id) => clientDebt(day, id)));
+    const said = await importFile(copyFile);
+    expect(said.join("\n")).toMatch(/already in this shop/);
+    expect(await Promise.all(madeIds.map((id) => clientDebt(day, id)))).toEqual(
+      before,
+    );
+  });
+
   // ══ Open bugs ══════════════════════════════════════════════════════════
 
   test("open bugs (SHOP_DAY §5): every fixed-behaviour check passed", () => {
