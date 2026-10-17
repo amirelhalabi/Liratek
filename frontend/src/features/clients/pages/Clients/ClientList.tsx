@@ -13,8 +13,11 @@ import ClientForm from "./ClientForm";
 import CustomerSessionsView from "./CustomerSessionsView";
 import type { Client } from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 export default function ClientList() {
+  const { t } = useTranslation("clients");
   const api = useApi();
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
@@ -52,15 +55,13 @@ export default function ClientList() {
 
   const handleDelete = async (id: number) => {
     if (
-      !confirm(
-        "Are you sure you want to delete this client? Cannot be undone if they have sales.",
-      )
+      !confirm(t("list.deleteConfirm"))
     )
       return;
     try {
       const result = await api.deleteClient(id);
       if (result.success) loadClients();
-      else alert(result.error || "Delete failed");
+      else alert(result.error || t("list.deleteFailed"));
     } catch (error) {
       logger.error("Failed to delete client", { error });
     }
@@ -84,14 +85,14 @@ export default function ClientList() {
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
-        title="Clients"
+        title={t("list.title")}
         actions={
           <button
             onClick={() => setIsFormOpen(true)}
             className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg shadow-violet-900/20"
           >
             <Plus size={20} />
-            Add Client
+            {t("list.add")}
           </button>
         }
       />
@@ -99,13 +100,13 @@ export default function ClientList() {
       {/* Toolbar */}
       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-2.5 text-slate-500 h-5 w-5" />
+          <Search className="absolute start-3 top-2.5 text-slate-500 h-5 w-5" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or phone..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+            placeholder={t("list.searchPlaceholder")}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg ps-10 pe-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
           />
         </div>
       </div>
@@ -115,58 +116,61 @@ export default function ClientList() {
         <DataTable
           columns={[
             {
-              header: "Client Info",
+              header: t("list.colInfo"),
               className: "p-4 border-b border-slate-700",
               sortKey: "full_name",
             },
             {
-              header: "Phone",
+              header: t("list.colPhone"),
               className: "p-4 border-b border-slate-700",
               sortKey: "phone_number",
             },
             { header: "WhatsApp", className: "p-4 border-b border-slate-700" },
-            { header: "Notes", className: "p-4 border-b border-slate-700" },
+            { header: t("list.colNotes"), className: "p-4 border-b border-slate-700" },
             {
-              header: "Actions",
-              className: "p-4 border-b border-slate-700 text-right",
+              header: t("list.colActions"),
+              className: "p-4 border-b border-slate-700 text-end",
             },
           ]}
           data={clients}
           loading={loading}
-          emptyMessage="No clients found."
+          emptyMessage={t("list.empty")}
           exportExcel
           exportPdf
           exportFilename="clients"
-          className="w-full text-left border-collapse"
+          className="w-full text-start border-collapse"
           theadClassName="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold"
           tbodyClassName="divide-y divide-slate-700 text-sm"
           renderRow={(client) => (
             <tr key={client.id}>
               <td className="p-4">
                 <div className="font-medium text-white">{client.full_name}</div>
-                <div className="text-slate-500 text-xs">ID: #{client.id}</div>
+                <div className="text-slate-500 text-xs">
+                  {t("list.idPrefix")}
+                  <Ltr>#{client.id}</Ltr>
+                </div>
               </td>
               <td className="p-4 text-slate-300 font-mono">
-                {client.phone_number}
+                <Ltr>{client.phone_number}</Ltr>
               </td>
               <td className="p-4">
                 {client.whatsapp_opt_in === 1 ? (
                   <span className="flex items-center gap-1 text-green-400 text-xs bg-green-400/10 px-2 py-1 rounded w-fit">
-                    <MessageCircle size={12} /> Yes
+                    <MessageCircle size={12} /> {t("common:yes")}
                   </span>
                 ) : (
-                  <span className="text-slate-600 text-xs">No</span>
+                  <span className="text-slate-600 text-xs">{t("common:no")}</span>
                 )}
               </td>
               <td className="p-4 text-slate-400 italic">
                 {client.notes || "-"}
               </td>
-              <td className="p-4 text-right">
+              <td className="p-4 text-end">
                 <div className="flex items-center justify-end gap-2">
                   <button
                     onClick={() => handleViewSessions(client)}
                     className="p-2 text-slate-400 hover:text-violet-400 hover:bg-violet-400/10 rounded transition-colors"
-                    title="View customer sessions"
+                    title={t("list.viewSessions")}
                   >
                     <Clock size={16} />
                   </button>

@@ -23,6 +23,7 @@
 
 import { test, expect, navigateTo } from "./fixtures";
 import type { Page } from "@playwright/test";
+import { rechargeProviderTab } from "./helpers/rechargeTabs";
 
 test.describe.configure({ retries: 0 });
 
@@ -84,7 +85,11 @@ async function submitAlfaGift(
   tierLabel: string,
   opts: { inSessionId?: number } = {},
 ) {
-  await nativeClickByText(page, "button", "Alfa"); // provider tab
+  // Provider tab: an unselected tab is a bare logo (no text), so select it by
+  // its accessible name, then native-click past any session overlay.
+  const alfaTab = rechargeProviderTab(page, "Alfa");
+  await alfaTab.waitFor({ state: "attached", timeout: 8_000 });
+  await alfaTab.evaluate((el) => (el as HTMLButtonElement).click());
   await nativeClickByText(page, "button", "Alfa Gift"); // service-type tab
   await nativeClickByText(page, "div", tierLabel); // gift tier card (bold label)
 

@@ -12,7 +12,10 @@
  * typed number is one of the shop's lines for sale).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useApi, type CarrierLineEntity, type MobileServiceItemEntity } from "@liratek/ui";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import {
   planSmsTransfer,
   type RechargeResaleLineInput,
@@ -24,11 +27,11 @@ import logger from "@/utils/logger";
 
 type Source = "DAYS" | "SHOP_LINE_CREDIT" | "CARD";
 
-const SOURCES: Array<{ key: Source; label: string }> = [
-  { key: "DAYS", label: "Days" },
-  { key: "SHOP_LINE_CREDIT", label: "Shop-line credit" },
-  { key: "CARD", label: "Card" },
-];
+const SOURCES = [
+  { key: "DAYS", labelKey: "recharge.sourceDays" },
+  { key: "SHOP_LINE_CREDIT", labelKey: "recharge.sourceCredit" },
+  { key: "CARD", labelKey: "recharge.sourceCard" },
+] as const satisfies ReadonlyArray<{ key: Source; labelKey: string }>;
 
 function money(n: number): string {
   return `$${n.toFixed(2)}`;
@@ -51,6 +54,7 @@ export function ResaleLineRechargePanel({
   const apiRef = useRef(api);
   apiRef.current = api;
   const { sellRate } = useSellRate();
+  const { t } = useTranslation("phoneLines");
 
   const carrier = line.carrier ?? "mtc";
   const carrierLabel = carrier === "mtc" ? "MTC" : "Alfa";
@@ -128,7 +132,7 @@ export function ResaleLineRechargePanel({
     let payload: RechargeResaleLineInput;
     if (source === "DAYS") {
       if (!(Number(days) > 0) || !(Number(daysCost) > 0)) {
-        setError("Enter the days and what they cost.");
+        setError(t("recharge.enterDays"));
         return;
       }
       payload = {
@@ -140,7 +144,7 @@ export function ResaleLineRechargePanel({
       };
     } else if (source === "SHOP_LINE_CREDIT") {
       if (!(Number(credits) > 0)) {
-        setError("Enter the credit to move.");
+        setError(t("recharge.enterCredit"));
         return;
       }
       payload = {
@@ -151,7 +155,7 @@ export function ResaleLineRechargePanel({
       };
     } else {
       if (!card) {
-        setError("Pick the card.");
+        setError(t("recharge.pickCard"));
         return;
       }
       payload = { ...base, source, mobile_service_item_id: card.id };
@@ -161,12 +165,12 @@ export function ResaleLineRechargePanel({
     try {
       const res = await apiRef.current.rechargeResaleLine(payload);
       if (!res.success) {
-        setError(res.error || "Could not recharge the line.");
+        setError(res.error || t("recharge.failed"));
         return;
       }
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not recharge the line.");
+      setError(err instanceof Error ? err.message : t("recharge.failed"));
     } finally {
       setSaving(false);
     }
@@ -179,10 +183,13 @@ export function ResaleLineRechargePanel({
     <div className="border border-violet-700/50 rounded-lg p-4 bg-slate-900/60 space-y-3">
       <div>
         <h2 className="text-white font-medium">
-          Recharge {line.phone_number} ({carrierLabel})
+          {t("recharge.title", {
+            number: line.phone_number,
+            carrier: carrierLabel,
+          })}
         </h2>
         <p className="text-xs text-slate-400">
-          What this costs you is added to the line's cost and selling price.
+          {t("recharge.intro")}
         </p>
       </div>
 
@@ -190,6 +197,7 @@ export function ResaleLineRechargePanel({
         {SOURCES.map((s) => (
           <button
             key={s.key}
+            data-testid={`recharge-source-${s.key}`}
             role="tab"
             aria-selected={source === s.key}
             onClick={() => {
@@ -202,7 +210,7 @@ export function ResaleLineRechargePanel({
                 : "bg-slate-700 text-slate-300 hover:bg-slate-600"
             }`}
           >
-            {s.label}
+            {t(s.labelKey)}
           </button>
         ))}
       </div>
@@ -211,7 +219,7 @@ export function ResaleLineRechargePanel({
         {source !== "CARD" && (
           <div>
             <label htmlFor="rr-shop-line" className="text-xs text-slate-400 block mb-1">
-              From shop line
+              {t("recharge.fromShopLine")}
             </label>
             <select
               id="rr-shop-line"
@@ -219,11 +227,15 @@ export function ResaleLineRechargePanel({
               onChange={(e) => setShopLineId(Number(e.target.value) || null)}
               className={inputClass}
             >
-              {shopLines.length === 0 && <option value="">No active {carrierLabel} shop line</option>}
+              {shopLines.length === 0 && (
+                <option value="">
+                  {t("recharge.noShopLine", { carrier: carrierLabel })}
+                </option>
+              )}
               {shopLines.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.phone_number} — ${l.credits}
-                  {l.is_primary === 1 ? " (primary)" : ""}
+                  {l.is_primary === 1 ? t("recharge.primary") : ""}
                 </option>
               ))}
             </select>
@@ -234,17 +246,17 @@ export function ResaleLineRechargePanel({
           <>
             <div>
               <label htmlFor="rr-days" className="text-xs text-slate-400 block mb-1">
-                Days
+                {t("recharge.days")}
               </label>
-              <input id="rr-days" type="number" min="1" step="1" value={days}
-                onChange={(e) => setDays(e.target.value)} className={inputClass} />
+              <input id="rr-days" type="text" inputMode="numeric" value={days}
+                onChange={(e) => setDays(normalizeDigits(e.target.value))} className={inputClass} />
             </div>
             <div>
               <label htmlFor="rr-days-cost" className="text-xs text-slate-400 block mb-1">
-                Days cost ($)
+                {t("recharge.daysCost")}
               </label>
-              <input id="rr-days-cost" type="number" min="0" step="0.01" value={daysCost}
-                onChange={(e) => setDaysCost(e.target.value)} className={inputClass} />
+              <input id="rr-days-cost" type="text" inputMode="decimal" value={daysCost}
+                onChange={(e) => setDaysCost(normalizeDigits(e.target.value))} className={inputClass} />
             </div>
           </>
         )}
@@ -252,13 +264,13 @@ export function ResaleLineRechargePanel({
         {source === "SHOP_LINE_CREDIT" && (
           <div>
             <label htmlFor="rr-credits" className="text-xs text-slate-400 block mb-1">
-              Credit to move ($)
+              {t("recharge.creditToMove")}
             </label>
-            <input id="rr-credits" type="number" min="0" step="0.01" value={credits}
-              onChange={(e) => setCredits(e.target.value)} className={inputClass} />
+            <input id="rr-credits" type="text" inputMode="decimal" value={credits}
+              onChange={(e) => setCredits(normalizeDigits(e.target.value))} className={inputClass} />
             {smsFee > 0 && (
               <p className="text-xs text-slate-400 mt-1">
-                + SMS fee {money(smsFee)} from the shop line
+                {t("recharge.smsFee", { amount: money(smsFee) })}
               </p>
             )}
           </div>
@@ -267,14 +279,14 @@ export function ResaleLineRechargePanel({
         {source === "CARD" && (
           <div className="sm:col-span-2">
             <label htmlFor="rr-card" className="text-xs text-slate-400 block mb-1">
-              Card
+              {t("recharge.card")}
             </label>
             <select id="rr-card" value={cardId ?? ""}
               onChange={(e) => setCardId(Number(e.target.value) || null)} className={inputClass}>
-              <option value="">Choose…</option>
+              <option value="">{t("recharge.choose")}</option>
               {cards.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.provider} {carrierLabel} {c.label} — {c.cost_lbp.toLocaleString()} LBP
+                  {c.provider} {carrierLabel} {c.label} — {formatNumber(c.cost_lbp)} LBP
                 </option>
               ))}
             </select>
@@ -285,12 +297,15 @@ export function ResaleLineRechargePanel({
       <p data-testid="recharge-preview" className="text-sm text-slate-300">
         {previewCost !== null ? (
           <>
-            Cost {money(line.cost_price_usd)} → {money(round2(line.cost_price_usd + previewCost))} ·
-            Price {money(line.selling_price_usd)} →{" "}
+            {t("recharge.previewCost", {
+              from: money(line.cost_price_usd),
+              to: money(round2(line.cost_price_usd + previewCost)),
+            })}{" "}
+            {t("recharge.previewPrice", { from: money(line.selling_price_usd) })}{" "}
             {money(round2(line.selling_price_usd + previewCost))}
           </>
         ) : (
-          "The cost and price go up by what this recharge costs you."
+          t("recharge.previewNone")
         )}
       </p>
 
@@ -299,13 +314,13 @@ export function ResaleLineRechargePanel({
       )}
 
       <div className="flex gap-2">
-        <button onClick={handleSave} disabled={saving}
+        <button data-testid="recharge-save" onClick={handleSave} disabled={saving}
           className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded text-sm">
-          {saving ? "Recharging..." : "Recharge line"}
+          {saving ? t("recharge.recharging") : t("recharge.submit")}
         </button>
         <button onClick={onCancel}
           className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm">
-          Cancel
+          {t("recharge.cancel")}
         </button>
       </div>
     </div>

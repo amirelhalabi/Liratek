@@ -1490,3 +1490,16 @@ export const LotoCheckpointCreateScheduledSchema =
     LotoCheckpointCreateScheduledInput
   >;
 // END LIRA-306 Phase 6 (Agent C — checkpoints)
+
+// LIRA-333 — app:open-external (links opened outside LiraTek). The allow-list
+// lives in core (validators/app.ts) and is shared with the web arm.
+import {
+  openExternalUrlSchema as coreOpenExternalUrlSchema,
+  type OpenExternalUrlInput,
+} from "@liratek/core";
+export const OpenExternalUrlSchema =
+  coreOpenExternalUrlSchema as unknown as z.ZodSchema<
+    { url: string },
+    z.ZodTypeDef,
+    OpenExternalUrlInput
+  >;

@@ -1590,6 +1590,47 @@ describe("MultiPaymentInput", () => {
       );
     });
 
+    // Shop-day bug 13 (2026-10-17): picking a wallet on the OMT/Whish page
+    // raises the total by the 1% payment-method fee (101 → 102). The
+    // untouched single line must simply follow the new total. The auto-debt
+    // effect ran in the same commit as the auto-sync, read the stale $101
+    // line and pushed a $1 CUSTOMER_ACCOUNT leg on top — the page then saw
+    // two lines, dropped its single-line method fee, and the server refused
+    // the send ("expected $101.00 … got $102.00"). Failing-first.
+    it("an untouched single line follows a raised total — no auto-debt leg (bug 13)", () => {
+      const onChange: ChangeMock = jest.fn();
+      const ui = (total: number) => (
+        <MultiPaymentInput
+          totals={[{ amount: total, currency: "USD" }]}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={true}
+          requiresClientForDebt={true}
+          autoDebtRemainder={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={onChange}
+        />
+      );
+      const { rerender } = render(ui(101));
+      fireEvent.change(screen.getByTestId(`payment-method-${firstLineId()}`), {
+        target: { value: "OMT" },
+      });
+
+      rerender(ui(102));
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      const lines = onChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lines).toEqual([
+        expect.objectContaining({ method: "OMT", amount: 102 }),
+      ]);
+      expect(allLines()).toHaveLength(1);
+    });
+
     // Review finding: the effect's deps omitted the totals, so a total that
     // changed while the sheet was open left a stale debt-leg amount (an
     // underbooked shortfall). totalsKey is now a dependency.
@@ -1641,14 +1682,21 @@ describe("MultiPaymentInput", () => {
       // LIRA-321 additions
       payer?: "payout";
       label?: string;
-      seedLines?: Array<{ method: string; currencyCode: string; amount: number }>;
+      seedLines?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>;
       lockCurrency?: boolean;
       maxForgive?: number;
       onStateChange?: jest.Mock;
       /** Counter-flow method list (default PAYMENT_METHODS). */
       counterFlowMethods?: Array<{ code: string; label: string }>;
     }
-    function counterFlowElement(opts: CounterFlowRenderOpts, mainOnChange: jest.Mock) {
+    function counterFlowElement(
+      opts: CounterFlowRenderOpts,
+      mainOnChange: jest.Mock,
+    ) {
       return (
         <MultiPaymentInput
           totals={[{ amount: 100, currency: "USD" }]}
@@ -1943,7 +1991,9 @@ describe("MultiPaymentInput", () => {
           ],
         });
         expect(cfLines()).toHaveLength(2);
-        expect(screen.getByTestId("counter-flow-add-split")).toBeInTheDocument();
+        expect(
+          screen.getByTestId("counter-flow-add-split"),
+        ).toBeInTheDocument();
         expect(
           screen.getByTestId("counter-flow-split-toggle"),
         ).toHaveTextContent("Split Active");
@@ -1962,7 +2012,9 @@ describe("MultiPaymentInput", () => {
         });
         typeFirst("30");
         expect(cfLines()).toHaveLength(2);
-        expect(screen.getByTestId("counter-flow-add-split")).toBeInTheDocument();
+        expect(
+          screen.getByTestId("counter-flow-add-split"),
+        ).toBeInTheDocument();
         expect(counterFlowOnChange.mock.calls.at(-1)?.[0]).toEqual([
           expect.objectContaining({ method: "CASH", amount: 30 }),
           expect.objectContaining({ method: "CUSTOMER_ACCOUNT", amount: 20 }),
@@ -2087,7 +2139,9 @@ describe("MultiPaymentInput", () => {
         });
         typeFirst("47");
         expect(cfLines()).toHaveLength(1);
-        expect(screen.getByTestId("counter-flow-unaccounted")).toHaveTextContent(
+        expect(
+          screen.getByTestId("counter-flow-unaccounted"),
+        ).toHaveTextContent(
           /Still to settle: 3(\.00)? USD — pick a client to put it on their account, or forgive it$/,
         );
         expect(screen.getByTestId("counter-flow-forgive")).toBeInTheDocument();
@@ -2137,7 +2191,9 @@ describe("MultiPaymentInput", () => {
 
         fireEvent.click(toggle());
         expect(toggle()).toHaveTextContent("Split Active");
-        expect(screen.getByTestId("counter-flow-add-split")).toBeInTheDocument();
+        expect(
+          screen.getByTestId("counter-flow-add-split"),
+        ).toBeInTheDocument();
         typeFirst("2"); // in split mode: no auto-leftover, just one line of 2
         fireEvent.click(screen.getByTestId("counter-flow-add-split"));
         expect(cfLines()).toHaveLength(2);
@@ -2354,9 +2410,9 @@ describe("MultiPaymentInput", () => {
 
       it("(j) while short, 'Still to settle' shows the amount and onStateChange reports `unaccounted`", () => {
         const onStateChange = leaveShortfallOf2({});
-        expect(screen.getByTestId("counter-flow-unaccounted")).toHaveTextContent(
-          /Still to settle: 2(\.00)? USD/,
-        );
+        expect(
+          screen.getByTestId("counter-flow-unaccounted"),
+        ).toHaveTextContent(/Still to settle: 2(\.00)? USD/);
         expect(lastState(onStateChange).unaccounted).toBe(2);
       });
 
@@ -2470,9 +2526,9 @@ describe("MultiPaymentInput", () => {
           hasClient: false,
           maxForgive: 5,
         });
-        expect(screen.getByTestId("counter-flow-summary-paid")).toHaveTextContent(
-          /^Customer paid:\s*50 USD$/,
-        );
+        expect(
+          screen.getByTestId("counter-flow-summary-paid"),
+        ).toHaveTextContent(/^Customer paid:\s*50 USD$/);
         expect(
           screen.queryByTestId("counter-flow-summary-owed"),
         ).not.toBeInTheDocument();
@@ -2595,7 +2651,9 @@ describe("MultiPaymentInput", () => {
           expect.objectContaining({ method: "OMT", amount: 90 }),
           expect.objectContaining({ method: "CASH", amount: 5 }),
         ]);
-        expect(screen.getByTestId("counter-flow-unaccounted")).toHaveTextContent(
+        expect(
+          screen.getByTestId("counter-flow-unaccounted"),
+        ).toHaveTextContent(
           /^Still to settle: 10(\.00)? USD — pick a client to put it on their account, or press \+ Add line$/,
         );
       });
@@ -2610,7 +2668,9 @@ describe("MultiPaymentInput", () => {
           seedLines: WHISH_SEED,
         });
         typeFirst("90");
-        expect(screen.getByTestId("counter-flow-unaccounted")).toHaveTextContent(
+        expect(
+          screen.getByTestId("counter-flow-unaccounted"),
+        ).toHaveTextContent(
           /^Still to settle: 10(\.00)? USD — pick a client to put it on their account, or forgive it$/,
         );
       });

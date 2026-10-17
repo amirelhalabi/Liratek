@@ -1,5 +1,8 @@
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { SearchBar, useApi } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import {
   STOCK_EXPENSE_CATALOG_PROVIDERS,
   type CatalogStockExpenseSource,
@@ -27,8 +30,10 @@ export interface StockPick {
   carrier?: "mtc" | "alfa";
 }
 
+// Brand names stay as they are (FR-009); "Inventory" is shown through
+// `picker.inventory` in the displayed language.
 const SOURCE_LABELS: Record<StockExpenseSource, string> = {
-  INVENTORY: "Inventory",
+  INVENTORY: "Inventory", // i18n-exempt: replaced by picker.inventory where shown
   KATSH: "Katsh",
   IPICK: "iPick",
   WHISH_APP: "Whish App",
@@ -66,6 +71,7 @@ export function StockUsePicker({
   onPick: (pick: StockPick) => void;
 }) {
   const api = useApi();
+  const { t } = useTranslation("expenses");
   // rule 25: no effect depends on `api`; the catalog is fetched lazily on
   // the first search and cached for the page's lifetime.
   const catalogRef = useRef<StockPick[] | null>(null);
@@ -112,7 +118,7 @@ export function StockUsePicker({
         source: "INVENTORY" as const,
         item_id: p.id,
         name: p.name,
-        sourceLabel: SOURCE_LABELS.INVENTORY,
+        sourceLabel: t("picker.inventory"),
         unitCost: Number(p.cost_price ?? p.cost_price_usd ?? 0) || 0,
         currency: "USD" as const,
         stock: Number(p.stock_quantity ?? 0),
@@ -126,24 +132,28 @@ export function StockUsePicker({
   return (
     <SearchBar<StockPick>
       data-testid="expense-stock-search"
-      placeholder="Search an inventory item or a Katsh / iPick / Whish App product..."
+      placeholder={t("picker.placeholder")}
       onSearch={search}
       onSelect={onPick}
       renderItem={(item) => (
         <div className="flex items-center justify-between w-full gap-3">
           <span className="font-medium truncate">{item.name}</span>
           <span className="text-slate-400 text-xs whitespace-nowrap">
-            {item.sourceLabel} · Cost{" "}
-            {item.currency === "USD"
-              ? `$${item.unitCost.toFixed(2)}`
-              : `${item.unitCost.toLocaleString()} LBP`}
-            {item.stock !== undefined ? ` · ${item.stock} in stock` : ""}
+            {item.sourceLabel} · {t("picker.cost")}{" "}
+            <Ltr>
+              {item.currency === "USD"
+                ? `$${item.unitCost.toFixed(2)}`
+                : `${formatNumber(item.unitCost)} LBP`}
+            </Ltr>
+            {item.stock !== undefined
+              ? t("picker.inStock", { count: item.stock })
+              : ""}
           </span>
         </div>
       )}
       getKey={(item) => item.key}
       ringColor="ring-orange-500/50"
-      noResultsMessage="No items found."
+      noResultsMessage={t("picker.noResults")}
     />
   );
 }

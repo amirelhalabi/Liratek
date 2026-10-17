@@ -470,6 +470,7 @@ export type {
   AuditLogEntity,
   AuditFilters,
   AdminActionAuditInput,
+  SubscriptionHistoryEntry,
 } from "./AuditService.js";
 
 // Audit utilities
@@ -582,8 +583,22 @@ export {
   resetSubscriptionService,
   GRACE_PERIOD_DAYS,
   UNGATEABLE_MODULES,
+  toDesktopView,
+  SUBSCRIPTION_DATE_IN_PAST_MESSAGE,
+  EXTEND_TRIAL_PAYING_SHOP_MESSAGE,
 } from "./SubscriptionService.js";
-export type { SubscriptionStatusView } from "./SubscriptionService.js";
+export type {
+  SubscriptionStatusView,
+  SubscriptionStanding,
+  DesktopSubscriptionView,
+  SubscriptionChange,
+} from "./SubscriptionService.js";
+// LIRA-332: the one subscription seed both storage provisioners use.
+export {
+  payingSubscriptionSeed,
+  trialSubscriptionSeed,
+} from "./subscriptionSeed.js";
+export type { SubscriptionSeed } from "./subscriptionSeed.js";
 
 // Commissions Report Service (Profits page "Commissions" tab —
 // OWNER_NOTES_2026-09-21.md §6, lane LC)

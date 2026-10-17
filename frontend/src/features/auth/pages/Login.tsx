@@ -9,6 +9,8 @@ import PasswordInput from "@/shared/components/PasswordInput";
 import { TextInput } from "@liratek/ui";
 import { useTheme } from "@/contexts/ThemeContext";
 import { isElectron, publicAuthInfo } from "@/api/backendApi";
+import { useTranslation } from "react-i18next";
+import { LanguageSwitch } from "@/shared/components/LanguageSwitch";
 // Account features (SELF_SERVE_SIGNUP_AND_GOOGLE_PLAN.md "Contracts"): add
 // imports under YOUR anchor only (blank-line separated for clean merges).
 // [auth-C] imports
@@ -48,6 +50,7 @@ const BRAND_NAVY = "#0c134f";
 const BRAND_SUBTITLE = "#bfc7dc";
 
 export default function Login({ adminOnly = false }: LoginProps = {}) {
+  const { t } = useTranslation("auth");
   const { login } = useAuth();
   const navigate = useNavigate();
   const shopName = useShopName();
@@ -131,10 +134,10 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
         // but navigating directly avoids the extra bounce.
         navigate(result.role === "super_admin" ? "/admin/tenants" : "/");
       } else {
-        setError(result.error || "Sign-in failed");
+        setError(result.error || t("login.signInFailed"));
       }
     } catch (err) {
-      setError("An unexpected error occurred");
+      setError(t("login.unexpectedError"));
       logger.error("Sign-in failed", { error: err });
     } finally {
       setLoading(false);
@@ -148,7 +151,7 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
     <>
       {sso.exchanging && (
         <p className="text-sm text-slate-400" role="status">
-          Signing you in with Google...
+          {t("login.signingInWithGoogle")}
         </p>
       )}
       {(error || sso.error) && (
@@ -177,6 +180,9 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
           : "bg-gradient-to-br from-gray-50 via-gray-50 to-gray-100",
       )}
     >
+      {/* LIRA-331 FR-004: English / العربية before sign-in. */}
+      <LanguageSwitch className="absolute top-4 end-4 z-20" />
+
       {/* Subtle background pattern */}
       <div
         className={clsx(
@@ -186,13 +192,13 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
       >
         <div
           className={clsx(
-            "absolute top-0 left-1/4 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl",
+            "absolute top-0 start-1/4 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl",
             theme === "dark" ? "bg-violet-600" : "bg-violet-400",
           )}
         ></div>
         <div
           className={clsx(
-            "absolute -bottom-8 right-1/4 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl",
+            "absolute -bottom-8 end-1/4 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl",
             theme === "dark" ? "bg-indigo-600" : "bg-indigo-400",
           )}
         ></div>
@@ -225,7 +231,7 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
             className="mt-3 text-xs font-medium uppercase tracking-[0.25em]"
             style={{ color: BRAND_SUBTITLE }}
           >
-            Management System
+            {t("login.managementSystem")}
           </p>
           {shopName || hostShopName ? (
             <h1
@@ -259,8 +265,8 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                 <TextInput
                   value={username}
                   onChange={setUsername}
-                  label="Username"
-                  placeholder="Enter username"
+                  label={t("login.username")}
+                  placeholder={t("login.usernamePlaceholder")}
                   icon="user"
                   required
                   // Password managers: these hints let the browser autofill
@@ -273,11 +279,11 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                     username or password". A hint, not a block: submitting
                     still works (www's own page takes an email). */}
                 <p className="mt-1 text-xs text-slate-400">
-                  Not your email — use the username your admin gave you
+                  {t("login.usernameHint")}
                 </p>
                 {username.includes("@") && (
                   <p role="status" className="mt-1 text-xs text-amber-400">
-                    Use your username, or Continue with Google
+                    {t("login.emailTyped")}
                   </p>
                 )}
               </div>
@@ -286,7 +292,7 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                 <PasswordInput
                   value={password}
                   onChange={setPassword}
-                  label="Password"
+                  label={t("login.password")}
                   placeholder="••••••••"
                   name="password"
                   id="password"
@@ -309,9 +315,9 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                 </div>
                 <label
                   htmlFor="remember-me"
-                  className="ml-3 text-sm text-slate-300 cursor-pointer select-none"
+                  className="ms-3 text-sm text-slate-300 cursor-pointer select-none"
                 >
-                  Keep me signed in on this device
+                  {t("login.keepSignedIn")}
                 </label>
               </div>
 
@@ -328,10 +334,10 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                    Signing in...
+                    {t("login.signingIn")}
                   </span>
                 ) : (
-                  "Sign in"
+                  t("login.title")
                 )}
               </button>
             </form>
@@ -350,7 +356,7 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                     to="/forgot-password"
                     className="text-orange-500 hover:text-orange-400"
                   >
-                    Forgot password?
+                    {t("shared.forgotPassword")}
                   </Link>
                 </p>
               )}
@@ -374,12 +380,12 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                     theme === "dark" ? "text-slate-400" : "text-gray-600",
                   )}
                 >
-                  New to LiraTek?{" "}
+                  {t("shared.newToLiratek")}{" "}
                   <Link
                     to="/signup"
                     className="text-orange-500 hover:text-orange-400"
                   >
-                    Create your shop
+                    {t("shared.createYourShop")}
                   </Link>
                 </p>
               )}
@@ -400,7 +406,7 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                   theme === "dark" ? "text-slate-500" : "text-gray-500"
                 }
               >
-                Version
+                {t("login.version")}
               </span>{" "}
               {__APP_VERSION__}
               {/* Only when the shop has actually named itself. Before login
@@ -425,7 +431,7 @@ export default function Login({ adminOnly = false }: LoginProps = {}) {
                       theme === "dark" ? "text-slate-300" : "text-gray-700"
                     }
                   >
-                    Licensed to
+                    {t("login.licensedTo")}
                   </span>{" "}
                   <span
                     className={

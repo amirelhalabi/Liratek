@@ -165,7 +165,14 @@ test.describe("lira-web-066 — filter by wallet shows rows paid through it", ()
     // could also hit a table cell on the shared DB).
     const option = (label: string) =>
       page.getByTestId(`transactions-type-filter-option-${label}`);
+    // Groups start collapsed (grouped type filter): open each one first.
+    const openGroup = (label: string) =>
+      page
+        .getByTestId(`transactions-type-filter-group-toggle-${label}`)
+        .click();
     await page.getByTestId("transactions-type-filter").click();
+    await openGroup("OMT App");
+    await openGroup("Recharge");
     await option("OMT App Send").click();
     await expect(
       page.locator("tr", { hasText: `${tag} own` }).first(),

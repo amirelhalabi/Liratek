@@ -21,6 +21,12 @@
  *     local               runs writable, never recorded (sign-in, print…)
  *     unclassified        refused (fail closed)
  *
+ * LIRA-332: once the shop's FREE TRIAL has ended — the last check-in said so,
+ * or its stored end instant has passed on this PC's clock — offline and
+ * checkpoint channels are refused with TRIAL_ENDED (nothing recorded); reads
+ * and local channels still run. No stored trial = allowed (fail open).
+ * Standalone mode is untouched (FR-021).
+ *
  * Every call in offline/finishing mode passes through ONE async queue, so
  * nothing interleaves with an open write window (reads wait; the sender uses
  * `runExclusive`). better-sqlite3's `db.transaction()` cannot wrap an awaited
@@ -86,6 +92,11 @@ export interface RecorderDeps {
   clientDay: (d: Date) => string;
   tzOffsetMinutes: (d: Date) => number;
   uuid: () => string;
+  /**
+   * LIRA-332: the shop's trial from the last check-in (pairing.json), or
+   * null. Optional so older wiring and tests need no change.
+   */
+  trial?: () => { standing: "trial" | "trial_ended"; endsAt: string } | null;
   /** extra fields merged into a successful reply (e.g. offline receipt number) */
   decorate?: (
     channel: string,
@@ -93,6 +104,13 @@ export interface RecorderDeps {
     created: Record<string, number[]>,
   ) => Record<string, unknown>;
 }
+
+/** LIRA-332 (FR-011): the same words the server uses. */
+export const TRIAL_ENDED_REFUSAL = {
+  success: false,
+  code: "TRIAL_ENDED",
+  error: "Your free trial has ended. Contact LiraTek on WhatsApp to activate.",
+} as const;
 
 export const OFFLINE_NOT_AVAILABLE = {
   success: false,
@@ -162,6 +180,7 @@ export class Recorder {
     switch (cls) {
       case "offline":
       case "checkpoint":
+        if (this.trialEnded()) return { ...TRIAL_ENDED_REFUSAL };
         if (mode === "finishing") {
           return {
             success: false,
@@ -191,6 +210,19 @@ export class Recorder {
           code: "OFFLINE_UNCLASSIFIED",
           error: "Not available while offline",
         };
+    }
+  }
+
+  /** Never throws; unknown or absent = not ended (fail open). */
+  private trialEnded(): boolean {
+    try {
+      const t = this.d.trial?.();
+      if (!t) return false;
+      if (t.standing === "trial_ended") return true;
+      const end = Date.parse(t.endsAt);
+      return Number.isFinite(end) && end <= this.d.now().getTime();
+    } catch {
+      return false;
     }
   }
 

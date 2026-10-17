@@ -31,6 +31,7 @@
 import { test, expect, navigateTo } from "./fixtures";
 import type { Locator, Page } from "@playwright/test";
 import { closeAllActiveSessions } from "./helpers/nav";
+import { rechargeProviderTab } from "./helpers/rechargeTabs";
 
 // LIRA-297 (web mode): the web app re-polls sessions only every 120s, so a
 // session this spec starts/closes over window.api would not reach the UI in
@@ -188,10 +189,7 @@ async function providerTab(page: Page, label: string) {
       .first()
       .waitFor({ state: "hidden", timeout: 6_000 })
       .catch(() => {});
-    const tab = page
-      .locator("button")
-      .filter({ hasText: new RegExp(`^${label}$`) })
-      .first();
+    const tab = rechargeProviderTab(page, label);
     if (attempt === 0) {
       await tab.click({ force: true });
     } else {

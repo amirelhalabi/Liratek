@@ -28,6 +28,15 @@ export const UNAUTHORIZED_EVENT = "liratek:unauthorized";
  */
 export const SESSION_CHANGED_EVENT = "liratek:session-changed";
 
+/**
+ * LIRA-332: fired on `window` when the server refused a write because the
+ * shop's free trial has ended (`{ success:false, code:"TRIAL_ENDED" }`, HTTP
+ * 200). The envelope still goes back to the caller, which shows the server's
+ * text where it shows errors; the subscription banner listens and re-reads
+ * the status at once, so a cashier who hits the end mid-shift sees why.
+ */
+export const TRIAL_ENDED_EVENT = "liratek:trial-ended";
+
 // ── Storage keys ────────────────────────────────────────────────────────────
 // liratek.jwt          — localStorage, the normal (non-impersonation) login
 //                         session. Shared across every tab of this origin.
@@ -288,6 +297,14 @@ export async function requestJson<T>(
 
     const text = await res.text();
     const data = text ? JSON.parse(text) : null;
+
+    if (
+      data?.code === "TRIAL_ENDED" &&
+      data?.success === false &&
+      typeof window !== "undefined"
+    ) {
+      window.dispatchEvent(new CustomEvent(TRIAL_ENDED_EVENT));
+    }
 
     if (!res.ok) {
       // A rejected session must END the session, not just fail one request.

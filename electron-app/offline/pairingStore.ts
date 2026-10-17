@@ -54,6 +54,19 @@ export interface PairingFile {
   lastError?: string | null;
   /** server-held items of this PC, from check-in (spec edge case) */
   heldItems?: Array<{ eventId: string; label: string; amount: number | null }>;
+  /**
+   * LIRA-332: the shop's free trial from the last check-in. Absent (an older
+   * pairing file or server) or null means "not on a trial / unknown": the
+   * recorder then allows work (fail open).
+   */
+  trial?: PcTrialState | null;
+}
+
+/** LIRA-332: what check-in says about the shop's free trial. */
+export interface PcTrialState {
+  standing: "trial" | "trial_ended";
+  /** ISO UTC end instant. */
+  endsAt: string;
 }
 
 export interface PairedIdentity {

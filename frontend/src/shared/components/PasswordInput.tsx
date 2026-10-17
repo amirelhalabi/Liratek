@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { PASSWORD_SYMBOL_PATTERN } from "@liratek/core";
 import { useCapsLock } from "@/hooks/useCapsLock";
@@ -47,6 +48,7 @@ export default function PasswordInput({
   labelClassName,
   required,
 }: PasswordInputProps) {
+  const { t } = useTranslation("shared");
   const [showPassword, setShowPassword] = useState(false);
   const { capsLock, capsLockProps } = useCapsLock();
 
@@ -63,7 +65,7 @@ export default function PasswordInput({
     <div className={className}>
       {label && (
         <label className={labelCls} htmlFor={id}>
-          <Lock size={14} className="inline mr-1.5 text-violet-400" />
+          <Lock size={14} className="inline me-1.5 text-violet-400" />
           {label}
         </label>
       )}
@@ -72,7 +74,7 @@ export default function PasswordInput({
           type={showPassword ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={inputCls + " pr-10"}
+          className={inputCls + " pe-10"}
           placeholder={placeholder}
           autoComplete={autoComplete}
           name={name}
@@ -85,8 +87,8 @@ export default function PasswordInput({
         <button
           type="button"
           onClick={() => setShowPassword((v) => !v)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-          aria-label={showPassword ? "Hide password" : "Show password"}
+          className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+          aria-label={showPassword ? t("password.hide") : t("password.show")}
         >
           {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
@@ -95,29 +97,29 @@ export default function PasswordInput({
       {capsLock && (
         <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
           <AlertCircle size={12} />
-          Caps Lock is on
+          {t("password.capsLock")}
         </p>
       )}
       {showStrength && (
         <div className="bg-slate-900/50 rounded-lg px-4 py-3 text-xs text-slate-500 space-y-1 mt-2">
           <p className={/[A-Z]/.test(value) ? "text-emerald-400" : ""}>
-            ✓ Uppercase letter
+            {t("password.uppercase")}
           </p>
           <p className={/[a-z]/.test(value) ? "text-emerald-400" : ""}>
-            ✓ Lowercase letter
+            {t("password.lowercase")}
           </p>
           <p className={/[0-9]/.test(value) ? "text-emerald-400" : ""}>
-            ✓ Number
+            {t("password.number")}
           </p>
           <p className={value.length >= 8 ? "text-emerald-400" : ""}>
-            ✓ At least 8 characters
+            {t("password.minLength")}
           </p>
           <p
             className={
               PASSWORD_SYMBOL_PATTERN.test(value) ? "text-emerald-400" : ""
             }
           >
-            ✓ A symbol (for example - _ . @ ! #)
+            {t("password.symbol")}
           </p>
         </div>
       )}

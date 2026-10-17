@@ -100,6 +100,7 @@ import type {
   LinkSessionTransactionInput,
   UpdateDailyClosingIpcInput,
   CompleteSetupInput,
+  OpenExternalUrlInput,
 } from "@liratek/core";
 
 /**
@@ -3763,6 +3764,13 @@ export interface ElectronAPI {
       data?: CarrierLineOwedDelivery;
       error?: string;
     }>;
+  };
+
+  // LIRA-333 — open a WhatsApp link outside LiraTek (preload `app`).
+  app: {
+    openExternal: (
+      data: OpenExternalUrlInput,
+    ) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Display / Zoom

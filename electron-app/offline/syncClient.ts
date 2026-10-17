@@ -19,7 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { logger } from "@liratek/core";
-import type { PairingStore } from "./pairingStore.js";
+import type { PairingStore, PcTrialState } from "./pairingStore.js";
 import {
   fileStamp,
   integrityOk,
@@ -93,6 +93,8 @@ interface CheckinData {
   maxOfflineIds: Record<string, number>;
   heldItems: Array<{ eventId: string; label: string; amount: number | null }>;
   renumberUnsent?: boolean;
+  /** LIRA-332: absent from an older server. */
+  trial?: PcTrialState | null;
 }
 
 export class SyncClient {
@@ -248,6 +250,9 @@ export class SyncClient {
       serverMaxSeq: data.maxSeq,
       serverMaxOfflineIds: data.maxOfflineIds ?? {},
       heldItems: data.heldItems ?? [],
+      // LIRA-332: the recorder refuses new offline work once this says the
+      // trial has ended (or its end passed on this PC's clock).
+      trial: data.trial ?? null,
       lastError: null,
     });
     if (data.renumberUnsent && this.d.sender)

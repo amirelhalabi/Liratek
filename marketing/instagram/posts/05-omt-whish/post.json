@@ -24,10 +24,10 @@
           610
         ],
         "ring": [
-          500,
-          672,
-          290,
-          82
+          505,
+          676,
+          280,
+          80
         ]
       }
     },
@@ -62,7 +62,13 @@
     "assets/shots/omt.png ($150, +$2.00 fee, $152.00 total, demo shop)"
   ],
   "notes": "",
-  "media": [],
+  "media": [
+    "media/slide-01.jpg",
+    "media/slide-02.jpg",
+    "media/slide-03.jpg",
+    "media/slide-04.jpg"
+  ],
   "public_urls": [],
-  "published_id": null
+  "published_id": null,
+  "rendered_at": "2026-10-16T20:22:36.283Z"
 }

@@ -38,6 +38,10 @@ import {
   getSubscriptionRepository,
   type SubscriptionRepository,
 } from "../repositories/SubscriptionRepository.js";
+import {
+  payingSubscriptionSeed,
+  type SubscriptionSeed,
+} from "./subscriptionSeed.js";
 
 // =============================================================================
 // Types
@@ -67,6 +71,12 @@ export interface CreateTenantStorageInput {
   /** Already hashed — `TenantProvisioningService` owns password validation
    * and hashing; this port never sees a plaintext password. */
   passwordHash: string;
+  /**
+   * LIRA-332: the subscription row to create, chosen once by the service
+   * (paying, or paying + a trial). Absent means the paying default, so test
+   * fakes and older callers need no change.
+   */
+  subscriptionSeed?: SubscriptionSeed;
 }
 
 export interface TenantStorageDeleteResult {
@@ -168,12 +178,10 @@ export class SharedTenantStorageProvisioner implements TenantStorageProvisioner 
       // (absent means full access), so a half-provisioned shop would
       // silently be unlimited and unbilled. Rolling both back together is
       // the only state that cannot lie.
-      this.subscriptionRepo.createForTenant(created.id, {
-        plan: "standard",
-        status: "active",
-        current_period_end: null,
-        entitled_modules: null,
-      });
+      this.subscriptionRepo.createForTenant(
+        created.id,
+        input.subscriptionSeed ?? payingSubscriptionSeed(),
+      );
 
       return created;
     });

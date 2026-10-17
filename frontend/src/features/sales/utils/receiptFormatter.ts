@@ -63,6 +63,9 @@ export interface ReceiptData {
   /** Cash/wallet tender actually handed over — excludes on-account legs. */
   payment_usd: number;
   payment_lbp: number;
+  /** LIRA-333: the gift-card part of a saved sale (USD) — its own
+   *  "Gift card" line; omitted/0 = none. */
+  gift_card_usd?: number;
   /** Portion charged to the client's account (debt) — printed separately so
    *  the receipt never claims a debt was paid as tender. */
   on_account_usd?: number;
@@ -209,6 +212,13 @@ export function formatReceipt58mm(data: ReceiptData): string {
 
   if (data.payment_lbp > 0) {
     receipt += fmtLine("Paid LBP:", `${data.payment_lbp.toLocaleString()}`);
+  }
+
+  if ((data.gift_card_usd ?? 0) > 0) {
+    receipt += fmtLine(
+      "Gift card:",
+      `${sym}${(data.gift_card_usd ?? 0).toFixed(2)}`,
+    );
   }
 
   if ((data.on_account_usd ?? 0) > 0) {
@@ -366,6 +376,11 @@ export function formatReceipt80mm(data: ReceiptData): string {
       padRight(`(@ ${data.exchange_rate}/USD)`, 46) +
       `${sym}${(data.payment_lbp / data.exchange_rate).toFixed(2)}\n`;
   }
+  if ((data.gift_card_usd ?? 0) > 0) {
+    receipt +=
+      padRight("Gift card:", 46) +
+      `${sym}${(data.gift_card_usd ?? 0).toFixed(2)}\n`;
+  }
   if ((data.on_account_usd ?? 0) > 0) {
     receipt +=
       padRight("On Account - USD:", 46) +
@@ -393,6 +408,162 @@ export function formatReceipt80mm(data: ReceiptData): string {
   receipt += padCenter("═".repeat(width)) + "\n";
 
   return receipt;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIRA-333 — the receipt as a WhatsApp message (contracts/whatsapp-message.md)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Longest `encodeURIComponent(text)` the click-to-chat link may carry before
+ * the message is shortened (FR-011).
+ *
+ * PROVISIONAL (2026-10-17): a conservative guess, NOT a measurement. Task
+ * T031 measures the real limit on WhatsApp desktop (Windows), WhatsApp Web
+ * (Chrome) and Android WhatsApp; replace this value and this comment with
+ * that measurement (date + devices) when it is done.
+ */
+export const WHATSAPP_TEXT_MAX_ENCODED = 2000;
+
+export const WHATSAPP_SHORTENED_NOTE =
+  "(shortened — ask the shop for the full receipt)";
+
+interface WhatsAppLayout {
+  terms: boolean;
+  itemDetails: boolean;
+  /** how many items to list; the rest become "…and N more items" */
+  itemLimit: number;
+  shortened: boolean;
+}
+
+/** Non-empty trimmed lines of a free-text setting (header, terms). */
+function textLines(text: string | undefined | null): string[] {
+  return (text ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+function renderWhatsApp(data: ReceiptData, layout: WhatsAppLayout): string {
+  const sym = data.currency_symbol ?? "$";
+  const usd = (n: number) => `${sym}${n.toFixed(2)}`;
+  const out: string[] = [];
+
+  if (data.shop_name?.trim()) out.push(`*${data.shop_name.trim()}*`);
+  out.push(...textLines(data.header_text));
+  if (data.shop_location?.trim()) out.push(data.shop_location.trim());
+  if (data.shop_phone?.trim()) out.push(data.shop_phone.trim());
+  out.push("");
+
+  // Same toLocale* calls as paper: the cashier's own device (rule 27).
+  const dt = new Date(data.timestamp);
+  if (data.receipt_number) out.push(`Receipt: ${data.receipt_number}`);
+  out.push(`Date: ${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}`);
+  if (data.client_name?.trim()) out.push(`Client: ${data.client_name.trim()}`);
+  out.push("");
+
+  const shown = data.items.slice(0, layout.itemLimit);
+  for (const item of shown) {
+    out.push(`${item.name} — ${usd(item.subtotal)}`);
+    if (!layout.itemDetails) continue;
+    if (item.quantity > 1) out.push(`  ${item.quantity} × ${usd(item.price)}`);
+    if (item.imei) out.push(`  ${item.serial_label || "IMEI"}: ${item.imei}`);
+    const warrantyLine = warrantyLineFor(item, data.timestamp);
+    if (warrantyLine) out.push(`  ${warrantyLine}`);
+  }
+  const hidden = data.items.length - shown.length;
+  if (hidden > 0) out.push(`…and ${hidden} more items`);
+  if (layout.terms && hasWarrantyLine(data)) {
+    out.push(...textLines(data.warranty_terms));
+  }
+  out.push("");
+
+  const extra = data.extra ?? 0;
+  if (data.discount > 0 || extra > 0) {
+    out.push(`Subtotal: ${usd(data.subtotal)}`);
+  }
+  if (data.discount > 0) out.push(`Discount: -${usd(data.discount)}`);
+  if (extra > 0) out.push(`Extra: +${usd(extra)}`);
+  out.push(`*Total: ${usd(data.total)}*`);
+  const lbpTotal = data.total * data.exchange_rate;
+  if (lbpTotal > 0) out.push(`Total in LBP: ${lbpTotal.toLocaleString()} LBP`);
+
+  out.push(`Paid USD: ${usd(data.payment_usd)}`);
+  if (data.payment_lbp > 0) {
+    out.push(`Paid LBP: ${data.payment_lbp.toLocaleString()}`);
+  }
+  if ((data.gift_card_usd ?? 0) > 0) {
+    out.push(`Gift card: ${usd(data.gift_card_usd ?? 0)}`);
+  }
+  // FR-008: the account part is its own line, never inside "Paid".
+  if ((data.on_account_usd ?? 0) > 0) {
+    out.push(`On account: ${usd(data.on_account_usd ?? 0)}`);
+  }
+  if ((data.on_account_lbp ?? 0) > 0) {
+    out.push(`On account LBP: ${(data.on_account_lbp ?? 0).toLocaleString()}`);
+  }
+  if (data.change_usd > 0) out.push(`Change: ${usd(data.change_usd)}`);
+  if (data.change_lbp > 0) {
+    out.push(`Change LBP: ${data.change_lbp.toLocaleString()}`);
+  }
+
+  out.push("");
+  if (data.note?.trim()) out.push(data.note.trim());
+  out.push("Thank You!");
+  out.push("Powered by LiraTek • 81077357");
+  if (layout.shortened) out.push(WHATSAPP_SHORTENED_NOTE);
+
+  return out.join("\n");
+}
+
+/**
+ * The receipt laid out for reading on a phone (FR-009): one fact per line,
+ * label and amount together, no padding. Every figure uses the same format
+ * as the paper receipt (FR-006). Over `maxEncoded`, it shortens in this
+ * order — warranty terms, item sub-lines, then the tail of the item list —
+ * and never drops the totals, payment, gift card, account or change lines
+ * (FR-011).
+ */
+export function formatReceiptWhatsApp(
+  data: ReceiptData,
+  opts: { maxEncoded?: number } = {},
+): string {
+  const max = opts.maxEncoded ?? WHATSAPP_TEXT_MAX_ENCODED;
+  const fits = (t: string) => encodeURIComponent(t).length <= max;
+  const all = data.items.length;
+
+  const full = renderWhatsApp(data, {
+    terms: true,
+    itemDetails: true,
+    itemLimit: all,
+    shortened: false,
+  });
+  if (fits(full)) return full;
+
+  const noTerms = renderWhatsApp(data, {
+    terms: false,
+    itemDetails: true,
+    itemLimit: all,
+    shortened: true,
+  });
+  if (fits(noTerms)) return noTerms;
+
+  let compact = "";
+  for (let limit = all; limit >= 0; limit--) {
+    compact = renderWhatsApp(data, {
+      terms: false,
+      itemDetails: false,
+      itemLimit: limit,
+      shortened: true,
+    });
+    if (fits(compact)) return compact;
+  }
+  return compact;
+}
+
+/** The free click-to-chat link (FR-019): `https://wa.me/<digits>?text=…`. */
+export function buildWhatsAppLink(digits: string, text: string): string {
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
 
 /**

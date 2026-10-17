@@ -163,7 +163,7 @@ export default function PaymentMethodsManager() {
 
       {/* Methods table */}
       <div className="border border-slate-700 rounded-lg overflow-hidden">
-        <table className="w-full text-sm text-left">
+        <table className="w-full text-sm text-start">
           <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
             <tr>
               <th className="py-2 px-3">Code</th>
@@ -180,7 +180,7 @@ export default function PaymentMethodsManager() {
                 <td className="py-2 px-3 text-white font-mono text-xs">
                   {m.code}
                   {m.is_system === 1 && (
-                    <span className="ml-1 text-[10px] text-amber-400">🔒</span>
+                    <span className="ms-1 text-[10px] text-amber-400">🔒</span>
                   )}
                 </td>
                 <td className="py-2 px-3 text-white">

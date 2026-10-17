@@ -13,6 +13,9 @@ import { PageHeader, DecimalInput, useApi } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import type { Voucher } from "@/types/electron";
 import { localDay } from "@/shared/utils/localDay";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 
 type StatusFilter = "all" | "pending" | "redeemed" | "expired" | "cancelled";
 
@@ -22,13 +25,14 @@ interface ClientLite {
   phone_number: string | null;
 }
 
-const STATUS_TABS: { key: StatusFilter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "pending", label: "Pending" },
-  { key: "redeemed", label: "Redeemed" },
-  { key: "expired", label: "Expired" },
-  { key: "cancelled", label: "Cancelled" },
-];
+// Labels are catalog keys, translated at render; `key` is the status code.
+const STATUS_TABS = [
+  { key: "all", labelKey: "status.all" },
+  { key: "pending", labelKey: "status.pending" },
+  { key: "redeemed", labelKey: "status.redeemed" },
+  { key: "expired", labelKey: "status.expired" },
+  { key: "cancelled", labelKey: "status.cancelled" },
+] as const satisfies readonly { key: StatusFilter; labelKey: string }[];
 
 const STATUS_STYLES: Record<Voucher["status"], string> = {
   pending: "bg-amber-500/15 text-amber-300 border-amber-500/30",
@@ -41,6 +45,12 @@ export function VouchersPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const api = useApi();
+  const { t } = useTranslation("vouchers");
+  const { formatNumber } = useFormat();
+  const formatVoucherAmount = (v: Voucher) =>
+    v.currency_code === "LBP"
+      ? `${formatNumber(Math.round(v.amount))} LBP`
+      : `$${v.amount.toFixed(2)}`;
 
   // ─── List state ───
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
@@ -76,7 +86,7 @@ export function VouchersPage() {
     if (result.success) {
       setVouchers(result.vouchers ?? []);
     } else {
-      setListError(result.error ?? "Failed to load vouchers");
+      setListError(result.error ?? t("page.loadFailed"));
     }
     setLoading(false);
   }, [api]);
@@ -143,9 +153,9 @@ export function VouchersPage() {
     const name = clientQuery.trim();
     const phone = clientPhone.trim();
     if (!name)
-      return { ok: false, error: "Enter a client name or select a client" };
+      return { ok: false, error: t("form.errNameOrClient") };
     if (!phone)
-      return { ok: false, error: "Enter a phone number for the new client" };
+      return { ok: false, error: t("form.errPhone") };
 
     const created = await api.createClient({
       full_name: name,
@@ -161,14 +171,17 @@ export function VouchersPage() {
     const existing = matches.find((c) => c.phone_number === phone);
     if (existing) return { ok: true, clientId: existing.id };
 
-    return { ok: false, error: created.error ?? "Failed to create client" };
+    return {
+      ok: false,
+      error: created.error ?? t("form.errCreateClient"),
+    };
   };
 
   const handleSubmit = async () => {
     setFormError(null);
     const amountVal = parseFloat(amount);
     if (!amountVal || amountVal <= 0) {
-      setFormError("Enter a valid amount greater than zero");
+      setFormError(t("form.errAmount"));
       return;
     }
 
@@ -193,7 +206,7 @@ export function VouchersPage() {
         resetForm();
         loadVouchers();
       } else {
-        setFormError(result.error ?? "Failed to create voucher");
+        setFormError(result.error ?? t("form.errCreate"));
       }
     } finally {
       setSubmitting(false);
@@ -201,13 +214,10 @@ export function VouchersPage() {
   };
 
   const handleCancel = async (voucher: Voucher) => {
-    const amtLabel =
-      voucher.currency_code === "LBP"
-        ? `${Math.round(voucher.amount).toLocaleString()} LBP`
-        : `$${voucher.amount.toFixed(2)}`;
+    const amtLabel = formatVoucherAmount(voucher);
     if (
       !window.confirm(
-        `Cancel voucher ${voucher.code} (${amtLabel})? This cannot be undone.`,
+        t("list.cancelConfirm", { code: voucher.code, amount: amtLabel }),
       )
     ) {
       return;
@@ -216,7 +226,7 @@ export function VouchersPage() {
     if (result.success) {
       loadVouchers();
     } else {
-      alert(result.error ?? "Failed to cancel voucher");
+      alert(result.error ?? t("list.cancelFailed"));
     }
   };
 
@@ -238,7 +248,7 @@ export function VouchersPage() {
   return (
     <div className="h-full p-6 overflow-auto">
       <div className="mb-6">
-        <PageHeader title="Vouchers" />
+        <PageHeader title={t("page.title")} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -246,34 +256,35 @@ export function VouchersPage() {
         <div className="lg:col-span-1">
           <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-5">
             <h2 className="text-lg font-semibold text-white mb-4">
-              Create Voucher
+              {t("form.title")}
             </h2>
 
             {createdVoucher && (
               <div className="mb-4 p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <p className="text-xs text-emerald-300 mb-1">
-                  Voucher created for {createdVoucher.client_name}
+                  {t("form.createdFor", {
+                    name: createdVoucher.client_name,
+                  })}
                 </p>
                 <div className="flex items-center gap-2">
-                  <span className="text-xl font-mono font-bold text-white tracking-wider">
+                  <Ltr className="text-xl font-mono font-bold text-white tracking-wider">
                     {createdVoucher.code}
-                  </span>
+                  </Ltr>
                   <button
                     type="button"
                     onClick={() => copyCode(createdVoucher.code)}
                     className="p-1.5 rounded-md text-emerald-300 hover:bg-emerald-500/20 transition-colors"
-                    title="Copy code"
+                    title={t("list.copyCode")}
                   >
                     {copied ? <Check size={16} /> : <Copy size={16} />}
                   </button>
                 </div>
                 <p className="text-sm text-emerald-200 mt-1">
-                  {createdVoucher.currency_code === "LBP"
-                    ? `${Math.round(createdVoucher.amount).toLocaleString()} LBP`
-                    : `$${createdVoucher.amount.toFixed(2)}`}
+                  <Ltr>{formatVoucherAmount(createdVoucher)}</Ltr>
+                  {" · "}
                   {createdVoucher.expiry_date
-                    ? ` · expires ${createdVoucher.expiry_date}`
-                    : " · no expiry"}
+                    ? t("list.expires", { date: createdVoucher.expiry_date })
+                    : t("list.noExpiry")}
                 </p>
               </div>
             )}
@@ -281,7 +292,7 @@ export function VouchersPage() {
             {/* Client — search existing or create new */}
             <div className="mb-3 relative">
               <label className="text-xs text-slate-400 block mb-1">
-                Client *
+                {t("form.client")}
               </label>
               {selectedClient ? (
                 <div className="flex items-center justify-between bg-slate-900 border border-slate-600 rounded-lg px-3 py-2">
@@ -291,7 +302,7 @@ export function VouchersPage() {
                     </p>
                     {selectedClient.phone_number && (
                       <p className="text-xs text-slate-400">
-                        {selectedClient.phone_number}
+                        <Ltr>{selectedClient.phone_number}</Ltr>
                       </p>
                     )}
                   </div>
@@ -306,7 +317,7 @@ export function VouchersPage() {
               ) : (
                 <div className="space-y-2">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                     <input
                       type="text"
                       value={clientQuery}
@@ -314,8 +325,8 @@ export function VouchersPage() {
                       onFocus={() =>
                         clientResults.length && setShowResults(true)
                       }
-                      className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-9 pr-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                      placeholder="Search or enter client name"
+                      className="w-full bg-slate-900 border border-slate-600 rounded-lg ps-9 pe-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                      placeholder={t("form.clientPlaceholder")}
                     />
                     {showResults && clientResults.length > 0 && (
                       <div className="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-600 rounded-lg shadow-xl max-h-56 overflow-auto">
@@ -324,12 +335,12 @@ export function VouchersPage() {
                             key={c.id}
                             type="button"
                             onClick={() => selectClient(c)}
-                            className="w-full text-left px-3 py-2 hover:bg-slate-700/60 transition-colors"
+                            className="w-full text-start px-3 py-2 hover:bg-slate-700/60 transition-colors"
                           >
                             <p className="text-sm text-white">{c.full_name}</p>
                             {c.phone_number && (
                               <p className="text-xs text-slate-400">
-                                {c.phone_number}
+                                <Ltr>{c.phone_number}</Ltr>
                               </p>
                             )}
                           </button>
@@ -342,11 +353,11 @@ export function VouchersPage() {
                     value={clientPhone}
                     onChange={(e) => setClientPhone(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                    placeholder="Phone number"
+                    placeholder={t("form.phonePlaceholder")}
                   />
                   {clientQuery.trim() && clientResults.length === 0 && (
                     <p className="text-[11px] text-slate-500">
-                      No match — a new client will be created.
+                      {t("form.newClientHint")}
                     </p>
                   )}
                 </div>
@@ -356,7 +367,9 @@ export function VouchersPage() {
             {/* Amount + currency toggle */}
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs text-slate-400">Amount *</label>
+                <label className="text-xs text-slate-400">
+                  {t("form.amount")}
+                </label>
                 <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
                   {(["USD", "LBP"] as const).map((cur) => (
                     <button
@@ -380,14 +393,14 @@ export function VouchersPage() {
               </div>
               <div className="relative">
                 {currency === "USD" && (
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                  <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
                     $
                   </span>
                 )}
                 <DecimalInput
                   value={parseFloat(amount) || 0}
                   onChange={(n) => setAmount(n ? String(n) : "")}
-                  className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500`}
+                  className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "ps-7" : "ps-3"} pe-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500`}
                   placeholder={currency === "USD" ? "0.00" : "0"}
                 />
               </div>
@@ -396,15 +409,15 @@ export function VouchersPage() {
             {/* Expiry */}
             <div className="mb-3">
               <label className="text-xs text-slate-400 block mb-1">
-                Expiry date (optional)
+                {t("form.expiry")}
               </label>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <Calendar className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                 <input
                   type="date"
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-9 pr-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg ps-9 pe-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
                 />
               </div>
             </div>
@@ -412,14 +425,14 @@ export function VouchersPage() {
             {/* Note */}
             <div className="mb-4">
               <label className="text-xs text-slate-400 block mb-1">
-                Note (optional)
+                {t("form.note")}
               </label>
               <input
                 type="text"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                placeholder="e.g. Birthday gift"
+                placeholder={t("form.notePlaceholder")}
               />
             </div>
 
@@ -440,10 +453,10 @@ export function VouchersPage() {
             >
               {submitting ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Creating...
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t("form.creating")}
                 </>
               ) : (
-                "Create Voucher"
+                t("form.title")
               )}
             </button>
           </div>
@@ -454,7 +467,7 @@ export function VouchersPage() {
           <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
             <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
               <Gift size={14} className="text-amber-400" />
-              Vouchers ({filteredVouchers.length})
+              {t("list.heading", { n: filteredVouchers.length })}
             </h3>
 
             {/* Status tabs */}
@@ -474,8 +487,8 @@ export function VouchersPage() {
                         : "bg-slate-900/60 text-slate-400 border border-slate-700 hover:text-slate-200 hover:border-slate-600"
                     }`}
                   >
-                    {tab.label}
-                    <span className="ml-1.5 opacity-70">{count}</span>
+                    {t(tab.labelKey)}
+                    <span className="ms-1.5 opacity-70">{count}</span>
                   </button>
                 );
               })}
@@ -484,7 +497,8 @@ export function VouchersPage() {
             {/* Voucher list */}
             {loading ? (
               <div className="py-8 text-center text-sm text-slate-500 flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" /> Loading...
+                <Loader2 className="w-4 h-4 animate-spin" />{" "}
+                {t("common:state.loading")}
               </div>
             ) : listError ? (
               <div className="py-8 text-center text-sm text-red-400">
@@ -492,24 +506,24 @@ export function VouchersPage() {
               </div>
             ) : filteredVouchers.length === 0 ? (
               <div className="py-8 text-center text-sm text-slate-500">
-                No vouchers in this status
+                {t("list.empty")}
               </div>
             ) : (
               <div className="space-y-2 max-h-64 overflow-auto custom-scrollbar">
                 {filteredVouchers.map((v) => (
                   <div
                     key={v.id}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all hover:bg-slate-700/70 bg-slate-900/50 border border-slate-700/40"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-start transition-all hover:bg-slate-700/70 bg-slate-900/50 border border-slate-700/40"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-mono font-medium text-white truncate">
+                        <Ltr className="text-sm font-mono font-medium text-white truncate">
                           {v.code}
-                        </span>
+                        </Ltr>
                         <span
                           className={`text-[10px] px-1.5 py-0.5 rounded font-medium border capitalize ${STATUS_STYLES[v.status]}`}
                         >
-                          {v.status}
+                          {t(`status.${v.status}`)}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
@@ -520,8 +534,8 @@ export function VouchersPage() {
                         )}
                         <span className="text-[10px] text-slate-600">
                           {v.expiry_date
-                            ? `expires ${v.expiry_date}`
-                            : "no expiry"}
+                            ? t("list.expires", { date: v.expiry_date })
+                            : t("list.noExpiry")}
                         </span>
                       </div>
                     </div>
@@ -529,24 +543,22 @@ export function VouchersPage() {
                       type="button"
                       onClick={() => copyCode(v.code)}
                       className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap"
-                      title="Copy code"
+                      title={t("list.copyCode")}
                     >
-                      Copy
+                      {t("list.copy")}
                     </button>
                     {isAdmin && v.status === "pending" && (
                       <button
                         type="button"
                         onClick={() => handleCancel(v)}
                         className="text-[10px] px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors whitespace-nowrap inline-flex items-center gap-1"
-                        title="Cancel voucher"
+                        title={t("list.cancelTitle")}
                       >
-                        <Ban size={12} /> Cancel
+                        <Ban size={12} /> {t("common:actions.cancel")}
                       </button>
                     )}
                     <span className="text-xs font-mono text-emerald-400">
-                      {v.currency_code === "LBP"
-                        ? `${Math.round(v.amount).toLocaleString()} LBP`
-                        : `$${v.amount.toFixed(2)}`}
+                      <Ltr>{formatVoucherAmount(v)}</Ltr>
                     </span>
                   </div>
                 ))}
