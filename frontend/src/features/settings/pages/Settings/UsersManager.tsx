@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ConfirmModal, Select, appEvents, useApi } from "@liratek/ui";
 import { DataTable, TextInput } from "@liratek/ui";
 import type {
@@ -10,6 +11,7 @@ import type {
 import PasswordInput from "@/shared/components/PasswordInput";
 import { signinMethodLabel, validatePasswordComplexity } from "@liratek/core";
 import { messageFrom } from "@/api/apiError";
+import { useFormat } from "@/i18n/useFormat";
 import {
   isElectron,
   listUserEmails,
@@ -77,23 +79,32 @@ const VISIBLE_INVITE_STATUSES: ReadonlySet<UserInvitationView["status"]> =
 
 type AddUserMode = "create" | "invite";
 
-const ADD_USER_MODE_OPTIONS = [
-  { value: "create", label: "Create username/password" },
-  { value: "invite", label: "Send invitation" },
-];
-
-const ROLE_OPTIONS = [
-  { value: "staff", label: "Staff" },
-  { value: "admin", label: "Admin" },
-];
-
-function formatDay(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
-}
 
 export default function UsersManager() {
   const api = useApi();
+  const { t } = useTranslation(["settings", "common"]);
+  const { formatDate } = useFormat();
+  // Option values are the stored codes; only the labels translate.
+  const addUserModeOptions = useMemo(
+    () => [
+      { value: "create", label: t("users.mode.create") },
+      { value: "invite", label: t("users.mode.invite") },
+    ],
+    [t],
+  );
+  const roleOptions = useMemo(
+    () => [
+      { value: "staff", label: t("users.role.staff") },
+      { value: "admin", label: t("users.role.admin") },
+    ],
+    [t],
+  );
+  const formatDay = (iso: string): string => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : formatDate(d);
+  };
+  const roleText = (role: string): string =>
+    role === "admin" || role === "staff" ? t(`users.roleValue.${role}`) : role;
   const [list, setList] = useState<
     Array<{
       id: number;
@@ -132,7 +143,7 @@ export default function UsersManager() {
       const rows = await listUserEmails();
       setEmails(Object.fromEntries(rows.map((row) => [row.id, row])));
     } catch (e) {
-      notifyError(e, "Failed to load user emails");
+      notifyError(e, t("users.loadEmailsFailed"));
     }
   };
 
@@ -142,7 +153,7 @@ export default function UsersManager() {
       setEmailConfigured(data.emailConfigured);
       setInvites(data.invitations);
     } catch (e) {
-      notifyError(e, "Failed to load invitations");
+      notifyError(e, t("users.loadInvitesFailed"));
     }
   };
 
@@ -156,7 +167,7 @@ export default function UsersManager() {
       }));
       setList(normalized);
     } catch (e) {
-      notifyError(e, "Failed to load users");
+      notifyError(e, t("users.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -185,17 +196,17 @@ export default function UsersManager() {
     setBusyUserId(id);
     const result = await runAccountAction(
       () => setUserEmail(id, payload),
-      "Failed to save the email",
+      t("users.saveEmailFailed"),
     );
     setBusyUserId(null);
     if (!result) return;
     setEditingEmailFor(null);
     notifySuccess(
       result.email === null
-        ? "Email removed"
+        ? t("users.emailRemoved")
         : result.verificationSent
-          ? `Email saved. A verification link was sent to ${result.email}`
-          : "Email saved. It is not verified yet",
+          ? t("users.emailSavedSent", { email: result.email })
+          : t("users.emailSavedUnverified"),
     );
     await loadEmails();
   };
@@ -204,20 +215,20 @@ export default function UsersManager() {
     setBusyUserId(id);
     const result = await runAccountAction(
       () => sendUserEmailVerification(id),
-      "Failed to send the verification email",
+      t("users.verifyFailed"),
     );
     setBusyUserId(null);
-    if (result) notifySuccess("Verification email sent");
+    if (result) notifySuccess(t("users.verifySent"));
   };
 
   const sendReset = async (id: number) => {
     setBusyUserId(id);
     const result = await runAccountAction(
       () => sendPasswordReset(id),
-      "Failed to send the password reset email",
+      t("users.resetFailed"),
     );
     setBusyUserId(null);
-    if (result) notifySuccess("Password reset email sent");
+    if (result) notifySuccess(t("users.resetSent"));
   };
 
   /** LIRA-288: an admin disconnects a member's Google (after confirming).
@@ -231,22 +242,22 @@ export default function UsersManager() {
     setBusyUserId(target.id);
     const result = await runAccountAction(
       () => adminRemoveUserGoogle(target.id),
-      "Failed to disconnect Google",
+      t("users.googleRemoveFailed"),
     );
     setBusyUserId(null);
     if (!result) return;
     if (result.passwordLink === "sent") {
       notifySuccess(
-        `Google sign-in disconnected. A link to set a password was emailed to ${target.username}.`,
+        t("users.googleRemovedLinkSent", { username: target.username }),
       );
     } else if (result.passwordLink === "not_sent") {
-      notifySuccess("Google sign-in disconnected");
+      notifySuccess(t("users.googleRemoved"));
       notifyError(
         null,
-        `No email could be sent, so ${target.username} can't sign in until a password is set. Use Set Password.`,
+        t("users.googleRemovedNoEmail", { username: target.username }),
       );
     } else {
-      notifySuccess("Google sign-in disconnected");
+      notifySuccess(t("users.googleRemoved"));
     }
     await loadEmails();
   };
@@ -254,21 +265,21 @@ export default function UsersManager() {
   /** LIRA-291: the Disconnect Google confirm text, from what the list knows. */
   const googleConfirmText = (target: { id: number; username: string }) => {
     const info = emails[target.id];
-    const base = `${target.username} will no longer be able to sign in to this shop with Google.`;
+    const base = t("users.googleConfirmBase", { username: target.username });
     if (info?.hasPassword !== false) {
-      return `${base} They can still sign in with their password.`;
+      return t("users.googleConfirmHasPassword", { base });
     }
     const canEmail =
       emailConfigured && Boolean(info.email && info.emailVerifiedAt);
     return canEmail
-      ? `${base} ${target.username} has no password. We'll email them a link to set one.`
-      : `${base} ${target.username} won't be able to sign in until a password is set. You can set one here with Set Password.`;
+      ? t("users.googleConfirmEmail", { base, username: target.username })
+      : t("users.googleConfirmNoEmail", { base, username: target.username });
   };
 
   const inviteByEmail = async () => {
     const email = inviteEmail.trim();
     if (!email) {
-      notifyError(null, "Enter an email address to invite");
+      notifyError(null, t("users.inviteEmailRequired"));
       return;
     }
     // Built ONCE (rule 22).
@@ -276,11 +287,11 @@ export default function UsersManager() {
     setInviting(true);
     const result = await runAccountAction(
       () => createUserInvitation(payload),
-      "Failed to send the invitation",
+      t("users.inviteFailed"),
     );
     setInviting(false);
     if (!result) return;
-    notifySuccess(`Invitation sent to ${result.invitation.email}`);
+    notifySuccess(t("users.inviteSent", { email: result.invitation.email }));
     setInviteEmail("");
     setNewRole("staff");
     await loadInvites();
@@ -290,11 +301,11 @@ export default function UsersManager() {
     setBusyInviteId(id);
     const result = await runAccountAction(
       () => revokeUserInvitation(id),
-      "Failed to revoke the invitation",
+      t("users.revokeFailed"),
     );
     setBusyInviteId(null);
     if (!result) return;
-    notifySuccess("Invitation revoked");
+    notifySuccess(t("users.revoked"));
     await loadInvites();
   };
 
@@ -302,11 +313,11 @@ export default function UsersManager() {
     setBusyInviteId(id);
     const result = await runAccountAction(
       () => resendUserInvitation(id),
-      "Failed to resend the invitation",
+      t("users.resendFailed"),
     );
     setBusyInviteId(null);
     if (!result) return;
-    notifySuccess(`Invitation re-sent to ${result.invitation.email}`);
+    notifySuccess(t("users.resent", { email: result.invitation.email }));
     await loadInvites();
   };
 
@@ -318,13 +329,15 @@ export default function UsersManager() {
     try {
       const res = await api.setUserActive(id, is_active ? false : true);
       if (!res.success) {
-        notifyError(res.error, "Failed to update user status");
+        notifyError(res.error, t("users.statusFailed"));
         return;
       }
-      notifySuccess(is_active ? "User deactivated" : "User activated");
+      notifySuccess(
+        is_active ? t("users.deactivated") : t("users.activated"),
+      );
       await load();
     } catch (e) {
-      notifyError(e, "Failed to update user status");
+      notifyError(e, t("users.statusFailed"));
     }
   };
 
@@ -333,19 +346,19 @@ export default function UsersManager() {
     try {
       const res = await api.setUserRole(id, newRole);
       if (!res.success) {
-        notifyError(res.error, "Failed to change role");
+        notifyError(res.error, t("users.roleFailed"));
         return;
       }
-      notifySuccess(`Role changed to ${newRole}`);
+      notifySuccess(t("users.roleChanged", { role: roleText(newRole) }));
       await load();
     } catch (e) {
-      notifyError(e, "Failed to change role");
+      notifyError(e, t("users.roleFailed"));
     }
   };
 
   const createUser = async () => {
     if (!newUsername || !newPassword) {
-      notifyError(null, "Username and password required");
+      notifyError(null, t("users.credsRequired"));
       return;
     }
     const pwResult = validatePasswordComplexity(newPassword);
@@ -361,33 +374,33 @@ export default function UsersManager() {
         role: newRole,
       });
       if (!res.success) {
-        notifyError(res.error, "Failed to create user");
+        notifyError(res.error, t("users.createFailed"));
         return;
       }
-      notifySuccess(`User "${newUsername}" created`);
+      notifySuccess(t("users.created", { username: newUsername }));
       setNewUsername("");
       setNewPassword("");
       setNewRole("staff");
       await load();
     } catch (e) {
-      notifyError(e, "Failed to create user");
+      notifyError(e, t("users.createFailed"));
     } finally {
       setCreating(false);
     }
   };
 
   const setPassword = async (id: number) => {
-    const pwd = prompt("Enter new password");
+    const pwd = prompt(t("users.passwordPrompt"));
     if (!pwd) return;
     try {
       const res = await api.setUserPassword(id, pwd);
       if (!res.success) {
-        notifyError(res.error, "Failed to set password");
+        notifyError(res.error, t("users.passwordFailed"));
         return;
       }
-      notifySuccess("Password updated");
+      notifySuccess(t("users.passwordUpdated"));
     } catch (e) {
-      notifyError(e, "Failed to set password");
+      notifyError(e, t("users.passwordFailed"));
     }
   };
 
@@ -396,8 +409,7 @@ export default function UsersManager() {
       <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 space-y-2">
         {web && !emailConfigured && (
           <p className="text-xs text-amber-400">
-            Email is not set up on this server, so invitations and verification
-            emails cannot be sent.
+            {t("users.emailNotConfigured")}
           </p>
         )}
         <div className="flex items-center gap-2">
@@ -406,7 +418,7 @@ export default function UsersManager() {
               <Select
                 value={addMode}
                 onChange={(value) => setAddMode(value as AddUserMode)}
-                options={ADD_USER_MODE_OPTIONS}
+                options={addUserModeOptions}
                 ringColor="ring-violet-500"
                 buttonClassName="bg-slate-800 px-2 py-1"
               />
@@ -418,7 +430,7 @@ export default function UsersManager() {
                 value={newUsername}
                 onChange={setNewUsername}
                 label=""
-                placeholder="Username"
+                placeholder={t("users.username")}
                 compact
                 className="w-48"
               />
@@ -426,7 +438,7 @@ export default function UsersManager() {
                 value={newPassword}
                 onChange={setNewPassword}
                 label=""
-                placeholder="Password"
+                placeholder={t("users.password")}
                 compact
                 className="flex-1"
               />
@@ -437,8 +449,8 @@ export default function UsersManager() {
               data-testid="invite-email"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="Email address (they choose their own username and password)"
-              aria-label="Email address to invite"
+              placeholder={t("users.invitePlaceholder")}
+              aria-label={t("users.inviteAria")}
               autoComplete="off"
               className={EMAIL_INPUT_CLASS}
             />
@@ -446,7 +458,7 @@ export default function UsersManager() {
           <Select
             value={newRole}
             onChange={(value) => setNewRole(value as "admin" | "staff")}
-            options={ROLE_OPTIONS}
+            options={roleOptions}
             ringColor="ring-violet-500"
             buttonClassName="bg-slate-800 px-2 py-1"
           />
@@ -456,7 +468,7 @@ export default function UsersManager() {
               disabled={creating}
               className="px-3 py-1 bg-violet-600 rounded text-white disabled:opacity-50"
             >
-              {creating ? "Creating…" : "Create"}
+              {creating ? t("users.creating") : t("users.create")}
             </button>
           ) : (
             <button
@@ -465,7 +477,7 @@ export default function UsersManager() {
               disabled={inviting || !emailConfigured}
               className="px-3 py-1 bg-violet-600 rounded text-white disabled:opacity-50 whitespace-nowrap"
             >
-              {inviting ? "Sending…" : "Send invitation"}
+              {inviting ? t("users.sending") : t("users.sendInvite")}
             </button>
           )}
         </div>
@@ -474,15 +486,21 @@ export default function UsersManager() {
       <div className="border border-slate-700 rounded-lg overflow-hidden">
         <DataTable
           columns={[
-            "Username",
-            ...(web ? ["Email", "Google", "Sign-in"] : []),
-            "Role",
-            "Active",
-            { header: "Actions", className: "p-2 text-end" },
+            t("users.col.username"),
+            ...(web
+              ? [
+                  t("users.col.email"),
+                  t("users.col.google"),
+                  t("users.col.signin"),
+                ]
+              : []),
+            t("users.col.role"),
+            t("users.col.active"),
+            { header: t("users.col.actions"), className: "p-2 text-end" },
           ]}
           data={list}
           loading={loading}
-          emptyMessage="No users"
+          emptyMessage={t("users.empty")}
           exportExcel
           exportPdf
           exportFilename="users"
@@ -502,8 +520,8 @@ export default function UsersManager() {
                           data-testid={`user-email-input-${u.id}`}
                           value={emailDraft}
                           onChange={(e) => setEmailDraft(e.target.value)}
-                          placeholder="name@example.com"
-                          aria-label={`Email for ${u.username}`}
+                          placeholder={t("users.emailPlaceholder")}
+                          aria-label={t("users.emailAria", { username: u.username })}
                           autoFocus
                           className={EMAIL_INPUT_CLASS}
                         />
@@ -513,13 +531,13 @@ export default function UsersManager() {
                           disabled={busy}
                           className="text-xs px-2 py-1 bg-violet-600 rounded text-white disabled:opacity-50"
                         >
-                          Save
+                          {t("common:actions.save")}
                         </button>
                         <button
                           onClick={() => setEditingEmailFor(null)}
                           className="text-xs px-2 py-1 bg-slate-700 rounded"
                         >
-                          Cancel
+                          {t("common:actions.cancel")}
                         </button>
                       </div>
                     ) : (
@@ -534,17 +552,23 @@ export default function UsersManager() {
                                   : "text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400"
                               }
                             >
-                              {verified ? "Verified" : "Not verified"}
+                              {verified
+                                ? t("users.verified")
+                                : t("users.notVerified")}
                             </span>
                           </>
                         ) : (
-                          <span className="text-slate-500">No email</span>
+                          <span className="text-slate-500">
+                            {t("users.noEmail")}
+                          </span>
                         )}
                         <button
                           onClick={() => startEditEmail(u.id)}
                           className="text-xs text-violet-400 hover:text-violet-300"
                         >
-                          {info?.email ? "Change email" : "Add email"}
+                          {info?.email
+                            ? t("users.changeEmail")
+                            : t("users.addEmail")}
                         </button>
                         {info?.email && !verified && (
                           <button
@@ -552,7 +576,7 @@ export default function UsersManager() {
                             disabled={busy || !emailConfigured}
                             className="text-xs text-violet-400 hover:text-violet-300 disabled:opacity-50"
                           >
-                            Send verification
+                            {t("users.sendVerification")}
                           </button>
                         )}
                       </div>
@@ -563,7 +587,9 @@ export default function UsersManager() {
                   <td className="p-2" data-testid={`user-google-${u.id}`}>
                     {info?.google ? (
                       <div className="flex flex-wrap items-center gap-2">
-                        <span>{info.google.email ?? "Connected"}</span>
+                        <span>
+                          {info.google.email ?? t("users.googleConnected")}
+                        </span>
                         <button
                           onClick={() =>
                             setConfirmGoogleFor({
@@ -574,7 +600,7 @@ export default function UsersManager() {
                           disabled={busy}
                           className="text-xs text-red-300 hover:text-red-200 disabled:opacity-50"
                         >
-                          Disconnect Google
+                          {t("users.disconnectGoogle")}
                         </button>
                       </div>
                     ) : (
@@ -592,26 +618,30 @@ export default function UsersManager() {
                       : "—"}
                   </td>
                 )}
-                <td className="p-2">{u.role}</td>
-                <td className="p-2">{u.is_active ? "Yes" : "No"}</td>
+                <td className="p-2">{roleText(u.role)}</td>
+                <td className="p-2">
+                  {u.is_active ? t("common:yes") : t("common:no")}
+                </td>
                 <td className="p-2 text-end space-x-2">
                   <button
                     onClick={() => toggleActive(u.id, u.is_active)}
                     className="text-xs px-2 py-1 bg-slate-700 rounded"
                   >
-                    {u.is_active ? "Deactivate" : "Activate"}
+                    {u.is_active ? t("users.deactivate") : t("users.activate")}
                   </button>
                   <button
                     onClick={() => changeRole(u.id, u.role)}
                     className="text-xs px-2 py-1 bg-violet-600 rounded text-white"
                   >
-                    Make {u.role === "admin" ? "Staff" : "Admin"}
+                    {u.role === "admin"
+                      ? t("users.makeStaff")
+                      : t("users.makeAdmin")}
                   </button>
                   <button
                     onClick={() => setPassword(u.id)}
                     className="text-xs px-2 py-1 bg-slate-600 rounded text-white"
                   >
-                    Set Password
+                    {t("users.setPassword")}
                   </button>
                   {web && (
                     <button
@@ -619,12 +649,12 @@ export default function UsersManager() {
                       disabled={busy || !verified || !emailConfigured}
                       title={
                         verified
-                          ? "Email this user a link to choose a new password"
-                          : "Needs a verified email"
+                          ? t("users.resetTitle")
+                          : t("users.needsVerified")
                       }
                       className="text-xs px-2 py-1 bg-slate-600 rounded text-white disabled:opacity-50"
                     >
-                      Send password reset
+                      {t("users.sendReset")}
                     </button>
                   )}
                 </td>
@@ -636,9 +666,9 @@ export default function UsersManager() {
 
       <ConfirmModal
         isOpen={confirmGoogleFor !== null}
-        title="Disconnect Google?"
+        title={t("users.disconnectTitle")}
         message={confirmGoogleFor ? googleConfirmText(confirmGoogleFor) : ""}
-        confirmLabel="Disconnect"
+        confirmLabel={t("users.disconnect")}
         onConfirm={() => {
           if (confirmGoogleFor) void removeGoogle(confirmGoogleFor);
         }}
@@ -647,27 +677,31 @@ export default function UsersManager() {
 
       {web && visibleInvites.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-slate-300">Invitations</h3>
+          <h3 className="text-sm font-semibold text-slate-300">
+            {t("users.invitations")}
+          </h3>
           <div className="border border-slate-700 rounded-lg overflow-hidden">
             <DataTable
               columns={[
-                "Email",
-                "Role",
-                "Status",
-                "Expires",
-                { header: "Actions", className: "p-2 text-end" },
+                t("users.col.email"),
+                t("users.col.role"),
+                t("users.col.status"),
+                t("users.col.expires"),
+                { header: t("users.col.actions"), className: "p-2 text-end" },
               ]}
               data={visibleInvites}
-              emptyMessage="No invitations"
+              emptyMessage={t("users.noInvitations")}
               renderRow={(inv) => (
                 <tr key={inv.id} className="border-t border-slate-800">
                   <td className="p-2">{inv.email}</td>
-                  <td className="p-2">{inv.role}</td>
+                  <td className="p-2">{roleText(inv.role)}</td>
                   <td className="p-2">
-                    {inv.status === "pending" ? "Waiting" : "Expired"}
+                    {inv.status === "pending"
+                      ? t("users.waiting")
+                      : t("users.expired")}
                     {inv.emailDelivery?.status === "failed" && (
                       <span className="ms-2 text-xs text-red-400">
-                        Email not delivered
+                        {t("users.notDelivered")}
                       </span>
                     )}
                   </td>
@@ -678,7 +712,7 @@ export default function UsersManager() {
                       disabled={busyInviteId === inv.id || !emailConfigured}
                       className="text-xs px-2 py-1 bg-violet-600 rounded text-white disabled:opacity-50"
                     >
-                      Resend
+                      {t("users.resend")}
                     </button>
                     {inv.status === "pending" && (
                       <button
@@ -686,7 +720,7 @@ export default function UsersManager() {
                         disabled={busyInviteId === inv.id}
                         className="text-xs px-2 py-1 bg-slate-700 rounded disabled:opacity-50"
                       >
-                        Revoke
+                        {t("users.revoke")}
                       </button>
                     )}
                   </td>
