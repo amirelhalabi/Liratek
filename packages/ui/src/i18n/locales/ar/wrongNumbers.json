@@ -1,1 +1,62 @@
-{}
+{
+  "dialog": {
+    "title": "رقم خاطئ",
+    "creditsTitle": "الرصيد المُسترجع",
+    "close": "إغلاق",
+    "loading": "جارٍ التحميل…",
+    "notFound": "لم يُعثر على سجلّ الرقم الخاطئ هذا.",
+    "another": "أُرسلت بطاقة أخرى إلى رقم خاطئ"
+  },
+  "status": {
+    "WAITING": "بانتظار الرصيد",
+    "PARTLY_RECOVERED": "استُرجع جزئياً",
+    "RECOVERED": "استُرجع",
+    "VOIDED": "أُلغي"
+  },
+  "credits": {
+    "wrongNumber": "الرقم الخاطئ {{number}}",
+    "rightNumber": " · الرقم الصحيح {{number}}",
+    "cardCost": "كلفة البطاقة",
+    "creditsBack": "الرصيد المُسترجع",
+    "creditsBackValue": "${{recovered}} من ${{total}}",
+    "loss": "الخسارة",
+    "creditLine": "+${{amount}} على {{line}} · ",
+    "amountLabel": "الرصيد الذي وصل ($، حتى {{max}})",
+    "lineLabel": "على خط المحل",
+    "noLine": "لا خط {{carrier}} فعّال للمحل",
+    "primary": " (الأساسي)",
+    "saving": "جارٍ الحفظ...",
+    "save": "احفظ الرصيد المُسترجع",
+    "enterCredits": "أدخل الرصيد الذي وصل وخط المحل.",
+    "saveFailed": "تعذّر حفظ الرصيد."
+  },
+  "panel": {
+    "introSale": "يبقى البيع كما هو — هو تشريج الرقم الصحيح. تُسجَّل البطاقة الضائعة كخسارة من رصيد {{provider}}.",
+    "intro": "تُسجَّل البطاقة الضائعة كخسارة من رصيد {{provider}}.",
+    "loadingCards": "جارٍ تحميل البطاقات...",
+    "loadFailed": "تعذّر تحميل البطاقات: {{error}}",
+    "loadFailedDefault": "تعذّر تحميل البطاقات.",
+    "retry": "إعادة المحاولة",
+    "cardSent": "البطاقة التي أُرسلت",
+    "fromSale": " · من هذا البيع",
+    "noCard": "لا بطاقة MTC أو Alfa من {{provider}}",
+    "pickHint": "اختر البطاقة التي أُرسلت.",
+    "wrongNumber": "الرقم الخاطئ (اختياري)",
+    "rightNumber": "رقم الزبون الصحيح",
+    "creditsCame": "الرصيد رجع من قبل",
+    "creditsArrived": "الرصيد الذي وصل ($)",
+    "lineLabel": "على خط المحل",
+    "noLine": "لا خط {{carrier}} فعّال للمحل",
+    "primary": " (الأساسي)",
+    "loss": "الخسارة {{amount}}.",
+    "lossWithCredits": "الخسارة {{amount}} — كانت البطاقة تحمل ${{credits}}؛ الرصيد المُسترجع يخفّضها.",
+    "pickToSee": "اختر البطاقة لترى الخسارة.",
+    "saving": "جارٍ الحفظ...",
+    "save": "سجّل الرقم الخاطئ",
+    "cancel": "إلغاء",
+    "pickCard": "اختر بطاقة MTC أو Alfa التي أُرسلت.",
+    "enterRight": "أدخل رقم الزبون الصحيح.",
+    "enterCredits": "أدخل الرصيد الذي وصل وخط المحل.",
+    "saveFailed": "تعذّر تسجيل الرقم الخاطئ."
+  }
+}

@@ -8,6 +8,7 @@
  * desktop app". ONE payload, typed from the core schema (rules 21/22).
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
 import type { DesktopPairInput } from "@liratek/core";
 
@@ -16,6 +17,7 @@ const input =
 
 export function PairThisPcCard() {
   const api = useApi();
+  const { t } = useTranslation("offline");
   const [shop, setShop] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -39,11 +41,14 @@ export function PairThisPcCard() {
       const r = await api.pairThisPc(payload);
       if (r.success && r.data) {
         setDone(
-          `Paired as PC ${r.data.deviceNo} of ${r.data.shopName}. The app restarts on the standby screen.`,
+          t("pair.done", {
+            deviceNo: r.data.deviceNo,
+            shopName: r.data.shopName,
+          }),
         );
         setPassword("");
       } else {
-        setError(r.error ?? "Pairing failed");
+        setError(r.error ?? t("pair.failed"));
       }
     } finally {
       setBusy(false);
@@ -53,15 +58,13 @@ export function PairThisPcCard() {
   return (
     <div className="max-w-lg space-y-3 rounded-xl border border-slate-700/50 bg-slate-800 p-4">
       <h3 className="text-lg font-semibold text-white">
-        Pair this PC with the web app
+        {t("pair.title")}
       </h3>
       <p className="text-sm text-slate-400">
-        After pairing, the shop works in the web app and this PC keeps a copy of
-        the shop so it can keep selling when the internet is down. An admin of
-        the shop signs in once.
+        {t("pair.intro")}
       </p>
       <label className="block text-xs text-slate-400">
-        Shop (web address name)
+        {t("pair.shop")}
         <input
           className={input}
           value={shop}
@@ -69,7 +72,7 @@ export function PairThisPcCard() {
         />
       </label>
       <label className="block text-xs text-slate-400">
-        Admin username
+        {t("pair.username")}
         <input
           className={input}
           value={username}
@@ -77,7 +80,7 @@ export function PairThisPcCard() {
         />
       </label>
       <label className="block text-xs text-slate-400">
-        Admin password
+        {t("pair.password")}
         <input
           className={input}
           type="password"
@@ -86,7 +89,7 @@ export function PairThisPcCard() {
         />
       </label>
       <label className="block text-xs text-slate-400">
-        Name for this PC
+        {t("pair.deviceName")}
         <input
           className={input}
           value={deviceName}
@@ -99,7 +102,7 @@ export function PairThisPcCard() {
         onClick={() => void submit()}
         className="w-full rounded-lg bg-violet-600 py-2 font-semibold text-white hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500"
       >
-        {busy ? "Pairing..." : "Pair this PC"}
+        {busy ? t("pair.pairing") : t("pair.submit")}
       </button>
       {error ? (
         <p role="alert" className="text-sm text-red-400">

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSetup } from "../context/SetupContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { CheckCircle, Loader2 } from "lucide-react";
@@ -8,6 +9,7 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 
 export default function StepComplete() {
   const { payload, resetWizard, setStep } = useSetup();
+  const { t } = useTranslation("setup");
   const { login, clearSetupRequired, clearFreshSignIn } = useAuth();
   const api = useApi();
   const [loading, setLoading] = useState(false);
@@ -24,7 +26,7 @@ export default function StepComplete() {
       const result = await api.completeSetup(payload);
 
       if (!result.success) {
-        setError(result.error ?? "Setup failed");
+        setError(result.error ?? t("complete.failed"));
         return;
       }
 
@@ -38,7 +40,7 @@ export default function StepComplete() {
         payload.admin_password,
       );
       if (!loginResult.success) {
-        setError(loginResult.error ?? "Sign-in after setup failed");
+        setError(loginResult.error ?? t("complete.signInFailed"));
         return;
       }
       // This auto-login is the wizard's, not a person signing in, and the
@@ -102,14 +104,14 @@ export default function StepComplete() {
       resetWizard();
       appEvents.emit(
         "notification:show",
-        `Welcome to ${payload.shop_name}! Setup complete.`,
+        t("complete.welcome", { shop: payload.shop_name }),
         "success",
         6000,
       );
     } catch (e) {
       // A server refusal (e.g. the item-C bare-MTC/Alfa-amount guard) must
       // surface its real message, not a stringified error object.
-      setError(getApiErrorMessage(e, "An unexpected error occurred"));
+      setError(getApiErrorMessage(e, t("complete.unexpected")));
     } finally {
       setLoading(false);
     }
@@ -123,14 +125,15 @@ export default function StepComplete() {
   const carrierLines = payload.carrier_lines ?? [];
   const hasMtcLine = carrierLines.some((l) => l.carrier === "mtc");
   const hasAlfaLine = carrierLines.some((l) => l.carrier === "alfa");
+  const carrierLinesSkipped = !hasMtcLine && !hasAlfaLine;
   const carrierLinesSummary =
     hasMtcLine && hasAlfaLine
-      ? "MTC + Alfa set"
+      ? t("complete.mtcAndAlfa")
       : hasMtcLine
-        ? "MTC only"
+        ? t("complete.mtcOnly")
         : hasAlfaLine
-          ? "Alfa only"
-          : "Skipped";
+          ? t("complete.alfaOnly")
+          : t("complete.skipped");
 
   return (
     <div className="space-y-6 text-center">
@@ -141,29 +144,27 @@ export default function StepComplete() {
       </div>
 
       <div>
-        <h2 className="text-2xl font-bold text-white">You're all set!</h2>
-        <p className="text-slate-400 text-sm mt-2">
-          Your shop is configured and ready to launch.
-        </p>
+        <h2 className="text-2xl font-bold text-white">{t("complete.title")}</h2>
+        <p className="text-slate-400 text-sm mt-2">{t("complete.subtitle")}</p>
       </div>
 
-      <div className="bg-slate-900/50 rounded-xl p-4 text-left space-y-2">
+      <div className="bg-slate-900/50 rounded-xl p-4 text-start space-y-2">
         <div className="flex justify-between text-sm">
-          <span className="text-slate-400">Shop Name</span>
+          <span className="text-slate-400">{t("complete.shopName")}</span>
           <span className="text-white font-medium">{payload.shop_name}</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-slate-400">Admin User</span>
+          <span className="text-slate-400">{t("complete.adminUser")}</span>
           <span className="text-white font-medium">
             {payload.admin_username}
           </span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-slate-400">Modules Enabled</span>
+          <span className="text-slate-400">{t("complete.modulesEnabled")}</span>
           <span className="text-white font-medium">{enabledModuleCount}</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-slate-400">Opening & Closing</span>
+          <span className="text-slate-400">{t("complete.openingClosing")}</span>
           <span
             className={
               payload.session_management_enabled
@@ -171,11 +172,15 @@ export default function StepComplete() {
                 : "text-slate-500"
             }
           >
-            {payload.session_management_enabled ? "Enabled" : "Disabled"}
+            {payload.session_management_enabled
+              ? t("complete.enabled")
+              : t("complete.disabled")}
           </span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-slate-400">Customer Sessions</span>
+          <span className="text-slate-400">
+            {t("complete.customerSessions")}
+          </span>
           <span
             className={
               payload.customer_sessions_enabled
@@ -183,19 +188,25 @@ export default function StepComplete() {
                 : "text-slate-500"
             }
           >
-            {payload.customer_sessions_enabled ? "Enabled" : "Disabled"}
+            {payload.customer_sessions_enabled
+              ? t("complete.enabled")
+              : t("complete.disabled")}
           </span>
         </div>
         {payload.extra_users.length > 0 && (
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">Additional Users</span>
+            <span className="text-slate-400">
+              {t("complete.additionalUsers")}
+            </span>
             <span className="text-white font-medium">
               {payload.extra_users.length}
             </span>
           </div>
         )}
         <div className="flex justify-between text-sm">
-          <span className="text-slate-400">Starting Drawer Amounts</span>
+          <span className="text-slate-400">
+            {t("complete.startingAmounts")}
+          </span>
           <span
             className={
               payload.drawer_amounts && payload.drawer_amounts.length > 0
@@ -204,17 +215,17 @@ export default function StepComplete() {
             }
           >
             {payload.drawer_amounts && payload.drawer_amounts.length > 0
-              ? `${payload.drawer_amounts.length} set`
-              : "Skipped"}
+              ? t("complete.amountsSet", {
+                  count: payload.drawer_amounts.length,
+                })
+              : t("complete.skipped")}
           </span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-slate-400">Carrier Lines</span>
+          <span className="text-slate-400">{t("complete.carrierLines")}</span>
           <span
             className={
-              carrierLinesSummary === "Skipped"
-                ? "text-slate-500"
-                : "text-emerald-400"
+              carrierLinesSkipped ? "text-slate-500" : "text-emerald-400"
             }
           >
             {carrierLinesSummary}
@@ -234,7 +245,7 @@ export default function StepComplete() {
           disabled={loading}
           className="px-4 py-3 text-sm text-slate-400 hover:text-white hover:bg-slate-700 rounded-xl transition-colors disabled:opacity-50"
         >
-          ← Back
+          {t("nav.back")}
         </button>
         <button
           onClick={handleLaunch}
@@ -244,10 +255,10 @@ export default function StepComplete() {
           {loading ? (
             <>
               <Loader2 size={16} className="animate-spin" />
-              Setting up…
+              {t("complete.settingUp")}
             </>
           ) : (
-            "Launch App →"
+            t("complete.launch")
           )}
         </button>
       </div>

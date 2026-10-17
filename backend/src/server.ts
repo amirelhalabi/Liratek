@@ -107,6 +107,7 @@ app.use("/api/", apiLimiter); // General API rate limiting
 // invisible to connected clients.
 import { invalidateOnMutation } from "./middleware/invalidateOnMutation.js";
 import { requireWritableSubscription } from "./middleware/requireWritableSubscription.js";
+import { requireOpenTrial } from "./middleware/requireOpenTrial.js";
 import { startLapseSweep } from "./services/lapseSweep.js";
 import { startSessionSweep } from "./services/sessionSweep.js";
 import { startAuthCleanupSweep } from "./services/authCleanupSweep.js";
@@ -119,6 +120,11 @@ app.use(invalidateOnMutation);
 // receivables. Mounted app-wide rather than per-router so no future route
 // can forget it; it derives the tenant from the bearer token itself,
 // because each router runs its own authenticateJWT AFTER this point.
+// LIRA-332: an ENDED FREE TRIAL refuses every write except an allowlist
+// (view, export, sign-out, own password/email, access-removing). Mounted
+// immediately BEFORE the read-only gate so such a shop always gets the trial
+// wording, never "subscription has lapsed".
+app.use(requireOpenTrial);
 app.use(requireWritableSubscription);
 
 // Import routes

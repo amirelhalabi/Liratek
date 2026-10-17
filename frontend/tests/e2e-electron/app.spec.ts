@@ -430,5 +430,28 @@ test("Services: WHISH disabled without partner (OMT-base)", async ({
     .filter({ hasText: "WHISH" })
     .first();
   await expect(firstWhish).toBeVisible({ timeout: 5000 });
-  await expect(firstWhish).toBeDisabled();
+  // Rule 15: the DB is shared and accumulating. In the web-shared run the
+  // [web] project goes first and leaves active WHISH partners behind, so
+  // assert the rule itself from the live partner list instead of assuming
+  // a pristine DB: no active WHISH partner → disabled, otherwise enabled.
+  const hasWhishPartner = await appPage.evaluate(async () => {
+    const api = (
+      window as unknown as {
+        api: {
+          partners: {
+            getAll: (
+              includeInactive: boolean,
+            ) => Promise<Array<{ system_association: string | null }>>;
+          };
+        };
+      }
+    ).api;
+    const list = await api.partners.getAll(false);
+    return list.some((p) => p.system_association === "WHISH");
+  });
+  if (hasWhishPartner) {
+    await expect(firstWhish).toBeEnabled();
+  } else {
+    await expect(firstWhish).toBeDisabled();
+  }
 });

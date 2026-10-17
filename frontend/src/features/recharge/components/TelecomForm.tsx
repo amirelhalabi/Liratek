@@ -1448,6 +1448,7 @@ export function TelecomForm({
                   setSheetOpen(true);
                 }
               }}
+              data-testid="telecom-proceed"
               disabled={
                 isSubmitting ||
                 isSubmittingPartner ||

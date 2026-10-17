@@ -89,6 +89,11 @@ export interface ReceiptGatingFields {
  * drawer top-ups are excluded by TYPE MISMATCH alone -- they are never typed
  * "RECHARGE"/"FINANCIAL_SERVICE").
  */
+// LIRA-333 P3: "Send on WhatsApp" is offered for POS sales only (the sale
+// details window and the post-sale strip). The later phase that extends it
+// to these rows MUST gate it with this same function, next to "Print"
+// (FR-022) — `receiptGating.whatsapp.test.ts` fails a new importer of
+// SendOnWhatsAppButton that does not reference this module.
 export function isReceiptableTransaction(fields: ReceiptGatingFields): boolean {
   if (ALWAYS_RECEIPTABLE_TYPES.has(fields.type)) return true;
   if (fields.type !== "FINANCIAL_SERVICE") return false;

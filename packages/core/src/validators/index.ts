@@ -26,6 +26,8 @@ export * from "./customService.js";
 export * from "./servicePreset.js";
 export * from "./tenant.js";
 export * from "./signupInvitation.js";
+// LIRA-332: the owner's Activate subscription / Extend trial actions.
+export * from "./subscription.js";
 // Account email, user invites, password reset, Google (v196 foundation).
 export * from "./account.js";
 // LIRA-287: www "email me a code" sign-in.
@@ -78,5 +80,7 @@ export * from "./paymentMethod.js";
 export * from "./drawerTopUp.js";
 // LIRA-306: offline desktop fallback (pairing, events, manifest, review).
 export * from "./offline.js";
+// LIRA-333: the allow-list for links opened outside LiraTek (app:open-external).
+export * from "./app.js";
 // LIRA-331: a user's own UI language.
 export * from "./userPreferences.js";

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { NO_CONNECTION } from "@/api/client";
+import { TRIAL_ENDED, TRIAL_ENDED_MESSAGE } from "@/auth/messages";
 import { createClient, searchClients, type ClientSummary } from "@/api/clients";
 import { TextField } from "@/components/TextField";
 import { useTheme } from "@/theme/ThemeProvider";
@@ -53,7 +54,9 @@ export function useClientPicker() {
         error:
           created.error === NO_CONNECTION
             ? "Not saved — no connection. Check your internet and tap Save again."
-            : `Could not register the client: ${created.error}`,
+            : created.error === TRIAL_ENDED
+              ? TRIAL_ENDED_MESSAGE
+              : `Could not register the client: ${created.error}`,
       };
     }
     setClient({ id: created.data, full_name: name, phone_number: phone });

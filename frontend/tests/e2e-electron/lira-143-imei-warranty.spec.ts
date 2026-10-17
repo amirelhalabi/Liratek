@@ -1079,9 +1079,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     // auto-add behind ConfirmModal instead of adding straight to cart — this
     // assertion doubles as an e2e guard of that confirm actually appearing.
     await expect(
-      appPage.getByText(
-        "This phone is marked defective — sell anyway?",
-      ),
+      appPage.getByText("This phone is marked defective — sell anyway?"),
     ).toBeVisible({ timeout: 10_000 });
     await appPage.getByRole("button", { name: "Sell Anyway" }).click();
     await expect(posSearch2).toHaveValue("", { timeout: 10_000 });
@@ -1630,40 +1628,54 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await expect(partialSaleRow).toHaveCount(1, { timeout: 10_000 });
     await partialSaleRow.scrollIntoViewIfNeeded();
 
-    // TransactionsViewer surfaces a rejected refund through `alert("Failed:
-    // " + error)`. The fixture auto-accepts dialogs globally; this listener
-    // only records what the operator was shown (lira-142's precedent).
-    const dialogLog: string[] = [];
-    appPage.on("dialog", (d) => dialogLog.push(d.message()));
+    // Since the shop-day fixes (2026-10-16, `offersWholeVoidRefund`) a sale
+    // with a line refunded item by item no longer OFFERS the whole-sale
+    // Void/Refund pair at all — it reads PARTLY REFUNDED instead. The UI
+    // half of the guard is therefore "the buttons are gone".
+    await expect(partialSaleRow).toContainText(/partly refunded/i);
+    await expect(
+      partialSaleRow.getByRole("button", { name: /^Refund$/ }),
+    ).toHaveCount(0);
+    await expect(
+      partialSaleRow.getByRole("button", { name: /^Void$/ }),
+    ).toHaveCount(0);
 
-    const refundBtn = partialSaleRow.getByRole("button", { name: /^Refund$/ });
-    await expect(refundBtn).toBeVisible();
-    await refundBtn.click();
-
-    // A cash sale has payment legs, so the real refund-method modal opens
-    // (no confirm() on this branch) — the guard has to fire from inside the
-    // repository, after the operator committed to the action.
-    const refundModal = appPage.getByTestId("counterparty-settle-modal");
-    await expect(refundModal).toBeVisible({ timeout: 10_000 });
-    const confirmRefundBtn = appPage.getByRole("button", {
-      name: "Confirm Refund",
-    });
-    await expect(confirmRefundBtn).toBeEnabled({ timeout: 10_000 });
-
+    // The repository stays the authority: a whole refund sent straight to
+    // the API (the path a stale screen could still take) is refused BEFORE
+    // any write — not a cent moved, and the sale is untouched. This is the
+    // assertion the money bug fails.
+    // The sale's OWN row by identity (an item refund also links its sale, so
+    // getBySource would return that newer REFUND row).
+    const saleTxnId = await appPage.evaluate(async (id) => {
+      const rows = (await window.api.transactions.getRecent(
+        500,
+      )) as unknown as Array<{
+        id: number;
+        type: string;
+        source_table: string | null;
+        source_id: number | null;
+        reverses_id: number | null;
+      }>;
+      const own = rows.find(
+        (r) =>
+          r.type === "SALE" &&
+          r.source_table === "sales" &&
+          r.source_id === id &&
+          r.reverses_id == null,
+      );
+      return own?.id ?? null;
+    }, partialSaleId);
+    expect(saleTxnId).toBeTruthy();
     const drawerBeforeBlocked = await generalUsd(appPage);
-    const seen = dialogLog.length;
-    await confirmRefundBtn.click();
-    await expect
-      .poll(() => dialogLog.length, { timeout: 10_000 })
-      .toBeGreaterThan(seen);
-
-    const blockedMsg = dialogLog[seen] ?? "";
-    expect(blockedMsg).toMatch(/^Failed:/);
-    expect(blockedMsg).toContain("This sale was partially refunded");
-    expect(blockedMsg).toContain("refund the remaining items individually");
-
-    // The guard throws BEFORE any write — not a cent moved, and the sale is
-    // untouched. This is the assertion the money bug fails.
+    const blocked = (await appPage.evaluate(
+      async (id) => window.api.transactions.refund(id),
+      saleTxnId as number,
+    )) as unknown as { success: boolean; error?: string };
+    expect(blocked.success).toBe(false);
+    expect(blocked.error ?? "").toContain("This sale was partially refunded");
+    expect(blocked.error ?? "").toContain(
+      "refund the remaining items individually",
+    );
     expect(await generalUsd(appPage)).toBeCloseTo(drawerBeforeBlocked, 2);
     expect(await saleStatus(appPage, partialSaleId)).not.toBe("refunded");
 

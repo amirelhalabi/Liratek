@@ -13,6 +13,7 @@
 
 import { expect } from "@playwright/test";
 import type { Page, Locator } from "@playwright/test";
+import { rechargeProviderTab } from "./rechargeTabs";
 
 // ── KatshForm UI helpers (mirrors lira-089/lira-095's real-form conventions) ─
 
@@ -25,10 +26,7 @@ export async function providerTabKatsh(page: Page) {
       .first()
       .waitFor({ state: "hidden", timeout: 6_000 })
       .catch(() => {});
-    const tab = page
-      .locator("button")
-      .filter({ hasText: /^Katsh$/ })
-      .first();
+    const tab = rechargeProviderTab(page, "Katsh");
     if (attempt === 0) {
       await tab.click({ force: true });
     } else {

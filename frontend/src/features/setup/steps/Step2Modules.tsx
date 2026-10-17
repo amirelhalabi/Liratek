@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSetup } from "../context/SetupContext";
 import { useApi } from "@liratek/ui";
 import { Lock } from "lucide-react";
@@ -38,7 +39,9 @@ function Toggle({
     >
       <span
         className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-          checked ? "translate-x-6" : "translate-x-1"
+          checked
+            ? "translate-x-6 rtl:-translate-x-6"
+            : "translate-x-1 rtl:-translate-x-1"
         }`}
       />
     </button>
@@ -47,6 +50,7 @@ function Toggle({
 
 export default function Step2Modules() {
   const { payload, updatePayload, setStep } = useSetup();
+  const { t } = useTranslation("setup");
   const api = useApi();
   const [modules, setModules] = useState<ModuleRow[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodRow[]>([]);
@@ -113,7 +117,7 @@ export default function Step2Modules() {
   };
 
   if (loading) {
-    return <div className="text-slate-400 text-sm">Loading...</div>;
+    return <div className="text-slate-400 text-sm">{t("modules.loading")}</div>;
   }
 
   const rowCls =
@@ -124,16 +128,15 @@ export default function Step2Modules() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white">Modules & Features</h2>
-        <p className="text-slate-400 text-sm mt-1">
-          Choose which modules and features to enable. You can change these
-          later in Settings.
-        </p>
+        <h2 className="text-xl font-bold text-white">{t("modules.title")}</h2>
+        <p className="text-slate-400 text-sm mt-1">{t("modules.subtitle")}</p>
       </div>
 
       {/* Modules */}
       <div className="bg-slate-900/50 rounded-xl p-4 space-y-1">
-        <h3 className="text-sm font-semibold text-slate-300 mb-3">Modules</h3>
+        <h3 className="text-sm font-semibold text-slate-300 mb-3">
+          {t("modules.modules")}
+        </h3>
         {/* Non-recharge modules */}
         {modules
           .filter((m) => !isRechargeModuleKey(m.key))
@@ -147,8 +150,8 @@ export default function Step2Modules() {
                   <p className={labelCls}>{m.label}</p>
                   {mandatory && (
                     <p className={sublabelCls}>
-                      <Lock size={10} className="inline mr-1" />
-                      Mandatory
+                      <Lock size={10} className="inline me-1" />
+                      {t("modules.mandatory")}
                     </p>
                   )}
                 </div>
@@ -164,7 +167,7 @@ export default function Step2Modules() {
         {/* Recharge group header */}
         <div className="pt-3 mt-3 border-t border-slate-700">
           <p className="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">
-            Recharge Providers
+            {t("modules.rechargeProviders")}
           </p>
           {modules
             .filter((m) => isRechargeModuleKey(m.key))
@@ -188,14 +191,12 @@ export default function Step2Modules() {
       {/* Session Management */}
       <div className="bg-slate-900/50 rounded-xl p-4 space-y-1">
         <h3 className="text-sm font-semibold text-slate-300 mb-3">
-          Session Features
+          {t("modules.sessionFeatures")}
         </h3>
         <div className={rowCls}>
           <div>
-            <p className={labelCls}>Opening & Closing Sessions</p>
-            <p className={sublabelCls}>
-              Daily cash drawer opening and closing workflow
-            </p>
+            <p className={labelCls}>{t("modules.openingClosing")}</p>
+            <p className={sublabelCls}>{t("modules.openingClosingHint")}</p>
           </div>
           <Toggle
             checked={payload.session_management_enabled}
@@ -204,10 +205,8 @@ export default function Step2Modules() {
         </div>
         <div className={rowCls + " border-0"}>
           <div>
-            <p className={labelCls}>Customer Sessions</p>
-            <p className={sublabelCls}>
-              Track per-customer transactions in a floating window
-            </p>
+            <p className={labelCls}>{t("modules.customerSessions")}</p>
+            <p className={sublabelCls}>{t("modules.customerSessionsHint")}</p>
           </div>
           <Toggle
             checked={payload.customer_sessions_enabled}
@@ -219,7 +218,7 @@ export default function Step2Modules() {
       {/* Payment Methods */}
       <div className="bg-slate-900/50 rounded-xl p-4 space-y-1">
         <h3 className="text-sm font-semibold text-slate-300 mb-3">
-          Payment Methods
+          {t("modules.paymentMethods")}
         </h3>
         {paymentMethods.map((pm) => {
           const mandatory = MANDATORY_PMS.has(pm.code);
@@ -231,8 +230,8 @@ export default function Step2Modules() {
                 <p className={labelCls}>{pm.label}</p>
                 {mandatory && (
                   <p className={sublabelCls}>
-                    <Lock size={10} className="inline mr-1" />
-                    Mandatory
+                    <Lock size={10} className="inline me-1" />
+                    {t("modules.mandatory")}
                   </p>
                 )}
               </div>
@@ -251,13 +250,13 @@ export default function Step2Modules() {
           onClick={() => setStep(2)}
           className="px-6 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors text-sm"
         >
-          ← Back
+          {t("nav.back")}
         </button>
         <button
           onClick={() => setStep(4)}
           className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-lg transition-colors text-sm"
         >
-          Next →
+          {t("nav.next")}
         </button>
       </div>
     </div>

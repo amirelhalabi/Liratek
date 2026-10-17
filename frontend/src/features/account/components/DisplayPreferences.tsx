@@ -21,6 +21,8 @@
 import { useState } from "react";
 import { PanelLeft, LayoutGrid, Image, List, Monitor } from "lucide-react";
 import clsx from "clsx";
+import { useTranslation } from "react-i18next";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import { saveAndApplyUiScale } from "@/shared/utils/uiScale";
 import { isElectron } from "@/api/backendApi";
 
@@ -35,6 +37,7 @@ const UI_SCALE_OPTIONS = [
 ];
 
 export default function DisplayPreferences() {
+  const { t } = useTranslation("account");
   const [layoutMode, setLayoutMode] = useState(
     () => localStorage.getItem("layout_mode") || "left-panel",
   );
@@ -94,9 +97,9 @@ export default function DisplayPreferences() {
           id="display-prefs-heading"
           className="text-sm font-semibold text-white"
         >
-          Display (this device)
+          {t("display.title")}
         </h2>
-        <p className="text-xs text-slate-500 mt-1">Saved on this device only</p>
+        <p className="text-xs text-slate-500 mt-1">{t("display.hint")}</p>
       </div>
 
       {/* Navigation Style & POS Display Mode — side by side */}
@@ -104,7 +107,7 @@ export default function DisplayPreferences() {
         {/* Navigation Style Toggle */}
         <div>
           <span className="block text-sm text-slate-400 mb-3">
-            Navigation Style
+            {t("display.navStyle")}
           </span>
           <div className="flex gap-4 items-start">
             {/* Left Panel option */}
@@ -118,7 +121,7 @@ export default function DisplayPreferences() {
               )}
             >
               <div className="w-full aspect-[4/3] rounded-lg bg-slate-900 border border-slate-700 overflow-hidden flex">
-                <div className="w-1/4 bg-slate-800 border-r border-slate-700 flex flex-col items-center pt-2 gap-1">
+                <div className="w-1/4 bg-slate-800 border-e border-slate-700 flex flex-col items-center pt-2 gap-1">
                   <div className="w-3 h-0.5 bg-violet-500 rounded" />
                   <div className="w-3 h-0.5 bg-slate-600 rounded" />
                   <div className="w-3 h-0.5 bg-slate-600 rounded" />
@@ -132,8 +135,10 @@ export default function DisplayPreferences() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <PanelLeft
-                  size={16}
+                <DirIcon
+                  icon={PanelLeft}
+                  width={16}
+                  height={16}
                   className={
                     layoutMode === "left-panel"
                       ? "text-violet-400"
@@ -148,11 +153,13 @@ export default function DisplayPreferences() {
                       : "text-slate-400",
                   )}
                 >
-                  Left Panel
+                  {t("display.leftPanel")}
                 </span>
               </div>
               {layoutMode === "left-panel" && (
-                <span className="text-xs text-violet-400">Active</span>
+                <span className="text-xs text-violet-400">
+                  {t("display.active")}
+                </span>
               )}
             </button>
 
@@ -199,11 +206,13 @@ export default function DisplayPreferences() {
                       : "text-slate-400",
                   )}
                 >
-                  Page View
+                  {t("display.pageView")}
                 </span>
               </div>
               {layoutMode === "page-view" && (
-                <span className="text-xs text-violet-400">Active</span>
+                <span className="text-xs text-violet-400">
+                  {t("display.active")}
+                </span>
               )}
             </button>
 
@@ -211,7 +220,7 @@ export default function DisplayPreferences() {
             {layoutMode === "page-view" && (
               <div className="p-4 bg-slate-800/50 border border-slate-700/50 rounded-xl">
                 <span className="block text-sm text-slate-400 mb-2">
-                  Items per row
+                  {t("display.itemsPerRow")}
                 </span>
                 <div className="flex gap-1">
                   {[2, 3, 4, 5, 6].map((n) => (
@@ -234,15 +243,14 @@ export default function DisplayPreferences() {
           </div>
 
           <p className="text-xs text-slate-500 mt-2">
-            Left Panel shows a sidebar for navigation. Page View shows a home
-            screen with cards.
+            {t("display.navHint")}
           </p>
         </div>
 
         {/* POS Display Mode */}
         <div>
           <span className="block text-sm text-slate-400 mb-3">
-            POS Product Display
+            {t("display.posDisplay")}
           </span>
           <div className="flex gap-4 items-start">
             {/* Show Images */}
@@ -278,11 +286,13 @@ export default function DisplayPreferences() {
                     posShowImages ? "text-white" : "text-slate-400",
                   )}
                 >
-                  Show Images
+                  {t("display.showImages")}
                 </span>
               </div>
               {posShowImages && (
-                <span className="text-xs text-violet-400">Active</span>
+                <span className="text-xs text-violet-400">
+                  {t("display.active")}
+                </span>
               )}
             </button>
 
@@ -318,17 +328,18 @@ export default function DisplayPreferences() {
                     !posShowImages ? "text-white" : "text-slate-400",
                   )}
                 >
-                  Table View
+                  {t("display.tableView")}
                 </span>
               </div>
               {!posShowImages && (
-                <span className="text-xs text-violet-400">Active</span>
+                <span className="text-xs text-violet-400">
+                  {t("display.active")}
+                </span>
               )}
             </button>
           </div>
           <p className="text-xs text-slate-500 mt-2">
-            Show Images displays products as image cards. Table View shows a
-            compact list with pagination.
+            {t("display.posHint")}
           </p>
         </div>
       </div>
@@ -339,11 +350,10 @@ export default function DisplayPreferences() {
           <div className="flex items-center gap-3">
             <div>
               <span className="text-sm text-white">
-                Auto-fill Payment Amount
+                {t("display.autofill")}
               </span>
               <p className="text-xs text-slate-500">
-                Automatically fill the payment amount in POS checkout when the
-                modal opens
+                {t("display.autofillHint")}
               </p>
             </div>
           </div>
@@ -357,7 +367,9 @@ export default function DisplayPreferences() {
             <div
               className={clsx(
                 "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
-                posAutofillPayment ? "translate-x-5" : "translate-x-0.5",
+                posAutofillPayment
+                  ? "translate-x-5 rtl:-translate-x-5"
+                  : "translate-x-0.5 rtl:-translate-x-0.5",
               )}
             />
           </div>
@@ -368,15 +380,18 @@ export default function DisplayPreferences() {
           zoom does it properly; a CSS zoom cut off the bottom of pages. */}
       {!isElectron() ? (
         <div className="pt-6 border-t border-slate-700">
-          <span className="block text-sm text-slate-400 mb-1">Size</span>
+          <span className="block text-sm text-slate-400 mb-1">
+            {t("display.size")}
+          </span>
           <p className="text-xs text-slate-500">
-            To make things bigger or smaller, use your browser's zoom: Ctrl + /
-            Ctrl − (⌘ + / ⌘ − on a Mac).
+            {t("display.sizeHint")}
           </p>
         </div>
       ) : (
         <div className="pt-6 border-t border-slate-700">
-          <span className="block text-sm text-slate-400 mb-3">UI Scale</span>
+          <span className="block text-sm text-slate-400 mb-3">
+            {t("display.uiScale")}
+          </span>
           <div className="flex gap-4 items-start">
             <div className="flex items-center gap-3">
               <Monitor size={20} className="text-slate-400" />
@@ -399,8 +414,7 @@ export default function DisplayPreferences() {
             </div>
           </div>
           <p className="text-xs text-slate-500 mt-2">
-            Scale the entire app UI. Use a smaller scale on POS screens to fit
-            more content, or a larger scale for touch displays.
+            {t("display.uiScaleHint")}
           </p>
         </div>
       )}

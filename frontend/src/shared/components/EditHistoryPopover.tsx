@@ -7,6 +7,10 @@ import {
   History,
 } from "lucide-react";
 import { useApi } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import type { Language } from "@liratek/core";
+import { formatDateTime } from "@liratek/ui/i18n/format";
+import { useLanguage } from "@/contexts/LanguageContext";
 import type { AuditLogEntry } from "@/types/electron";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 
@@ -83,10 +87,10 @@ function extractChanges(entry: AuditLogEntry): ParsedChange[] {
 /**
  * Format ISO timestamp into a human-readable local string.
  */
-function formatTimestamp(iso: string): string {
+function formatTimestamp(iso: string, lang: Language): string {
   try {
     const d = parseDbDate(iso);
-    return d.toLocaleString(undefined, {
+    return formatDateTime(d, lang, {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -105,6 +109,8 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
   entityId,
   trigger,
 }) => {
+  const { t } = useTranslation("shared");
+  const { language, dir } = useLanguage();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,14 +152,14 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
       if (result.success) {
         setEntries((result.rows ?? []) as AuditLogEntry[]);
       } else {
-        setError(result.error ?? "Failed to load edit history.");
+        setError(result.error ?? t("editHistory.loadFailed"));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unexpected error.");
+      setError(err instanceof Error ? err.message : t("editHistory.unexpected"));
     } finally {
       setLoading(false);
     }
-  }, [entityType, entityId]);
+  }, [entityType, entityId, t]);
 
   // ── Toggle open ────────────────────────────────────────────────────────────
   function handleTriggerClick(e: React.MouseEvent) {
@@ -202,19 +208,19 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
         <div
           data-testid="edit-history-popover"
           className="
-            absolute z-50 top-full mt-1.5 left-1/2 -translate-x-1/2
+            absolute z-50 top-full mt-1.5 start-1/2 -translate-x-1/2 rtl:translate-x-1/2
             w-80 max-h-96 overflow-y-auto
             bg-slate-900 border border-slate-700 rounded-xl shadow-2xl
             animate-in fade-in zoom-in-95 duration-150
           "
           role="dialog"
-          aria-label="Edit history"
+          aria-label={t("editHistory.label")}
         >
           {/* Header */}
           <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-700/70 sticky top-0 bg-slate-900 rounded-t-xl z-10">
             <History size={13} className="text-yellow-400 shrink-0" />
             <span className="text-xs font-semibold text-slate-200 tracking-wide uppercase">
-              Edit History
+              {t("editHistory.title")}
             </span>
           </div>
 
@@ -224,7 +230,7 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
             {loading && (
               <div className="flex items-center justify-center gap-2 py-8 text-slate-400">
                 <Loader2 size={16} className="animate-spin" />
-                <span className="text-xs">Loading…</span>
+                <span className="text-xs">{t("editHistory.loading")}</span>
               </div>
             )}
 
@@ -243,21 +249,21 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
             {!loading && !error && entries !== null && entries.length === 0 && (
               <div className="flex flex-col items-center gap-2 py-8 text-slate-500">
                 <Clock size={20} />
-                <span className="text-xs">No edit history</span>
+                <span className="text-xs">{t("editHistory.empty")}</span>
               </div>
             )}
 
             {/* Timeline */}
             {!loading && !error && entries && entries.length > 0 && (
-              <ol className="relative border-l border-slate-700 ml-2 space-y-4 py-1">
+              <ol className="relative border-s border-slate-700 ms-2 space-y-4 py-1">
                 {entries.map((entry, idx) => {
                   const changes = extractChanges(entry);
                   return (
-                    <li key={entry.id} className="ml-4">
+                    <li key={entry.id} className="ms-4">
                       {/* Timeline dot */}
                       <span
                         className={`
-                          absolute -left-[5px] mt-0.5 h-2.5 w-2.5 rounded-full border-2
+                          absolute -start-[5px] mt-0.5 h-2.5 w-2.5 rounded-full border-2
                           ${
                             idx === 0
                               ? "border-yellow-400 bg-yellow-400/30"
@@ -272,7 +278,7 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
                           {entry.username}
                         </span>
                         <span className="text-[10px] text-slate-500 shrink-0">
-                          {formatTimestamp(entry.created_at)}
+                          {formatTimestamp(entry.created_at, language)}
                         </span>
                       </div>
 
@@ -298,7 +304,9 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
                                 <span className="line-through text-red-400/80 bg-red-500/10 rounded px-1 py-0.5">
                                   {change.oldValue}
                                 </span>
-                                <span className="text-slate-500">→</span>
+                                <span className="text-slate-500">
+                                  {dir === "rtl" ? "←" : "→"}
+                                </span>
                                 <span className="text-green-400/90 bg-green-500/10 rounded px-1 py-0.5">
                                   {change.newValue}
                                 </span>

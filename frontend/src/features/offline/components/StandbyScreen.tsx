@@ -11,6 +11,8 @@
  * call — the web adapter answers "Available on the desktop app".
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useApi } from "@liratek/ui";
 import type { OfflineStatusView } from "@liratek/core";
 
@@ -20,14 +22,17 @@ export interface StandbyScreenProps {
   onChanged: () => void;
 }
 
-function copyAgeText(seconds: number | null | undefined): string {
-  if (seconds === null || seconds === undefined) return "no copy yet";
-  if (seconds < 60) return "less than a minute old";
+function copyAgeText(
+  seconds: number | null | undefined,
+  t: TFunction<"offline">,
+): string {
+  if (seconds === null || seconds === undefined) return t("standby.age.none");
+  if (seconds < 60) return t("standby.age.underMinute");
   const min = Math.floor(seconds / 60);
-  if (min < 60) return `${min} min old`;
+  if (min < 60) return t("standby.age.minutes", { count: min });
   const h = Math.floor(min / 60);
-  if (h < 48) return `${h} h old`;
-  return `${Math.floor(h / 24)} days old`;
+  if (h < 48) return t("standby.age.hours", { count: h });
+  return t("standby.age.days", { count: Math.floor(h / 24) });
 }
 
 function money(amount: number | null): string {
@@ -36,6 +41,7 @@ function money(amount: number | null): string {
 
 export function StandbyScreen({ status, onChanged }: StandbyScreenProps) {
   const api = useApi();
+  const { t } = useTranslation("offline");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -46,7 +52,7 @@ export function StandbyScreen({ status, onChanged }: StandbyScreenProps) {
     setMessage(null);
     try {
       const r = await action();
-      if (!r.success) setMessage(r.error ?? "That did not work");
+      if (!r.success) setMessage(r.error ?? t("common.failed"));
       onChanged();
     } finally {
       setBusy(false);
@@ -64,28 +70,29 @@ export function StandbyScreen({ status, onChanged }: StandbyScreenProps) {
             {status.shopName ?? "LiraTek"}
           </h1>
           <p className="text-sm text-slate-400">
-            This is PC {status.deviceNo ?? "?"} of the shop. Work in the web app
-            while the internet works.
+            {t("standby.intro", { deviceNo: status.deviceNo ?? "?" })}
           </p>
         </div>
 
         <dl className="grid grid-cols-2 gap-3 text-sm">
-          <dt className="text-slate-400">Server</dt>
+          <dt className="text-slate-400">{t("standby.server")}</dt>
           <dd className={reachable ? "text-emerald-400" : "text-amber-400"}>
             {reachable
-              ? "Connected"
-              : `No internet for ${status.unreachableSeconds ?? 0} s`}
+              ? t("standby.connected")
+              : t("standby.noInternet", {
+                  seconds: status.unreachableSeconds ?? 0,
+                })}
           </dd>
-          <dt className="text-slate-400">Copy of the shop</dt>
+          <dt className="text-slate-400">{t("standby.copy")}</dt>
           <dd>
-            {copyAgeText(status.copyAgeSeconds)}
-            {status.copyAgeWarning
-              ? " (older than a day — check the totals after)"
-              : ""}
+            {copyAgeText(status.copyAgeSeconds, t)}
+            {status.copyAgeWarning ? t("standby.copyOld") : ""}
           </dd>
-          <dt className="text-slate-400">Offline mode</dt>
+          <dt className="text-slate-400">{t("standby.offlineMode")}</dt>
           <dd>
-            {status.ready ? "Ready" : (status.notReadyReason ?? "Not ready")}
+            {status.ready
+              ? t("standby.ready")
+              : (status.notReadyReason ?? t("standby.notReady"))}
           </dd>
         </dl>
 
@@ -101,10 +108,9 @@ export function StandbyScreen({ status, onChanged }: StandbyScreenProps) {
         {held.length > 0 ? (
           <div className="rounded-lg border border-amber-800 bg-amber-950/40 p-3 text-sm">
             <p className="font-medium text-amber-300">
-              {held.length} offline item(s) from this PC are held for review on
-              the web app. Do not collect them again:
+              {t("standby.held", { count: held.length })}
             </p>
-            <ul className="mt-2 list-disc pl-5 text-amber-200">
+            <ul className="mt-2 list-disc ps-5 text-amber-200">
               {held.map((h) => (
                 <li key={h.eventId}>
                   {h.label}
@@ -122,7 +128,7 @@ export function StandbyScreen({ status, onChanged }: StandbyScreenProps) {
             disabled={busy}
             onClick={() => run(() => api.openWebApp())}
           >
-            Open the web app
+            {t("standby.openWeb")}
           </button>
           <button
             type="button"
@@ -131,11 +137,11 @@ export function StandbyScreen({ status, onChanged }: StandbyScreenProps) {
             title={
               status.canGoOffline
                 ? undefined
-                : "Available after 30 seconds without the internet, with a ready copy"
+                : t("standby.workOfflineHint")
             }
             onClick={() => run(() => api.goOffline())}
           >
-            Work offline
+            {t("standby.workOffline")}
           </button>
           <button
             type="button"
@@ -143,7 +149,7 @@ export function StandbyScreen({ status, onChanged }: StandbyScreenProps) {
             disabled={busy}
             onClick={() => run(() => api.installOfflineUpdate())}
           >
-            Install update
+            {t("standby.installUpdate")}
           </button>
         </div>
 

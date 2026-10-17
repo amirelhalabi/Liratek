@@ -14,12 +14,14 @@
 import { Link } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { EMAIL_ALREADY_HAS_SHOP_MESSAGE } from "@liratek/core";
+import { useTranslation } from "react-i18next";
 
 export default function EmailHasShopNotice({
   className,
 }: {
   className?: string;
 }) {
+  const { t } = useTranslation("auth");
   return (
     <div
       role="alert"
@@ -36,7 +38,7 @@ export default function EmailHasShopNotice({
           to="/login"
           className="font-semibold text-orange-500 hover:text-orange-400 whitespace-nowrap"
         >
-          Sign in instead →
+          {t("emailHasShop.signInInstead")}
         </Link>
       </span>
     </div>

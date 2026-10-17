@@ -5,6 +5,7 @@
  * go through `useApi()`.
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
 import type { OfflineStatusView } from "@liratek/core";
 
@@ -15,6 +16,7 @@ export interface OfflineBannerProps {
 
 export function OfflineBanner({ status, onChanged }: OfflineBannerProps) {
   const api = useApi();
+  const { t } = useTranslation("offline");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const waiting = status.pendingCount ?? 0;
@@ -27,7 +29,7 @@ export function OfflineBanner({ status, onChanged }: OfflineBannerProps) {
     setMessage(null);
     try {
       const r = await action();
-      if (!r.success) setMessage(r.error ?? "That did not work");
+      if (!r.success) setMessage(r.error ?? t("common.failed"));
       onChanged();
     } finally {
       setBusy(false);
@@ -37,8 +39,7 @@ export function OfflineBanner({ status, onChanged }: OfflineBannerProps) {
   if (status.mode === "finishing") {
     return (
       <div role="status" className="bg-sky-900 px-4 py-2 text-sm text-sky-100">
-        Sending the offline work to the server ({waiting} left) — new actions
-        wait until this PC is back on the web app.
+        {t("banner.finishing", { count: waiting })}
       </div>
     );
   }
@@ -49,22 +50,21 @@ export function OfflineBanner({ status, onChanged }: OfflineBannerProps) {
       className="flex flex-wrap items-center gap-3 bg-amber-900 px-4 py-2 text-sm text-amber-50"
     >
       <span className="font-semibold">
-        {back ? "Internet is back." : "Working offline."} {waiting} actions
-        waiting to send.
+        {back ? t("banner.internetBack") : t("banner.workingOffline")}{" "}
+        {t("banner.waiting", { count: waiting })}
       </span>
       <span className="text-amber-200">
-        Settings, users, supplier settlement and catalog changes are not
-        available offline.
+        {t("banner.notAvailable")}
       </span>
       {back ? (
-        <span className="ml-auto flex gap-2">
+        <span className="ms-auto flex gap-2">
           <button
             type="button"
             disabled={busy}
             className="rounded border border-amber-300 px-3 py-1 hover:bg-amber-800 disabled:opacity-50"
             onClick={() => run(() => api.sendOfflineNow())}
           >
-            Send now
+            {t("banner.sendNow")}
           </button>
           <button
             type="button"
@@ -72,7 +72,7 @@ export function OfflineBanner({ status, onChanged }: OfflineBannerProps) {
             className="rounded bg-amber-400 px-3 py-1 font-semibold text-amber-950 hover:bg-amber-300 disabled:opacity-50"
             onClick={() => run(() => api.backToWeb())}
           >
-            Back to the web app
+            {t("banner.backToWeb")}
           </button>
         </span>
       ) : null}
