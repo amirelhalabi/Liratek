@@ -41,7 +41,9 @@ export function ClaimHistory({
 }: ClaimHistoryProps) {
   const { t } = useTranslation("warranty");
   const tRef = useRef(t);
-  tRef.current = t;
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const api = useApi();
   // Rule 25: `api` read through a ref; refreshed in an effect (declared
   // before the load effect, so it runs first).

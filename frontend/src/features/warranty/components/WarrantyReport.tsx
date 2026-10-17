@@ -21,7 +21,9 @@ type Row = WarrantyReportItem & { category: string };
 export function WarrantyReport() {
   const { t } = useTranslation("warranty");
   const tRef = useRef(t);
-  tRef.current = t;
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const api = useApi();
   // Rule 25: `api` read through a ref; refreshed in an effect.
   const apiRef = useRef(api);
