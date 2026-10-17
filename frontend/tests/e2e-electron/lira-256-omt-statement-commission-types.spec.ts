@@ -299,9 +299,12 @@ test.describe("LIRA-256 — OMT statement commission types", () => {
       const ledgerId = settled.id!;
       const q = await unsettledOmt(appPage);
       expect(q.find((r) => r.id === intraId)).toBeUndefined();
-      expect(
-        q.find((r) => r.id === wuId)?.settlement_id ?? "missing",
-      ).toBeNull();
+      // The uncovered WU transfer stays queued and unsettled. (Was
+      // `?.settlement_id ?? "missing"` → toBeNull(), which can never pass:
+      // `??` turns the expected null into "missing" too.)
+      const wuRow = q.find((r) => r.id === wuId);
+      expect(wuRow, "WU transfer left the unsettled queue").toBeTruthy();
+      expect(wuRow!.settlement_id).toBeNull();
       expect((await pcdUsd(appPage)) - pcdBefore).toBeCloseTo(-net, 2);
       expect(
         (await commissionAtSettlementUsd(appPage)) - commissionBefore,

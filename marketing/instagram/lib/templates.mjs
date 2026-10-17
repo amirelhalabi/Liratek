@@ -91,7 +91,7 @@ function shot(s, width) {
   const [x, y, w, h] = s.crop;
   const k = width / w;
   const ring = s.ring
-    ? `<div class="ring" style="left:${(s.ring[0] - x) * k - 10}px;top:${(s.ring[1] - y) * k - 10}px;width:${s.ring[2] * k + 20}px;height:${s.ring[3] * k + 20}px"></div>`
+    ? `<div class="ring" style="left:${(s.ring[0] - x) * k - 8}px;top:${(s.ring[1] - y) * k - 6}px;width:${s.ring[2] * k + 16}px;height:${s.ring[3] * k + 12}px"></div>`
     : "";
   return `<div class="shot" style="width:${width}px;height:${Math.round(h * k)}px;${s.style || ""}">
     <img src="${asset("shots/" + s.file)}" style="width:${1920 * k}px;left:${-x * k}px;top:${-y * k}px" />${ring}</div>`;

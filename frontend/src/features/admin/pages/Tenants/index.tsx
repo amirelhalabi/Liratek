@@ -47,6 +47,19 @@ function StatusBadge({ status }: { status: AdminTenant["status"] }) {
 function PlanCell({ row }: { row: AdminSubscription | undefined }) {
   if (!row) return <span className="text-slate-500">—</span>;
 
+  // LIRA-332: the server's trial view, verbatim (no date math here).
+  if (row.standing === "trial" && row.trial) {
+    const left = row.trial.daysLeft === 1 ? "1 day left" : `${row.trial.daysLeft} days left`;
+    return (
+      <span className={row.trial.endsSoon ? "text-amber-400" : "text-sky-300"}>
+        Trial · {left} · ends {row.trial.lastDay}
+      </span>
+    );
+  }
+  if (row.standing === "trial_ended" && row.trial) {
+    return <span className="text-red-400">Trial ended {row.trial.lastDay}</span>;
+  }
+
   const modules = row.entitled_modules;
   let scope = "all modules";
   if (modules) {

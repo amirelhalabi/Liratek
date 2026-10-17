@@ -927,7 +927,10 @@ export default function MultiPaymentInput({
               ? { ...t, amount: t.amount + clampedExtra }
               : t,
           )
-        : [...baseTotals, { amount: clampedExtra, currency: totalAmountCurrency }];
+        : [
+            ...baseTotals,
+            { amount: clampedExtra, currency: totalAmountCurrency },
+          ];
     }
     if (clampedDiscount <= 0 || !discountLowersTotal) return baseTotals;
     let discountLeft = clampedDiscount;
@@ -1564,6 +1567,17 @@ export default function MultiPaymentInput({
     // Explicitly removed and not yet re-armed by a fresh primary-line edit —
     // don't resurrect it.
     if (!debtLine && autoDebtDismissedRef.current) return;
+
+    // An untouched single line is owned by the auto-sync effect above: it
+    // follows the total, so there is no shortfall to book — only an amount
+    // the operator TYPED below the total is one (the incident this effect
+    // exists for). Both effects run in the same commit when the total moves,
+    // and this one still sees the pre-sync amount, so without this guard it
+    // turned "total went up" into a Customer Account leg for the difference.
+    // Shop-day bug 13 (2026-10-17): a wallet-paid OMT send raised the total
+    // by the 1% method fee, the $1 landed on Customer Account, the page lost
+    // its single-line method fee, and the server refused the send.
+    if (!debtLine && !isSplitMode && !singleAmountTouchedRef.current) return;
 
     if (
       debtLine &&
@@ -2465,7 +2479,8 @@ export default function MultiPaymentInput({
   // CUSTOMER_ACCOUNT is removed from the counter-flow method list when the
   // caller's own validated charge predicate says no (requiresClient && no
   // client) — mirrors canChargeToCustomerAccount-grade gating used elsewhere.
-  const counterFlowCallerMethods = counterFlow?.paymentMethods ?? paymentMethods;
+  const counterFlowCallerMethods =
+    counterFlow?.paymentMethods ?? paymentMethods;
   // Could picking a client offer the account at all? False when the caller
   // never lists CUSTOMER_ACCOUNT (e.g. Exchange paid in EUR, owner decision
   // 2026-10-14) — the hint must not then say "pick a client".
@@ -3027,13 +3042,15 @@ export default function MultiPaymentInput({
           !discountRow &&
           discountLowersTotal &&
           clampedDiscount > 0 && (
-          <div className="flex justify-between text-xs pt-1 border-t border-emerald-700/20">
-            <span className="text-emerald-300 font-medium">After Discount</span>
-            <span className="font-mono text-emerald-200 font-medium">
-              {fmtTarget(toDisplayCurrency(effectiveTotalInTarget))}
-            </span>
-          </div>
-        )}
+            <div className="flex justify-between text-xs pt-1 border-t border-emerald-700/20">
+              <span className="text-emerald-300 font-medium">
+                After Discount
+              </span>
+              <span className="font-mono text-emerald-200 font-medium">
+                {fmtTarget(toDisplayCurrency(effectiveTotalInTarget))}
+              </span>
+            </div>
+          )}
 
         {/* LIRA-319 — after the built-in line's extra. */}
         {isExtraMode && clampedExtra > 0 && (
@@ -3229,7 +3246,9 @@ export default function MultiPaymentInput({
               <span className="text-slate-300 font-medium">{owedLabel}</span>
               <span className="font-mono font-bold text-emerald-400">
                 {perCurrencyTotals
-                  ? pcText(pcRows.map((r) => ({ amount: 0, currency: r.currency })))
+                  ? pcText(
+                      pcRows.map((r) => ({ amount: 0, currency: r.currency })),
+                    )
                   : fmtTarget(toDisplayCurrency(0))}
               </span>
             </div>

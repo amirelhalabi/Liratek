@@ -14886,6 +14886,40 @@ DROP TABLE IF EXISTS supplier_settlement_coverage;`);
   },
   {
     version: 220,
+    name: "tenant_subscriptions_trial",
+    description:
+      "LIRA-332: free trial on sign-up. tenant_subscriptions gains " +
+      "trial_started_at and trial_ends_at (UTC instants; NULL = not on a " +
+      "trial). The trial and trial-ended standings are derived live from " +
+      "trial_ends_at, never stored in status, so the lapse sweep never moves " +
+      "a trial. No backfill: every existing shop keeps NULL and is not on a " +
+      "trial. In per-tenant mode a shop file holds no subscription rows, so " +
+      "the columns are inert there.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      if (!tableExists(db, "tenant_subscriptions")) return;
+      for (const col of ["trial_started_at", "trial_ends_at"] as const) {
+        if (!columnExists(db, "tenant_subscriptions", col)) {
+          db.exec(`ALTER TABLE tenant_subscriptions ADD COLUMN ${col} DATETIME;`);
+        }
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_tenant_subscriptions_trial_ends
+           ON tenant_subscriptions(trial_ends_at) WHERE trial_ends_at IS NOT NULL;`,
+      );
+    },
+    down(db: Database.Database) {
+      if (!tableExists(db, "tenant_subscriptions")) return;
+      db.exec(`DROP INDEX IF EXISTS idx_tenant_subscriptions_trial_ends;`);
+      for (const col of ["trial_ends_at", "trial_started_at"] as const) {
+        if (columnExists(db, "tenant_subscriptions", col)) {
+          db.exec(`ALTER TABLE tenant_subscriptions DROP COLUMN ${col};`);
+        }
+      }
+    },
+  },
+  {
+    version: 221,
     name: "users_language",
     description:
       "LIRA-331: users.language, the UI language a person chose for " +

@@ -60,6 +60,13 @@ export interface SubscriptionEntity {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * v220 (LIRA-332): free trial. UTC `YYYY-MM-DD HH:MM:SS`; NULL = not on a
+   * trial. What a trial MEANS (trial vs trial-ended, days left) is derived by
+   * `SubscriptionService` from `trial_ends_at` and the clock, never stored.
+   */
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
 }
 
 export interface UpdateSubscriptionData {
@@ -70,6 +77,8 @@ export interface UpdateSubscriptionData {
   license_key?: string | null;
   entitled_modules?: string | null;
   notes?: string | null;
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
 }
 
 // =============================================================================
@@ -90,7 +99,8 @@ export class SubscriptionRepository {
 
   private static readonly COLUMNS = `
     id, tenant_id, plan, status, current_period_end, grace_ends_at,
-    license_key, entitled_modules, notes, created_at, updated_at
+    license_key, entitled_modules, notes, created_at, updated_at,
+    trial_started_at, trial_ends_at
   `;
 
   getByTenantId(tenantId: number): SubscriptionEntity | null {
@@ -157,8 +167,9 @@ export class SubscriptionRepository {
           .prepare(
             `INSERT INTO tenant_subscriptions
                (tenant_id, plan, status, current_period_end, grace_ends_at,
-                license_key, entitled_modules, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                license_key, entitled_modules, notes, trial_started_at,
+                trial_ends_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(tenant_id) DO NOTHING`,
           )
           .run(
@@ -170,6 +181,8 @@ export class SubscriptionRepository {
             data.license_key ?? null,
             data.entitled_modules ?? null,
             data.notes ?? null,
+            data.trial_started_at ?? null,
+            data.trial_ends_at ?? null,
           );
 
         // getByTenantId() also calls runWithoutTenant() — nesting is safe
@@ -249,6 +262,10 @@ export class SubscriptionRepository {
     if (data.entitled_modules !== undefined)
       assign("entitled_modules", data.entitled_modules);
     if (data.notes !== undefined) assign("notes", data.notes);
+    if (data.trial_started_at !== undefined)
+      assign("trial_started_at", data.trial_started_at);
+    if (data.trial_ends_at !== undefined)
+      assign("trial_ends_at", data.trial_ends_at);
 
     if (sets.length === 0) return this.getByTenantId(tenantId);
 
@@ -280,6 +297,7 @@ export class SubscriptionRepository {
   listAll(): (SubscriptionEntity & {
     tenant_name: string;
     tenant_slug: string;
+    tenant_created_at: string;
   })[] {
     return runWithoutTenant(() => {
       try {
@@ -287,8 +305,10 @@ export class SubscriptionRepository {
           .prepare(
             `SELECT s.id, s.tenant_id, s.plan, s.status, s.current_period_end,
                     s.grace_ends_at, s.license_key, s.entitled_modules, s.notes,
-                    s.created_at, s.updated_at,
-                    t.name AS tenant_name, t.slug AS tenant_slug
+                    s.created_at, s.updated_at, s.trial_started_at,
+                    s.trial_ends_at,
+                    t.name AS tenant_name, t.slug AS tenant_slug,
+                    t.created_at AS tenant_created_at
                FROM tenant_subscriptions s
                /* tenant-exempt: control-plane sweep across every tenant */
                JOIN tenants t ON t.id = s.tenant_id
@@ -297,6 +317,7 @@ export class SubscriptionRepository {
           .all() as (SubscriptionEntity & {
           tenant_name: string;
           tenant_slug: string;
+          tenant_created_at: string;
         })[];
       } catch (error) {
         throw new DatabaseError("Failed to list subscriptions", {

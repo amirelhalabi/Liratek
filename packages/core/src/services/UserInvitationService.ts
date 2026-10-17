@@ -119,6 +119,15 @@ export const USER_INVITE_INVALID_MESSAGE =
 export const USER_INVITE_SHOP_INACTIVE_MESSAGE =
   "This shop is not active right now. Ask the shop owner to renew, then use the link again.";
 
+/**
+ * LIRA-332: the same refusal for a shop whose FREE TRIAL has ended. It never
+ * paid, so "renew" and "lapsed" would be wrong (FR-011). Same code
+ * (SHOP_NOT_ACTIVE), same behaviour: the link stays pending for after
+ * activation.
+ */
+export const USER_INVITE_TRIAL_ENDED_MESSAGE =
+  "This shop's free trial has ended. Its admin can contact LiraTek to activate.";
+
 const ROLE_TEXT: Record<UserInvitationRole, string> = {
   admin: "an admin",
   staff: "a staff member",
@@ -306,6 +315,8 @@ export class UserInvitationService {
   private tenantRepo: TenantRepository;
   private newToken: () => string;
   private shopCanWrite: (tenantId: number) => boolean;
+  /** LIRA-332: only picks the refusal WORDING; `shopCanWrite` decides. */
+  private shopTrialEnded: (tenantId: number) => boolean;
   private directory: SigninDirectorySync;
   private identityRepo: UserIdentityRepository;
 
@@ -324,7 +335,9 @@ export class UserInvitationService {
     shopCanWrite: (tenantId: number) => boolean = () => true,
     directory?: SigninDirectorySync,
     identityRepo?: UserIdentityRepository,
+    shopTrialEnded: (tenantId: number) => boolean = () => false,
   ) {
+    this.shopTrialEnded = shopTrialEnded;
     this.identityRepo = identityRepo ?? getUserIdentityRepository();
     this.inviteRepo = inviteRepo;
     this.userRepo = userRepo;
@@ -655,7 +668,7 @@ export class UserInvitationService {
     const shop = this.shopById(invite.tenant_id);
     if (!shop || shop.status !== "active") return null;
     if (!this.isShopWritable(invite.tenant_id)) {
-      throw new UserInviteShopInactiveError();
+      throw this.shopInactiveError(invite.tenant_id);
     }
     return { invite, shop };
   }
@@ -695,7 +708,21 @@ export class UserInvitationService {
       { invitationId: invite.id, tenantId: invite.tenant_id },
       "User invite refused: the shop is read-only",
     );
-    throw new UserInviteShopInactiveError();
+    throw this.shopInactiveError(invite.tenant_id);
+  }
+
+  /** SHOP_NOT_ACTIVE with the wording that fits the shop's standing. Never
+   * throws itself: an unknown standing gets today's wording. */
+  private shopInactiveError(tenantId: number): UserInviteShopInactiveError {
+    let trialEnded = false;
+    try {
+      trialEnded = this.shopTrialEnded(tenantId);
+    } catch {
+      trialEnded = false;
+    }
+    return new UserInviteShopInactiveError(
+      trialEnded ? USER_INVITE_TRIAL_ENDED_MESSAGE : undefined,
+    );
   }
 
   /**
@@ -843,6 +870,11 @@ export function getUserInvitationService(): UserInvitationService {
       getTenantRepository(),
       generateToken,
       (tenantId) => getSubscriptionService().canWrite(tenantId),
+      undefined,
+      undefined,
+      (tenantId) =>
+        getSubscriptionService().statusFor(tenantId)?.standing ===
+        "trial_ended",
     );
   }
   return instance;

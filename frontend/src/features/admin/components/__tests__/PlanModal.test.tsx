@@ -22,6 +22,10 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 const updateMutate = jest.fn();
 const issueMutate = jest.fn();
 
+// LIRA-332: PlanModal also renders the trial actions and the history; idle
+// stand-ins (stable objects) keep these tests about the plan sections.
+const idleMutation = { mutateAsync: jest.fn(), isPending: false };
+const emptyHistory = { data: [], isLoading: false };
 jest.mock("../../hooks/useSubscriptions", () => ({
   useUpdateSubscriptionMutation: () => ({
     mutateAsync: updateMutate,
@@ -31,6 +35,9 @@ jest.mock("../../hooks/useSubscriptions", () => ({
     mutateAsync: issueMutate,
     isPending: false,
   }),
+  useActivateSubscriptionMutation: () => idleMutation,
+  useExtendTrialMutation: () => idleMutation,
+  useSubscriptionHistoryQuery: () => emptyHistory,
 }));
 
 jest.mock("@liratek/core", () => ({
@@ -54,6 +61,9 @@ function makeSub(over: Partial<AdminSubscription> = {}): AdminSubscription {
     license_key: null,
     entitled_modules: null,
     notes: null,
+    standing: "active",
+    trial: null,
+    tenant_created_at: "2026-01-01 00:00:00",
     ...over,
   };
 }

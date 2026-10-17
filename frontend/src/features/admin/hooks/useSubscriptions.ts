@@ -1,8 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ActivateSubscriptionInput, ExtendTrialInput } from "@liratek/core";
 import {
   adminListSubscriptions,
   adminUpdateSubscription,
   adminIssueLicenseKey,
+  adminActivateSubscription,
+  adminExtendTrial,
+  adminSubscriptionHistory,
   type AdminSubscriptionPatch,
 } from "@/api/backendApi";
 import { ADMIN_TENANT_KEYS } from "./useTenants";
@@ -10,6 +14,8 @@ import { ADMIN_TENANT_KEYS } from "./useTenants";
 // ── Query key constants ─────────────────────────────────────────────────────
 export const ADMIN_SUBSCRIPTION_KEYS = {
   all: ["admin", "subscriptions"] as const,
+  history: (tenantId: number) =>
+    ["admin", "subscriptions", "history", tenantId] as const,
 };
 
 // ── Read ────────────────────────────────────────────────────────────────────
@@ -62,4 +68,43 @@ export function useIssueLicenseKeyMutation() {
       queryClient.invalidateQueries({ queryKey: ADMIN_SUBSCRIPTION_KEYS.all });
     },
   });
+}
+
+// ── LIRA-332: the owner's trial actions ─────────────────────────────────────
+
+/** One shop's subscription history (activate, extend, record payment). */
+export function useSubscriptionHistoryQuery(tenantId: number) {
+  return useQuery({
+    queryKey: ADMIN_SUBSCRIPTION_KEYS.history(tenantId),
+    queryFn: () => adminSubscriptionHistory(tenantId),
+  });
+}
+
+/**
+ * Both actions invalidate the subscriptions list (which also covers each
+ * shop's history key) and the tenants list, for the same reason as the plan
+ * update above.
+ */
+function useTrialActionMutation<TBody>(
+  run: (tenantId: number, body: TBody) => Promise<void>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tenantId, body }: { tenantId: number; body: TBody }) =>
+      run(tenantId, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ADMIN_SUBSCRIPTION_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: ADMIN_TENANT_KEYS.all });
+    },
+  });
+}
+
+export function useActivateSubscriptionMutation() {
+  return useTrialActionMutation<ActivateSubscriptionInput>(
+    adminActivateSubscription,
+  );
+}
+
+export function useExtendTrialMutation() {
+  return useTrialActionMutation<ExtendTrialInput>(adminExtendTrial);
 }

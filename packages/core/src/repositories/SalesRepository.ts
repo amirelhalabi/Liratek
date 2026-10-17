@@ -459,6 +459,94 @@ export function buildPosSaleDetails(
   };
 }
 
+// ---------------------------------------------------------------------------
+// LIRA-333 — the saved-sale receipt figures (research R2/R3, data-model.md).
+//
+// Each predicate is defined ONCE here (rule 14) and read only by
+// `getSaleWithCustomer`. All of them take the sale's SALE transaction as `t`
+// and the sale as `s`, and tie every table's tenant to `t.tenant_id` (which
+// the outer query already pins to the request's tenant) — no binds, so the
+// outer statement's `?` count is unchanged.
+//
+// Every figure comes from rows written ONCE at sale time, never from
+// `sales.paid_*`, which `_markSalesPaidFIFO` raises when the client later
+// repays the sale's debt (that drift broke the reprint, SC-003).
+// ---------------------------------------------------------------------------
+
+/** A session-basket sale (`deferPayment`): the basket owns its payment, so
+ *  the sale's own transaction carries no `payments` row and no Sale Debt.
+ *  Being linked to a session is NOT enough: the POS also links a sale paid
+ *  at the counter to the open session, and that sale has its own rows. */
+const RECEIPT_IS_SESSION_SALE_SQL = `(EXISTS (
+  SELECT 1 FROM customer_session_transactions cst
+   WHERE cst.unified_transaction_id = t.id AND cst.tenant_id = t.tenant_id)
+  AND NOT EXISTS (
+  SELECT 1 FROM payments p
+   WHERE p.transaction_id = t.id AND p.tenant_id = t.tenant_id AND p.amount > 0)
+  AND NOT EXISTS (
+  SELECT 1 FROM debt_ledger dl
+   WHERE dl.transaction_id = t.id AND dl.tenant_id = t.tenant_id
+     AND dl.transaction_type = 'Sale Debt'))`;
+
+/** Tender actually handed over, per currency: the IN legs (positive
+ *  `payments` rows) on the sale's own transaction. Change and return legs
+ *  are negative rows and are excluded by sign. */
+const receiptTenderSql = (currency: "USD" | "LBP") => `COALESCE((
+  SELECT SUM(p.amount) FROM payments p
+   WHERE p.transaction_id = t.id AND p.tenant_id = t.tenant_id
+     AND p.amount > 0 AND p.currency_code = '${currency}'), 0)`;
+const RECEIPT_TENDER_USD_SQL = receiptTenderSql("USD");
+const RECEIPT_TENDER_LBP_SQL = receiptTenderSql("LBP");
+
+/** The ORIGINAL 'Sale Debt' charge (USD — POS debt is always booked in USD,
+ *  `bookClientDebtCharge` with amountLbp null). Item-refund reversals and
+ *  repayments never edit this positive row. */
+const RECEIPT_SALE_DEBT_CHARGE_SQL = `COALESCE((
+  SELECT SUM(dl.amount_usd) FROM debt_ledger dl
+   WHERE dl.transaction_id = t.id AND dl.tenant_id = t.tenant_id
+     AND dl.transaction_type = 'Sale Debt' AND dl.amount_usd > 0), 0)`;
+
+/** Face value of the gift cards redeemed on this sale, in USD (an LBP
+ *  voucher converts at the sale's saved rate). */
+const RECEIPT_VOUCHER_FACE_USD_SQL = `COALESCE((
+  SELECT SUM(CASE WHEN v.currency_code = 'LBP'
+                  THEN v.amount / NULLIF(s.exchange_rate_snapshot, 0)
+                  ELSE v.amount END)
+    FROM vouchers v
+   WHERE v.redeemed_transaction_id = t.id AND v.tenant_id = t.tenant_id), 0)`;
+
+/** The gift-card part of the sale. A GIFT_CARD leg is non-drawer, so it
+ *  lands INSIDE the Sale Debt remainder (the voucher's full value is
+ *  deposited as credit that offsets it); a voucher worth more than that
+ *  remainder covered only the remainder — the rest stays on the account. */
+const RECEIPT_GIFT_CARD_USD_SQL = `MIN(${RECEIPT_VOUCHER_FACE_USD_SQL}, ${RECEIPT_SALE_DEBT_CHARGE_SQL})`;
+
+/** On-account part of a normal sale: the original charge less the gift-card
+ *  part it contains. */
+const RECEIPT_ON_ACCOUNT_USD_SQL = `MAX(0, ${RECEIPT_SALE_DEBT_CHARGE_SQL} - ${RECEIPT_GIFT_CARD_USD_SQL})`;
+
+/** On-account part of a session-basket sale: what the basket's back-filled
+ *  `paid_*` left unpaid (the basket owns the debt, research R3). */
+const RECEIPT_SESSION_ON_ACCOUNT_USD_SQL = `MAX(0,
+  ROUND(s.final_amount_usd + COALESCE(t.extra_usd, 0)
+        - COALESCE(s.paid_usd, 0)
+        - COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1), 2))`;
+
+/** LIRA-333 — the receipt figures `getSaleWithCustomer` adds. */
+export interface SaleReceiptFields {
+  /** Phone saved with the sale (its SALE transaction), FR-012 #1. */
+  sale_phone: string | null;
+  /** The linked client's phone, FR-012 #2. */
+  linked_client_phone: string | null;
+  /** Tender handed over at sale time, never changed by a later repayment. */
+  tender_usd: number;
+  tender_lbp: number;
+  /** Gift-card part of the sale, USD. */
+  gift_card_usd: number;
+  /** Part charged to the client's account, USD (never counted as paid). */
+  on_account_usd: number;
+}
+
 export class SalesRepository extends BaseRepository<SaleEntity> {
   constructor() {
     super("sales", { softDelete: false });
@@ -4676,28 +4764,48 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    * reprint reflects an edit (RCP-1).
    */
   getSaleWithCustomer(saleId: number):
-    | (SaleEntity & {
-        client_name: string | null;
-        client_phone: string | null;
-        /** LIRA-319 — the sale's extra charge, from its SALE transaction row. */
-        extra_usd: number;
-        extra_lbp: number;
-      })
+    | (SaleEntity &
+        SaleReceiptFields & {
+          client_name: string | null;
+          client_phone: string | null;
+          /** LIRA-319 — the sale's extra charge, from its SALE transaction row. */
+          extra_usd: number;
+          extra_lbp: number;
+        })
     | null {
     const tenantId = getCurrentTenantId();
+    // LIRA-333: `client_phone` keeps its display meaning (client first);
+    // the receipt's recipient reads `sale_phone` then `linked_client_phone`
+    // (FR-012). The tender / gift card / on-account figures are the
+    // fragments above — a session-basket sale reads its back-filled paid_*.
     const rows = this.query<
-      SaleEntity & {
-        client_name: string | null;
-        client_phone: string | null;
-        extra_usd: number;
-        extra_lbp: number;
-      }
+      SaleEntity &
+        SaleReceiptFields & {
+          client_name: string | null;
+          client_phone: string | null;
+          extra_usd: number;
+          extra_lbp: number;
+        }
     >(
       `SELECT s.*,
               COALESCE(c.full_name, t.client_name) AS client_name,
               COALESCE(c.phone_number, t.client_phone) AS client_phone,
               COALESCE(t.extra_usd, 0) AS extra_usd,
-              COALESCE(t.extra_lbp, 0) AS extra_lbp
+              COALESCE(t.extra_lbp, 0) AS extra_lbp,
+              t.client_phone AS sale_phone,
+              c.phone_number AS linked_client_phone,
+              CASE WHEN t.id IS NULL THEN 0
+                   WHEN ${RECEIPT_IS_SESSION_SALE_SQL} THEN COALESCE(s.paid_usd, 0)
+                   ELSE ${RECEIPT_TENDER_USD_SQL} END AS tender_usd,
+              CASE WHEN t.id IS NULL THEN 0
+                   WHEN ${RECEIPT_IS_SESSION_SALE_SQL} THEN COALESCE(s.paid_lbp, 0)
+                   ELSE ${RECEIPT_TENDER_LBP_SQL} END AS tender_lbp,
+              CASE WHEN t.id IS NULL THEN 0
+                   WHEN ${RECEIPT_IS_SESSION_SALE_SQL} THEN 0
+                   ELSE ${RECEIPT_GIFT_CARD_USD_SQL} END AS gift_card_usd,
+              CASE WHEN t.id IS NULL THEN 0
+                   WHEN ${RECEIPT_IS_SESSION_SALE_SQL} THEN ${RECEIPT_SESSION_ON_ACCOUNT_USD_SQL}
+                   ELSE ${RECEIPT_ON_ACCOUNT_USD_SQL} END AS on_account_usd
        FROM ${this.tableName} s
        LEFT JOIN clients c ON s.client_id = c.id AND c.tenant_id = ?
        LEFT JOIN transactions t
