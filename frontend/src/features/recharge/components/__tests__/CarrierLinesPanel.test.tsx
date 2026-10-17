@@ -144,8 +144,6 @@ describe("CarrierLinesPanel", () => {
     );
   });
 
-
-
   // ── Record usage (LIRA-145) ───────────────────────────────────────────
   describe("record usage", () => {
     const openUsageForm = async () => {
@@ -164,15 +162,15 @@ describe("CarrierLinesPanel", () => {
 
       // New balance → used (line holds $5).
       fireEvent.change(f.newBalance, { target: { value: "3.75" } });
-      expect(f.used).toHaveValue(1.25);
+      expect(f.used).toHaveValue("1.25");
 
       // Used → new balance, the same field pair read from the other end.
       fireEvent.change(f.used, { target: { value: "0.3" } });
-      expect(f.newBalance).toHaveValue(4.7); // not 4.700000000000001
+      expect(f.newBalance).toHaveValue("4.7"); // not 4.700000000000001
 
       // Clearing one clears the derived other rather than leaving a stale figure.
       fireEvent.change(f.newBalance, { target: { value: "" } });
-      expect(f.used).toHaveValue(null);
+      expect(f.used).toHaveValue("");
     });
 
     it("previews the booked amount and gates submit on 0 <= newBalance < current", async () => {
@@ -194,9 +192,10 @@ describe("CarrierLinesPanel", () => {
       fireEvent.change(f.newBalance, { target: { value: "9" } });
       expect(f.submit).toBeDisabled();
 
-      // Negative balances are not a thing.
+      // Negative balances are not a thing: the field (a text decimal input
+      // since LIRA-331, so Arabic digits work) drops the minus sign.
       fireEvent.change(f.newBalance, { target: { value: "-1" } });
-      expect(f.submit).toBeDisabled();
+      expect(f.newBalance).toHaveValue("1");
     });
 
     it("submits the new balance plus the displayed current as expectedCurrentCredits, then reloads", async () => {
@@ -264,7 +263,7 @@ describe("CarrierLinesPanel", () => {
       ).toHaveTextContent("is archived");
       // Still open, and the operator's figures are untouched.
       expect(screen.getByTestId("carrier-line-usage-new-balance")).toHaveValue(
-        4,
+        "4",
       );
       // No reload — nothing changed server-side.
       expect(mockGetActiveCarrierLines).toHaveBeenCalledTimes(1);
@@ -288,7 +287,7 @@ describe("CarrierLinesPanel", () => {
       await waitFor(() =>
         expect(
           screen.getByTestId("carrier-line-usage-new-balance"),
-        ).toHaveValue(null),
+        ).toHaveValue(""),
       );
       expect(screen.getByTestId("carrier-line-usage-submit")).toBeDisabled();
       await waitFor(() =>
@@ -324,7 +323,7 @@ describe("CarrierLinesPanel", () => {
       // Form stays open, figures untouched, and the button leaves the
       // "Recording…" state so the operator can retry.
       expect(screen.getByTestId("carrier-line-usage-new-balance")).toHaveValue(
-        3.75,
+        "3.75",
       );
       await waitFor(() =>
         expect(screen.getByTestId("carrier-line-usage-submit")).toBeEnabled(),
@@ -352,8 +351,6 @@ describe("CarrierLinesPanel", () => {
   });
 
   describe("sold-ahead days (#28, LIRA-218)", () => {
-
-
     it("lists a pending 'days still to send' delivery and marks it sent on click", async () => {
       mockGetPendingCarrierLineOwedDeliveries.mockResolvedValue({
         success: true,

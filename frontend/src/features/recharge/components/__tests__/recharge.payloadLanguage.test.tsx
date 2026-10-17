@@ -14,6 +14,10 @@
  *    (payout), session basket, For Partner;
  *  - MTC credit For Partner (TelecomForm) and Binance For Partner
  *    (CryptoForm), which bypass the page's closures.
+ *  - added with the conversion (T052): Whish App bills in USD mode and in a
+ *    session, Katsh BILL walk-in and in a session, OMT App receive, Whish App
+ *    send walk-in, Whish App receive For Partner, the wallet exchange
+ *    (WalletExchangePanel) and the OMT App cash-out modal.
  *
  * Selectors never depend on the language: data-testids, element ids, the
  * catalog items' own labels (data), and a ServiceTypeTabs stub keyed by the
@@ -42,6 +46,7 @@ import { FinancialForm } from "../FinancialForm";
 import { OmtWhishAppTransferForm } from "../OmtWhishAppTransferForm";
 import { TelecomForm } from "../TelecomForm";
 import { CryptoForm } from "../CryptoForm";
+import { OmtAppCashoutModal } from "../OmtAppCashoutModal";
 import { RechargeBasketProvider } from "../../context/RechargeBasketContext";
 import type {
   ServiceItem,
@@ -63,12 +68,17 @@ const mockRechargeBasketCheckout = jest
 const mockRechargePartnerOrder = jest
   .fn()
   .mockResolvedValue({ success: true, ids: [1, 2] });
+const mockWalletExchangeCreate = jest
+  .fn()
+  .mockResolvedValue({ success: true, amountOut: 8_950_000 });
+const mockCashoutConfirm = jest.fn().mockResolvedValue(undefined);
 
 const mockApi = {
   addOMTTransaction: mockAddOMTTransaction,
   processRecharge: mockProcessRecharge,
   rechargeBasketCheckout: mockRechargeBasketCheckout,
   rechargePartnerOrder: mockRechargePartnerOrder,
+  walletExchange: { create: mockWalletExchangeCreate },
   getAllSettings: jest.fn().mockResolvedValue([]),
   getActiveCarrierLines: jest.fn().mockResolvedValue([]),
   getClients: jest.fn().mockResolvedValue([]),
@@ -252,6 +262,8 @@ const WHISH_ITEM: ServiceItem = {
   label: "PSN $10 - LEBANON",
   catalogCost: 897_000,
   catalogSellPrice: 900_000,
+  catalogCostUsd: 9.5,
+  catalogSellPriceUsd: 10,
   sortOrder: 0,
 };
 
@@ -287,7 +299,9 @@ type Tab = "Katsh" | "iPick" | "WHISH_APP";
 
 /** The Recharge page's catalog shape: KatshForm for Katsh / iPick,
  *  FinancialForm for Whish App bills, one shared basket. */
-function CatalogPage() {
+function CatalogPage({
+  whishCurrency = "LBP",
+}: { whishCurrency?: "USD" | "LBP" } = {}) {
   const [tab, setTab] = useState<Tab>("Katsh");
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -316,6 +330,7 @@ function CatalogPage() {
             formatAmount={(v) => String(v)}
             showHistory={false}
             setShowHistory={jest.fn()}
+            currency={whishCurrency}
           />
         ) : (
           <KatshForm
@@ -467,6 +482,8 @@ async function payExactAndConfirm() {
 }
 
 const CALLS = {
+  walletExchangeCreate: mockWalletExchangeCreate,
+  cashoutConfirm: mockCashoutConfirm,
   addOMTTransaction: mockAddOMTTransaction,
   processRecharge: mockProcessRecharge,
   rechargeBasketCheckout: mockRechargeBasketCheckout,
@@ -607,6 +624,125 @@ const SCENARIOS: Scenario[] = [
     call: "addOMTTransaction",
   },
   {
+    name: "Whish App bill card, USD mode, walk-in",
+    render: () => <CatalogPage whishCurrency="USD" />,
+    drive: async () => {
+      click("tab-WHISH_APP");
+      await pick("PSN $10 - LEBANON");
+      click("financial-proceed");
+      await payExactAndConfirm();
+    },
+    call: "addOMTTransaction",
+  },
+  {
+    name: "Whish App bill card, session basket",
+    session: true,
+    render: () => <CatalogPage />,
+    drive: async () => {
+      click("tab-WHISH_APP");
+      await pick("PSN $10 - LEBANON");
+      click("financial-proceed");
+    },
+    call: "addToCart",
+  },
+  {
+    name: "Katsh BILL, walk-in",
+    render: () => <CatalogPage />,
+    drive: async () => {
+      await screen.findAllByText("60 UC");
+      fireEvent.change(screen.getByTestId("katsh-bill-amount"), {
+        target: { value: "250000" },
+      });
+      click("katsh-add-bill");
+      click("katsh-proceed");
+      await payExactAndConfirm();
+    },
+    call: "addOMTTransaction",
+  },
+  {
+    name: "Katsh BILL, session basket",
+    session: true,
+    render: () => <CatalogPage />,
+    drive: async () => {
+      await screen.findAllByText("60 UC");
+      fireEvent.change(screen.getByTestId("katsh-bill-amount"), {
+        target: { value: "250000" },
+      });
+      click("katsh-add-bill");
+    },
+    call: "addToCart",
+  },
+  {
+    name: "OMT App receive, walk-in",
+    render: () => <TransferPage provider="OMT_APP" />,
+    drive: async () => {
+      click("opt-RECEIVE");
+      typeInto("transfer-amount", "75");
+      click("transfer-proceed");
+      await payExactAndConfirm();
+    },
+    call: "addOMTTransaction",
+  },
+  {
+    name: "Whish App send, walk-in",
+    render: () => <TransferPage provider="WHISH_APP" />,
+    drive: async () => {
+      typeInto("transfer-amount", "40");
+      click("transfer-proceed");
+      await payExactAndConfirm();
+    },
+    call: "addOMTTransaction",
+  },
+  {
+    name: "Whish App receive, For Partner",
+    render: () => <TransferPage provider="WHISH_APP" />,
+    drive: async () => {
+      click("opt-RECEIVE");
+      typeInto("transfer-amount", "60");
+      typeInto("transfer-fee", "1");
+      click("omt-whish-transfer-for-partner-toggle");
+      click("stub-pick-partner");
+      click("transfer-proceed");
+    },
+    call: "addOMTTransaction",
+  },
+  {
+    name: "OMT App wallet exchange, USD to LBP",
+    render: () => <TransferPage provider="OMT_APP" />,
+    drive: async () => {
+      click("opt-EXCHANGE");
+      fireEvent.change(await screen.findByTestId("wallet-exchange-amount"), {
+        target: { value: "100" },
+      });
+      fireEvent.change(screen.getByTestId("wallet-exchange-rate"), {
+        target: { value: "89500" },
+      });
+      click("wallet-exchange-confirm");
+    },
+    call: "walletExchangeCreate",
+  },
+  {
+    name: "OMT App cash-out to OMT (modal), LBP",
+    render: () => (
+      <OmtAppCashoutModal
+        isOpen
+        onClose={jest.fn()}
+        onConfirm={mockCashoutConfirm}
+        walletBalance={{ usdBalance: 500, lbpBalance: 50_000_000 }}
+      />
+    ),
+    drive: async () => {
+      fireEvent.change(screen.getByTestId("omt-app-cashout-currency"), {
+        target: { value: "LBP" },
+      });
+      fireEvent.change(screen.getByTestId("omt-app-cashout-amount"), {
+        target: { value: "1500000" },
+      });
+      click("omt-app-cashout-submit");
+    },
+    call: "cashoutConfirm",
+  },
+  {
     name: "MTC credit, For Partner",
     render: () => <TelecomPage />,
     drive: async () => {
@@ -633,6 +769,10 @@ type Captured = Record<CallName, unknown[]>;
 /** Basket entry ids are uuids: numbered the same way in both runs. */
 const uuidSpy = jest.spyOn(globalThis.crypto, "randomUUID");
 
+/** Whether the last run's screen showed any Arabic text (proves the "ar"
+ *  pass really rendered the converted, Arabic screen). */
+let lastRunShowedArabic = false;
+
 async function run(s: Scenario): Promise<Captured> {
   for (const m of Object.values(CALLS)) m.mockClear();
   let n = 0;
@@ -641,6 +781,7 @@ async function run(s: Scenario): Promise<Captured> {
       `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}` as `${string}-${string}-${string}-${string}-${string}`,
   );
   render(s.render());
+  lastRunShowedArabic = /[\u0600-\u06FF]/.test(document.body.textContent ?? "");
   await s.drive();
   await waitFor(() =>
     expect(CALLS[s.call]).toHaveBeenCalledTimes(s.count ?? 1),
@@ -675,6 +816,7 @@ describe("Mobile Recharge forms — the payload does not depend on the language 
     await switchLanguage("ar");
     expect(i18n.language).toBe("ar");
     const ar = await run(s);
+    expect(lastRunShowedArabic).toBe(true);
 
     expect(alertSpy).not.toHaveBeenCalled();
     expect(en[s.call]).toHaveLength(s.count ?? 1);

@@ -2228,6 +2228,7 @@ function KatshFormInner({
                     {t("katsh.amountIn", { currency: billCurrency })}
                   </label>
                   <DecimalInput
+                    data-testid="katsh-bill-amount"
                     value={parseFloat(billAmount.replace(/,/g, "")) || 0}
                     onChange={(n) => setBillAmount(n ? String(n) : "")}
                     decimals={billCurrency === "USD" ? 2 : 0}
@@ -2237,6 +2238,7 @@ function KatshFormInner({
                 </div>
                 <button
                   type="button"
+                  data-testid="katsh-add-bill"
                   onClick={handleAddBill}
                   disabled={
                     !billAmount || parseFloat(billAmount.replace(/,/g, "")) <= 0
