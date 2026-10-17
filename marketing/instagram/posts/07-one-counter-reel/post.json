@@ -26,13 +26,13 @@
         "shot": {
           "file": "checkout.png",
           "crop": [
-            60,
-            640,
-            860,
-            320
+            90,
+            800,
+            830,
+            170
           ]
         },
-        "top": 820
+        "top": 900
       },
       {
         "kind": "shot",
@@ -44,19 +44,19 @@
         "shot": {
           "file": "omt.png",
           "crop": [
-            420,
-            180,
-            1460,
-            610
+            440,
+            520,
+            760,
+            270
           ],
           "ring": [
-            500,
-            672,
-            290,
-            82
+            505,
+            676,
+            280,
+            80
           ]
         },
-        "top": 800
+        "top": 860
       },
       {
         "kind": "shot",
@@ -68,13 +68,13 @@
         "shot": {
           "file": "dashboard.png",
           "crop": [
-            410,
-            500,
-            1490,
-            260
+            415,
+            570,
+            880,
+            185
           ]
         },
-        "top": 860
+        "top": 900
       },
       {
         "kind": "logo",
@@ -102,7 +102,11 @@
     "landing/index.html hero + modules"
   ],
   "notes": "",
-  "media": [],
+  "media": [
+    "media/reel.mp4",
+    "media/cover.jpg"
+  ],
   "public_urls": [],
-  "published_id": null
+  "published_id": null,
+  "rendered_at": "2026-10-16T20:23:03.740Z"
 }

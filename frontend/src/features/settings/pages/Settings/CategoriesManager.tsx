@@ -333,7 +333,7 @@ export default function CategoriesManager() {
           <span className="text-sm font-semibold text-white">
             Product Categories
           </span>
-          <span className="text-xs text-slate-500 ml-1">
+          <span className="text-xs text-slate-500 ms-1">
             ({categories.length} categories)
           </span>
         </div>
@@ -409,7 +409,7 @@ export default function CategoriesManager() {
               },
               {
                 header: "Actions",
-                className: "p-3 border-b border-slate-700 text-right",
+                className: "p-3 border-b border-slate-700 text-end",
                 width: "100px",
               },
             ]}
@@ -431,7 +431,7 @@ export default function CategoriesManager() {
                   checked ? new Set(categories.map((c) => c.id)) : new Set(),
                 ),
             }}
-            className="w-full text-left"
+            className="w-full text-start"
             theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
             tbodyClassName="divide-y divide-slate-700/50"
             renderRow={(cat) => {
@@ -546,7 +546,7 @@ export default function CategoriesManager() {
                   </td>
 
                   {/* Actions */}
-                  <td className="p-3 text-right">
+                  <td className="p-3 text-end">
                     <div className="flex items-center justify-end gap-1">
                       {isEditing ? (
                         <>
@@ -598,7 +598,7 @@ export default function CategoriesManager() {
           <span className="text-sm font-semibold text-white">
             Product Suppliers
           </span>
-          <span className="text-xs text-slate-500 ml-1">
+          <span className="text-xs text-slate-500 ms-1">
             ({suppliers.length} suppliers)
           </span>
         </div>
@@ -670,7 +670,7 @@ export default function CategoriesManager() {
               },
               {
                 header: "Actions",
-                className: "p-3 border-b border-slate-700 text-right",
+                className: "p-3 border-b border-slate-700 text-end",
                 width: "100px",
               },
             ]}
@@ -692,7 +692,7 @@ export default function CategoriesManager() {
                   checked ? new Set(suppliers.map((s) => s.id)) : new Set(),
                 ),
             }}
-            className="w-full text-left"
+            className="w-full text-start"
             theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
             tbodyClassName="divide-y divide-slate-700/50"
             renderRow={(supp) => {
@@ -742,7 +742,7 @@ export default function CategoriesManager() {
                   </td>
 
                   {/* Actions */}
-                  <td className="p-3 text-right">
+                  <td className="p-3 text-end">
                     <div className="flex items-center justify-end gap-1">
                       {isEditing ? (
                         <>

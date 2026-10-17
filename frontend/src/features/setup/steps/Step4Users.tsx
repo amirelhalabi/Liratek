@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSetup } from "../context/SetupContext";
 import { Plus, Trash2 } from "lucide-react";
 import PasswordInput from "@/shared/components/PasswordInput";
@@ -7,6 +8,7 @@ import { validatePasswordComplexity } from "@liratek/core";
 
 export default function Step4Users() {
   const { payload, updatePayload, setStep } = useSetup();
+  const { t } = useTranslation("setup");
   const [newUser, setNewUser] = useState({
     username: "",
     password: "",
@@ -39,23 +41,26 @@ export default function Step4Users() {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">Users & WhatsApp</h2>
+          <h2 className="text-xl font-bold text-white">
+            {t("usersStep.title")}
+          </h2>
           <p className="text-slate-400 text-sm mt-1">
-            Add staff users and configure WhatsApp. Both are optional — you can
-            do this later in Settings.
+            {t("usersStep.subtitle")}
           </p>
         </div>
         <button
           onClick={() => setStep(6)}
           className="text-xs text-slate-400 hover:text-white underline mt-1"
         >
-          Skip
+          {t("nav.skip")}
         </button>
       </div>
 
       {/* Extra Users */}
       <div className="bg-slate-900/50 rounded-xl p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-slate-300">Staff Users</h3>
+        <h3 className="text-sm font-semibold text-slate-300">
+          {t("users.staffUsers")}
+        </h3>
 
         {payload.extra_users.length > 0 && (
           <div className="space-y-2">
@@ -68,8 +73,10 @@ export default function Step4Users() {
                   <span className="text-sm text-white font-medium">
                     {u.username}
                   </span>
-                  <span className="ml-2 text-xs text-slate-400 capitalize">
-                    {u.role}
+                  <span className="ms-2 text-xs text-slate-400">
+                    {u.role === "admin"
+                      ? t("users.roleAdmin")
+                      : t("users.roleStaff")}
                   </span>
                 </div>
                 <button
@@ -88,14 +95,14 @@ export default function Step4Users() {
             value={newUser.username}
             onChange={(value) => setNewUser((p) => ({ ...p, username: value }))}
             label=""
-            placeholder="Username"
+            placeholder={t("users.username")}
             compact
           />
           <PasswordInput
             value={newUser.password}
             onChange={(value) => setNewUser((p) => ({ ...p, password: value }))}
             label=""
-            placeholder="Password"
+            placeholder={t("users.password")}
             compact
           />
           <div className="flex gap-2">
@@ -103,8 +110,8 @@ export default function Step4Users() {
               value={newUser.role}
               onChange={(v) => setNewUser((p) => ({ ...p, role: v }))}
               options={[
-                { value: "staff", label: "Staff" },
-                { value: "admin", label: "Admin" },
+                { value: "staff", label: t("users.roleStaff") },
+                { value: "admin", label: t("users.roleAdmin") },
               ]}
               buttonClassName={inputCls}
             />
@@ -122,12 +129,12 @@ export default function Step4Users() {
       {/* WhatsApp */}
       <div className="bg-slate-900/50 rounded-xl p-4 space-y-3">
         <h3 className="text-sm font-semibold text-slate-300">
-          WhatsApp Integration
+          {t("usersStep.whatsapp")}
         </h3>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs text-slate-400 mb-1">
-              Phone Number
+              {t("usersStep.phone")}
             </label>
             <input
               type="text"
@@ -140,12 +147,14 @@ export default function Step4Users() {
             />
           </div>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">API Key</label>
+            <label className="block text-xs text-slate-400 mb-1">
+              {t("usersStep.apiKey")}
+            </label>
             <PasswordInput
               value={payload.whatsapp_api_key}
               onChange={(value) => updatePayload({ whatsapp_api_key: value })}
               label=""
-              placeholder="Enter API Key"
+              placeholder={t("usersStep.apiKeyPlaceholder")}
               compact
             />
           </div>
@@ -157,13 +166,13 @@ export default function Step4Users() {
           onClick={() => setStep(4)}
           className="px-6 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors text-sm"
         >
-          ← Back
+          {t("nav.back")}
         </button>
         <button
           onClick={() => setStep(6)}
           className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-lg transition-colors text-sm"
         >
-          Next →
+          {t("nav.next")}
         </button>
       </div>
     </div>

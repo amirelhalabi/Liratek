@@ -50,7 +50,9 @@ function createTestDb(): Database.Database {
       entitled_modules TEXT,
       notes TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      trial_started_at DATETIME,
+      trial_ends_at DATETIME
     );
     CREATE UNIQUE INDEX idx_tenant_subscriptions_tenant
       ON tenant_subscriptions(tenant_id);
@@ -139,7 +141,10 @@ describe("provisionTenant + subscription atomicity", () => {
   });
 });
 
-describe("what a self-served tenant is stamped with", () => {
+// LIRA-332 (rule 24, premise changed): public sign-ups now start a 14-day
+// trial (TenantProvisioning.trial.test.ts). What stays true is the row a
+// tenant gets when NO trial is requested — owner-created shops (FR-004).
+describe("what a tenant is stamped with when no trial is requested", () => {
   /**
    * Provisioning's own transaction is exercised above. Here the subscription
    * shape is asserted directly against the repository, which is the same code
@@ -160,9 +165,11 @@ describe("what a self-served tenant is stamped with", () => {
 
     const row = subscriptions.getByTenantId(1);
     expect(row?.status).toBe("active");
-    // No trial (D2): nothing to expire, so the lapse sweep ignores it until
-    // the owner sets a period.
+    // No trial when not requested (LIRA-332; D2 still holds for
+    // owner-created shops): nothing to expire, so the lapse sweep ignores it
+    // until the owner sets a period.
     expect(row?.current_period_end).toBeNull();
+    expect(row?.trial_ends_at).toBeNull();
     // NULL = every module (D6). A new shop is not crippled on arrival; the
     // owner narrows it afterwards if that is the deal.
     expect(row?.entitled_modules).toBeNull();

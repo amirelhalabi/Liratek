@@ -38,13 +38,16 @@ jest.mock("../../server.js", () => ({
 }));
 
 const canWrite = jest.fn();
+// LIRA-332: consulted only after `canWrite` said no, to pick the wording.
+// Default null = not a trial, so every pre-existing case is unchanged.
+const statusFor = jest.fn();
 
 jest.mock("@liratek/core", () => {
   const actual =
     jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
   return {
     ...actual,
-    getSubscriptionService: () => ({ canWrite }),
+    getSubscriptionService: () => ({ canWrite, statusFor }),
   };
 });
 
@@ -95,6 +98,8 @@ const TOKEN = "Bearer fake.jwt.token";
 
 beforeEach(() => {
   canWrite.mockReset();
+  statusFor.mockReset();
+  statusFor.mockReturnValue(null);
   verifyJwt.mockReset();
   // Default: an authenticated tenant whose subscription has lapsed.
   verifyJwt.mockReturnValue({ tenantId: 7, userId: 1, role: "admin" });
@@ -359,5 +364,52 @@ describe("tenant resolution", () => {
 
     // A client-supplied tenantId must never be what gets checked.
     expect(canWrite).toHaveBeenCalledWith(42);
+  });
+});
+
+// LIRA-332 (T031). Defence in depth: requireOpenTrial answers an ended trial
+// first, but if this gate is ever reached directly with a trial-ended shop it
+// must use the trial wording, never "subscription has lapsed", and must let
+// the same allowlisted writes through. Failing-first: run before the change,
+// the first case got the 402 lapsed text.
+describe("an ended free trial reaching this gate directly", () => {
+  beforeEach(() => {
+    canWrite.mockReturnValue(false);
+    statusFor.mockReturnValue({ standing: "trial_ended", canWrite: false });
+  });
+
+  it("answers with the trial code and wording, HTTP 200", async () => {
+    const res = await request(buildApp())
+      .post("/api/settings/anything")
+      .set("Authorization", TOKEN)
+      .expect(200);
+    expect(res.body).toEqual({
+      success: false,
+      code: "TRIAL_ENDED",
+      error:
+        "Your free trial has ended. Contact LiraTek on WhatsApp to activate.",
+    });
+    expect(JSON.stringify(res.body)).not.toMatch(/lapsed|overdue|read-only/i);
+  });
+
+  it("lets an allowlisted write under a gated prefix through (backup verify)", async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(requireWritableSubscription);
+    app.post("/api/reports/backup/verify", (_q, r) => r.json({ reached: true }));
+    const res = await request(app)
+      .post("/api/reports/backup/verify")
+      .set("Authorization", TOKEN)
+      .expect(200);
+    expect(res.body.reached).toBe(true);
+  });
+
+  it("read_only keeps the lapsed 402 (paying shops unchanged)", async () => {
+    statusFor.mockReturnValue({ standing: "read_only", canWrite: false });
+    const res = await request(buildApp())
+      .post("/api/settings/anything")
+      .set("Authorization", TOKEN)
+      .expect(402);
+    expect(res.body.code).toBe("SUBSCRIPTION_READ_ONLY");
   });
 });

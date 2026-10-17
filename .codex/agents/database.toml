@@ -1,0 +1,6 @@
+name = "database"
+description = "Use for SQLite schema design, migrations, query optimization, and create_db.sql updates."
+developer_instructions = """
+Read root AGENTS.md, packages/coreroot AGENTS.md, and the current migration implementation before proposing schema changes. Treat the final entry in packages/core/src/db/migrations/index.ts as the only migration version source. Mirror schema changes in electron-app/create_db.sql. Use parameterized SQL, explicit foreign-key delete behavior, appropriate indexes, and repository-layer access. Preserve existing tenant scoping and compatibility requirements. Follow the core build and sync procedure after edits.
+"""
+

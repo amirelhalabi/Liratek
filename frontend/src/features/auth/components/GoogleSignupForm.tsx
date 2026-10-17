@@ -30,6 +30,8 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 import logger from "@/utils/logger";
 import PasswordInput from "@/shared/components/PasswordInput";
+import { useTranslation } from "react-i18next";
+import { LanguageSwitch } from "@/shared/components/LanguageSwitch";
 
 /** Same derivation as the invite sign-up's slug field: a suggestion only;
  * the server's slug rule (validateTenantSlug) is the authority. */
@@ -45,9 +47,10 @@ function slugify(name: string): string {
 
 const MIN_USERNAME = 3;
 const MIN_PASSWORD = 6;
-const UNREACHABLE = "Could not reach the server. Please try again.";
 
 export default function GoogleSignupForm({ ticket }: { ticket: string }) {
+  const { t } = useTranslation("auth");
+  const UNREACHABLE = t("shared.unreachable");
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [email] = useState(
@@ -106,7 +109,7 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
         setEmailHasShop(true);
         return;
       }
-      setError(messageFrom(result.error, "Signup failed"));
+      setError(messageFrom(result.error, t("shared.signupFailed")));
     } catch (err) {
       logger.error("Google sign-up failed:", err);
       setError(messageFrom(err, UNREACHABLE));
@@ -149,14 +152,14 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
   if (created) {
     return (
       <div className={pageClass}>
+        <LanguageSwitch className="fixed top-4 end-4 z-20" />
         <div className={clsx(cardClass, "text-center")}>
           <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
           <h1 className={clsx(headingClass, "mb-2")}>
-            {created.name} is ready
+            {t("shared.isReady", { name: created.name })}
           </h1>
           <p className={clsx(subtleClass, "mb-6")}>
-            Sign in with Google, or with the username and password you just
-            chose.
+            {t("googleSignup.readyHint")}
           </p>
           {created.loginUrl ? (
             <a
@@ -164,7 +167,7 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
               data-testid="google-signup-login-url"
               className="block w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors text-center"
             >
-              Go to your shop
+              {t("shared.goToYourShop")}
             </a>
           ) : (
             <p className="font-mono text-sm">{created.slug}</p>
@@ -191,12 +194,12 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
 
   return (
     <div className={pageClass}>
+      <LanguageSwitch className="fixed top-4 end-4 z-20" />
       <form onSubmit={handleSubmit} className={cardClass}>
-        <h1 className={clsx(headingClass, "mb-1")}>Create your shop</h1>
-        <p className={clsx(subtleClass, "mb-6")}>
-          Google confirmed your email. Everything else can be changed later in
-          Settings.
-        </p>
+        <h1 className={clsx(headingClass, "mb-1")}>
+          {t("shared.createYourShop")}
+        </h1>
+        <p className={clsx(subtleClass, "mb-6")}>{t("googleSignup.intro")}</p>
 
         {emailHasShop && <EmailHasShopNotice className="mb-4" />}
         {error && (
@@ -212,7 +215,7 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
         <div className="space-y-4">
           {field(
             "google-signup-email",
-            "Email",
+            t("shared.email"),
             <input
               id="google-signup-email"
               data-testid="google-signup-email"
@@ -224,7 +227,7 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
           )}
           {field(
             "google-signup-shop-name",
-            "Shop name *",
+            t("shared.shopNameRequired"),
             <input
               id="google-signup-shop-name"
               data-testid="google-signup-shop-name"
@@ -238,7 +241,7 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
           )}
           {field(
             "google-signup-slug",
-            "Shop address *",
+            t("shared.shopAddressRequired"),
             <input
               id="google-signup-slug"
               data-testid="google-signup-slug"
@@ -256,11 +259,11 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
               )}
               autoComplete="off"
             />,
-            "Lowercase letters, numbers and dashes. This becomes your sign-in address and cannot be changed later.",
+            t("shared.slugHint"),
           )}
           {field(
             "google-signup-username",
-            "Admin username *",
+            t("shared.adminUsernameRequired"),
             <input
               id="google-signup-username"
               data-testid="google-signup-username"
@@ -270,11 +273,11 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
               className={inputClass}
               autoComplete="username"
             />,
-            `At least ${MIN_USERNAME} characters.`,
+            t("shared.minChars", { min: MIN_USERNAME }),
           )}
           {field(
             "google-signup-password",
-            "Admin password *",
+            t("shared.adminPasswordRequired"),
             <PasswordInput
               label=""
               id="google-signup-password"
@@ -286,7 +289,7 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
               inputClassName={inputClass}
               autoComplete="new-password"
             />,
-            "You will also be able to sign in with this password, including in the desktop app.",
+            t("googleSignup.passwordHint"),
           )}
         </div>
 
@@ -296,13 +299,13 @@ export default function GoogleSignupForm({ ticket }: { ticket: string }) {
           disabled={!canSubmit}
           className="mt-6 w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
         >
-          {loading ? "Creating your shop..." : "Create shop"}
+          {loading ? t("shared.creatingShop") : t("shared.createShop")}
         </button>
 
         <p className={clsx("mt-4 text-center", subtleClass)}>
-          Already have a shop?{" "}
+          {t("shared.alreadyHaveShop")}{" "}
           <Link to="/login" className="text-orange-500 hover:text-orange-400">
-            Sign in
+            {t("shared.signIn")}
           </Link>
         </p>
       </form>

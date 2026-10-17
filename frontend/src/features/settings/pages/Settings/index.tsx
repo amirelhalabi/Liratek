@@ -167,7 +167,7 @@ export default function Settings() {
             </button>
           ))}
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pl-4 pt-4 pr-10 pb-6">
+        <div className="flex-1 min-h-0 overflow-y-auto -me-6 ps-4 pt-4 pe-10 pb-6">
           {active === "shop" && <ShopConfig />}
           {active === "categories" && <CategoriesManager />}
           {active === "notifications" && <NotificationsConfig />}

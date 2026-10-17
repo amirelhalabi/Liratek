@@ -24,6 +24,9 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { AlertCircle, ArrowRight, Mail, Store, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import type { SigninShop } from "@liratek/core";
 import { requestSigninCode, verifySigninCode } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
@@ -40,11 +43,6 @@ import {
   rememberedShopsCookie,
   type RememberedShop,
 } from "@/features/auth/utils/rememberedShops";
-
-const UNREACHABLE = "Could not reach the server. Please try again.";
-const SENT_FALLBACK = "If this email has a LiraTek account, we've sent a code.";
-const INVALID_FALLBACK =
-  "That code is not right or has expired. Check it, or ask for a new one.";
 
 type Step =
   | { kind: "email" }
@@ -63,6 +61,8 @@ export default function PlatformSignIn({
   canSignUp,
   dark,
 }: PlatformSignInProps) {
+  const { t } = useTranslation("auth");
+  const UNREACHABLE = t("shared.unreachable");
   const [remembered, setRemembered] = useState<RememberedShop[]>(() =>
     parseRememberedShops(readCookies()),
   );
@@ -89,11 +89,11 @@ export default function PlatformSignIn({
         setStep({
           kind: "code",
           email: address,
-          message: res.data?.message ?? SENT_FALLBACK,
+          message: res.data?.message ?? t("platform.sentFallback"),
         });
         return;
       }
-      setError(messageFrom(res.error, "Could not send the code"));
+      setError(messageFrom(res.error, t("platform.couldNotSendCode")));
     } catch (err) {
       logger.error("Sign-in code request failed:", err);
       setError(messageFrom(err, UNREACHABLE));
@@ -120,7 +120,7 @@ export default function PlatformSignIn({
         setStep({ kind: "shops", email: step.email, shops: res.data.shops });
         return;
       }
-      setError(messageFrom(res.error, INVALID_FALLBACK));
+      setError(messageFrom(res.error, t("platform.invalidCode")));
     } catch (err) {
       logger.error("Sign-in code check failed:", err);
       setError(messageFrom(err, UNREACHABLE));
@@ -183,13 +183,13 @@ export default function PlatformSignIn({
           dark ? "text-white" : "text-gray-900",
         )}
       >
-        Sign in to LiraTek
+        {t("platform.title")}
       </h2>
 
       {step.kind === "email" && remembered.length > 0 && (
-        <section aria-label="Shops on this device" className="space-y-2">
+        <section aria-label={t("platform.shopsOnDevice")} className="space-y-2">
           <p className={clsx("text-xs font-medium uppercase", subtle)}>
-            Your shops on this device
+            {t("platform.yourShopsOnDevice")}
           </p>
           <ul className="space-y-2">
             {remembered.map((shop) => (
@@ -217,14 +217,19 @@ export default function PlatformSignIn({
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-violet-500">
-                    Continue <ArrowRight size={14} aria-hidden="true" />
+                    {t("platform.continue")}{" "}
+                    <DirIcon
+                      icon={ArrowRight}
+                      aria-hidden="true"
+                      className="h-3.5 w-3.5"
+                    />
                   </span>
                 </a>
                 <button
                   type="button"
                   onClick={() => forget(shop.slug)}
-                  aria-label={`Forget ${shop.name}`}
-                  title="Forget this shop"
+                  aria-label={t("platform.forgetNamed", { name: shop.name })}
+                  title={t("platform.forgetShop")}
                   className={clsx(
                     "rounded-md p-2 transition-colors",
                     dark
@@ -238,7 +243,7 @@ export default function PlatformSignIn({
             ))}
           </ul>
           <p className={clsx("pt-2 text-center text-xs", subtle)}>
-            Another shop? Enter your email below.
+            {t("platform.anotherShop")}
           </p>
         </section>
       )}
@@ -248,7 +253,7 @@ export default function PlatformSignIn({
           {errorBox}
           <div>
             <label htmlFor="signin-email" className={labelClass}>
-              Email
+              {t("shared.email")}
             </label>
             <input
               id="signin-email"
@@ -257,17 +262,16 @@ export default function PlatformSignIn({
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              placeholder="you@example.com" // i18n-exempt: example address
               className={inputClass}
               required
             />
             <p className={clsx("mt-1 text-xs", subtle)}>
-              We&apos;ll email you a code and show the shops you can sign in
-              to.
+              {t("platform.emailHint")}
             </p>
           </div>
           <button type="submit" disabled={busy} className={primaryButton}>
-            {busy ? "Sending..." : "Continue with email"}
+            {busy ? t("shared.sending") : t("platform.continueWithEmail")}
           </button>
         </form>
       )}
@@ -277,16 +281,22 @@ export default function PlatformSignIn({
           <div
             className={clsx(
               "flex items-start gap-3 rounded-lg p-3 text-sm",
-              dark ? "bg-slate-900/60 text-slate-300" : "bg-gray-100 text-gray-700",
+              dark
+                ? "bg-slate-900/60 text-slate-300"
+                : "bg-gray-100 text-gray-700",
             )}
           >
-            <Mail size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-violet-500" />
+            <Mail
+              size={18}
+              aria-hidden="true"
+              className="mt-0.5 shrink-0 text-violet-500"
+            />
             <span>{step.message}</span>
           </div>
           {errorBox}
           <div>
             <label htmlFor="signin-code" className={labelClass}>
-              6-digit code
+              {t("platform.codeLabel")}
             </label>
             <input
               id="signin-code"
@@ -297,21 +307,22 @@ export default function PlatformSignIn({
               maxLength={9}
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="123456"
+              placeholder="123456" // i18n-exempt: example code
               className={clsx(inputClass, "tracking-[0.4em] font-mono text-lg")}
               autoFocus
               required
             />
             <p className={clsx("mt-1 text-xs", subtle)}>
-              Sent to {step.email}. It works for 10 minutes.
+              {t("platform.sentTo")} <Ltr>{step.email}</Ltr>
+              {t("platform.sentToEnd")}
             </p>
           </div>
           <button type="submit" disabled={busy} className={primaryButton}>
-            {busy ? "Checking..." : "Show my shops"}
+            {busy ? t("platform.checking") : t("platform.showMyShops")}
           </button>
           <div className="flex justify-between">
             <button type="button" onClick={startOver} className={linkButton}>
-              Use a different email
+              {t("platform.useDifferentEmail")}
             </button>
             <button
               type="button"
@@ -319,22 +330,20 @@ export default function PlatformSignIn({
               disabled={busy}
               className={linkButton}
             >
-              Send a new code
+              {t("platform.sendNewCode")}
             </button>
           </div>
         </form>
       )}
 
       {step.kind === "shops" && (
-        <section aria-label="Your shops" className="space-y-3">
+        <section aria-label={t("platform.yourShops")} className="space-y-3">
           <p className={clsx("text-sm", subtle)}>
-            Your shops for {step.email}. Pick one, then enter your password.
+            {t("platform.shopsFor")} <Ltr>{step.email}</Ltr>
+            {t("platform.shopsForEnd")}
           </p>
           {step.shops.length === 0 ? (
-            <p className={clsx("text-sm", subtle)}>
-              No shop can be opened with this email right now. Ask your shop
-              admin.
-            </p>
+            <p className={clsx("text-sm", subtle)}>{t("platform.noShops")}</p>
           ) : (
             <ul className="space-y-2">
               {step.shops.map((shop) => (
@@ -358,13 +367,13 @@ export default function PlatformSignIn({
                         {shop.name}
                       </span>
                       <span className={clsx("block truncate text-xs", subtle)}>
-                        as {shop.username}
+                        {t("platform.asUser", { username: shop.username })}
                       </span>
                     </span>
-                    <ArrowRight
-                      size={16}
+                    <DirIcon
+                      icon={ArrowRight}
                       aria-hidden="true"
-                      className="shrink-0 text-violet-500"
+                      className="h-4 w-4 shrink-0 text-violet-500"
                     />
                   </a>
                 </li>
@@ -372,7 +381,7 @@ export default function PlatformSignIn({
             </ul>
           )}
           <button type="button" onClick={startOver} className={linkButton}>
-            Use a different email
+            {t("platform.useDifferentEmail")}
           </button>
         </section>
       )}
@@ -387,7 +396,7 @@ export default function PlatformSignIn({
               to="/forgot-password"
               className="text-orange-500 hover:text-orange-400"
             >
-              Forgot password?
+              {t("shared.forgotPassword")}
             </Link>
           </p>
         </>
@@ -400,7 +409,9 @@ export default function PlatformSignIn({
             dark ? "border-slate-700/50" : "border-gray-200",
           )}
         >
-          <p className={clsx("mb-2 text-sm", subtle)}>New to LiraTek?</p>
+          <p className={clsx("mb-2 text-sm", subtle)}>
+            {t("shared.newToLiratek")}
+          </p>
           <Link
             to="/signup"
             className={clsx(
@@ -410,7 +421,7 @@ export default function PlatformSignIn({
                 : "border-orange-500 text-orange-600 hover:bg-orange-50",
             )}
           >
-            Create your shop
+            {t("shared.createYourShop")}
           </Link>
         </div>
       )}

@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { useFormat } from "@/i18n/useFormat";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -68,22 +71,8 @@ type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
 
 // LIRA-256 — values come from the ONE list in core (rule 14); only the
-// rate-suffixed labels are this page's own.
-const OMT_SERVICE_LABELS: Record<OmtServiceType, string> = {
-  INTRA: "Intra (10% of OMT fee)",
-  WESTERN_UNION: "Western Union (10% of OMT fee)",
-  CASH_TO_BUSINESS: "Cash to Business (25% of OMT fee)",
-  CASH_TO_GOV: "Cash to Gov (25% of OMT fee)",
-  OMT_WALLET: "OMT Wallet (No Fees)",
-  OMT_CARD: "OMT Card (10% of OMT fee)",
-  OGERO_MECANIQUE: "Ogero/Mecanique (25% of OMT fee)",
-  ONLINE_BROKERAGE: "Online Brokerage (% of amount)",
-};
-const OMT_SERVICE_OPTIONS: { value: OmtServiceType; label: string }[] =
-  OMT_SERVICE_TYPES.map((value) => ({
-    value,
-    label: OMT_SERVICE_LABELS[value],
-  }));
+// rate-suffixed labels are this page's own (catalog `services:omtService.*`,
+// translated at render time — the option value stays the code, LIRA-331).
 
 // OMT commission rates, the INTRA / Western Union / Whish fee tiers and the
 // fee lookups come from @liratek/core (utils/omtFees.ts, utils/whishFees.ts)
@@ -152,21 +141,16 @@ const SERVICE_TYPE_ICONS: Record<ServiceType, typeof Send> = {
   RECEIVE: ArrowDownToLine, // Customer receives/cashes out → money comes down to them
 };
 
-const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
-  SEND: "Send",
-  RECEIVE: "Receive",
-};
-
 const INPUT_CLASS =
   "w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all";
 
 function formatAmount(amount: number, currency: string): string {
   if (currency === "USD")
-    return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  if (currency === "LBP") return `${amount.toLocaleString()} LBP`;
+    return `$${formatNumber(amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (currency === "LBP") return `${formatNumber(amount)} LBP`;
   if (currency === "EUR")
-    return `\u20ac${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  return `${amount.toLocaleString()} ${currency}`;
+    return `\u20ac${formatNumber(amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${formatNumber(amount)} ${currency}`;
 }
 
 /**
@@ -252,6 +236,9 @@ interface SupplierOwed {
 }
 
 export default function Services() {
+  const { t } = useTranslation("services");
+  const { t: tc } = useTranslation("common");
+  const { formatDate, formatTime } = useFormat();
   const api = useApi();
   const { partnerSystem } = useShopBase();
   const {
@@ -590,9 +577,14 @@ export default function Services() {
 
   // Real partner name for the notice, falling back to a generic label if
   // the list hasn't loaded yet or the id doesn't (yet) match anything.
-  const forPartnerName =
-    activePartnersList.find((p) => p.id === forPartnerId)?.name ??
-    "the partner";
+  // Two copies on purpose (LIRA-331): `forPartnerName` goes into the stored
+  // session-cart label, so it stays English whatever the screen language;
+  // `forPartnerDisplayName` is only shown on screen.
+  const forPartnerFound = activePartnersList.find(
+    (p) => p.id === forPartnerId,
+  )?.name;
+  const forPartnerName = forPartnerFound ?? "the partner";
+  const forPartnerDisplayName = forPartnerFound ?? t("form.genericPartner");
 
   // Auto-fill PM fee when amount or eligibility changes
   useEffect(() => {
@@ -660,16 +652,11 @@ export default function Services() {
     } catch (error) {
       logger.error("Failed to load data:", error);
       // LIRA-282: a rate-limit refusal says "wait a minute" instead.
-      setLoadError(
-        getLoadErrorMessage(
-          error,
-          "Failed to load data. Tap refresh to retry.",
-        ),
-      );
+      setLoadError(getLoadErrorMessage(error, t("page.loadError")));
     } finally {
       setIsLoading(false);
     }
-  }, [api, provider, partnerSystem]);
+  }, [api, provider, partnerSystem, t]);
 
   // History window: every row for this provider, not the page's latest 50,
   // so its date filter and totals cover every day (LIRA-314). `api` is read
@@ -829,7 +816,7 @@ export default function Services() {
         console.error("[Services] Voice command error:", err);
         appEvents.emit(
           "notification:show",
-          err instanceof Error ? err.message : "Voice command failed",
+          err instanceof Error ? err.message : t("toast.voiceFailed"),
           "error",
         );
       }
@@ -839,7 +826,7 @@ export default function Services() {
     return () => {
       window.removeEventListener("voicebot:command", handleVoiceCommand);
     };
-  }, [provider, activeSession, api, loadData]);
+  }, [provider, activeSession, api, loadData, t]);
 
   // Submits the built OMT/Whish payload and handles the result — factored
   // out of handleSubmit (Primary Cash Drawer plan §8.5, owner decision #11)
@@ -869,7 +856,7 @@ export default function Services() {
 
         appEvents.emit(
           "notification:show",
-          `${provider} ${serviceType.toLowerCase()} recorded successfully`,
+          t(`toast.recorded${serviceType}`, { provider }),
           "success",
         );
 
@@ -907,7 +894,7 @@ export default function Services() {
 
       appEvents.emit(
         "notification:show",
-        result.error || "Transaction failed",
+        result.error || t("toast.failed"),
         "error",
       );
     },
@@ -919,6 +906,7 @@ export default function Services() {
       serviceType,
       loadData,
       resetSaveAsClient,
+      t,
     ],
   );
 
@@ -942,7 +930,11 @@ export default function Services() {
     if (hasDebtLeg && !primaryName.trim()) {
       appEvents.emit(
         "notification:show",
-        `${serviceType === "SEND" ? "Sender" : "Receiver"} name is required when paying by debt.`,
+        t(
+          serviceType === "SEND"
+            ? "toast.senderNameRequired"
+            : "toast.receiverNameRequired",
+        ),
         "warning",
       );
       return;
@@ -950,29 +942,29 @@ export default function Services() {
     if (hasDebtLeg && !primaryPhone.trim()) {
       appEvents.emit(
         "notification:show",
-        `${serviceType === "SEND" ? "Sender" : "Receiver"} phone is required when paying by debt.`,
+        t(
+          serviceType === "SEND"
+            ? "toast.senderPhoneRequired"
+            : "toast.receiverPhoneRequired",
+        ),
         "warning",
       );
       return;
     }
     if (!amount) {
-      appEvents.emit("notification:show", "Please enter an amount.", "warning");
+      appEvents.emit("notification:show", t("toast.enterAmount"), "warning");
       return;
     }
     if (provider === partnerSystem && selectedPartnerId === null) {
       appEvents.emit(
         "notification:show",
-        `${partnerSystem} System transactions require a partner`,
+        t("toast.partnerRequired", { system: partnerSystem }),
         "warning",
       );
       return;
     }
     if (forPartner && forPartnerId === null) {
-      appEvents.emit(
-        "notification:show",
-        "Please select the partner requesting this transaction.",
-        "warning",
-      );
+      appEvents.emit("notification:show", t("toast.selectPartner"), "warning");
       return;
     }
 
@@ -1386,20 +1378,22 @@ export default function Services() {
           serviceType === "RECEIVE"
             ? receiveFee > 0 && !omtReceiveNoFeeLabel
               ? currency === "LBP"
-                ? ` · fee ${receiveFee.toLocaleString()} LBP${includingFees ? " (incl.)" : ""}`
+                ? ` · fee ${formatNumber(receiveFee)} LBP${includingFees ? " (incl.)" : ""}`
                 : ` · fee $${receiveFee.toFixed(2)}${includingFees ? " (incl.)" : ""}`
               : ""
             : currency === "LBP"
               ? feeTotal > 0
-                ? ` + ${feeTotal.toLocaleString()} LBP fees`
+                ? ` + ${formatNumber(feeTotal)} LBP fees`
                 : ""
               : feeTotal > 0
                 ? ` + $${feeTotal.toFixed(2)} fees`
                 : "";
         const amountStr =
           currency === "LBP"
-            ? `${sentAmount.toLocaleString()} LBP`
+            ? `${formatNumber(sentAmount)} LBP`
             : `$${sentAmount.toFixed(2)}`;
+        // The label is STORED with the session item (data, LIRA-331): it is
+        // never translated, so it reads the same whatever the screen language.
         // A For-Partner line costs the walk-in customer nothing — the basket
         // counts it as $0 by the same shared rule (`isForPartnerPayload`,
         // behind `sessionBasketCustomerAmount`) — so its label says where it
@@ -1468,9 +1462,7 @@ export default function Services() {
     } catch (error) {
       logger.error("Operation failed", { error });
       const msg =
-        error instanceof Error
-          ? error.message
-          : "Transaction failed. Please try again.";
+        error instanceof Error ? error.message : t("toast.failedRetry");
       appEvents.emit("notification:show", msg, "error");
     } finally {
       setIsSubmitting(false);
@@ -1523,6 +1515,7 @@ export default function Services() {
     trySaveAsClient,
     resetSaveAsClient,
     submitOMTPayload,
+    t,
   ]);
 
   // Close history modal on Escape key
@@ -1558,7 +1551,7 @@ export default function Services() {
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col gap-4 overflow-hidden animate-in fade-in duration-300">
       {/* Header with Stats on Right */}
       <PageHeader
-        title="OMT/Whish"
+        title={t("page.title")}
         actions={
           <div className="flex items-center gap-2">
             <StatsCards
@@ -1579,7 +1572,7 @@ export default function Services() {
               onClick={() => setShowHistory(true)}
               className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
             >
-              History
+              {t("page.history")}
             </button>
           </div>
         }
@@ -1594,12 +1587,12 @@ export default function Services() {
             onClick={loadData}
             className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
           >
-            Retry
+            {tc("actions.retry")}
           </button>
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
+      <div className="flex-1 min-h-0 overflow-y-auto -me-6 pe-6 pb-6">
         <div className="w-full flex flex-col gap-4 pb-1">
           {/* ── Form Card ── */}
           <div
@@ -1617,10 +1610,11 @@ export default function Services() {
                   return (
                     <button
                       key={`${prov}-${type}`}
+                      data-testid={`services-tab-${prov}-${type}`}
                       disabled={isDisabled}
                       title={
                         isDisabled
-                          ? `No active ${partnerSystem} partner. Add one in Partners page.`
+                          ? t("tabs.noPartner", { system: partnerSystem })
                           : undefined
                       }
                       onClick={() => {
@@ -1654,7 +1648,7 @@ export default function Services() {
                         setIncludingFees(false);
                         setOmtServiceType("INTRA" as OmtServiceType);
                       }}
-                      className={`flex-1 py-3 font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-1.5 border-r border-slate-700/40 last:border-r-0 ${
+                      className={`flex-1 py-3 font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-1.5 border-e border-slate-700/40 last:border-e-0 ${
                         isDisabled
                           ? "bg-slate-900/60 text-slate-600 cursor-not-allowed opacity-50"
                           : isActive
@@ -1686,7 +1680,7 @@ export default function Services() {
                     htmlFor="service-omt-type"
                     className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
                   >
-                    OMT Service
+                    {t("form.omtService")}
                   </label>
                   <Select
                     value={omtServiceType ?? ""}
@@ -1694,11 +1688,14 @@ export default function Services() {
                       setOmtServiceType(v === "" ? null : (v as OmtServiceType))
                     }
                     options={[
-                      { value: "", label: "— Select service —" },
-                      ...OMT_SERVICE_OPTIONS.filter(
-                        (o) =>
-                          !(currency === "LBP" && o.value === "WESTERN_UNION"),
-                      ),
+                      { value: "", label: t("form.selectService") },
+                      ...OMT_SERVICE_TYPES.filter(
+                        (value) =>
+                          !(currency === "LBP" && value === "WESTERN_UNION"),
+                      ).map((value) => ({
+                        value,
+                        label: t(`omtService.${value}`),
+                      })),
                     ]}
                   />
                 </div>
@@ -1719,7 +1716,7 @@ export default function Services() {
                   />
                   {selectedPartnerId === null && (
                     <p className="mt-1.5 text-xs text-amber-400 font-medium">
-                      ⚠ Partner required for {partnerSystem} System transactions
+                      {t("form.partnerRequired", { system: partnerSystem })}
                     </p>
                   )}
                   {/* D7 (owner decision): THROUGH mode — the partner's
@@ -1730,8 +1727,7 @@ export default function Services() {
                       data-testid="services-through-partner-amount-hint"
                       className="mt-1.5 text-xs text-slate-400"
                     >
-                      Amount = what the partner tells you to collect · Fee =
-                      your shop fee
+                      {t("form.throughHint")}
                     </p>
                   )}
                 </div>
@@ -1751,7 +1747,7 @@ export default function Services() {
                       showSelector={false}
                     />
                     <span className="text-xs text-slate-500 shrink-0">
-                      (partner&apos;s customer, our system)
+                      {t("form.forPartnerHint")}
                     </span>
                     {forPartner && (
                       <div className="flex-1 flex items-center gap-2">
@@ -1763,7 +1759,7 @@ export default function Services() {
                         />
                         {forPartnerId === null && (
                           <p className="text-xs text-amber-400 font-medium whitespace-nowrap">
-                            ⚠ Select partner
+                            {t("form.selectPartner")}
                           </p>
                         )}
                       </div>
@@ -1779,7 +1775,7 @@ export default function Services() {
                     htmlFor="service-amount"
                     className="block text-xs font-medium text-slate-400 uppercase tracking-wider"
                   >
-                    Amount
+                    {t("form.amount")}
                   </label>
                   {/* Currency selector */}
                   <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
@@ -1787,6 +1783,7 @@ export default function Services() {
                       <button
                         key={cur}
                         type="button"
+                        data-testid={`service-currency-${cur}`}
                         onClick={() => {
                           setCurrency(cur);
                           setAmount("");
@@ -1811,7 +1808,7 @@ export default function Services() {
                 </div>
                 <div className="relative">
                   {currency === "USD" && (
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                    <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
                       $
                     </span>
                   )}
@@ -1821,11 +1818,11 @@ export default function Services() {
                     onChange={(n) => setAmount(n ? String(n) : "")}
                     className={
                       INPUT_CLASS +
-                      (currency === "USD" ? " pl-8 pr-16" : " pl-4 pr-16")
+                      (currency === "USD" ? " ps-8 pe-16" : " ps-4 pe-16")
                     }
                     placeholder={currency === "LBP" ? "0" : "0.00"}
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-medium">
+                  <span className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-medium">
                     {currency}
                   </span>
                 </div>
@@ -1869,7 +1866,9 @@ export default function Services() {
                         )
                       : null
                     : null;
-                  const feeLabel = isOmt ? "OMT fee" : "Whish fee";
+                  const feeLabel = isOmt
+                    ? t("fees.omtFee")
+                    : t("fees.whishFee");
                   const feeInputState = isOmt ? omtFee : whishFee;
                   const userEnteredFee =
                     feeInputState && parseFloat(feeInputState) > 0
@@ -1964,7 +1963,7 @@ export default function Services() {
                   // Format helpers for LBP vs USD
                   const fmtAmt = (v: number) =>
                     currency === "LBP"
-                      ? `${v.toLocaleString()} LBP`
+                      ? `${formatNumber(v)} LBP`
                       : `$${v.toFixed(2)}`;
 
                   return (
@@ -1979,16 +1978,16 @@ export default function Services() {
                         />
                         <span className="text-sm font-medium">
                           {serviceType === "RECEIVE"
-                            ? "Fee included in payout"
-                            : "Fee included in amount"}
+                            ? t("fees.includedInPayout")
+                            : t("fees.includedInAmount")}
                         </span>
                       </label>
                       {amtVal > 0 && feeVal > 0 && serviceType === "SEND" && (
-                        <div className="text-xs space-y-0.5 pl-6 border-l border-slate-600 ml-2">
+                        <div className="text-xs space-y-0.5 ps-6 border-s border-slate-600 ms-2">
                           {includingFees ? (
                             <>
                               <p className="text-slate-400">
-                                Customer paid:{" "}
+                                {t("fees.customerPaid")}{" "}
                                 <span className="text-white font-mono font-medium">
                                   {fmtAmt(amtVal)}
                                 </span>
@@ -2001,14 +2000,14 @@ export default function Services() {
                               </p>
                               {showPmFee && breakdownPmFee > 0 && (
                                 <p className="text-slate-400">
-                                  PM fee:{" "}
+                                  {t("fees.pmFee")}{" "}
                                   <span className="text-violet-400 font-mono font-medium">
                                     -${breakdownPmFee.toFixed(2)}
                                   </span>
                                 </p>
                               )}
                               <p className="text-slate-400">
-                                Sent to recipient:{" "}
+                                {t("fees.sentToRecipient")}{" "}
                                 <span className="text-emerald-400 font-mono font-medium">
                                   {fmtAmt(breakdownSent)}
                                 </span>
@@ -2017,27 +2016,27 @@ export default function Services() {
                           ) : (
                             <>
                               <p className="text-slate-400">
-                                Sent amount:{" "}
+                                {t("fees.sentAmount")}{" "}
                                 <span className="text-white font-mono font-medium">
                                   {fmtAmt(amtVal)}
                                 </span>
                               </p>
                               <p className="text-slate-400">
-                                {feeLabel} (extra):{" "}
+                                {t("fees.extra", { fee: feeLabel })}{" "}
                                 <span className="text-amber-400 font-mono font-medium">
                                   +{fmtAmt(feeVal)}
                                 </span>
                               </p>
                               {showPmFee && pmFeeDisplay > 0 && (
                                 <p className="text-slate-400">
-                                  PM fee:{" "}
+                                  {t("fees.pmFee")}{" "}
                                   <span className="text-violet-400 font-mono font-medium">
                                     +${pmFeeDisplay.toFixed(2)}
                                   </span>
                                 </p>
                               )}
                               <p className="text-slate-400">
-                                Customer pays total:{" "}
+                                {t("fees.customerPaysTotal")}{" "}
                                 <span className="text-emerald-400 font-mono font-medium">
                                   {fmtAmt(
                                     amtVal +
@@ -2059,24 +2058,24 @@ export default function Services() {
                         serviceType === "RECEIVE" && (
                           <div
                             data-testid="service-receive-fee-breakdown"
-                            className="text-xs space-y-0.5 pl-6 border-l border-slate-600 ml-2"
+                            className="text-xs space-y-0.5 ps-6 border-s border-slate-600 ms-2"
                           >
                             {includingFees ? (
                               <>
                                 <p className="text-slate-400">
-                                  Requested amount:{" "}
+                                  {t("fees.requested")}{" "}
                                   <span className="text-white font-mono font-medium">
                                     {fmtAmt(amtVal)}
                                   </span>
                                 </p>
                                 <p className="text-slate-400">
-                                  {feeLabel} (deducted):{" "}
+                                  {t("fees.deducted", { fee: feeLabel })}{" "}
                                   <span className="text-amber-400 font-mono font-medium">
                                     -{fmtAmt(feeVal)}
                                   </span>
                                 </p>
                                 <p className="text-slate-400">
-                                  Customer receives (net):{" "}
+                                  {t("fees.receivesNet")}{" "}
                                   <span className="text-emerald-400 font-mono font-medium">
                                     {fmtAmt(receivePayout)}
                                   </span>
@@ -2085,14 +2084,14 @@ export default function Services() {
                             ) : (
                               <>
                                 <p className="text-slate-400">
-                                  Customer receives:{" "}
+                                  {t("fees.customerReceives")}{" "}
                                   <span className="text-emerald-400 font-mono font-medium">
                                     {fmtAmt(amtVal)}
                                   </span>{" "}
-                                  in cash
+                                  {t("fees.inCash")}
                                 </p>
                                 <p className="text-slate-400">
-                                  Customer pays {feeLabel} (separately):{" "}
+                                  {t("fees.paysSeparately", { fee: feeLabel })}{" "}
                                   <span className="text-amber-400 font-mono font-medium">
                                     +{fmtAmt(feeVal)}
                                   </span>
@@ -2135,11 +2134,11 @@ export default function Services() {
                         htmlFor="service-omt-fee"
                         className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
                       >
-                        OMT Fee (charged by OMT)
+                        {t("fees.omtFeeLabel")}
                       </label>
                       <div className="relative">
                         {!isLbp && (
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                          <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
                             $
                           </span>
                         )}
@@ -2148,12 +2147,14 @@ export default function Services() {
                           data-testid="service-omt-fee-input"
                           value={parseFloat(omtFee) || 0}
                           onChange={(n) => setOmtFee(n ? String(n) : "")}
-                          className={INPUT_CLASS + (isLbp ? "" : " pl-8")}
+                          className={INPUT_CLASS + (isLbp ? "" : " ps-8")}
                           placeholder={
                             autoFee != null
-                              ? isLbp
-                                ? autoFee.toLocaleString() + " (auto)"
-                                : autoFee.toFixed(2) + " (auto)"
+                              ? t("fees.auto", {
+                                  value: isLbp
+                                    ? formatNumber(autoFee)
+                                    : autoFee.toFixed(2),
+                                })
                               : isLbp
                                 ? "0"
                                 : "0.00"
@@ -2163,13 +2164,13 @@ export default function Services() {
                       {/* Auto-fee hint */}
                       {autoFee != null && !omtFee && (
                         <p className="text-sm text-slate-400 mt-1">
-                          Auto-calculated fee:{" "}
+                          {t("fees.autoCalculated")}{" "}
                           <span className="text-white font-medium">
                             {isLbp
-                              ? autoFee.toLocaleString() + " LBP"
+                              ? formatNumber(autoFee) + " LBP"
                               : "$" + autoFee.toFixed(2)}
                           </span>{" "}
-                          based on amount
+                          {t("fees.basedOnAmount")}
                         </p>
                       )}
                       {/* RECEIVE (D1, owner decision 2026-09-23): "always show
@@ -2184,9 +2185,7 @@ export default function Services() {
                           data-testid="service-omt-receive-fee-informational-note"
                           className="text-xs text-slate-400 mt-1"
                         >
-                          Informational only — doesn't affect your drawer or
-                          what's owed to OMT; used to estimate the commission
-                          below.
+                          {t("fees.informational")}
                         </p>
                       )}
                       {/* Live profit preview — DISPLAY ESTIMATE ONLY
@@ -2200,23 +2199,25 @@ export default function Services() {
                           for display purposes) is not money kept today. */}
                       {feeVal > 0 && (
                         <p className="text-sm text-emerald-400 mt-1 font-medium">
-                          Estimated commission
                           {serviceType === "SEND"
-                            ? " (settled with OMT later): "
-                            : ": "}
+                            ? t("fees.estCommissionSend")
+                            : t("fees.estCommissionReceive")}
                           <span className="font-mono">
                             {isLbp
-                              ? Math.round(profit).toLocaleString() + " LBP"
+                              ? formatNumber(Math.round(profit)) + " LBP"
                               : "$" + profit.toFixed(4)}
                           </span>{" "}
-                          ({(rate * 100).toFixed(0)}% of{" "}
-                          {isLbp
-                            ? feeVal.toLocaleString() + " LBP"
-                            : "$" + feeVal.toFixed(2)}{" "}
-                          OMT fee)
-                          {serviceType === "SEND"
-                            ? " — the full fee is owed to OMT now; your cut is paid out at settlement."
-                            : "."}
+                          {t(
+                            serviceType === "SEND"
+                              ? "fees.estOfSend"
+                              : "fees.estOfReceive",
+                            {
+                              pct: (rate * 100).toFixed(0),
+                              fee: isLbp
+                                ? formatNumber(feeVal) + " LBP"
+                                : "$" + feeVal.toFixed(2),
+                            },
+                          )}
                         </p>
                       )}
                     </div>
@@ -2238,11 +2239,11 @@ export default function Services() {
                     htmlFor="service-whish-fee"
                     className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
                   >
-                    Whish Fee (optional — charged to the customer)
+                    {t("fees.whishFeeLabel")}
                   </label>
                   <div className="relative">
                     {currency === "USD" && (
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                      <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
                         $
                       </span>
                     )}
@@ -2252,14 +2253,13 @@ export default function Services() {
                       value={parseFloat(whishFee) || 0}
                       onChange={(n) => setWhishFee(n ? String(n) : "")}
                       className={
-                        INPUT_CLASS + (currency === "USD" ? " pl-8" : "")
+                        INPUT_CLASS + (currency === "USD" ? " ps-8" : "")
                       }
                       placeholder={currency === "LBP" ? "0" : "0.00"}
                     />
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    Left blank or 0, no fee is charged. When charged, it's shop
-                    profit — choose on top or deducted above.
+                    {t("fees.whishFeeHint")}
                   </p>
                 </div>
               )}
@@ -2276,12 +2276,10 @@ export default function Services() {
                     <AlertTriangle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
                     <div>
                       <h4 className="text-sm font-semibold text-emerald-400 mb-1">
-                        Online Brokerage — Estimated $3.00 Commission
+                        {t("fees.brokerageTitle")}
                       </h4>
                       <p className="text-xs text-slate-400">
-                        A flat $3.00 estimate per transaction (UNICEF, etc.) —
-                        owed to OMT in full for now; your cut is entered and
-                        paid out at settlement.
+                        {t("fees.brokerageText")}
                       </p>
                     </div>
                   </div>
@@ -2295,12 +2293,10 @@ export default function Services() {
                     <AlertTriangle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
                     <div>
                       <h4 className="text-sm font-semibold text-blue-400 mb-1">
-                        OMT Wallet - No Fees to Customer
+                        {t("fees.walletTitle")}
                       </h4>
                       <p className="text-xs text-blue-300/80">
-                        No fee charged to customer. Estimated shop cut: 0.1% of
-                        transfer amount — owed to OMT in full for now, entered
-                        and paid out at settlement.
+                        {t("fees.walletText")}
                       </p>
                     </div>
                   </div>
@@ -2317,8 +2313,10 @@ export default function Services() {
                         htmlFor="service-sender-name"
                         className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                       >
-                        <User size={12} /> Sender{" "}
-                        {activeSession && serviceType === "SEND" && "• Session"}
+                        <User size={12} /> {t("form.sender")}{" "}
+                        {activeSession &&
+                          serviceType === "SEND" &&
+                          t("form.sessionTag")}
                       </label>
                       <ClientAutocompleteInput
                         id="service-sender-name"
@@ -2331,8 +2329,8 @@ export default function Services() {
                         className={INPUT_CLASS}
                         placeholder={
                           activeSession && serviceType === "SEND"
-                            ? "From session"
-                            : "Sender name"
+                            ? t("form.fromSession")
+                            : t("form.senderNamePlaceholder")
                         }
                       />
                     </div>
@@ -2341,8 +2339,10 @@ export default function Services() {
                         htmlFor="service-sender-phone"
                         className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                       >
-                        <Phone size={12} /> Sender Phone{" "}
-                        {activeSession && serviceType === "SEND" && "• Session"}
+                        <Phone size={12} /> {t("form.senderPhone")}{" "}
+                        {activeSession &&
+                          serviceType === "SEND" &&
+                          t("form.sessionTag")}
                       </label>
                       <ClientAutocompleteInput
                         id="service-sender-phone"
@@ -2356,8 +2356,8 @@ export default function Services() {
                         className={INPUT_CLASS}
                         placeholder={
                           activeSession && serviceType === "SEND"
-                            ? "From session"
-                            : "Sender phone"
+                            ? t("form.fromSession")
+                            : t("form.senderPhonePlaceholder")
                         }
                       />
                     </div>
@@ -2370,10 +2370,10 @@ export default function Services() {
                         htmlFor="service-receiver-name"
                         className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                       >
-                        <User size={12} /> Receiver{" "}
+                        <User size={12} /> {t("form.receiver")}{" "}
                         {activeSession &&
                           serviceType === "RECEIVE" &&
-                          "• Session"}
+                          t("form.sessionTag")}
                       </label>
                       <ClientAutocompleteInput
                         id="service-receiver-name"
@@ -2386,8 +2386,8 @@ export default function Services() {
                         className={INPUT_CLASS}
                         placeholder={
                           activeSession && serviceType === "RECEIVE"
-                            ? "From session"
-                            : "Receiver name"
+                            ? t("form.fromSession")
+                            : t("form.receiverNamePlaceholder")
                         }
                       />
                     </div>
@@ -2396,10 +2396,10 @@ export default function Services() {
                         htmlFor="service-receiver-phone"
                         className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                       >
-                        <Phone size={12} /> Receiver Phone{" "}
+                        <Phone size={12} /> {t("form.receiverPhone")}{" "}
                         {activeSession &&
                           serviceType === "RECEIVE" &&
-                          "• Session"}
+                          t("form.sessionTag")}
                       </label>
                       <ClientAutocompleteInput
                         id="service-receiver-phone"
@@ -2413,8 +2413,8 @@ export default function Services() {
                         className={INPUT_CLASS}
                         placeholder={
                           activeSession && serviceType === "RECEIVE"
-                            ? "From session"
-                            : "Receiver phone"
+                            ? t("form.fromSession")
+                            : t("form.receiverPhonePlaceholder")
                         }
                       />
                     </div>
@@ -2433,7 +2433,7 @@ export default function Services() {
                   htmlFor="service-reference"
                   className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                 >
-                  <Hash size={12} /> Reference #
+                  <Hash size={12} /> {t("form.reference")}
                 </label>
                 <input
                   id="service-reference"
@@ -2441,7 +2441,7 @@ export default function Services() {
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
                   className={INPUT_CLASS}
-                  placeholder="Optional"
+                  placeholder={t("form.optional")}
                 />
               </div>
 
@@ -2464,21 +2464,25 @@ export default function Services() {
                   legs. */}
               {forPartner && serviceType === "SEND" ? (
                 <ForPartnerNotice testId="services-for-partner-send-obligation-notice">
-                  For partner:{" "}
-                  <span className="font-bold">{forPartnerName}</span> owes you{" "}
-                  <span className="font-bold">
-                    {formatAmount(sendPayoutTotal, currency)}
-                  </span>{" "}
-                  (amount + fee). It is recorded on the {providerDisplayName}{" "}
-                  supplier page as money you owe {providerDisplayName}. No cash
-                  leaves a drawer.
+                  <Trans
+                    t={t}
+                    i18nKey="forPartner.sendNotice"
+                    values={{
+                      partner: forPartnerDisplayName,
+                      amount: formatAmount(sendPayoutTotal, currency),
+                      provider: providerDisplayName,
+                    }}
+                    components={{ b: <span className="font-bold" /> }}
+                  />
                 </ForPartnerNotice>
               ) : forPartner && serviceType === "RECEIVE" ? (
                 <ForPartnerNotice testId="services-for-partner-receive-no-payout-notice">
-                  There is no payout method to choose here — the {provider}{" "}
-                  drawer is credited automatically, and the shop ends up owing{" "}
-                  <span className="font-bold">{forPartnerName}</span> the amount
-                  received minus the fee.
+                  <Trans
+                    t={t}
+                    i18nKey="forPartner.receiveNotice"
+                    values={{ partner: forPartnerDisplayName, provider }}
+                    components={{ b: <span className="font-bold" /> }}
+                  />
                 </ForPartnerNotice>
               ) : (
                 <div>
@@ -2607,7 +2611,11 @@ export default function Services() {
                           )
                         : allPaymentMethods
                     }
-                    label={serviceType === "RECEIVE" ? "Cashout" : "Payment"}
+                    label={
+                      serviceType === "RECEIVE"
+                        ? t("form.cashout")
+                        : t("form.payment")
+                    }
                     currencies={[
                       { code: "USD", symbol: "$" },
                       { code: "LBP", symbol: "LBP" },
@@ -2665,7 +2673,7 @@ export default function Services() {
                     counterFlow={
                       showFeeCounterFlow
                         ? {
-                            label: `Customer pays — ${provider} fee`,
+                            label: t("form.customerPaysFee", { provider }),
                             totalAmount: renderWhishFee,
                             currency,
                             onChange: setFeePaymentLines,
@@ -2700,10 +2708,10 @@ export default function Services() {
                     htmlFor="service-pm-fee"
                     className="block text-xs font-medium text-violet-300 uppercase tracking-wider"
                   >
-                    Payment Method Fee
+                    {t("fees.pmFeeLabel")}
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-400 font-bold">
+                    <span className="absolute start-3 top-1/2 -translate-y-1/2 text-violet-400 font-bold">
                       $
                     </span>
                     <DecimalInput
@@ -2712,16 +2720,18 @@ export default function Services() {
                       onChange={(n) => setPmFeeAmount(n ? String(n) : "")}
                       className={
                         INPUT_CLASS +
-                        " pl-8 border-violet-500/40 focus:border-violet-400"
+                        " ps-8 border-violet-500/40 focus:border-violet-400"
                       }
                       placeholder="0.00"
                     />
                   </div>
                   {amount && parseFloat(amount) > 0 && (
                     <p className="text-xs text-violet-300">
-                      Auto-filled at 1% of ${parseFloat(amount).toFixed(2)}.{" "}
-                      <span className="font-medium">Edit to override.</span> —
-                      stays in {paidByMethod} drawer immediately
+                      {t("fees.pmFeeAuto", {
+                        amount: parseFloat(amount).toFixed(2),
+                      })}{" "}
+                      <span className="font-medium">{t("fees.pmFeeEdit")}</span>{" "}
+                      {t("fees.pmFeeStays", { method: paidByMethod })}
                     </p>
                   )}
                 </div>
@@ -2738,7 +2748,7 @@ export default function Services() {
                       className="w-4 h-4 rounded border-purple-700 bg-slate-950 text-purple-600 focus:ring-purple-500"
                     />
                     <span className="text-sm font-medium">
-                      Charge BINANCE fee to customer
+                      {t("fees.binanceCharge")}
                     </span>
                   </label>
                   {payFee && (
@@ -2748,7 +2758,7 @@ export default function Services() {
                           htmlFor="binance-supplier"
                           className="block text-xs text-purple-300 mb-1.5 uppercase tracking-wider"
                         >
-                          BINANCE Supplier Account
+                          {t("fees.binanceSupplier")}
                         </label>
                         <input
                           id="binance-supplier"
@@ -2756,7 +2766,7 @@ export default function Services() {
                           value={binanceSupplier}
                           onChange={(e) => setBinanceSupplier(e.target.value)}
                           className="w-full bg-slate-900 border border-purple-500/30 rounded-lg px-3 py-2 text-white"
-                          placeholder="e.g., BINANCE-Main"
+                          placeholder={t("fees.binanceSupplierPlaceholder")}
                         />
                       </div>
                       <div>
@@ -2764,23 +2774,22 @@ export default function Services() {
                           htmlFor="binance-fee"
                           className="block text-xs text-purple-300 mb-1.5 uppercase tracking-wider"
                         >
-                          BINANCE Fee (charged to customer)
+                          {t("fees.binanceFee")}
                         </label>
                         <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-300 font-bold">
+                          <span className="absolute start-3 top-1/2 -translate-y-1/2 text-purple-300 font-bold">
                             $
                           </span>
                           <DecimalInput
                             id="binance-fee"
                             value={parseFloat(omtFee) || 0}
                             onChange={(n) => setOmtFee(n ? String(n) : "")}
-                            className="w-full bg-slate-900 border border-purple-500/30 rounded-lg pl-8 pr-4 py-2 text-purple-300 font-mono focus:outline-none focus:border-purple-500"
+                            className="w-full bg-slate-900 border border-purple-500/30 rounded-lg ps-8 pe-4 py-2 text-purple-300 font-mono focus:outline-none focus:border-purple-500"
                             placeholder="0.00"
                           />
                         </div>
                         <p className="text-xs text-purple-300/70 mt-1">
-                          This fee will be added to the transaction and tracked
-                          in supplier ledger
+                          {t("fees.binanceHint")}
                         </p>
                       </div>
                     </>
@@ -2796,6 +2805,7 @@ export default function Services() {
                 onChange={setTransactionTime}
               />
               <button
+                data-testid="services-submit"
                 onClick={handleSubmit}
                 disabled={isSubmitting || feeSectionBlocksSubmit}
                 className={`w-full py-3.5 rounded-xl font-bold text-base shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${
@@ -2806,7 +2816,8 @@ export default function Services() {
               >
                 {isSubmitting ? (
                   <>
-                    <RefreshCw size={16} className="animate-spin" /> Processing…
+                    <RefreshCw size={16} className="animate-spin" />{" "}
+                    {t("form.processing")}
                   </>
                 ) : (
                   <>
@@ -2814,7 +2825,7 @@ export default function Services() {
                       const Icon = SERVICE_TYPE_ICONS[serviceType];
                       return <Icon size={18} />;
                     })()}
-                    Record {SERVICE_TYPE_LABELS[serviceType]}
+                    {t(`form.record${serviceType}`)}
                   </>
                 )}
               </button>
@@ -2837,9 +2848,9 @@ export default function Services() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
                 <History className="text-slate-400" size={18} />
-                Transaction History
-                <span className="text-xs text-slate-500 font-normal ml-1">
-                  ({historyShown.length} records)
+                {t("history.title")}
+                <span className="text-xs text-slate-500 font-normal ms-1">
+                  {t("history.records", { n: historyShown.length })}
                 </span>
               </h2>
               <div className="flex items-center gap-2">
@@ -2859,14 +2870,14 @@ export default function Services() {
                     void loadFullHistory();
                   }}
                   className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-                  title="Refresh"
+                  title={tc("actions.refresh")}
                 >
                   <RefreshCw size={14} />
                 </button>
                 <button
                   onClick={() => setShowHistory(false)}
                   className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-                  title="Close"
+                  title={tc("actions.close")}
                 >
                   <X size={18} />
                 </button>
@@ -2878,38 +2889,42 @@ export default function Services() {
               <DataTable<Transaction>
                 columns={[
                   {
-                    header: "Provider",
+                    header: t("history.provider"),
                     className: "px-6 py-3",
                     sortKey: "provider",
                   },
                   {
-                    header: "Type",
+                    header: t("history.type"),
                     className: "px-6 py-3",
                     sortKey: "service_type",
                   },
                   {
-                    header: "Amount",
+                    header: t("history.amount"),
                     className: "px-6 py-3",
                     sortKey: "amount",
                   },
-                  { header: "Fee", className: "px-6 py-3", sortKey: "omt_fee" },
                   {
-                    header: "Profit",
+                    header: t("history.fee"),
+                    className: "px-6 py-3",
+                    sortKey: "omt_fee",
+                  },
+                  {
+                    header: t("history.profit"),
                     className: "px-6 py-3",
                     sortKey: "commission",
                   },
                   {
-                    header: "Status",
+                    header: t("history.status"),
                     className: "px-6 py-3",
                     sortKey: "is_settled",
                   },
                   {
-                    header: "Client / Phone",
+                    header: t("history.client"),
                     className: "px-6 py-3",
                     sortKey: "client_name",
                   },
                   {
-                    header: "Time",
+                    header: t("history.time"),
                     className: "px-6 py-3",
                     sortKey: "created_at",
                   },
@@ -2923,16 +2938,18 @@ export default function Services() {
                 exportPdf
                 exportFilename="services-history"
                 className="w-full"
-                theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+                theadClassName="bg-slate-900/50 text-start text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
                 tbodyClassName="divide-y divide-slate-700/50"
-                emptyMessage="No transactions yet today."
+                emptyMessage={t("history.empty")}
                 renderRow={(tx) => {
                   const Icon = SERVICE_TYPE_ICONS[tx.service_type];
-                  const omtLabel = tx.omt_service_type
-                    ? OMT_SERVICE_OPTIONS.find(
-                        (o) => o.value === tx.omt_service_type,
-                      )?.label
-                    : null;
+                  const omtLabel =
+                    tx.omt_service_type &&
+                    (OMT_SERVICE_TYPES as readonly string[]).includes(
+                      tx.omt_service_type,
+                    )
+                      ? t(`omtService.${tx.omt_service_type}`)
+                      : null;
                   // LIRA-131: this inline history table had NO refund
                   // display at all — `is_refunded` is now projected by
                   // FinancialServiceRepository.getColumns(), so build the
@@ -2969,12 +2986,12 @@ export default function Services() {
                             className={`text-sm font-mono font-semibold ${tx.service_type === "SEND" ? "text-red-400" : "text-emerald-400"}`}
                           >
                             {tx.service_type === "SEND"
-                              ? "↓ Send"
-                              : "↑ Receive"}
+                              ? t("history.send")
+                              : t("history.receive")}
                           </span>
                           {isRefunded && (
-                            <span className="ml-1 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                              Refunded
+                            <span className="ms-1 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                              {t("history.refunded")}
                             </span>
                           )}
                         </div>
@@ -3006,16 +3023,16 @@ export default function Services() {
                         }`}
                         title={
                           isRefunded
-                            ? "Refunded — profit not realized"
+                            ? t("history.refundedTitle")
                             : isCommissionEstimate
-                              ? "Estimate — the commission is booked when the supplier settles"
+                              ? t("history.estimateTitle")
                               : undefined
                         }
                       >
                         {formatCommission(tx.commission, tx.currency)}
                         {isCommissionEstimate && (
-                          <span className="ml-1 text-xs font-medium text-amber-400">
-                            est.
+                          <span className="ms-1 text-xs font-medium text-amber-400">
+                            {t("history.est")}
                           </span>
                         )}
                       </td>
@@ -3023,11 +3040,11 @@ export default function Services() {
                         {tx.service_type === "RECEIVE" && tx.commission > 0 ? (
                           tx.is_settled ? (
                             <span className="text-xs font-medium text-emerald-400">
-                              Settled
+                              {t("history.settled")}
                             </span>
                           ) : (
                             <span className="text-xs font-medium text-amber-400">
-                              Profit Pending
+                              {t("history.profitPending")}
                             </span>
                           )
                         ) : (
@@ -3047,7 +3064,7 @@ export default function Services() {
                                 }))
                               }
                               className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-orange-500"
-                              placeholder="Client name"
+                              placeholder={t("history.clientName")}
                             />
                             <input
                               type="text"
@@ -3059,7 +3076,7 @@ export default function Services() {
                                 }))
                               }
                               className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
-                              placeholder="Phone"
+                              placeholder={t("history.phone")}
                             />
                           </div>
                         ) : (
@@ -3075,12 +3092,16 @@ export default function Services() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-400">
-                        {parseDbDate(tx.created_at).toLocaleTimeString([], {
+                        {formatTime(parseDbDate(tx.created_at), {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                         <div className="text-xs text-slate-500">
-                          {parseDbDate(tx.created_at).toLocaleDateString()}
+                          {formatDate(parseDbDate(tx.created_at), {
+                            year: "numeric",
+                            month: "numeric",
+                            day: "numeric",
+                          })}
                         </div>
                       </td>
                       <td className="px-3 py-4">
@@ -3090,7 +3111,7 @@ export default function Services() {
                               onClick={() => saveEditTx(tx.id)}
                               disabled={editSaving}
                               className="p-1.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 transition-colors disabled:opacity-50"
-                              title="Save"
+                              title={tc("actions.save")}
                             >
                               <Check size={13} />
                             </button>
@@ -3098,7 +3119,7 @@ export default function Services() {
                               onClick={() => setEditingId(null)}
                               disabled={editSaving}
                               className="p-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-400 transition-colors"
-                              title="Cancel"
+                              title={tc("actions.cancel")}
                             >
                               <X size={13} />
                             </button>
@@ -3107,7 +3128,7 @@ export default function Services() {
                           <button
                             onClick={() => startEditTx(tx)}
                             className="p-1.5 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
-                            title="Edit metadata"
+                            title={t("history.editMetadata")}
                           >
                             <Pencil size={13} />
                           </button>

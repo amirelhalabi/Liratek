@@ -1,6 +1,7 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazyWithReload } from "@/shared/utils/lazyWithReload";
 import { Suspense, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
@@ -135,11 +136,12 @@ const queryClient = new QueryClient({
 // Wrapper for protected routes
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, isSetupRequired, user } = useAuth();
+  const { t } = useTranslation("layout");
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
-        Loading...
+        {t("app.loading")}
       </div>
     );
   }
@@ -171,11 +173,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 // server-side (no re-escalation), so there is nothing useful to show here.
 function SuperAdminRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, user, isImpersonating } = useAuth();
+  const { t } = useTranslation("layout");
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
-        Loading...
+        {t("app.loading")}
       </div>
     );
   }
@@ -219,10 +222,11 @@ function HomeRoute() {
 
 /** Fallback loader for Suspense */
 function PageLoader() {
+  const { t } = useTranslation("layout");
   return (
     <div className="min-h-[400px] w-full flex flex-col items-center justify-center gap-4 text-slate-400">
       <div className="w-12 h-12 border-4 border-slate-700 border-t-violet-500 rounded-full animate-spin"></div>
-      <p className="text-sm font-medium animate-pulse">Loading experience...</p>
+      <p className="text-sm font-medium animate-pulse">{t("app.loadingExperience")}</p>
     </div>
   );
 }
@@ -519,6 +523,7 @@ function SessionAwareRechargeBasketProvider({
 
 function App() {
   const { isLoaded } = useVoiceBotSettings();
+  const { t } = useTranslation("layout");
 
   // Apply saved UI scale on startup — desktop only (Electron zoom factor).
   // On the web applyUiScale ignores it: the browser's own zoom is the scale
@@ -532,7 +537,7 @@ function App() {
   if (!isLoaded) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
-        Loading...
+        {t("app.loading")}
       </div>
     );
   }

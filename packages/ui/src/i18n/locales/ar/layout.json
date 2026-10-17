@@ -1,1 +1,64 @@
-{}
+{
+  "app": {
+    "loading": "جارٍ التحميل...",
+    "loadingExperience": "جارٍ التحميل..."
+  },
+  "nav": {
+    "home": "الرئيسية",
+    "dashboard": "لوحة التحكم",
+    "mobileRecharge": "تشريج الخليوي",
+    "phoneLines": "خطوط الهاتف",
+    "warranty": "الكفالة",
+    "checkpointTimeline": "سجل نقاط التدقيق",
+    "offlineWork": "العمل دون اتصال",
+    "whatsNew": "ما الجديد",
+    "expandSidebar": "توسيع القائمة الجانبية",
+    "collapseSidebar": "طيّ القائمة الجانبية",
+    "adminActions": "إجراءات المدير",
+    "addFavorite": "إضافة إلى المفضلة",
+    "removeFavorite": "إزالة من المفضلة"
+  },
+  "topBar": {
+    "home": "الرئيسية",
+    "notifications": "الإشعارات",
+    "noNotifications": "لا إشعارات",
+    "filter": {
+      "all": "الكل",
+      "success": "نجاح",
+      "info": "معلومات",
+      "warning": "تحذير",
+      "error": "خطأ"
+    },
+    "balance": "الرصيد",
+    "credit": "رصيد له",
+    "debt": "دين",
+    "online": "متصل",
+    "offline": "غير متصل",
+    "toLight": "التبديل إلى الوضع الفاتح",
+    "toDark": "التبديل إلى الوضع الداكن",
+    "adminFallback": "المدير",
+    "administrator": "المدير",
+    "roles": {
+      "admin": "مدير",
+      "staff": "موظف",
+      "super_admin": "مدير المنصة"
+    },
+    "myAccount": "حسابي",
+    "logout": "تسجيل الخروج",
+    "lowStock": "{{count}} منتجات مخزونها منخفض",
+    "generalDrawerLimit": "الصندوق العام تجاوز الحد: {{amount}} > {{limit}}",
+    "omtDrawerLimit": "صندوق OMT تجاوز الحد: {{amount}} > {{limit}}"
+  },
+  "voiceBot": {
+    "open": "المساعد الصوتي",
+    "title": "المساعد الصوتي",
+    "listening": "أستمع...",
+    "stopRecording": "إيقاف التسجيل",
+    "help": "مساعدة الأوامر الصوتية",
+    "listeningPrompt": "أنا أستمع... تفضّل وتكلّم!",
+    "speakNow": "تكلّم الآن...",
+    "typeCommand": "اكتب أمرك...",
+    "send": "إرسال الأمر",
+    "clickToSpeak": "اضغط للتكلّم"
+  }
+}

@@ -22,13 +22,9 @@ import { forgotPassword, isElectron, publicAuthInfo } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import logger from "@/utils/logger";
+import { useTranslation } from "react-i18next";
 // The server validates the slug; this only strips what people paste around it.
 import { shopSlugFromAddress } from "@/features/auth/utils/hostMode";
-
-const UNREACHABLE = "Could not reach the server. Please try again.";
-const SHOP_REQUIRED_MESSAGE = "Enter your shop's address.";
-const GENERIC_SENT =
-  "If this email belongs to an account in this shop, we've sent a link.";
 
 type Setup =
   | { kind: "loading" }
@@ -36,6 +32,9 @@ type Setup =
   | { kind: "unavailable" };
 
 export default function ForgotPassword() {
+  const { t } = useTranslation("auth");
+  const { t: tc } = useTranslation("common");
+  const UNREACHABLE = t("shared.unreachable");
   const { theme } = useTheme();
   const dark = theme === "dark";
   const desktop = isElectron();
@@ -93,15 +92,15 @@ export default function ForgotPassword() {
         : { email: email.trim() };
       const res = await forgotPassword(payload);
       if (res.success) {
-        setSentMessage(res.data?.message ?? GENERIC_SENT);
+        setSentMessage(res.data?.message ?? t("forgot.genericSent"));
         return;
       }
       if (res.code === PASSWORD_RESET_CODES.SHOP_REQUIRED) {
         setSetup((s) => (s.kind === "ready" ? { ...s, askShop: true } : s));
-        setError(messageFrom(res.error, SHOP_REQUIRED_MESSAGE));
+        setError(messageFrom(res.error, t("forgot.shopRequired")));
         return;
       }
-      setError(messageFrom(res.error, "Could not send the link"));
+      setError(messageFrom(res.error, t("shared.couldNotSendLink")));
     } catch (err) {
       logger.error("Password reset request failed:", err);
       setError(messageFrom(err, UNREACHABLE));
@@ -144,7 +143,7 @@ export default function ForgotPassword() {
   const signInFooter = (
     <p className={clsx("mt-4 text-center", subtleClass)}>
       <Link to="/login" className="text-orange-500 hover:text-orange-400">
-        Back to sign in
+        {t("forgot.backToSignIn")}
       </Link>
     </p>
   );
@@ -153,11 +152,8 @@ export default function ForgotPassword() {
     return (
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
-          <h1 className={clsx(headingClass, "mb-2")}>Forgot password</h1>
-          <p className={subtleClass}>
-            Resetting a password by email works in the web app only. Ask your
-            shop admin to set a new password in Settings → Users.
-          </p>
+          <h1 className={clsx(headingClass, "mb-2")}>{t("forgot.title")}</h1>
+          <p className={subtleClass}>{t("forgot.desktopOnly")}</p>
         </div>
       </div>
     );
@@ -167,7 +163,7 @@ export default function ForgotPassword() {
     return (
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
-          <p className={subtleClass}>Loading...</p>
+          <p className={subtleClass}>{tc("state.loading")}</p>
         </div>
       </div>
     );
@@ -177,11 +173,8 @@ export default function ForgotPassword() {
     return (
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
-          <h1 className={clsx(headingClass, "mb-2")}>Forgot password</h1>
-          <p className={subtleClass}>
-            Resetting a password by email is not available right now. Ask your
-            shop admin to set a new password in Settings → Users.
-          </p>
+          <h1 className={clsx(headingClass, "mb-2")}>{t("forgot.title")}</h1>
+          <p className={subtleClass}>{t("forgot.unavailable")}</p>
           {signInFooter}
         </div>
       </div>
@@ -193,12 +186,11 @@ export default function ForgotPassword() {
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
           <Mail className="w-10 h-10 text-orange-500 mx-auto mb-3" />
-          <h1 className={clsx(headingClass, "mb-2")}>Check your inbox</h1>
+          <h1 className={clsx(headingClass, "mb-2")}>
+            {t("shared.checkInbox")}
+          </h1>
           <p className={subtleClass}>{sentMessage}</p>
-          <p className={clsx(hintClass, "mt-3")}>
-            The link works once. If nothing arrives in a few minutes, check your
-            spam folder, or ask your shop admin to set a new password.
-          </p>
+          <p className={clsx(hintClass, "mt-3")}>{t("forgot.linkOnce")}</p>
           {signInFooter}
         </div>
       </div>
@@ -208,11 +200,8 @@ export default function ForgotPassword() {
   return (
     <div className={pageClass}>
       <form onSubmit={handleSubmit} className={cardClass}>
-        <h1 className={clsx(headingClass, "mb-1")}>Forgot password</h1>
-        <p className={clsx(subtleClass, "mb-6")}>
-          Enter the email on your account and we&apos;ll send you a link to
-          choose a new password.
-        </p>
+        <h1 className={clsx(headingClass, "mb-1")}>{t("forgot.title")}</h1>
+        <p className={clsx(subtleClass, "mb-6")}>{t("forgot.intro")}</p>
 
         {error && (
           <div
@@ -227,7 +216,7 @@ export default function ForgotPassword() {
         <div className="space-y-4">
           <div>
             <label className={labelClass} htmlFor="forgot-email">
-              Email *
+              {t("shared.emailRequired")}
             </label>
             <input
               id="forgot-email"
@@ -244,7 +233,7 @@ export default function ForgotPassword() {
           {askShop && (
             <div>
               <label className={labelClass} htmlFor="forgot-shop">
-                Shop address *
+                {t("shared.shopAddressRequired")}
               </label>
               <input
                 id="forgot-shop"
@@ -261,9 +250,7 @@ export default function ForgotPassword() {
                 className={inputClass}
                 required
               />
-              <p className={hintClass}>
-                The address you sign in at, without &quot;https://&quot;.
-              </p>
+              <p className={hintClass}>{t("forgot.shopHint")}</p>
             </div>
           )}
         </div>
@@ -278,7 +265,7 @@ export default function ForgotPassword() {
               : "bg-slate-600 cursor-not-allowed opacity-70",
           )}
         >
-          {sending ? "Sending..." : "Send reset link"}
+          {sending ? t("shared.sending") : t("forgot.sendResetLink")}
         </button>
         {signInFooter}
       </form>

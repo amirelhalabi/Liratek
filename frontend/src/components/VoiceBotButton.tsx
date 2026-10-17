@@ -2,12 +2,16 @@ import { Mic, X, Send, Square, Sparkles, Bot, Info } from "lucide-react";
 import { useVoiceBot } from "@/hooks/useVoiceBot";
 import { useActiveModule } from "@/contexts/ActiveModuleContext";
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { appEvents } from "@liratek/ui";
 import { voiceBotLogger } from "@/utils/voiceBotLogger";
 import { VoiceBotTips } from "./VoiceBotTips";
 import { MODULE_SUGGESTIONS } from "@/constants/voiceBot";
 
 export function VoiceBotButton() {
+  const { t } = useTranslation("layout");
+  const { dir } = useLanguage();
   const { activeModule } = useActiveModule();
   const {
     listening,
@@ -216,7 +220,7 @@ export function VoiceBotButton() {
       <button
         onClick={handleOpenPanel}
         className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2"
-        title="Voice assistant"
+        title={t("voiceBot.open")}
       >
         <Bot size={20} />
       </button>
@@ -238,7 +242,7 @@ export function VoiceBotButton() {
                 )}
               </div>
               <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                {listening ? "Listening..." : "Voice Assistant"}
+                {listening ? t("voiceBot.listening") : t("voiceBot.title")}
               </span>
             </div>
             <div className="flex items-center gap-1.5 relative z-10">
@@ -246,7 +250,7 @@ export function VoiceBotButton() {
                 <button
                   onClick={handleStopListening}
                   className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all text-slate-600 dark:text-slate-400"
-                  title="Stop recording"
+                  title={t("voiceBot.stopRecording")}
                 >
                   <Square size={14} className="fill-current" />
                 </button>
@@ -255,7 +259,7 @@ export function VoiceBotButton() {
                 ref={tipsButtonRef}
                 onClick={() => setShowTips(true)}
                 className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all text-slate-600 dark:text-slate-400"
-                title="Voice commands help"
+                title={t("voiceBot.help")}
               >
                 <Info size={16} />
               </button>
@@ -288,9 +292,9 @@ export function VoiceBotButton() {
                     <Mic size={16} className="text-white animate-pulse" />
                   </div>
                   <div className="flex-1">
-                    <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 inline-block">
+                    <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl rounded-ss-sm px-4 py-3 inline-block">
                       <p className="text-sm text-slate-700 dark:text-slate-300">
-                        I'm listening... Go ahead and speak!
+                        {t("voiceBot.listeningPrompt")}
                       </p>
                     </div>
                   </div>
@@ -304,7 +308,7 @@ export function VoiceBotButton() {
                     <Sparkles size={16} className="text-white" />
                   </div>
                   <div className="flex-1">
-                    <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3">
+                    <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl rounded-ss-sm px-4 py-3">
                       <p className="text-sm text-slate-700 dark:text-slate-300">
                         {result}
                       </p>
@@ -320,7 +324,7 @@ export function VoiceBotButton() {
                     <X size={16} className="text-white" />
                   </div>
                   <div className="flex-1">
-                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl rounded-tl-sm px-4 py-3">
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl rounded-ss-sm px-4 py-3">
                       <p className="text-sm text-red-700 dark:text-red-400">
                         {error}
                       </p>
@@ -336,7 +340,7 @@ export function VoiceBotButton() {
                     <div
                       className="flex transition-transform duration-500 ease-in-out"
                       style={{
-                        transform: `translateX(-${currentSuggestionIndex * 100}%)`,
+                        transform: `translateX(${dir === "rtl" ? "" : "-"}${currentSuggestionIndex * 100}%)`,
                       }}
                     >
                       {suggestions.map((suggestion, index) => (
@@ -348,7 +352,7 @@ export function VoiceBotButton() {
                           }}
                           className="w-full flex-shrink-0 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 hover:border-violet-300 dark:hover:border-violet-600 rounded-lg p-2 transition-all group"
                         >
-                          <p className="text-xs text-slate-700 dark:text-slate-300 group-hover:text-violet-600 dark:group-hover:text-violet-400 text-left">
+                          <p className="text-xs text-slate-700 dark:text-slate-300 group-hover:text-violet-600 dark:group-hover:text-violet-400 text-start">
                             {suggestion}
                           </p>
                         </button>
@@ -373,7 +377,7 @@ export function VoiceBotButton() {
                       }
                     }}
                     placeholder={
-                      listening ? "Speak now..." : "Type your command..."
+                      listening ? t("voiceBot.speakNow") : t("voiceBot.typeCommand")
                     }
                     className="w-full bg-slate-100 dark:bg-slate-800 border-0 rounded-2xl px-4 py-3 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 dark:focus:ring-violet-600 transition-all"
                     disabled={isProcessing || listening}
@@ -387,7 +391,7 @@ export function VoiceBotButton() {
                       handleStopListening(e);
                     }}
                     className="p-3 bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-2xl transition-all shadow-lg hover:shadow-xl flex-shrink-0"
-                    title="Stop recording"
+                    title={t("voiceBot.stopRecording")}
                   >
                     <Square size={20} className="fill-white" />
                   </button>
@@ -402,7 +406,7 @@ export function VoiceBotButton() {
                     }}
                     disabled={isProcessing}
                     className="p-3 bg-gradient-to-br from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:from-slate-300 disabled:to-slate-400 text-white rounded-2xl transition-all shadow-lg hover:shadow-xl disabled:shadow-none flex-shrink-0"
-                    title="Send command"
+                    title={t("voiceBot.send")}
                   >
                     <Send size={20} />
                   </button>
@@ -414,7 +418,7 @@ export function VoiceBotButton() {
                     }}
                     disabled={isProcessing}
                     className="p-3 bg-gradient-to-br from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:from-slate-300 disabled:to-slate-400 text-white rounded-2xl transition-all shadow-lg hover:shadow-xl disabled:shadow-none flex-shrink-0"
-                    title="Click to speak"
+                    title={t("voiceBot.clickToSpeak")}
                   >
                     <Mic size={20} />
                   </button>

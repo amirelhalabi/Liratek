@@ -13,18 +13,19 @@
  */
 
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { validatePasswordComplexity } from "@liratek/core";
 import { changeOwnPassword } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
 import PasswordInput from "@/shared/components/PasswordInput";
-
-const FAILED = "Could not change the password.";
 
 export default function ChangePasswordForm({
   onCancel,
 }: {
   onCancel?: () => void;
 }) {
+  const { t } = useTranslation("account");
+  const FAILED = t("changePassword.failed");
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -37,7 +38,7 @@ export default function ChangePasswordForm({
     setError(null);
     setDone(null);
     if (!current) {
-      setError("Enter your current password.");
+      setError(t("changePassword.enterCurrent"));
       return;
     }
     const policy = validatePasswordComplexity(next);
@@ -46,7 +47,7 @@ export default function ChangePasswordForm({
       return;
     }
     if (next !== confirm) {
-      setError("Passwords do not match.");
+      setError(t("changePassword.mismatch"));
       return;
     }
     setBusy(true);
@@ -65,8 +66,13 @@ export default function ChangePasswordForm({
       const others = res.data?.sessionsRevoked ?? 0;
       setDone(
         others > 0
-          ? `Password changed. ${others} other device${others === 1 ? " was" : "s were"} signed out.`
-          : "Password changed.",
+          ? t(
+              others === 1
+                ? "changePassword.changedOneDevice"
+                : "changePassword.changedDevices",
+              { count: others },
+            )
+          : t("changePassword.changed"),
       );
     } catch (err) {
       setError(messageFrom(err, FAILED));
@@ -78,12 +84,14 @@ export default function ChangePasswordForm({
   return (
     <form
       onSubmit={submit}
-      aria-label="Change password"
+      aria-label={t("changePassword.title")}
       className="mt-3 space-y-3"
     >
-      <h4 className="text-sm font-medium text-white">Change password</h4>
+      <h4 className="text-sm font-medium text-white">
+        {t("changePassword.title")}
+      </h4>
       <PasswordInput
-        label="Current password"
+        label={t("changePassword.current")}
         value={current}
         onChange={setCurrent}
         autoComplete="current-password"
@@ -91,7 +99,7 @@ export default function ChangePasswordForm({
         id="change-password-current"
       />
       <PasswordInput
-        label="New password"
+        label={t("changePassword.new")}
         value={next}
         onChange={setNext}
         autoComplete="new-password"
@@ -100,7 +108,7 @@ export default function ChangePasswordForm({
         showStrength
       />
       <PasswordInput
-        label="Confirm new password"
+        label={t("changePassword.confirm")}
         value={confirm}
         onChange={setConfirm}
         autoComplete="new-password"
@@ -123,7 +131,7 @@ export default function ChangePasswordForm({
           disabled={busy}
           className="rounded bg-violet-600 px-3 py-1.5 text-sm text-white hover:bg-violet-500 disabled:opacity-60"
         >
-          Change password
+          {t("changePassword.title")}
         </button>
         {onCancel && (
           <button
@@ -132,7 +140,7 @@ export default function ChangePasswordForm({
             disabled={busy}
             className="rounded px-3 py-1.5 text-sm text-slate-300 hover:text-white disabled:opacity-60"
           >
-            Cancel
+            {t("changePassword.cancel")}
           </button>
         )}
       </div>

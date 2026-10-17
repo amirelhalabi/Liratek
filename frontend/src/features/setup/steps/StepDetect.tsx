@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSetup } from "../context/SetupContext";
 import { Loader2, Search, FolderOpen, Plus, Wifi } from "lucide-react";
 
@@ -17,6 +18,7 @@ interface DetectedDb {
 
 export default function StepDetect() {
   const { setStep, updatePayload } = useSetup();
+  const { t } = useTranslation("setup");
   const [scanning, setScanning] = useState(true);
   const [databases, setDatabases] = useState<DetectedDb[]>([]);
   const [error, setError] = useState("");
@@ -68,13 +70,13 @@ export default function StepDetect() {
       if (result.canceled) return;
 
       if (!result.success) {
-        setError(result.error || "Invalid database");
+        setError(result.error || t("detect.invalidDb"));
         return;
       }
 
       updatePayload({
         join_db_path: result.path!,
-        shop_name: result.shopName || "Unknown Shop",
+        shop_name: result.shopName || t("detect.unknownShop"),
       });
       setStep(-1);
     } catch (e) {
@@ -89,13 +91,13 @@ export default function StepDetect() {
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-xl font-bold text-white">Welcome to LiraTek</h2>
+        <h2 className="text-xl font-bold text-white">{t("detect.title")}</h2>
         <p className="text-slate-400 text-sm mt-1">
           {scanning
-            ? "Scanning for existing shops on your network..."
+            ? t("detect.scanning")
             : databases.length > 0
-              ? "We found an existing shop! Join it or set up a new one."
-              : "No existing shops found. You can browse for one or start fresh."}
+              ? t("detect.found")
+              : t("detect.notFound")}
         </p>
       </div>
 
@@ -103,7 +105,7 @@ export default function StepDetect() {
         <div className="flex flex-col items-center py-8 gap-3">
           <Loader2 size={32} className="animate-spin text-violet-400" />
           <span className="text-sm text-slate-400">
-            Scanning network volumes...
+            {t("detect.scanningVolumes")}
           </span>
         </div>
       )}
@@ -114,7 +116,7 @@ export default function StepDetect() {
             <button
               key={db.path}
               onClick={() => handleSelectDb(db)}
-              className="w-full flex items-center gap-3 bg-slate-900/50 hover:bg-slate-700/50 border border-slate-700 hover:border-violet-500/50 rounded-xl p-4 transition-all text-left"
+              className="w-full flex items-center gap-3 bg-slate-900/50 hover:bg-slate-700/50 border border-slate-700 hover:border-violet-500/50 rounded-xl p-4 transition-all text-start"
             >
               <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center flex-shrink-0">
                 <Wifi size={20} className="text-violet-400" />
@@ -124,7 +126,7 @@ export default function StepDetect() {
                 <div className="text-xs text-slate-500 truncate">{db.path}</div>
               </div>
               <span className="text-xs text-violet-400 font-medium">
-                Join &rarr;
+                {t("detect.join")}
               </span>
             </button>
           ))}
@@ -145,21 +147,20 @@ export default function StepDetect() {
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-xl transition-colors text-sm"
             >
               <FolderOpen size={16} />
-              Browse for Database
+              {t("detect.browse")}
             </button>
             <button
               onClick={handleNewSetup}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-xl transition-colors text-sm"
             >
               <Plus size={16} />
-              Set Up New Shop
+              {t("detect.newShop")}
             </button>
           </div>
 
           {!scanning && databases.length === 0 && (
             <p className="text-xs text-slate-600 text-center">
-              Make sure the primary laptop&apos;s shared folder is mounted in
-              Finder before scanning.
+              {t("detect.mountHint")}
             </p>
           )}
 
@@ -176,7 +177,7 @@ export default function StepDetect() {
             className="w-full flex items-center justify-center gap-2 text-xs text-slate-500 hover:text-slate-300 transition-colors"
           >
             <Search size={12} />
-            Scan Again
+            {t("detect.scanAgain")}
           </button>
         </>
       )}

@@ -35,6 +35,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
+import { useTranslation } from "react-i18next";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useShopName } from "@/hooks/useShopName";
@@ -89,6 +91,7 @@ export default function Sidebar({
   toggleSidebar,
   onOpenWhatsNew,
 }: SidebarProps) {
+  const { t } = useTranslation("layout");
   // Sidebar scrollbar: no bar (and no space) at rest; shown while the
   // pointer is over the menu. Driven by state rather than CSS :hover, which
   // Chrome does not reliably repaint on a scrollbar (it stuck after a drag).
@@ -152,7 +155,7 @@ export default function Sidebar({
             acc.push({
               to: "/recharge",
               icon: Smartphone,
-              label: "Mobile Recharge",
+              label: t("nav.mobileRecharge"),
               prefetch: () => import("@/features/recharge/pages/Recharge"),
             });
             // LIRA-309 — Phone Lines sits under the recharge module (carrier
@@ -161,7 +164,7 @@ export default function Sidebar({
               acc.push({
                 to: "/phone-lines",
                 icon: Phone,
-                label: "Phone Lines",
+                label: t("nav.phoneLines"),
                 prefetch: () => import("@/features/phoneLines/pages/PhoneLines"),
               });
             }
@@ -175,7 +178,7 @@ export default function Sidebar({
         });
         return acc;
       }, []);
-  }, [enabledModules, isAdmin]);
+  }, [enabledModules, isAdmin, t]);
 
   // Split into favorites (FIFO order) and the rest (original DB order)
   const favoriteItems = favorites
@@ -221,7 +224,7 @@ export default function Sidebar({
           <div className="relative min-w-[20px]">
             <item.icon size={20} />
             {isPinned && isCollapsed && (
-              <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-violet-400" />
+              <span className="absolute -top-1 -end-1 w-1.5 h-1.5 rounded-full bg-violet-400" />
             )}
           </div>
 
@@ -242,7 +245,7 @@ export default function Sidebar({
 
         {/* Hold-to-favorite progress bar — fills left→right over 3 s */}
         {isHolding && (
-          <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-violet-400 sidebar-hold-fill" />
+          <span className="absolute bottom-0 start-2 end-2 h-0.5 rounded-full bg-violet-400 sidebar-hold-fill" />
         )}
       </div>
     );
@@ -251,7 +254,7 @@ export default function Sidebar({
   return (
     <aside
       className={clsx(
-        "bg-slate-900 border-r border-slate-700 flex flex-col transition-all duration-300 ease-in-out",
+        "bg-slate-900 border-e border-slate-700 flex flex-col transition-all duration-300 ease-in-out",
         isCollapsed ? "w-15" : "w-64",
       )}
     >
@@ -269,9 +272,13 @@ export default function Sidebar({
         <button
           onClick={toggleSidebar}
           className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+          title={isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
         >
-          {isCollapsed ? <PanelLeft size={20} /> : <PanelLeftClose size={20} />}
+          {isCollapsed ? (
+            <DirIcon icon={PanelLeft} width={20} height={20} />
+          ) : (
+            <DirIcon icon={PanelLeftClose} width={20} height={20} />
+          )}
         </button>
       </div>
 
@@ -311,12 +318,12 @@ export default function Sidebar({
                 isCollapsed ? "justify-center px-1" : "px-3",
               )
             }
-            title={isCollapsed ? "Warranty" : undefined}
+            title={isCollapsed ? t("nav.warranty") : undefined}
           >
             <ShieldCheck size={20} className="min-w-[20px]" />
             {!isCollapsed && (
               <span className="opacity-100 transition-opacity duration-200">
-                Warranty
+                {t("nav.warranty")}
               </span>
             )}
           </NavLink>
@@ -334,12 +341,12 @@ export default function Sidebar({
                 isCollapsed ? "justify-center px-1" : "px-3",
               )
             }
-            title={isCollapsed ? "Checkpoint Timeline" : undefined}
+            title={isCollapsed ? t("nav.checkpointTimeline") : undefined}
           >
             <Clock size={20} className="min-w-[20px]" />
             {!isCollapsed && (
               <span className="opacity-100 transition-opacity duration-200">
-                Checkpoint Timeline
+                {t("nav.checkpointTimeline")}
               </span>
             )}
           </NavLink>
@@ -358,12 +365,12 @@ export default function Sidebar({
                 isCollapsed ? "justify-center px-1" : "px-3",
               )
             }
-            title={isCollapsed ? "Offline work" : undefined}
+            title={isCollapsed ? t("nav.offlineWork") : undefined}
           >
             <CloudOff size={20} className="min-w-[20px]" />
             {!isCollapsed && (
               <span className="opacity-100 transition-opacity duration-200">
-                Offline work
+                {t("nav.offlineWork")}
               </span>
             )}
           </NavLink>
@@ -375,8 +382,8 @@ export default function Sidebar({
           <button
             type="button"
             onClick={onOpenWhatsNew}
-            aria-label="What's new"
-            title="What's new"
+            aria-label={t("nav.whatsNew")}
+            title={t("nav.whatsNew")}
             className="hover:text-violet-400 transition-colors"
           >
             v{__APP_VERSION__}

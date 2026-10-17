@@ -27,6 +27,7 @@ import {
 } from "react-native";
 
 import { NO_CONNECTION } from "@/api/client";
+import { actionErrorMessage } from "@/auth/messages";
 import { getCatalog, getRates, type CatalogRow } from "@/api/catalog";
 import { newIdempotencyKey, recordServiceSale } from "@/api/sales";
 import { ClientPicker, useClientPicker } from "@/components/ClientPicker";
@@ -67,7 +68,7 @@ function sellable(rows: CatalogRow[], provider: Provider): (CatalogRow & { cost_
 function messageFor(code: string): string {
   if (code === NO_CONNECTION) return "Not saved — no connection. Check your internet and tap Save again.";
   if (code === "DUPLICATE_IN_PROGRESS") return "This sale is still being saved. Wait a moment and check Activity.";
-  return code;
+  return actionErrorMessage(code);
 }
 
 /**

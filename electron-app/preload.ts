@@ -79,6 +79,10 @@ import type {
 import type { DesktopPairInput, DesktopUnpairInput } from "@liratek/core" with {
   "resolution-mode": "import",
 };
+// LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
+import type { OpenExternalUrlInput } from "@liratek/core" with {
+  "resolution-mode": "import",
+};
 
 console.log("[PRELOAD] Starting preload script...");
 
@@ -2037,6 +2041,13 @@ contextBridge.exposeInMainWorld("api", {
     sendNow: () => ipcRenderer.invoke("offline:send-now"),
     openWebApp: () => ipcRenderer.invoke("offline:open-web-app"),
     installUpdate: () => ipcRenderer.invoke("offline:install-update"),
+  },
+
+  // LIRA-333 — open a link outside LiraTek (WhatsApp hosts only; the
+  // handler refuses anything else). Only backendApi.ts calls it.
+  app: {
+    openExternal: (data: OpenExternalUrlInput) =>
+      ipcRenderer.invoke("app:open-external", data),
   },
 
   // Display / Zoom

@@ -120,9 +120,12 @@ export async function request<T>(
   // Most routes answer HTTP 200 with the envelope; POST /api/debts/repayments
   // answers 400 with a JSON body, so read the body whatever the status.
   if (parsed !== null && typeof parsed === "object" && "success" in parsed) {
-    const env = parsed as { success: boolean; error?: unknown; data?: unknown };
+    const env = parsed as { success: boolean; error?: unknown; data?: unknown; code?: unknown };
     if (env.success) return { success: true, data: (env.data ?? parsed) as T };
-    return { success: false, error: errorCode(env.error) ?? `HTTP_${res.status}` };
+    // A top-level `code` wins (LIRA-332: TRIAL_ENDED carries its sentence in
+    // `error` and its code beside it), so screens map one code to words.
+    const code = typeof env.code === "string" ? env.code : null;
+    return { success: false, error: code ?? errorCode(env.error) ?? `HTTP_${res.status}` };
   }
   // Read routes return the raw shape (array/object) with no envelope.
   if (res.ok) return { success: true, data: parsed as T };

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSetup } from "../context/SetupContext";
 
 import PasswordInput from "@/shared/components/PasswordInput";
@@ -7,20 +8,21 @@ import { validatePasswordComplexity } from "@liratek/core";
 
 export default function Step1Account() {
   const { payload, updatePayload, setStep } = useSetup();
+  const { t } = useTranslation("setup");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!payload.shop_name.trim()) e.shop_name = "Shop name is required";
+    if (!payload.shop_name.trim()) e.shop_name = t("account.shopNameRequired");
     if (!payload.admin_username.trim())
-      e.admin_username = "Username is required";
+      e.admin_username = t("account.usernameRequired");
     const pwResult = validatePasswordComplexity(payload.admin_password);
     if (!pwResult.valid) {
       e.admin_password = pwResult.errors[0];
     }
     if (payload.admin_password !== confirmPassword)
-      e.confirm = "Passwords do not match";
+      e.confirm = t("account.passwordsMismatch");
     return e;
   };
 
@@ -38,10 +40,8 @@ export default function Step1Account() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white">Welcome to LiraTek</h2>
-        <p className="text-slate-400 text-sm mt-1">
-          Set up your shop and create the admin account.
-        </p>
+        <h2 className="text-xl font-bold text-white">{t("account.title")}</h2>
+        <p className="text-slate-400 text-sm mt-1">{t("account.subtitle")}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -50,8 +50,8 @@ export default function Step1Account() {
           <TextInput
             value={payload.shop_name}
             onChange={(value) => updatePayload({ shop_name: value })}
-            label="Shop Name"
-            placeholder="Enter shop name"
+            label={t("account.shopName")}
+            placeholder={t("account.shopNamePlaceholder")}
             icon="store"
             error={errors.shop_name}
             autoFocus
@@ -63,7 +63,7 @@ export default function Step1Account() {
           <TextInput
             value={payload.admin_username}
             onChange={(value) => updatePayload({ admin_username: value })}
-            label="Admin Username"
+            label={t("account.adminUsername")}
             placeholder=""
             icon="user"
             error={errors.admin_username}
@@ -77,14 +77,14 @@ export default function Step1Account() {
         <PasswordInput
           value={payload.admin_password}
           onChange={(value) => updatePayload({ admin_password: value })}
-          label="Password"
+          label={t("account.password")}
           error={errors.admin_password}
           showStrength
           className="mb-4"
         />
 
         <div>
-          <label className={labelCls}>Confirm Password</label>
+          <label className={labelCls}>{t("account.confirmPassword")}</label>
           <PasswordInput
             value={confirmPassword}
             onChange={setConfirmPassword}
@@ -99,7 +99,7 @@ export default function Step1Account() {
           onClick={handleNext}
           className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-lg transition-colors text-sm"
         >
-          Next →
+          {t("nav.next")}
         </button>
       </div>
     </div>

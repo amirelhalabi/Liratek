@@ -1,4 +1,6 @@
 import { AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 
 /**
  * LIRA-260 — the ONE warning shown when a cashier edits a selling price away
@@ -29,7 +31,7 @@ function formatPrice(
 ): string {
   return currency === "USD"
     ? `$${amount.toFixed(2)}`
-    : `${Math.round(amount).toLocaleString()} LBP`;
+    : `${formatNumber(Math.round(amount))} LBP`;
 }
 
 function isPriceChanged(
@@ -50,6 +52,7 @@ export function PriceChangeWarning({
   currency,
   className = "",
 }: PriceChangeWarningProps) {
+  const { t } = useTranslation("shared");
   if (!isPriceChanged(catalogPrice, currentPrice, currency)) return null;
   // Narrowed by isPriceChanged above.
   const catalog = catalogPrice as number;
@@ -62,8 +65,10 @@ export function PriceChangeWarning({
     >
       <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
       <span>
-        Price changed: catalog {formatPrice(catalog, currency)} →{" "}
-        {formatPrice(current, currency)}
+        {t("priceChange.warning", {
+          catalog: formatPrice(catalog, currency),
+          current: formatPrice(current, currency),
+        })}
       </span>
     </p>
   );

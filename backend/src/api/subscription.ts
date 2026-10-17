@@ -16,9 +16,13 @@
 import express from "express";
 import {
   getSubscriptionService,
+  getTenantRepository,
+  runWithoutTenant,
+  toDesktopView,
   createSuccessResponse,
   createErrorResponse,
   ErrorCodes,
+  APP_BASE_DOMAIN,
 } from "@liratek/core";
 import { authenticateJWT } from "../middleware/auth.js";
 import { logger } from "../server.js";
@@ -68,7 +72,13 @@ router.get("/by-key", (req, res): void => {
     // tenantId is echoed so a support conversation can confirm WHICH shop a
     // key belongs to. It is not a secret — the holder of the key already is
     // that tenant.
-    res.json(createSuccessResponse(view));
+    //
+    // LIRA-332 (FR-021): the desktop view keeps its pre-trial shape — no
+    // standing/trial, canWrite from the paid reading — so `licenseSync` can
+    // never store or act on a web trial.
+    res.json(
+      createSuccessResponse({ ...toDesktopView(view), tenantId: view.tenantId }),
+    );
   } catch (error) {
     logger.error({ error }, "subscription by-key failed");
     res
@@ -83,6 +93,29 @@ router.get("/by-key", (req, res): void => {
 });
 
 router.use(authenticateJWT);
+
+/**
+ * LIRA-332: the shop's name and web address, for the pre-filled WhatsApp
+ * "activate my shop" message. Built HERE so the web and the phone show the
+ * same address. Never throws: a missing name only drops it from the text.
+ */
+function shopInfo(tenantId: number): { name: string; address: string } | null {
+  try {
+    const tenant = runWithoutTenant(() =>
+      getTenantRepository().getById(tenantId),
+    );
+    if (!tenant) return null;
+    return {
+      name: tenant.name,
+      address: APP_BASE_DOMAIN
+        ? `${tenant.slug}.${APP_BASE_DOMAIN}`
+        : tenant.slug,
+    };
+  } catch (error) {
+    logger.warn({ error, tenantId }, "subscription status: shop lookup failed");
+    return null;
+  }
+}
 
 // GET /api/subscription/status
 router.get("/status", (req, res): void => {
@@ -101,6 +134,9 @@ router.get("/status", (req, res): void => {
           currentPeriodEnd: null,
           graceEndsAt: null,
           entitledModules: null,
+          standing: "active",
+          trial: null,
+          shop: null,
         }),
       );
       return;
@@ -114,14 +150,19 @@ router.get("/status", (req, res): void => {
     // reading of the same silence.
     res.json(
       createSuccessResponse(
-        view ?? {
-          status: "active",
-          plan: "standard",
-          canWrite: true,
-          currentPeriodEnd: null,
-          graceEndsAt: null,
-          entitledModules: null,
-        },
+        view
+          ? { ...view, shop: shopInfo(tenantId) }
+          : {
+              status: "active",
+              plan: "standard",
+              canWrite: true,
+              currentPeriodEnd: null,
+              graceEndsAt: null,
+              entitledModules: null,
+              standing: "active",
+              trial: null,
+              shop: null,
+            },
       ),
     );
   } catch (error) {

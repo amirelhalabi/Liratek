@@ -717,6 +717,7 @@ export function CryptoForm({
                   setShowPaymentSheet(true);
                 }
               }}
+              data-testid="crypto-proceed"
               disabled={submitDisabled}
               className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
                 submitDisabled

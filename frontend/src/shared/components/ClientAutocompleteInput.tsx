@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Client } from "@liratek/ui";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import logger from "@/utils/logger";
 import { getClients, getDebtors } from "@/api/backendApi";
 
@@ -199,14 +200,14 @@ export function ClientAutocompleteInput({
       {showDropdown && filtered.length > 0 && (
         <div
           data-testid="client-dropdown"
-          className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto"
+          className="absolute z-50 top-full start-0 end-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto"
         >
           {filtered.map((client, idx) => (
             <button
               key={client.id}
               type="button"
               data-testid={`client-option-${client.id}`}
-              className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-slate-700 transition-colors ${
+              className={`w-full text-start px-3 py-2 text-sm flex items-center justify-between hover:bg-slate-700 transition-colors ${
                 idx === highlightIndex ? "bg-slate-700" : ""
               } ${idx === 0 ? "rounded-t-lg" : ""} ${idx === filtered.length - 1 ? "rounded-b-lg" : ""}`}
               onMouseDown={(e) => {
@@ -215,10 +216,10 @@ export function ClientAutocompleteInput({
               }}
             >
               <span className="text-white truncate">{client.full_name}</span>
-              <span className="flex items-center gap-1.5 shrink-0 ml-2">
+              <span className="flex items-center gap-1.5 shrink-0 ms-2">
                 {client.phone_number && (
                   <span className="text-slate-400 text-xs">
-                    {client.phone_number}
+                    <Ltr>{client.phone_number}</Ltr>
                   </span>
                 )}
                 {showDebtBadge && debtMap.has(client.id) && (
