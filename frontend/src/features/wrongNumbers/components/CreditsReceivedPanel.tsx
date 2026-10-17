@@ -8,7 +8,9 @@
  * on the Transactions page (newest first: credits, then the loss).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useApi, type CarrierLineEntity } from "@liratek/ui";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import type {
   WrongNumberCardRow,
   WrongNumberCreditsInput,
@@ -17,12 +19,12 @@ import { localDay } from "@/shared/utils/localDay";
 import logger from "@/utils/logger";
 import { carrierLabel, lbp, PROVIDER_LABELS } from "../wrongNumberFormat";
 
-const STATUS_LABELS: Record<WrongNumberCardRow["status"], string> = {
-  WAITING: "Waiting for credits",
-  PARTLY_RECOVERED: "Partly recovered",
-  RECOVERED: "Recovered",
-  VOIDED: "Undone",
-};
+const STATUS_LABEL_KEYS = {
+  WAITING: "status.WAITING",
+  PARTLY_RECOVERED: "status.PARTLY_RECOVERED",
+  RECOVERED: "status.RECOVERED",
+  VOIDED: "status.VOIDED",
+} as const satisfies Record<WrongNumberCardRow["status"], string>;
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -39,6 +41,7 @@ export function CreditsReceivedPanel({
   const api = useApi();
   const apiRef = useRef(api);
   apiRef.current = api;
+  const { t } = useTranslation("wrongNumbers");
 
   const [lines, setLines] = useState<CarrierLineEntity[]>([]);
   const [lineId, setLineId] = useState<number | null>(null);
@@ -85,7 +88,7 @@ export function CreditsReceivedPanel({
     setError("");
     const amount = Number(credits);
     if (!(amount > 0) || !lineId) {
-      setError("Enter the credits that arrived and the shop line.");
+      setError(t("credits.enterCredits"));
       return;
     }
     // ONE payload, typed from the schema (rules 21, 22).
@@ -99,13 +102,15 @@ export function CreditsReceivedPanel({
     try {
       const res = await apiRef.current.recordWrongNumberCredits(payload);
       if (!res.success) {
-        setError(res.error || "Could not save the credits.");
+        setError(res.error || t("credits.saveFailed"));
         return;
       }
       setCredits("");
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the credits.");
+      setError(
+        err instanceof Error ? err.message : t("credits.saveFailed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -124,31 +129,36 @@ export function CreditsReceivedPanel({
           {PROVIDER_LABELS[record.provider]} {carrierLabel(record.carrier)}{" "}
           {record.card_label}
           <div className="text-xs text-slate-400">
-            Wrong number {record.wrong_number ?? "—"}
-            {record.right_number ? ` · right number ${record.right_number}` : ""}
+            {t("credits.wrongNumber", { number: record.wrong_number ?? "—" })}
+            {record.right_number
+              ? t("credits.rightNumber", { number: record.right_number })
+              : ""}
           </div>
         </div>
         <span
           data-testid="wrong-number-status"
           className="text-[11px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 whitespace-nowrap"
         >
-          {STATUS_LABELS[record.status]}
+          {t(STATUS_LABEL_KEYS[record.status])}
         </span>
       </div>
 
       <dl className="grid grid-cols-3 gap-2 text-xs">
         <div>
-          <dt className="text-slate-400">Card cost</dt>
+          <dt className="text-slate-400">{t("credits.cardCost")}</dt>
           <dd className="text-slate-200">{lbp(record.card_cost_lbp)}</dd>
         </div>
         <div>
-          <dt className="text-slate-400">Credits back</dt>
+          <dt className="text-slate-400">{t("credits.creditsBack")}</dt>
           <dd className="text-slate-200">
-            ${record.total_recovered_usd} of ${record.card_credit_usd}
+            {t("credits.creditsBackValue", {
+              recovered: record.total_recovered_usd,
+              total: record.card_credit_usd,
+            })}
           </dd>
         </div>
         <div>
-          <dt className="text-slate-400">Loss</dt>
+          <dt className="text-slate-400">{t("credits.loss")}</dt>
           <dd className="text-slate-200" data-testid="wrong-number-loss">
             {lbp(record.remaining_loss_lbp)}
           </dd>
@@ -159,7 +169,10 @@ export function CreditsReceivedPanel({
         <ul className="text-xs text-slate-300 space-y-0.5">
           {record.credits.map((c) => (
             <li key={c.transaction_id}>
-              +${c.amount_usd} on {lineNumber(c.carrier_line_id)} ·{" "}
+              {t("credits.creditLine", {
+                amount: c.amount_usd,
+                line: lineNumber(c.carrier_line_id),
+              })}
               {c.created_at.slice(0, 10)}
             </li>
           ))}
@@ -174,15 +187,14 @@ export function CreditsReceivedPanel({
                 htmlFor={`wn-cr-amount-${record.id}`}
                 className="text-xs text-slate-400 block mb-1"
               >
-                Credits that arrived ($, up to {remainingCredit})
+                {t("credits.amountLabel", { max: remainingCredit })}
               </label>
               <input
                 id={`wn-cr-amount-${record.id}`}
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={credits}
-                onChange={(e) => setCredits(e.target.value)}
+                onChange={(e) => setCredits(normalizeDigits(e.target.value))}
                 className={inputClass}
               />
             </div>
@@ -191,7 +203,7 @@ export function CreditsReceivedPanel({
                 htmlFor={`wn-cr-line-${record.id}`}
                 className="text-xs text-slate-400 block mb-1"
               >
-                On shop line
+                {t("credits.lineLabel")}
               </label>
               <select
                 id={`wn-cr-line-${record.id}`}
@@ -201,13 +213,15 @@ export function CreditsReceivedPanel({
               >
                 {carrierLines.length === 0 && (
                   <option value="">
-                    No active {carrierLabel(record.carrier)} shop line
+                    {t("credits.noLine", {
+                      carrier: carrierLabel(record.carrier),
+                    })}
                   </option>
                 )}
                 {carrierLines.map((l) => (
                   <option key={l.id} value={l.id}>
                     {l.phone_number}
-                    {l.is_primary === 1 ? " (primary)" : ""}
+                    {l.is_primary === 1 ? t("credits.primary") : ""}
                   </option>
                 ))}
               </select>
@@ -219,11 +233,12 @@ export function CreditsReceivedPanel({
             </div>
           )}
           <button
+            data-testid="wrong-number-credits-save"
             onClick={handleSave}
             disabled={saving}
             className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded text-sm"
           >
-            {saving ? "Saving..." : "Save credits received"}
+            {saving ? t("credits.saving") : t("credits.save")}
           </button>
         </div>
       )}

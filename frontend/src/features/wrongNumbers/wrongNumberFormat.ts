@@ -4,6 +4,7 @@
  */
 import type { MobileServiceItemEntity } from "@liratek/ui";
 import { formatCatalogItemName } from "@liratek/core";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import type { WrongNumberProviderCode } from "@/features/audit/actionGating";
 
 export const PROVIDER_LABELS: Record<WrongNumberProviderCode, string> = {
@@ -46,5 +47,5 @@ export function carrierLabel(carrier: string): string {
 }
 
 export function lbp(n: number): string {
-  return `${Math.round(n).toLocaleString()} LBP`;
+  return `${formatNumber(Math.round(n))} LBP`;
 }
