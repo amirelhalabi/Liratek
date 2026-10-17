@@ -207,7 +207,7 @@ description: "Task list for LIRA-331 Arabic app UI"
 
 Each test builds the payload through the real builder or screen with `lng=en` and `lng=ar` and asserts deep equality, walking every sub-type/mode (rule 28d).
 
-- [ ] T043 [P] [US1] `frontend/src/features/sales/**/__tests__/sale.payloadLanguage.test.tsx`: walk-in sale, session cart and debt sale; USD paid with LBP change.
+- [x] T043 [P] [US1] `frontend/src/features/sales/**/__tests__/sale.payloadLanguage.test.tsx`: walk-in sale, session cart and debt sale; USD paid with LBP change.
 - [ ] T044 [P] [US1] `frontend/src/features/recharge/components/__tests__/recharge.payloadLanguage.test.tsx`: MTC/Alfa credit and days, Katsh/iPick, Whish/OMT App, Binance, basket, For Partner.
 - [x] T045 [P] [US1] `frontend/src/features/services/**/__tests__/financialService.payloadLanguage.test.tsx`: each OMT/Whish service type, send and receive.
 - [ ] T046 [P] [US1] `frontend/src/features/debts/**/__tests__/repayment.payloadLanguage.test.tsx`: repayment, discount/waive, account settle.
