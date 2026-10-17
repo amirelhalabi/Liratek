@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { appEvents, useApi } from "@liratek/ui";
 import { useTranslation } from "react-i18next";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 
 export default function NotificationsConfig() {
   const { t } = useTranslation(["settings", "common"]);
@@ -58,8 +59,9 @@ export default function NotificationsConfig() {
         </label>
         <input
           id="notifications-poll-interval"
+          inputMode="numeric"
           value={pollMs}
-          onChange={(e) => setPollMs(e.target.value)}
+          onChange={(e) => setPollMs(normalizeDigits(e.target.value))}
           className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white w-40"
         />
       </div>

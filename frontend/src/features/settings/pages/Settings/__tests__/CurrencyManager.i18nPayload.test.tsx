@@ -177,9 +177,10 @@ async function runFlow(rates: {
   fireEvent.change(document.getElementById("currency-decimals")!, {
     target: { value: "2" },
   });
+  // The add form's wrapper (the input itself also carries rounded-lg).
   const addForm = document
     .getElementById("currency-code")!
-    .closest(".rounded-lg") as HTMLElement;
+    .closest(".space-y-3") as HTMLElement;
   const addButtons = addForm.querySelectorAll("button");
   fireEvent.click(addButtons[addButtons.length - 1]!);
   await waitFor(() => expect(mockApi.createCurrency).toHaveBeenCalledTimes(1));

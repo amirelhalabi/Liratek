@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useFormat } from "@/i18n/useFormat";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { categoryLabel } from "../../categoryLabel";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
@@ -1490,13 +1491,13 @@ export default function ProductList() {
                     {t("list.batch.minStock")}
                   </label>
                   <input
-                    type="number"
-                    min={0}
+                    type="text"
+                    inputMode="numeric"
                     value={batchFields.min_stock_level ?? ""}
                     onChange={(e) =>
                       setBatchFields((p) => ({
                         ...p,
-                        min_stock_level: e.target.value,
+                        min_stock_level: normalizeDigits(e.target.value),
                       }))
                     }
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
