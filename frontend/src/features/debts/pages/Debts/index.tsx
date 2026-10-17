@@ -1732,6 +1732,7 @@ export default function Debts() {
         actions={
           <div className="flex items-center gap-2">
             <button
+              data-testid="debts-add-entry-open"
               onClick={() => {
                 setCreditMoveCash(true);
                 setShowCreditModal(true);
@@ -1949,6 +1950,7 @@ export default function Debts() {
                   <div className="shrink-0 flex items-center gap-2">
                     {hasDebt && (
                       <button
+                        data-testid="debts-settle-open"
                         onClick={() => {
                           setRepayMode("repay");
                           setRepayPaymentLines([]);
@@ -1967,6 +1969,7 @@ export default function Debts() {
                     )}
                     {hasCredit && (
                       <button
+                        data-testid="debts-cashout-open"
                         onClick={() => {
                           setRepayMode("cashout");
                           setRepayPaymentLines([]);
@@ -1984,6 +1987,7 @@ export default function Debts() {
                         forgiveness with no cash movement. */}
                     {hasDebt && isAdmin && (
                       <button
+                        data-testid="debts-writeoff-open"
                         onClick={() => {
                           setWriteOffAmountUsd("");
                           setWriteOffAmountLbp("");
@@ -3038,6 +3042,7 @@ export default function Debts() {
                   <input
                     type="text"
                     inputMode="decimal"
+                    data-testid="debts-writeoff-usd"
                     value={writeOffAmountUsd}
                     onChange={(e) => {
                       const raw = e.target.value.replace(/,/g, "");
@@ -3056,6 +3061,7 @@ export default function Debts() {
                   <input
                     type="text"
                     inputMode="numeric"
+                    data-testid="debts-writeoff-lbp"
                     value={writeOffAmountLbp}
                     onChange={(e) => {
                       const raw = e.target.value.replace(/,/g, "");
@@ -3073,6 +3079,7 @@ export default function Debts() {
                   </label>
                   <input
                     type="text"
+                    data-testid="debts-writeoff-reason"
                     value={writeOffReason}
                     onChange={(e) => setWriteOffReason(e.target.value)}
                     className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
@@ -3088,6 +3095,7 @@ export default function Debts() {
                     Cancel
                   </button>
                   <button
+                    data-testid="debts-writeoff-confirm"
                     disabled={
                       writeOffSubmitting ||
                       (writeOffAppliedUsd <= 0 && writeOffAppliedLbp <= 0)
@@ -3223,6 +3231,7 @@ export default function Debts() {
                   <input
                     type="text"
                     inputMode="decimal"
+                    data-testid="debts-entry-usd"
                     value={creditAmountUsd}
                     onChange={(e) => {
                       const raw = e.target.value.replace(/,/g, "");
@@ -3248,6 +3257,7 @@ export default function Debts() {
                   <input
                     type="text"
                     inputMode="numeric"
+                    data-testid="debts-entry-lbp"
                     value={creditAmountLbp}
                     onChange={(e) => {
                       const raw = e.target.value.replace(/,/g, "");
@@ -3269,6 +3279,7 @@ export default function Debts() {
                   </label>
                   <input
                     type="text"
+                    data-testid="debts-entry-note"
                     value={creditNote}
                     onChange={(e) => setCreditNote(e.target.value)}
                     className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
@@ -3307,6 +3318,7 @@ export default function Debts() {
                     Cancel
                   </button>
                   <button
+                    data-testid="debts-entry-confirm"
                     disabled={
                       !creditSelectedClient ||
                       (parseFloat(creditAmountUsd.replace(/,/g, "")) <= 0 &&
