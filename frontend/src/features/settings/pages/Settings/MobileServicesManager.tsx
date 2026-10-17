@@ -1449,16 +1449,16 @@ export default function MobileServicesManager() {
                                                     C($):
                                                   </span>
                                                   <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    aria-label="Cost (USD)"
+                                                    type="text"
+                                                    inputMode="decimal"
+                                                    aria-label={t("mobile.costUsd")}
                                                     value={editing.cost_usd}
                                                     onChange={(e) =>
                                                       setEditing({
                                                         ...editing,
-                                                        cost_usd:
+                                                        cost_usd: normalizeDigits(
                                                           e.target.value,
+                                                        ),
                                                       })
                                                     }
                                                     onKeyDown={(e) => {
@@ -1476,16 +1476,16 @@ export default function MobileServicesManager() {
                                                     S($):
                                                   </span>
                                                   <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    aria-label="Sell (USD)"
+                                                    type="text"
+                                                    inputMode="decimal"
+                                                    aria-label={t("mobile.sellUsd")}
                                                     value={editing.sell_usd}
                                                     onChange={(e) =>
                                                       setEditing({
                                                         ...editing,
-                                                        sell_usd:
+                                                        sell_usd: normalizeDigits(
                                                           e.target.value,
+                                                        ),
                                                       })
                                                     }
                                                     onKeyDown={(e) => {
@@ -1500,16 +1500,19 @@ export default function MobileServicesManager() {
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-xs text-slate-500">
-                                                    Ord:
+                                                    {t("mobile.edit.ord")}
                                                   </span>
                                                   <input
-                                                    type="number"
+                                                    type="text"
+                                                    inputMode="numeric"
                                                     value={editing.sort_order}
                                                     onChange={(e) =>
                                                       setEditing({
                                                         ...editing,
                                                         sort_order:
-                                                          e.target.value,
+                                                          normalizeDigits(
+                                                            e.target.value,
+                                                          ),
                                                       })
                                                     }
                                                     onKeyDown={(e) => {
@@ -1523,11 +1526,11 @@ export default function MobileServicesManager() {
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-xs text-slate-500">
-                                                    Val(d):
+                                                    {t("mobile.edit.val")}
                                                   </span>
                                                   <input
-                                                    type="number"
-                                                    min="0"
+                                                    type="text"
+                                                    inputMode="numeric"
                                                     value={
                                                       editing.validity_days
                                                     }
@@ -1535,7 +1538,9 @@ export default function MobileServicesManager() {
                                                       setEditing({
                                                         ...editing,
                                                         validity_days:
-                                                          e.target.value,
+                                                          normalizeDigits(
+                                                            e.target.value,
+                                                          ),
                                                       })
                                                     }
                                                     onKeyDown={(e) => {
@@ -1550,17 +1555,18 @@ export default function MobileServicesManager() {
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-xs text-slate-500">
-                                                    Cred($):
+                                                    {t("mobile.edit.cred")}
                                                   </span>
                                                   <input
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
+                                                    type="text"
+                                                    inputMode="decimal"
                                                     value={editing.credits}
                                                     onChange={(e) =>
                                                       setEditing({
                                                         ...editing,
-                                                        credits: e.target.value,
+                                                        credits: normalizeDigits(
+                                                          e.target.value,
+                                                        ),
                                                       })
                                                     }
                                                     onKeyDown={(e) => {
@@ -1575,7 +1581,7 @@ export default function MobileServicesManager() {
                                                 </div>
                                                 <button
                                                   onClick={handleSaveEdit}
-                                                  aria-label="Save item"
+                                                  aria-label={t("mobile.edit.save")}
                                                   className="text-emerald-400 hover:text-emerald-300 p-1 transition-colors"
                                                 >
                                                   <Check size={13} />
@@ -1584,7 +1590,7 @@ export default function MobileServicesManager() {
                                                   onClick={() =>
                                                     setEditing(null)
                                                   }
-                                                  aria-label="Cancel edit"
+                                                  aria-label={t("mobile.edit.cancel")}
                                                   className="text-slate-500 hover:text-slate-300 p-1 transition-colors"
                                                 >
                                                   <X size={13} />
@@ -1593,11 +1599,11 @@ export default function MobileServicesManager() {
                                               {/* Row 2: Only-Days split fields */}
                                               <div className="flex items-center gap-2 flex-wrap border-t border-violet-800/30 pt-1.5 mt-0.5">
                                                 <span className="text-[10px] text-violet-400 font-medium">
-                                                  Only-Days split:
+                                                  {t("mobile.onlyDaysSplit")}
                                                 </span>
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-[10px] text-slate-500">
-                                                    Days cost:
+                                                    {t("mobile.edit.daysCost")}
                                                   </span>
                                                   <DecimalInput
                                                     value={
@@ -1639,7 +1645,10 @@ export default function MobileServicesManager() {
                                                             ),
                                                         })
                                                       }
-                                                      title={`Reset to the derived value: cost − credits × ${fmtN(tenantCostRateLbp)} LBP/$ = ${fmtN(editDerivedDaysCost)}`}
+                                                      title={t("mobile.edit.resetDerived", {
+                                                        rate: fmtN(tenantCostRateLbp),
+                                                        value: fmtN(editDerivedDaysCost),
+                                                      })}
                                                       className="text-[9px] px-1 py-px rounded bg-slate-700/60 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors"
                                                     >
                                                       ={" "}
@@ -1649,7 +1658,7 @@ export default function MobileServicesManager() {
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-[10px] text-slate-500">
-                                                    Sell days:
+                                                    {t("mobile.edit.sellDays")}
                                                   </span>
                                                   <DecimalInput
                                                     value={
@@ -1677,7 +1686,7 @@ export default function MobileServicesManager() {
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-[10px] text-slate-500">
-                                                    Sell credit:
+                                                    {t("mobile.edit.sellCredit")}
                                                   </span>
                                                   <DecimalInput
                                                     value={
@@ -1709,7 +1718,7 @@ export default function MobileServicesManager() {
                                                     field beside it. */}
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-[10px] text-slate-500">
-                                                    Max returned ($):
+                                                    {t("mobile.edit.maxReturned")}
                                                   </span>
                                                   <DecimalInput
                                                     value={
@@ -1760,7 +1769,9 @@ export default function MobileServicesManager() {
                                                             ),
                                                         })
                                                       }
-                                                      title={`Reset to the computed bare-card value: ${editComputedMaxReturned}`}
+                                                      title={t("mobile.edit.resetComputed", {
+                                                        value: editComputedMaxReturned,
+                                                      })}
                                                       className="text-[9px] px-1 py-px rounded bg-slate-700/60 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors"
                                                     >
                                                       ={" "}
@@ -1794,8 +1805,8 @@ export default function MobileServicesManager() {
                                                   }`}
                                                 >
                                                   {editSplitComplete
-                                                    ? "Enabled"
-                                                    : "Incomplete"}
+                                                    ? t("mobile.edit.enabled")
+                                                    : t("mobile.edit.incomplete")}
                                                 </span>
                                               </div>
                                             </div>
@@ -1855,10 +1866,10 @@ export default function MobileServicesManager() {
                                           );
                                         const sellCreditTier =
                                           item.sell_credit_lbp != null
-                                            ? "per-item"
+                                            ? t("mobile.econ.tier.perItem")
                                             : tenantSellPriceLbp != null
-                                              ? "shop setting"
-                                              : "default";
+                                              ? t("mobile.econ.tier.shop")
+                                              : t("mobile.econ.tier.default");
                                         // Only-Days candidate: any split-related
                                         // column is populated. Gates the whole
                                         // economics block so ordinary catalog
@@ -1883,16 +1894,16 @@ export default function MobileServicesManager() {
                                           item.sell_days_lbp > 0;
                                         const splitBadge = !splitComplete
                                           ? {
-                                              label: "No split",
+                                              label: t("mobile.split.none"),
                                               cls: "bg-slate-700/40 text-slate-500",
                                             }
                                           : hasDaysPrice
                                             ? {
-                                                label: "Split",
+                                                label: t("mobile.split.full"),
                                                 cls: "bg-emerald-600/20 text-emerald-400",
                                               }
                                             : {
-                                                label: "Split, no days price",
+                                                label: t("mobile.split.noDaysPrice"),
                                                 cls: "bg-amber-600/20 text-amber-400",
                                               };
                                         const daysMargin =
@@ -1947,7 +1958,7 @@ export default function MobileServicesManager() {
                                                 </span>
                                                 <span
                                                   className="text-[10px] text-slate-600 font-mono"
-                                                  title="Sort order"
+                                                  title={t("mobile.sortOrder")}
                                                 >
                                                   #{item.sort_order}
                                                 </span>
@@ -1974,7 +1985,7 @@ export default function MobileServicesManager() {
                                                   item.sell_usd != null) && (
                                                   <span
                                                     className="text-xs text-sky-300 font-mono"
-                                                    title="USD cost / sell"
+                                                    title={t("mobile.usdPair")}
                                                   >
                                                     {formatUsdPair(
                                                       item.cost_usd,
@@ -1984,12 +1995,16 @@ export default function MobileServicesManager() {
                                                 )}
                                                 {item.validity_days != null && (
                                                   <span className="text-[10px] text-slate-500">
-                                                    {item.validity_days}d
+                                                    {t("mobile.validityDays", {
+                                                      n: item.validity_days,
+                                                    })}
                                                   </span>
                                                 )}
                                                 {item.credits != null && (
                                                   <span className="text-[10px] text-slate-500">
-                                                    ${item.credits} credit
+                                                    {t("mobile.creditAmount", {
+                                                      n: item.credits,
+                                                    })}
                                                   </span>
                                                 )}
                                                 {/* Split status badge — 3
@@ -2016,8 +2031,8 @@ export default function MobileServicesManager() {
                                                   }`}
                                                 >
                                                   {item.is_active
-                                                    ? "ON"
-                                                    : "OFF"}
+                                                    ? t("mobile.on")
+                                                    : t("mobile.off")}
                                                 </button>
                                                 <button
                                                   onClick={() =>
@@ -2084,7 +2099,7 @@ export default function MobileServicesManager() {
                                                     })
                                                   }
                                                   className="text-slate-500 hover:text-blue-400 p-1 transition-colors"
-                                                  title="Edit"
+                                                  title={t("common:actions.edit")}
                                                 >
                                                   <Pencil size={12} />
                                                 </button>
@@ -2093,7 +2108,7 @@ export default function MobileServicesManager() {
                                                     handleDelete(item)
                                                   }
                                                   className="text-slate-500 hover:text-red-400 p-1 transition-colors"
-                                                  title="Delete"
+                                                  title={t("common:actions.delete")}
                                                 >
                                                   <Trash2 size={12} />
                                                 </button>
@@ -2110,7 +2125,7 @@ export default function MobileServicesManager() {
                                             {isTelecomCandidate && (
                                               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
                                                 <span>
-                                                  Days cost:{" "}
+                                                  {t("mobile.econ.daysCost")}{" "}
                                                   <span
                                                     className={
                                                       item.days_cost_lbp != null
@@ -2135,8 +2150,13 @@ export default function MobileServicesManager() {
                                                       title={
                                                         daysCostOrigin ===
                                                         "derived"
-                                                          ? `Matches the formula: cost − credits × ${fmtN(tenantCostRateLbp)} LBP/$`
-                                                          : `Hand-set. The formula at ${fmtN(tenantCostRateLbp)} LBP/$ gives ${fmtN(derivedDaysCost)}.`
+                                                          ? t("mobile.econ.matchesFormula", {
+                                                              rate: fmtN(tenantCostRateLbp),
+                                                            })
+                                                          : t("mobile.econ.handSetFormula", {
+                                                              rate: fmtN(tenantCostRateLbp),
+                                                              value: fmtN(derivedDaysCost),
+                                                            })
                                                       }
                                                       className={`ms-1 px-1 py-px rounded text-[9px] font-medium ${
                                                         daysCostOrigin ===
@@ -2147,13 +2167,13 @@ export default function MobileServicesManager() {
                                                     >
                                                       {daysCostOrigin ===
                                                       "derived"
-                                                        ? "derived"
-                                                        : "override"}
+                                                        ? t("mobile.econ.derived")
+                                                        : t("mobile.econ.override")}
                                                     </span>
                                                   )}
                                                 </span>
                                                 <span>
-                                                  Days sell:{" "}
+                                                  {t("mobile.econ.daysSell")}{" "}
                                                   <span
                                                     className={
                                                       item.sell_days_lbp != null
@@ -2167,7 +2187,7 @@ export default function MobileServicesManager() {
                                                   </span>
                                                 </span>
                                                 <span>
-                                                  Days margin:{" "}
+                                                  {t("mobile.econ.daysMargin")}{" "}
                                                   {daysMargin != null ? (
                                                     <span
                                                       className={`font-mono ${
@@ -2190,7 +2210,7 @@ export default function MobileServicesManager() {
                                                   )}
                                                 </span>
                                                 <span>
-                                                  Credit cost:{" "}
+                                                  {t("mobile.econ.creditCost")}{" "}
                                                   <span
                                                     className={
                                                       economics.creditCostLbp !=
@@ -2206,7 +2226,7 @@ export default function MobileServicesManager() {
                                                   </span>
                                                 </span>
                                                 <span>
-                                                  Recovered:{" "}
+                                                  {t("mobile.econ.recovered")}{" "}
                                                   <span
                                                     className={
                                                       economics.maxReturnedUsd !=
@@ -2229,15 +2249,17 @@ export default function MobileServicesManager() {
                                                       shifts with it. */}
                                                   {maxReturnedIsOverride && (
                                                     <span
-                                                      title={`Hand-set. A bare card returns $${computedMaxReturned}.`}
+                                                      title={t("mobile.econ.handSetCard", {
+                                                        value: computedMaxReturned,
+                                                      })}
                                                       className="ms-1 px-1 py-px rounded text-[9px] font-medium bg-sky-600/20 text-sky-400"
                                                     >
-                                                      override
+                                                      {t("mobile.econ.override")}
                                                     </span>
                                                   )}
                                                 </span>
                                                 <span>
-                                                  Rate/$:{" "}
+                                                  {t("mobile.econ.rate")}{" "}
                                                   <span
                                                     className={
                                                       economics.recoveredRateLbp !=
@@ -2257,7 +2279,7 @@ export default function MobileServicesManager() {
                                                   </span>
                                                 </span>
                                                 <span>
-                                                  Sell credit:{" "}
+                                                  {t("mobile.econ.sellCredit")}{" "}
                                                   <span className="text-slate-300 font-mono">
                                                     {formatNumber(sellCreditRef)}
                                                   </span>{" "}
@@ -2279,8 +2301,7 @@ export default function MobileServicesManager() {
                                                 null && (
                                                 <div className="mt-1">
                                                   <p className="text-[10px] text-slate-500 mb-0.5">
-                                                    Credit resale cost (per $1
-                                                    delivered):
+                                                    {t("mobile.econ.resaleTitle")}
                                                   </p>
                                                   <div className="flex gap-2">
                                                     {([1, 2, 3] as const).map(
@@ -2311,7 +2332,7 @@ export default function MobileServicesManager() {
                                                         return (
                                                           <span
                                                             key={chunk}
-                                                            title={`${chunk}$/SMS`}
+                                                            title={t("mobile.econ.chunkTitle", { n: chunk })}
                                                             className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
                                                               profitVal < 0
                                                                 ? "bg-red-900/30 text-red-400"
@@ -2335,7 +2356,7 @@ export default function MobileServicesManager() {
                                                             </span>
                                                             ){" "}
                                                             <span className="text-slate-500">
-                                                              · charge ≥{" "}
+                                                              {t("mobile.econ.chargeAtLeast")}{" "}
                                                               {formatNumber(breakEvenLbp)}
                                                             </span>
                                                           </span>
@@ -2366,8 +2387,7 @@ export default function MobileServicesManager() {
       </div>
 
       <p className="text-xs text-slate-500 italic">
-        Inactive items are dimmed and hidden from the card grid. Changes take
-        effect immediately.
+        {t("mobile.footnote")}
       </p>
     </div>
   );

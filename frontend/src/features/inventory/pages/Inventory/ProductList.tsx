@@ -442,7 +442,7 @@ export default function ProductList() {
     // `api` is the module-level ElectronApiAdapter singleton (api/adapter.ts)
     // handed down by ApiProvider — a stable reference, so listing it here
     // costs nothing and keeps this callback honest for exhaustive-deps.
-  }, [api, search, filters]);
+  }, [api, search, filters, t]);
 
   /** Distinct category/supplier values for the two dropdowns. Refreshed after
    *  mutations only — NOT on every debounced reload. */

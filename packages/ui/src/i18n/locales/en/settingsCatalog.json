@@ -99,6 +99,55 @@
     "addSubcategory": "Add subcategory",
     "deleteCategory": "Delete category",
     "addItem": "Add item",
-    "deleteSubcategory": "Delete subcategory"
+    "deleteSubcategory": "Delete subcategory",
+    "edit": {
+      "ord": "Ord:",
+      "val": "Val(d):",
+      "cred": "Cred($):",
+      "save": "Save item",
+      "cancel": "Cancel edit",
+      "daysCost": "Days cost:",
+      "resetDerived": "Reset to the derived value: cost − credits × {{rate}} LBP/$ = {{value}}",
+      "sellDays": "Sell days:",
+      "sellCredit": "Sell credit:",
+      "maxReturned": "Max returned ($):",
+      "resetComputed": "Reset to the computed bare-card value: {{value}}",
+      "enabled": "Enabled",
+      "incomplete": "Incomplete"
+    },
+    "split": {
+      "none": "No split",
+      "full": "Split",
+      "noDaysPrice": "Split, no days price"
+    },
+    "sortOrder": "Sort order",
+    "usdPair": "USD cost / sell",
+    "validityDays": "{{n}}d",
+    "creditAmount": "${{n}} credit",
+    "on": "ON",
+    "off": "OFF",
+    "econ": {
+      "daysCost": "Days cost:",
+      "matchesFormula": "Matches the formula: cost − credits × {{rate}} LBP/$",
+      "handSetFormula": "Hand-set. The formula at {{rate}} LBP/$ gives {{value}}.",
+      "derived": "derived",
+      "override": "override",
+      "daysSell": "Days sell:",
+      "daysMargin": "Days margin:",
+      "creditCost": "Credit cost:",
+      "recovered": "Recovered:",
+      "handSetCard": "Hand-set. A bare card returns ${{value}}.",
+      "rate": "Rate/$:",
+      "sellCredit": "Sell credit:",
+      "tier": {
+        "perItem": "per-item",
+        "shop": "shop setting",
+        "default": "default"
+      },
+      "resaleTitle": "Credit resale cost (per $1 delivered):",
+      "chunkTitle": "{{n}}$/SMS",
+      "chargeAtLeast": "· charge ≥"
+    },
+    "footnote": "Inactive items are dimmed and hidden from the card grid. Changes take effect immediately."
   }
 }

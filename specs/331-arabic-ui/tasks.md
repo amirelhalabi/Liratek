@@ -230,9 +230,9 @@ Each test builds the payload through the real builder or screen with `lng=en` an
 - [ ] T060 [P] [US1] `custom-services`. Namespace `customServices`. Depends on T049.
 - [ ] T061 [P] [US1] `maintenance`. Namespace `maintenance`. Depends on T049.
 - [ ] T062 [P] [US1] `loto`. Namespace `loto`. Depends on T049.
-- [ ] T063 [P] [US1] `inventory` + `clients` + `warranty` + `vouchers`. Namespaces `inventory`, `clients`, `warranty`, `vouchers`; one agent, or split into 4 tasks.
-- [ ] T064 [P] [US1] `settings`, except `MobileServicesManager.tsx`/`CategoriesManager.tsx` and the T031 selects. Namespace `settings`.
-- [ ] T065 [P] [US1] `settings` catalog: `MobileServicesManager.tsx` (123 KB) and `CategoriesManager.tsx`. Namespace `settingsCatalog`.
+- [x] T063 [P] [US1] `inventory` + `clients` + `warranty` + `vouchers`. Namespaces `inventory`, `clients`, `warranty`, `vouchers`; one agent, or split into 4 tasks.
+- [x] T064 [P] [US1] `settings`, except `MobileServicesManager.tsx`/`CategoriesManager.tsx` and the T031 selects. Namespace `settings`.
+- [x] T065 [P] [US1] `settings` catalog: `MobileServicesManager.tsx` (123 KB) and `CategoriesManager.tsx`. Namespace `settingsCatalog`.
 - [ ] T066 [P] [US1] `suppliers` + `partners`. Namespaces `suppliers`, `partners`. Depends on T049.
 - [ ] T067 [P] [US1] `profits`, with charts reversed in RTL. Namespace `profits`.
 - [ ] T068 [P] [US1] `audit` (Transactions viewer, detail panel, cells): type/direction/badge labels translated; stored `summary` shown as stored (OD-2, T090). Namespace `audit`.

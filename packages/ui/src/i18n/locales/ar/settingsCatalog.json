@@ -123,6 +123,55 @@
     "deleteCatConfirm_zero": "حذف الفئة \"{{name}}\"؟",
     "deleteCatConfirm_two": "حذف الفئة \"{{name}}\" وعنصريها؟",
     "deleteCatConfirm_few": "حذف الفئة \"{{name}}\" وكل عناصرها الـ {{count}}؟",
-    "deleteCatConfirm_many": "حذف الفئة \"{{name}}\" وكل عناصرها الـ {{count}}؟"
+    "deleteCatConfirm_many": "حذف الفئة \"{{name}}\" وكل عناصرها الـ {{count}}؟",
+    "edit": {
+      "ord": "ترتيب:",
+      "val": "صلاحية (يوم):",
+      "cred": "رصيد ($):",
+      "save": "حفظ العنصر",
+      "cancel": "إلغاء التعديل",
+      "daysCost": "كلفة الأيام:",
+      "resetDerived": "إعادة إلى القيمة المحسوبة: الكلفة − الرصيد × {{rate}} LBP/$ = {{value}}",
+      "sellDays": "سعر الأيام:",
+      "sellCredit": "سعر الرصيد:",
+      "maxReturned": "أقصى مرتجع ($):",
+      "resetComputed": "إعادة إلى قيمة البطاقة المحسوبة: {{value}}",
+      "enabled": "مفعّل",
+      "incomplete": "غير مكتمل"
+    },
+    "split": {
+      "none": "بلا تقسيم",
+      "full": "مقسّم",
+      "noDaysPrice": "مقسّم، بلا سعر أيام"
+    },
+    "sortOrder": "ترتيب العرض",
+    "usdPair": "الكلفة / السعر بالدولار",
+    "validityDays": "{{n}} يوم",
+    "creditAmount": "${{n}} رصيد",
+    "on": "تشغيل",
+    "off": "إيقاف",
+    "econ": {
+      "daysCost": "كلفة الأيام:",
+      "matchesFormula": "يطابق المعادلة: الكلفة − الرصيد × {{rate}} LBP/$",
+      "handSetFormula": "مُدخَل يدوياً. المعادلة عند {{rate}} LBP/$ تعطي {{value}}.",
+      "derived": "محسوب",
+      "override": "يدوي",
+      "daysSell": "سعر الأيام:",
+      "daysMargin": "هامش الأيام:",
+      "creditCost": "كلفة الرصيد:",
+      "recovered": "المُسترَد:",
+      "handSetCard": "مُدخَل يدوياً. البطاقة وحدها تُرجع ${{value}}.",
+      "rate": "السعر/$:",
+      "sellCredit": "سعر الرصيد:",
+      "tier": {
+        "perItem": "لكل عنصر",
+        "shop": "إعداد المحل",
+        "default": "افتراضي"
+      },
+      "resaleTitle": "كلفة إعادة بيع الرصيد (لكل $1 مُسلَّم):",
+      "chunkTitle": "{{n}}$/رسالة",
+      "chargeAtLeast": "· اطلب ≥"
+    },
+    "footnote": "العناصر المعطّلة تظهر باهتة وتُخفى من شبكة البطاقات. التغييرات تُطبَّق فوراً."
   }
 }

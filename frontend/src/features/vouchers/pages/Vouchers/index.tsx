@@ -89,7 +89,7 @@ export function VouchersPage() {
       setListError(result.error ?? t("page.loadFailed"));
     }
     setLoading(false);
-  }, [api]);
+  }, [api, t]);
 
   useEffect(() => {
     loadVouchers();
