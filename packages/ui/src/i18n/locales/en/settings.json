@@ -523,5 +523,58 @@
     "save": "Save",
     "displayMoved": "Display options moved to",
     "myAccount": "My account"
+  },
+  "reset": {
+    "group": {
+      "transactions": "Transactions & customer sessions",
+      "payments": "Payments & drawer movements",
+      "debts": "Debts & supplier/partner ledgers",
+      "clients": "Clients",
+      "stock": "Stock & purchases",
+      "recharges": "Recharges, money transfers & vouchers",
+      "carrierLines": "Carrier line history",
+      "exchange": "Exchange & wallet",
+      "loto": "Loto",
+      "maintenance": "Maintenance & custom services",
+      "warranty": "Warranty claims & supplier returns",
+      "expenses": "Expenses",
+      "audit": "Audit log",
+      "other": "Other"
+    },
+    "loadFailedShort": "Failed to load reset preview",
+    "warning": "This wipes all operational data for this shop and cannot be undone. Use it only to hand off a fresh, empty install.",
+    "keepsTitle": "This KEEPS",
+    "keeps": {
+      "users": "The admin account, every user, and everyone stays signed in",
+      "shop": "The shop name and base system configuration",
+      "modules": "Enabled modules and payment methods",
+      "currencies": "Currencies and exchange rates",
+      "drawers": "Drawer configuration (which currencies each drawer holds)",
+      "categories": "Your product categories",
+      "products": "Your products (names, barcodes, prices) — with stock and minimum stock set to 0",
+      "mobileServices": "Your Mobile Services items, including the ones you added",
+      "presets": "Your service presets",
+      "partners": "Your partners and suppliers — with balances set to 0",
+      "carrierLines": "Your MTC/Alfa carrier lines (phone numbers, labels, SIM expiry) — with credits set to 0",
+      "settings": "Every other Settings-page configuration"
+    },
+    "deletesTitle": "This DELETES",
+    "deletes": {
+      "transactions": "All transactions, sales, payments, and drawer movements",
+      "closings": "Closings, debts, and every supplier/partner ledger entry",
+      "clients": "Clients",
+      "stock": "Stock and stock history (stock batches, phone IMEIs, purchases)",
+      "services": "Recharges, money transfers, exchange, loto, maintenance jobs, custom services and expenses",
+      "sessions": "Customer sessions and the audit log"
+    },
+    "drawersZero": "Drawer balances are set to zero — the app will ask for opening amounts again the next time it's used.",
+    "previewTitle": "What will be removed",
+    "loadingPreview": "Loading preview...",
+    "slow": "This is taking longer than usual.",
+    "retry": "Retry",
+    "loadFailed": "Could not load the preview: {{error}}",
+    "empty": "Nothing to delete — the database is already empty.",
+    "totalRows": "Total rows",
+    "resetAll": "Reset All Data"
   }
 }
