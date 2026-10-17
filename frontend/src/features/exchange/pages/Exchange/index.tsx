@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import logger from "@/utils/logger";
 import {
   ArrowRightLeft,
@@ -18,6 +20,10 @@ import {
   type PaymentLine,
   type LinesSectionState,
 } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import { PaymentSheet } from "@/features/recharge/components/PaymentSheet";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -120,25 +126,22 @@ function toCurrencyRates(
 }
 
 /**
- * Format a leg rate with proper currency label.
- * e.g. "90,000 LBP per USD" or "1.1600 USD per EUR"
+ * The unit a leg's rate reads in, in the displayed language.
+ * e.g. "LBP per USD" (LBP-like: X LBP per 1 USD) or "USD per EUR"
+ * (EUR-like: X USD per 1 EUR). Empty when the pair has no rate row.
  */
-function formatLegRate(
+function legRateUnitText(
   fromCurrency: string,
   toCurrency: string,
-  rate: number,
   rates: CurrencyRate[],
+  t: TFunction<"exchange">,
 ): string {
   const nonUsd = fromCurrency === "USD" ? toCurrency : fromCurrency;
   const cr = rates.find((r) => r.to_code === nonUsd);
-  if (!cr) return rate.toLocaleString();
-  if (cr.is_stronger === 1) {
-    // LBP-like: rate = X LBP per 1 USD
-    return `${rate.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${nonUsd} per USD`;
-  } else {
-    // EUR-like: rate = X USD per 1 EUR
-    return `${rate.toFixed(4)} USD per ${nonUsd}`;
-  }
+  if (!cr) return "";
+  return cr.is_stronger === 1
+    ? t("calc.unitPerUsd", { code: nonUsd })
+    : t("calc.unitUsdPer", { code: nonUsd });
 }
 
 /**
@@ -161,7 +164,7 @@ function legRateUnit(
  */
 function formatAmount(amount: number, currency: string, decimals = 2): string {
   const d = currency === "LBP" ? 0 : decimals;
-  return `${amount.toLocaleString(undefined, { maximumFractionDigits: d })} ${currency}`;
+  return `${formatNumber(amount, { maximumFractionDigits: d })} ${currency}`;
 }
 
 /**
@@ -226,6 +229,8 @@ function CurrencySelector({
 }: CurrencySelectorProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const { t } = useTranslation("exchange");
+  const { t: tc } = useTranslation("common");
 
   // Fixed currencies always shown as buttons
   const fixedCodes = ["USD", "LBP"];
@@ -244,7 +249,7 @@ function CurrencySelector({
 
   // Is the selected currency one from the dropdown?
   const isDropdownSelection = selected && !fixedCodes.includes(selected);
-  const dropdownLabel = isDropdownSelection ? selected : "More";
+  const dropdownLabel = isDropdownSelection ? selected : t("calc.more");
 
   return (
     <div className="flex gap-1 bg-slate-900 p-1 rounded-lg relative">
@@ -286,14 +291,14 @@ function CurrencySelector({
         </button>
 
         {dropdownOpen && (
-          <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 w-48">
+          <div className="absolute top-full start-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 w-48">
             {/* Search input */}
             <div className="p-2 border-b border-slate-700/50">
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search currency..."
+                placeholder={t("calc.searchCurrency")}
                 className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
                 autoFocus
               />
@@ -309,7 +314,7 @@ function CurrencySelector({
                     setDropdownOpen(false);
                     setSearch("");
                   }}
-                  className={`w-full px-3 py-2 text-left text-xs font-medium transition-colors flex items-center justify-between ${
+                  className={`w-full px-3 py-2 text-start text-xs font-medium transition-colors flex items-center justify-between ${
                     selected === opt.code
                       ? "bg-violet-600/30 text-violet-300"
                       : "text-slate-300 hover:bg-slate-700"
@@ -321,7 +326,9 @@ function CurrencySelector({
               ))}
               {filteredOptions.length === 0 && (
                 <div className="px-3 py-2 text-xs text-slate-500">
-                  {dropdownOptions.length === 0 ? "Loading..." : "No match"}
+                  {dropdownOptions.length === 0
+                    ? tc("state.loading")
+                    : t("calc.noMatch")}
                 </div>
               )}
             </div>
@@ -336,6 +343,8 @@ function CurrencySelector({
 
 export default function Exchange() {
   const api = useApi();
+  const { t } = useTranslation("exchange");
+  const { t: tc } = useTranslation("common");
   const { activeSession, linkTransaction } = useSession();
   const { activeCurrencies: currencies, getDecimals } = useCurrencyContext();
 
@@ -791,17 +800,19 @@ export default function Exchange() {
       (m) => m.code === "CUSTOMER_ACCOUNT",
     );
     return [
-      ...(drawer.length > 0 ? drawer : [{ code: "CASH", label: "Cash" }]),
+      ...(drawer.length > 0
+        ? drawer
+        : [{ code: "CASH", label: tc("payment.CASH") }]),
       ...(customerCanOwe
         ? [
             {
               code: "CUSTOMER_ACCOUNT",
-              label: account?.label ?? "Customer Account",
+              label: account?.label ?? tc("payment.CUSTOMER_ACCOUNT"),
             },
           ]
         : []),
     ];
-  }, [allPaymentMethods, customerCanOwe]);
+  }, [allPaymentMethods, customerCanOwe, tc]);
   // The forgive cap is per currency (USD/LBP only — the same SHORTFALL_MAX
   // the server checks with isWithinShortfallMax).
   const customerMaxForgive =
@@ -892,7 +903,10 @@ export default function Exchange() {
             inputUsd > 0 ? (result.totalProfitUsd / inputUsd) * 100 : 0;
           if (profitPct > 10) {
             setProfitWarning(
-              `Unusually high profit: $${result.totalProfitUsd.toFixed(2)} USD (${profitPct.toFixed(1)}% of input). Please verify your rates.`,
+              t("calc.highProfit", {
+                profit: result.totalProfitUsd.toFixed(2),
+                pct: profitPct.toFixed(1),
+              }),
             );
           } else {
             setProfitWarning(null);
@@ -905,12 +919,12 @@ export default function Exchange() {
         setProfitWarning(null);
       }
     } catch (err) {
-      setCalcError(err instanceof Error ? err.message : "Calculation error");
+      setCalcError(err instanceof Error ? err.message : t("calc.error"));
       setCalcResult(null);
       setAmountOut("");
       setProfitWarning(null);
     }
-  }, [amountIn, fromCurrency, toCurrency, effectiveRates, getDecimals]);
+  }, [amountIn, fromCurrency, toCurrency, effectiveRates, getDecimals, t]);
 
   useEffect(() => {
     recalculate();
@@ -966,7 +980,10 @@ export default function Exchange() {
       inputUsd > 0 ? (effectiveResult.totalProfitUsd / inputUsd) * 100 : 0;
     if (profitPct > 10) {
       setProfitWarning(
-        `Unusually high profit: $${effectiveResult.totalProfitUsd.toFixed(2)} USD (${profitPct.toFixed(1)}% of input). Please verify your rates.`,
+        t("calc.highProfit", {
+          profit: effectiveResult.totalProfitUsd.toFixed(2),
+          pct: profitPct.toFixed(1),
+        }),
       );
     } else {
       setProfitWarning(null);
@@ -978,6 +995,7 @@ export default function Exchange() {
     lotPreviewLoading,
     amountIn,
     fromCurrency,
+    t,
   ]);
 
   // EXCHANGE_LOT_SETTLEMENT.md Q10 — debounced FIFO realized-profit preview
@@ -1148,11 +1166,11 @@ export default function Exchange() {
     const out = parseFloat(amountOut);
 
     if (!inp || !out || !effectiveResult) {
-      alert("Please enter a valid amount.");
+      alert(t("errors.validAmount"));
       return;
     }
     if (forPartner && !selectedPartnerId) {
-      alert("Select a partner for this exchange.");
+      alert(t("errors.selectPartner"));
       return;
     }
 
@@ -1202,7 +1220,8 @@ export default function Exchange() {
         viaCurrency: effectiveResult.viaCurrency ?? undefined,
         totalProfitUsd: effectiveResult.totalProfitUsd,
         clientName: clientName || undefined,
-        note: `Exchange ${fromCurrency} → ${toCurrency}${effectiveResult.viaCurrency ? ` via ${effectiveResult.viaCurrency}` : ""}`,
+        // Stored English note: data, never translated (OD-2, research R9).
+        note: `Exchange ${fromCurrency} → ${toCurrency}${effectiveResult.viaCurrency ? ` via ${effectiveResult.viaCurrency}` : ""}`, // i18n-exempt: stored note
         fromCurrencyName: CURRENCY_NAMES[fromCurrency] ?? fromCurrency,
         toCurrencyName: CURRENCY_NAMES[toCurrency] ?? toCurrency,
         transaction_time: transactionTime,
@@ -1275,7 +1294,7 @@ export default function Exchange() {
         }
         appEvents.emit(
           "notification:show",
-          "Exchange processed successfully",
+          t("toast.processed"),
           "success",
         );
         setAmountIn(0);
@@ -1296,13 +1315,13 @@ export default function Exchange() {
         setPayoutTenderRate(undefined);
         loadHistory();
       } else {
-        alert("Error: " + result.error);
+        alert(t("errors.withReason", { error: result.error }));
       }
     } catch (error) {
       logger.error("Operation failed", { error });
       // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to be
       // discarded here in favor of this hardcoded string.
-      alert(getApiErrorMessage(error, "Transaction failed"));
+      alert(getApiErrorMessage(error, t("errors.failed")));
     } finally {
       setIsSubmitting(false);
       setIsSubmittingPartner(false);
@@ -1404,10 +1423,10 @@ export default function Exchange() {
         setCalcError(null);
       } catch (err) {
         logger.error("Reverse exchange calculation failed", err);
-        setCalcError(err instanceof Error ? err.message : "Calculation error");
+        setCalcError(err instanceof Error ? err.message : t("calc.error"));
       }
     },
-    [fromCurrency, toCurrency, overrideAdjustedRates],
+    [fromCurrency, toCurrency, overrideAdjustedRates, t],
   );
 
   // Typing into "You Receive" is forward mode — it always wins over
@@ -1461,7 +1480,7 @@ export default function Exchange() {
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
-        title="Exchange"
+        title={t("page.title")}
         actions={
           <>
             {/* Your Rates — the shop's own configured buy/sell spreads and the
@@ -1470,24 +1489,24 @@ export default function Exchange() {
             <button
               data-testid="exchange-your-rates-button"
               onClick={() => setShowRatesModal(true)}
-              title="Your configured rates"
+              title={t("rates.configuredAria")}
               className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
             >
               <Info size={16} />
-              <span className="font-medium">Your Rates</span>
+              <span className="font-medium">{t("rates.yourRates")}</span>
             </button>
             <button
               onClick={() => setShowHistoryModal(true)}
               className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
             >
               <History size={16} />
-              <span className="font-medium">History</span>
+              <span className="font-medium">{t("page.history")}</span>
             </button>
           </>
         }
       />
 
-      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
+      <div className="flex-1 min-h-0 overflow-y-auto -me-6 pe-6 pb-6">
         <div className="w-full max-w-6xl mx-auto flex flex-col gap-6">
           <div className="w-full flex flex-col lg:flex-row lg:items-stretch gap-6">
             {/* ── Exchange Calculator ── */}
@@ -1496,7 +1515,7 @@ export default function Exchange() {
               <div className="flex items-center gap-2">
                 <div className="flex-1">
                   <span className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                    From
+                    {t("calc.from")}
                   </span>
                   <CurrencySelector
                     selected={fromCurrency}
@@ -1515,7 +1534,7 @@ export default function Exchange() {
 
                 <div className="flex-1">
                   <span className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                    To
+                    {t("calc.to")}
                   </span>
                   <CurrencySelector
                     selected={toCurrency}
@@ -1548,8 +1567,7 @@ export default function Exchange() {
               {toIsLotTracked && lotPreviewError && (
                 <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 px-3 py-2 rounded border border-amber-500/20">
                   <AlertCircle size={14} className="shrink-0" />
-                  Realized-profit preview unavailable — profit will be computed
-                  at submit
+                  {t("calc.previewUnavailable")}
                 </div>
               )}
 
@@ -1559,7 +1577,7 @@ export default function Exchange() {
                 <div className="bg-slate-900/60 rounded-xl border border-amber-500/20 p-3 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
-                      ⚡ Cross-Currency via USD
+                      {t("calc.crossViaUsd")}
                     </span>
                     <span
                       data-testid="exchange-cross-total-profit"
@@ -1573,8 +1591,11 @@ export default function Exchange() {
                       lot-tracked "Realized profit" line) — `.toFixed(4)`
                       already prints its own "-" for a negative number, which
                       would otherwise land after the "$" as "$-0.6480". */}
-                      Total {displayTotalProfitUsd >= 0 ? "+" : "-"}$
-                      {Math.abs(displayTotalProfitUsd).toFixed(4)}
+                      {t("calc.total")}{" "}
+                      <Ltr>
+                        {displayTotalProfitUsd >= 0 ? "+" : "-"}$
+                        {Math.abs(displayTotalProfitUsd).toFixed(4)}
+                      </Ltr>
                     </span>
                   </div>
                   {effectiveResult.legs.map((leg, i) => {
@@ -1590,17 +1611,29 @@ export default function Exchange() {
                         <span className="w-4 h-4 rounded-full bg-slate-700 text-slate-400 text-[10px] font-bold flex items-center justify-center shrink-0">
                           {i + 1}
                         </span>
-                        <span className="font-mono text-slate-300 whitespace-nowrap">
+                        <span
+                          className="font-mono text-slate-300 whitespace-nowrap"
+                          dir="ltr"
+                        >
                           {formatAmount(leg.amountIn, leg.fromCurrency)}
                           <span className="text-slate-500"> → </span>
                           {formatAmount(leg.amountOut, leg.toCurrency)}
                         </span>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
                           data-testid={`exchange-cross-rate-input-${i + 1}`}
                           value={customRates[i] ?? leg.rate}
-                          onChange={(e) => handleRateChange(i, e.target.value)}
-                          title={`Rate (${legRateUnit(leg.fromCurrency, leg.toCurrency, effectiveRates)})`}
+                          onChange={(e) =>
+                            handleRateChange(i, normalizeDigits(e.target.value))
+                          }
+                          title={t("calc.rateTitle", {
+                            unit: legRateUnit(
+                              leg.fromCurrency,
+                              leg.toCurrency,
+                              effectiveRates,
+                            ),
+                          })}
                           className={`flex-1 min-w-[70px] bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
                             rateOverridden[i]
                               ? "border-amber-500/60 bg-amber-500/10"
@@ -1618,7 +1651,7 @@ export default function Exchange() {
                           <button
                             onClick={() => resetRate(i)}
                             className="text-xs text-slate-500 hover:text-white transition-colors shrink-0"
-                            title="Reset to default rate"
+                            title={t("calc.resetRate")}
                           >
                             ↺
                           </button>
@@ -1639,15 +1672,18 @@ export default function Exchange() {
                                 ? "text-slate-500"
                                 : "text-red-400"
                             }`}
-                            title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold. Shown here is what it would book if sold today at market."
+                            title={t("calc.deferredTitle")}
                           >
-                            {leg.profitUsd >= 0 ? "+" : "-"}$
-                            {Math.abs(leg.profitUsd).toFixed(2)} books at sale
-                            {leg.profitUsd < 0 ? " (loss)" : ""}
+                            <Ltr>
+                              {leg.profitUsd >= 0 ? "+" : "-"}$
+                              {Math.abs(leg.profitUsd).toFixed(2)}
+                            </Ltr>{" "}
+                            {t("calc.booksAtSale")}
+                            {leg.profitUsd < 0 ? t("calc.lossSuffix") : ""}
                           </span>
                         ) : isConsumeLeg && lotPreviewLoading && !lotPreview ? (
                           <span className="text-[10px] text-slate-500 whitespace-nowrap shrink-0">
-                            Calculating…
+                            {t("calc.calculating")}
                           </span>
                         ) : (
                           <span
@@ -1658,8 +1694,10 @@ export default function Exchange() {
                                 : "text-red-400"
                             }`}
                           >
-                            {legProfit >= 0 ? "+" : "-"}$
-                            {Math.abs(legProfit).toFixed(4)}
+                            <Ltr>
+                              {legProfit >= 0 ? "+" : "-"}$
+                              {Math.abs(legProfit).toFixed(4)}
+                            </Ltr>
                           </span>
                         )}
                       </div>
@@ -1667,16 +1705,17 @@ export default function Exchange() {
                   })}
                   {toIsLotTracked && lotPreview?.lotTracked && (
                     <div className="text-[10px] text-slate-500 pt-1">
-                      FIFO vs cost basis
+                      {t("calc.fifo")}
                       {lotPreview.marketQty > 0 && (
                         <span className="text-amber-400">
                           {" "}
                           ·{" "}
-                          {lotPreview.marketQty.toLocaleString(undefined, {
-                            maximumFractionDigits: 4,
-                          })}{" "}
-                          {toCurrency} uncovered — settled at today's market
-                          rate
+                          {t("calc.uncovered", {
+                            qty: formatNumber(lotPreview.marketQty, {
+                              maximumFractionDigits: 4,
+                            }),
+                            code: toCurrency,
+                          })}
                         </span>
                       )}
                     </div>
@@ -1690,8 +1729,7 @@ export default function Exchange() {
                     lotPreview?.lotTracked === false &&
                     lotPreview.reason === "NO_RATE_ANCHOR" && (
                       <div className="text-[10px] text-amber-400 pt-1">
-                        Cost-basis tracking unavailable for this pair —
-                        configure a rate in Settings to enable it
+                        {t("calc.noAnchor")}
                       </div>
                     )}
                 </div>
@@ -1702,15 +1740,18 @@ export default function Exchange() {
                 <div className="bg-slate-900/50 px-3 py-2 rounded border border-slate-700 space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-400 shrink-0">
-                      Rate:
+                      {t("calc.rate")}
                     </span>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       data-testid="exchange-direct-rate-input"
                       value={
                         customRates[0] ?? effectiveResult.legs[0]?.rate ?? ""
                       }
-                      onChange={(e) => handleRateChange(0, e.target.value)}
+                      onChange={(e) =>
+                        handleRateChange(0, normalizeDigits(e.target.value))
+                      }
                       className={`flex-1 bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
                         rateOverridden[0]
                           ? "border-amber-500/60 bg-amber-500/10"
@@ -1719,22 +1760,19 @@ export default function Exchange() {
                     />
                     <span className="text-xs text-slate-500 shrink-0">
                       {effectiveResult.legs[0]
-                        ? formatLegRate(
+                        ? legRateUnitText(
                             effectiveResult.legs[0].fromCurrency,
                             effectiveResult.legs[0].toCurrency,
-                            effectiveResult.legs[0].rate,
                             effectiveRates,
+                            t,
                           )
-                            .split(" ")
-                            .slice(1)
-                            .join(" ")
                         : ""}
                     </span>
                     {rateOverridden[0] && (
                       <button
                         onClick={() => resetRate(0)}
                         className="text-xs text-slate-500 hover:text-white transition-colors"
-                        title="Reset to default rate"
+                        title={t("calc.resetRate")}
                       >
                         ↺
                       </button>
@@ -1744,19 +1782,18 @@ export default function Exchange() {
                     {fromIsLotTracked ? (
                       <span
                         className="text-slate-500 italic"
-                        title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold."
+                        title={t("calc.buyTitle")}
                       >
-                        Buy — profit books when this {fromCurrency} is later
-                        sold (cost-basis lot)
+                        {t("calc.buyBooksLater", { code: fromCurrency })}
                       </span>
                     ) : toIsLotTracked ? (
                       lotPreviewLoading && !lotPreview ? (
                         <span className="text-slate-500">
-                          Calculating realized profit…
+                          {t("calc.calculatingRealized")}
                         </span>
                       ) : (
                         <span className="text-slate-400">
-                          Realized profit:{" "}
+                          {t("calc.realizedProfit")}{" "}
                           <span
                             className={`font-bold ${
                               displayTotalProfitUsd >= 0
@@ -1764,16 +1801,19 @@ export default function Exchange() {
                                 : "text-red-400"
                             }`}
                           >
-                            {displayTotalProfitUsd >= 0 ? "" : "-"}$
-                            {Math.abs(displayTotalProfitUsd).toFixed(4)} USD
+                            <Ltr>
+                              {displayTotalProfitUsd >= 0 ? "" : "-"}$
+                              {Math.abs(displayTotalProfitUsd).toFixed(4)} USD
+                            </Ltr>
                           </span>
                         </span>
                       )
                     ) : (
                       <span className="text-slate-400">
-                        Profit:{" "}
+                        {t("calc.profit")}{" "}
                         <span
                           data-testid="exchange-direct-total-profit"
+                          dir="ltr"
                           className={`font-bold ${
                             displayTotalProfitUsd >= 0
                               ? "text-emerald-400"
@@ -1787,22 +1827,23 @@ export default function Exchange() {
                     )}
                     {rateOverridden[0] && (
                       <span className="text-amber-400 text-xs">
-                        ⚡ Custom rate
+                        {t("calc.customRate")}
                       </span>
                     )}
                   </div>
                   {toIsLotTracked && lotPreview?.lotTracked && (
                     <div className="text-[10px] text-slate-500">
-                      FIFO vs cost basis
+                      {t("calc.fifo")}
                       {lotPreview.marketQty > 0 && (
                         <span className="text-amber-400">
                           {" "}
                           ·{" "}
-                          {lotPreview.marketQty.toLocaleString(undefined, {
-                            maximumFractionDigits: 4,
-                          })}{" "}
-                          {toCurrency} uncovered — settled at today's market
-                          rate
+                          {t("calc.uncovered", {
+                            qty: formatNumber(lotPreview.marketQty, {
+                              maximumFractionDigits: 4,
+                            }),
+                            code: toCurrency,
+                          })}
                         </span>
                       )}
                     </div>
@@ -1814,8 +1855,7 @@ export default function Exchange() {
                     lotPreview?.lotTracked === false &&
                     lotPreview.reason === "NO_RATE_ANCHOR" && (
                       <div className="text-[10px] text-amber-400">
-                        Cost-basis tracking unavailable for this pair —
-                        configure a rate in Settings to enable it
+                        {t("calc.noAnchor")}
                       </div>
                     )}
                 </div>
@@ -1825,17 +1865,17 @@ export default function Exchange() {
               <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                    You Receive ({fromCurrency})
+                    {t("calc.youReceive", { code: fromCurrency })}
                   </label>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold z-10 pointer-events-none">
+                    <span className="absolute start-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold z-10 pointer-events-none">
                       {getCurrencySymbol(fromCurrency)}
                     </span>
                     <DecimalInput
                       value={amountIn}
                       onChange={handleAmountInChange}
                       decimals={getDecimals(fromCurrency)}
-                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-14 pr-4 py-4 text-xl font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                      className="w-full bg-slate-800/50 border border-slate-700 rounded-lg ps-14 pe-4 py-4 text-xl font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors"
                       placeholder="0.00"
                     />
                   </div>
@@ -1843,16 +1883,21 @@ export default function Exchange() {
 
                 <div className="flex items-center justify-center -my-1">
                   <div className="bg-slate-700 rounded-full p-1.5 border-4 border-slate-800">
-                    <ArrowRight size={16} className="text-slate-400" />
+                    <DirIcon
+                      icon={ArrowRight}
+                      width={16}
+                      height={16}
+                      className="text-slate-400"
+                    />
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                    Customer Gets
+                    {t("calc.customerGets")}
                     {toCurrency !== "USD" && toCurrency !== "LBP" && (
-                      <span className="ml-1 normal-case text-slate-500">
-                        ({toCurrency} equivalent)
+                      <span className="ms-1 normal-case text-slate-500">
+                        {t("calc.equivalent", { code: toCurrency })}
                       </span>
                     )}
                   </label>
@@ -1878,11 +1923,11 @@ export default function Exchange() {
                         onChange={handleTargetAmountChange}
                         decimals={getDecimals(toCurrency)}
                         zeroAsEmpty
-                        className="w-full rounded-lg pl-4 pr-16 py-4 text-xl font-bold bg-slate-800/80 border border-violet-500/50 text-white focus:outline-none focus:border-violet-400 transition-colors"
+                        className="w-full rounded-lg ps-4 pe-16 py-4 text-xl font-bold bg-slate-800/80 border border-violet-500/50 text-white focus:outline-none focus:border-violet-400 transition-colors"
                         placeholder="0.00"
                         data-testid="exchange-target-exotic-input"
                       />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-violet-300">
+                      <span className="absolute end-4 top-1/2 -translate-y-1/2 text-xs font-medium text-violet-300">
                         {toCurrency}
                       </span>
                     </div>
@@ -1898,7 +1943,7 @@ export default function Exchange() {
                     {/* USD output */}
                     <div className="relative flex-1 min-w-0">
                       <span
-                        className={`absolute left-4 top-1/2 -translate-y-1/2 font-bold ${
+                        className={`absolute start-4 top-1/2 -translate-y-1/2 font-bold ${
                           usdIsPayout ? "text-red-400" : "text-slate-500"
                         }`}
                       >
@@ -1913,7 +1958,7 @@ export default function Exchange() {
                           onChange={handleTargetAmountChange}
                           decimals={getDecimals("USD")}
                           zeroAsEmpty
-                          className="w-full rounded-lg pl-9 pr-12 py-4 text-xl font-bold bg-slate-800/80 border border-violet-500/50 text-white focus:outline-none focus:border-violet-400 transition-colors"
+                          className="w-full rounded-lg ps-9 pe-12 py-4 text-xl font-bold bg-slate-800/80 border border-violet-500/50 text-white focus:outline-none focus:border-violet-400 transition-colors"
                           placeholder="0.00"
                           data-testid="exchange-target-usd-input"
                         />
@@ -1922,20 +1967,20 @@ export default function Exchange() {
                           type="text"
                           value={
                             outputDual
-                              ? `≈ ${outputDual.usd.toLocaleString(undefined, {
+                              ? `≈ ${formatNumber(outputDual.usd, {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
                                 })}`
                               : ""
                           }
                           readOnly
-                          className="w-full rounded-lg pl-9 pr-12 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/40 border border-slate-700/60 text-slate-500"
+                          className="w-full rounded-lg ps-9 pe-12 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/40 border border-slate-700/60 text-slate-500"
                           placeholder="0.00"
                           data-testid="exchange-dimmed-usd-input"
                         />
                       )}
                       <span
-                        className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
+                        className={`absolute end-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
                           usdIsPayout ? "text-violet-300" : "text-slate-600"
                         }`}
                       >
@@ -1944,7 +1989,7 @@ export default function Exchange() {
                     </div>
 
                     <span className="text-[11px] font-semibold text-slate-500 uppercase shrink-0">
-                      or
+                      {t("calc.or")}
                     </span>
 
                     {/* LBP output */}
@@ -1958,7 +2003,7 @@ export default function Exchange() {
                           onChange={handleTargetAmountChange}
                           decimals={getDecimals("LBP")}
                           zeroAsEmpty
-                          className="w-full rounded-lg pl-4 pr-12 py-4 text-xl font-bold bg-slate-800/80 border border-violet-500/50 text-white focus:outline-none focus:border-violet-400 transition-colors"
+                          className="w-full rounded-lg ps-4 pe-12 py-4 text-xl font-bold bg-slate-800/80 border border-violet-500/50 text-white focus:outline-none focus:border-violet-400 transition-colors"
                           placeholder="0"
                           data-testid="exchange-target-lbp-input"
                         />
@@ -1967,17 +2012,17 @@ export default function Exchange() {
                           type="text"
                           value={
                             outputDual
-                              ? `≈ ${Math.round(outputDual.lbp).toLocaleString()}`
+                              ? `≈ ${formatNumber(Math.round(outputDual.lbp))}`
                               : ""
                           }
                           readOnly
-                          className="w-full rounded-lg pl-4 pr-12 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/40 border border-slate-700/60 text-slate-500"
+                          className="w-full rounded-lg ps-4 pe-12 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/40 border border-slate-700/60 text-slate-500"
                           placeholder="0"
                           data-testid="exchange-dimmed-lbp-input"
                         />
                       )}
                       <span
-                        className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
+                        className={`absolute end-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
                           lbpIsPayout ? "text-violet-300" : "text-slate-600"
                         }`}
                       >
@@ -2017,12 +2062,13 @@ export default function Exchange() {
                   testId="exchange-partner-no-payment-notice"
                   tone="violet"
                 >
-                  Partner exchange: nothing is collected now — the full{" "}
+                  {t("partner.noticeStart")}{" "}
                   <span className="font-bold">
-                    {amountIn.toLocaleString()} {fromCurrency}
+                    <Ltr>
+                      {formatNumber(amountIn)} {fromCurrency}
+                    </Ltr>
                   </span>{" "}
-                  goes on the partner&apos;s account, settled on the Partners
-                  page.
+                  {t("partner.noticeEnd")}
                 </ForPartnerNotice>
               )}
               {/* LIRA-321: the shared client picker (saved client → id +
@@ -2034,7 +2080,7 @@ export default function Exchange() {
                   htmlFor="exchange-client-name"
                   className="block text-xs font-medium text-slate-400 mb-1 uppercase"
                 >
-                  Client Name (Optional)
+                  {t("client.nameOptional")}
                 </label>
                 <ClientAutocompleteInput
                   id="exchange-client-name"
@@ -2043,14 +2089,22 @@ export default function Exchange() {
                   onClientSelect={handleClientSelect}
                   showDebtBadge
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
-                  placeholder="Walk-in Client"
+                  placeholder={t("client.walkIn")}
                 />
                 {clientId !== null && (
                   <div
                     data-testid="exchange-linked-client"
                     className="mt-1 text-xs text-emerald-300"
                   >
-                    Linked client{clientPhone ? ` · ${clientPhone}` : ""}
+                    {t("client.linked")}
+                    {clientPhone ? (
+                      <>
+                        {" · "}
+                        <Ltr>{clientPhone}</Ltr>
+                      </>
+                    ) : (
+                      ""
+                    )}
                   </div>
                 )}
               </div>
@@ -2061,6 +2115,7 @@ export default function Exchange() {
               />
 
               <button
+                data-testid="exchange-submit"
                 onClick={() => {
                   // Split payout (2026-07-30): USD/LBP-target walk-in exchanges
                   // confirm through the PaymentSheet so the payout can be split;
@@ -2097,10 +2152,10 @@ export default function Exchange() {
                 className="w-full py-4 mt-2 rounded-xl font-bold text-lg bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {forPartner
-                  ? "Submit to Partner"
+                  ? t("submit.partner")
                   : canSplitPayout
-                    ? "Proceed to Payout"
-                    : "Confirm Exchange"}
+                    ? t("submit.payout")
+                    : t("submit.confirm")}
               </button>
             </div>
 
@@ -2147,22 +2202,26 @@ export default function Exchange() {
         onConfirm={() => void handleProcess(payoutLines)}
         isSubmitting={isSubmitting}
         confirmDisabled={customerConfirmBlocked}
-        title="Confirm Payout"
+        title={t("sheet.title")}
         {...(effectiveResult
           ? {
-              subtitle: `Pay customer — ${formatAmount(effectiveResult.totalAmountOut, toCurrency)}`,
-              confirmLabel: `Pay ${formatAmount(effectiveResult.totalAmountOut, toCurrency)}`,
+              subtitle: t("sheet.subtitle", {
+                amount: formatAmount(effectiveResult.totalAmountOut, toCurrency),
+              }),
+              confirmLabel: t("sheet.confirm", {
+                amount: formatAmount(effectiveResult.totalAmountOut, toCurrency),
+              }),
             }
           : {})}
         accentColor="bg-violet-600 hover:bg-violet-500 text-white"
         summary={[
           {
-            label: `You receive (${fromCurrency})`,
+            label: t("sheet.youReceive", { code: fromCurrency }),
             value: formatAmount(amountIn, fromCurrency),
             color: "text-emerald-400",
           },
           {
-            label: `Customer gets (${toCurrency})`,
+            label: t("sheet.customerGets", { code: toCurrency }),
             value: effectiveResult
               ? formatAmount(effectiveResult.totalAmountOut, toCurrency)
               : "",
@@ -2182,7 +2241,7 @@ export default function Exchange() {
         paymentMethods={
           allPaymentMethods.filter((m) => m.code === "CASH").length > 0
             ? allPaymentMethods.filter((m) => m.code === "CASH")
-            : [{ code: "CASH", label: "Cash" }]
+            : [{ code: "CASH", label: tc("payment.CASH") }]
         }
         {...(payoutSeedRate !== undefined
           ? { exchangeRate: payoutSeedRate }
@@ -2197,7 +2256,7 @@ export default function Exchange() {
         {...(canSplitPayout && fromCurrency && amountIn > 0
           ? {
               counterFlow: {
-                label: "Customer pays",
+                label: t("sheet.customerPays"),
                 totalAmount: amountIn,
                 currency: fromCurrency,
                 lockCurrency: true,
@@ -2224,7 +2283,7 @@ export default function Exchange() {
               htmlFor="exchange-sheet-client-name"
               className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1"
             >
-              Client
+              {t("client.label")}
             </label>
             <ClientAutocompleteInput
               id="exchange-sheet-client-name"
@@ -2233,11 +2292,19 @@ export default function Exchange() {
               onClientSelect={handleClientSelect}
               showDebtBadge
               className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors"
-              placeholder="Walk-in Client"
+              placeholder={t("client.walkIn")}
             />
             {clientId !== null && (
               <div className="mt-1 text-xs text-emerald-300">
-                Linked client{clientPhone ? ` · ${clientPhone}` : ""}
+                {t("client.linked")}
+                {clientPhone ? (
+                  <>
+                    {" · "}
+                    <Ltr>{clientPhone}</Ltr>
+                  </>
+                ) : (
+                  ""
+                )}
               </div>
             )}
           </div>
@@ -2276,10 +2343,12 @@ export default function Exchange() {
       {showLossConfirm && lotPreview?.lotTracked && (
         <ConfirmModal
           isOpen={showLossConfirm}
-          title="Confirm Loss"
-          message={`This sale realizes -$${Math.abs(lotPreview.realizedProfitUsd).toFixed(2)} against acquisition cost — proceed?`}
-          confirmLabel="Proceed Anyway"
-          cancelLabel="Cancel"
+          title={t("loss.title")}
+          message={t("loss.message", {
+            amount: Math.abs(lotPreview.realizedProfitUsd).toFixed(2),
+          })}
+          confirmLabel={t("loss.proceed")}
+          cancelLabel={tc("actions.cancel")}
           variant="warning"
           onConfirm={() => {
             setShowLossConfirm(false);
