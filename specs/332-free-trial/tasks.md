@@ -140,26 +140,26 @@ Line numbers drift: search for the named symbol.
 
 ### Tests (write first, see them fail)
 
-- [ ] T014 [P] [US1] In `packages/core/src/services/__tests__/TenantProvisioning.trial.test.ts` (new), shared mode:
+- [x] T014 [P] [US1] In `packages/core/src/services/__tests__/TenantProvisioning.trial.test.ts` (new), shared mode:
   - `provisionTenant({..., trial:{source:"invite_link"}})` → a row with `trial_ends_at` = `trialEndFor(now)`;
   - **without** `trial` → a row deep-equal to today's (FR-004);
   - an admin-user failure rolls back, leaving no tenant and no subscription row.
 
   Rewrite the T002 assertions in `TenantProvisioning.subscription.test.ts` so they state "no trial **when not requested**", not "never".
-- [ ] T015 [P] [US1] In `backend/src/database/__tests__/perTenantStorageProvisioner.test.ts`: with `subscriptionSeed` carrying a trial, the PLATFORM row has `trial_ends_at` and the shop file has no `tenant_subscriptions` rows (§ 12.2 unchanged). Without a seed, the row is today's literal. Fails today, because PTP hard-codes the literal.
-- [ ] T016 [P] [US1] In `backend/src/api/__tests__/signup.trial.api.test.ts` (new):
+- [x] T015 [P] [US1] In `backend/src/database/__tests__/perTenantStorageProvisioner.test.ts`: with `subscriptionSeed` carrying a trial, the PLATFORM row has `trial_ends_at` and the shop file has no `tenant_subscriptions` rows (§ 12.2 unchanged). Without a seed, the row is today's literal. Fails today, because PTP hard-codes the literal.
+- [x] T016 [P] [US1] In `backend/src/api/__tests__/signup.trial.api.test.ts` (new):
   - invite-link signup, both a `source='self'` invite and an owner-sent invite → `standing:"trial"`, `daysLeft:14`;
   - `POST /api/admin/tenants` → `standing:"active"`, `trial:null` (FR-004);
   - no payment field is accepted or required (FR-003).
 
   Rewrite the T002 assertions in `signup.api.test.ts`.
-- [ ] T017 [P] [US1] Google sign-up (in `googleAuth.api.test.ts`, the existing sign-up describe): the new shop is on a trial, and a signup audit row exists with `metadata.via === "google"`. Rewrite the T002 assertions.
-- [ ] T018 [P] [US1] In `backend/src/api/__tests__/subscriptionStatus.trial.api.test.ts` (new):
+- [x] T017 [P] [US1] Google sign-up (in `googleAuth.api.test.ts`, the existing sign-up describe): the new shop is on a trial, and a signup audit row exists with `metadata.via === "google"`. Rewrite the T002 assertions.
+- [x] T018 [P] [US1] In `backend/src/api/__tests__/subscriptionStatus.trial.api.test.ts` (new):
   - `GET /api/subscription/status` returns `standing`, `trial` and `shop:{name,address}` for a trial tenant;
   - both fallbacks (platform user, no row) return `standing:"active"`, `trial:null` (SC-006);
   - **FR-021 guard**: `GET /api/subscription/by-key` for a trial tenant that holds a licence key returns `status:"active"` and **no** `standing`, `trial` or `shop` keys.
-- [ ] T019 [P] [US1] Desktop guard in `electron-app/__tests__/licenseSync.trial.test.ts` (new, jest only): a `/by-key` response for a trial tenant leaves the local row `active` with no trial, and `getSubscriptionStatus` on desktop reports no trial (FR-021).
-- [ ] T020 [P] [US1] In `frontend/src/shared/components/__tests__/SubscriptionBanner.trial.test.tsx` (new). The `getSubscriptionStatus` mock returns a stable object (rule 25). It covers:
+- [x] T019 [P] [US1] Desktop guard in `electron-app/__tests__/licenseSync.trial.test.ts` (new, jest only): a `/by-key` response for a trial tenant leaves the local row `active` with no trial, and `getSubscriptionStatus` on desktop reports no trial (FR-021).
+- [x] T020 [P] [US1] In `frontend/src/shared/components/__tests__/SubscriptionBanner.trial.test.tsx` (new). The `getSubscriptionStatus` mock returns a stable object (rule 25). It covers:
   - `trial` with 12 days → `trial-strip` reads "Free trial: 12 days left";
   - 1 day → "Last day of your free trial";
   - 3 days → the ends-soon text with `lastDay`;
@@ -169,18 +169,18 @@ Line numbers drift: search for the named symbol.
 
 ### Implementation
 
-- [ ] T021 [US1] In TPS, add `ProvisionTenantData.trial?: { source: "invite_link" | "google" }`. The seed is chosen once as `data.trial ? trialSubscriptionSeed(now) : payingSubscriptionSeed()` and passed in `CreateTenantStorageInput.subscriptionSeed` (a new optional field in TSP). `SharedTenantStorageProvisioner.createTenant` uses `input.subscriptionSeed ?? payingSubscriptionSeed()` in place of its literal. Makes T014 pass.
-- [ ] T022 [US1] In PTP step (a), use `input.subscriptionSeed ?? payingSubscriptionSeed()` in place of the hard-coded `createForTenant` literal, in the same platform transaction. Makes T015 pass.
-- [ ] T023 [US1] In `backend/src/api/auth.ts`, the invite-link `/signup` handler: pass `trial: { source: "invite_link" }` into `provisionTenant`. This covers both the self-requested and the owner-sent invites (FR-001).
-- [ ] T024 [US1] In `backend/src/api/googleSignup.ts`: pass `trial: { source: "google" }`. If the route writes no self-service signup audit row, add one that mirrors auth.ts (`metadata.via:"google"`, actor = the new admin, wrapped so it can never fail the committed sign-up). Makes T016 and T017 pass.
-- [ ] T025 [US1] In `backend/src/api/subscription.ts`:
+- [x] T021 [US1] In TPS, add `ProvisionTenantData.trial?: { source: "invite_link" | "google" }`. The seed is chosen once as `data.trial ? trialSubscriptionSeed(now) : payingSubscriptionSeed()` and passed in `CreateTenantStorageInput.subscriptionSeed` (a new optional field in TSP). `SharedTenantStorageProvisioner.createTenant` uses `input.subscriptionSeed ?? payingSubscriptionSeed()` in place of its literal. Makes T014 pass.
+- [x] T022 [US1] In PTP step (a), use `input.subscriptionSeed ?? payingSubscriptionSeed()` in place of the hard-coded `createForTenant` literal, in the same platform transaction. Makes T015 pass.
+- [x] T023 [US1] In `backend/src/api/auth.ts`, the invite-link `/signup` handler: pass `trial: { source: "invite_link" }` into `provisionTenant`. This covers both the self-requested and the owner-sent invites (FR-001).
+- [x] T024 [US1] In `backend/src/api/googleSignup.ts`: pass `trial: { source: "google" }`. If the route writes no self-service signup audit row, add one that mirrors auth.ts (`metadata.via:"google"`, actor = the new admin, wrapped so it can never fail the committed sign-up). Makes T016 and T017 pass.
+- [x] T025 [US1] In `backend/src/api/subscription.ts`:
   - `/status` returns the service view plus `shop:{ name, address }`, where the address is `<slug>.<APP_BASE_DOMAIN>`, or the slug alone when it is unset;
   - both fallbacks gain `standing:"active", trial:null, shop:null`;
   - `/by-key` returns `toDesktopView(view)`, which drops `standing`, `trial` and `shop`.
 
   Makes T018 and T019 pass.
-- [ ] T026 [US1] In `frontend/src/api/backendApi.ts`, extend `SubscriptionStatusView` with `standing`, `trial` and `shop`, typed from core's exported view types, not hand-copied (rule 21). Neither IPC nor REST builds a new payload.
-- [ ] T027 [US1] Banner: render the `trial` states of contracts/ui-trial.md, with the button built by `buildActivationWhatsAppUrl`. The branch is on `standing`, not `status`. `grace` and `read_only` markup stays byte-identical. Makes T020 pass.
+- [x] T026 [US1] In `frontend/src/api/backendApi.ts`, extend `SubscriptionStatusView` with `standing`, `trial` and `shop`, typed from core's exported view types, not hand-copied (rule 21). Neither IPC nor REST builds a new payload.
+- [x] T027 [US1] Banner: render the `trial` states of contracts/ui-trial.md, with the button built by `buildActivationWhatsAppUrl`. The branch is on `standing`, not `status`. `grace` and `read_only` markup stays byte-identical. Makes T020 pass.
 
 **Checkpoint**: new shops are on a trial and see it. Nothing is enforced yet, so **do not push**.
 
@@ -218,8 +218,8 @@ Line numbers drift: search for the named symbol.
 - [ ] T031 [P] [US2] In `backend/src/middleware/__tests__/requireWritableSubscription.test.ts`, add a case: when it is reached directly with a `trial_ended` view (gate bypassed in the test), it answers with the trial code and wording. The existing `read_only` and `grace` cases stay unchanged and must still pass.
 - [ ] T032 [P] [US2] In `packages/core/src/services/__tests__/UserInvitationService.trialEnded.test.ts` (new): check/accept into a trial-ended shop is refused (no user created). The message says the free trial has ended and does not mention a subscription lapse. Code `SHOP_NOT_ACTIVE` is kept.
 - [ ] T033 [P] [US2] In `packages/core/src/services/__tests__/ModuleService.entitlement.test.ts`, add a case: a trial-ended shop's enabled modules are unchanged, so it can still view every module.
-- [ ] T034 [P] [US2] In `frontend/src/api/__tests__/httpClient.trialEnded.test.ts` (new): a 200 body with `code:"TRIAL_ENDED"` dispatches `TRIAL_ENDED_EVENT` exactly once and still returns the envelope to the caller. Other failure codes dispatch nothing.
-- [ ] T035 [P] [US2] Banner: in `SubscriptionBanner.trial.test.tsx`, `trial_ended` renders `trial-ended` with the FR-011 text and the WhatsApp button. Firing `TRIAL_ENDED_EVENT` triggers an immediate re-fetch.
+- [x] T034 [P] [US2] In `frontend/src/api/__tests__/httpClient.trialEnded.test.ts` (new): a 200 body with `code:"TRIAL_ENDED"` dispatches `TRIAL_ENDED_EVENT` exactly once and still returns the envelope to the caller. Other failure codes dispatch nothing.
+- [x] T035 [P] [US2] Banner: in `SubscriptionBanner.trial.test.tsx`, `trial_ended` renders `trial-ended` with the FR-011 text and the WhatsApp button. Firing `TRIAL_ENDED_EVENT` triggers an immediate re-fetch.
 
 ### Implementation
 
@@ -234,8 +234,8 @@ Line numbers drift: search for the named symbol.
   Mount it in `backend/src/server.ts` immediately BEFORE `app.use(requireWritableSubscription)`. Makes T030 pass.
 - [ ] T038 [US2] In `requireWritableSubscription.ts`: when `!canWrite` and `standing === "trial_ended"`, answer with the trial code and wording instead of the lapsed text. Makes T031 pass.
 - [ ] T039 [US2] In `packages/core/src/services/UserInvitationService.ts`, choose the SHOP_NOT_ACTIVE message by standing ("This shop's free trial has ended. Its admin can contact LiraTek to activate."). The `canWrite` call stays where it is. Makes T032 pass.
-- [ ] T040 [US2] In `frontend/src/api/httpClient.ts`, export `TRIAL_ENDED_EVENT` and dispatch it when a parsed body has `code === "TRIAL_ENDED"`. Makes T034 pass.
-- [ ] T041 [US2] Banner: add the `trial_ended` alert (contracts/ui-trial.md) and a `TRIAL_ENDED_EVENT` listener that re-runs `load()`. The listener is removed on unmount. Makes T035 pass.
+- [x] T040 [US2] In `frontend/src/api/httpClient.ts`, export `TRIAL_ENDED_EVENT` and dispatch it when a parsed body has `code === "TRIAL_ENDED"`. Makes T034 pass.
+- [x] T041 [US2] Banner: add the `trial_ended` alert (contracts/ui-trial.md) and a `TRIAL_ENDED_EVENT` listener that re-runs `load()`. The listener is removed on unmount. Makes T035 pass.
 - [ ] T042 [US2] Apply the T029 findings: skip or allowlist each automatic write.
 
 **Checkpoint**: a trial ends exactly on time and the shop keeps everything. **Still do not push**: the owner cannot activate yet.

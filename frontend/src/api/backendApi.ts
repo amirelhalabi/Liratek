@@ -13,6 +13,13 @@ import type { SaveMaintenanceJobPayload } from "@liratek/core";
 import type { MaintenanceUpdateMetadataInput } from "@liratek/core";
 import type { SinceLastCountDrawer } from "@liratek/core";
 import type { UnitWarrantyDisplay } from "@liratek/core";
+import type {
+  SubscriptionStatusView as CoreSubscriptionStatusView,
+  ActivateSubscriptionInput,
+  ExtendTrialInput,
+  TrialView,
+  SubscriptionStanding,
+} from "@liratek/core";
 import type { DebtLedgerEntity } from "@liratek/ui";
 // LIRA-309 — phone lines held for sale (schema-derived payloads, rule 21).
 import type {
@@ -391,16 +398,17 @@ export async function signup(input: SignupInput) {
 }
 
 /** What both transports report about a shop's commercial standing. */
-export interface SubscriptionStatusView {
-  status: "active" | "grace" | "read_only";
-  plan: string;
-  /** false ONLY in read_only. Grace is fully functional by design. */
-  canWrite: boolean;
-  currentPeriodEnd: string | null;
-  graceEndsAt: string | null;
-  /** null means every module. */
-  entitledModules: string[] | null;
-}
+/**
+ * What `GET /api/subscription/status` returns: core's view (rule 21 — never a
+ * hand-copied shape) plus the shop's name and address for the WhatsApp
+ * activation link (LIRA-332). `standing` and `trial` are computed on the
+ * server; screens render them and never re-derive them (rule 14, US4-4).
+ * On desktop the view comes from the local licence row: never a trial, and
+ * no `shop`.
+ */
+export type SubscriptionStatusView = CoreSubscriptionStatusView & {
+  shop?: { name: string; address: string } | null;
+};
 
 /**
  * The signed-in shop's subscription standing.

@@ -582,10 +582,12 @@ export {
   resetSubscriptionService,
   GRACE_PERIOD_DAYS,
   UNGATEABLE_MODULES,
+  toDesktopView,
 } from "./SubscriptionService.js";
 export type {
   SubscriptionStatusView,
   SubscriptionStanding,
+  DesktopSubscriptionView,
 } from "./SubscriptionService.js";
 // LIRA-332: the one subscription seed both storage provisioners use.
 export {

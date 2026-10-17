@@ -77,6 +77,37 @@ export interface SubscriptionStatusView {
   trial: TrialView | null;
 }
 
+/**
+ * LIRA-332 (FR-021): what the DESKTOP licence channel (`/by-key`) reports.
+ *
+ * The desktop has no sign-up and is never on a trial, and `licenseSync`
+ * stores only the paid columns. So this channel keeps exactly its pre-trial
+ * shape: no `standing`/`trial`, and `canWrite` from the PAID reading (a
+ * trial tenant's `status` is `active` throughout), never false because a
+ * web trial ended.
+ */
+export interface DesktopSubscriptionView {
+  status: SubscriptionStatus;
+  plan: string;
+  canWrite: boolean;
+  currentPeriodEnd: string | null;
+  graceEndsAt: string | null;
+  entitledModules: string[] | null;
+}
+
+export function toDesktopView(
+  view: SubscriptionStatusView,
+): DesktopSubscriptionView {
+  return {
+    status: view.status,
+    plan: view.plan,
+    canWrite: view.status !== "read_only",
+    currentPeriodEnd: view.currentPeriodEnd,
+    graceEndsAt: view.graceEndsAt,
+    entitledModules: view.entitledModules,
+  };
+}
+
 // =============================================================================
 // Service
 // =============================================================================
