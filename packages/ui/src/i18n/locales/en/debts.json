@@ -164,6 +164,7 @@
     "paidLbp": "PAID IN LBP",
     "balanceUsd": "Balance Remaining in USD",
     "balanceLbp": "Balance Remaining in LBP",
+    "backToList": "← Back to list",
     "noAccounts": "No client accounts to export."
   },
   "filter": {

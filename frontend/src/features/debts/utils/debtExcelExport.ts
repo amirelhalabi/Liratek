@@ -53,6 +53,9 @@ export interface DebtExportClient {
   history: DebtLedgerEntity[];
 }
 
+/** The first sheet: every client's name and phone (read by the import). */
+const LIST_SHEET = "List Name";
+
 /** Sheet names the import skips or treats specially — never reuse them. */
 const RESERVED_SHEET_NAMES = new Set(["list name", "sheet1", "sheet2"]);
 const MAX_SHEET_NAME = 31;
@@ -184,6 +187,8 @@ export interface DebtExportHeadings {
   paidLbp: string;
   balanceUsd: string;
   balanceLbp: string;
+  /** Link text on each client page back to the List Name sheet. */
+  backToList: string;
 }
 
 /** The headings of the template the import was built from. */
@@ -198,6 +203,7 @@ export const ENGLISH_EXPORT_HEADINGS: DebtExportHeadings = {
   paidLbp: "PAID IN LBP",
   balanceUsd: "Balance Remaining in USD",
   balanceLbp: "Balance Remaining in LBP",
+  backToList: "← Back to list",
 };
 
 /** The headings from the `debts` catalog — what the Accounts page passes. */
@@ -213,6 +219,7 @@ export function debtExportHeadings(t: TFunction<"debts">): DebtExportHeadings {
     paidLbp: t("export.paidLbp"),
     balanceUsd: t("export.balanceUsd"),
     balanceLbp: t("export.balanceLbp"),
+    backToList: t("export.backToList"),
   };
 }
 
@@ -238,7 +245,15 @@ function buildClientSheet(
   const { left: debts, right: payments } = splitBySign(client.history);
 
   const rows: (XLSX.CellObject | string | null)[][] = [
-    [h.customerName, client.name, h.mobile, client.phone],
+    // F1 links back to the list; the import reads only B1 and D1 here.
+    [
+      h.customerName,
+      client.name,
+      h.mobile,
+      client.phone,
+      null,
+      linkToSheet(h.backToList, LIST_SHEET),
+    ],
     [
       h.date,
       h.usd,
@@ -324,6 +339,15 @@ function buildClientSheet(
 }
 
 /**
+ * A text cell that jumps to cell A1 of another sheet in the same workbook.
+ * The sheet name is quoted, with any ' doubled, as Excel requires.
+ */
+function linkToSheet(text: string, sheetName: string): XLSX.CellObject {
+  const quoted = `'${sheetName.replace(/'/g, "''")}'`;
+  return { t: "s", v: text, l: { Target: `#${quoted}!A1` } };
+}
+
+/**
  * The whole accounts workbook in the import template: a "List Name" sheet
  * (NAME | Phone, one row per client) followed by one sheet per client.
  * `headings` are the page headings in the exporting user's language
@@ -336,21 +360,25 @@ export function buildDebtExportWorkbook(
   const wb = XLSX.utils.book_new();
   wb.Custprops = { [EXPORT_MARKER_PROP]: EXPORT_MARKER_VERSION };
 
+  const used = new Set<string>();
+  const sheetNames = clients.map((c) => sheetNameFor(c.name, used));
+
+  // Each name links to its own page. The cell text stays the plain name, so
+  // the import reads the list exactly as before.
   const list = XLSX.utils.aoa_to_sheet([
     ["NAME", "Phone "],
-    ...clients.map((c) => [c.name, c.phone]),
+    ...clients.map((c, i) => [linkToSheet(c.name, sheetNames[i]!), c.phone]),
   ]);
   list["!cols"] = [{ wch: 36 }, { wch: 16 }];
-  XLSX.utils.book_append_sheet(wb, list, "List Name");
+  XLSX.utils.book_append_sheet(wb, list, LIST_SHEET);
 
-  const used = new Set<string>();
-  for (const client of clients) {
+  clients.forEach((client, i) => {
     XLSX.utils.book_append_sheet(
       wb,
       buildClientSheet(client, headings),
-      sheetNameFor(client.name, used),
+      sheetNames[i],
     );
-  }
+  });
   return wb;
 }
 

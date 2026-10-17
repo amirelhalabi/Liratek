@@ -90,6 +90,7 @@ function cells(ws: XLSX.WorkSheet): Record<string, { t: string; v: unknown }> {
 const HEADING_CELLS = [
   "A1",
   "C1",
+  "F1", // back-to-list link text (LIRA-330)
   "A2",
   "B2",
   "C2",

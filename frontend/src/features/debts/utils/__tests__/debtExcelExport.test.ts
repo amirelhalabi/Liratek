@@ -172,6 +172,49 @@ describe("buildDebtExportWorkbook — the debt import template", () => {
   });
 });
 
+describe("List Name links", () => {
+  it("links every name to its own page, even when the sheet name was cleaned", () => {
+    const long = "Abou/Ali Very Long Customer Name Number";
+    const wb = roundTrip([
+      { name: "Ali O'Neil", phone: "70111111", history: [] },
+      { name: `${long} One`, phone: "70222222", history: [] },
+      { name: `${long} Two`, phone: "70333333", history: [] },
+      { name: "List Name", phone: "70444444", history: [] },
+    ]);
+    const list = wb.Sheets["List Name"]!;
+    for (let row = 2; row <= 5; row++) {
+      const cell = list[`A${row}`]!;
+      const target = cell.l?.Target ?? "";
+      const m = /^#'(.+)'!A1$/.exec(target);
+      expect(m).not.toBeNull();
+      const sheet = m![1]!.replace(/''/g, "'");
+      expect(wb.SheetNames).toContain(sheet);
+      // The linked page is this client's page.
+      expect(wb.Sheets[sheet]!.B1?.v).toBe(cell.v);
+    }
+  });
+
+  it("every client page links back to the list from F1", () => {
+    const wb = roundTrip([
+      sara,
+      { name: "Ali", phone: "70111111", history: [] },
+    ]);
+    for (const name of wb.SheetNames.slice(1)) {
+      const f1 = wb.Sheets[name]!.F1;
+      expect(f1?.v).toBe("← Back to list");
+      expect(f1?.l?.Target).toBe("#'List Name'!A1");
+    }
+  });
+
+  it("keeps the list readable by the import: plain names in column A", () => {
+    const wb = roundTrip([sara]);
+    expect(rowsOf(wb, "List Name")[1]).toEqual([
+      "SARA/ZOHAIR BOU ISMAIL",
+      "71475799",
+    ]);
+  });
+});
+
 describe("isPaymentLedgerType", () => {
   it("puts repayments and credit deposits on the paid side only", () => {
     expect(isPaymentLedgerType("Repayment")).toBe(true);
