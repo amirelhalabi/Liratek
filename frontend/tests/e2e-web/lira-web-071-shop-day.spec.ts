@@ -45,6 +45,10 @@ import * as XLSXns from "xlsx";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect, closeAutoCheckpoint } from "./fixtures";
 import {
+  rechargeProviderTab,
+  selectRechargeProvider,
+} from "../e2e-electron/helpers/rechargeTabs";
+import {
   transactionDetailsSchema,
   type CreateFinancialServicePayload,
   type PartnerSettleInput,
@@ -501,14 +505,11 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       "OMT App": "OMT_APP",
     };
     for (const tab of ["Katsh", "iPick", "OMT App"]) {
-      await go(
-        "/recharge",
-        page.getByRole("button", { name: tab, exact: true }).first(),
-      );
-      await page
-        .getByRole("button", { name: tab, exact: true })
-        .first()
-        .click();
+      await go("/recharge", rechargeProviderTab(page, tab));
+      // Wait until the tab is ACTIVE: the switch is a transition, and a
+      // Top-Up clicked before it lands opens the previous provider's window
+      // (CI once booked Katsh twice here). The heading proves which one.
+      await selectRechargeProvider(page, tab);
       const before = await lastTxnId(day);
       const d0 = await drawers(day);
       await page
@@ -516,6 +517,7 @@ test.describe.serial("lira-web-071 Shop Day", () => {
         .first()
         .click();
       const modal = topModal(page);
+      await expect(modal).toContainText(`Top Up ${tab} Drawer`);
       await modal.getByPlaceholder("0.00").fill("200");
       const res = waitPost(page, "/api/recharge/top-up-from-supplier");
       await modal

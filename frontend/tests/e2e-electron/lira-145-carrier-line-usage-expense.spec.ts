@@ -89,6 +89,7 @@
 
 import { test, expect, navigateTo, ensureProfitsUnlocked } from "./fixtures";
 import type { Page } from "@playwright/test";
+import { selectRechargeProvider } from "./helpers/rechargeTabs";
 
 test.describe.configure({ retries: 0 });
 
@@ -338,12 +339,10 @@ async function openMtcPanel(page: Page, lineId: number): Promise<void> {
   await navigateTo(page, "/recharge");
 
   // MTC is the first PROVIDER_CONFIGS entry, so a fresh mount lands on it —
-  // clicking is belt-and-braces against a future default change, and a
-  // click on the already-active tab is a no-op.
-  const mtcTab = page.getByRole("button", { name: "MTC", exact: true }).first();
-  if (await mtcTab.isVisible({ timeout: 8_000 }).catch(() => false)) {
-    await mtcTab.click({ force: true }).catch(() => {});
-  }
+  // selecting it is belt-and-braces against a future default change. Never a
+  // forced click: when the shop-line chip overlapped the tab, a forced click
+  // opened "Record usage" and its backdrop blocked every step after it.
+  await selectRechargeProvider(page, "MTC");
 
   // LIRA-328: the top-row phone chip shows the selected line; the chevron
   // lists the carrier's lines. The line must be in that list.
