@@ -8,6 +8,15 @@
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
 }
 
+/* LIRA-331: Arabic text. Inter has no Arabic glyphs; prefer the Arabic
+   system fonts shops already have (Windows: Segoe UI / Tahoma; Android and
+   Chromebook: Noto). Digits stay Western (FR-016). */
+:root:lang(ar) {
+  font-family:
+    Inter, "Segoe UI", Tahoma, "Noto Sans Arabic", "Noto Naskh Arabic",
+    system-ui, Arial, sans-serif;
+}
+
 /*
  * =============================================================
  * BRAND PALETTE — Porcelain / Signal Blue / Cosmic Navy / Pastel Violet
@@ -1649,92 +1658,122 @@ html:not(.dark) .text-green-400 {
  * value in both modes (D1).
  * ============================================================= */
 html:not(.dark) .border-l-blue-500,
+html:not(.dark) .border-s-blue-500,
 html:not(.dark) .border-l-violet-500,
+html:not(.dark) .border-s-violet-500,
 html.dark .border-l-blue-500,
-html.dark .border-l-violet-500 {
-  border-left-color: var(--a-500) !important;
+html.dark .border-s-blue-500,
+html.dark .border-l-violet-500,
+html.dark .border-s-violet-500 {
+  border-inline-start-color: var(--a-500) !important;
 }
 html:not(.dark) .border-l-emerald-500,
-html.dark .border-l-emerald-500 {
-  border-left-color: oklch(69.6% 0.17 162.48) !important;
+html:not(.dark) .border-s-emerald-500,
+html.dark .border-l-emerald-500,
+html.dark .border-s-emerald-500 {
+  border-inline-start-color: oklch(69.6% 0.17 162.48) !important;
 }
 html:not(.dark) .border-l-green-500,
-html.dark .border-l-green-500 {
-  border-left-color: oklch(72.3% 0.219 149.579) !important;
+html:not(.dark) .border-s-green-500,
+html.dark .border-l-green-500,
+html.dark .border-s-green-500 {
+  border-inline-start-color: oklch(72.3% 0.219 149.579) !important;
 }
 html:not(.dark) .border-l-lime-500,
-html.dark .border-l-lime-500 {
-  border-left-color: oklch(76.8% 0.233 130.85) !important;
+html:not(.dark) .border-s-lime-500,
+html.dark .border-l-lime-500,
+html.dark .border-s-lime-500 {
+  border-inline-start-color: oklch(76.8% 0.233 130.85) !important;
 }
 html:not(.dark) .border-l-sky-500,
-html.dark .border-l-sky-500 {
-  border-left-color: oklch(68.5% 0.169 237.323) !important;
+html:not(.dark) .border-s-sky-500,
+html.dark .border-l-sky-500,
+html.dark .border-s-sky-500 {
+  border-inline-start-color: oklch(68.5% 0.169 237.323) !important;
 }
 html:not(.dark) .border-l-rose-500,
-html.dark .border-l-rose-500 {
-  border-left-color: oklch(64.5% 0.246 16.439) !important;
+html:not(.dark) .border-s-rose-500,
+html.dark .border-l-rose-500,
+html.dark .border-s-rose-500 {
+  border-inline-start-color: oklch(64.5% 0.246 16.439) !important;
 }
 html:not(.dark) .border-l-red-500,
-html.dark .border-l-red-500 {
-  border-left-color: oklch(63.7% 0.237 25.331) !important;
+html:not(.dark) .border-s-red-500,
+html.dark .border-l-red-500,
+html.dark .border-s-red-500 {
+  border-inline-start-color: oklch(63.7% 0.237 25.331) !important;
 }
 html:not(.dark) .border-l-orange-500,
-html.dark .border-l-orange-500 {
-  border-left-color: oklch(70.5% 0.213 47.604) !important;
+html:not(.dark) .border-s-orange-500,
+html.dark .border-l-orange-500,
+html.dark .border-s-orange-500 {
+  border-inline-start-color: oklch(70.5% 0.213 47.604) !important;
 }
 html:not(.dark) .border-l-amber-500,
-html.dark .border-l-amber-500 {
-  border-left-color: oklch(76.9% 0.188 70.08) !important;
+html:not(.dark) .border-s-amber-500,
+html.dark .border-l-amber-500,
+html.dark .border-s-amber-500 {
+  border-inline-start-color: oklch(76.9% 0.188 70.08) !important;
 }
 html:not(.dark) .border-l-yellow-500,
-html.dark .border-l-yellow-500 {
-  border-left-color: oklch(79.5% 0.184 86.047) !important;
+html:not(.dark) .border-s-yellow-500,
+html.dark .border-l-yellow-500,
+html.dark .border-s-yellow-500 {
+  border-inline-start-color: oklch(79.5% 0.184 86.047) !important;
 }
 html:not(.dark) .border-l-fuchsia-500,
-html.dark .border-l-fuchsia-500 {
-  border-left-color: oklch(66.7% 0.295 322.15) !important;
+html:not(.dark) .border-s-fuchsia-500,
+html.dark .border-l-fuchsia-500,
+html.dark .border-s-fuchsia-500 {
+  border-inline-start-color: oklch(66.7% 0.295 322.15) !important;
 }
 html:not(.dark) .border-l-cyan-500,
-html.dark .border-l-cyan-500 {
-  border-left-color: oklch(71.5% 0.143 215.221) !important;
+html:not(.dark) .border-s-cyan-500,
+html.dark .border-l-cyan-500,
+html.dark .border-s-cyan-500 {
+  border-inline-start-color: oklch(71.5% 0.143 215.221) !important;
 }
 html:not(.dark) .border-l-teal-500,
-html.dark .border-l-teal-500 {
-  border-left-color: oklch(70.4% 0.14 182.503) !important;
+html:not(.dark) .border-s-teal-500,
+html.dark .border-l-teal-500,
+html.dark .border-s-teal-500 {
+  border-inline-start-color: oklch(70.4% 0.14 182.503) !important;
 }
 html:not(.dark) .border-l-slate-500,
-html.dark .border-l-slate-500 {
-  border-left-color: var(--b-600) !important;
+html:not(.dark) .border-s-slate-500,
+html.dark .border-l-slate-500,
+html.dark .border-s-slate-500 {
+  border-inline-start-color: var(--b-600) !important;
 }
 /* Provider brand edges (`accentEdge` in shared/brand/providerBrands.ts) —
    keep these hexes in step with that file. Same colour in both modes. */
 html:not(.dark) [class*="border-l-\[#ff0a46\]"],
 html.dark [class*="border-l-\[#ff0a46\]"] {
-  border-left-color: #ff0a46 !important;
+  border-inline-start-color: #ff0a46 !important;
 }
 html:not(.dark) [class*="border-l-\[#ffd800\]"],
 html.dark [class*="border-l-\[#ffd800\]"] {
-  border-left-color: #ffd800 !important;
+  border-inline-start-color: #ffd800 !important;
 }
 html:not(.dark) [class*="border-l-\[#3db387\]"],
 html.dark [class*="border-l-\[#3db387\]"] {
-  border-left-color: #3db387 !important;
+  border-inline-start-color: #3db387 !important;
 }
 html:not(.dark) [class*="border-l-\[#97d700\]"],
 html.dark [class*="border-l-\[#97d700\]"] {
-  border-left-color: #97d700 !important;
+  border-inline-start-color: #97d700 !important;
 }
 html:not(.dark) [class*="border-l-\[#009cbc\]"],
 html.dark [class*="border-l-\[#009cbc\]"] {
-  border-left-color: #009cbc !important;
+  border-inline-start-color: #009cbc !important;
 }
 html:not(.dark) [class*="border-l-\[#e41e2d\]"],
 html.dark [class*="border-l-\[#e41e2d\]"] {
-  border-left-color: #e41e2d !important;
+  border-inline-start-color: #e41e2d !important;
 }
 html:not(.dark) [class*="border-l-\[#f0b90b\]"],
 html.dark [class*="border-l-\[#f0b90b\]"] {
-  border-left-color: #f0b90b !important;
+  border-inline-start-color: #f0b90b !important;
 }
 
 /* Hover border accents */
@@ -1837,7 +1876,7 @@ html:not(.dark) .hover\:shadow-slate-500\/20:hover {
    would otherwise reset the left border to the neutral edge colour. */
 html.dark tr[data-session],
 html:not(.dark) tr[data-session] {
-  border-left: 4px solid
+  border-inline-start: 4px solid
     hsla(var(--session-hue), var(--session-sat), var(--session-lig), 1) !important;
   background-image: linear-gradient(
     to right,
@@ -1882,7 +1921,12 @@ select {
   background-repeat: no-repeat;
   background-position: right 0.625rem center;
   background-size: 1.25rem;
-  padding-right: 2.5rem !important;
+  padding-inline-end: 2.5rem !important;
+}
+/* LIRA-331: background-position has no logical keyword; the arrow sits on
+   the reading-end side in right-to-left. */
+[dir="rtl"] select {
+  background-position: left 0.625rem center;
 }
 html:not(.dark) select {
   background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2377746b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");

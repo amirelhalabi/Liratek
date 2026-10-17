@@ -132,6 +132,13 @@ jobs:
       - name: Transport-parity check (no per-transport payloads, no unreviewed window.api)
         run: yarn check:transport-parity
 
+      # LIRA-331: Arabic UI guard (contracts/i18n-catalog.md G1–G7). A module
+      # is guarded once its English catalog has a key: no hard-coded English,
+      # no physical direction classes, no machine-locale formatting, en/ar
+      # catalogs in step, glossary words respected, no i18next in core.
+      - name: i18n guard (converted modules stay translated and RTL-safe)
+        run: yarn check:i18n
+
       # `yarn test:scripts` runs the node:test files listed in package.json
       # (no build/native-module dependency — but transportParity.test.mjs
       # needs the `typescript` package, so this must stay after the
