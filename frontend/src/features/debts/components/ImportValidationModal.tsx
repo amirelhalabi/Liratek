@@ -1095,11 +1095,15 @@ function renderDetails(
           }
           className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500"
         >
-          <option value={-1}>{t("importValidation.detail.selectListEntry")}</option>
+          <option value={-1}>
+            {t("importValidation.detail.selectListEntry")}
+          </option>
           {sug.map((m) => (
             <option key={m.index} value={m.index}>
-              {m.name} ({listNameEntries[m.index].phone || t("importValidation.detail.noPhone")}) —{" "}
-              {Math.round(m.similarity * 100)}%
+              {m.name} (
+              {listNameEntries[m.index].phone ||
+                t("importValidation.detail.noPhone")}
+              ) — {Math.round(m.similarity * 100)}%
             </option>
           ))}
           {listNameEntries

@@ -210,7 +210,7 @@ Each test builds the payload through the real builder or screen with `lng=en` an
 - [ ] T043 [P] [US1] `frontend/src/features/sales/**/__tests__/sale.payloadLanguage.test.tsx`: walk-in sale, session cart and debt sale; USD paid with LBP change.
 - [ ] T044 [P] [US1] `frontend/src/features/recharge/components/__tests__/recharge.payloadLanguage.test.tsx`: MTC/Alfa credit and days, Katsh/iPick, Whish/OMT App, Binance, basket, For Partner.
 - [x] T045 [P] [US1] `frontend/src/features/services/**/__tests__/financialService.payloadLanguage.test.tsx`: each OMT/Whish service type, send and receive.
-- [ ] T046 [P] [US1] `frontend/src/features/debts/**/__tests__/repayment.payloadLanguage.test.tsx`: repayment, discount/waive, account settle.
+- [x] T046 [P] [US1] `frontend/src/features/debts/**/__tests__/repayment.payloadLanguage.test.tsx`: repayment, discount/waive, account settle.
 - [ ] T047 [P] [US1] `frontend/src/features/exchange/**/__tests__/exchange.payloadLanguage.test.tsx` and `frontend/src/features/expenses/**/__tests__/expense.payloadLanguage.test.tsx`.
 - [ ] T048 [P] [US1] `frontend/src/features/closing/**/__tests__/closing.payloadLanguage.test.tsx`: drawer count and closing.
 - [ ] T049 [P] [US1] `frontend/src/features/{sessions,custom-services,maintenance,loto,suppliers,partners}/**/__tests__/*.payloadLanguage.test.tsx`: one file per module.
@@ -221,7 +221,7 @@ Each test builds the payload through the real builder or screen with `lng=en` an
 - [ ] T051 [P] [US1] `recharge`, part 1: `TelecomForm.tsx`, `KatshForm.tsx`, `CarrierLinesPanel.tsx`, `CardGridPayView.tsx`, `ProviderTabs.tsx`, `ProviderStats.tsx`, `CompactStats.tsx`, `pages/Recharge/**`. Namespace `recharge`. Depends on T044.
 - [ ] T052 [P] [US1] `recharge`, part 2: `FinancialForm.tsx`, `OmtWhishAppTransferForm.tsx`, `CryptoForm.tsx`, `PaymentSheet.tsx`, `HistoryModal.tsx`, `OmtAppCashoutModal.tsx`, `WalletExchangePanel.tsx`, `WhishCurrencySwitch.tsx`, `NewServiceItemInlineForm.tsx`. Namespace `rechargeFinancial`. Depends on T044.
 - [x] T053 [P] [US1] `services` (OMT/Whish system page). Namespace `services`. Depends on T045.
-- [ ] T054 [P] [US1] `debts`, including the column headings in `utils/debtExcelExport.ts`: headings in the exporting user's language, numeric cells stay numbers (FR-024). Test `debtExcelExport.language.test.ts`. Namespace `debts`. Depends on T046. Coordinate: `Debts/index.tsx` and `debtExcelExport.ts` have another session's uncommitted edits as of 2026-10-17, so start only after those land.
+- [x] T054 [P] [US1] `debts`, including the column headings in `utils/debtExcelExport.ts`: headings in the exporting user's language, numeric cells stay numbers (FR-024). Test `debtExcelExport.language.test.ts`. Namespace `debts`. Depends on T046. Coordinate: `Debts/index.tsx` and `debtExcelExport.ts` have another session's uncommitted edits as of 2026-10-17, so start only after those land.
 - [ ] T055 [P] [US1] `exchange`. Namespace `exchange`. Depends on T047.
 - [ ] T056 [P] [US1] `expenses`. Namespace `expenses`. Depends on T047.
 - [ ] T057 [P] [US1] `closing` (drawer count, closing, checkpoints). Namespace `closing`. Depends on T048.

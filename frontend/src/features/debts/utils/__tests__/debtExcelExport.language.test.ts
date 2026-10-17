@@ -87,7 +87,18 @@ function cells(ws: XLSX.WorkSheet): Record<string, { t: string; v: unknown }> {
   return out;
 }
 
-const HEADING_CELLS = ["A1", "C1", "A2", "B2", "C2", "D2", "F2", "G2", "H2", "I2"];
+const HEADING_CELLS = [
+  "A1",
+  "C1",
+  "A2",
+  "B2",
+  "C2",
+  "D2",
+  "F2",
+  "G2",
+  "H2",
+  "I2",
+];
 
 beforeAll(async () => {
   await loadLanguage("ar");

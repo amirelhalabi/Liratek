@@ -1,6 +1,21 @@
 {
   "page": {
-    "title": "الديون"
+    "title": "الحسابات",
+    "addEntry": "إضافة رصيد / دين",
+    "importing": "جارٍ الاستيراد...",
+    "importExcel": "استيراد Excel",
+    "exporting": "جارٍ التصدير...",
+    "exportExcel": "تصدير Excel",
+    "searchClient": "ابحث عن زبون...",
+    "noPhone": "لا هاتف",
+    "noDebtors": "لا يوجد مدينون.",
+    "balance": "الرصيد",
+    "settleDebt": "تسديد الدين",
+    "cashOut": "صرف الرصيد",
+    "writeOffTitle": "مسامحة جزء من الدين من دون حركة نقدية",
+    "writeOff": "شطب",
+    "loadingAccount": "جارٍ تحميل حساب {{name}}...",
+    "selectClient": "اختر زبوناً لعرض التفاصيل"
   },
   "picker": {
     "cashDrawer": "الصندوق",
@@ -148,6 +163,148 @@
     "paidUsd": "المدفوع بالدولار",
     "paidLbp": "المدفوع بالليرة",
     "balanceUsd": "الرصيد المتبقي بالدولار",
-    "balanceLbp": "الرصيد المتبقي بالليرة"
+    "balanceLbp": "الرصيد المتبقي بالليرة",
+    "noAccounts": "لا حسابات زبائن للتصدير."
+  },
+  "filter": {
+    "ongoing": "جارية",
+    "closed": "مُقفلة",
+    "all": "الكل"
+  },
+  "aging": {
+    "title": "أعمار الديون",
+    "current": "حالي",
+    "days_31_60": "31–60 يوماً",
+    "days_61_90": "61–90 يوماً",
+    "over_90": "أكثر من 90 يوماً"
+  },
+  "history": {
+    "purchasesAndCharges": "المشتريات والقيود",
+    "charges": "القيود",
+    "purchases": "المشتريات",
+    "date": "التاريخ",
+    "note": "ملاحظة",
+    "user": "المستخدم",
+    "noPurchases": "لا مشتريات على الدين",
+    "noPayments": "لا دفعات مسجّلة",
+    "refunded": "مُستردّ",
+    "viewSale": "عرض تفاصيل المبيع",
+    "viewTransaction": "عرض تفاصيل العملية",
+    "viewBasket": "عرض بنود السلّة",
+    "stillOpen": "ما زال مفتوحاً:",
+    "totalDebited": "مجموع المدين",
+    "totalCharged": "مجموع القيود",
+    "totalOwed": "مجموع الدين",
+    "totalCredited": "مجموع الدائن",
+    "totalDeposited": "مجموع الإيداعات",
+    "totalPaid": "مجموع المدفوع"
+  },
+  "ledgerType": {
+    "saleDebt": "دين مبيع",
+    "rechargeDebt": "دين تشريج",
+    "serviceDebt": "دين خدمة",
+    "customServiceDebt": "دين خدمة خاصة",
+    "lotoDebt": "دين لوتو",
+    "maintenanceDebt": "دين تصليح",
+    "exchangeDebt": "دين تصريف عملة",
+    "sessionDebt": "دين جلسة",
+    "manualDebt": "دين يدوي",
+    "importedDebt": "دين مستورد",
+    "repayment": "تسديد",
+    "debtDiscount": "حسم على الدين",
+    "refundReversal": "عكس الاسترداد",
+    "creditDeposit": "إيداع رصيد",
+    "creditUsed": "استعمال رصيد"
+  },
+  "forgive": {
+    "cappedToMax": "حُدّد بالحد الأقصى ({{amount}})",
+    "lowerPaymentHint": "خفّض الدفعة إلى {{target}} لمسامحة {{forgive}}.",
+    "afterForgive": "بعد المسامحة",
+    "clientWillOwe": "سيبقى على الزبون",
+    "label": "مسامحة (من دون نقد)",
+    "reasonPlaceholder": "السبب (اختياري)...",
+    "usd": "مسامحة بالدولار",
+    "lbp": "مسامحة بالليرة"
+  },
+  "repay": {
+    "enterAmount": "الرجاء إدخال مبلغ التسديد.",
+    "rateMissingCashOut": "سعر الصرف غير متوفر — حدّد سعر الدولار/الليرة لليوم قبل صرف رصيد بالليرة.",
+    "rateMissingCross": "سعر الصرف غير متوفر — حدّد سعر الدولار/الليرة لليوم قبل قبول تسديد بعملة مختلفة.",
+    "computeFailed": "تعذّر حساب مبلغ التسديد — راجع الأسطر المُدخلة.",
+    "processedWithDiscount": "تمّ التسديد (حسم {{discount}})",
+    "processed": "تمّ التسديد!",
+    "whishCashDrawer": "صندوق Whish النقدي",
+    "omtCashDrawer": "صندوق OMT النقدي",
+    "cashOutTitle": "صرف رصيد الزبون",
+    "repayTitle": "تسجيل تسديد",
+    "confirmCashOut": "تأكيد الصرف",
+    "confirmPayment": "تأكيد الدفعة",
+    "clientsCredit": "رصيد الزبون",
+    "goesTo": "يذهب إلى",
+    "general": "الصندوق العام",
+    "accountCredit": "رصيد الحساب",
+    "note": "ملاحظة",
+    "notePlaceholder": "ملاحظة اختيارية..."
+  },
+  "import": {
+    "noClientsWithEntries": "لا يوجد زبائن لديهم قيود دين للاستيراد.",
+    "finalConfirm": {
+      "title": "تأكيد نهائي:",
+      "clients": "• {{count}} زبون ({{withoutPhone}} من دون هاتف)",
+      "skipped": "• تمّ تخطّي {{count}} زبون (لا قيود)",
+      "entries": "• {{count}} قيد دين/دفعة",
+      "proceed": "متابعة الاستيراد؟"
+    },
+    "noData": "لم يُعثر على بيانات زبائن في ملف Excel."
+  },
+  "saleDetails": {
+    "notASale": "العملية #{{id}} ليست مبيعاً أو غير موجودة.",
+    "notFound": "المبيع #{{id}} غير موجود. قد يشير قيد الدين هذا إلى مبيع محذوف أو غير موجود.",
+    "loadFailed": "تعذّر تحميل تفاصيل المبيع. قد تكون البيانات تالفة أو رقم العملية غير صالح.",
+    "unknownProduct": "منتج غير معروف",
+    "title": "تفاصيل المبيع - #{{id}}",
+    "date": "التاريخ",
+    "totalAmount": "المبلغ الإجمالي",
+    "amountPaid": "المبلغ المدفوع",
+    "items": "البنود",
+    "product": "المنتج",
+    "qty": "الكمية",
+    "price": "السعر",
+    "subtotal": "المجموع الفرعي",
+    "discount": "الحسم:",
+    "totalAmountColon": "المبلغ الإجمالي:",
+    "amountPaidColon": "المبلغ المدفوع:",
+    "outstandingDebt": "الدين المتبقي:"
+  },
+  "writeOff": {
+    "title": "شطب دين",
+    "subtitle": "{{name}} — مسامحة جزء من الدين من دون حركة نقدية.",
+    "amountUsd": "المبلغ (دولار) — المستحق",
+    "amountLbp": "المبلغ (ليرة) — المستحق",
+    "reason": "السبب",
+    "reasonPlaceholder": "سبب اختياري...",
+    "done": "تمّ شطب الدين.",
+    "failed": "تعذّر شطب الدين",
+    "processing": "جارٍ المعالجة..."
+  },
+  "entry": {
+    "addCredit": "إضافة رصيد",
+    "addDebt": "إضافة دين",
+    "credit": "رصيد",
+    "debt": "دين",
+    "client": "الزبون",
+    "searchClient": "ابحث عن زبون بالاسم أو الهاتف...",
+    "amountUsd": "المبلغ (دولار)",
+    "amountLbp": "المبلغ (ليرة)",
+    "note": "ملاحظة",
+    "notePlaceholder": "ملاحظة اختيارية...",
+    "cashMoved": "حركة نقدية",
+    "cashMovedIn": "— هذا القيد يحرّك الصندوق: نقد داخل من الزبون. ألغِ التحديد لتصحيح دفتري فقط (من دون تغيير في الصندوق).",
+    "cashMovedOut": "— هذا القيد يحرّك الصندوق: نقد خارج إلى الزبون (سلفة). ألغِ التحديد لتصحيح دفتري فقط (من دون تغيير في الصندوق).",
+    "creditAdded": "تمّت إضافة الرصيد بنجاح!",
+    "debtAdded": "تمّت إضافة الدين بنجاح!"
+  },
+  "errors": {
+    "withMessage": "خطأ: {{message}}"
   }
 }

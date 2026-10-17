@@ -193,7 +193,7 @@ export const ENGLISH_EXPORT_HEADINGS: DebtExportHeadings = {
   date: "DATE",
   usd: "USD",
   lbp: "LBP",
-  description: "DESCRIPTION",
+  description: "DESCRIPTION", // i18n-exempt: English template default
   paidUsd: "PAID IN USD",
   paidLbp: "PAID IN LBP",
   balanceUsd: "Balance Remaining in USD",

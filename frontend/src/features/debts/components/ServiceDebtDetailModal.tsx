@@ -347,7 +347,9 @@ export function ServiceDebtDetailModal({
                     <span
                       className={`font-mono text-sm font-bold ${isCreditor ? "text-sky-400" : "text-red-400"}`}
                     >
-                      <Ltr>{formatPaidAmount(debtAmountUsd, debtAmountLbp)}</Ltr>
+                      <Ltr>
+                        {formatPaidAmount(debtAmountUsd, debtAmountLbp)}
+                      </Ltr>
                     </span>
                   </div>
                 )}

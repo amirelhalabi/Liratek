@@ -272,9 +272,7 @@ export function ImportCleanupModal({
         {/* Summary bar */}
         <div className="px-6 py-3 border-b border-slate-700/50 bg-slate-800/30 flex gap-6 text-sm">
           <div>
-            <span className="text-slate-500">
-              {t("importCleanup.total")}
-            </span>{" "}
+            <span className="text-slate-500">{t("importCleanup.total")}</span>{" "}
             <span className="text-white font-medium">
               {t("importCleanup.clientsCount", { count: clients.length })}
             </span>
@@ -310,7 +308,9 @@ export function ImportCleanupModal({
           <table className="w-full">
             <thead className="sticky top-0 bg-slate-900">
               <tr className="text-start text-xs font-medium text-slate-500 uppercase tracking-wider">
-                <th className="pb-3 pe-3">{t("importCleanup.col.clientName")}</th>
+                <th className="pb-3 pe-3">
+                  {t("importCleanup.col.clientName")}
+                </th>
                 <th className="pb-3 pe-3 w-16 text-center">
                   {t("importCleanup.col.entries")}
                 </th>
@@ -394,7 +394,9 @@ export function ImportCleanupModal({
                           }
                           className="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500"
                         >
-                          <option value={-1}>{t("importCleanup.selectClient")}</option>
+                          <option value={-1}>
+                            {t("importCleanup.selectClient")}
+                          </option>
                           {sug.map((m) => (
                             <option key={m.index} value={m.index}>
                               {m.name} ({m.phone}) —{" "}
