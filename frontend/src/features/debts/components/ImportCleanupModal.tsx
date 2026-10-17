@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
-import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   AlertTriangle,
@@ -398,7 +397,7 @@ export function ImportCleanupModal({
                           <option value={-1}>{t("importCleanup.selectClient")}</option>
                           {sug.map((m) => (
                             <option key={m.index} value={m.index}>
-                              {m.name} (<Ltr>{m.phone}</Ltr>) —{" "}
+                              {m.name} ({m.phone}) —{" "}
                               {Math.round(m.similarity * 100)}%
                             </option>
                           ))}

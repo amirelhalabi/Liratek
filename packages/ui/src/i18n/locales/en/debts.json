@@ -137,5 +137,17 @@
     "cancel": "Cancel",
     "confirm": "Confirm & Import",
     "phonePlaceholder": "e.g. 03/123456"
+  },
+  "export": {
+    "customerName": "CUSTOMER NAME :",
+    "mobile": "mobile # ",
+    "date": "DATE",
+    "usd": "USD",
+    "lbp": "LBP",
+    "description": "DESCRIPTION",
+    "paidUsd": "PAID IN USD",
+    "paidLbp": "PAID IN LBP",
+    "balanceUsd": "Balance Remaining in USD",
+    "balanceLbp": "Balance Remaining in LBP"
   }
 }
