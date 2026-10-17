@@ -7,6 +7,8 @@
  */
 
 import type { ApiAdapter } from "@liratek/ui";
+// LIRA-333 — open a WhatsApp link outside LiraTek (rule 21).
+import type { OpenExternalUrlInput } from "@liratek/core";
 import type {
   // LIRA-309 — phone lines held for sale.
   ListResaleLinesQueryInput,
@@ -290,6 +292,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getSalesByDateRange(range);
   getSale = (saleId: number) => api.getSale(saleId);
   getSaleItems = (saleId: number) => api.getSaleItems(saleId);
+  /** LIRA-333 — open a WhatsApp link outside LiraTek. NOT async: the web
+   *  arm must call window.open inside the click's synchronous stack. */
+  openExternalUrl = (input: OpenExternalUrlInput) => api.openExternalUrl(input);
   /** Refund a WHOLE sale (admin only). LIRA-231: refundLegs optional.
    *  2026-09-26: unitExtras optional too (POS "Returned phones").
    *  LIRA-236: exchangeRate optional too. */

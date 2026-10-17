@@ -80,3 +80,5 @@ export * from "./paymentMethod.js";
 export * from "./drawerTopUp.js";
 // LIRA-306: offline desktop fallback (pairing, events, manifest, review).
 export * from "./offline.js";
+// LIRA-333: the allow-list for links opened outside LiraTek (app:open-external).
+export * from "./app.js";

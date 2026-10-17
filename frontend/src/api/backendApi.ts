@@ -175,6 +175,12 @@ import type {
 } from "@liratek/core";
 import { messageFrom } from "./apiError";
 import { localDay } from "@/shared/utils/localDay";
+// LIRA-333 — the allow-list for links opened outside LiraTek (rule 21).
+import {
+  openExternalUrlSchema,
+  OPEN_EXTERNAL_URL_NOT_ALLOWED,
+  type OpenExternalUrlInput,
+} from "@liratek/core";
 import type {
   ProductListFilters,
   DatabaseResetPreview,
@@ -1483,6 +1489,50 @@ export async function getSaleItems(saleId: number) {
     `/api/sales/${saleId}/items`,
   );
   return res.items;
+}
+
+/**
+ * LIRA-333 (contracts/open-external.md) — open a WhatsApp link OUTSIDE
+ * LiraTek. The only place this transport is branched on.
+ *
+ * Deliberately NOT `ipcOrHttp`: its catch falls back to the HTTP arm, which
+ * here would `window.open` inside Electron and create a LiraTek window
+ * (FR-016). The desktop arm reports its own failure instead.
+ *
+ * NOT async: the web arm must reach `window.open` inside the click's
+ * synchronous call stack or the browser blocks it as a pop-up. No
+ * "noopener" feature string — with it `window.open` always returns null, so
+ * every click would read as blocked; the opener is cut by hand instead.
+ */
+export function openExternalUrl(
+  input: OpenExternalUrlInput,
+): Promise<{ success: boolean; error?: string }> {
+  if (isElectron()) {
+    return (async () => {
+      try {
+        return await getElectronApi().app.openExternal(input);
+      } catch (err) {
+        return {
+          success: false,
+          error: messageFrom(err, "WhatsApp could not be opened"),
+        };
+      }
+    })();
+  }
+  if (!openExternalUrlSchema.safeParse(input).success) {
+    return Promise.resolve({
+      success: false,
+      error: OPEN_EXTERNAL_URL_NOT_ALLOWED,
+    });
+  }
+  const tab = window.open(input.url, "_blank");
+  if (!tab) return Promise.resolve({ success: false, error: "blocked" });
+  try {
+    tab.opener = null;
+  } catch {
+    // cross-origin already: nothing to detach
+  }
+  return Promise.resolve({ success: true });
 }
 
 /** Refund a WHOLE sale (admin only). Was a raw, unguarded

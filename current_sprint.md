@@ -6680,7 +6680,13 @@ Spec Kit: `specs/324-whish-usd-mode/` (spec, plan, tasks). Owner decisions: MTC/
 
 **What users will notice:** Recharge → Whish App → Bills has an LBP | USD switch; in USD the items show and sell at their dollar price and the cost comes out of the Whish App dollar balance; dollar-only items appear only in USD; prepaid cards stay LBP; set dollar selling prices in Settings → Mobile Services.
 
-## LIRA-332: Free trial on signup — BUILT on branch lira-332-free-trial, not merged (owner decisions 2026-10-17)
+## LIRA-331: Arabic app UI (Arabic + English, RTL) — SPEC DONE, plan next (owner decisions 2026-10-17)
+
+Why: all four Lebanese competitors (Table, Sandooq, MAPOS, Managely) offer Arabic; LiraTek's app is English-only (only the landing page has Arabic). See `marketing/instagram/COMPETITORS.md`. Spec Kit: `specs/331-arabic-ui/`. Desktop + web + phone app.
+
+Owner decisions 2026-10-17: Western digits 0-9 everywhere, also in Arabic; "What's new" stays English for now; receipts use one shop setting (English or Arabic, default English); a user's language does not sync between the desktop app and the web app. Plan decisions (OD-1..6): the Arabic landing page's signup links get `?lang=ar`; Arabic stays hidden until server messages are translated (P2); Lebanese month names; system-stored text shown as stored; seeded names translated only while unchanged; emails stay English. Plan: `specs/331-arabic-ui/tasks.md` (103 tasks, P1 web+desktop, P2 server+receipts, P3 phone app).
+
+## LIRA-332: Free trial on signup — BUILT, merged to main 2026-10-17 (owner decisions 2026-10-17)
 
 Why: competitors offer a no-card trial (Table 14 days, Managely 7 days); LiraTek signup has no trial or activation. A trial gives social posts a clear call to action. Spec Kit: `specs/332-free-trial/`.
 
@@ -6697,6 +6703,23 @@ Owner decisions at build (2026-10-17): impersonation is gated like the shop; use
 **Left for the owner:** run lira-web-073; walk quickstart §5 on the test tenant (T069); "What's new" screenshot pending (`whats-new/1.35.0/free-trial.png`).
 
 **What users will notice:** new shops that sign up on the web app start a free 14-day trial; every page (and the phone app) shows the days left with a WhatsApp button to activate; after it ends they can still sign in, see and export everything, but new sales and records wait until LiraTek activates the shop.
+
+## LIRA-333: Send the receipt on WhatsApp (wa.me link) — BUILT 2026-10-17 (owner decisions 2026-10-17)
+
+Owner decision: free `wa.me` link with the receipt text pre-filled, the cashier taps Send. No WhatsApp Cloud API, no per-message cost. Why: MAPOS and Managely advertise WhatsApp receipts; LiraTek has WhatsApp API settings but nothing sends. Spec Kit: `specs/333-whatsapp-receipt/`.
+
+Owner decisions 2026-10-17: POS sales first; after a sale a small strip on the POS screen ("Sale completed — RCP-123 · Send on WhatsApp · Print") stays until the next sale; also from the sale's details window. The unused WhatsApp Cloud API settings stay for now; a follow-up ticket removes them.
+
+**Built 2026-10-17 (tasks T001–T028, T032–T036; T029 written not run; T030/T031 left for the owner):**
+- Core: pure `utils/whatsappPhone.ts` `toWhatsAppNumber` (FR-014 table, exported from `browser.ts` + `index.ts`); `WhatsAppService` now uses it (refuses an invalid number before the API). `SalesRepository.getSaleWithCustomer` adds `sale_phone`, `linked_client_phone`, `tender_usd/lbp`, `gift_card_usd`, `on_account_usd` from rows written once at sale time (named SQL fragments, tenant-scoped; session-basket sales read the basket's back-filled `paid_*`). `validators/app.ts` `openExternalUrlSchema` (https + `wa.me`/`api.whatsapp.com` only). Offline policy: `app:open-external` = local.
+- Desktop: `app:open-external` handler (`shell.openExternal`, allow-list, no role — opens a link only), registered in `main.ts`; preload `app.openExternal` + `electron.d.ts`.
+- Frontend: `openExternalUrl` in `backendApi.ts` (desktop IPC, web `window.open` synchronous, null = blocked; no `ipcOrHttp` fallback); one receipt description `buildSaleReceiptData` + `recipientPhoneFor`; `formatReceiptWhatsApp` (phone layout, shortening, provisional cap 2000) + `buildWhatsAppLink`; "Gift card" line on paper; hook `useSendReceiptOnWhatsApp`; `SendOnWhatsAppButton` (inline number field for walk-ins); POS `SaleCompletedStrip` (Send + Print) shown after Complete Sale until the cart gets an item; sale details window: Print now uses the shared description, Send next to it. Shared print helper `printSaleReceipt`.
+- Reprint changes (owner-approved 2026-10-17): the saved-sale printout now shows "On Account" and "Gift card" lines; "Paid" no longer grows after a repayment; an LBP account part prints in USD; a refunded sale still prints the original sale.
+- Not wired: the Transactions page has no sale details window (research R9 correction), so it gets no button here.
+
+**Tests:** seen failing first, then green — `whatsappPhone` (module missing), `WhatsAppService.phoneRule` (3 real failures: `961096…`, `96133…`, API called on "abc"), `SalesRepository.receiptRead` (21 cases; 18 red on the missing fields, case (m) red on the first session check), `validators/app`, `appShellHandlers` and `useSendReceiptOnWhatsApp`/`SendOnWhatsAppButton`/`useCompletedSaleStrip`/`saleReceipt`/`openExternalUrl` (red on import), `receiptFormatter` WhatsApp block (12 red), `SaleDetailModal.whatsapp` (5 of 6 red), `channelPolicy.complete` (unclassified `app:open-external`). Not failing-first: receipt case (k) (passed vacuously before), (n), the draft-hidden case, the paper "Gift card" line, the `receiptGating.whatsapp` import guard. Web e2e `lira-web-072-whatsapp-receipt.spec.ts` written + typechecked, NOT run. Desktop path proven by the handler unit test only (no Electron on the Mac). Left for the owner: the desktop check on the shop PC and measuring the WhatsApp link length (cap ships at a provisional 2000).
+
+**What users will notice:** after a sale, the POS shows "Sale completed" with Send on WhatsApp and Print; every past sale's details have Send on WhatsApp next to Print. WhatsApp opens on the customer's chat with the receipt written, and the cashier presses Send. The reprinted receipt now shows the part put on the customer's account and any gift card on their own lines.
 
 ## LIRA-330: Export client accounts to Excel in the import template — BUILT (owner request 2026-10-16)
 

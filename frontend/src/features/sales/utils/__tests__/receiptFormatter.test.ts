@@ -2,6 +2,9 @@ import {
   formatReceipt58mm,
   formatReceipt80mm,
   getReceiptJSON,
+  formatReceiptWhatsApp,
+  buildWhatsAppLink,
+  WHATSAPP_TEXT_MAX_ENCODED,
   type ReceiptData,
 } from "../receiptFormatter";
 import { addMonthsIso } from "../dateMath";
@@ -336,5 +339,238 @@ describe("Receipt Formatter — extra charge (LIRA-319)", () => {
     void _omit;
     expect(formatReceipt58mm({ ...without, total: 6 })).not.toContain("Extra:");
     expect(formatReceipt80mm({ ...sale, extra: 0 })).not.toContain("Extra:");
+  });
+});
+
+// ─── LIRA-333 T013 — the WhatsApp layout (contracts/whatsapp-message.md) ───
+
+describe("formatReceiptWhatsApp (LIRA-333)", () => {
+  const full: ReceiptData = {
+    shop_name: "Corner Shop",
+    shop_phone: "70 123 456",
+    shop_location: "Hamra, Beirut",
+    header_text: "Open 9 to 9",
+    warranty_terms: "Warranty void if opened.",
+    receipt_number: "RCP-42",
+    client_name: "Ali",
+    client_phone: "03 123 456",
+    items: [
+      {
+        name: "Charger",
+        quantity: 2,
+        price: 10,
+        subtotal: 20,
+        imei: "356000000000001",
+        serial_label: "Serial",
+        warranty_until: "2027-04-10",
+      },
+      { name: "Cable", quantity: 1, price: 10, subtotal: 10 },
+    ],
+    subtotal: 30,
+    discount: 0,
+    extra: 2,
+    total: 32,
+    payment_usd: 11,
+    payment_lbp: 89_000,
+    gift_card_usd: 5,
+    on_account_usd: 14,
+    on_account_lbp: 0,
+    change_usd: 1,
+    change_lbp: 50_000,
+    exchange_rate: 89_000,
+    timestamp: "2026-10-10T08:15:00Z",
+    note: "Thanks Ali",
+  };
+
+  it("lays out one fact per line, in the contract's order", () => {
+    const dt = new Date(full.timestamp);
+    const lines = formatReceiptWhatsApp(full).split("\n");
+    expect(lines).toEqual([
+      "*Corner Shop*",
+      "Open 9 to 9",
+      "Hamra, Beirut",
+      "70 123 456",
+      "",
+      "Receipt: RCP-42",
+      `Date: ${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}`,
+      "Client: Ali",
+      "",
+      "Charger — $20.00",
+      "  2 × $10.00",
+      "  Serial: 356000000000001",
+      "  Warranty until: 2027-04-10",
+      "Cable — $10.00",
+      "Warranty void if opened.",
+      "",
+      "Subtotal: $30.00",
+      "Extra: +$2.00",
+      "*Total: $32.00*",
+      `Total in LBP: ${(32 * 89_000).toLocaleString()} LBP`,
+      "Paid USD: $11.00",
+      `Paid LBP: ${(89_000).toLocaleString()}`,
+      "Gift card: $5.00",
+      "On account: $14.00",
+      "Change: $1.00",
+      `Change LBP: ${(50_000).toLocaleString()}`,
+      "",
+      "Thanks Ali",
+      "Thank You!",
+      "Powered by LiraTek • 81077357",
+    ]);
+  });
+
+  it("omits the lines the paper receipt omits", () => {
+    const text = formatReceiptWhatsApp({
+      ...full,
+      header_text: "",
+      shop_location: "",
+      shop_phone: "",
+      items: [{ name: "Cable", quantity: 1, price: 10, subtotal: 10 }],
+      extra: 0,
+      discount: 0,
+      total: 10,
+      subtotal: 10,
+      payment_usd: 10,
+      payment_lbp: 0,
+      gift_card_usd: 0,
+      on_account_usd: 0,
+      change_usd: 0,
+      change_lbp: 0,
+      note: "",
+    });
+    for (const absent of [
+      "Subtotal",
+      "Discount",
+      "Extra",
+      "Paid LBP",
+      "Gift card",
+      "On account",
+      "Change",
+      "Warranty",
+      "×",
+    ]) {
+      expect(text).not.toContain(absent);
+    }
+    expect(text).toContain("Paid USD: $10.00");
+  });
+
+  it("never puts the account part inside Paid (FR-008)", () => {
+    const lines = formatReceiptWhatsApp(full).split("\n");
+    const paid = lines.filter((l) => l.startsWith("Paid"));
+    expect(paid.join(" ")).not.toContain("14.00");
+    expect(lines).toContain("On account: $14.00");
+  });
+
+  it("has no padding runs or fixed-width columns (FR-009)", () => {
+    for (const line of formatReceiptWhatsApp(full).split("\n")) {
+      expect(line).not.toMatch(/\S {3,}\S/);
+      expect(line).not.toMatch(/ +$/);
+      expect(line).not.toMatch(/^[=─═-]{5,}/);
+    }
+  });
+
+  it("every $ figure equals the paper receipt's for the same data (SC-002)", () => {
+    const dollars = (s: string) =>
+      new Set(s.match(/\$\d[\d,]*\.\d{2}/g) ?? []);
+    const paper = formatReceipt58mm(full);
+    const wa = formatReceiptWhatsApp(full);
+    expect([...dollars(wa)].sort()).toEqual([...dollars(paper)].sort());
+    for (const lbp of [
+      (89_000).toLocaleString(),
+      (50_000).toLocaleString(),
+      `${(32 * 89_000).toLocaleString()} LBP`,
+    ]) {
+      expect(paper).toContain(lbp);
+      expect(wa).toContain(lbp);
+    }
+  });
+
+  it("the paper receipt prints the gift card on its own line too", () => {
+    expect(formatReceipt58mm(full)).toMatch(/Gift card:\s+\$5\.00/);
+    expect(formatReceipt80mm(full)).toMatch(/Gift card:\s+\$5\.00/);
+    expect(formatReceipt58mm({ ...full, gift_card_usd: 0 })).not.toContain(
+      "Gift card",
+    );
+  });
+
+  it("carries no cost, profit or supplier figure (FR-010)", () => {
+    const text = formatReceiptWhatsApp(full).toLowerCase();
+    for (const word of ["cost", "profit", "supplier", "margin"]) {
+      expect(text).not.toContain(word);
+    }
+  });
+
+  it("Arabic text survives the link's encoding", () => {
+    const text = formatReceiptWhatsApp({
+      ...full,
+      shop_name: "محل الزاوية",
+      items: [{ name: "شاحن سريع", quantity: 1, price: 10, subtotal: 10 }],
+    });
+    const url = buildWhatsAppLink("9613123456", text);
+    const decoded = decodeURIComponent(url.split("?text=")[1]);
+    expect(decoded).toBe(text);
+    expect(decoded).toContain("*محل الزاوية*");
+    expect(decoded).toContain("شاحن سريع — $10.00");
+  });
+
+  it("buildWhatsAppLink → https://wa.me/<digits>?text=<encoded>", () => {
+    expect(buildWhatsAppLink("9613123456", "a b&c")).toBe(
+      "https://wa.me/9613123456?text=a%20b%26c",
+    );
+  });
+
+  it("ships a provisional cap until it is measured (T031)", () => {
+    expect(WHATSAPP_TEXT_MAX_ENCODED).toBe(2000);
+  });
+
+  describe("shortening when over the cap (FR-011)", () => {
+    const long: ReceiptData = {
+      ...full,
+      warranty_terms: "T".repeat(600),
+      items: Array.from({ length: 40 }, (_, i) => ({
+        name: `Long product name number ${i + 1} with details`,
+        quantity: 2,
+        price: 5,
+        subtotal: 10,
+        imei: `35600000000${String(i).padStart(4, "0")}`,
+        serial_label: "IMEI",
+        warranty_until: "2027-04-10",
+      })),
+    };
+
+    it("stays under the cap and keeps totals, payment, account and change", () => {
+      const text = formatReceiptWhatsApp(long);
+      expect(encodeURIComponent(text).length).toBeLessThanOrEqual(
+        WHATSAPP_TEXT_MAX_ENCODED,
+      );
+      for (const kept of [
+        "*Total: $32.00*",
+        "Paid USD: $11.00",
+        "Gift card: $5.00",
+        "On account: $14.00",
+        "Change: $1.00",
+        "(shortened — ask the shop for the full receipt)",
+      ]) {
+        expect(text).toContain(kept);
+      }
+      expect(text).not.toContain("T".repeat(600));
+      expect(text).toMatch(/…and \d+ more items/);
+    });
+
+    it("drops warranty terms first, before touching the items", () => {
+      const terms = "Warranty void if opened. ".repeat(8).trim();
+      const withTerms = { ...full, warranty_terms: terms };
+      const text = formatReceiptWhatsApp(withTerms, {
+        maxEncoded:
+          encodeURIComponent(formatReceiptWhatsApp(withTerms)).length - 1,
+      });
+      expect(text).not.toContain("Warranty void if opened.");
+      expect(text).toContain("  Serial: 356000000000001");
+      expect(text).toContain("(shortened — ask the shop for the full receipt)");
+    });
+
+    it("does not shorten a receipt that fits", () => {
+      expect(formatReceiptWhatsApp(full)).not.toContain("shortened");
+    });
   });
 });

@@ -104,6 +104,9 @@ export {
 // whether a typed phone number is the shop's own carrier line.
 export * from "./utils/phoneNumber.js";
 
+// LIRA-333 — the one WhatsApp phone rule (FR-014/015); pure, no imports.
+export * from "./utils/whatsappPhone.js";
+
 // Primary cash drawer names (OMT_System/Whish_System) — pure `as const`
 // tuple + one pure function, no Node.js deps. DrawerTopUpModal.tsx (the
 // General <-> PCD transfer routing decision) imports PRIMARY_CASH_DRAWER_NAMES

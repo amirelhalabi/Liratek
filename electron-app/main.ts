@@ -668,6 +668,8 @@ async function registerHandlers() {
     const databaseResetHandlers =
       await import("./handlers/databaseResetHandlers.js");
     const offlineHandlers = await import("./handlers/offlineHandlers.js");
+    // LIRA-333 — open a WhatsApp link outside LiraTek.
+    const appShellHandlers = await import("./handlers/appShellHandlers.js");
 
     // Register all handlers
     authHandlers.registerAuthHandlers();
@@ -719,6 +721,7 @@ async function registerHandlers() {
     licenseHandlers.registerLicenseHandlers();
     databaseResetHandlers.registerDatabaseResetHandlers();
     offlineHandlers.registerOfflineHandlers();
+    appShellHandlers.registerAppShellHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {

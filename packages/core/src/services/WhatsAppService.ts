@@ -8,6 +8,7 @@
  */
 
 import { getSettingsRepository } from "../repositories/index.js";
+import { toWhatsAppNumber } from "../utils/whatsappPhone.js";
 
 export interface WhatsAppResult {
   success: boolean;
@@ -24,22 +25,6 @@ export class WhatsAppService {
   private get phoneNumberId(): string {
     const repo = getSettingsRepository();
     return repo.getSettingValue("whatsapp_phone_number_id") || "";
-  }
-
-  /**
-   * Format a Lebanese phone number to international format.
-   * Accepts: 76901610, 03123456, +96176901610, 96176901610
-   * Returns: 96176901610 (no + prefix, as required by WhatsApp API)
-   */
-  private formatLebanonNumber(phone: string): string {
-    let cleaned = phone.replace(/[\s\-\(\)]/g, "");
-    // Remove leading +
-    if (cleaned.startsWith("+")) cleaned = cleaned.slice(1);
-    // If already has country code
-    if (cleaned.startsWith("961")) return cleaned;
-    // Remove leading 0 (local format)
-    if (cleaned.startsWith("0")) cleaned = cleaned.slice(1);
-    return `961${cleaned}`;
   }
 
   /**
@@ -67,7 +52,10 @@ export class WhatsAppService {
       };
     }
 
-    const formattedPhone = this.formatLebanonNumber(recipientPhone);
+    // LIRA-333 (FR-015): the one shared phone rule; refuse before any call.
+    const phone = toWhatsAppNumber(recipientPhone);
+    if (!phone.ok) return { success: false, error: "Invalid phone number" };
+    const formattedPhone = phone.digits;
     const url = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
 
     try {
@@ -132,7 +120,10 @@ export class WhatsAppService {
       };
     }
 
-    const formattedPhone = this.formatLebanonNumber(recipientPhone);
+    // LIRA-333 (FR-015): the one shared phone rule; refuse before any call.
+    const phone = toWhatsAppNumber(recipientPhone);
+    if (!phone.ok) return { success: false, error: "Invalid phone number" };
+    const formattedPhone = phone.digits;
     const url = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
 
     try {
