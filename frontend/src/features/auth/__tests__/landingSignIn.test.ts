@@ -130,7 +130,13 @@ describe("English and Arabic pages", () => {
       Array.from(
         d.querySelectorAll("main a, header a.btn, header a.nav-signin"),
       )
-        .map((a) => a.getAttribute("href")!.replace("/wa?lang=ar", "/wa"))
+        // The Arabic page's sign-up links carry ?lang=ar on purpose (FR-006).
+        .map((a) =>
+          a
+            .getAttribute("href")!
+            .replace("/wa?lang=ar", "/wa")
+            .replace("#/signup?lang=ar", "#/signup"),
+        )
         .filter((href) => href !== "/" && href !== "/ar");
     expect(links(arDoc)).toEqual(links(doc));
   });
