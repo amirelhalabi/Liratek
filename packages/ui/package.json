@@ -16,9 +16,11 @@
   },
   "peerDependencies": {
     "@headlessui/react": "^2.2.9",
+    "i18next": "^26.0.10",
     "lucide-react": "^0.561.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-i18next": "^17.0.7"
   },
   "devDependencies": {
     "typescript": "~6.0.3"
