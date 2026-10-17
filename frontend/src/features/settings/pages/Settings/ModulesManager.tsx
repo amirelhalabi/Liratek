@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import logger from "@/utils/logger";
 import { appEvents, useApi, DecimalInput } from "@liratek/ui";
 import PaymentMethodsManager from "./PaymentMethodsManager";
@@ -47,7 +48,9 @@ const PROVIDER_DRAWERS = [
   { key: "Alfa", label: "Alfa", drawer: "Alfa" },
   { key: "iPick", label: "iPick", drawer: "iPick" },
   { key: "Katsh", label: "Katsh", drawer: "Katsh" },
+  // i18n-exempt: brand names
   { key: "WHISH_APP", label: "Whish App", drawer: "Whish_App" },
+  // i18n-exempt: brand names
   { key: "OMT_APP", label: "OMT App", drawer: "OMT_App" },
   { key: "BINANCE", label: "Binance", drawer: "Binance" },
 ].map((p) => ({ ...p, module: moduleOwningDrawer(p.drawer) ?? "" }));
@@ -62,6 +65,7 @@ interface ProviderCurrencyRow {
 
 export default function ModulesManager() {
   const api = useApi();
+  const { t } = useTranslation("settings");
   const tableRef = useRef<HTMLTableElement>(null);
   const [modules, setModules] = useState<ModuleRow[]>([]);
   const [drawers, setDrawers] = useState<string[]>([]);
@@ -162,13 +166,17 @@ export default function ModulesManager() {
         window.dispatchEvent(new Event("modules-changed"));
       } catch (e) {
         logger.error("Failed to reorder modules", { error: e });
-        appEvents.emit("notification:show", "Failed to reorder", "error");
+        appEvents.emit(
+          "notification:show",
+          t("modules.reorderFailed"),
+          "error",
+        );
         loadModules(); // revert
       } finally {
         setSaving(false);
       }
     },
-    [modules, api, loadModules],
+    [modules, api, loadModules, t],
   );
 
   // ── Drag handlers ──
@@ -269,7 +277,11 @@ export default function ModulesManager() {
           window.dispatchEvent(new Event("modules-changed"));
         } catch (e) {
           logger.error("Failed to reorder modules", { error: e });
-          appEvents.emit("notification:show", "Failed to reorder", "error");
+          appEvents.emit(
+          "notification:show",
+          t("modules.reorderFailed"),
+          "error",
+        );
           loadModules();
         } finally {
           setSaving(false);
@@ -298,6 +310,7 @@ export default function ModulesManager() {
       api,
       loadModules,
       moveModule,
+      t,
     ],
   );
 
@@ -376,7 +389,9 @@ export default function ModulesManager() {
               from a group it was never really part of. */}
           {drawersOwnedByModule(m.key).length > 0 && (
             <span className="block text-xs font-normal text-slate-500">
-              Drawers: {drawersOwnedByModule(m.key).join(", ")}
+              {t("modules.drawers", {
+                list: drawersOwnedByModule(m.key).join(", "),
+              })}
             </span>
           )}
         </td>
@@ -398,7 +413,7 @@ export default function ModulesManager() {
                 : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
             }`}
           >
-            {m.is_enabled ? "Enabled" : "Disabled"}
+            {m.is_enabled ? t("modules.enabled") : t("modules.disabled")}
           </button>
         </td>
       </tr>
@@ -406,15 +421,14 @@ export default function ModulesManager() {
   };
 
   if (loading) {
-    return <div className="text-slate-400">Loading modules...</div>;
+    return <div className="text-slate-400">{t("modules.loading")}</div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-slate-400 text-sm">
-          Enable or disable feature modules. Drag rows or select &amp; use arrow
-          keys to reorder.
+          {t("modules.intro")}
         </p>
         {selectedKey && (
           <div className="flex items-center gap-1">
@@ -422,7 +436,7 @@ export default function ModulesManager() {
               onClick={moveUpDisplay}
               disabled={saving}
               className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
-              title="Move up (↑)"
+              title={t("modules.moveUp")}
             >
               ↑
             </button>
@@ -430,7 +444,7 @@ export default function ModulesManager() {
               onClick={moveDownDisplay}
               disabled={saving}
               className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
-              title="Move down (↓)"
+              title={t("modules.moveDown")}
             >
               ↓
             </button>
@@ -438,10 +452,12 @@ export default function ModulesManager() {
               onClick={() => setSelectedKey(null)}
               className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs ms-1"
             >
-              Deselect
+              {t("modules.deselect")}
             </button>
             {saving && (
-              <span className="text-xs text-slate-500 ms-2">Saving...</span>
+              <span className="text-xs text-slate-500 ms-2">
+                {t("modules.saving")}
+              </span>
             )}
           </div>
         )}
@@ -458,22 +474,24 @@ export default function ModulesManager() {
           <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
             <tr>
               <th className="py-2 px-2 w-8"></th>
-              <th className="py-2 px-3">Module</th>
-              <th className="py-2 px-3">Route</th>
-              <th className="py-2 px-3">Enabled Currencies</th>
-              <th className="py-2 px-3">Status</th>
+              <th className="py-2 px-3">{t("modules.col.module")}</th>
+              <th className="py-2 px-3">{t("modules.col.route")}</th>
+              <th className="py-2 px-3">{t("modules.col.currencies")}</th>
+              <th className="py-2 px-3">{t("modules.col.status")}</th>
             </tr>
           </thead>
           <tbody>
             {/* Dashboard — always at top */}
             <tr className="border-t border-slate-800 bg-slate-800/10">
               <td className="py-2 px-2 w-8"></td>
-              <td className="py-2 px-3 text-white font-medium">Dashboard</td>
+              <td className="py-2 px-3 text-white font-medium">
+                {t("modules.dashboard")}
+              </td>
               <td className="py-2 px-3 text-slate-400 font-mono text-xs">/</td>
               <td className="py-2 px-3 text-slate-300">—</td>
               <td className="py-2 px-3">
                 <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
-                  System
+                  {t("modules.system")}
                 </span>
               </td>
             </tr>
@@ -535,10 +553,11 @@ export default function ModulesManager() {
                       </span>
                     </td>
                     <td className="py-2 px-3 text-white font-semibold">
-                      Mobile Recharge
+                      {t("modules.mobileRecharge")}
                     </td>
                     <td className="py-2 px-3 text-slate-400 font-mono text-xs">
-                      /recharge
+                      {/* i18n-exempt: route path */}
+                      {"/recharge"}
                     </td>
                     <td className="py-2 px-3 text-slate-300 text-xs">
                       {providerCurrencies
@@ -556,10 +575,10 @@ export default function ModulesManager() {
                         }`}
                       >
                         {allEnabled
-                          ? "All Enabled"
+                          ? t("modules.allEnabled")
                           : anyEnabled
-                            ? "Partial"
-                            : "All Disabled"}
+                            ? t("modules.partial")
+                            : t("modules.allDisabled")}
                       </span>
                     </td>
                   </tr>,
@@ -600,7 +619,7 @@ export default function ModulesManager() {
                                 : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
                             }`}
                           >
-                            {m.is_enabled ? "Enabled" : "Disabled"}
+                            {m.is_enabled ? t("modules.enabled") : t("modules.disabled")}
                           </button>
                         </td>
                       </tr>
@@ -619,54 +638,58 @@ export default function ModulesManager() {
             <tr className="border-t-2 border-slate-600 bg-slate-800/10">
               <td className="py-2 px-2 w-8"></td>
               <td className="py-2 px-3 text-white font-medium">
-                Audit & Transactions
+                {t("modules.audit")}
               </td>
               <td className="py-2 px-3 text-slate-400 font-mono text-xs">
-                /audit
+                {"/audit" /* i18n-exempt: route path */}
               </td>
               <td className="py-2 px-3 text-slate-300">—</td>
               <td className="py-2 px-3">
                 <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
-                  System
-                </span>
-              </td>
-            </tr>
-            <tr className="border-t border-slate-800 bg-slate-800/10">
-              <td className="py-2 px-2 w-8"></td>
-              <td className="py-2 px-3 text-white font-medium">Settings</td>
-              <td className="py-2 px-3 text-slate-400 font-mono text-xs">
-                /settings
-              </td>
-              <td className="py-2 px-3 text-slate-300">—</td>
-              <td className="py-2 px-3">
-                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
-                  System
-                </span>
-              </td>
-            </tr>
-            <tr className="border-t border-slate-800 bg-slate-800/10">
-              <td className="py-2 px-2 w-8"></td>
-              <td className="py-2 px-3 text-white font-medium">Checkpoint</td>
-              <td className="py-2 px-3 text-slate-400 font-mono text-xs">—</td>
-              <td className="py-2 px-3 text-slate-300">—</td>
-              <td className="py-2 px-3">
-                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
-                  System
+                  {t("modules.system")}
                 </span>
               </td>
             </tr>
             <tr className="border-t border-slate-800 bg-slate-800/10">
               <td className="py-2 px-2 w-8"></td>
               <td className="py-2 px-3 text-white font-medium">
-                Checkpoint Timeline
+                {t("modules.settings")}
               </td>
               <td className="py-2 px-3 text-slate-400 font-mono text-xs">
-                /checkpoint-timeline
+                {"/settings" /* i18n-exempt: route path */}
               </td>
               <td className="py-2 px-3 text-slate-300">—</td>
               <td className="py-2 px-3">
                 <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
-                  System
+                  {t("modules.system")}
+                </span>
+              </td>
+            </tr>
+            <tr className="border-t border-slate-800 bg-slate-800/10">
+              <td className="py-2 px-2 w-8"></td>
+              <td className="py-2 px-3 text-white font-medium">
+                {t("modules.checkpoint")}
+              </td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">—</td>
+              <td className="py-2 px-3 text-slate-300">—</td>
+              <td className="py-2 px-3">
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
+                  {t("modules.system")}
+                </span>
+              </td>
+            </tr>
+            <tr className="border-t border-slate-800 bg-slate-800/10">
+              <td className="py-2 px-2 w-8"></td>
+              <td className="py-2 px-3 text-white font-medium">
+                {t("modules.checkpointTimeline")}
+              </td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+                {"/checkpoint-timeline" /* i18n-exempt: route path */}
+              </td>
+              <td className="py-2 px-3 text-slate-300">—</td>
+              <td className="py-2 px-3">
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
+                  {t("modules.system")}
                 </span>
               </td>
             </tr>
@@ -677,10 +700,11 @@ export default function ModulesManager() {
       {/* Drawers Section */}
       <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">
         <div>
-          <h3 className="text-white font-semibold">Drawers</h3>
+          <h3 className="text-white font-semibold">
+            {t("modules.drawersTitle")}
+          </h3>
           <p className="text-slate-400 text-sm">
-            Cash drawers tracked by the system. Drawers are created
-            automatically when referenced by payment methods or modules.
+            {t("modules.drawersIntro")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -694,13 +718,12 @@ export default function ModulesManager() {
           ))}
           {drawers.length === 0 && (
             <span className="text-slate-500 text-sm italic">
-              No drawers configured
+              {t("modules.noDrawers")}
             </span>
           )}
         </div>
         <p className="text-xs text-slate-500 italic">
-          Manage drawer currencies from the &quot;Currencies &amp; Rates&quot;
-          tab.
+          {t("modules.drawersHint")}
         </p>
       </div>
 
@@ -726,6 +749,7 @@ export default function ModulesManager() {
 /** Drawer Limits — migrated from the old Drawer Config tab */
 function DrawerLimitsSection() {
   const api = useApi();
+  const { t } = useTranslation("settings");
   const [drawerLimitGeneral, setDrawerLimitGeneral] = useState("");
   const [drawerLimitOMT, setDrawerLimitOMT] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -758,19 +782,19 @@ function DrawerLimitsSection() {
       const gen = Number(drawerLimitGeneral);
       const omt = Number(drawerLimitOMT);
 
-      if (!gen || gen <= 0) throw new Error("General drawer limit must be > 0");
-      if (!omt || omt <= 0) throw new Error("OMT drawer limit must be > 0");
+      if (!gen || gen <= 0) throw new Error(t("limits.generalInvalid"));
+      if (!omt || omt <= 0) throw new Error(t("limits.omtInvalid"));
 
       await Promise.all([
         api.updateSetting("drawer_limit_general", drawerLimitGeneral),
         api.updateSetting("drawer_limit_omt", drawerLimitOMT),
       ]);
-      appEvents.emit("notification:show", "Drawer limits saved", "success");
+      appEvents.emit("notification:show", t("limits.saved"), "success");
     } catch (e) {
       logger.error("Failed to save drawer limits", { error: e });
       appEvents.emit(
         "notification:show",
-        e instanceof Error ? e.message : "Failed to save",
+        e instanceof Error ? e.message : t("limits.saveFailed"),
         "error",
       );
     } finally {
@@ -780,16 +804,15 @@ function DrawerLimitsSection() {
 
   if (isLoading)
     return (
-      <div className="text-slate-400 text-sm">Loading drawer limits...</div>
+      <div className="text-slate-400 text-sm">{t("limits.loading")}</div>
     );
 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-white font-semibold">Drawer Limits</h3>
+        <h3 className="text-white font-semibold">{t("limits.title")}</h3>
         <p className="text-slate-400 text-sm">
-          Set limits for cash drawers. Notifications will warn when balances
-          exceed these limits.
+          {t("limits.intro")}
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -798,7 +821,7 @@ function DrawerLimitsSection() {
             htmlFor="drawerLimitGeneral"
             className="block text-sm text-slate-400 mb-1"
           >
-            General Drawer Limit (USD)
+            {t("limits.general")}
           </label>
           <DecimalInput
             id="drawerLimitGeneral"
@@ -812,7 +835,7 @@ function DrawerLimitsSection() {
             htmlFor="drawerLimitOMT"
             className="block text-sm text-slate-400 mb-1"
           >
-            OMT Drawer Limit (USD)
+            {t("limits.omt")}
           </label>
           <DecimalInput
             id="drawerLimitOMT"
@@ -828,14 +851,14 @@ function DrawerLimitsSection() {
           disabled={isSaving}
           className="px-3 py-1.5 rounded bg-slate-700 text-white text-sm"
         >
-          Reset
+          {t("limits.reset")}
         </button>
         <button
           onClick={save}
           disabled={isSaving}
           className="px-3 py-1.5 rounded bg-violet-600 hover:bg-violet-500 text-white text-sm"
         >
-          {isSaving ? "Saving..." : "Save Limits"}
+          {isSaving ? t("limits.saving") : t("limits.save")}
         </button>
       </div>
     </div>

@@ -421,5 +421,51 @@
       "staff": "staff",
       "admin": "admin"
     }
+  },
+  "modules": {
+    "reorderFailed": "Failed to reorder",
+    "drawers": "Drawers: {{list}}",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "loading": "Loading modules...",
+    "intro": "Enable or disable feature modules. Drag rows or select & use arrow keys to reorder.",
+    "moveUp": "Move up (↑)",
+    "moveDown": "Move down (↓)",
+    "deselect": "Deselect",
+    "saving": "Saving...",
+    "col": {
+      "module": "Module",
+      "route": "Route",
+      "currencies": "Enabled Currencies",
+      "status": "Status"
+    },
+    "dashboard": "Dashboard",
+    "system": "System",
+    "mobileRecharge": "Mobile Recharge",
+    "allEnabled": "All Enabled",
+    "partial": "Partial",
+    "allDisabled": "All Disabled",
+    "audit": "Audit & Transactions",
+    "settings": "Settings",
+    "checkpoint": "Checkpoint",
+    "checkpointTimeline": "Checkpoint Timeline",
+    "drawersTitle": "Drawers",
+    "drawersIntro": "Cash drawers tracked by the system. Drawers are created automatically when referenced by payment methods or modules.",
+    "noDrawers": "No drawers configured",
+    "drawersHint": "Manage drawer currencies from the \"Currencies & Rates\" tab."
+  },
+  "limits": {
+    "saved": "Drawer limits saved",
+    "generalInvalid": "General drawer limit must be > 0",
+    "omtInvalid": "OMT drawer limit must be > 0",
+    "saveFailed": "Failed to save",
+    "loading": "Loading drawer limits...",
+    "title": "Drawer Limits",
+    "intro": "Set limits for cash drawers. Notifications will warn when balances exceed these limits.",
+    "general": "General Drawer Limit (USD)",
+    "omt": "OMT Drawer Limit (USD)",
+    "reset": "Reset",
+    "saving": "Saving...",
+    "save": "Save Limits"
   }
 }
