@@ -338,8 +338,8 @@ Line numbers drift: search for the named symbol.
 
 ### Tests (write first, see them fail)
 
-- [ ] T055 [P] [US5] In `mobile/src/api/__tests__/client.trialEnded.test.ts` (new): a 200 body `{success:false, code:"TRIAL_ENDED", error:"Your free trial…"}` yields `{success:false, error:"TRIAL_ENDED"}`. Today it yields the sentence, so this fails first. `mobile/src/auth/messages.ts` maps it to the FR-011 text.
-- [ ] T056 [P] [US5] In `mobile/src/components/__tests__/TrialStrip.test.tsx` (new): the same states and texts as T020 and T035 (12 days / last day / ends soon / ended / nothing for active or null). The button opens `buildActivationWhatsAppUrl(...)` through `Linking.openURL` (mocked).
+- [x] T055 [P] [US5] In `mobile/src/api/__tests__/client.trialEnded.test.ts` (new): a 200 body `{success:false, code:"TRIAL_ENDED", error:"Your free trial…"}` yields `{success:false, error:"TRIAL_ENDED"}`. Today it yields the sentence, so this fails first. `mobile/src/auth/messages.ts` maps it to the FR-011 text.
+- [x] T056 [P] [US5] In `mobile/src/components/__tests__/TrialStrip.test.tsx` (new): the same states and texts as T020 and T035 (12 days / last day / ends soon / ended / nothing for active or null). The button opens `buildActivationWhatsAppUrl(...)` through `Linking.openURL` (mocked).
 - [x] T057 [P] [US5] In `packages/core/src/services/__tests__/OfflineMergeProcessor.trial.test.ts` (new), with an injected `trialEndFor`:
   - one PC with seq 1–2 stamped before the end and seq 3–4 after (by `corrected_at ?? occurred_at`), trial ended → seq 1–2 `booked`, seq 3–4 still `received`, and `next_expected_seq = 3`, with no review item and nothing refused;
   - with `trialEndFor` returning null (activated) → the next round books 3–4;
@@ -357,7 +357,7 @@ Line numbers drift: search for the named symbol.
 
 ### Implementation
 
-- [ ] T060 [US5] Phone:
+- [x] T060 [US5] Phone:
   - in `mobile/src/api/client.ts`, read a top-level `code` before `env.error`;
   - add `mobile/src/api/subscription.ts` (`GET /api/subscription/status`);
   - add `mobile/src/components/TrialStrip.tsx`, using core `buildActivationWhatsAppUrl` (the phone already imports core leaves, e.g. `@liratek/core/utils/localDate`);
