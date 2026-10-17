@@ -1,5 +1,160 @@
 {
   "lookup": {
-    "title": "Warranty"
+    "title": "Warranty",
+    "subtitle": "Find any item sold with a warranty — no IMEI needed.",
+    "searchFailed": "Search failed",
+    "tab": {
+      "search": "Find a warranty",
+      "defective": "Defective items",
+      "returns": "Supplier returns",
+      "report": "Report"
+    },
+    "searchHint": "Name, phone, receipt (RCP-…), product or serial",
+    "searchLabel": "Search warranties",
+    "stateFilter": "Warranty state",
+    "filter": {
+      "all": "All"
+    },
+    "col": {
+      "product": "Product",
+      "customer": "Customer",
+      "soldOn": "Sold on",
+      "receipt": "Receipt",
+      "until": "Warranty until",
+      "state": "State",
+      "covered": "Covered"
+    },
+    "walkIn": "Walk-in",
+    "coveredOf": "{{covered}} of {{total}}",
+    "claim": "Claim",
+    "history": "History",
+    "inStockHint": "In stock, not sold — warranty starts when it's sold.",
+    "empty": "No warranty items found.",
+    "searching": "Searching…",
+    "claimHistory": "Claim history"
+  },
+  "state": {
+    "COVERED": "Covered",
+    "EXPIRED": "Expired",
+    "VOID": "Void",
+    "NONE": "No warranty"
+  },
+  "action": {
+    "REPAIR": "Repair",
+    "REPLACE": "Replace",
+    "REFUND": "Refund"
+  },
+  "claimStatus": {
+    "OPEN": "Open",
+    "DONE": "Done",
+    "VOIDED": "Voided"
+  },
+  "history": {
+    "loadFailed": "Could not load claims",
+    "voidConfirm": "Void this claim? Everything it did (stock, refund, repair job, cost) is reversed.",
+    "loading": "Loading claims…",
+    "empty": "No warranty claims yet.",
+    "void": "Void claim"
+  },
+  "claim": {
+    "hint": {
+      "REPAIR": "Opens a free repair job for the customer.",
+      "REPLACE": "Gives the customer the same item from stock.",
+      "REFUND": "Refunds this item; the faulty one is kept aside."
+    },
+    "startFailed": "Could not start the claim",
+    "title": "Warranty claim",
+    "titleFor": "Warranty claim — {{name}}",
+    "void": "This item was refunded — its warranty is void.",
+    "expired": "This warranty has expired.",
+    "expiredAdmin": "Give a reason to honour it anyway.",
+    "expiredStaff": "Only an admin can honour it.",
+    "whatWillShopDo": "What will the shop do?",
+    "unit": "Unit",
+    "replacement": "Replacement unit",
+    "pickReplacement": "Pick the unit you hand over…",
+    "reason": "Reason for honouring it",
+    "notes": "Notes",
+    "saving": "Saving…",
+    "start": "Start claim"
+  },
+  "defective": {
+    "status": {
+      "HELD": "Held",
+      "SENT_TO_SUPPLIER": "Sent to supplier",
+      "WRITTEN_OFF": "Written off",
+      "RETURNED_TO_STOCK": "Back in stock"
+    },
+    "actionLower": {
+      "REPAIR": "repair",
+      "REPLACE": "replace",
+      "REFUND": "refund"
+    },
+    "col": {
+      "item": "Item",
+      "serial": "Serial",
+      "cost": "Cost",
+      "claim": "Claim",
+      "status": "Status"
+    },
+    "loadFailed": "Could not load defective items",
+    "thisItem": "this item",
+    "writeOffConfirm": "Write off {{name}}? It stays out of stock.",
+    "notFaultyConfirm": "Put {{name}} back in stock as not faulty?",
+    "writeOff": "Write off",
+    "notFaulty": "Not faulty",
+    "sendToSupplier": "Send to supplier",
+    "empty": "No defective items.",
+    "sendTitle": "Send {{name}} back to the supplier",
+    "supplier": "Supplier",
+    "supplierOnRecord": "The supplier it came from",
+    "note": "Note",
+    "send": "Send"
+  },
+  "returns": {
+    "status": {
+      "SENT": "Sent",
+      "CREDITED": "Credited",
+      "REPLACED": "Replaced",
+      "REJECTED": "Rejected"
+    },
+    "col": {
+      "item": "Item",
+      "supplier": "Supplier",
+      "cost": "Cost",
+      "sentOn": "Sent on",
+      "status": "Status",
+      "credit": "Credit"
+    },
+    "answer": "Supplier's answer",
+    "creditUsd": "Credit (USD)",
+    "creditLbp": "Credit (LBP)",
+    "note": "Note",
+    "whyRejected": "Why was it rejected?",
+    "loadFailed": "Could not load supplier returns",
+    "recordAnswer": "Record answer",
+    "empty": "No supplier returns."
+  },
+  "report": {
+    "loadFailed": "Could not load the report",
+    "from": "From",
+    "to": "To",
+    "claimsInPeriod": "Claims in the period",
+    "byAction": "Repair {{nRepair}} · Replace {{nReplace}} · Refund {{nRefund}}",
+    "gross": "Cost to the shop",
+    "recovered": "Given back by suppliers",
+    "net": "Net warranty cost",
+    "lbpBack": "{{amount}} back",
+    "underWarranty": "Under warranty today",
+    "col": {
+      "category": "Category",
+      "item": "Item",
+      "receipt": "Receipt",
+      "customer": "Customer",
+      "qty": "Qty",
+      "until": "Covered until"
+    },
+    "empty": "Nothing is under warranty today.",
+    "repairNo": "Repair #{{id}}"
   }
 }

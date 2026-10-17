@@ -7,29 +7,46 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import type {
   CloseSupplierReturnInput,
   SupplierReturnOutcome,
   SupplierReturnView,
 } from "@liratek/core";
 
-const STATUS_LABEL: Record<string, string> = {
-  SENT: "Sent",
-  CREDITED: "Credited",
-  REPLACED: "Replaced",
-  REJECTED: "Rejected",
-};
+// Status / outcome codes → catalog keys, translated at render.
+const STATUS_KEY = {
+  SENT: "returns.status.SENT",
+  CREDITED: "returns.status.CREDITED",
+  REPLACED: "returns.status.REPLACED",
+  REJECTED: "returns.status.REJECTED",
+} as const;
 
-const OUTCOMES: { value: SupplierReturnOutcome; label: string }[] = [
-  { value: "CREDITED", label: "Credited" },
-  { value: "REPLACED", label: "Replaced" },
-  { value: "REJECTED", label: "Rejected" },
-];
+const OUTCOMES = [
+  { value: "CREDITED", labelKey: "returns.status.CREDITED" },
+  { value: "REPLACED", labelKey: "returns.status.REPLACED" },
+  { value: "REJECTED", labelKey: "returns.status.REJECTED" },
+] as const satisfies readonly {
+  value: SupplierReturnOutcome;
+  labelKey: string;
+}[];
+
+const COLUMN_KEYS = [
+  "returns.col.item",
+  "returns.col.supplier",
+  "returns.col.cost",
+  "returns.col.sentOn",
+  "returns.col.status",
+  "returns.col.credit",
+] as const;
 
 function money(r: SupplierReturnView): string {
   const parts: string[] = [];
   if (r.credit_usd) parts.push(`$${r.credit_usd.toFixed(2)}`);
-  if (r.credit_lbp) parts.push(`${r.credit_lbp.toLocaleString()} LBP`);
+  if (r.credit_lbp) parts.push(`${formatNumber(r.credit_lbp)} LBP`);
   return parts.join(" + ") || "—";
 }
 
@@ -42,6 +59,7 @@ function CloseForm({
   onDone: (error: string | null) => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation("warranty");
   const api = useApi();
   const apiRef = useRef(api);
   useEffect(() => {
@@ -78,7 +96,7 @@ function CloseForm({
   return (
     <div className="flex flex-wrap items-end gap-3 p-3 bg-slate-900/60 rounded-lg">
       <fieldset className="flex gap-3">
-        <legend className="sr-only">Supplier's answer</legend>
+        <legend className="sr-only">{t("returns.answer")}</legend>
         {OUTCOMES.map((o) => (
           <label key={o.value} className="flex items-center gap-1 text-sm">
             <input
@@ -87,43 +105,41 @@ function CloseForm({
               checked={outcome === o.value}
               onChange={() => setOutcome(o.value)}
             />
-            {o.label}
+            {t(o.labelKey)}
           </label>
         ))}
       </fieldset>
       {outcome === "CREDITED" && (
         <>
           <label className="text-xs text-slate-400 flex flex-col">
-            Credit (USD)
+            {t("returns.creditUsd")}
             <input
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={creditUsd}
-              onChange={(e) => setCreditUsd(e.target.value)}
+              onChange={(e) => setCreditUsd(normalizeDigits(e.target.value))}
               className="mt-1 w-28 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white"
             />
           </label>
           <label className="text-xs text-slate-400 flex flex-col">
-            Credit (LBP)
+            {t("returns.creditLbp")}
             <input
-              type="number"
-              min="0"
-              step="1000"
+              type="text"
+              inputMode="decimal"
               value={creditLbp}
-              onChange={(e) => setCreditLbp(e.target.value)}
+              onChange={(e) => setCreditLbp(normalizeDigits(e.target.value))}
               className="mt-1 w-32 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white"
             />
           </label>
         </>
       )}
       <label className="text-xs text-slate-400 flex flex-col flex-1 min-w-[10rem]">
-        Note
+        {t("returns.note")}
         <input
           value={notes}
           maxLength={500}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder={outcome === "REJECTED" ? "Why was it rejected?" : ""}
+          placeholder={outcome === "REJECTED" ? t("returns.whyRejected") : ""}
           className="mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white"
         />
       </label>
@@ -132,19 +148,22 @@ function CloseForm({
         disabled={!ready || busy}
         className="px-3 py-1.5 rounded-lg text-sm bg-violet-600 text-white disabled:opacity-40"
       >
-        Save
+        {t("common:actions.save")}
       </button>
       <button
         onClick={onCancel}
         className="px-3 py-1.5 rounded-lg text-sm text-slate-400 hover:text-white"
       >
-        Cancel
+        {t("common:actions.cancel")}
       </button>
     </div>
   );
 }
 
 export function SupplierReturns() {
+  const { t } = useTranslation("warranty");
+  const tRef = useRef(t);
+  tRef.current = t;
   const api = useApi();
   // Rule 25: `api` read through a ref; refreshed in an effect.
   const apiRef = useRef(api);
@@ -161,7 +180,7 @@ export function SupplierReturns() {
       setError(null);
     } catch (e) {
       setError(
-        e instanceof Error ? e.message : "Could not load supplier returns",
+        e instanceof Error ? e.message : tRef.current("returns.loadFailed"),
       );
     }
   }, []);
@@ -181,16 +200,15 @@ export function SupplierReturns() {
         <table className="w-full min-w-[44rem]">
           <thead className="bg-slate-900">
             <tr>
-              {["Item", "Supplier", "Cost", "Sent on", "Status", "Credit", ""].map(
-                (h) => (
-                  <th
-                    key={h}
-                    className="text-start text-xs text-slate-400 px-4 py-3"
-                  >
-                    {h}
-                  </th>
-                ),
-              )}
+              {COLUMN_KEYS.map((k) => (
+                <th
+                  key={k}
+                  className="text-start text-xs text-slate-400 px-4 py-3"
+                >
+                  {t(k)}
+                </th>
+              ))}
+              <th className="text-start text-xs text-slate-400 px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700">
@@ -200,7 +218,7 @@ export function SupplierReturns() {
                   {r.product_name ?? "—"}
                   {r.serial ? (
                     <span className="block text-xs text-slate-400">
-                      {r.serial}
+                      <Ltr>{r.serial}</Ltr>
                     </span>
                   ) : null}
                 </td>
@@ -208,15 +226,19 @@ export function SupplierReturns() {
                   {r.supplier_name ?? `#${r.supplier_id}`}
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-300">
-                  {r.unit_cost_usd != null
-                    ? `$${r.unit_cost_usd.toFixed(2)}`
-                    : "—"}
+                  <Ltr>
+                    {r.unit_cost_usd != null
+                      ? `$${r.unit_cost_usd.toFixed(2)}`
+                      : "—"}
+                  </Ltr>
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-300">
-                  {r.sent_at?.slice(0, 10) ?? "—"}
+                  <Ltr>{r.sent_at?.slice(0, 10) ?? "—"}</Ltr>
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-300">
-                  {STATUS_LABEL[r.status] ?? r.status}
+                  {r.status in STATUS_KEY
+                    ? t(STATUS_KEY[r.status as keyof typeof STATUS_KEY])
+                    : r.status}
                   {r.notes ? (
                     <span className="block text-xs text-slate-400">
                       {r.notes}
@@ -224,7 +246,7 @@ export function SupplierReturns() {
                   ) : null}
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-300">
-                  {money(r)}
+                  <Ltr>{money(r)}</Ltr>
                 </td>
                 <td className="px-4 py-3 text-sm text-end whitespace-nowrap">
                   {r.status === "SENT" && closing !== r.id && (
@@ -232,7 +254,7 @@ export function SupplierReturns() {
                       onClick={() => setClosing(r.id)}
                       className="text-violet-300 hover:text-violet-200"
                     >
-                      Record answer
+                      {t("returns.recordAnswer")}
                     </button>
                   )}
                 </td>
@@ -242,7 +264,7 @@ export function SupplierReturns() {
         </table>
         {rows.length === 0 && !error && (
           <p className="text-sm text-slate-400 px-4 py-6 text-center">
-            No supplier returns.
+            {t("returns.empty")}
           </p>
         )}
       </div>

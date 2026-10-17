@@ -28,16 +28,19 @@ import { ClaimHistory } from "../components/ClaimHistory";
 import { DefectiveItems } from "../components/DefectiveItems";
 import { SupplierReturns } from "../components/SupplierReturns";
 import { WarrantyReport } from "../components/WarrantyReport";
-
-const SEARCH_HINT = "Name, phone, receipt (RCP-…), product or serial";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 type StateFilter = "" | WarrantySearchState;
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : "Search failed";
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 export default function WarrantyLookup() {
+  const { t } = useTranslation("warranty");
+  const tRef = useRef(t);
+  tRef.current = t;
   const api = useApi();
   const apiRef = useRef(api);
   apiRef.current = api;
@@ -79,7 +82,7 @@ export default function WarrantyLookup() {
       if (request === requestRef.current) {
         setRows([]);
         setInStock([]);
-        setError(errorText(err));
+        setError(errorText(err, tRef.current("lookup.searchFailed")));
       }
     } finally {
       if (request === requestRef.current) setLoading(false);
@@ -100,20 +103,20 @@ export default function WarrantyLookup() {
   return (
     <div className="h-full overflow-auto p-6 flex flex-col gap-5">
       <PageHeader
-        title="Warranty"
-        subtitle="Find any item sold with a warranty — no IMEI needed."
+        title={t("lookup.title")}
+        subtitle={t("lookup.subtitle")}
       />
 
       {isAdmin && (
         <div role="tablist" className="flex gap-2">
           {(
             [
-              ["search", "Find a warranty"],
-              ["defective", "Defective items"],
-              ["returns", "Supplier returns"],
-              ["report", "Report"],
+              ["search", "lookup.tab.search"],
+              ["defective", "lookup.tab.defective"],
+              ["returns", "lookup.tab.returns"],
+              ["report", "lookup.tab.report"],
             ] as const
-          ).map(([key, label]) => (
+          ).map(([key, labelKey]) => (
             <button
               key={key}
               role="tab"
@@ -121,7 +124,7 @@ export default function WarrantyLookup() {
               onClick={() => setTab(key)}
               className={`px-3 py-1.5 rounded-lg text-sm ${tab === key ? "bg-violet-600 text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"}`}
             >
-              {label}
+              {t(labelKey)}
             </button>
           ))}
         </div>
@@ -145,8 +148,8 @@ export default function WarrantyLookup() {
                 type="search"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder={SEARCH_HINT}
-                aria-label="Search warranties"
+                placeholder={t("lookup.searchHint")}
+                aria-label={t("lookup.searchLabel")}
                 maxLength={100}
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg ps-10 pe-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
@@ -156,7 +159,7 @@ export default function WarrantyLookup() {
                 htmlFor="warranty-state-filter"
                 className="text-xs text-slate-400 block mb-1"
               >
-                Warranty state
+                {t("lookup.stateFilter")}
               </label>
               <select
                 id="warranty-state-filter"
@@ -164,17 +167,17 @@ export default function WarrantyLookup() {
                 onChange={(e) => setStateFilter(e.target.value as StateFilter)}
                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
               >
-                <option value="">All</option>
-                <option value="COVERED">Covered</option>
-                <option value="EXPIRED">Expired</option>
-                <option value="VOID">Void</option>
+                <option value="">{t("lookup.filter.all")}</option>
+                <option value="COVERED">{t("state.COVERED")}</option>
+                <option value="EXPIRED">{t("state.EXPIRED")}</option>
+                <option value="VOID">{t("state.VOID")}</option>
               </select>
             </div>
             <button
               type="submit"
               className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-semibold rounded-lg transition-colors"
             >
-              Search
+              {t("common:actions.search")}
             </button>
           </form>
 
@@ -195,25 +198,25 @@ export default function WarrantyLookup() {
               <thead className="bg-slate-900">
                 <tr>
                   <th className="text-start text-xs text-slate-400 px-4 py-3">
-                    Product
+                    {t("lookup.col.product")}
                   </th>
                   <th className="text-start text-xs text-slate-400 px-4 py-3">
-                    Customer
+                    {t("lookup.col.customer")}
                   </th>
                   <th className="text-start text-xs text-slate-400 px-4 py-3">
-                    Sold on
+                    {t("lookup.col.soldOn")}
                   </th>
                   <th className="text-start text-xs text-slate-400 px-4 py-3">
-                    Receipt
+                    {t("lookup.col.receipt")}
                   </th>
                   <th className="text-start text-xs text-slate-400 px-4 py-3">
-                    Warranty until
+                    {t("lookup.col.until")}
                   </th>
                   <th className="text-start text-xs text-slate-400 px-4 py-3">
-                    State
+                    {t("lookup.col.state")}
                   </th>
                   <th className="text-start text-xs text-slate-400 px-4 py-3">
-                    Covered
+                    {t("lookup.col.covered")}
                   </th>
                   <th className="text-start text-xs text-slate-400 px-4 py-3" />
                 </tr>
@@ -238,32 +241,35 @@ export default function WarrantyLookup() {
                           key={u.id}
                           className="text-xs text-slate-400 mt-0.5"
                         >
-                          {u.serial}
+                          <Ltr>{u.serial}</Ltr>
                         </div>
                       ))}
                     </td>
                     <td className="px-4 py-3 text-sm text-white">
-                      <div>{row.customer.name || "Walk-in"}</div>
+                      <div>{row.customer.name || t("lookup.walkIn")}</div>
                       {row.customer.phone && (
                         <div className="text-xs text-slate-400">
-                          {row.customer.phone}
+                          <Ltr>{row.customer.phone}</Ltr>
                         </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-300">
-                      {row.soldAt.slice(0, 10)}
+                      <Ltr>{row.soldAt.slice(0, 10)}</Ltr>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-300 font-mono">
-                      {row.receiptNumber}
+                      <Ltr>{row.receiptNumber}</Ltr>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-300">
-                      {row.warrantyUntil}
+                      <Ltr>{row.warrantyUntil}</Ltr>
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <WarrantyStateBadge state={row.state} />
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-300">
-                      {`${row.coveredQuantity} of ${row.quantity}`}
+                      {t("lookup.coveredOf", {
+                        covered: row.coveredQuantity,
+                        total: row.quantity,
+                      })}
                     </td>
                     <td
                       className="px-4 py-3 text-sm text-end whitespace-nowrap"
@@ -286,7 +292,7 @@ export default function WarrantyLookup() {
                           }
                           className="text-violet-300 hover:text-violet-100 me-3"
                         >
-                          Claim
+                          {t("lookup.claim")}
                         </button>
                       )}
                       {row.saleItemId != null && (
@@ -300,7 +306,7 @@ export default function WarrantyLookup() {
                           }
                           className="text-slate-400 hover:text-white"
                         >
-                          History
+                          {t("lookup.history")}
                         </button>
                       )}
                     </td>
@@ -313,7 +319,7 @@ export default function WarrantyLookup() {
                 data-testid="warranty-in-stock-hint"
                 className="text-sm text-sky-300 px-4 py-6 text-center"
               >
-                <p>In stock, not sold — warranty starts when it's sold.</p>
+                <p>{t("lookup.inStockHint")}</p>
                 <p className="mt-1 text-xs text-slate-400">
                   {inStock
                     .map((u) =>
@@ -325,12 +331,12 @@ export default function WarrantyLookup() {
             )}
             {!loading && !error && rows.length === 0 && inStock.length === 0 && (
               <p className="text-sm text-slate-400 px-4 py-6 text-center">
-                No warranty items found.
+                {t("lookup.empty")}
               </p>
             )}
             {loading && rows.length === 0 && (
               <p className="text-sm text-slate-400 px-4 py-6 text-center">
-                Searching…
+                {t("lookup.searching")}
               </p>
             )}
           </div>
@@ -338,7 +344,7 @@ export default function WarrantyLookup() {
           {historyFor != null && (
             <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
               <h3 className="text-sm font-semibold text-slate-300 mb-2">
-                Claim history
+                {t("lookup.claimHistory")}
               </h3>
               <ClaimHistory
                 saleItemId={historyFor}
