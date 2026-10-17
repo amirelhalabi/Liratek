@@ -144,7 +144,7 @@ description: "Task list for LIRA-331 Arabic app UI"
 ### Shared shell conversion (single owner each; every module renders inside these)
 
 - [x] T022 Convert `frontend/src/index.css` physical properties to logical ones (23 lines measured), and add the Arabic font-family fallback for `:lang(ar)`. Check visually in LTR (web) that nothing moved. (Done; the visual LTR check on web was not run in this session.)
-- [ ] T023 [P] Convert namespace `layout`: shell, side nav, top bar and route titles (`frontend/src/app/**`, `packages/ui/src/components/layouts/**`, `frontend/src/components/**`).
+- [x] T023 [P] Convert namespace `layout`: shell, side nav, top bar and route titles (`frontend/src/app/**`, `packages/ui/src/components/layouts/**`, `frontend/src/components/**`).
   1. Add the first key to the pre-created `locales/en/layout.json` (guard fails, record it).
   2. Extract strings and add `ar`.
   3. Run the T021 codemod.
@@ -152,14 +152,14 @@ description: "Task list for LIRA-331 Arabic app UI"
   5. Guard passes.
   
   The nav moves to the right in RTL (FR-013).
-- [ ] T024 [P] Convert namespace `ui`: `packages/ui/src/components/ui/*` except `MultiPaymentInput.tsx`, i.e. DataTable (headers, pagination, empty states), Select, MultiSelect, SearchBar, DateRangeFilter, ExportBar, ConfirmModal, NotificationCenter, PageAlerts, TopUpModal, DiscountLine, CounterpartySettleModal. Same 5 steps as T023. `DecimalInput.tsx` applies `normalizeDigits` (FR-017), with a test in `packages/ui/src/components/ui/__tests__/DecimalInput.digits.test.tsx`.
-- [ ] T025 [P] Convert namespace `payment`: `packages/ui/src/components/ui/MultiPaymentInput.tsx` (148 KB, money-critical).
+- [x] T024 [P] Convert namespace `ui`: `packages/ui/src/components/ui/*` except `MultiPaymentInput.tsx`, i.e. DataTable (headers, pagination, empty states), Select, MultiSelect, SearchBar, DateRangeFilter, ExportBar, ConfirmModal, NotificationCenter, PageAlerts, TopUpModal, DiscountLine, CounterpartySettleModal. Same 5 steps as T023. `DecimalInput.tsx` applies `normalizeDigits` (FR-017), with a test in `packages/ui/src/components/ui/__tests__/DecimalInput.digits.test.tsx`.
+- [x] T025 [P] Convert namespace `payment`: `packages/ui/src/components/ui/MultiPaymentInput.tsx` (148 KB, money-critical).
   1. FIRST, `packages/ui/src/components/ui/__tests__/MultiPaymentInput.payloadLanguage.test.tsx`: the legs and change emitted with `lng=en` deep-equal those with `lng=ar` for a split USD/LBP payment with change (not failing-first; guard).
   2. Then the 5 steps of T023.
   
   Method labels come from codes, never from translated values.
-- [ ] T026 [P] Convert `frontend/src/shared/**` (components, hooks, utils except the receipt files, which are owned by Phase 6) into namespace `shared`, reusing the `common` keys seeded in T014. Same 5 steps.
-- [ ] T027 [P] Sweep the 28 files with `<input type="number">` (list them with grep). Each becomes `DecimalInput`, or `type="text" inputMode="decimal"` + `normalizeDigits`. Add one test per touched shared input. Only files outside module folders here; module-owned files are done in their module task.
+- [x] T026 [P] Convert `frontend/src/shared/**` (components, hooks, utils except the receipt files, which are owned by Phase 6) into namespace `shared`, reusing the `common` keys seeded in T014. Same 5 steps.
+- [x] T027 [P] Sweep the 28 files with `<input type="number">` (list them with grep). Each becomes `DecimalInput`, or `type="text" inputMode="decimal"` + `normalizeDigits`. Add one test per touched shared input. Only files outside module folders here; module-owned files are done in their module task. (2026-10-17: no `type="number"` remains outside `frontend/src/features/**`; the only shared input, `DecimalInput`, is covered by `DecimalInput.digits.test.tsx`.)
 
 **Checkpoint**: Foundation is ready. The guard runs in CI, the language can be switched on one device, and the shell is RTL. US1 modules and US2 can start in parallel.
 
@@ -171,10 +171,10 @@ description: "Task list for LIRA-331 Arabic app UI"
 
 **Independent test**: quickstart V3.
 
-- [ ] T030 [P] [US2] Test FIRST `frontend/src/features/account/components/__tests__/LanguagePreference.test.tsx`: it shows English/العربية, `setMyLanguage` is called with `{language:'ar'}` (field name from `setMyLanguageSchema`, rule 24), and العربية is hidden while `ARABIC_UI_READY` is false unless the preview flag is set. Then add `LanguagePreference` to My account (`frontend/src/features/account/pages/MyAccount.tsx`), for every role, and convert namespace `account` (5 steps, as T023). **Partly done 2026-10-17:** `LanguagePreference` is on My account with its test; its texts use `common`. Converting the rest of namespace `account` is left.
+- [x] T030 [P] [US2] Test FIRST `frontend/src/features/account/components/__tests__/LanguagePreference.test.tsx`: it shows English/العربية, `setMyLanguage` is called with `{language:'ar'}` (field name from `setMyLanguageSchema`, rule 24), and العربية is hidden while `ARABIC_UI_READY` is false unless the preview flag is set. Then add `LanguagePreference` to My account (`frontend/src/features/account/pages/MyAccount.tsx`), for every role, and convert namespace `account` (5 steps, as T023). **Partly done 2026-10-17:** `LanguagePreference` is on My account with its test; its texts use `common`. The rest of namespace `account` was converted the same day (guard: 0 findings).
 - [x] T031 [P] [US2] Test FIRST `frontend/src/features/settings/pages/Settings/__tests__/ShopConfig.language.test.tsx`: an admin sets "Default language" and "Receipt language" through the settings API with keys `ui_default_language`/`receipt_language`. Then add both selects to `frontend/src/features/settings/pages/Settings/ShopConfig.tsx`. Do not convert the rest of settings here; that is T064.
-- [ ] T032 [P] [US2] Convert namespace `auth` (`frontend/src/features/auth/**`: Login, Signup, JoinShop, ForgotPassword, ResetPassword, VerifyEmail, GoogleAuth), with a language switch on Login/Signup before sign-in (FR-004). Same 5 steps. Test FIRST `frontend/src/features/auth/__tests__/Login.languageSwitch.test.tsx`.
-- [ ] T033 [P] [US2] Convert namespace `setup` (`frontend/src/features/setup/**`, the desktop first-run wizard) with a pre-sign-in language switch. Same 5 steps.
+- [x] T032 [P] [US2] Convert namespace `auth` (`frontend/src/features/auth/**`: Login, Signup, JoinShop, ForgotPassword, ResetPassword, VerifyEmail, GoogleAuth), with a language switch on Login/Signup before sign-in (FR-004). Same 5 steps. Test FIRST `frontend/src/features/auth/__tests__/Login.languageSwitch.test.tsx`.
+- [x] T033 [P] [US2] Convert namespace `setup` (`frontend/src/features/setup/**`, the desktop first-run wizard) with a pre-sign-in language switch. Same 5 steps.
 - [x] T034 [US2] Test FIRST `packages/core/src/services/__tests__/UserPreferencesService.staffDefault.test.ts`: a staff user created after the admin set `ui_default_language='ar'` resolves to `ar` (US2 AC-5), and a user who existed before the update (NULL) resolves to the shop default. The implementation should already pass; if it fails, fix it in `UserPreferencesService.ts`.
 - [ ] T040 [US2] (needs OD-1) FR-006 signup. **Partly done 2026-10-17:** `Signup.tsx` reads `lang` and sets the device language (`Signup.lang.test.tsx`). The backend threading (schema, provisioning, Google state, emailed link) is left.
   1. Three-way diff on the signup request schema (`packages/core/src/validators/signupInvitation.ts` / route body / service args).
