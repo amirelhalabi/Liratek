@@ -38,6 +38,18 @@
     "readOnly": "Read-only.",
     "readOnlyBody": "You can still view, search and export everything — including what customers owe you — but new entries are paused until the subscription is settled."
   },
+  "trial": {
+    "endedTitle": "Your free trial has ended.",
+    "endedBody": "You can still sign in, see and export everything. To keep adding sales and records, contact LiraTek on WhatsApp to activate.",
+    "contactWhatsApp": "Contact LiraTek on WhatsApp",
+    "lastDayTitle": "Last day of your free trial",
+    "lastDayBody": "(ends tonight, {{date}}).",
+    "endsSoon": "Your free trial ends soon:",
+    "daysLeft": "{{days}} days left",
+    "endsSoonLastDay": ", last day {{date}}.",
+    "label": "Free trial:",
+    "activate": "Contact us to activate"
+  },
   "txnTime": {
     "set": "Set custom time",
     "label": "Transaction time:",

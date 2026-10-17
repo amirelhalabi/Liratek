@@ -184,3 +184,31 @@ describe("SubscriptionBanner — unchanged states", () => {
     );
   });
 });
+
+describe("SubscriptionBanner — Arabic (LIRA-331)", () => {
+  afterEach(async () => {
+    const { i18n } = await import("@/i18n/setup");
+    await i18n.changeLanguage("en");
+  });
+
+  it("shows the trial strip in Arabic with Western digits and the same link", async () => {
+    const { i18n, loadLanguage } = await import("@/i18n/setup");
+    await loadLanguage("ar");
+    await i18n.changeLanguage("ar");
+    mockGetSubscriptionStatus.mockResolvedValue(trial(3));
+    render(<SubscriptionBanner />);
+    const strip = await screen.findByTestId("trial-strip");
+    expect(strip).toHaveTextContent(
+      "تجربتك المجانية تنتهي قريباً: الأيام المتبقية: 3، آخر يوم 2026-11-01.",
+    );
+    expect(
+      screen.getByRole("link", { name: "تواصل معنا للتفعيل" }),
+    ).toHaveAttribute(
+      "href",
+      buildActivationWhatsAppUrl({
+        shopName: SHOP.name,
+        shopAddress: SHOP.address,
+      }),
+    );
+  });
+});

@@ -21,6 +21,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, Clock, MessageCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { buildActivationWhatsAppUrl } from "@liratek/core";
 import {
   getSubscriptionStatus,
@@ -37,6 +38,7 @@ import logger from "@/utils/logger";
 const REFRESH_MS = 15 * 60 * 1000;
 
 export function SubscriptionBanner() {
+  const { t } = useTranslation("shared");
   const [view, setView] = useState<SubscriptionStatusView | null>(null);
 
   useEffect(() => {
@@ -83,9 +85,12 @@ export function SubscriptionBanner() {
       >
         <Clock className="w-4 h-4 shrink-0" />
         <span>
-          <strong>Payment overdue.</strong> Everything still works
-          {view.graceEndsAt ? ` until ${view.graceEndsAt.slice(0, 10)}` : ""}.
-          Please settle the subscription to avoid going read-only.
+          <strong>{t("subscription.overdue")}</strong>{" "}
+          {view.graceEndsAt
+            ? t("subscription.graceUntil", {
+                date: view.graceEndsAt.slice(0, 10),
+              })
+            : t("subscription.grace")}
         </span>
       </div>
     );
@@ -99,9 +104,8 @@ export function SubscriptionBanner() {
     >
       <AlertTriangle className="w-4 h-4 shrink-0" />
       <span>
-        <strong>Read-only.</strong> You can still view, search and export
-        everything — including what customers owe you — but new entries are
-        paused until the subscription is settled.
+        <strong>{t("subscription.readOnly")}</strong>{" "}
+        {t("subscription.readOnlyBody")}
       </span>
     </div>
   );
@@ -122,13 +126,14 @@ function TrialBanner({
   view: SubscriptionStatusView;
   ended: boolean;
 }) {
+  const { t } = useTranslation("shared");
   const href = activationHref(view);
   const button = (label: string, tone: string) => (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`ml-auto inline-flex items-center gap-1.5 shrink-0 rounded-md px-3 py-1 text-xs font-semibold ${tone}`}
+      className={`ms-auto inline-flex items-center gap-1.5 shrink-0 rounded-md px-3 py-1 text-xs font-semibold ${tone}`}
     >
       <MessageCircle className="w-3.5 h-3.5" />
       {label}
@@ -144,12 +149,10 @@ function TrialBanner({
       >
         <AlertTriangle className="w-4 h-4 shrink-0" />
         <span>
-          <strong>Your free trial has ended.</strong> You can still sign in,
-          see and export everything. To keep adding sales and records, contact
-          LiraTek on WhatsApp to activate.
+          <strong>{t("trial.endedTitle")}</strong> {t("trial.endedBody")}
         </span>
         {button(
-          "Contact LiraTek on WhatsApp",
+          t("trial.contactWhatsApp"),
           "bg-red-500 hover:bg-red-600 text-white",
         )}
       </div>
@@ -163,21 +166,23 @@ function TrialBanner({
   if (trial.daysLeft <= 1) {
     text = (
       <>
-        <strong>Last day of your free trial</strong> (ends tonight,{" "}
-        {trial.lastDay}).
+        <strong>{t("trial.lastDayTitle")}</strong>{" "}
+        {t("trial.lastDayBody", { date: trial.lastDay })}
       </>
     );
   } else if (trial.endsSoon) {
     text = (
       <>
-        Your free trial ends soon: <strong>{trial.daysLeft} days left</strong>,
-        last day {trial.lastDay}.
+        {t("trial.endsSoon")}{" "}
+        <strong>{t("trial.daysLeft", { days: trial.daysLeft })}</strong>
+        {t("trial.endsSoonLastDay", { date: trial.lastDay })}
       </>
     );
   } else {
     text = (
       <>
-        Free trial: <strong>{trial.daysLeft} days left</strong>
+        {t("trial.label")}{" "}
+        <strong>{t("trial.daysLeft", { days: trial.daysLeft })}</strong>
       </>
     );
   }
@@ -195,7 +200,7 @@ function TrialBanner({
       <Clock className="w-4 h-4 shrink-0" />
       <span>{text}</span>
       {button(
-        "Contact us to activate",
+        t("trial.activate"),
         amber
           ? "bg-amber-500 hover:bg-amber-600 text-slate-900"
           : "bg-orange-500 hover:bg-orange-600 text-white",
