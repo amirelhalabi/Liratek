@@ -340,14 +340,14 @@ Line numbers drift: search for the named symbol.
 
 - [ ] T055 [P] [US5] In `mobile/src/api/__tests__/client.trialEnded.test.ts` (new): a 200 body `{success:false, code:"TRIAL_ENDED", error:"Your free trial…"}` yields `{success:false, error:"TRIAL_ENDED"}`. Today it yields the sentence, so this fails first. `mobile/src/auth/messages.ts` maps it to the FR-011 text.
 - [ ] T056 [P] [US5] In `mobile/src/components/__tests__/TrialStrip.test.tsx` (new): the same states and texts as T020 and T035 (12 days / last day / ends soon / ended / nothing for active or null). The button opens `buildActivationWhatsAppUrl(...)` through `Linking.openURL` (mocked).
-- [ ] T057 [P] [US5] In `packages/core/src/services/__tests__/OfflineMergeProcessor.trial.test.ts` (new), with an injected `trialEndFor`:
+- [x] T057 [P] [US5] In `packages/core/src/services/__tests__/OfflineMergeProcessor.trial.test.ts` (new), with an injected `trialEndFor`:
   - one PC with seq 1–2 stamped before the end and seq 3–4 after (by `corrected_at ?? occurred_at`), trial ended → seq 1–2 `booked`, seq 3–4 still `received`, and `next_expected_seq = 3`, with no review item and nothing refused;
   - with `trialEndFor` returning null (activated) → the next round books 3–4;
   - **two PCs**: the paused PC does not block the other PC's pre-end events;
   - **an event uploaded after the end but stamped before it** → booked (FR-019);
   - **manifest**: `compareManifest` for that PC while seq 3–4 are held → `matched: true`, with no `pc_data_mismatch` item (held events explain their rows).
-- [ ] T058 [P] [US5] In `packages/core/src/services/__tests__/OfflineDeviceService.trial.test.ts` (new): `checkin` returns `trial:{standing,endsAt}` for a trial or ended shop, `null` for a paying shop, and `null` when the lookup throws (fail open).
-- [ ] T059 [P] [US5] In `electron-app/offline/__tests__/recorder.trial.test.ts` (new, jest only):
+- [x] T058 [P] [US5] In `packages/core/src/services/__tests__/OfflineDeviceService.trial.test.ts` (new): `checkin` returns `trial:{standing,endsAt}` for a trial or ended shop, `null` for a paying shop, and `null` when the lookup throws (fail open).
+- [x] T059 [P] [US5] In `electron-app/offline/__tests__/recorder.trial.test.ts` (new, jest only):
   - **offline mode, stored trial ended** → an `offline`-class channel returns `{success:false, code:"TRIAL_ENDED"}` and writes no outbox row;
   - a `read` channel and a `local` channel (sign-in) still run;
   - **stored `endsAt` in the past by the PC clock**, standing still `trial` → refused;
@@ -365,13 +365,13 @@ Line numbers drift: search for the named symbol.
   - add the `TRIAL_ENDED` text to `mobile/src/auth/messages.ts`.
 
   Makes T055 and T056 pass.
-- [ ] T061 [US5] In `packages/core/src/services/OfflineMergeProcessor.ts`:
+- [x] T061 [US5] In `packages/core/src/services/OfflineMergeProcessor.ts`:
   - add the dependency `trialEndFor?: (tenantId) => number | null` (the default reads `getSubscriptionService().statusFor(tenantId)`, and returns `Date.parse(trial.endsAt)` only when `standing === "trial_ended"`), resolved ONCE per round;
   - in `merge()`, when the head's `corrected_at ?? occurred_at >= trialEnd`, persist `next_expected_seq` as the head (the same as the gap branch) and drop that PC from this round without calling the engine.
 
   If owner decision D-332-A chooses differently, only this task changes. Makes T057 pass.
-- [ ] T062 [US5] In `packages/core/src/services/OfflineDeviceService.ts`, `checkin` adds `trial` (with try/catch → null). Update the checkin result type. Makes T058 pass.
-- [ ] T063 [US5] Paired PC:
+- [x] T062 [US5] In `packages/core/src/services/OfflineDeviceService.ts`, `checkin` adds `trial` (with try/catch → null). Update the checkin result type. Makes T058 pass.
+- [x] T063 [US5] Paired PC:
   - `electron-app/offline/syncClient.ts` stores the checkin `trial` in `pairingStore.ts` (a new optional field; an old pairing file without it reads as `null`);
   - `electron-app/offline/recorder.ts` refuses `offline`/`checkpoint`-class channels with `TRIAL_ENDED` (and the FR-011 text) when the stored trial is ended or its `endsAt <= now`;
   - standalone mode is untouched (FR-021).

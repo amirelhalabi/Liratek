@@ -46,6 +46,8 @@ let registered: Map<string, Handler>;
 let fakeIpc: { handle: (ch: string, fn: Handler) => void };
 let mode: OfflineMode;
 let pairing: { lastSeq: number; serverMaxSeq: number };
+/** LIRA-332: the trial state the last check-in stored (null = none). */
+let trialState: { standing: "trial" | "trial_ended"; endsAt: string } | null;
 let seqUsed: number[];
 let recorder: Recorder;
 let guard: WriteGuard;
@@ -118,6 +120,7 @@ beforeEach(() => {
   fakeIpc = { handle: (ch, fn) => registered.set(ch, fn) };
   mode = "offline";
   pairing = { lastSeq: 0, serverMaxSeq: 0 };
+  trialState = null;
   seqUsed = [];
   uuidN = 0;
   guard = new WriteGuard(() => db);
@@ -140,6 +143,7 @@ beforeEach(() => {
     clientDay: () => "2026-10-11",
     tzOffsetMinutes: () => 180,
     uuid: () => `e0000000-0000-4000-8000-${String(++uuidN).padStart(12, "0")}`,
+    trial: () => trialState,
   };
   recorder = installRecorder(fakeIpc, deps);
   if (mode === "offline") guard.lockdown();
@@ -394,6 +398,61 @@ describe("other classes in offline mode", () => {
     });
     expect(await call("auth:login", "u", "p")).toEqual({ success: true });
     expect(outbox()).toEqual([]);
+  });
+});
+
+// LIRA-332 US5 (T059). Kept in this file to share its working-copy harness.
+// Failing-first: run before the recorder knew about trials, both refusal
+// cases failed (the sale was recorded with an outbox row).
+describe("an ended free trial (stored from the last check-in)", () => {
+  const TRIAL_ENDED = {
+    success: false,
+    code: "TRIAL_ENDED",
+    error: "Your free trial has ended. Contact LiraTek on WhatsApp to activate.",
+  };
+
+  function wire() {
+    const h = jest.fn(async (_e: unknown, data: unknown) => ({
+      success: true,
+      id: insertClient(data as Record<string, unknown>),
+    }));
+    fakeIpc.handle("clients:create", h);
+    return h;
+  }
+
+  it("standing trial_ended → an offline-class channel is refused, no outbox row, handler never runs", async () => {
+    const h = wire();
+    trialState = { standing: "trial_ended", endsAt: "2026-10-10T21:00:00.000Z" };
+    expect(await call("clients:create", clientPayload())).toEqual(TRIAL_ENDED);
+    expect(h).not.toHaveBeenCalled();
+    expect(outbox()).toEqual([]);
+  });
+
+  it("still 'trial' when stored, but its end has passed on the PC clock → refused", async () => {
+    const h = wire();
+    // the recorder's clock is 2026-10-11T10:10Z
+    trialState = { standing: "trial", endsAt: "2026-10-11T10:00:00.000Z" };
+    expect(await call("clients:create", clientPayload())).toEqual(TRIAL_ENDED);
+    expect(h).not.toHaveBeenCalled();
+  });
+
+  it("reads and local channels (sign-in) still run", async () => {
+    trialState = { standing: "trial_ended", endsAt: "2026-10-10T21:00:00.000Z" };
+    fakeIpc.handle("clients:get-all", async () => [{ id: 1 }]);
+    fakeIpc.handle("auth:login", async () => ({ success: true }));
+    expect(await call("clients:get-all")).toEqual([{ id: 1 }]);
+    expect(await call("auth:login", "u", "p")).toEqual({ success: true });
+  });
+
+  it("a running trial, or no stored trial → recorded as usual", async () => {
+    wire();
+    trialState = { standing: "trial", endsAt: "2026-11-01T22:00:00.000Z" };
+    expect((await call("clients:create", clientPayload())).success).toBe(true);
+    trialState = null;
+    expect(
+      (await call("clients:create", clientPayload({ phone_number: "70999999" }))).success,
+    ).toBe(true);
+    expect(outbox()).toHaveLength(2);
   });
 });
 
