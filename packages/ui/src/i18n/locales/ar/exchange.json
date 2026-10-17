@@ -1,1 +1,172 @@
-{}
+{
+  "page": {
+    "title": "صرف العملات",
+    "history": "السجل"
+  },
+  "rates": {
+    "yourRates": "أسعارك",
+    "configuredAria": "الأسعار التي حدّدتها",
+    "configuredCountParen": "({{count}} محدّد)",
+    "configuredCount": "{{count}} محدّد",
+    "noneConfigured": "لا توجد أسعار محدّدة. أضف سعراً من الإعدادات ← العملات ← أسعار الصرف.",
+    "never": "أبداً",
+    "justNow": "الآن",
+    "minutesAgo": "منذ {{n}} د",
+    "hoursAgo": "منذ {{n}} س",
+    "daysAgo": "منذ {{n}} يوم",
+    "buy": "شراء",
+    "weGive": "(نحن ندفع)",
+    "sell": "بيع",
+    "theyGive": "(الزبون يدفع)",
+    "market": "السوق",
+    "spread": "الفرق",
+    "profitPerUnit": "الربح / 1 {{unit}}",
+    "provenance": "الأسعار التي حدّدتها — تُعدّل من الإعدادات ← العملات. الربح هو نصف الفرق في كل مرحلة، كما يُسجَّل على كل عملية صرف."
+  },
+  "positions": {
+    "title": "المراكز المفتوحة",
+    "indicative": "تقديري — قد يكون سعر السوق قديماً",
+    "loading": "جارٍ تحميل المراكز...",
+    "empty": "لا توجد مراكز مفتوحة بعملات أخرى.",
+    "currency": "العملة",
+    "openQty": "الكمية المفتوحة",
+    "avgCost": "متوسط الكلفة (USD)",
+    "market": "السوق (USD)",
+    "unrealized": "ربح/خسارة غير محقّقة",
+    "viewHistory": "عرض سجل {{code}}",
+    "loadFailed": "تعذّر تحميل المراكز"
+  },
+  "live": {
+    "title": "الأسعار",
+    "updated": "آخر تحديث للسوق {{when}} · مرة يومياً",
+    "searchPlaceholder": "ابحث عن عملة…",
+    "searchAria": "البحث في الأسعار",
+    "noRates": "لا توجد أسعار — حدّد سعراً من الإعدادات ← العملات، أو تحقّق من الاتصال بالإنترنت لأسعار السوق.",
+    "noMatch": "لا توجد عملة تطابق “{{search}}”.",
+    "yoursTitle": "سعرك الخاص، من الإعدادات ← العملات",
+    "yoursBadge": "سعرك",
+    "perUsd": "{{code}} لكل 1 USD",
+    "usdPer": "USD لكل 1 {{code}}",
+    "footerYours": "سعرك",
+    "footer": "يعرض سعر السوق · الشراء / البيع من الإعدادات. الباقي سعر مرجعي من السوق — بلا فرق ولا ربح."
+  },
+  "history": {
+    "title": "سجل الصرف",
+    "records": "({{count}} سجل)",
+    "net": "الصافي",
+    "filterByCurrency": "تصفية حسب العملة",
+    "allCurrencies": "كل العملات",
+    "time": "الوقت",
+    "pair": "الزوج",
+    "amountIn": "المبلغ الداخل",
+    "amountOut": "المبلغ الخارج",
+    "via": "عبر",
+    "statusHeader": "الحالة",
+    "remaining": "المتبقي",
+    "realized": "المحقَّق",
+    "profit": "الربح",
+    "empty": "لا توجد عمليات صرف بعد.",
+    "refunded": "مُسترد",
+    "edited": "معدّل",
+    "linkedClient": "زبون مرتبط",
+    "typedName": "اسم مكتوب",
+    "viaCurrency": "عبر {{code}}",
+    "status": {
+      "Settled": "مُسوّى",
+      "Partial": "جزئي",
+      "Open": "مفتوح"
+    },
+    "refundedProfitTitle": "مُسترد — الربح غير محقّق",
+    "editMetadata": "تعديل التفاصيل",
+    "clientNameLabel": "اسم الزبون",
+    "clientNamePlaceholder": "اسم الزبون",
+    "note": "ملاحظة",
+    "saveFailed": "تعذّر الحفظ"
+  },
+  "breakdown": {
+    "date": "التاريخ",
+    "qty": "الكمية",
+    "unitCost": "كلفة الوحدة",
+    "unitProceeds": "عائد الوحدة",
+    "profit": "الربح",
+    "basis": "الأساس",
+    "basisMarket": "السوق",
+    "basisLot": "الدفعة",
+    "loading": "جارٍ تحميل تفاصيل التسوية...",
+    "failed": "تعذّر تحميل تفاصيل التسوية.",
+    "none": "لا توجد تسويات مسجّلة.",
+    "settledFromLots": "سُوّي من الدفعات ({{code}})",
+    "laterAgainstLot": "تسويات لاحقة على هذه الدفعة ({{code}})"
+  },
+  "calc": {
+    "more": "المزيد",
+    "searchCurrency": "ابحث عن عملة...",
+    "noMatch": "لا توجد نتيجة",
+    "highProfit": "ربح مرتفع بشكل غير عادي: ${{profit}} USD ({{pct}}% من المبلغ). الرجاء التحقق من أسعارك.",
+    "error": "خطأ في الحساب",
+    "from": "من",
+    "to": "إلى",
+    "previewUnavailable": "معاينة الربح المحقّق غير متاحة — سيُحسب الربح عند التأكيد",
+    "crossViaUsd": "⚡ صرف عبر الدولار",
+    "total": "المجموع",
+    "rateTitle": "السعر ({{unit}})",
+    "resetRate": "العودة إلى السعر الافتراضي",
+    "deferredTitle": "الشراء لا يسجّل ربحاً؛ يُسجَّل الربح المحقّق عند بيع هذه الدفعة لاحقاً. الظاهر هنا هو ما سيُسجَّل لو بيعت اليوم بسعر السوق.",
+    "booksAtSale": "يُسجَّل عند البيع",
+    "lossSuffix": " (خسارة)",
+    "calculating": "جارٍ الحساب…",
+    "fifo": "الأقدم أولاً مقابل الكلفة",
+    "uncovered": "{{qty}} {{code}} غير مغطّاة — تُسوّى بسعر السوق اليوم",
+    "noAnchor": "تتبّع الكلفة غير متاح لهذا الزوج — حدّد سعراً في الإعدادات لتفعيله",
+    "rate": "السعر:",
+    "unitPerUsd": "{{code}} لكل USD",
+    "unitUsdPer": "USD لكل {{code}}",
+    "buyTitle": "الشراء لا يسجّل ربحاً؛ يُسجَّل الربح المحقّق عند بيع هذه الدفعة لاحقاً.",
+    "buyBooksLater": "شراء — يُسجَّل الربح عند بيع هذه الـ {{code}} لاحقاً (دفعة بكلفتها)",
+    "calculatingRealized": "جارٍ حساب الربح المحقّق…",
+    "realizedProfit": "الربح المحقّق:",
+    "profit": "الربح:",
+    "customRate": "⚡ سعر خاص",
+    "youReceive": "تستلم ({{code}})",
+    "customerGets": "يأخذ الزبون",
+    "equivalent": "(ما يعادل {{code}})",
+    "or": "أو"
+  },
+  "errors": {
+    "validAmount": "الرجاء إدخال مبلغ صحيح.",
+    "selectPartner": "اختر شريكاً لعملية الصرف هذه.",
+    "withReason": "خطأ: {{error}}",
+    "failed": "فشلت العملية"
+  },
+  "toast": {
+    "processed": "تمت عملية الصرف بنجاح"
+  },
+  "partner": {
+    "noticeStart": "صرف لشريك: لا يُقبض شيء الآن — كامل مبلغ",
+    "noticeEnd": "يُسجَّل على حساب الشريك، ويُسوّى من صفحة الشركاء."
+  },
+  "client": {
+    "nameOptional": "اسم الزبون (اختياري)",
+    "walkIn": "زبون عابر",
+    "linked": "زبون مرتبط",
+    "label": "الزبون"
+  },
+  "submit": {
+    "partner": "إرسال إلى الشريك",
+    "payout": "المتابعة إلى الدفع",
+    "confirm": "تأكيد الصرف"
+  },
+  "sheet": {
+    "title": "تأكيد الدفع",
+    "subtitle": "ادفع للزبون — {{amount}}",
+    "confirm": "ادفع {{amount}}",
+    "youReceive": "تستلم ({{code}})",
+    "customerGets": "يأخذ الزبون ({{code}})",
+    "customerPays": "يدفع الزبون"
+  },
+  "loss": {
+    "title": "تأكيد الخسارة",
+    "message": "هذا البيع يحقّق -${{amount}} مقابل كلفة الشراء — هل تتابع؟",
+    "proceed": "المتابعة رغم ذلك"
+  }
+}

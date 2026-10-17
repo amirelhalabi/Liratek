@@ -41,6 +41,10 @@ export function saleDrawerDestinations(
   lines: readonly DrawerLegLike[],
   methods: readonly DrawerMethodRow[],
   changeGiven: boolean,
+  /** LIRA-331: the "change paid from <drawer>" entry in the screen
+   *  language; defaults to the English wording. */
+  changeLabel: (drawer: string) => string = (drawer) =>
+    `change paid from ${drawer}`,
 ): string[] {
   const out: string[] = [];
   const seenMethods = new Set<string>();
@@ -54,7 +58,7 @@ export function saleDrawerDestinations(
     out.push(`${pm.label} → ${drawerDisplayName(pm.drawer_name)}`);
   }
   if (changeGiven && !drawers.has(CHANGE_DRAWER_NAME)) {
-    out.push(`change paid from ${drawerDisplayName(CHANGE_DRAWER_NAME)}`);
+    out.push(changeLabel(drawerDisplayName(CHANGE_DRAWER_NAME)));
   }
   return out;
 }

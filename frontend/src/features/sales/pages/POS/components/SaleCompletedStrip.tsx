@@ -10,6 +10,8 @@
  */
 import { Printer, X, CheckCircle2 } from "lucide-react";
 import { useApi } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { receiptNumberFor } from "@liratek/core";
 import logger from "@/utils/logger";
 import { useShopInfo } from "@/hooks/useShopName";
@@ -24,6 +26,7 @@ export default function SaleCompletedStrip({
   saleId: number;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("sales");
   const api = useApi();
   const shop = useShopInfo();
   const sender = useSendReceiptOnWhatsApp(saleId);
@@ -40,15 +43,15 @@ export default function SaleCompletedStrip({
   return (
     <div
       role="status"
-      aria-label="Sale completed"
+      aria-label={t("completed.label")}
       className="flex flex-wrap items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-950/40 px-4 py-2"
     >
       <span className="flex items-center gap-2 py-1.5 text-sm text-emerald-200">
         <CheckCircle2 size={16} className="text-emerald-400" />
-        Sale completed —{" "}
-        <span className="font-mono font-semibold">
+        {t("completed.text")}{" "}
+        <Ltr className="font-mono font-semibold">
           {receiptNumberFor(saleId)}
-        </span>
+        </Ltr>
       </span>
       <SendOnWhatsAppControl sender={sender} compact />
       <button
@@ -58,13 +61,13 @@ export default function SaleCompletedStrip({
         className="px-3 py-1.5 text-sm text-blue-300 hover:text-blue-100 hover:bg-blue-900/30 rounded-lg font-medium border border-blue-500/30 flex items-center gap-2 transition-colors disabled:opacity-50"
       >
         <Printer size={16} />
-        Print
+        {t("actions.print")}
       </button>
       <button
         type="button"
         onClick={onClose}
-        aria-label="Close"
-        className="ml-auto p-1.5 text-slate-400 hover:text-white rounded-lg"
+        aria-label={t("actions.close")}
+        className="ms-auto p-1.5 text-slate-400 hover:text-white rounded-lg"
       >
         <X size={16} />
       </button>

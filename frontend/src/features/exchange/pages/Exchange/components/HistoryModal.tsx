@@ -9,7 +9,12 @@ import {
   ChevronRight,
   ChevronDown,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { DataTable, useApi, DateRangeFilter } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
+import { useFormat } from "@/i18n/useFormat";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
@@ -129,6 +134,7 @@ function lotStatus(summary: LotSourceSummary): {
   pct: number | null;
 } {
   if (summary.remaining_qty <= LOT_QTY_EPSILON) {
+    // i18n-exempt: status code; shown through STATUS_LABEL_KEYS
     return { label: "Settled", pct: null };
   }
   if (summary.settled_qty > 0) {
@@ -136,10 +142,19 @@ function lotStatus(summary: LotSourceSummary): {
       summary.original_qty > 0
         ? (summary.settled_qty / summary.original_qty) * 100
         : 0;
+    // i18n-exempt: status code; shown through STATUS_LABEL_KEYS
     return { label: "Partial", pct };
   }
+  // i18n-exempt: status code; shown through STATUS_LABEL_KEYS
   return { label: "Open", pct: null };
 }
+
+/** Status code → its catalog key (the code itself is never translated). */
+const STATUS_LABEL_KEYS = {
+  Settled: "history.status.Settled",
+  Partial: "history.status.Partial",
+  Open: "history.status.Open",
+} as const;
 
 const STATUS_BADGE_CLASSES: Record<string, string> = {
   Settled: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
@@ -157,16 +172,30 @@ function BreakdownTable({
   rows: LotSettlementRow[];
   currency: string;
 }) {
+  const { t } = useTranslation("exchange");
+  const { formatDateTime } = useFormat();
   return (
     <table className="w-full text-xs">
       <thead>
         <tr className="text-slate-500">
-          <th className="text-left font-medium py-1 pr-3">Date</th>
-          <th className="text-right font-medium py-1 pr-3">Qty</th>
-          <th className="text-right font-medium py-1 pr-3">Unit Cost</th>
-          <th className="text-right font-medium py-1 pr-3">Unit Proceeds</th>
-          <th className="text-right font-medium py-1 pr-3">Profit</th>
-          <th className="text-center font-medium py-1">Basis</th>
+          <th className="text-start font-medium py-1 pe-3">
+            {t("breakdown.date")}
+          </th>
+          <th className="text-end font-medium py-1 pe-3">
+            {t("breakdown.qty")}
+          </th>
+          <th className="text-end font-medium py-1 pe-3">
+            {t("breakdown.unitCost")}
+          </th>
+          <th className="text-end font-medium py-1 pe-3">
+            {t("breakdown.unitProceeds")}
+          </th>
+          <th className="text-end font-medium py-1 pe-3">
+            {t("breakdown.profit")}
+          </th>
+          <th className="text-center font-medium py-1">
+            {t("breakdown.basis")}
+          </th>
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-700/40">
@@ -175,36 +204,41 @@ function BreakdownTable({
             key={s.id ?? i}
             className={s.is_refunded ? "opacity-50 line-through" : ""}
           >
-            <td className="py-1 pr-3 text-slate-300 whitespace-nowrap">
-              {parseDbDate(s.created_at).toLocaleString([], {
+            <td className="py-1 pe-3 text-slate-300 whitespace-nowrap">
+              {formatDateTime(parseDbDate(s.created_at), {
                 dateStyle: "short",
                 timeStyle: "short",
               })}
             </td>
-            <td className="py-1 pr-3 text-right font-mono text-slate-300 whitespace-nowrap">
-              {s.qty.toLocaleString(undefined, { maximumFractionDigits: 4 })}{" "}
-              {currency}
+            <td className="py-1 pe-3 text-end font-mono text-slate-300 whitespace-nowrap">
+              <Ltr>
+                {formatNumber(s.qty, { maximumFractionDigits: 4 })} {currency}
+              </Ltr>
             </td>
-            <td className="py-1 pr-3 text-right font-mono text-slate-400">
-              ${s.unit_cost_usd.toFixed(4)}
+            <td className="py-1 pe-3 text-end font-mono text-slate-400">
+              <Ltr>${s.unit_cost_usd.toFixed(4)}</Ltr>
             </td>
-            <td className="py-1 pr-3 text-right font-mono text-slate-400">
-              ${s.unit_proceeds_usd.toFixed(4)}
+            <td className="py-1 pe-3 text-end font-mono text-slate-400">
+              <Ltr>${s.unit_proceeds_usd.toFixed(4)}</Ltr>
             </td>
             <td
-              className={`py-1 pr-3 text-right font-mono font-semibold ${
+              className={`py-1 pe-3 text-end font-mono font-semibold ${
                 s.profit_usd >= 0 ? "text-emerald-400" : "text-red-400"
               }`}
             >
-              {s.profit_usd >= 0 ? "+" : ""}${s.profit_usd.toFixed(4)}
+              <Ltr>
+                {s.profit_usd >= 0 ? "+" : ""}${s.profit_usd.toFixed(4)}
+              </Ltr>
             </td>
             <td className="py-1 text-center">
               {s.basis_source === "MARKET" ? (
                 <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20">
-                  MARKET
+                  {t("breakdown.basisMarket")}
                 </span>
               ) : (
-                <span className="text-[10px] text-slate-500">LOT</span>
+                <span className="text-[10px] text-slate-500">
+                  {t("breakdown.basisLot")}
+                </span>
               )}
             </td>
           </tr>
@@ -224,6 +258,9 @@ export function HistoryModal({
 }: HistoryModalProps) {
   useModalFocusFix(true);
   const api = useApi();
+  const { t } = useTranslation("exchange");
+  const { t: tc } = useTranslation("common");
+  const { formatTime } = useFormat();
   // The full list, when `loadAll` is given. Read through a ref so a caller's
   // inline arrow never re-fires the load (rule 25).
   const loadAllRef = useRef(loadAll);
@@ -322,7 +359,7 @@ export function HistoryModal({
         onRefresh();
         void reloadAll();
       } else {
-        alert(result.error ?? "Failed to save");
+        alert(result.error ?? t("history.saveFailed"));
       }
     } finally {
       setEditSaving(false);
@@ -341,20 +378,24 @@ export function HistoryModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <History className="text-slate-400" size={18} />
-            Exchange History
-            <span className="text-xs text-slate-500 font-normal ml-1">
-              ({currencyFilteredData.length} records)
+            {t("history.title")}
+            <span className="text-xs text-slate-500 font-normal ms-1">
+              {t("history.records", { count: currencyFilteredData.length })}
             </span>
           </h2>
           <div className="flex items-center gap-2">
-            <UsdLbpTotalChips label="Net" usd={totals.usd} lbp={totals.lbp} />
+            <UsdLbpTotalChips
+              label={t("history.net")}
+              usd={totals.usd}
+              lbp={totals.lbp}
+            />
             <select
               value={currencyFilter}
               onChange={(e) => setCurrencyFilter(e.target.value)}
-              title="Filter by currency"
+              title={t("history.filterByCurrency")}
               className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-orange-500"
             >
-              <option value="ALL">All Currencies</option>
+              <option value="ALL">{t("history.allCurrencies")}</option>
               {currencyOptions.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -373,14 +414,14 @@ export function HistoryModal({
                 void reloadAll();
               }}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Refresh"
+              title={tc("actions.refresh")}
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Close"
+              title={tc("actions.close")}
             >
               <X size={18} />
             </button>
@@ -389,39 +430,51 @@ export function HistoryModal({
         <div className="flex-1 min-h-0 overflow-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-slate-500">
-              <RefreshCw size={20} className="animate-spin mr-2" />
-              Loading...
+              <RefreshCw size={20} className="animate-spin me-2" />
+              {tc("state.loading")}
             </div>
           ) : (
             <DataTable<ExchangeTx>
               columns={[
                 {
-                  header: "Time",
+                  header: t("history.time"),
                   className: "px-4 py-3",
                   sortKey: "created_at",
                 },
                 {
-                  header: "Pair",
+                  header: t("history.pair"),
                   className: "px-4 py-3",
                   sortKey: "from_currency",
                 },
                 {
-                  header: "Amount In",
-                  className: "px-4 py-3 text-right",
+                  header: t("history.amountIn"),
+                  className: "px-4 py-3 text-end",
                   sortKey: "amount_in",
                 },
                 {
-                  header: "Amount Out",
-                  className: "px-4 py-3 text-right",
+                  header: t("history.amountOut"),
+                  className: "px-4 py-3 text-end",
                   sortKey: "amount_out",
                 },
-                { header: "Via", className: "px-4 py-3 text-center" },
-                { header: "Status", className: "px-4 py-3 text-center" },
-                { header: "Remaining", className: "px-4 py-3 text-right" },
-                { header: "Realized", className: "px-4 py-3 text-right" },
                 {
-                  header: "Profit",
-                  className: "px-4 py-3 text-right",
+                  header: t("history.via"),
+                  className: "px-4 py-3 text-center",
+                },
+                {
+                  header: t("history.statusHeader"),
+                  className: "px-4 py-3 text-center",
+                },
+                {
+                  header: t("history.remaining"),
+                  className: "px-4 py-3 text-end",
+                },
+                {
+                  header: t("history.realized"),
+                  className: "px-4 py-3 text-end",
+                },
+                {
+                  header: t("history.profit"),
+                  className: "px-4 py-3 text-end",
                   sortKey: "profit_usd",
                 },
                 { header: "", className: "px-4 py-3 w-10 text-center" },
@@ -431,9 +484,9 @@ export function HistoryModal({
               exportPdf
               exportFilename="exchange-history"
               className="w-full"
-              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              theadClassName="bg-slate-900/50 text-start text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
               tbodyClassName="divide-y divide-slate-700/50"
-              emptyMessage="No exchanges yet."
+              emptyMessage={t("history.empty")}
               renderRow={(tx) => {
                 const totalProfit =
                   tx.leg1_profit_usd !== null || tx.leg2_profit_usd !== null
@@ -468,12 +521,14 @@ export function HistoryModal({
                                 className="text-slate-500 shrink-0"
                               />
                             ) : (
-                              <ChevronRight
-                                size={12}
+                              <DirIcon
+                                icon={ChevronRight}
+                                width={12}
+                                height={12}
                                 className="text-slate-500 shrink-0"
                               />
                             ))}
-                          {parseDbDate(tx.created_at).toLocaleTimeString([], {
+                          {formatTime(parseDbDate(tx.created_at), {
                             hour: "2-digit",
                             minute: "2-digit",
                           })}
@@ -484,13 +539,18 @@ export function HistoryModal({
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400">
                             {tx.from_currency}
                           </span>
-                          <ArrowRight size={10} className="text-slate-600" />
+                          <DirIcon
+                            icon={ArrowRight}
+                            width={10}
+                            height={10}
+                            className="text-slate-600"
+                          />
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400">
                             {tx.to_currency}
                           </span>
                           {isRefunded && (
-                            <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                              Refunded
+                            <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                              {t("history.refunded")}
                             </span>
                           )}
                           {tx.edited_by && (
@@ -498,9 +558,9 @@ export function HistoryModal({
                               entityType="exchange_transaction"
                               entityId={tx.id}
                               trigger={
-                                <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors">
+                                <span className="ms-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors">
                                   <Pencil size={8} />
-                                  Edited
+                                  {t("history.edited")}
                                 </span>
                               }
                             />
@@ -517,25 +577,32 @@ export function HistoryModal({
                                 : "text-slate-400"
                             }`}
                             title={
-                              tx.client_id ? "Linked client" : "Typed name"
+                              tx.client_id
+                                ? t("history.linkedClient")
+                                : t("history.typedName")
                             }
                           >
                             {tx.client_full_name ?? tx.client_name}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm font-bold text-emerald-400 text-right font-mono">
-                        {Number(tx.amount_in).toLocaleString()}{" "}
-                        {tx.from_currency}
+                      <td className="px-4 py-3 text-sm font-bold text-emerald-400 text-end font-mono">
+                        <Ltr>
+                          {formatNumber(Number(tx.amount_in))}{" "}
+                          {tx.from_currency}
+                        </Ltr>
                       </td>
-                      <td className="px-4 py-3 text-sm font-bold text-red-400 text-right font-mono">
-                        {Number(tx.amount_out).toLocaleString()}{" "}
-                        {tx.to_currency}
+                      <td className="px-4 py-3 text-sm font-bold text-red-400 text-end font-mono">
+                        <Ltr>
+                          {formatNumber(Number(tx.amount_out))} {tx.to_currency}
+                        </Ltr>
                       </td>
                       <td className="px-4 py-3 text-center">
                         {tx.via_currency ? (
                           <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                            via {tx.via_currency}
+                            {t("history.viaCurrency", {
+                              code: tx.via_currency,
+                            })}
                           </span>
                         ) : (
                           <span className="text-xs text-slate-600">—</span>
@@ -549,7 +616,7 @@ export function HistoryModal({
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${STATUS_BADGE_CLASSES[status.label]}`}
                           >
-                            {status.label}
+                            {t(STATUS_LABEL_KEYS[status.label])}
                             {status.pct !== null &&
                               ` (${status.pct.toFixed(0)}%)`}
                           </span>
@@ -560,9 +627,9 @@ export function HistoryModal({
                       {/* Remaining (Q16) — the BUY lot's own remaining
                           quantity, denominated in from_currency (the
                           acquired currency). */}
-                      <td className="px-4 py-3 text-right font-mono text-xs text-slate-300">
+                      <td className="px-4 py-3 text-end font-mono text-xs text-slate-300">
                         {tx.lot_summary
-                          ? `${tx.lot_summary.remaining_qty.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${tx.from_currency}`
+                          ? `${formatNumber(tx.lot_summary.remaining_qty, { maximumFractionDigits: 4 })} ${tx.from_currency}`
                           : "—"}
                       </td>
                       {/* Realized-so-far (Q16) — lot_summary's running total
@@ -571,7 +638,7 @@ export function HistoryModal({
                           cell, unchanged). A sell-only row's realized profit
                           is already the Profit column — "—" here avoids
                           showing the same number twice. */}
-                      <td className="px-4 py-3 text-right font-mono text-xs">
+                      <td className="px-4 py-3 text-end font-mono text-xs">
                         {tx.lot_summary ? (
                           <span
                             className={
@@ -580,14 +647,18 @@ export function HistoryModal({
                                 : "text-red-400"
                             }
                           >
-                            {tx.lot_summary.realized_profit_usd >= 0 ? "+" : ""}
-                            ${tx.lot_summary.realized_profit_usd.toFixed(2)}
+                            <Ltr>
+                              {tx.lot_summary.realized_profit_usd >= 0
+                                ? "+"
+                                : ""}
+                              ${tx.lot_summary.realized_profit_usd.toFixed(2)}
+                            </Ltr>
                           </span>
                         ) : (
                           <span className="text-slate-600">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm font-bold text-right">
+                      <td className="px-4 py-3 text-sm font-bold text-end">
                         {totalProfit !== null && totalProfit !== undefined ? (
                           <span
                             // LIRA-131: neutralise (muted + struck through +
@@ -603,11 +674,11 @@ export function HistoryModal({
                             }
                             title={
                               isRefunded
-                                ? "Refunded — profit not realized"
+                                ? t("history.refundedProfitTitle")
                                 : undefined
                             }
                           >
-                            ${Number(totalProfit).toFixed(2)}
+                            <Ltr>${Number(totalProfit).toFixed(2)}</Ltr>
                           </span>
                         ) : (
                           <span className="text-slate-500">—</span>
@@ -623,14 +694,14 @@ export function HistoryModal({
                               onClick={handleSaveEdit}
                               disabled={editSaving}
                               className="p-1.5 text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors disabled:opacity-50"
-                              title="Save"
+                              title={tc("actions.save")}
                             >
                               <Check size={14} />
                             </button>
                             <button
                               onClick={() => setEditingId(null)}
                               className="p-1.5 text-slate-400 hover:bg-slate-700 rounded-lg transition-colors"
-                              title="Cancel"
+                              title={tc("actions.cancel")}
                             >
                               <X size={14} />
                             </button>
@@ -642,7 +713,7 @@ export function HistoryModal({
                               startEdit(tx);
                             }}
                             className="p-1.5 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded-lg transition-colors"
-                            title="Edit metadata"
+                            title={t("history.editMetadata")}
                           >
                             <Pencil size={13} />
                           </button>
@@ -655,7 +726,7 @@ export function HistoryModal({
                           <div className="flex items-end gap-3 flex-wrap">
                             <div>
                               <label className="text-xs text-slate-400 block mb-1">
-                                Client Name
+                                {t("history.clientNameLabel")}
                               </label>
                               <input
                                 value={editForm.client_name}
@@ -666,12 +737,12 @@ export function HistoryModal({
                                   }))
                                 }
                                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 w-48"
-                                placeholder="Client name"
+                                placeholder={t("history.clientNamePlaceholder")}
                               />
                             </div>
                             <div className="flex-1 min-w-[180px]">
                               <label className="text-xs text-slate-400 block mb-1">
-                                Note
+                                {t("history.note")}
                               </label>
                               <input
                                 value={editForm.note}
@@ -682,7 +753,7 @@ export function HistoryModal({
                                   }))
                                 }
                                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 w-full"
-                                placeholder="Note"
+                                placeholder={t("history.note")}
                               />
                             </div>
                           </div>
@@ -696,23 +767,25 @@ export function HistoryModal({
                           breakdown === undefined ? (
                             <div className="flex items-center gap-2 text-xs text-slate-500 py-2">
                               <RefreshCw size={12} className="animate-spin" />
-                              Loading settlement breakdown...
+                              {t("breakdown.loading")}
                             </div>
                           ) : breakdown === "error" ? (
                             <div className="text-xs text-red-400 py-2">
-                              Failed to load settlement breakdown.
+                              {t("breakdown.failed")}
                             </div>
                           ) : breakdown.asSettler.length === 0 &&
                             breakdown.againstSource.length === 0 ? (
                             <div className="text-xs text-slate-500 py-2">
-                              No settlements recorded.
+                              {t("breakdown.none")}
                             </div>
                           ) : (
                             <div className="space-y-3">
                               {breakdown.asSettler.length > 0 && (
                                 <div>
                                   <div className="text-[11px] font-semibold text-slate-400 uppercase mb-1">
-                                    Settled from lots ({tx.to_currency})
+                                    {t("breakdown.settledFromLots", {
+                                      code: tx.to_currency,
+                                    })}
                                   </div>
                                   <BreakdownTable
                                     rows={breakdown.asSettler}
@@ -723,8 +796,9 @@ export function HistoryModal({
                               {breakdown.againstSource.length > 0 && (
                                 <div>
                                   <div className="text-[11px] font-semibold text-slate-400 uppercase mb-1">
-                                    Later settlements against this lot (
-                                    {tx.from_currency})
+                                    {t("breakdown.laterAgainstLot", {
+                                      code: tx.from_currency,
+                                    })}
                                   </div>
                                   <BreakdownTable
                                     rows={breakdown.againstSource}

@@ -11,6 +11,7 @@
  */
 
 import { TrendingUp, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import type { ExchangeRate } from "@/utils/currencyUtils";
 import { RatesPanel } from "./RatesPanel";
@@ -27,6 +28,8 @@ export function YourRatesModal({
   onClose,
 }: YourRatesModalProps) {
   useModalFocusFix(true);
+  const { t } = useTranslation("exchange");
+  const { t: tc } = useTranslation("common");
 
   return (
     <div
@@ -37,21 +40,21 @@ export function YourRatesModal({
         data-testid="exchange-your-rates-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Your configured rates"
+        aria-label={t("rates.configuredAria")}
         className="relative w-full max-w-sm max-h-[85vh] bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-slate-700/60 shrink-0">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <TrendingUp className="text-violet-400" size={18} />
-            Your Rates
-            <span className="text-xs text-slate-500 font-normal ml-1">
-              ({rates.length} configured)
+            {t("rates.yourRates")}
+            <span className="text-xs text-slate-500 font-normal ms-1">
+              {t("rates.configuredCountParen", { count: rates.length })}
             </span>
           </h2>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={tc("actions.close")}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
           >
             <X size={18} />

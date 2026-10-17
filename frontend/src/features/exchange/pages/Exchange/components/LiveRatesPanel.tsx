@@ -18,6 +18,10 @@
 
 import { useMemo, useState } from "react";
 import { Globe, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { formatNumber as formatEnUs } from "@liratek/ui/i18n/format";
+import { useFormat } from "@/i18n/useFormat";
 import type { CurrencyRate } from "@liratek/core";
 import { CURRENCY_NAMES, getCurrencySymbol } from "@/utils/liveExchangeRates";
 import type { ExchangeRate } from "@/utils/currencyUtils";
@@ -104,7 +108,7 @@ function buildRows(
 function formatNumber(value: number, isStronger: 1 | -1): string {
   if (isStronger === 1) {
     const max = value >= 1000 ? 0 : value >= 10 ? 2 : 4;
-    return value.toLocaleString(undefined, {
+    return formatEnUs(value, {
       maximumFractionDigits: max,
       minimumFractionDigits: Math.min(max, 2),
     });
@@ -114,21 +118,24 @@ function formatNumber(value: number, isStronger: 1 | -1): string {
 }
 
 /** Which way the number reads — never leave this implicit. */
-function unitLabel(row: DisplayRow): string {
+function unitLabel(row: DisplayRow, t: TFunction<"exchange">): string {
   return row.isStronger === 1
-    ? `${row.code} per 1 USD`
-    : `USD per 1 ${row.code}`;
+    ? t("live.perUsd", { code: row.code })
+    : t("live.usdPer", { code: row.code });
 }
 
 /**
  * The feed's own publish time. This is an RFC-1123 string from an HTTP API,
  * NOT a SQLite timestamp — `parseDbDate` would be wrong here.
  */
-function formatPublished(utc: string | undefined): string {
+function formatPublished(
+  utc: string | undefined,
+  formatDateTime: ReturnType<typeof useFormat>["formatDateTime"],
+): string {
   if (!utc) return "—";
   const d = new Date(utc);
   if (isNaN(d.getTime())) return utc;
-  return d.toLocaleString(undefined, {
+  return formatDateTime(d, {
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -164,6 +171,8 @@ export function LiveRatesPanel({
   className = "",
 }: LiveRatesPanelProps) {
   const [search, setSearch] = useState("");
+  const { t } = useTranslation("exchange");
+  const { formatDateTime } = useFormat();
 
   const rows = useMemo(
     () => buildRows(rates, configuredRates),
@@ -191,13 +200,15 @@ export function LiveRatesPanel({
           <div className="flex items-center gap-2">
             <Globe size={14} className="text-sky-400" />
             <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-300">
-              Rates
+              {t("live.title")}
             </span>
           </div>
           <span className="text-[10px] text-slate-500">{rows.length}</span>
         </div>
         <p className="mt-1 text-[10px] text-slate-500">
-          Market updated {formatPublished(lastUpdatedUtc)} · once daily
+          {t("live.updated", {
+            when: formatPublished(lastUpdatedUtc, formatDateTime),
+          })}
         </p>
       </div>
 
@@ -206,15 +217,15 @@ export function LiveRatesPanel({
         <div className="relative">
           <Search
             size={12}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"
+            className="absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none"
           />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search currency…"
-            aria-label="Search rates"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-7 pr-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition-colors"
+            placeholder={t("live.searchPlaceholder")}
+            aria-label={t("live.searchAria")}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg ps-7 pe-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 transition-colors"
           />
         </div>
       </div>
@@ -231,13 +242,10 @@ export function LiveRatesPanel({
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <p className="p-4 text-xs text-slate-500">
-            No rates available — configure one in Settings → Currencies, or
-            check the internet connection for market rates.
-          </p>
+          <p className="p-4 text-xs text-slate-500">{t("live.noRates")}</p>
         ) : filtered.length === 0 ? (
           <p className="p-4 text-xs text-slate-500">
-            No currency matches “{search}”.
+            {t("live.noMatch", { search })}
           </p>
         ) : (
           <ul className="divide-y divide-slate-700/40">
@@ -266,9 +274,9 @@ export function LiveRatesPanel({
                       {isSettings && (
                         <span
                           className="text-[9px] font-sans font-medium uppercase tracking-wide text-violet-300 bg-violet-500/15 border border-violet-500/30 rounded px-1 py-px"
-                          title="Your own rate, from Settings → Currencies"
+                          title={t("live.yoursTitle")}
                         >
-                          yours
+                          {t("live.yoursBadge")}
                         </span>
                       )}
                     </p>
@@ -295,12 +303,12 @@ export function LiveRatesPanel({
                       )
                     )}
                   </div>
-                  <div className="text-right shrink-0">
+                  <div className="text-end shrink-0">
                     <p className="text-xs font-mono font-semibold text-slate-100">
                       {formatNumber(row.value, row.isStronger)}
                     </p>
                     <p className="text-[9px] text-slate-500">
-                      {unitLabel(row)}
+                      {unitLabel(row, t)}
                     </p>
                   </div>
                 </li>
@@ -312,9 +320,8 @@ export function LiveRatesPanel({
 
       {/* Footer — keeps the market rows from being read as quotable rates. */}
       <p className="px-3 py-2 bg-slate-900/40 border-t border-slate-700/60 text-[10px] leading-relaxed text-slate-500 shrink-0">
-        <span className="text-violet-300">Yours</span> shows market · buy / sell
-        from Settings. The rest is mid-market reference — no spread, earns
-        nothing.
+        <span className="text-violet-300">{t("live.footerYours")}</span>{" "}
+        {t("live.footer")}
       </p>
     </aside>
   );

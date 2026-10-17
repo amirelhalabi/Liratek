@@ -1,11 +1,16 @@
 import type { CartItem } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import type { CheckoutDraftData } from "./types";
 
 function WarrantyBadge({ months }: { months: number | null | undefined }) {
+  const { t } = useTranslation("sales");
   if (!months || months <= 0) return null;
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-950/60 border border-red-500/60 text-xs font-semibold text-red-400 shrink-0">
-      🛡 {months} month{months === 1 ? "" : "s"}
+      {months === 1
+        ? t("line.warrantyOneMonth")
+        : t("line.warrantyMonths", { count: months })}
     </span>
   );
 }
@@ -21,19 +26,20 @@ export function CartItemsList({
   onEdit,
   checkoutData,
 }: CartItemsListProps) {
+  const { t } = useTranslation("sales");
   if (!items || items.length === 0) return null;
 
   return (
     <div className="flex-1 min-h-0 my-4 bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden flex flex-col">
       <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700/50 bg-slate-800/30">
         <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-          Items ({items.length})
+          {t("checkout.itemsCount", { count: items.length })}
         </span>
         {onEdit && checkoutData && (
           <button
             onClick={() => onEdit(checkoutData)}
             className="p-1.5 text-slate-400 hover:text-violet-400 hover:bg-violet-500/10 rounded-lg transition-colors"
-            title="Edit Order"
+            title={t("checkout.editOrder")}
           >
             {/* Pencil icon will be imported */}
             <svg
@@ -59,18 +65,20 @@ export function CartItemsList({
             key={idx}
             className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-800/40 transition-colors"
           >
-            <div className="flex-1 min-w-0 mr-3">
+            <div className="flex-1 min-w-0 me-3">
               <div className="flex items-center gap-1.5">
                 <p className="text-sm text-slate-200 truncate">{item.name}</p>
                 <WarrantyBadge months={item.warranty_months} />
               </div>
               <p className="text-xs text-slate-500">
-                {item.quantity} × ${item.retail_price.toFixed(2)}
+                <Ltr>
+                  {item.quantity} × ${item.retail_price.toFixed(2)}
+                </Ltr>
               </p>
             </div>
-            <span className="text-sm font-mono text-slate-300 shrink-0">
+            <Ltr className="text-sm font-mono text-slate-300 shrink-0">
               ${(item.quantity * item.retail_price).toFixed(2)}
-            </span>
+            </Ltr>
           </div>
         ))}
       </div>

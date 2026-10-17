@@ -1,5 +1,6 @@
 import { User, X } from "lucide-react";
 import type { Client } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
 
 interface CustomerSearchProps {
   clientSearch: string;
@@ -26,13 +27,14 @@ export function CustomerSearch({
   onClearCustomer,
   onSelectClient,
 }: CustomerSearchProps) {
+  const { t } = useTranslation("sales");
   return (
     <div className="shrink-0">
       <label
         htmlFor="checkout-customer"
         className="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider"
       >
-        Customer
+        {t("checkout.customer")}
       </label>
       <div className="grid grid-cols-2 gap-2 mb-2">
         {/* Primary Input (Search) */}
@@ -47,7 +49,7 @@ export function CustomerSearch({
               value={clientSearch}
               onChange={(e) => onClientSearchChange(e.target.value)}
               className="bg-transparent border-none text-white w-full px-3 focus:outline-none"
-              placeholder="Search Name or Phone..."
+              placeholder={t("checkout.searchClient")}
             />
             {selectedClient && (
               <button
@@ -64,12 +66,12 @@ export function CustomerSearch({
             !selectedClient &&
             !isAutoFilledFromSession &&
             filteredClients.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
+              <div className="absolute top-full start-0 end-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
                 {filteredClients.map((client) => (
                   <button
                     key={client.id}
                     onClick={() => onSelectClient(client)}
-                    className="w-full text-left p-3 hover:bg-slate-700 text-slate-200 border-b border-slate-700/50 last:border-0"
+                    className="w-full text-start p-3 hover:bg-slate-700 text-slate-200 border-b border-slate-700/50 last:border-0"
                   >
                     <div className="font-medium">{client.full_name}</div>
                     <div className="text-xs text-slate-500">

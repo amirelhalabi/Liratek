@@ -1,1 +1,172 @@
-{}
+{
+  "page": {
+    "title": "Exchange",
+    "history": "History"
+  },
+  "rates": {
+    "yourRates": "Your Rates",
+    "configuredAria": "Your configured rates",
+    "configuredCountParen": "({{count}} configured)",
+    "configuredCount": "{{count}} configured",
+    "noneConfigured": "No rates configured. Add one in Settings → Currencies → Exchange Rates.",
+    "never": "never",
+    "justNow": "just now",
+    "minutesAgo": "{{n}}m ago",
+    "hoursAgo": "{{n}}h ago",
+    "daysAgo": "{{n}}d ago",
+    "buy": "Buy",
+    "weGive": "(we give)",
+    "sell": "Sell",
+    "theyGive": "(they give)",
+    "market": "Market",
+    "spread": "Spread",
+    "profitPerUnit": "Profit / 1 {{unit}}",
+    "provenance": "Your configured rates — edit in Settings → Currencies. Profit is the half-spread per leg, matching what gets stamped on each exchange."
+  },
+  "positions": {
+    "title": "Open Positions",
+    "indicative": "Indicative — market feed may be stale",
+    "loading": "Loading positions...",
+    "empty": "No open exotic-currency positions.",
+    "currency": "Currency",
+    "openQty": "Open Qty",
+    "avgCost": "Avg Cost (USD)",
+    "market": "Market (USD)",
+    "unrealized": "Unrealized P&L",
+    "viewHistory": "View {{code}} history",
+    "loadFailed": "Failed to load positions"
+  },
+  "live": {
+    "title": "Rates",
+    "updated": "Market updated {{when}} · once daily",
+    "searchPlaceholder": "Search currency…",
+    "searchAria": "Search rates",
+    "noRates": "No rates available — configure one in Settings → Currencies, or check the internet connection for market rates.",
+    "noMatch": "No currency matches “{{search}}”.",
+    "yoursTitle": "Your own rate, from Settings → Currencies",
+    "yoursBadge": "yours",
+    "perUsd": "{{code}} per 1 USD",
+    "usdPer": "USD per 1 {{code}}",
+    "footerYours": "Yours",
+    "footer": "shows market · buy / sell from Settings. The rest is mid-market reference — no spread, earns nothing."
+  },
+  "history": {
+    "title": "Exchange History",
+    "records": "({{count}} records)",
+    "net": "Net",
+    "filterByCurrency": "Filter by currency",
+    "allCurrencies": "All Currencies",
+    "time": "Time",
+    "pair": "Pair",
+    "amountIn": "Amount In",
+    "amountOut": "Amount Out",
+    "via": "Via",
+    "statusHeader": "Status",
+    "remaining": "Remaining",
+    "realized": "Realized",
+    "profit": "Profit",
+    "empty": "No exchanges yet.",
+    "refunded": "Refunded",
+    "edited": "Edited",
+    "linkedClient": "Linked client",
+    "typedName": "Typed name",
+    "viaCurrency": "via {{code}}",
+    "status": {
+      "Settled": "Settled",
+      "Partial": "Partial",
+      "Open": "Open"
+    },
+    "refundedProfitTitle": "Refunded — profit not realized",
+    "editMetadata": "Edit metadata",
+    "clientNameLabel": "Client Name",
+    "clientNamePlaceholder": "Client name",
+    "note": "Note",
+    "saveFailed": "Failed to save"
+  },
+  "breakdown": {
+    "date": "Date",
+    "qty": "Qty",
+    "unitCost": "Unit Cost",
+    "unitProceeds": "Unit Proceeds",
+    "profit": "Profit",
+    "basis": "Basis",
+    "basisMarket": "MARKET",
+    "basisLot": "LOT",
+    "loading": "Loading settlement breakdown...",
+    "failed": "Failed to load settlement breakdown.",
+    "none": "No settlements recorded.",
+    "settledFromLots": "Settled from lots ({{code}})",
+    "laterAgainstLot": "Later settlements against this lot ({{code}})"
+  },
+  "calc": {
+    "more": "More",
+    "searchCurrency": "Search currency...",
+    "noMatch": "No match",
+    "highProfit": "Unusually high profit: ${{profit}} USD ({{pct}}% of input). Please verify your rates.",
+    "error": "Calculation error",
+    "from": "From",
+    "to": "To",
+    "previewUnavailable": "Realized-profit preview unavailable — profit will be computed at submit",
+    "crossViaUsd": "⚡ Cross-Currency via USD",
+    "total": "Total",
+    "rateTitle": "Rate ({{unit}})",
+    "resetRate": "Reset to default rate",
+    "deferredTitle": "EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold. Shown here is what it would book if sold today at market.",
+    "booksAtSale": "books at sale",
+    "lossSuffix": " (loss)",
+    "calculating": "Calculating…",
+    "fifo": "FIFO vs cost basis",
+    "uncovered": "{{qty}} {{code}} uncovered — settled at today's market rate",
+    "noAnchor": "Cost-basis tracking unavailable for this pair — configure a rate in Settings to enable it",
+    "rate": "Rate:",
+    "unitPerUsd": "{{code}} per USD",
+    "unitUsdPer": "USD per {{code}}",
+    "buyTitle": "EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold.",
+    "buyBooksLater": "Buy — profit books when this {{code}} is later sold (cost-basis lot)",
+    "calculatingRealized": "Calculating realized profit…",
+    "realizedProfit": "Realized profit:",
+    "profit": "Profit:",
+    "customRate": "⚡ Custom rate",
+    "youReceive": "You Receive ({{code}})",
+    "customerGets": "Customer Gets",
+    "equivalent": "({{code}} equivalent)",
+    "or": "or"
+  },
+  "errors": {
+    "validAmount": "Please enter a valid amount.",
+    "selectPartner": "Select a partner for this exchange.",
+    "withReason": "Error: {{error}}",
+    "failed": "Transaction failed"
+  },
+  "toast": {
+    "processed": "Exchange processed successfully"
+  },
+  "partner": {
+    "noticeStart": "Partner exchange: nothing is collected now — the full",
+    "noticeEnd": "goes on the partner's account, settled on the Partners page."
+  },
+  "client": {
+    "nameOptional": "Client Name (Optional)",
+    "walkIn": "Walk-in Client",
+    "linked": "Linked client",
+    "label": "Client"
+  },
+  "submit": {
+    "partner": "Submit to Partner",
+    "payout": "Proceed to Payout",
+    "confirm": "Confirm Exchange"
+  },
+  "sheet": {
+    "title": "Confirm Payout",
+    "subtitle": "Pay customer — {{amount}}",
+    "confirm": "Pay {{amount}}",
+    "youReceive": "You receive ({{code}})",
+    "customerGets": "Customer gets ({{code}})",
+    "customerPays": "Customer pays"
+  },
+  "loss": {
+    "title": "Confirm Loss",
+    "message": "This sale realizes -${{amount}} against acquisition cost — proceed?",
+    "proceed": "Proceed Anyway"
+  }
+}

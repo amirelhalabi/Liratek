@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import logger from "@/utils/logger";
 import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import { printReceipt } from "@/shared/utils/printReceipt";
@@ -188,13 +191,15 @@ export default function CheckoutModal({
     serialLabelFor({ tracks_imei_units: tracksImeiUnits ?? 1 }),
 }: CheckoutModalProps) {
   useModalFocusFix(true);
+  const { t } = useTranslation("sales");
+  const { formatNumber } = useFormat();
   // Currency the total is expressed in ("USD" by default). When "LBP" the
   // settlement math runs in LBP; otherwise behaviour is identical to before.
   const totalCurrency = currency ?? "USD";
   const isLbpTotal = totalCurrency === "LBP";
   /** Format a value in the job currency. */
   const fmtTotal = (v: number) =>
-    isLbpTotal ? `${Math.round(v).toLocaleString()} LBP` : `$${v.toFixed(2)}`;
+    isLbpTotal ? `${formatNumber(Math.round(v))} LBP` : `$${v.toFixed(2)}`;
   const api = useApi();
   const { activeSession } = useSession();
   const [isLoading, setIsLoading] = useState(false);
@@ -459,11 +464,10 @@ export default function CheckoutModal({
   const isSearchPhone =
     /^\+?[\d\s-]+$/.test(clientSearch) && clientSearch.length > 0;
 
-  // Derived Label & Placeholder
-  const secondaryLabel = isSearchPhone ? "Full Name" : "Phone Number";
+  // Derived placeholder (display only)
   const secondaryPlaceholder = isSearchPhone
-    ? "Enter Full Name..."
-    : "Enter Phone Number...";
+    ? t("checkout.namePlaceholder")
+    : t("checkout.phonePlaceholder");
 
   // Validation for Debt: both primary (clientSearch) and secondary (secondaryInput) must be filled for new clients
   const isNewClientInfoComplete = canChargeToCustomerAccount({
@@ -509,10 +513,10 @@ export default function CheckoutModal({
   ];
   const discountCapNote =
     discountCapped && maxDiscount != null
-      ? `Capped to max (${fmtTotal(maxDiscount)})`
+      ? t("checkout.cappedToMax", { amount: fmtTotal(maxDiscount) })
       : undefined;
   const extraCapNote = extraCapped
-    ? `Capped to max (${fmtTotal(totalAmount)})`
+    ? t("checkout.cappedToMax", { amount: fmtTotal(totalAmount) })
     : undefined;
   /** The discount field — rendered in the payment box (LIRA-318), or in the
    *  order summary for a partner sale, which has no payment box. */
@@ -536,7 +540,7 @@ export default function CheckoutModal({
       <span className="text-amber-400 text-xs">{isLbpTotal ? "LBP" : "$"}</span>
       <DecimalInput
         data-testid="checkout-discount-input"
-        aria-label="Extra"
+        aria-label={t("checkout.extra")}
         value={extra}
         onChange={handleExtraChange}
         className={discountFieldClass(extraCapped)}
@@ -548,9 +552,7 @@ export default function CheckoutModal({
    *  multi-currency summary branch below — fmtTotal above stays the
    *  single-currency formatter for the byte-identical original case). */
   const fmtMoneyFor = (v: number, curr: string) =>
-    curr === "LBP"
-      ? `${Math.round(v).toLocaleString()} LBP`
-      : `$${v.toFixed(2)}`;
+    curr === "LBP" ? `${formatNumber(Math.round(v))} LBP` : `$${v.toFixed(2)}`;
   const effectiveExchangeRate = parseFloat(customExchangeRate) || exchangeRate;
   // Total paid, converted into the job's currency for settlement comparison.
   const totalPaidInTotalCurrency = isLbpTotal
@@ -713,7 +715,7 @@ export default function CheckoutModal({
       ) {
         appEvents.emit(
           "notification:show",
-          "Debt payment method is disabled. The full amount must be paid before completing the sale.",
+          t("checkout.debtDisabledToast"),
           "warning",
         );
         return;
@@ -726,7 +728,7 @@ export default function CheckoutModal({
       ) {
         appEvents.emit(
           "notification:show",
-          "To create or leave a debt, please ensure the client has a phone number (existing client) or provide both name and phone (new client).",
+          t("checkout.debtNeedsProfileToast"),
           "warning",
         );
         return;
@@ -736,7 +738,7 @@ export default function CheckoutModal({
     if (forPartner && !selectedPartnerId) {
       appEvents.emit(
         "notification:show",
-        "Select a partner for this sale.",
+        t("checkout.selectPartnerToast"),
         "warning",
       );
       return;
@@ -755,7 +757,7 @@ export default function CheckoutModal({
       // — nothing was shown here at all.
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(error, "Failed to complete the sale."),
+        getApiErrorMessage(error, t("checkout.completeFailed")),
         "error",
       );
     } finally {
@@ -776,7 +778,7 @@ export default function CheckoutModal({
       // ApiError reaching this boundary used to show nothing.
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(error, "Failed to save the draft."),
+        getApiErrorMessage(error, t("checkout.saveDraftFailed")),
         "error",
       );
     } finally {
@@ -893,6 +895,7 @@ export default function CheckoutModal({
     paymentLines,
     paymentMethodOptions,
     cashReturnUSD > 0 || cashReturnLBP > 0,
+    (drawer) => t("checkout.changePaidFrom", { drawer }),
   );
 
   // Memoize receipt content to ensure it updates when shopInfo or other data changes
@@ -932,14 +935,16 @@ export default function CheckoutModal({
           onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Left: Summary & Client */}
-          <div className="w-1/2 bg-slate-800 p-8 border-r border-slate-700 flex flex-col">
+          <div className="w-1/2 bg-slate-800 p-8 border-e border-slate-700 flex flex-col">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-white">Checkout</h2>
+              <h2 className="text-2xl font-bold text-white">
+                {t("checkout.title")}
+              </h2>
               {onClose && (
                 <button
                   onClick={onClose}
                   className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                  title="Close"
+                  title={t("checkout.close")}
                 >
                   <X size={20} />
                 </button>
@@ -952,7 +957,7 @@ export default function CheckoutModal({
                 htmlFor="checkout-customer"
                 className="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider"
               >
-                Customer
+                {t("checkout.customer")}
               </label>
               <div className="grid grid-cols-2 gap-2 mb-2">
                 {/* Primary Input (Search) */}
@@ -982,7 +987,7 @@ export default function CheckoutModal({
                       }}
                       data-testid="client-autocomplete-field"
                       className="bg-transparent border-none text-white w-full px-3 focus:outline-none"
-                      placeholder="Search Name or Phone..."
+                      placeholder={t("checkout.searchClient")}
                     />
                     {selectedClient && (
                       <button
@@ -1005,7 +1010,7 @@ export default function CheckoutModal({
                     filteredClients.length > 0 && (
                       <div
                         data-testid="client-dropdown"
-                        className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto"
+                        className="absolute top-full start-0 end-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto"
                       >
                         {filteredClients.map((client) => (
                           <button
@@ -1016,7 +1021,7 @@ export default function CheckoutModal({
                               setClientSearch(client.full_name);
                               setSecondaryInput(client.phone_number || "");
                             }}
-                            className="w-full text-left p-3 hover:bg-slate-700 text-slate-200 border-b border-slate-700/50 last:border-0"
+                            className="w-full text-start p-3 hover:bg-slate-700 text-slate-200 border-b border-slate-700/50 last:border-0"
                           >
                             <div className="font-medium">
                               {client.full_name}
@@ -1056,10 +1061,12 @@ export default function CheckoutModal({
                 clientSearch.length > 0 &&
                 filteredClients.length === 0 && (
                   <div className="mb-2">
-                    <div className="text-xs text-slate-500 ml-1">
-                      Creating new client.{" "}
+                    <div className="text-xs text-slate-500 ms-1">
+                      {t("checkout.creatingClient")}{" "}
                       <span className="text-violet-400">
-                        Add {secondaryLabel.toLowerCase()} to enable debt.
+                        {isSearchPhone
+                          ? t("checkout.addNameForDebt")
+                          : t("checkout.addPhoneForDebt")}
                       </span>
                     </div>
                     {!isPaymentComplete(
@@ -1067,9 +1074,8 @@ export default function CheckoutModal({
                       finalAmount,
                     ) &&
                       !canCreateDebt && (
-                        <div className="text-sm text-red-400 mt-1 ml-1">
-                          Debts require a valid client phone. Provide both name
-                          and phone for new clients.
+                        <div className="text-sm text-red-400 mt-1 ms-1">
+                          {t("checkout.debtNeedsPhone")}
                         </div>
                       )}
                   </div>
@@ -1097,7 +1103,7 @@ export default function CheckoutModal({
               <div className="flex-1 min-h-0 my-4 bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden flex flex-col">
                 <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700/50 bg-slate-800/30">
                   <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Items ({items.length})
+                    {t("checkout.itemsCount", { count: items.length })}
                   </span>
                   {onEdit && (
                     <button
@@ -1118,7 +1124,7 @@ export default function CheckoutModal({
                         })
                       }
                       className="p-1.5 text-slate-400 hover:text-violet-400 hover:bg-violet-500/10 rounded-lg transition-colors"
-                      title="Edit Order"
+                      title={t("checkout.editOrder")}
                     >
                       <Pencil size={14} />
                     </button>
@@ -1130,17 +1136,19 @@ export default function CheckoutModal({
                       key={idx}
                       className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-800/40 transition-colors"
                     >
-                      <div className="flex-1 min-w-0 mr-3">
+                      <div className="flex-1 min-w-0 me-3">
                         <p className="text-sm text-slate-200 truncate">
                           {item.name}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {item.quantity} × ${item.retail_price.toFixed(2)}
+                          <Ltr>
+                            {item.quantity} × ${item.retail_price.toFixed(2)}
+                          </Ltr>
                         </p>
                       </div>
-                      <span className="text-sm font-mono text-slate-300 shrink-0">
+                      <Ltr className="text-sm font-mono text-slate-300 shrink-0">
                         ${(item.quantity * item.retail_price).toFixed(2)}
-                      </span>
+                      </Ltr>
                     </div>
                   ))}
                 </div>
@@ -1151,14 +1159,14 @@ export default function CheckoutModal({
             <div className="shrink-0 bg-slate-900/50 rounded-xl p-4 border border-slate-700/50">
               <div className="space-y-3">
                 <div className="flex justify-between text-slate-400">
-                  <span>Subtotal</span>
-                  <span>{fmtTotal(totalAmount)}</span>
+                  <span>{t("checkout.subtotal")}</span>
+                  <Ltr>{fmtTotal(totalAmount)}</Ltr>
                 </div>
                 {/* LIRA-318: the discount lives in the payment box; a
                     partner sale has none, so its field stays here. */}
                 {forPartner && (
                   <div className="flex justify-between items-center text-slate-400">
-                    <span>Discount</span>
+                    <span>{t("checkout.discount")}</span>
                     <div className="flex items-center gap-2">
                       {discountCapNote && (
                         <span
@@ -1177,22 +1185,22 @@ export default function CheckoutModal({
                     data-testid="checkout-summary-extra"
                     className="flex justify-between text-amber-400"
                   >
-                    <span>Extra</span>
-                    <span>+{fmtTotal(appliedExtra)}</span>
+                    <span>{t("checkout.extra")}</span>
+                    <Ltr>+{fmtTotal(appliedExtra)}</Ltr>
                   </div>
                 )}
                 {hasMultipleCurrencyTotals ? (
                   <div className="border-t border-slate-700 pt-3 space-y-2">
-                    {allTotals.map((t) => (
+                    {allTotals.map((tot) => (
                       <div
-                        key={t.currency}
+                        key={tot.currency}
                         className="flex justify-between items-center"
                       >
                         <span className="text-lg font-bold text-white">
-                          Net Total ({t.currency})
+                          {t("checkout.netTotalIn", { currency: tot.currency })}
                         </span>
                         <span className="text-2xl font-bold text-violet-400">
-                          {fmtMoneyFor(t.amount, t.currency)}
+                          <Ltr>{fmtMoneyFor(tot.amount, tot.currency)}</Ltr>
                         </span>
                       </div>
                     ))}
@@ -1201,16 +1209,18 @@ export default function CheckoutModal({
                   <>
                     <div className="border-t border-slate-700 pt-3 flex justify-between items-center">
                       <span className="text-lg font-bold text-white">
-                        Net Total
+                        {t("checkout.netTotal")}
                       </span>
                       <span className="text-2xl font-bold text-violet-400">
-                        {fmtTotal(chargedAmount)}
+                        <Ltr>{fmtTotal(chargedAmount)}</Ltr>
                       </span>
                     </div>
-                    <div className="text-right text-xs text-slate-500">
-                      {isLbpTotal
-                        ? `≈ $${(chargedAmount / effectiveExchangeRate).toFixed(2)} USD`
-                        : `≈ ${(chargedAmount * effectiveExchangeRate).toLocaleString()} LBP`}
+                    <div className="text-end text-xs text-slate-500">
+                      <Ltr>
+                        {isLbpTotal
+                          ? `≈ $${(chargedAmount / effectiveExchangeRate).toFixed(2)} USD`
+                          : `≈ ${formatNumber(chargedAmount * effectiveExchangeRate)} LBP`}
+                      </Ltr>
                     </div>
                   </>
                 )}
@@ -1222,7 +1232,7 @@ export default function CheckoutModal({
           <div className="w-1/2 p-8 flex flex-col">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-semibold text-slate-300">
-                Payment Details
+                {t("checkout.paymentDetails")}
               </h3>
               <div className="flex items-center gap-1">
                 {onMinimize && (
@@ -1244,7 +1254,7 @@ export default function CheckoutModal({
                       })
                     }
                     className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                    title="Minimize Order"
+                    title={t("checkout.minimize")}
                   >
                     <Minus size={20} />
                   </button>
@@ -1253,7 +1263,7 @@ export default function CheckoutModal({
                   <button
                     onClick={onCancel}
                     className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
-                    title="Cancel Order"
+                    title={t("checkout.cancelOrder")}
                   >
                     <X size={20} />
                   </button>
@@ -1272,10 +1282,9 @@ export default function CheckoutModal({
                   testId="checkout-partner-no-payment-notice"
                   tone="violet"
                 >
-                  Partner sale: nothing is collected now — the full{" "}
-                  <span className="font-bold">{fmtTotal(finalAmount)}</span>{" "}
-                  goes on the partner&apos;s account, settled on the Partners
-                  page.
+                  {t("checkout.partnerNoticeBefore")}{" "}
+                  <Ltr className="font-bold">{fmtTotal(finalAmount)}</Ltr>{" "}
+                  {t("checkout.partnerNoticeAfter")}
                 </ForPartnerNotice>
               ) : (
                 <>
@@ -1316,7 +1325,7 @@ export default function CheckoutModal({
                     // `totals` stay net of it; the payment line follows it.
                     discountRow={
                       <DiscountLine
-                        label="Discount"
+                        label={t("checkout.discount")}
                         testId="checkout-discount-line"
                         {...(isExtraMode
                           ? extraCapNote
@@ -1366,7 +1375,7 @@ export default function CheckoutModal({
                           ),
                         }
                       : {})}
-                    label="Payment"
+                    label={t("checkout.payment")}
                     {...(initialMethod ? { initialMethod } : {})}
                     clientId={selectedClient?.id ?? null}
                     fetchClientVouchers={fetchClientVouchers}
@@ -1378,8 +1387,7 @@ export default function CheckoutModal({
                       chargedAmount,
                     ) && (
                       <div className="text-xs text-orange-400 bg-orange-500/10 rounded px-3 py-2">
-                        Debt is disabled. Full payment required to complete this
-                        sale.
+                        {t("checkout.debtDisabled")}
                       </div>
                     )}
                 </>
@@ -1395,7 +1403,7 @@ export default function CheckoutModal({
               >
                 <Inbox size={16} className="text-blue-400" />
                 <span className="text-slate-300">
-                  Money goes to:{" "}
+                  {t("checkout.moneyGoesTo")}{" "}
                   <span className="font-bold text-blue-300">
                     {drawerDestinations.join(" · ")}
                   </span>
@@ -1417,7 +1425,7 @@ export default function CheckoutModal({
                   disabled={isLoading}
                   className="px-6 py-4 rounded-xl text-violet-300 hover:text-violet-100 hover:bg-violet-900/30 transition-colors font-medium border border-violet-500/30"
                 >
-                  Save Draft
+                  {t("checkout.saveDraft")}
                 </button>
               )}
               <button
@@ -1426,7 +1434,7 @@ export default function CheckoutModal({
                 className="px-4 py-4 rounded-xl text-blue-300 hover:text-blue-100 hover:bg-blue-900/30 transition-colors font-medium border border-blue-500/30 flex items-center gap-2"
               >
                 <Printer size={18} />
-                Preview
+                {t("checkout.preview")}
               </button>
               <button
                 onClick={handleDirectPrint}
@@ -1434,7 +1442,7 @@ export default function CheckoutModal({
                 className="px-4 py-4 rounded-xl text-emerald-300 hover:text-emerald-100 hover:bg-emerald-900/30 transition-colors font-medium border border-emerald-500/30 flex items-center gap-2"
               >
                 <Printer size={18} />
-                Print
+                {t("checkout.print")}
               </button>
               <button
                 data-testid="checkout-complete-btn"
@@ -1442,7 +1450,9 @@ export default function CheckoutModal({
                 disabled={isLoading}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
-                {isLoading ? "Processing..." : "Complete Sale"}
+                {isLoading
+                  ? t("checkout.processing")
+                  : t("checkout.completeSale")}
               </button>
             </div>
           </div>
@@ -1468,7 +1478,7 @@ export default function CheckoutModal({
             <div className="p-6 border-b border-slate-700 flex justify-between items-center">
               <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                 <Printer size={24} className="text-blue-400" />
-                Receipt Preview
+                {t("checkout.receiptPreview")}
               </h2>
               <button
                 onClick={() => setShowReceiptPreview(false)}
@@ -1502,14 +1512,14 @@ export default function CheckoutModal({
                 onClick={() => setShowReceiptPreview(false)}
                 className="flex-1 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg font-medium transition-colors"
               >
-                Close
+                {t("checkout.close")}
               </button>
               <button
                 onClick={handlePrintReceipt}
                 className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold active:scale-95 transition-all flex items-center justify-center gap-2"
               >
                 <Printer size={18} />
-                Print
+                {t("checkout.print")}
               </button>
             </div>
           </div>

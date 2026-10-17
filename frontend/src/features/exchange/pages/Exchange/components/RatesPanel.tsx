@@ -14,6 +14,10 @@
  */
 
 import { TrendingUp, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { computeLegProfitUsd, type CurrencyRate } from "@liratek/core";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
@@ -34,7 +38,7 @@ import {
  */
 function formatRateValue(rate: number, row: ExchangeRate): string {
   return row.is_stronger === 1
-    ? `${rate.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${row.to_code}`
+    ? `${formatNumber(rate, { maximumFractionDigits: 0 })} ${row.to_code}`
     : `${rate.toFixed(4)} USD`;
 }
 
@@ -72,16 +76,19 @@ function profitPerUnit(row: ExchangeRate): { usd: number; unit: string } {
 }
 
 /** Compact "2h ago" / "3d ago" for a DB timestamp. */
-function formatRelative(iso: string | undefined): string {
-  if (!iso) return "never";
+function formatRelative(
+  iso: string | undefined,
+  t: TFunction<"exchange">,
+): string {
+  if (!iso) return t("rates.never");
   const ms = Date.now() - parseDbDate(iso).getTime();
   const mins = Math.floor(ms / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return t("rates.justNow");
+  if (mins < 60) return t("rates.minutesAgo", { n: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t("rates.hoursAgo", { n: hours });
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return t("rates.daysAgo", { n: days });
 }
 
 /**
@@ -123,6 +130,7 @@ export function RatesPanel({
   className = "",
   bare = false,
 }: RatesPanelProps) {
+  const { t } = useTranslation("exchange");
   const chrome = bare
     ? ""
     : "bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl";
@@ -137,11 +145,11 @@ export function RatesPanel({
           <div className="flex items-center gap-2">
             <TrendingUp size={14} className="text-violet-400" />
             <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-300">
-              Your Rates
+              {t("rates.yourRates")}
             </span>
           </div>
           <span className="text-[10px] text-slate-500">
-            {rates.length} configured
+            {t("rates.configuredCount", { count: rates.length })}
           </span>
         </div>
       )}
@@ -157,8 +165,7 @@ export function RatesPanel({
         </div>
       ) : rates.length === 0 ? (
         <p className="p-4 text-xs text-slate-500">
-          No rates configured. Add one in Settings → Currencies → Exchange
-          Rates.
+          {t("rates.noneConfigured")}
         </p>
       ) : (
         <div className="divide-y divide-slate-700/60">
@@ -179,7 +186,10 @@ export function RatesPanel({
                     <p className="text-sm font-bold text-white font-mono">
                       {row.to_code}
                     </p>
-                    <p className="text-[10px] text-slate-500 truncate">
+                    <p
+                      className="text-[10px] text-slate-500 truncate"
+                      dir="ltr"
+                    >
                       {rateDirectionLabel(row)}
                     </p>
                   </div>
@@ -189,7 +199,7 @@ export function RatesPanel({
                       aria-hidden="true"
                     />
                     <span className={`text-[10px] ${stale.text}`}>
-                      {formatRelative(row.updated_at)}
+                      {formatRelative(row.updated_at, t)}
                     </span>
                   </div>
                 </div>
@@ -201,26 +211,32 @@ export function RatesPanel({
                   <div className="flex items-center justify-between gap-2">
                     <dt className="flex items-center gap-1 text-slate-400">
                       <ArrowUpRight size={11} className="text-emerald-400" />
-                      Buy
-                      <span className="text-slate-600">(we give)</span>
+                      {t("rates.buy")}
+                      <span className="text-slate-600">
+                        {t("rates.weGive")}
+                      </span>
                     </dt>
-                    <dd className="font-mono text-emerald-400">
+                    <dd className="font-mono text-emerald-400" dir="ltr">
                       {formatRateValue(row.buy_rate, row)}
                     </dd>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <dt className="flex items-center gap-1 text-slate-400">
                       <ArrowDownLeft size={11} className="text-red-400" />
-                      Sell
-                      <span className="text-slate-600">(they give)</span>
+                      {t("rates.sell")}
+                      <span className="text-slate-600">
+                        {t("rates.theyGive")}
+                      </span>
                     </dt>
-                    <dd className="font-mono text-red-400">
+                    <dd className="font-mono text-red-400" dir="ltr">
                       {formatRateValue(row.sell_rate, row)}
                     </dd>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <dt className="text-slate-400 pl-[19px]">Market</dt>
-                    <dd className="font-mono text-slate-300">
+                    <dt className="text-slate-400 ps-[19px]">
+                      {t("rates.market")}
+                    </dt>
+                    <dd className="font-mono text-slate-300" dir="ltr">
                       {formatRateValue(row.market_rate, row)}
                     </dd>
                   </div>
@@ -230,8 +246,10 @@ export function RatesPanel({
                 <div className="rounded-lg bg-slate-900/60 border border-slate-700/50 px-2.5 py-2 space-y-1">
                   {spread !== null && (
                     <div className="flex items-center justify-between gap-2 text-[11px]">
-                      <span className="text-slate-500">Spread</span>
-                      <span className="font-mono text-slate-300">
+                      <span className="text-slate-500">
+                        {t("rates.spread")}
+                      </span>
+                      <span className="font-mono text-slate-300" dir="ltr">
                         {formatRateValue(spread, row)}
                         {spreadPct !== null && (
                           <span className="text-slate-500">
@@ -244,10 +262,10 @@ export function RatesPanel({
                   )}
                   <div className="flex items-center justify-between gap-2 text-[11px]">
                     <span className="text-slate-500">
-                      Profit / 1 {profit.unit}
+                      {t("rates.profitPerUnit", { unit: profit.unit })}
                     </span>
                     <span className="font-mono font-semibold text-emerald-400">
-                      ${profit.usd.toFixed(4)}
+                      <Ltr>${profit.usd.toFixed(4)}</Ltr>
                     </span>
                   </div>
                 </div>
@@ -259,8 +277,7 @@ export function RatesPanel({
 
       {/* Provenance — the panel shows the shop's own rates, not the market. */}
       <p className="px-4 py-2.5 bg-slate-900/40 border-t border-slate-700/60 text-[10px] leading-relaxed text-slate-500">
-        Your configured rates — edit in Settings → Currencies. Profit is the
-        half-spread per leg, matching what gets stamped on each exchange.
+        {t("rates.provenance")}
       </p>
     </aside>
   );

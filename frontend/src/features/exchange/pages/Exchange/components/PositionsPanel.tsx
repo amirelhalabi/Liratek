@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Layers, TrendingUp, TrendingDown, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import logger from "@/utils/logger";
 
 /**
@@ -35,6 +39,7 @@ export function PositionsPanel({
   onViewCurrency,
 }: PositionsPanelProps) {
   const api = useApi();
+  const { t } = useTranslation("exchange");
   const [positions, setPositions] = useState<LotPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +56,7 @@ export function PositionsPanel({
         if (!cancelled) {
           logger.error("Failed to load exchange lot positions", err);
           setError(
-            err instanceof Error ? err.message : "Failed to load positions",
+            err instanceof Error ? err.message : t("positions.loadFailed"),
           );
         }
       } finally {
@@ -72,40 +77,46 @@ export function PositionsPanel({
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <Layers size={16} className="text-violet-400" />
-          <h3 className="text-sm font-semibold text-white">Open Positions</h3>
+          <h3 className="text-sm font-semibold text-white">
+            {t("positions.title")}
+          </h3>
         </div>
         {!loading && openPositions.length > 0 && (
           <span className="text-[10px] text-slate-500 italic">
-            Indicative — market feed may be stale
+            {t("positions.indicative")}
           </span>
         )}
       </div>
 
       {loading ? (
         <div className="text-xs text-slate-500 py-4 text-center">
-          Loading positions...
+          {t("positions.loading")}
         </div>
       ) : error ? (
         <div className="text-xs text-red-400 py-4 text-center">{error}</div>
       ) : openPositions.length === 0 ? (
         <div className="text-xs text-slate-500 py-4 text-center">
-          No open exotic-currency positions.
+          {t("positions.empty")}
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="text-slate-500 border-b border-slate-700/50">
-                <th className="text-left font-medium py-2 pr-3">Currency</th>
-                <th className="text-right font-medium py-2 pr-3">Open Qty</th>
-                <th className="text-right font-medium py-2 pr-3">
-                  Avg Cost (USD)
+                <th className="text-start font-medium py-2 pe-3">
+                  {t("positions.currency")}
                 </th>
-                <th className="text-right font-medium py-2 pr-3">
-                  Market (USD)
+                <th className="text-end font-medium py-2 pe-3">
+                  {t("positions.openQty")}
                 </th>
-                <th className="text-right font-medium py-2 pr-3">
-                  Unrealized P&amp;L
+                <th className="text-end font-medium py-2 pe-3">
+                  {t("positions.avgCost")}
+                </th>
+                <th className="text-end font-medium py-2 pe-3">
+                  {t("positions.market")}
+                </th>
+                <th className="text-end font-medium py-2 pe-3">
+                  {t("positions.unrealized")}
                 </th>
                 <th className="w-8 py-2"></th>
               </tr>
@@ -116,23 +127,25 @@ export function PositionsPanel({
                   key={p.currency_code}
                   className="hover:bg-slate-700/20 transition-colors"
                 >
-                  <td className="py-2 pr-3 font-semibold text-white">
+                  <td className="py-2 pe-3 font-semibold text-white">
                     {p.currency_code}
                   </td>
-                  <td className="py-2 pr-3 text-right font-mono text-slate-300">
-                    {p.open_qty.toLocaleString(undefined, {
-                      maximumFractionDigits: 4,
-                    })}
+                  <td className="py-2 pe-3 text-end font-mono text-slate-300">
+                    <Ltr>
+                      {formatNumber(p.open_qty, { maximumFractionDigits: 4 })}
+                    </Ltr>
                   </td>
-                  <td className="py-2 pr-3 text-right font-mono text-slate-300">
-                    ${p.avg_unit_cost_usd.toFixed(4)}
+                  <td className="py-2 pe-3 text-end font-mono text-slate-300">
+                    <Ltr>${p.avg_unit_cost_usd.toFixed(4)}</Ltr>
                   </td>
-                  <td className="py-2 pr-3 text-right font-mono text-slate-300">
-                    {p.current_market_unit_usd !== null
-                      ? `$${p.current_market_unit_usd.toFixed(4)}`
-                      : "—"}
+                  <td className="py-2 pe-3 text-end font-mono text-slate-300">
+                    <Ltr>
+                      {p.current_market_unit_usd !== null
+                        ? `$${p.current_market_unit_usd.toFixed(4)}`
+                        : "—"}
+                    </Ltr>
                   </td>
-                  <td className="py-2 pr-3 text-right font-mono font-semibold">
+                  <td className="py-2 pe-3 text-end font-mono font-semibold">
                     {p.unrealized_profit_usd === null ? (
                       <span className="text-slate-500">—</span>
                     ) : (
@@ -148,18 +161,22 @@ export function PositionsPanel({
                         ) : (
                           <TrendingDown size={12} />
                         )}
-                        {p.unrealized_profit_usd >= 0 ? "+" : ""}$
-                        {p.unrealized_profit_usd.toFixed(2)}
+                        <Ltr>
+                          {p.unrealized_profit_usd >= 0 ? "+" : ""}$
+                          {p.unrealized_profit_usd.toFixed(2)}
+                        </Ltr>
                       </span>
                     )}
                   </td>
-                  <td className="py-2 text-right">
+                  <td className="py-2 text-end">
                     <button
                       onClick={() => onViewCurrency(p.currency_code)}
                       className="p-1 text-slate-500 hover:text-violet-400 transition-colors"
-                      title={`View ${p.currency_code} history`}
+                      title={t("positions.viewHistory", {
+                        code: p.currency_code,
+                      })}
                     >
-                      <ChevronRight size={14} />
+                      <DirIcon icon={ChevronRight} width={14} height={14} />
                     </button>
                   </td>
                 </tr>
