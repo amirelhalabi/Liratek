@@ -5,10 +5,11 @@
  * sign-out, own password/email, access-removing). Reads always pass.
  *
  * Not proven failing-first (new contract): before the middleware existed this
- * file only failed to resolve the import. The ORDERING case (an ended shop's
- * POST /api/users gets TRIAL_ENDED, never SUBSCRIPTION_READ_ONLY) was seen
- * failing against the pre-LIRA-332 chain, which answered the 402 lapsed text
- * as soon as `canWrite` was false (recorded in the ticket).
+ * file only failed to resolve the import, so the ORDERING case (an ended
+ * shop's POST /api/users gets TRIAL_ENDED, never SUBSCRIPTION_READ_ONLY) never
+ * ran without the gate. Related evidence: the T031 case in
+ * requireWritableSubscription.test.ts was seen failing with the 402 lapsed
+ * text for trial_ended before that gate learned the trial wording.
  *
  * Mounted here exactly as server.ts mounts it: app-wide, BEFORE the
  * read-only gate and before every router's own authenticateJWT, so the

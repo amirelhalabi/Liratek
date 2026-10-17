@@ -6,8 +6,9 @@
  * Field names are asserted by parsing the sent body through the core
  * schemas (rule 24), never by hand.
  *
- * Failing-first: run before the sections existed, every case failed (no
- * such buttons). Not a fix, so these pin a new UI contract.
+ * Failing-first: run before the sections existed, 7 cases failed (no such
+ * buttons); the 2 absence checks ("not offered to a paying shop", "no bare
+ * Activate") passed vacuously. A new UI contract, not a fix.
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
