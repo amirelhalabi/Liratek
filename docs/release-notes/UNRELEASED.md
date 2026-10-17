@@ -35,15 +35,15 @@
 
 ## ✨ Highlights
 
+### See everything about a transaction
+
+On the Transactions page, every row now has a Details button. It shows everything saved with that transaction in plain words: what was entered, how the customer paid, and any change handed back or kept. Voided and refunded rows carry a small tag, and the Excel export now opens on a Summary with money in and out per currency, while the PDF is a report grouped by day.
+![Details of an OMT send: $210 paid in cash, $6 change handed back](whats-new/1.35.0/transaction-details.png)
+
 ### Card sent to the wrong number
 
-Recharged an MTC or Alfa card onto the wrong number from iPick, Katsh or Whish App? Open the sale on the Transactions page and tap "Wrong number…". The sale stays as it is, because it is the recharge of the customer's right number. The wasted card is recorded as a loss, and the credits sent back lower that loss when they arrive.
+Recharged an MTC or Alfa card onto the wrong number from iPick, Katsh or Whish App? Open the sale on the Transactions page and tap "Wrong number…". The sale stays as it is, because it is the recharge of the customer's right number. The wasted card is recorded as a loss, and the credits sent back lower that loss when they arrive. Noticed it before saving the sale? On Expenses, pick the card and tick "Wrong number" instead.
 ![The Wrong number window on a card sale](whats-new/1.35.0/wrong-number-sale.png)
-
-### Wrong number from Expenses
-
-Noticed it before saving the sale? On Expenses, pick the card and tick "Wrong number". It comes out of the iPick, Katsh or Whish App balance as a loss, and you can enter the credits sent back later from the Transactions page.
-![The Wrong number tick on Expenses](whats-new/1.35.0/wrong-number-expense.png)
 
 ### Customer pays part now, owes the rest
 
@@ -88,13 +88,13 @@ On Accounts, tap "Export Excel" to save every client's account in one file, laid
 
 ## 💸 OMT / Whish & suppliers
 
-- Suppliers: the Transactions and Payments lists open in their own window from two buttons, so the supplier page stays short. The tab for picking transactions to settle is now called "Settle".
 - OMT/Whish page: a send or receive no longer adds the sender (or receiver) to your clients when "Save as client" is unticked. If a client with that phone is already saved, the transaction is still linked to them. Paying on the customer's account still needs a client, so one is still saved in that case.
 - OMT/Whish page, OMT send with "Online Brokerage": a BINANCE fee charged to the customer is now recorded with the send. Before, any such send with a fee was refused with "the payment is more than the total".
 - OMT/Whish page: from now on each OMT or Whish send and receive keeps everything you enter on the transaction itself — service type, reference number, the customer's name and phone, OMT or Whish fee, whether the fee was included, the partner, the fee for paying by wallet, the note, and how the customer paid.
 - OMT/Whish page: an OMT send paid by OMT Wallet or Whish Wallet with the wallet fee is no longer refused. The payment box now asks for the amount, the OMT fee and the wallet fee together (for example $102 on a $100 send), so the customer pays the right total.
 - Partners page: from now on, a settlement paid in more than one way (for example $200 cash + $100 Whish) shows "via SPLIT" in the partner's history instead of only the first method.
 - On the Suppliers page, the Payments list is easier to read: notes show in full (up to two lines), dates fit on one line, and the LBP amount no longer runs into the note.
+- Suppliers: the Transactions and Payments lists open in their own window from two buttons, so the supplier page stays short. The tab for picking transactions to settle is now called "Settle".
 - Mobile Recharge: items you pick on iPick, Katsh and Whish App now stay picked when you switch tabs. Picking from more than one of them makes one basket: Proceed to Pay shows every item grouped by provider, the customer pays once, and it is saved as a walk-in customer session with one sale per provider, each taken from its own provider's balance. Refund it as a whole from Transactions. Before, a basket with both iPick and Katsh items was all saved under the tab you paid from.
 - Mobile Recharge: a bill you add on the iPick or Katsh tab now stays in the basket when you switch tabs or leave the page, counts on its tab, and is always saved under the tab you added it on, whichever tab you pay from. Bills now show in the one payment window under their provider and are paid together with items from other providers, all at once.
 - Mobile Recharge: "For Partner" now covers the whole basket. Tick it on iPick, Katsh or Whish App and it stays ticked on the other two, with the same partner. If the basket already has items, you are asked first whether to make them all a partner order. "Submit to Partner" sends everything in the basket, from every tab, in one go: each item is taken from its own provider's balance, and the partner owes the full price. If one item fails, nothing is saved.
