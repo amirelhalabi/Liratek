@@ -36,8 +36,10 @@ import {
   requestSignupLink,
   type SignupInput,
 } from "@/api/backendApi";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   EMAIL_ALREADY_HAS_SHOP,
+  isLanguage,
   type RequestSignupLinkInput,
   type SignupInviteCheckResult,
 } from "@liratek/core";
@@ -108,6 +110,13 @@ export default function Signup() {
   // [auth-D] `?google=<ticket>`: Google already proved the email, so the
   // Google form replaces every other mode (no emailed link, no Turnstile).
   const googleTicket = searchParams.get("google")?.trim() || null;
+  // LIRA-331 (FR-006, OD-1): `?lang=ar` from the Arabic landing makes it this
+  // device's language at once (shown once Arabic is released, OD-4).
+  const langParam = searchParams.get("lang");
+  const { setLanguage } = useLanguage();
+  useEffect(() => {
+    if (isLanguage(langParam)) void setLanguage(langParam);
+  }, [langParam, setLanguage]);
 
   const [entry, setEntry] = useState<Entry>({ kind: "loading" });
 

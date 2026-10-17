@@ -45,7 +45,13 @@
     "required": "Required"
   },
   "language": {
+    "title": "Language",
+    "hint": "Saved for your account",
     "en": "English",
-    "ar": "العربية"
+    "ar": "العربية",
+    "shopDefault": "Shop default language",
+    "receipt": "Receipt language",
+    "shopDefaultHint": "Used by anyone who has not chosen a language",
+    "receiptHint": "Receipts print in this language, whoever is at the counter"
   }
 }

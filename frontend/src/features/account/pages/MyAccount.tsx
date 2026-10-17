@@ -23,6 +23,7 @@ import GoogleAccountPanel from "@/features/settings/pages/Settings/GoogleAccount
 import SignedInDevices from "@/features/settings/pages/Settings/SignedInDevices";
 import ProfileSection from "@/features/account/components/ProfileSection";
 import DisplayPreferences from "@/features/account/components/DisplayPreferences";
+import LanguagePreference from "@/features/account/components/LanguagePreference";
 import ChangePasswordForm from "@/features/account/components/ChangePasswordForm";
 import {
   getMyEmail,
@@ -85,6 +86,7 @@ export default function MyAccount() {
           <SignedInDevices />
         </div>
       )}
+      <LanguagePreference />
       <DisplayPreferences />
     </div>
   );
