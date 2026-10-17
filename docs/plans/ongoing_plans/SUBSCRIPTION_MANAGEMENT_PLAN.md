@@ -93,6 +93,8 @@ Adding `tenants.email` belongs to this work, not to a later cleanup. **Update 20
 | **D4**      | **Grace → read-only, never hard-lock**     | 7 days fully working after the period ends, then reads keep working and writes stop. A lapsed shop can always see and export its own receivables (`debt_ledger` is money owed to THEM).                                                                                               |
 | **D1**      | Price                                      | Still open, and blocks nothing — with one tier it is a number on a page, not a code path.                                                                                                                                                                                             |
 
+> **D2 superseded (2026-10-17):** publicly signed-up shops now start on a 14-day free trial; owner-created shops still have none. See LIRA-332 (`specs/332-free-trial`).
+
 ## 4. Revised architecture — good standing, not entitlements
 
 ```

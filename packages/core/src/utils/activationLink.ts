@@ -11,9 +11,9 @@
 export const LIRATEK_WHATSAPP_NUMBER = "96181077357";
 
 export interface ActivationLinkInput {
-  shopName?: string | null;
+  shopName?: string | null | undefined;
   /** The shop's web address, e.g. `abouali.liratek.shop`. */
-  shopAddress?: string | null;
+  shopAddress?: string | null | undefined;
 }
 
 /** "Hi LiraTek, I'd like to activate my shop {name} ({address})." */

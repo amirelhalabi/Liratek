@@ -35,6 +35,10 @@
 
 ## ✨ Highlights
 
+### Try LiraTek free for 14 days
+
+A new shop that signs up on the web app now gets a free 14-day trial, with no card needed. Every page shows how many days are left, with a button to message LiraTek on WhatsApp to activate. When the trial ends you can still sign in, see and export everything, and nothing is deleted; adding new sales and records waits until the shop is activated.
+
 ### Card sent to the wrong number
 
 Recharged an MTC or Alfa card onto the wrong number from iPick, Katsh or Whish App? Open the sale on the Transactions page and tap "Wrong number…". The sale stays as it is, because it is the recharge of the customer's right number. The wasted card is recorded as a loss, and the credits sent back lower that loss when they arrive.
@@ -117,6 +121,7 @@ On Whish App, OMT App and Binance cash-outs, "Customer pays" is filled in for yo
 
 - The side menu's scroll bar only shows while your pointer is over the menu, and takes no space otherwise.
 - Refreshing the page no longer sends you back to the sign-in screen when several people use the same login at once. If the app can't check your sign-in right away, it tries again for a few seconds before showing the sign-in screen.
+- New shops now start with a free 14-day trial. You can see how many days are left at the top of every page and in the phone app, and contact us on WhatsApp to activate. When a trial ends you can still sign in, see and export everything; nothing is deleted.
 
 ## 📱 MTC / Alfa
 

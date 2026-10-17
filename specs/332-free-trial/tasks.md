@@ -384,10 +384,10 @@ Line numbers drift: search for the named symbol.
 
 ## Phase 8: Polish & cross-cutting
 
-- [ ] T064 [P] Release note (FR-023, rule 30): under "## 🌐 Web app" in `docs/release-notes/UNRELEASED.md`, add "New shops now start with a free 14-day trial. You can see how many days are left at the top of every page and in the phone app, and contact us on WhatsApp to activate. When a trial ends you can still sign in, see and export everything; nothing is deleted." Add a "What users will notice:" line to the LIRA-332 ticket in `current_sprint.md`. Then run `node scripts/build-release-notes.cjs --check`.
-- [ ] T065 [P] Add a one-line pointer under D2 in `docs/plans/ongoing_plans/SUBSCRIPTION_MANAGEMENT_PLAN.md`: "Superseded for publicly signed-up shops by LIRA-332 (specs/332-free-trial), 2026-10-17." Do this only as part of the implementing change; this planning pass does not edit that file.
-- [ ] T066 [P] Log the pre-existing finding from research R10 as a new ticket in `current_sprint.md`: PlanModal "record payment" sends a date-only `periodEnd` that lapses at 00:00 UTC (02:00/03:00 Beirut), a rule-27 defect on the paid path. It is not fixed here.
-- [ ] T067 Write the web e2e `frontend/tests/e2e-web/lira-web-0NN-free-trial.spec.ts` (the next free number at build time; 071 was last on 2026-10-17), following quickstart §4 steps 1–7:
+- [x] T064 [P] Release note (FR-023, rule 30): under "## 🌐 Web app" in `docs/release-notes/UNRELEASED.md`, add "New shops now start with a free 14-day trial. You can see how many days are left at the top of every page and in the phone app, and contact us on WhatsApp to activate. When a trial ends you can still sign in, see and export everything; nothing is deleted." Add a "What users will notice:" line to the LIRA-332 ticket in `current_sprint.md`. Then run `node scripts/build-release-notes.cjs --check`.
+- [x] T065 [P] Add a one-line pointer under D2 in `docs/plans/ongoing_plans/SUBSCRIPTION_MANAGEMENT_PLAN.md`: "Superseded for publicly signed-up shops by LIRA-332 (specs/332-free-trial), 2026-10-17." Do this only as part of the implementing change; this planning pass does not edit that file.
+- [x] T066 [P] Log the pre-existing finding from research R10 as a new ticket in `current_sprint.md`: PlanModal "record payment" sends a date-only `periodEnd` that lapses at 00:00 UTC (02:00/03:00 Beirut), a rule-27 defect on the paid path. It is not fixed here.
+- [x] T067 (written as `lira-web-073-free-trial.spec.ts`; NOT RUN — port 3101 was held by another session) Write the web e2e `frontend/tests/e2e-web/lira-web-0NN-free-trial.spec.ts` (the next free number at build time; 071 was last on 2026-10-17), following quickstart §4 steps 1–7:
   - rows are matched by identity, and deltas are asserted (rule 15);
   - the ended state is set through the fixture's direct DB helper (test setup only);
   - every page in the lira-web-001 list renders for the ended shop **and shows `trial-ended`** (and, in step 2, every page shows `trial-strip`). This proves FR-006 on every page, and a route outside `MainLayout` fails here;
@@ -396,14 +396,14 @@ Line numbers drift: search for the named symbol.
   - activation clears the alert without signing out (FR-018).
 
   Ask before running. Use `yarn rebuild:node` first if needed, and never the desktop e2e.
-- [ ] T068 Run the gates on affected scope only (ask first):
+- [x] T068 Run the gates on affected scope only (ask first):
   - `yarn typecheck`, `yarn lint`;
   - `yarn check:tenant-scoping`, `yarn check:bind-arity`, `yarn check:schema-equivalence`;
   - the explicit test files from T003–T063, `browserEntryIsNodeFree.guard.test.ts`, and the existing `requireWritableSubscription*`, `SubscriptionService.test.ts` and `perTenantStorageProvisioner.test.ts` as regression;
   - `yarn build`.
 
   Confirm each run actually executed: count the tests reported and check the elapsed time (rule 28a).
-- [ ] T069 Walk quickstart §5 on the test tenant with the owner: Google and email-link sign-ups, the phone, a paired PC. Record the results in the ticket.
+- [ ] T069 (owner) Walk quickstart §5 on the test tenant with the owner: Google and email-link sign-ups, the phone, a paired PC. Record the results in the ticket.
 
 ---
 
