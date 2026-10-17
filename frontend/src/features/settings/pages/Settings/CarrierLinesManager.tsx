@@ -11,6 +11,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { useApi } from "@liratek/ui";
 import type { CarrierLineEntity } from "@liratek/ui";
 import { SHOP_LINE_EXPIRY_WARNING_DAYS } from "@liratek/core";
@@ -36,6 +38,7 @@ const EMPTY_FORM: FormData = {
 
 export default function CarrierLinesManager() {
   const api = useApi();
+  const { t } = useTranslation(["settings", "common"]);
   const [lines, setLines] = useState<CarrierLineEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -83,7 +86,7 @@ export default function CarrierLinesManager() {
   const handleSave = async () => {
     setError("");
     if (!form.phone_number.trim()) {
-      setError("Phone number is required");
+      setError(t("carrierLines.phoneRequired"));
       return;
     }
 
@@ -101,18 +104,25 @@ export default function CarrierLinesManager() {
         ? await api.updateCarrierLine(editingId, payload)
         : await api.createCarrierLine(payload);
       if (!res.success) {
-        setError(res.error || "Failed to save");
+        setError(res.error || t("carrierLines.saveFailed"));
         return;
       }
       setShowForm(false);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Operation failed");
+      setError(e instanceof Error ? e.message : t("crud.opFailed"));
     }
   };
 
   const handleArchive = async (line: CarrierLineEntity) => {
-    if (!confirm(`Archive line "${line.label || line.phone_number}"?`)) return;
+    if (
+      !confirm(
+        t("carrierLines.archiveConfirm", {
+          name: line.label || line.phone_number,
+        }),
+      )
+    )
+      return;
     try {
       await api.archiveCarrierLine(line.id);
       await load();
@@ -141,35 +151,37 @@ export default function CarrierLinesManager() {
     try {
       const res = await api.setPrimaryCarrierLine(line.id);
       if (!res.success) {
-        setError(res.error || "Failed to set primary line");
+        setError(res.error || t("carrierLines.primaryFailed"));
         return;
       }
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to set primary line");
+      setError(
+        e instanceof Error ? e.message : t("carrierLines.primaryFailed"),
+      );
     }
   };
 
   if (loading) {
-    return <div className="text-slate-400">Loading carrier lines...</div>;
+    return <div className="text-slate-400">{t("carrierLines.loading")}</div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-white font-semibold">Carrier Lines</h3>
+          <h3 className="text-white font-semibold">
+            {t("carrierLines.title")}
+          </h3>
           <p className="text-slate-400 text-sm">
-            Track the shop's own alfa/mtc SIM numbers — remaining credits and
-            validity expiry. Informational only; updates here don't affect any
-            drawer or checkout.
+            {t("carrierLines.intro")}
           </p>
         </div>
         <button
           onClick={openCreate}
           className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
         >
-          + Add Line
+          {t("carrierLines.add")}
         </button>
       </div>
 
@@ -183,14 +195,16 @@ export default function CarrierLinesManager() {
         <table className="w-full text-sm text-start">
           <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
             <tr>
-              <th className="py-2 px-3">Carrier</th>
-              <th className="py-2 px-3">Phone Number</th>
-              <th className="py-2 px-3">Label</th>
-              <th className="py-2 px-3">Credits</th>
-              <th className="py-2 px-3">Validity Expires</th>
-              <th className="py-2 px-3">Status</th>
-              <th className="py-2 px-3">Active</th>
-              <th className="py-2 px-3">Actions</th>
+              <th className="py-2 px-3">{t("carrierLines.col.carrier")}</th>
+              <th className="py-2 px-3">{t("carrierLines.col.phone")}</th>
+              <th className="py-2 px-3">{t("crud.col.label")}</th>
+              <th className="py-2 px-3">{t("carrierLines.col.credits")}</th>
+              <th className="py-2 px-3">
+                {t("carrierLines.col.validity")}
+              </th>
+              <th className="py-2 px-3">{t("carrierLines.col.status")}</th>
+              <th className="py-2 px-3">{t("crud.col.active")}</th>
+              <th className="py-2 px-3">{t("crud.col.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -210,7 +224,7 @@ export default function CarrierLinesManager() {
                         actually had none. */}
                     {line.is_primary === 1 && line.is_active === 1 && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-medium normal-case bg-amber-500/20 text-amber-400">
-                        Primary
+                        {t("carrierLines.primary")}
                       </span>
                     )}
                   </span>
@@ -244,7 +258,9 @@ export default function CarrierLinesManager() {
                         : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
                     }`}
                   >
-                    {line.is_active ? "Active" : "Archived"}
+                    {line.is_active
+                      ? t("crud.active")
+                      : t("carrierLines.archived")}
                   </button>
                 </td>
                 <td className="py-2 px-3 flex gap-1">
@@ -252,7 +268,7 @@ export default function CarrierLinesManager() {
                     onClick={() => openEdit(line)}
                     className="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-xs"
                   >
-                    Edit
+                    {t("common:actions.edit")}
                   </button>
                   {/* Archived lines can never be primary — archive() clears
                       is_primary and getPrimary() requires is_active = 1 — so
@@ -262,7 +278,7 @@ export default function CarrierLinesManager() {
                       onClick={() => handleSetPrimary(line)}
                       className="px-2 py-0.5 bg-amber-900/30 hover:bg-amber-900/50 text-amber-400 rounded text-xs"
                     >
-                      Make primary
+                      {t("carrierLines.makePrimary")}
                     </button>
                   )}
                   {line.is_active === 1 && (
@@ -270,7 +286,7 @@ export default function CarrierLinesManager() {
                       onClick={() => handleArchive(line)}
                       className="px-2 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded text-xs"
                     >
-                      Archive
+                      {t("carrierLines.archive")}
                     </button>
                   )}
                 </td>
@@ -282,7 +298,7 @@ export default function CarrierLinesManager() {
                   colSpan={8}
                   className="py-4 px-3 text-center text-slate-500"
                 >
-                  No carrier lines yet.
+                  {t("carrierLines.empty")}
                 </td>
               </tr>
             )}
@@ -293,13 +309,15 @@ export default function CarrierLinesManager() {
       {showForm && (
         <div className="border border-slate-600 rounded-lg p-4 bg-slate-900/50 space-y-3">
           <h4 className="text-white font-medium">
-            {editingId ? "Edit Carrier Line" : "New Carrier Line"}
+            {editingId
+              ? t("carrierLines.editTitle")
+              : t("carrierLines.newTitle")}
           </h4>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-slate-400 text-xs block mb-1">
-                Carrier
+                {t("carrierLines.carrier")}
               </label>
               <select
                 value={form.carrier}
@@ -317,7 +335,7 @@ export default function CarrierLinesManager() {
             </div>
             <div>
               <label className="text-slate-400 text-xs block mb-1">
-                Phone Number
+                {t("carrierLines.phone")}
               </label>
               <input
                 type="text"
@@ -325,37 +343,39 @@ export default function CarrierLinesManager() {
                 onChange={(e) =>
                   setForm({ ...form, phone_number: e.target.value })
                 }
-                placeholder="e.g. 03123456"
+                placeholder={t("carrierLines.phonePlaceholder")}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
               />
             </div>
             <div>
               <label className="text-slate-400 text-xs block mb-1">
-                Label (optional)
+                {t("carrierLines.label")}
               </label>
               <input
                 type="text"
                 value={form.label}
                 onChange={(e) => setForm({ ...form, label: e.target.value })}
-                placeholder="e.g. Shop Line 1"
+                placeholder={t("carrierLines.labelPlaceholder")}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
               />
             </div>
             <div>
               <label className="text-slate-400 text-xs block mb-1">
-                Credits ($)
+                {t("carrierLines.credits")}
               </label>
               <input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={form.credits}
-                onChange={(e) => setForm({ ...form, credits: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, credits: normalizeDigits(e.target.value) })
+                }
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
               />
             </div>
             <div>
               <label className="text-slate-400 text-xs block mb-1">
-                Validity Expires
+                {t("carrierLines.validity")}
               </label>
               <input
                 type="date"
@@ -368,7 +388,7 @@ export default function CarrierLinesManager() {
             </div>
             <div className="col-span-2">
               <label className="text-slate-400 text-xs block mb-1">
-                Notes (optional)
+                {t("carrierLines.notes")}
               </label>
               <input
                 type="text"
@@ -384,13 +404,13 @@ export default function CarrierLinesManager() {
               onClick={handleSave}
               className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
             >
-              {editingId ? "Save Changes" : "Create"}
+              {editingId ? t("crud.saveChanges") : t("crud.create")}
             </button>
             <button
               onClick={() => setShowForm(false)}
               className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </button>
           </div>
         </div>

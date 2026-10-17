@@ -29,6 +29,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
 import type { ServiceProviderEntity } from "@liratek/ui";
 
@@ -60,6 +61,7 @@ interface SupplierRow {
 
 export default function ServiceProvidersManager() {
   const api = useApi();
+  const { t } = useTranslation(["settings", "common"]);
   const [providers, setProviders] = useState<ServiceProviderEntity[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -175,7 +177,7 @@ export default function ServiceProvidersManager() {
   const handleSave = async () => {
     setError("");
     if (!form.label.trim() || (!editingId && !form.code.trim())) {
-      setError("All fields are required");
+      setError(t("crud.required"));
       return;
     }
 
@@ -185,7 +187,7 @@ export default function ServiceProvidersManager() {
           label: form.label,
         });
         if (!res.success) {
-          setError(res.error || "Failed to update");
+          setError(res.error || t("crud.updateFailed"));
           return;
         }
         // LIRA-191 — only write the account link when this provider has a
@@ -202,7 +204,9 @@ export default function ServiceProvidersManager() {
               account_supplier_id: nextParentId,
             });
             if (!linkRes.success) {
-              setError(linkRes.error || "Failed to update account grouping");
+              setError(
+                linkRes.error || t("serviceProviders.linkFailed"),
+              );
               return;
             }
           }
@@ -213,29 +217,30 @@ export default function ServiceProvidersManager() {
           label: form.label.trim(),
         });
         if (!res.success) {
-          setError(res.error || "Failed to create");
+          setError(res.error || t("crud.createFailed"));
           return;
         }
       }
       setShowForm(false);
       await load();
     } catch (e: any) {
-      setError(e.message || "Operation failed");
+      setError(e.message || t("crud.opFailed"));
     }
   };
 
   const handleDelete = async (p: ServiceProviderEntity) => {
     if (p.is_system) return;
-    if (!confirm(`Delete service provider "${p.label}"?`)) return;
+    if (!confirm(t("serviceProviders.deleteConfirm", { label: p.label })))
+      return;
     try {
       const res = await api.deleteServiceProvider(p.id);
       if (!res.success) {
-        alert(res.error || "Failed to delete");
+        alert(res.error || t("crud.deleteFailed"));
         return;
       }
       await load();
     } catch (e: any) {
-      alert(e.message || "Delete failed");
+      alert(e.message || t("crud.deleteFailedShort"));
     }
   };
 
@@ -251,25 +256,25 @@ export default function ServiceProvidersManager() {
   };
 
   if (loading) {
-    return <div className="text-slate-400">Loading service providers...</div>;
+    return <div className="text-slate-400">{t("serviceProviders.loading")}</div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-white font-semibold">Service Providers</h3>
+          <h3 className="text-white font-semibold">
+            {t("serviceProviders.title")}
+          </h3>
           <p className="text-slate-400 text-sm">
-            Provider taxonomy for financial services (OMT/Whish/recharge
-            transfers) and partner "System Association". New providers always
-            settle cash to the General drawer.
+            {t("serviceProviders.intro")}
           </p>
         </div>
         <button
           onClick={openCreate}
           className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
         >
-          + Add Provider
+          {t("serviceProviders.add")}
         </button>
       </div>
 
@@ -278,14 +283,16 @@ export default function ServiceProvidersManager() {
         <table className="w-full text-sm text-start">
           <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
             <tr>
-              <th className="py-2 px-3">Code</th>
-              <th className="py-2 px-3">Label</th>
-              <th className="py-2 px-3">Drawer</th>
+              <th className="py-2 px-3">{t("crud.col.code")}</th>
+              <th className="py-2 px-3">{t("crud.col.label")}</th>
+              <th className="py-2 px-3">{t("crud.col.drawer")}</th>
               {/* LIRA-191 — which open-credit account (if any) this
                   provider's supplier is grouped under. */}
-              <th className="py-2 px-3">Account</th>
-              <th className="py-2 px-3">Active</th>
-              <th className="py-2 px-3">Actions</th>
+              <th className="py-2 px-3">
+                {t("serviceProviders.col.account")}
+              </th>
+              <th className="py-2 px-3">{t("crud.col.active")}</th>
+              <th className="py-2 px-3">{t("crud.col.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -308,7 +315,9 @@ export default function ServiceProvidersManager() {
                       return <span className="text-slate-600">—</span>;
                     if (supplier.account_supplier_id == null)
                       return (
-                        <span className="text-slate-500">Standalone</span>
+                        <span className="text-slate-500">
+                          {t("serviceProviders.standalone")}
+                        </span>
                       );
                     return (
                       <span className="text-violet-300">
@@ -327,7 +336,7 @@ export default function ServiceProvidersManager() {
                         : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
                     }`}
                   >
-                    {p.is_active ? "Active" : "Inactive"}
+                    {p.is_active ? t("crud.active") : t("crud.inactive")}
                   </button>
                 </td>
                 <td className="py-2 px-3 flex gap-1">
@@ -335,14 +344,14 @@ export default function ServiceProvidersManager() {
                     onClick={() => openEdit(p)}
                     className="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-xs"
                   >
-                    Edit
+                    {t("common:actions.edit")}
                   </button>
                   {!p.is_system && (
                     <button
                       onClick={() => handleDelete(p)}
                       className="px-2 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded text-xs"
                     >
-                      Delete
+                      {t("common:actions.delete")}
                     </button>
                   )}
                 </td>
@@ -356,7 +365,9 @@ export default function ServiceProvidersManager() {
       {showForm && (
         <div className="border border-slate-600 rounded-lg p-4 bg-slate-900/50 space-y-3">
           <h4 className="text-white font-medium">
-            {editingId ? "Edit Service Provider" : "New Service Provider"}
+            {editingId
+              ? t("serviceProviders.editTitle")
+              : t("serviceProviders.newTitle")}
           </h4>
 
           {error && (
@@ -371,7 +382,7 @@ export default function ServiceProvidersManager() {
                 htmlFor="service-provider-code"
                 className="text-slate-400 text-xs block mb-1"
               >
-                Code (uppercase, unique)
+                {t("crud.codeLabel")}
               </label>
               <input
                 id="service-provider-code"
@@ -384,7 +395,7 @@ export default function ServiceProvidersManager() {
                     code: e.target.value.toUpperCase().replace(/\s/g, "_"),
                   })
                 }
-                placeholder="e.g. SYRIA"
+                placeholder={t("serviceProviders.codePlaceholder")}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm disabled:opacity-50"
               />
             </div>
@@ -393,14 +404,14 @@ export default function ServiceProvidersManager() {
                 htmlFor="service-provider-label"
                 className="text-slate-400 text-xs block mb-1"
               >
-                Display Label
+                {t("crud.displayLabel")}
               </label>
               <input
                 id="service-provider-label"
                 type="text"
                 value={form.label}
                 onChange={(e) => setForm({ ...form, label: e.target.value })}
-                placeholder="e.g. Syria"
+                placeholder={t("serviceProviders.labelPlaceholder")}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
               />
             </div>
@@ -408,8 +419,7 @@ export default function ServiceProvidersManager() {
 
           {!editingId && (
             <p className="text-xs text-slate-500 italic">
-              This provider's cash will settle to the General drawer. Only OMT
-              and Whish have their own dedicated system drawer.
+              {t("serviceProviders.generalDrawer")}
             </p>
           )}
 
@@ -422,13 +432,13 @@ export default function ServiceProvidersManager() {
                 htmlFor="service-provider-account-parent"
                 className="text-slate-400 text-xs block mb-1"
               >
-                Part of account (optional)
+                {t("serviceProviders.accountParent")}
               </label>
               {linkedSupplierHasChildren ? (
                 <p className="text-xs text-amber-400">
-                  "{linkedSupplier.name}" already has its own children
-                  grouped under it — an account parent cannot also become a
-                  child.
+                  {t("serviceProviders.hasChildren", {
+                    name: linkedSupplier.name,
+                  })}
                 </p>
               ) : (
                 <>
@@ -438,7 +448,9 @@ export default function ServiceProvidersManager() {
                     onChange={(e) => setAccountParentValue(e.target.value)}
                     className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
                   >
-                    <option value="">Standalone (no account)</option>
+                    <option value="">
+                      {t("serviceProviders.standaloneOption")}
+                    </option>
                     {eligibleParents.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
@@ -446,8 +458,7 @@ export default function ServiceProvidersManager() {
                     ))}
                   </select>
                   <p className="text-xs text-slate-500 mt-1">
-                    Draws on that supplier's open-credit account instead of
-                    settling on its own (e.g. iPick / OMT App under OMT).
+                    {t("serviceProviders.accountHint")}
                   </p>
                 </>
               )}
@@ -455,8 +466,7 @@ export default function ServiceProvidersManager() {
           )}
           {editingId && !linkedSupplier && (
             <p className="text-xs text-slate-500 italic">
-              No supplier ledger is linked to this provider — account
-              grouping doesn't apply.
+              {t("serviceProviders.noLedger")}
             </p>
           )}
 
@@ -465,21 +475,20 @@ export default function ServiceProvidersManager() {
               onClick={handleSave}
               className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
             >
-              {editingId ? "Save Changes" : "Create"}
+              {editingId ? t("crud.saveChanges") : t("crud.create")}
             </button>
             <button
               onClick={() => setShowForm(false)}
               className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </button>
           </div>
         </div>
       )}
 
       <p className="text-xs text-slate-500 italic">
-        System providers (🔒) cannot be deleted. A provider's code can never be
-        changed once created.
+        {t("serviceProviders.footnote")}
       </p>
     </div>
   );

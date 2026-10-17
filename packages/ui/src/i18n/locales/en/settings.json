@@ -229,5 +229,98 @@
     "notConnected": "Not connected",
     "disconnect": "Disconnect",
     "connect": "Connect Google"
+  },
+  "paymentMethods": {
+    "deleteConfirm": "Delete payment method \"{{label}}\"?",
+    "loading": "Loading payment methods...",
+    "title": "Payment Methods",
+    "intro": "Configure which payment methods are available across all features.",
+    "add": "+ Add Method",
+    "col": {
+      "affects": "Affects Drawer"
+    },
+    "editTitle": "Edit Payment Method",
+    "newTitle": "New Payment Method",
+    "codePlaceholder": "e.g. PAYPAL",
+    "labelPlaceholder": "e.g. PayPal",
+    "drawer": "Drawer",
+    "affects": "Affects Drawer",
+    "footnote": "System methods (🔒) cannot be deleted. DEBT does not affect any drawer balance."
+  },
+  "crud": {
+    "required": "All fields are required",
+    "updateFailed": "Failed to update",
+    "createFailed": "Failed to create",
+    "opFailed": "Operation failed",
+    "deleteFailed": "Failed to delete",
+    "deleteFailedShort": "Delete failed",
+    "active": "Active",
+    "inactive": "Inactive",
+    "codeLabel": "Code (uppercase, unique)",
+    "displayLabel": "Display Label",
+    "saveChanges": "Save Changes",
+    "create": "Create",
+    "col": {
+      "code": "Code",
+      "label": "Label",
+      "drawer": "Drawer",
+      "active": "Active",
+      "actions": "Actions"
+    }
+  },
+  "serviceProviders": {
+    "deleteConfirm": "Delete service provider \"{{label}}\"?",
+    "linkFailed": "Failed to update account grouping",
+    "loading": "Loading service providers...",
+    "title": "Service Providers",
+    "intro": "Provider taxonomy for financial services (OMT/Whish/recharge transfers) and partner \"System Association\". New providers always settle cash to the General drawer.",
+    "add": "+ Add Provider",
+    "col": {
+      "account": "Account"
+    },
+    "standalone": "Standalone",
+    "editTitle": "Edit Service Provider",
+    "newTitle": "New Service Provider",
+    "codePlaceholder": "e.g. SYRIA",
+    "labelPlaceholder": "e.g. Syria",
+    "generalDrawer": "This provider's cash will settle to the General drawer. Only OMT and Whish have their own dedicated system drawer.",
+    "accountParent": "Part of account (optional)",
+    "hasChildren": "\"{{name}}\" already has its own children grouped under it — an account parent cannot also become a child.",
+    "standaloneOption": "Standalone (no account)",
+    "accountHint": "Draws on that supplier's open-credit account instead of settling on its own (e.g. iPick / OMT App under OMT).",
+    "noLedger": "No supplier ledger is linked to this provider — account grouping doesn't apply.",
+    "footnote": "System providers (🔒) cannot be deleted. A provider's code can never be changed once created."
+  },
+  "carrierLines": {
+    "phoneRequired": "Phone number is required",
+    "saveFailed": "Failed to save",
+    "archiveConfirm": "Archive line \"{{name}}\"?",
+    "primaryFailed": "Failed to set primary line",
+    "loading": "Loading carrier lines...",
+    "title": "Carrier Lines",
+    "intro": "Track the shop's own alfa/mtc SIM numbers — remaining credits and validity expiry. Informational only; updates here don't affect any drawer or checkout.",
+    "add": "+ Add Line",
+    "col": {
+      "carrier": "Carrier",
+      "phone": "Phone Number",
+      "credits": "Credits",
+      "validity": "Validity Expires",
+      "status": "Status"
+    },
+    "primary": "Primary",
+    "archived": "Archived",
+    "makePrimary": "Make primary",
+    "archive": "Archive",
+    "empty": "No carrier lines yet.",
+    "editTitle": "Edit Carrier Line",
+    "newTitle": "New Carrier Line",
+    "carrier": "Carrier",
+    "phone": "Phone Number",
+    "phonePlaceholder": "e.g. 03123456",
+    "label": "Label (optional)",
+    "labelPlaceholder": "e.g. Shop Line 1",
+    "credits": "Credits ($)",
+    "validity": "Validity Expires",
+    "notes": "Notes (optional)"
   }
 }
