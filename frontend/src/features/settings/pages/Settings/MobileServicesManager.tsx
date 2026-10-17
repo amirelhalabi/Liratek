@@ -11,6 +11,9 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import {
   Plus,
   Pencil,
@@ -40,6 +43,12 @@ import {
 /** Tenant setting key for the resale table's reference sell price (LBP per
  *  $1 of resold credit). Seeded per-tenant by migration v141/`TenantRepository`;
  *  read here for the first time (TELECOM_DAYS_COST_PLAN.md §10 Q5). */
+/** `n?.toLocaleString()` kept as it was (undefined stays undefined), but
+ *  formatted the LIRA-331 way: en-US digits in both languages. */
+function fmtN(n: number | null | undefined): string | undefined {
+  return n == null ? undefined : formatNumber(n);
+}
+
 const TELECOM_CREDIT_SELL_PRICE_SETTING_KEY = "telecom_credit_sell_price_lbp";
 
 /** Tenant setting key for R — what $1 of credit COSTS the shop (LBP). Seeded
@@ -184,6 +193,7 @@ interface GroupedData {
 
 export default function MobileServicesManager() {
   const api = useApi();
+  const { t } = useTranslation(["settingsCatalog", "common"]);
   const [items, setItems] = useState<MobileServiceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -259,11 +269,11 @@ export default function MobileServicesManager() {
       const data = await api.getAdminMobileServiceItems();
       setItems(data as unknown as MobileServiceItem[]);
     } catch {
-      setError("Failed to load mobile service items");
+      setError(t("mobile.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, t]);
 
   useEffect(() => {
     load();
@@ -397,7 +407,7 @@ export default function MobileServicesManager() {
     const costLbp = parseInt(editing.cost_lbp, 10);
     const sellLbp = parseInt(editing.sell_lbp, 10);
     if (isNaN(costLbp) || isNaN(sellLbp)) {
-      setError("Cost and sell must be valid numbers");
+      setError(t("mobile.invalidNumbers"));
       return;
     }
     const daysCostLbp =
@@ -443,24 +453,32 @@ export default function MobileServicesManager() {
         sell_usd: sellUsd,
       });
       if (!res.success) {
-        setError(res.error ?? "Failed to update");
+        setError(res.error ?? t("mobile.updateFailed"));
         return;
       }
       setEditing(null);
       await reloadAfterChange();
     } catch {
-      setError("Update failed");
+      setError(t("mobile.updateFailedShort"));
     }
   };
 
   const handleDelete = async (item: MobileServiceItem) => {
-    if (!confirm(`Delete "${item.label}" from ${item.subcategory}?`)) return;
+    if (
+      !confirm(
+        t("mobile.deleteItemConfirm", {
+          label: item.label,
+          subcategory: item.subcategory,
+        }),
+      )
+    )
+      return;
     try {
       const res = await api.deleteMobileServiceItem(item.id);
-      if (!res.success) setError(res.error ?? "Failed to delete");
+      if (!res.success) setError(res.error ?? t("mobile.deleteFailed"));
       else await reloadAfterChange();
     } catch {
-      setError("Delete failed");
+      setError(t("mobile.deleteFailedShort"));
     }
   };
 
@@ -486,7 +504,10 @@ export default function MobileServicesManager() {
     );
     if (
       !confirm(
-        `Delete subcategory "${subcategory}" and its ${subItems.length} item${subItems.length !== 1 ? "s" : ""}?`,
+        t("mobile.deleteSubConfirm", {
+          name: subcategory,
+          count: subItems.length,
+        }),
       )
     )
       return;
@@ -495,7 +516,7 @@ export default function MobileServicesManager() {
       const res = await api.deleteMobileServiceItem(it.id);
       if (!res.success) failed++;
     }
-    if (failed > 0) setError(`${failed} items failed to delete`);
+    if (failed > 0) setError(t("mobile.itemsFailed", { count: failed }));
     await reloadAfterChange();
   };
 
@@ -505,7 +526,10 @@ export default function MobileServicesManager() {
     );
     if (
       !confirm(
-        `Delete category "${category}" and all ${catItems.length} item${catItems.length !== 1 ? "s" : ""}?`,
+        t("mobile.deleteCatConfirm", {
+          name: category,
+          count: catItems.length,
+        }),
       )
     )
       return;
@@ -514,7 +538,7 @@ export default function MobileServicesManager() {
       const res = await api.deleteMobileServiceItem(it.id);
       if (!res.success) failed++;
     }
-    if (failed > 0) setError(`${failed} items failed to delete`);
+    if (failed > 0) setError(t("mobile.itemsFailed", { count: failed }));
     await reloadAfterChange();
   };
 
@@ -522,7 +546,7 @@ export default function MobileServicesManager() {
     if (!newItemForm) return;
     setError("");
     if (!newItemForm.subcategory.trim()) {
-      setError("Subcategory is required");
+      setError(t("mobile.subRequired"));
       return;
     }
     if (
@@ -530,13 +554,13 @@ export default function MobileServicesManager() {
       !newItemForm.cost_lbp ||
       !newItemForm.sell_lbp
     ) {
-      setError("Label, cost, and sell are required");
+      setError(t("mobile.fieldsRequired"));
       return;
     }
     const costLbp = parseInt(newItemForm.cost_lbp, 10);
     const sellLbp = parseInt(newItemForm.sell_lbp, 10);
     if (isNaN(costLbp) || isNaN(sellLbp)) {
-      setError("Cost and sell must be valid numbers");
+      setError(t("mobile.invalidNumbers"));
       return;
     }
     const daysCostLbp =
@@ -594,13 +618,13 @@ export default function MobileServicesManager() {
         sell_usd: sellUsd,
       });
       if (!res.success) {
-        setError(res.error ?? "Failed to create item");
+        setError(res.error ?? t("mobile.createFailed"));
         return;
       }
       setNewItemForm(null);
       await reloadAfterChange();
     } catch {
-      setError("Create failed");
+      setError(t("mobile.createFailedShort"));
     }
   };
 
@@ -656,7 +680,7 @@ export default function MobileServicesManager() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12 text-slate-400">
-        Loading mobile service items...
+        {t("mobile.loading")}
       </div>
     );
   }
@@ -667,10 +691,10 @@ export default function MobileServicesManager() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-white">
-            Mobile Service Items
+            {t("mobile.title")}
           </span>
           <span className="text-xs text-slate-500 ms-1">
-            ({activeCount} active / {totalCount} total)
+            {t("mobile.counts", { active: activeCount, total: totalCount })}
           </span>
         </div>
       </div>
@@ -681,7 +705,7 @@ export default function MobileServicesManager() {
           value={providerFilter}
           onChange={(v) => setProviderFilter(v)}
           options={[
-            { value: "", label: "All Providers" },
+            { value: "", label: t("mobile.allProviders") },
             ...PROVIDERS.map((p) => ({ value: p, label: p })),
           ]}
           buttonClassName="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
@@ -696,7 +720,7 @@ export default function MobileServicesManager() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search items..."
+            placeholder={t("mobile.searchPlaceholder")}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg ps-8 pe-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
           />
           {searchQuery && (
@@ -727,7 +751,7 @@ export default function MobileServicesManager() {
       {newItemForm && (
         <div className="border border-violet-600/40 rounded-lg p-4 bg-violet-950/20 space-y-3">
           <h4 className="text-white font-medium text-sm">
-            New Item in{" "}
+            {t("mobile.newItemIn")}{" "}
             <span className="text-violet-400">
               {newItemForm.provider} / {newItemForm.category}
             </span>
@@ -735,7 +759,7 @@ export default function MobileServicesManager() {
           <div className="flex items-end gap-3">
             <div className="w-40">
               <label className="text-slate-400 text-xs block mb-1">
-                Subcategory
+                {t("mobile.subcategory")}
               </label>
               <input
                 autoFocus={!newItemForm.subcategory}
@@ -747,12 +771,14 @@ export default function MobileServicesManager() {
                     subcategory: e.target.value,
                   })
                 }
-                placeholder="e.g. Prepaid, pubg"
+                placeholder={t("mobile.subPlaceholder")}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
             <div className="flex-1">
-              <label className="text-slate-400 text-xs block mb-1">Label</label>
+              <label className="text-slate-400 text-xs block mb-1">
+                {t("mobile.label")}
+              </label>
               <input
                 autoFocus={!!newItemForm.subcategory}
                 type="text"
@@ -760,13 +786,13 @@ export default function MobileServicesManager() {
                 onChange={(e) =>
                   setNewItemForm({ ...newItemForm, label: e.target.value })
                 }
-                placeholder="e.g. 60UC, 3.6"
+                placeholder={t("mobile.labelPlaceholder")}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
             <div className="w-32">
               <label className="text-slate-400 text-xs block mb-1">
-                Cost (LBP)
+                {t("mobile.costLbp")}
               </label>
               <DecimalInput
                 value={parseFloat(newItemForm.cost_lbp) || 0}
@@ -781,7 +807,7 @@ export default function MobileServicesManager() {
             </div>
             <div className="w-32">
               <label className="text-slate-400 text-xs block mb-1">
-                Sell (LBP)
+                {t("mobile.sellLbp")}
               </label>
               <DecimalInput
                 value={parseFloat(newItemForm.sell_lbp) || 0}
@@ -796,61 +822,17 @@ export default function MobileServicesManager() {
             </div>
             <div className="w-24">
               <label className="text-slate-400 text-xs block mb-1">
-                Cost (USD)
+                {t("mobile.costUsd")}
               </label>
               <input
-                type="number"
-                step="0.01"
-                min="0"
-                aria-label="Cost (USD)"
+                type="text"
+                inputMode="decimal"
+                aria-label={t("mobile.costUsd")}
                 value={newItemForm.cost_usd}
-                onChange={(e) =>
-                  setNewItemForm({ ...newItemForm, cost_usd: e.target.value })
-                }
-                placeholder="—"
-                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
-              />
-            </div>
-            <div className="w-24">
-              <label className="text-slate-400 text-xs block mb-1">
-                Sell (USD)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                aria-label="Sell (USD)"
-                value={newItemForm.sell_usd}
-                onChange={(e) =>
-                  setNewItemForm({ ...newItemForm, sell_usd: e.target.value })
-                }
-                placeholder="—"
-                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
-              />
-            </div>
-            <div className="w-20">
-              <label className="text-slate-400 text-xs block mb-1">Order</label>
-              <input
-                type="number"
-                value={newItemForm.sort_order}
-                onChange={(e) =>
-                  setNewItemForm({ ...newItemForm, sort_order: e.target.value })
-                }
-                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
-              />
-            </div>
-            <div className="w-24">
-              <label className="text-slate-400 text-xs block mb-1">
-                Validity (d)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={newItemForm.validity_days}
                 onChange={(e) =>
                   setNewItemForm({
                     ...newItemForm,
-                    validity_days: e.target.value,
+                    cost_usd: normalizeDigits(e.target.value),
                   })
                 }
                 placeholder="—"
@@ -859,15 +841,71 @@ export default function MobileServicesManager() {
             </div>
             <div className="w-24">
               <label className="text-slate-400 text-xs block mb-1">
-                Credits ($)
+                {t("mobile.sellUsd")}
               </label>
               <input
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
+                inputMode="decimal"
+                aria-label={t("mobile.sellUsd")}
+                value={newItemForm.sell_usd}
+                onChange={(e) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    sell_usd: normalizeDigits(e.target.value),
+                  })
+                }
+                placeholder="—"
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div className="w-20">
+              <label className="text-slate-400 text-xs block mb-1">
+                {t("mobile.order")}
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={newItemForm.sort_order}
+                onChange={(e) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    sort_order: normalizeDigits(e.target.value),
+                  })
+                }
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-slate-400 text-xs block mb-1">
+                {t("mobile.validity")}
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={newItemForm.validity_days}
+                onChange={(e) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    validity_days: normalizeDigits(e.target.value),
+                  })
+                }
+                placeholder="—"
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-slate-400 text-xs block mb-1">
+                {t("mobile.credits")}
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
                 value={newItemForm.credits}
                 onChange={(e) =>
-                  setNewItemForm({ ...newItemForm, credits: e.target.value })
+                  setNewItemForm({
+                    ...newItemForm,
+                    credits: normalizeDigits(e.target.value),
+                  })
                 }
                 placeholder="—"
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
@@ -877,13 +915,13 @@ export default function MobileServicesManager() {
               onClick={handleAddItem}
               className="px-4 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-sm font-medium transition-colors"
             >
-              Add
+              {t("mobile.add")}
             </button>
             <button
               onClick={() => setNewItemForm(null)}
               className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm transition-colors"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </button>
           </div>
           {/* Only-Days split — was missing entirely: handleAddItem already
@@ -891,11 +929,11 @@ export default function MobileServicesManager() {
               be created with a split until these inputs existed. */}
           <div className="flex items-end gap-3 border-t border-violet-800/30 pt-3">
             <span className="text-[10px] text-violet-400 font-medium mb-1.5">
-              Only-Days split:
+              {t("mobile.onlyDaysSplit")}
             </span>
             <div className="w-28">
               <label className="text-slate-400 text-xs block mb-1">
-                Days cost (LBP)
+                {t("mobile.daysCostLbp")}
               </label>
               <DecimalInput
                 value={parseFloat(newItemForm.days_cost_lbp) || 0}
@@ -910,7 +948,7 @@ export default function MobileServicesManager() {
             </div>
             <div className="w-28">
               <label className="text-slate-400 text-xs block mb-1">
-                Sell days (LBP)
+                {t("mobile.sellDaysLbp")}
               </label>
               <DecimalInput
                 value={parseFloat(newItemForm.sell_days_lbp) || 0}
@@ -925,7 +963,7 @@ export default function MobileServicesManager() {
             </div>
             <div className="w-28">
               <label className="text-slate-400 text-xs block mb-1">
-                Sell credit (LBP)
+                {t("mobile.sellCreditLbp")}
               </label>
               <DecimalInput
                 value={parseFloat(newItemForm.sell_credit_lbp) || 0}
@@ -946,7 +984,7 @@ export default function MobileServicesManager() {
       <div className="space-y-4">
         {grouped.length === 0 && (
           <div className="text-center py-12 text-slate-500">
-            No mobile service items found.
+            {t("mobile.empty")}
           </div>
         )}
 
@@ -987,16 +1025,17 @@ export default function MobileServicesManager() {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <span className="text-xs text-slate-500">
-                    {provGroup.categories.reduce(
-                      (sum, c) =>
-                        sum +
-                        c.subcategories.reduce(
-                          (s, sc) => s + sc.items.length,
-                          0,
-                        ),
-                      0,
-                    )}{" "}
-                    items
+                    {t("mobile.itemsCount", {
+                      count: provGroup.categories.reduce(
+                        (sum, c) =>
+                          sum +
+                          c.subcategories.reduce(
+                            (s, sc) => s + sc.items.length,
+                            0,
+                          ),
+                        0,
+                      ),
+                    })}
                   </span>
                   {/* Add Category */}
                   {newCategoryInput?.provider === provGroup.provider ? (
@@ -1015,7 +1054,7 @@ export default function MobileServicesManager() {
                           if (e.key === "Enter") handleAddCategory();
                           if (e.key === "Escape") setNewCategoryInput(null);
                         }}
-                        placeholder="New category name..."
+                        placeholder={t("mobile.newCategoryPlaceholder")}
                         className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-white text-xs w-40 focus:outline-none focus:border-violet-500"
                       />
                       <button
@@ -1040,10 +1079,10 @@ export default function MobileServicesManager() {
                         })
                       }
                       className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors px-2 py-1 rounded hover:bg-slate-700/50"
-                      title="Add category"
+                      title={t("mobile.addCategory")}
                     >
                       <FolderPlus size={13} />
-                      <span>Category</span>
+                      <span>{t("mobile.category")}</span>
                     </button>
                   )}
                 </div>
@@ -1074,12 +1113,12 @@ export default function MobileServicesManager() {
                               {cat.name}
                             </span>
                             <span className="text-xs text-slate-500">
-                              (
-                              {cat.subcategories.reduce(
-                                (s, sc) => s + sc.items.length,
-                                0,
-                              )}{" "}
-                              items)
+                              {t("mobile.catItemsCount", {
+                                count: cat.subcategories.reduce(
+                                  (s, sc) => s + sc.items.length,
+                                  0,
+                                ),
+                              })}
                             </span>
                           </div>
                           <div
@@ -1107,7 +1146,7 @@ export default function MobileServicesManager() {
                                     if (e.key === "Escape")
                                       setNewSubcategoryInput(null);
                                   }}
-                                  placeholder="New subcategory..."
+                                  placeholder={t("mobile.newSubPlaceholder")}
                                   className="bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs w-36 focus:outline-none focus:border-violet-500"
                                 />
                                 <button
@@ -1133,7 +1172,7 @@ export default function MobileServicesManager() {
                                   })
                                 }
                                 className="text-slate-500 hover:text-slate-300 p-1 transition-colors"
-                                title="Add subcategory"
+                                title={t("mobile.addSubcategory")}
                               >
                                 <FolderPlus size={13} />
                               </button>
@@ -1146,7 +1185,7 @@ export default function MobileServicesManager() {
                                 )
                               }
                               className="text-slate-600 hover:text-red-400 p-1 transition-colors"
-                              title="Delete category"
+                              title={t("mobile.deleteCategory")}
                             >
                               <Trash2 size={13} />
                             </button>
@@ -1197,7 +1236,7 @@ export default function MobileServicesManager() {
                                           })
                                         }
                                         className="text-slate-600 hover:text-emerald-400 p-1 transition-colors"
-                                        title="Add item"
+                                        title={t("mobile.addItem")}
                                       >
                                         <Plus size={13} />
                                       </button>
@@ -1210,7 +1249,7 @@ export default function MobileServicesManager() {
                                           )
                                         }
                                         className="text-slate-600 hover:text-red-400 p-1 transition-colors"
-                                        title="Delete subcategory"
+                                        title={t("mobile.deleteSubcategory")}
                                       >
                                         <Trash2 size={12} />
                                       </button>
@@ -1600,11 +1639,11 @@ export default function MobileServicesManager() {
                                                             ),
                                                         })
                                                       }
-                                                      title={`Reset to the derived value: cost − credits × ${tenantCostRateLbp?.toLocaleString()} LBP/$ = ${editDerivedDaysCost?.toLocaleString()}`}
+                                                      title={`Reset to the derived value: cost − credits × ${fmtN(tenantCostRateLbp)} LBP/$ = ${fmtN(editDerivedDaysCost)}`}
                                                       className="text-[9px] px-1 py-px rounded bg-slate-700/60 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors"
                                                     >
                                                       ={" "}
-                                                      {editDerivedDaysCost?.toLocaleString()}
+                                                      {fmtN(editDerivedDaysCost)}
                                                     </button>
                                                   )}
                                                 </div>
@@ -1914,11 +1953,11 @@ export default function MobileServicesManager() {
                                                 </span>
                                                 <span className="text-xs text-slate-400 font-mono">
                                                   C:{" "}
-                                                  {item.cost_lbp.toLocaleString()}
+                                                  {formatNumber(item.cost_lbp)}
                                                 </span>
                                                 <span className="text-xs text-slate-300 font-mono">
                                                   S:{" "}
-                                                  {item.sell_lbp.toLocaleString()}
+                                                  {formatNumber(item.sell_lbp)}
                                                 </span>
                                                 <span
                                                   className={`text-xs font-mono ${
@@ -1929,7 +1968,7 @@ export default function MobileServicesManager() {
                                                         : "text-slate-600"
                                                   }`}
                                                 >
-                                                  P: {profit.toLocaleString()}
+                                                  P: {formatNumber(profit)}
                                                 </span>
                                                 {(item.cost_usd != null ||
                                                   item.sell_usd != null) && (
@@ -2080,7 +2119,7 @@ export default function MobileServicesManager() {
                                                     }
                                                   >
                                                     {item.days_cost_lbp != null
-                                                      ? item.days_cost_lbp.toLocaleString()
+                                                      ? formatNumber(item.days_cost_lbp)
                                                       : "—"}
                                                   </span>
                                                   {/* Where this number came
@@ -2096,8 +2135,8 @@ export default function MobileServicesManager() {
                                                       title={
                                                         daysCostOrigin ===
                                                         "derived"
-                                                          ? `Matches the formula: cost − credits × ${tenantCostRateLbp?.toLocaleString()} LBP/$`
-                                                          : `Hand-set. The formula at ${tenantCostRateLbp?.toLocaleString()} LBP/$ gives ${derivedDaysCost?.toLocaleString()}.`
+                                                          ? `Matches the formula: cost − credits × ${fmtN(tenantCostRateLbp)} LBP/$`
+                                                          : `Hand-set. The formula at ${fmtN(tenantCostRateLbp)} LBP/$ gives ${fmtN(derivedDaysCost)}.`
                                                       }
                                                       className={`ms-1 px-1 py-px rounded text-[9px] font-medium ${
                                                         daysCostOrigin ===
@@ -2123,7 +2162,7 @@ export default function MobileServicesManager() {
                                                     }
                                                   >
                                                     {item.sell_days_lbp != null
-                                                      ? item.sell_days_lbp.toLocaleString()
+                                                      ? formatNumber(item.sell_days_lbp)
                                                       : "—"}
                                                   </span>
                                                 </span>
@@ -2142,7 +2181,7 @@ export default function MobileServicesManager() {
                                                       {daysMargin > 0
                                                         ? "+"
                                                         : ""}
-                                                      {daysMargin.toLocaleString()}
+                                                      {formatNumber(daysMargin)}
                                                     </span>
                                                   ) : (
                                                     <span className="text-slate-600">
@@ -2162,7 +2201,7 @@ export default function MobileServicesManager() {
                                                   >
                                                     {economics.creditCostLbp !=
                                                     null
-                                                      ? economics.creditCostLbp.toLocaleString()
+                                                      ? formatNumber(economics.creditCostLbp)
                                                       : "—"}
                                                   </span>
                                                 </span>
@@ -2209,16 +2248,18 @@ export default function MobileServicesManager() {
                                                   >
                                                     {economics.recoveredRateLbp !=
                                                     null
-                                                      ? Math.round(
-                                                          economics.recoveredRateLbp,
-                                                        ).toLocaleString()
+                                                      ? formatNumber(
+                                                          Math.round(
+                                                            economics.recoveredRateLbp,
+                                                          ),
+                                                        )
                                                       : "—"}
                                                   </span>
                                                 </span>
                                                 <span>
                                                   Sell credit:{" "}
                                                   <span className="text-slate-300 font-mono">
-                                                    {sellCreditRef.toLocaleString()}
+                                                    {formatNumber(sellCreditRef)}
                                                   </span>{" "}
                                                   <span className="text-slate-600">
                                                     ({sellCreditTier})
@@ -2278,7 +2319,7 @@ export default function MobileServicesManager() {
                                                             }`}
                                                           >
                                                             {chunk}$:{" "}
-                                                            {costRounded.toLocaleString()}{" "}
+                                                            {formatNumber(costRounded)}{" "}
                                                             (
                                                             <span
                                                               className={
@@ -2290,12 +2331,12 @@ export default function MobileServicesManager() {
                                                               {profitVal >= 0
                                                                 ? "+"
                                                                 : ""}
-                                                              {profitVal.toLocaleString()}
+                                                              {formatNumber(profitVal)}
                                                             </span>
                                                             ){" "}
                                                             <span className="text-slate-500">
                                                               · charge ≥{" "}
-                                                              {breakEvenLbp.toLocaleString()}
+                                                              {formatNumber(breakEvenLbp)}
                                                             </span>
                                                           </span>
                                                         );
