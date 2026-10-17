@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { ArrowLeftRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { appEvents, useApi, DecimalInput } from "@liratek/ui";
 import logger from "@/utils/logger";
 
@@ -28,6 +31,7 @@ export function WalletExchangePanel({
   balance,
   onDone,
 }: WalletExchangePanelProps) {
+  const { t } = useTranslation("rechargeFinancial");
   const api = useApi();
   const [fromCurrency, setFromCurrency] = useState<WalletCurrency>("USD");
   const [amount, setAmount] = useState(0);
@@ -45,7 +49,7 @@ export function WalletExchangePanel({
 
   const fmt = (n: number, currency: WalletCurrency) =>
     currency === "LBP"
-      ? `${Math.round(n).toLocaleString()} LBP`
+      ? `${formatNumber(Math.round(n))} LBP`
       : `$${n.toFixed(2)}`;
 
   const drawerLabel = drawerName === "OMT_App" ? "OMT App" : "Whish App";
@@ -61,7 +65,7 @@ export function WalletExchangePanel({
     if (!(amount > 0)) {
       appEvents.emit(
         "notification:show",
-        "Enter an amount to exchange.",
+        t("walletExchange.enterAmount"),
         "error",
       );
       return;
@@ -69,7 +73,7 @@ export function WalletExchangePanel({
     if (!(rateNum > 0)) {
       appEvents.emit(
         "notification:show",
-        "Enter a valid exchange rate.",
+        t("walletExchange.enterRate"),
         "error",
       );
       return;
@@ -86,21 +90,29 @@ export function WalletExchangePanel({
       if (!result.success) {
         appEvents.emit(
           "notification:show",
-          result.error || "Wallet exchange failed.",
+          result.error || t("walletExchange.failed"),
           "error",
         );
         return;
       }
       appEvents.emit(
         "notification:show",
-        `Converted ${fmt(amount, fromCurrency)} to ${fmt(result.amountOut ?? amountOut, toCurrency)} in ${drawerLabel}.`,
+        t("walletExchange.converted", {
+          from: fmt(amount, fromCurrency),
+          to: fmt(result.amountOut ?? amountOut, toCurrency),
+          drawer: drawerLabel,
+        }),
         "success",
       );
       setAmount(0);
       onDone();
     } catch (error) {
       logger.error("Wallet exchange failed:", error);
-      appEvents.emit("notification:show", "Wallet exchange failed.", "error");
+      appEvents.emit(
+        "notification:show",
+        t("walletExchange.failed"),
+        "error",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -109,8 +121,7 @@ export function WalletExchangePanel({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs text-slate-400">
-        Convert {drawerLabel}&apos;s own USD/LBP balance — this never touches
-        the General drawer or a customer.
+        {t("walletExchange.intro", { drawer: drawerLabel })}
       </p>
 
       {balance && (
@@ -128,7 +139,7 @@ export function WalletExchangePanel({
               {drawerLabel} LBP
             </span>
             <p className="text-sm font-semibold text-white">
-              {Math.round(balance.lbp).toLocaleString()} LBP
+              {formatNumber(Math.round(balance.lbp))} LBP
             </p>
           </div>
         </div>
@@ -137,7 +148,7 @@ export function WalletExchangePanel({
       <div className="flex items-center gap-3">
         <div className="flex-1">
           <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-            Amount to exchange ({fromCurrency})
+            {t("walletExchange.amountToExchange", { currency: fromCurrency })}
           </label>
           <DecimalInput
             value={amount}
@@ -148,13 +159,15 @@ export function WalletExchangePanel({
             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
           />
           <p className="text-[11px] text-slate-500 mt-1">
-            Available: {fmt(availableInFrom, fromCurrency)}
+            {t("walletExchange.available", {
+              amount: fmt(availableInFrom, fromCurrency),
+            })}
           </p>
         </div>
         <button
           type="button"
           onClick={swapDirection}
-          title="Swap direction"
+          title={t("walletExchange.swap")}
           data-testid="wallet-exchange-swap"
           className="mt-6 p-2 rounded-lg bg-slate-800 border border-slate-600 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
         >
@@ -162,7 +175,7 @@ export function WalletExchangePanel({
         </button>
         <div className="flex-1">
           <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-            Result ({toCurrency})
+            {t("walletExchange.result", { currency: toCurrency })}
           </label>
           <div
             data-testid="wallet-exchange-result"
@@ -175,13 +188,15 @@ export function WalletExchangePanel({
 
       <div>
         <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-          Exchange rate (LBP per USD)
+          {t("walletExchange.rate")}
         </label>
         <input
           type="text"
           inputMode="decimal"
           value={rate}
-          onChange={(e) => setRate(e.target.value.replace(/[^0-9.]/g, ""))}
+          onChange={(e) =>
+            setRate(normalizeDigits(e.target.value).replace(/[^0-9.]/g, ""))
+          }
           data-testid="wallet-exchange-rate"
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
         />
@@ -194,7 +209,9 @@ export function WalletExchangePanel({
         data-testid="wallet-exchange-confirm"
         className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
       >
-        {isSubmitting ? "Converting..." : `Convert to ${toCurrency}`}
+        {isSubmitting
+          ? t("walletExchange.converting")
+          : t("walletExchange.convertTo", { currency: toCurrency })}
       </button>
     </div>
   );

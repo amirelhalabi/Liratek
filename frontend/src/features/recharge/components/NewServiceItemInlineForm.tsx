@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { DecimalInput } from "@liratek/ui";
 import type { NewServiceItemForm } from "../utils/catalogNames";
 
@@ -28,6 +29,7 @@ export function NewServiceItemInlineForm({
   onSubmit,
   onCancel,
 }: NewServiceItemInlineFormProps) {
+  const { t } = useTranslation("rechargeFinancial");
   return (
     <div className="mt-3 border border-slate-600/40 rounded-lg p-3 bg-slate-900/50 space-y-2">
       {error && <p className="text-xs text-red-400">{error}</p>}
@@ -35,43 +37,47 @@ export function NewServiceItemInlineForm({
         {form.isNewCategory && (
           <div className="flex-1 min-w-24">
             <label className="text-slate-400 text-xs block mb-1">
-              Category
+              {t("newItem.category")}
             </label>
             <input
               autoFocus
               type="text"
               value={form.category}
               onChange={(e) => onChange({ ...form, category: e.target.value })}
-              placeholder="e.g. internet"
+              placeholder={t("newItem.categoryPlaceholder")}
               className={INPUT_CLASS}
             />
           </div>
         )}
         <div className="flex-1 min-w-24">
           <label className="text-slate-400 text-xs block mb-1">
-            Subcategory
+            {t("newItem.subcategory")}
           </label>
           <input
             type="text"
             value={form.subcategory}
             onChange={(e) => onChange({ ...form, subcategory: e.target.value })}
-            placeholder="e.g. pubg"
+            placeholder={t("newItem.subcategoryPlaceholder")}
             className={INPUT_CLASS}
           />
         </div>
         <div className="flex-1 min-w-24">
-          <label className="text-slate-400 text-xs block mb-1">Label</label>
+          <label className="text-slate-400 text-xs block mb-1">
+            {t("newItem.label")}
+          </label>
           <input
             autoFocus={!form.isNewCategory}
             type="text"
             value={form.label}
             onChange={(e) => onChange({ ...form, label: e.target.value })}
-            placeholder="e.g. 60UC"
+            placeholder={t("newItem.labelPlaceholder")}
             className={INPUT_CLASS}
           />
         </div>
         <div className="w-28">
-          <label className="text-slate-400 text-xs block mb-1">Cost</label>
+          <label className="text-slate-400 text-xs block mb-1">
+            {t("newItem.cost")}
+          </label>
           <DecimalInput
             value={parseFloat(form.cost_lbp) || 0}
             onChange={(n) =>
@@ -82,7 +88,9 @@ export function NewServiceItemInlineForm({
           />
         </div>
         <div className="w-28">
-          <label className="text-slate-400 text-xs block mb-1">Sell</label>
+          <label className="text-slate-400 text-xs block mb-1">
+            {t("newItem.sell")}
+          </label>
           <DecimalInput
             value={parseFloat(form.sell_lbp) || 0}
             onChange={(n) =>
@@ -93,7 +101,9 @@ export function NewServiceItemInlineForm({
           />
         </div>
         <div className="w-16">
-          <label className="text-slate-400 text-xs block mb-1">Order</label>
+          <label className="text-slate-400 text-xs block mb-1">
+            {t("newItem.order")}
+          </label>
           <input
             type="number"
             value={form.sort_order}
@@ -106,7 +116,7 @@ export function NewServiceItemInlineForm({
           className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded text-sm font-medium transition-colors"
           type="button"
         >
-          Add
+          {t("newItem.add")}
         </button>
         <button
           onClick={onCancel}

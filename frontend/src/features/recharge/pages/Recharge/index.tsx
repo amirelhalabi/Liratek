@@ -1,4 +1,6 @@
 import { History, CirclePlus, ArrowUpFromLine } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { ExpandingIconButton } from "@/shared/components/ExpandingIconButton";
 import {
   useState,
@@ -99,6 +101,7 @@ const NO_RECHARGE_TODAY_STATS: {
 } = { count: 0, commission: 0, byCurrency: [] };
 
 export default function MobileRecharge() {
+  const { t } = useTranslation("recharge");
   const api = useApi();
   const { formatAmount } = useCurrencyContext();
   const { user } = useAuth();
@@ -855,7 +858,7 @@ export default function MobileRecharge() {
     if (isBuyback && activeSession) {
       appEvents.emit(
         "notification:show",
-        "A shop-line credit buy-back cannot be added to an active customer session — close the session first.",
+        t("page.buybackInSession"),
         "warning",
       );
       return;
@@ -920,8 +923,8 @@ export default function MobileRecharge() {
           ? "Recharge"
           : rechargeType.replace(/_/g, " ");
       const label = phoneNumber
-        ? `${providerLabel} ${typeLabel} - ${phoneNumber} - ${chargedPrice.toLocaleString()} LBP`
-        : `${providerLabel} ${typeLabel} - ${chargedPrice.toLocaleString()} LBP`;
+        ? `${providerLabel} ${typeLabel} - ${phoneNumber} - ${formatNumber(chargedPrice)} LBP` // i18n-exempt: stored session-cart label (data)
+        : `${providerLabel} ${typeLabel} - ${formatNumber(chargedPrice)} LBP`; // i18n-exempt: stored session-cart label (data)
 
       // Session mode: the basket owns the payment, so the cart item carries NO
       // payment fields (paid_by_method / payments). The Session Checkout modal
@@ -1029,7 +1032,7 @@ export default function MobileRecharge() {
         client_day: localDay(),
       });
       if (result && !result.success) {
-        alert(result.error || "Failed to process recharge");
+        alert(result.error || t("page.rechargeFailed"));
         return;
       }
 
@@ -1050,7 +1053,7 @@ export default function MobileRecharge() {
 
       appEvents.emit(
         "notification:show",
-        `${activeProvider} recharge processed successfully`,
+        t("page.rechargeDone", { provider: activeProvider }),
         "success",
       );
       // m1 fix (2026-09-24 adversarial review): this sale may have moved
@@ -1096,7 +1099,7 @@ export default function MobileRecharge() {
       // response — a staff-role 403 before this ticket closed silently here
       // with nothing shown ("the payment panel just closes").
       logger.error("Failed to submit telecom recharge:", err);
-      alert(getApiErrorMessage(err, "Failed to process recharge"));
+      alert(getApiErrorMessage(err, t("page.rechargeFailed")));
     } finally {
       setIsSubmitting(false);
     }
@@ -1159,7 +1162,7 @@ export default function MobileRecharge() {
       // Retry, instead of a blocking alert.
       logger.error("Failed to load drawer balances:", error);
       setTopUpDrawersError(
-        getApiErrorMessage(error, "Failed to load drawer balances"),
+        getApiErrorMessage(error, t("page.drawerBalancesFailed")),
       );
     } finally {
       if (topUpDrawersRequestRef.current === requestId) {
@@ -1264,7 +1267,11 @@ export default function MobileRecharge() {
 
       appEvents.emit(
         "notification:show",
-        `Successfully topped up ${providerLabels[topUpData.provider] || topUpData.provider} drawer with ${data.amount} ${data.currency}`,
+        t("page.toppedUp", {
+          provider: providerLabels[topUpData.provider] || topUpData.provider,
+          amount: data.amount,
+          currency: data.currency,
+        }),
         "success",
       );
     },
@@ -1300,7 +1307,11 @@ export default function MobileRecharge() {
 
       appEvents.emit(
         "notification:show",
-        `Successfully topped up ${topUpData.provider} via supplier credit: ${data.amount} ${data.currency}`,
+        t("page.toppedUpSupplier", {
+          provider: topUpData.provider,
+          amount: data.amount,
+          currency: data.currency,
+        }),
         "success",
       );
     },
@@ -1328,7 +1339,7 @@ export default function MobileRecharge() {
 
       appEvents.emit(
         "notification:show",
-        `Cashed out ${data.amount} ${data.currency} from OMT App to the OMT account`,
+        t("page.cashedOut", { amount: data.amount, currency: data.currency }),
         "success",
       );
     },
@@ -1355,7 +1366,10 @@ export default function MobileRecharge() {
       loadDrawerBalances();
       appEvents.emit(
         "notification:show",
-        `Whish App topped up via partner: ${data.amount} ${data.currency}`,
+        t("page.toppedUpPartner", {
+          amount: data.amount,
+          currency: data.currency,
+        }),
         "success",
       );
     },
@@ -1376,7 +1390,10 @@ export default function MobileRecharge() {
       loadDrawerBalances();
       appEvents.emit(
         "notification:show",
-        `Whish App topped up from client: +${data.amount} ${data.currency}`,
+        t("page.toppedUpClient", {
+          amount: data.amount,
+          currency: data.currency,
+        }),
         "success",
       );
     },
@@ -1445,7 +1462,7 @@ export default function MobileRecharge() {
     if (activeSession) {
       addToSessionCart({
         module: "recharge_alfa",
-        label: `Alfa Gift ${giftTierKey} - ${chargedPrice.toLocaleString()} LBP`,
+        label: `Alfa Gift ${giftTierKey} - ${formatNumber(chargedPrice)} LBP`, // i18n-exempt: stored session-cart label (data)
         amount: chargedPrice,
         currency: "LBP",
         ipcChannel: "recharge:process",
@@ -1515,12 +1532,12 @@ export default function MobileRecharge() {
         client_day: localDay(),
       });
       if (result && !result.success) {
-        alert(result.error || "Failed to process Alfa gift");
+        alert(result.error || t("page.alfaGiftFailed"));
         return;
       }
       appEvents.emit(
         "notification:show",
-        "Alfa Gift recharge processed successfully",
+        t("page.alfaGiftDone"),
         "success",
       );
       void autoPrintReceipt({
@@ -1545,7 +1562,7 @@ export default function MobileRecharge() {
       // Same uncaught/silent trap as handleTelecomSubmit above (LIRA-242
       // fallout) — a thrown ApiError never reached the operator.
       logger.error("Failed to submit alfa gift:", err);
-      alert(getApiErrorMessage(err, "Failed to process Alfa gift"));
+      alert(getApiErrorMessage(err, t("page.alfaGiftFailed")));
     } finally {
       setIsSubmitting(false);
     }
@@ -1795,7 +1812,7 @@ export default function MobileRecharge() {
       // through to the "recorded successfully" notification below with the
       // real reason never shown and the form silently reset.
       if (result && !result.success) {
-        alert(result.error || "Failed to process crypto transaction");
+        alert(result.error || t("page.cryptoFailed"));
         return;
       }
 
@@ -1819,7 +1836,7 @@ export default function MobileRecharge() {
 
       appEvents.emit(
         "notification:show",
-        "Crypto transaction recorded successfully",
+        t("page.cryptoDone"),
         "success",
       );
       setCryptoAmount("");
@@ -1846,7 +1863,7 @@ export default function MobileRecharge() {
       // reach only logger.error here — nothing was ever shown to the
       // operator (the "payment panel just closes" symptom).
       logger.error("Failed to submit crypto transaction:", err);
-      alert(getApiErrorMessage(err, "Failed to process crypto transaction"));
+      alert(getApiErrorMessage(err, t("page.cryptoFailed")));
     } finally {
       setIsSubmitting(false);
     }
@@ -2071,7 +2088,7 @@ export default function MobileRecharge() {
                 activeConfig.formMode === "telecom") && (
                 <ExpandingIconButton
                   icon={History}
-                  label="History"
+                  label={t("page.history")}
                   onClick={async () => {
                     if (activeConfig?.formMode === "telecom") {
                       await loadRechargeHistory();
@@ -2091,7 +2108,7 @@ export default function MobileRecharge() {
                 activeConfig.key === "Katsh") && (
                 <ExpandingIconButton
                   icon={CirclePlus}
-                  label="Top-Up"
+                  label={t("page.topUp")}
                   onClick={handleTopUpClick}
                 />
               )}
@@ -2101,7 +2118,7 @@ export default function MobileRecharge() {
                 <ExpandingIconButton
                   data-testid="omt-app-cashout-button"
                   icon={ArrowUpFromLine}
-                  label="Cash Out to OMT"
+                  label={t("page.cashOutToOmt")}
                   onClick={() => setShowCashoutModal(true)}
                 />
               )}
@@ -2179,7 +2196,7 @@ export default function MobileRecharge() {
               }
               appEvents.emit(
                 "notification:show",
-                "Line recharged — its cost and price went up by what it cost.",
+                t("page.lineRecharged"),
                 "success",
               );
             }}
@@ -2255,10 +2272,10 @@ export default function MobileRecharge() {
                 options={[
                   {
                     id: "transfer",
-                    label: "Transfer",
+                    label: t("page.transfer"),
                     iconKey: "ArrowLeftRight",
                   },
-                  { id: "bills", label: "Bills", iconKey: "FileText" },
+                  { id: "bills", label: t("page.bills"), iconKey: "FileText" },
                 ]}
                 value={whishAppMode}
                 onChange={(val) => setWhishAppMode(val as "bills" | "transfer")}
@@ -2483,7 +2500,7 @@ export default function MobileRecharge() {
                       setTopUpClientId(c.id);
                     }}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
-                    placeholder="Client name"
+                    placeholder={t("page.clientName")}
                   />
                 ),
               }

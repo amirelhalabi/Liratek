@@ -232,7 +232,7 @@ export function HistoryModal({
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <History className="text-slate-400" size={18} />
             {provider} Transaction History
-            <span className="text-xs text-slate-500 font-normal ml-1">
+            <span className="text-xs text-slate-500 font-normal ms-1">
               ({filteredData.length} records)
             </span>
           </h2>
@@ -337,7 +337,7 @@ export function HistoryModal({
             exportPdf
             exportFilename={`${provider.toLowerCase()}-history`}
             className="w-full"
-            theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+            theadClassName="bg-slate-900/50 text-start text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
             tbodyClassName="divide-y divide-slate-700/50"
             emptyMessage={`No ${provider} transactions yet.`}
             renderRow={(tx) => {
@@ -352,7 +352,7 @@ export function HistoryModal({
                 tx.profit_pending && !isRefunded ? (
                   <span
                     data-testid="profit-pending-label"
-                    className="ml-2 inline-flex items-center rounded-full bg-amber-500/15 border border-amber-500/40 px-2 py-0.5 text-[10px] font-semibold text-amber-300"
+                    className="ms-2 inline-flex items-center rounded-full bg-amber-500/15 border border-amber-500/40 px-2 py-0.5 text-[10px] font-semibold text-amber-300"
                     title="Charged to the customer's account — this profit counts on the Profits page once the customer pays"
                   >
                     Pending until paid
@@ -393,13 +393,13 @@ export function HistoryModal({
                           {tx.service_type === "SEND" ? "↓ Out" : "↑ In"}
                         </span>
                         {isRefunded && (
-                          <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                          <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                             Refunded
                           </span>
                         )}
                         {showMarginAlert && (
                           <span
-                            className="ml-2 inline-flex items-center gap-1 rounded-full bg-red-500/15 border border-red-500/40 px-2 py-0.5 text-[10px] font-semibold text-red-400 cursor-help"
+                            className="ms-2 inline-flex items-center gap-1 rounded-full bg-red-500/15 border border-red-500/40 px-2 py-0.5 text-[10px] font-semibold text-red-400 cursor-help"
                             title={`Price to client was modified — margin: ${marginOverride.toLocaleString()} LBP`}
                           >
                             <AlertTriangle size={10} />
@@ -508,7 +508,7 @@ export function HistoryModal({
                               entityId={tx.id}
                               trigger={
                                 <span
-                                  className="ml-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors"
+                                  className="ms-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors"
                                   title={`Edited by ${tx.edited_by}${tx.edited_at ? ` at ${parseDbDate(tx.edited_at).toLocaleString()}` : ""}`}
                                 >
                                   <Pencil size={8} />
@@ -570,7 +570,7 @@ export function HistoryModal({
 
                     {/* Edit action */}
                     {onUpdateMetadata && (
-                      <td className="px-3 py-3 text-right">
+                      <td className="px-3 py-3 text-end">
                         {isEditing ? (
                           <div className="flex items-center justify-end gap-1">
                             <button
@@ -605,7 +605,7 @@ export function HistoryModal({
                     {/* Print (LIRA-069 W1.c) — provider-aware gate, same
                         predicate as the Transactions viewer and auto-print. */}
                     {canPrint && (
-                      <td className="px-3 py-3 text-right">
+                      <td className="px-3 py-3 text-end">
                         {isReceiptableTransaction({
                           type: transactionType as string,
                           provider: tx.provider,

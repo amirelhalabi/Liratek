@@ -8,6 +8,8 @@ import {
   startTransition,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Trans, useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { ChevronDown, Phone, Plus } from "lucide-react";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
@@ -367,6 +369,7 @@ const ItemCard = memo(function ItemCard({
   selfChargeTargetLine,
   onSelfCharge,
 }: ItemCardProps) {
+  const { t } = useTranslation("recharge");
   const cost = item.catalogCost ?? 0;
   const sellPrice = item.catalogSellPrice ?? 0;
   const isTelecom = isTelecomVoucher(item);
@@ -441,15 +444,15 @@ const ItemCard = memo(function ItemCard({
             </div>
           )}
           <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs text-slate-400">Cost:</span>
+            <span className="text-xs text-slate-400">{t("katsh.cost")}</span>
             <span className="text-xs text-white font-mono">
-              {cost.toLocaleString()} LBP
+              {formatNumber(cost)} LBP
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400">Sell:</span>
+            <span className="text-xs text-slate-400">{t("katsh.sell")}</span>
             <span className="text-xs text-emerald-400 font-mono">
-              {sellPrice.toLocaleString()} LBP
+              {formatNumber(sellPrice)} LBP
             </span>
           </div>
           {/* W6.b: structured validity/credits, when present on the catalog
@@ -458,8 +461,8 @@ const ItemCard = memo(function ItemCard({
             <div className="mt-1 flex items-center justify-between">
               <span className="text-[10px] text-slate-500">
                 {item.validityDays != null
-                  ? `${item.validityDays}d validity`
-                  : "Credit only"}
+                  ? t("katsh.validityDays", { n: item.validityDays })
+                  : t("katsh.creditOnly")}
               </span>
               {item.credits != null && (
                 <span className="text-[10px] text-slate-500 font-mono">
@@ -480,12 +483,18 @@ const ItemCard = memo(function ItemCard({
             disabled={!selfChargeTargetLine}
             title={
               selfChargeTargetLine
-                ? `Charge this item to ${selfChargeTargetLine.label || selfChargeTargetLine.phone_number}`
-                : `No active ${item.category.toUpperCase()} line configured — add one in Settings → Carrier Lines`
+                ? t("katsh.chargeItemTo", {
+                    line:
+                      selfChargeTargetLine.label ||
+                      selfChargeTargetLine.phone_number,
+                  })
+                : t("katsh.noLineConfigured", {
+                    carrier: item.category.toUpperCase(),
+                  })
             }
             className="mt-2 w-full py-1 rounded text-[10px] font-medium bg-emerald-900/30 hover:bg-emerald-900/50 text-emerald-400 disabled:bg-slate-800/60 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
           >
-            Charge to shop line
+            {t("katsh.chargeToShopLine")}
           </button>
         )}
       </div>
@@ -507,13 +516,13 @@ const ItemCard = memo(function ItemCard({
                     htmlFor={`onlydays-${item.key}`}
                     className="text-xs text-slate-300 cursor-pointer select-none whitespace-nowrap"
                   >
-                    Only Days
+                    {t("katsh.onlyDays")}
                   </label>
                 </div>
                 {onlyDays && (
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span className="text-xs text-slate-400 whitespace-nowrap">
-                      Credits
+                      {t("katsh.credits")}
                     </span>
                     <input
                       type="number"
@@ -541,14 +550,14 @@ const ItemCard = memo(function ItemCard({
                 <div className="flex flex-col gap-1 pt-1.5 border-t border-slate-700/60">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                      Days price
+                      {t("katsh.daysPrice")}
                     </span>
                     <DecimalInput
                       value={onlyDaysPricing.sellDaysLbp ?? 0}
                       onChange={(n) => onSellDaysLbpChange(item, n)}
                       decimals={0}
                       zeroAsEmpty={false}
-                      aria-label="Only-Days price"
+                      aria-label={t("katsh.onlyDaysPrice")}
                       className={`w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-end font-mono focus:outline-none ${brand.focusBorder}`}
                     />
                   </div>
@@ -560,14 +569,14 @@ const ItemCard = memo(function ItemCard({
                   />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                      Credit price /$
+                      {t("katsh.creditPrice")}
                     </span>
                     <DecimalInput
                       value={onlyDaysPricing.creditPriceLbp}
                       onChange={(n) => onCreditPriceLbpChange(item, n)}
                       decimals={0}
                       zeroAsEmpty={false}
-                      aria-label="Only-Days credit price"
+                      aria-label={t("katsh.onlyDaysCreditPrice")}
                       className={`w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-end font-mono focus:outline-none ${brand.focusBorder}`}
                     />
                   </div>
@@ -579,7 +588,7 @@ const ItemCard = memo(function ItemCard({
                   />
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] text-slate-500">
-                      Kept credits
+                      {t("katsh.keptCredits")}
                     </span>
                     <span className="text-[11px] text-slate-300 font-mono">
                       ${onlyDaysPricing.keptCredits.toFixed(2)}
@@ -587,10 +596,10 @@ const ItemCard = memo(function ItemCard({
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] text-slate-400 font-semibold">
-                      Total
+                      {t("katsh.total")}
                     </span>
                     <span className="text-xs text-emerald-400 font-mono font-semibold">
-                      {(onlyDaysPricing.total ?? 0).toLocaleString()} LBP
+                      {formatNumber(onlyDaysPricing.total ?? 0)} LBP
                     </span>
                   </div>
                 </div>
@@ -648,6 +657,7 @@ function KatshFormInner({
   isAdmin,
   onCartCountChange,
 }: KatshFormProps) {
+  const { t } = useTranslation("recharge");
   const api = useApi();
   const queryClient = useQueryClient();
   const {
@@ -790,7 +800,7 @@ function KatshFormInner({
     : billsLbpValue;
   const fmtBill = (amount: number, cur: "USD" | "LBP") =>
     cur === "LBP"
-      ? `${Math.round(amount).toLocaleString()} LBP`
+      ? `${formatNumber(Math.round(amount))} LBP`
       : `$${amount.toFixed(2)}`;
 
   // Report selection counts to the provider tabs. With the shared basket
@@ -1220,7 +1230,7 @@ function KatshFormInner({
         client_day: localDay(),
       });
       if (!res.success || !res.data) {
-        setSelfChargeError(res.error || "Self-charge failed");
+        setSelfChargeError(res.error || t("katsh.selfChargeFailed"));
         return;
       }
       setSelfChargeResult({
@@ -1233,11 +1243,11 @@ function KatshFormInner({
       // LIRA-247: `err instanceof Error` is false for a thrown ApiError
       // (e.g. a web 403 role refusal), so it used to fall back to this
       // generic string and hide the real reason.
-      setSelfChargeError(getApiErrorMessage(err, "Self-charge failed"));
+      setSelfChargeError(getApiErrorMessage(err, t("katsh.selfChargeFailed")));
     } finally {
       setSelfChargeSubmitting(false);
     }
-  }, [selfChargeItem, primaryLines, api, loadPrimaryLines]);
+  }, [selfChargeItem, primaryLines, api, loadPrimaryLines, t]);
 
   // LIRA-157 — what the charge would ACTUALLY do to the line, computed with the
   // repository's own rule so the dialog cannot promise something the write path
@@ -1301,6 +1311,11 @@ function KatshFormInner({
   const selfChargeTargetLine = selfChargeCarrier
     ? primaryLines[selfChargeCarrier]
     : null;
+  const selfChargeLineName = selfChargeTargetLine
+    ? selfChargeTargetLine.label || selfChargeTargetLine.phone_number
+    : t("katsh.theCarrierLine", {
+        carrier: selfChargeCarrier?.toUpperCase(),
+      });
 
   const selfChargeBlocked = selfChargeValidityProjection?.burned === true;
 
@@ -1414,13 +1429,13 @@ function KatshFormInner({
       // LIRA-090: migrated from raw window.api.* to useApi() (rule 19).
       const res = await api.createMobileServiceItem(built.payload);
       if (!res.success) {
-        setAddItemError(res.error ?? "Failed to create item");
+        setAddItemError(res.error ?? t("katsh.createItemFailed"));
         return;
       }
       setNewItemForm(null);
       await onRefreshItems?.();
     } catch {
-      setAddItemError("Create failed");
+      setAddItemError(t("katsh.createFailed"));
     }
   };
   const cancelNewItem = () => {
@@ -1431,13 +1446,13 @@ function KatshFormInner({
   const handleAddBill = () => {
     const parsed = parseFloat(billAmount.replace(/,/g, ""));
     if (!parsed || parsed <= 0) {
-      alert("Enter a valid bill amount");
+      alert(t("katsh.invalidBillAmount"));
       return;
     }
     const providerLabel = activeProvider === "Katsh" ? "Katsh" : "iPick";
     const display =
       billCurrency === "LBP"
-        ? `${Math.round(parsed).toLocaleString()} LBP`
+        ? `${formatNumber(Math.round(parsed))} LBP`
         : `$${parsed.toFixed(2)}`;
 
     // A partner bill never enters the session basket (mirrors the Proceed
@@ -1446,7 +1461,7 @@ function KatshFormInner({
     if (activeSession && !forPartner) {
       addToSessionCart({
         module: activeProvider === "Katsh" ? "katsh" : "ipick",
-        label: `${providerLabel} BILL — ${display}`,
+        label: `${providerLabel} BILL — ${display}`, // i18n-exempt: stored session-cart label (data)
         amount: parsed,
         currency: billCurrency,
         ipcChannel: "financial:create",
@@ -1478,9 +1493,7 @@ function KatshFormInner({
         billCurrency === "USD" ||
         pendingBills.some((b) => b.currency === "USD");
       if (involvesUsd && !(exchangeRate > 0)) {
-        alert(
-          "An exchange rate is required to pay USD bills — set today's rate first.",
-        );
+        alert(t("katsh.rateRequired"));
         return;
       }
     }
@@ -1890,11 +1903,11 @@ function KatshFormInner({
           }
         } else {
           logger.error("Katsh submit failed:", result?.error);
-          alert(result?.error || "Failed to process payment");
+          alert(result?.error || t("katsh.paymentFailed"));
         }
       } catch (err) {
         logger.error("Katsh submit error:", err);
-        alert("Failed to process payment");
+        alert(t("katsh.paymentFailed"));
       }
     }
 
@@ -1965,14 +1978,14 @@ function KatshFormInner({
             allSucceeded = false;
             setBills(pendingBills.slice(i));
             logger.error("Bill submit failed:", billResult?.error);
-            alert(billResult?.error || "Failed to process bill");
+            alert(billResult?.error || t("katsh.billFailed"));
             break;
           }
         } catch (err) {
           allSucceeded = false;
           setBills(pendingBills.slice(i));
           logger.error("Bill submit error:", err);
-          alert("Failed to process bill");
+          alert(t("katsh.billFailed"));
           break;
         }
       }
@@ -2036,7 +2049,7 @@ function KatshFormInner({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={`Search ${activeProvider} items...`}
+            placeholder={t("katsh.searchPlaceholder", { provider: activeProvider })}
             className={`w-full px-4 py-2.5 ps-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none ${billAccent.brand.searchFocus} transition-all`}
           />
           <svg
@@ -2056,7 +2069,7 @@ function KatshFormInner({
             <button
               onClick={() => setSearchQuery("")}
               className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-              aria-label="Clear search"
+              aria-label={t("katsh.clearSearch")}
               type="button"
             >
               <svg
@@ -2080,10 +2093,10 @@ function KatshFormInner({
           {totalItems > 0 && (
             <div className="text-end leading-tight">
               <div className="text-xs text-white font-bold">
-                {totalItems} items
+                {t("katsh.itemsCount", { n: totalItems })}
               </div>
               <div className="text-xs text-emerald-400 font-mono font-semibold">
-                {totalPrice.toLocaleString()} LBP
+                {formatNumber(totalPrice)} LBP
               </div>
               {exchangeRate > 0 && (
                 <div className="text-xs text-slate-400 font-mono">
@@ -2096,8 +2109,8 @@ function KatshFormInner({
             <div className="text-end leading-tight">
               <div className={`text-xs font-bold ${billAccent.pendingLabel}`}>
                 {pendingBills.length > 1
-                  ? `${pendingBills.length} BILLS`
-                  : "BILL"}
+                  ? t("katsh.billsCount", { n: pendingBills.length })
+                  : t("katsh.bill")}
               </div>
               <div
                 className={`text-xs font-mono font-semibold ${billAccent.pendingAmount}`}
@@ -2148,11 +2161,11 @@ function KatshFormInner({
           >
             {forPartner
               ? isSubmittingPartner
-                ? "Submitting..."
-                : "Submit to Partner"
+                ? t("katsh.submitting")
+                : t("katsh.submitToPartner")
               : activeSession
-                ? "Add to Cart"
-                : "Proceed to Pay"}
+                ? t("common.addToCart")
+                : t("katsh.proceedToPay")}
           </button>
         </div>
       </div>
@@ -2163,9 +2176,7 @@ function KatshFormInner({
           in the toolbar row above (same place as on Whish App → Bills). */}
       {forPartner && (
         <ForPartnerNotice testId="katsh-partner-no-payment-notice">
-          Partner order: nothing is collected now — everything in the basket, on
-          every tab, goes on the partner&apos;s account at full price, settled
-          on the Partners page.
+          {t("katsh.partnerNotice")}
         </ForPartnerNotice>
       )}
 
@@ -2174,7 +2185,7 @@ function KatshFormInner({
         <div className="flex items-center justify-center py-20">
           <div className="flex flex-col items-center gap-3 text-slate-400">
             <div className="w-8 h-8 border-2 border-slate-700 border-t-orange-500 rounded-full animate-spin" />
-            <span className="text-sm">Loading items...</span>
+            <span className="text-sm">{t("katsh.loadingItems")}</span>
           </div>
         </div>
       ) : (
@@ -2186,7 +2197,7 @@ function KatshFormInner({
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-bold text-white tracking-widest">
-                  BILL
+                  {t("katsh.bill")}
                 </div>
                 <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
                   {(["USD", "LBP"] as const).map((cur) => (
@@ -2212,7 +2223,7 @@ function KatshFormInner({
               <div className="flex items-end gap-3">
                 <div className="w-1/2">
                   <label className="text-xs text-slate-400 block mb-1">
-                    Amount ({billCurrency})
+                    {t("katsh.amountIn", { currency: billCurrency })}
                   </label>
                   <DecimalInput
                     value={parseFloat(billAmount.replace(/,/g, "")) || 0}
@@ -2231,8 +2242,8 @@ function KatshFormInner({
                   className={`w-1/2 py-2 ${billAccent.button} disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold rounded-lg transition-colors`}
                 >
                   {activeSession && !forPartner
-                    ? "Add Bill to Cart"
-                    : "Add Bill"}
+                    ? t("katsh.addBillToCart")
+                    : t("katsh.addBill")}
                 </button>
               </div>
               {tabBills.length > 0 && (!activeSession || forPartner) && (
@@ -2243,7 +2254,9 @@ function KatshFormInner({
                       className={`flex items-center gap-2 text-xs font-mono ${billAccent.pendingLabel}`}
                     >
                       <span>
-                        Pending: {fmtBill(bill.amount, bill.currency)}
+                        {t("katsh.pending", {
+                          amount: fmtBill(bill.amount, bill.currency),
+                        })}
                       </span>
                       <button
                         type="button"
@@ -2253,7 +2266,7 @@ function KatshFormInner({
                           )
                         }
                         className="text-slate-500 hover:text-red-400 transition-colors"
-                        aria-label="Clear pending bill"
+                        aria-label={t("katsh.clearPendingBill")}
                       >
                         ✕
                       </button>
@@ -2311,7 +2324,7 @@ function KatshFormInner({
                         }}
                         className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
                         type="button"
-                        title="Add item"
+                        title={t("katsh.addItem")}
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -2384,7 +2397,7 @@ function KatshFormInner({
             (newItemForm?.isNewCategory ? (
               <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
                 <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-                  New category
+                  {t("katsh.newCategory")}
                 </h3>
                 <NewServiceItemInlineForm
                   form={newItemForm}
@@ -2404,10 +2417,10 @@ function KatshFormInner({
                   );
                 }}
                 className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-2 py-1 rounded hover:bg-slate-700/50 transition-colors"
-                title="New category"
+                title={t("katsh.newCategory")}
               >
                 <Plus className="w-3.5 h-3.5" />
-                New category
+                {t("katsh.newCategory")}
               </button>
             ))}
         </div>
@@ -2418,7 +2431,9 @@ function KatshFormInner({
         onClose={() => setShowPaymentSheet(false)}
         onConfirm={handleSubmit}
         isSubmitting={localSubmitting}
-        title={activeSession ? "Add to Cart" : "Confirm Payment"}
+        title={
+          activeSession ? t("common.addToCart") : t("katsh.confirmPayment")
+        }
         accentColor={billAccent.brand.button}
         paymentMethods={methods}
         clientId={clientId}
@@ -2431,9 +2446,12 @@ function KatshFormInner({
               // LIRA-326 — every provider's picks, paid once. A discount only
               // on a one-currency basket (never converted), capped at the
               // basket's profit and spread over the sales by profit.
-              subtitle: `${basketSheet.count} items — ${basketSheet.totals
-                .map((t) => fmtBill(t.amount, t.currency))
-                .join(" + ")}`,
+              subtitle: t("katsh.itemsSubtitle", {
+                n: basketSheet.count,
+                amount: basketSheet.totals
+                  .map((tot) => fmtBill(tot.amount, tot.currency))
+                  .join(" + "),
+              }),
               items: basketSheet.items,
               totals: basketSheet.totals,
               totalAmount: basketSheet.totalAmount,
@@ -2446,9 +2464,27 @@ function KatshFormInner({
               subtitle:
                 pendingBills.length > 0
                   ? cart.size > 0
-                    ? `${totalItems} items + ${pendingBills.length} ${pendingBills.length > 1 ? "bills" : "bill"} — ${fmtBill(totalPrice + billsLbpValue, "LBP")}`
-                    : `${pendingBills.length > 1 ? `${pendingBills.length} BILLS` : "BILL"} — ${fmtBill(billsTotal, billsCurrency)}`
-                  : `${totalItems} items — ${totalPrice.toLocaleString()} LBP`,
+                    ? t(
+                        pendingBills.length > 1
+                          ? "katsh.itemsAndBillsSubtitle"
+                          : "katsh.itemsAndBillSubtitle",
+                        {
+                          n: totalItems,
+                          bills: pendingBills.length,
+                          amount: fmtBill(totalPrice + billsLbpValue, "LBP"),
+                        },
+                      )
+                    : t("katsh.billsSubtitle", {
+                        label:
+                          pendingBills.length > 1
+                            ? t("katsh.billsCount", { n: pendingBills.length })
+                            : t("katsh.bill"),
+                        amount: fmtBill(billsTotal, billsCurrency),
+                      })
+                  : t("katsh.itemsSubtitle", {
+                      n: totalItems,
+                      amount: `${formatNumber(totalPrice)} LBP`,
+                    }),
               items: paymentSheetItems,
               totalAmount: billsOnlyUsd
                 ? billsTotal
@@ -2491,7 +2527,7 @@ function KatshFormInner({
       >
         <div className="space-y-2">
           <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-            Client Name
+            {t("katsh.clientName")}
           </label>
           <ClientAutocompleteInput
             type="text"
@@ -2509,7 +2545,7 @@ function KatshFormInner({
               setInitialPaymentMethod("CUSTOMER_ACCOUNT");
               setPaymentInputKey((k) => k + 1);
             }}
-            placeholder="Client name (optional)"
+            placeholder={t("common.clientNameOptional")}
             className={`w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${billAccent.brand.focusBorder}`}
           />
           <div className="relative">
@@ -2521,13 +2557,13 @@ function KatshFormInner({
               inputMode="numeric"
               value={clientPhone}
               onChange={(e) => setClientPhone(e.target.value)}
-              placeholder="Phone number (registers a new client)"
+              placeholder={t("katsh.phonePlaceholder")}
               className={`w-full bg-slate-800 border border-slate-600 rounded-lg ps-10 pe-3 py-2 text-sm text-white font-mono focus:outline-none ${billAccent.brand.focusBorder}`}
             />
           </div>
           {clientName.trim() && clientPhone.trim() && !clientId && (
             <p className="text-xs text-orange-300/80 px-1">
-              New client will be created on confirm.
+              {t("katsh.newClientOnConfirm")}
             </p>
           )}
           {/* LIRA-326: a combined basket is booked "now" — the basket
@@ -2580,7 +2616,7 @@ function KatshFormInner({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
           <div className="relative w-full max-w-sm bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-6">
             <h3 className="text-lg font-bold text-white mb-1">
-              Charge to Shop Line
+              {t("katsh.selfChargeTitle")}
             </h3>
             <p className="text-slate-400 text-xs mb-4">
               {formatCatalogItemName(selfChargeItem)}
@@ -2589,25 +2625,27 @@ function KatshFormInner({
             {selfChargeResult ? (
               <div className="space-y-4">
                 <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-lg p-3 text-sm text-emerald-300">
-                  Charged successfully.
+                  {t("katsh.chargedSuccessfully")}
                 </div>
                 <div className="text-sm text-slate-300 space-y-1">
                   <p>
-                    Cost debited:{" "}
+                    {t("katsh.costDebited")}{" "}
                     <span className="text-white font-mono">
-                      {selfChargeResult.costLbp.toLocaleString()} LBP
+                      {formatNumber(selfChargeResult.costLbp)} LBP
                     </span>
                   </p>
                   <p>
-                    Credits added:{" "}
+                    {t("katsh.creditsAdded")}{" "}
                     <span className="text-emerald-400 font-mono">
                       +${selfChargeResult.creditsAdded}
                     </span>
                   </p>
                   <p>
-                    Validity added:{" "}
+                    {t("katsh.validityAdded")}{" "}
                     <span className="text-emerald-400 font-mono">
-                      +{selfChargeResult.validityDaysAdded} days
+                      {t("katsh.plusDays", {
+                        n: selfChargeResult.validityDaysAdded,
+                      })}
                     </span>
                   </p>
                 </div>
@@ -2617,7 +2655,7 @@ function KatshFormInner({
                     onClick={closeSelfCharge}
                     className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
                   >
-                    Done
+                    {t("katsh.done")}
                   </button>
                 </div>
               </div>
@@ -2631,48 +2669,61 @@ function KatshFormInner({
 
                 <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 space-y-1">
                   <p className="text-slate-400 text-xs uppercase mb-1">
-                    This will:
+                    {t("katsh.thisWill")}
                   </p>
                   <p>
-                    Debit{" "}
-                    <span className="text-white font-mono">
-                      {(selfChargeItem.catalogCost ?? 0).toLocaleString()} LBP
-                    </span>{" "}
-                    from the {selfChargeItem.provider} drawer
+                    <Trans
+                      t={t}
+                      i18nKey="katsh.debitFromDrawer"
+                      values={{
+                        amount: `${formatNumber(selfChargeItem.catalogCost ?? 0)} LBP`,
+                        provider: selfChargeItem.provider,
+                      }}
+                      components={{
+                        amt: <span className="text-white font-mono" />,
+                      }}
+                    />
                   </p>
                   <p>
-                    Add{" "}
-                    <span className="text-emerald-400 font-mono">
-                      +${selfChargeItem.credits}
-                    </span>{" "}
-                    credit to{" "}
-                    {selfChargeTargetLine
-                      ? selfChargeTargetLine.label ||
-                        selfChargeTargetLine.phone_number
-                      : `the ${selfChargeCarrier?.toUpperCase()} line`}
+                    <Trans
+                      t={t}
+                      i18nKey="katsh.addCreditTo"
+                      values={{
+                        amount: `+$${selfChargeItem.credits}`,
+                        line: selfChargeLineName,
+                      }}
+                      components={{
+                        amt: <span className="text-emerald-400 font-mono" />,
+                      }}
+                    />
                   </p>
                   <p>
-                    Add{" "}
-                    <span
-                      className={
-                        selfChargeValidityProjection?.capped ||
-                        selfChargeBlocked
-                          ? "text-amber-400 font-mono line-through"
-                          : "text-emerald-400 font-mono"
-                      }
-                    >
-                      +{selfChargeItem.validityDays} days
-                    </span>{" "}
-                    validity to{" "}
-                    {selfChargeTargetLine
-                      ? selfChargeTargetLine.label ||
-                        selfChargeTargetLine.phone_number
-                      : `the ${selfChargeCarrier?.toUpperCase()} line`}
+                    <Trans
+                      t={t}
+                      i18nKey="katsh.addValidityTo"
+                      values={{
+                        n: selfChargeItem.validityDays,
+                        line: selfChargeLineName,
+                      }}
+                      components={{
+                        amt: (
+                          <span
+                            className={
+                              selfChargeValidityProjection?.capped ||
+                              selfChargeBlocked
+                                ? "text-amber-400 font-mono line-through"
+                                : "text-emerald-400 font-mono"
+                            }
+                          />
+                        ),
+                      }}
+                    />
                   </p>
                   {!selfChargeTargetLine && (
                     <p className="text-amber-400 text-xs pt-1">
-                      No active {selfChargeCarrier?.toUpperCase()} line — add
-                      one in Settings → Carrier Lines first.
+                      {t("katsh.noActiveLine", {
+                        carrier: selfChargeCarrier?.toUpperCase(),
+                      })}
                     </p>
                   )}
                   {/* LIRA-157 — say what the rule will really do, before the
@@ -2682,10 +2733,9 @@ function KatshFormInner({
                       className="text-red-400 text-xs pt-1"
                       data-testid="self-charge-burned-warning"
                     >
-                      This line expired{" "}
-                      {selfChargeValidityProjection?.lapseDays} days ago and is
-                      burned — it can no longer be revived by a charge. Register
-                      a new line in Settings → Carrier Lines.
+                      {t("katsh.lineBurned", {
+                        n: selfChargeValidityProjection?.lapseDays,
+                      })}
                     </p>
                   )}
                   {/* #28/M7 — the line carries a sold-ahead debt; this
@@ -2698,17 +2748,18 @@ function KatshFormInner({
                         className="text-amber-400 text-xs pt-1"
                         data-testid="self-charge-owed-payoff-notice"
                       >
-                        {selfChargeValidityProjection?.owedApplied} of these{" "}
-                        {selfChargeValidityProjection?.requestedDays} days go to
-                        what you already sold ahead
-                        {(selfChargeValidityProjection?.appliedDays ?? 0) >
-                        0 ? (
-                          <>
-                            , {selfChargeValidityProjection?.appliedDays} stay
-                            on the line
-                          </>
-                        ) : null}
-                        .
+                        {(selfChargeValidityProjection?.appliedDays ?? 0) > 0
+                          ? t("katsh.owedPayoffSplit", {
+                              owed: selfChargeValidityProjection?.owedApplied,
+                              requested:
+                                selfChargeValidityProjection?.requestedDays,
+                              applied: selfChargeValidityProjection?.appliedDays,
+                            })
+                          : t("katsh.owedPayoff", {
+                              owed: selfChargeValidityProjection?.owedApplied,
+                              requested:
+                                selfChargeValidityProjection?.requestedDays,
+                            })}
                       </p>
                     )}
                   {!selfChargeBlocked &&
@@ -2717,10 +2768,11 @@ function KatshFormInner({
                         className="text-amber-400 text-xs pt-1"
                         data-testid="self-charge-capped-warning"
                       >
-                        Only {selfChargeValidityProjection.appliedDays} of these{" "}
-                        {selfChargeValidityProjection.requestedDays} days will
-                        apply — a line holds at most {MAX_LINE_VALIDITY_DAYS}{" "}
-                        days, and this one already has validity left.
+                        {t("katsh.validityCapped", {
+                          applied: selfChargeValidityProjection.appliedDays,
+                          requested: selfChargeValidityProjection.requestedDays,
+                          max: MAX_LINE_VALIDITY_DAYS,
+                        })}
                       </p>
                     )}
                   {!selfChargeBlocked &&
@@ -2729,10 +2781,9 @@ function KatshFormInner({
                         className="text-amber-400 text-xs pt-1"
                         data-testid="self-charge-grace-warning"
                       >
-                        This line expired{" "}
-                        {selfChargeValidityProjection.lapseDays} days ago — the
-                        new validity starts from today, so the lapsed days are
-                        not recovered.
+                        {t("katsh.lineGrace", {
+                          n: selfChargeValidityProjection.lapseDays,
+                        })}
                       </p>
                     )}
                 </div>
@@ -2748,7 +2799,9 @@ function KatshFormInner({
                     }
                     className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded text-sm"
                   >
-                    {selfChargeSubmitting ? "Charging..." : "Confirm Charge"}
+                    {selfChargeSubmitting
+                      ? t("katsh.charging")
+                      : t("katsh.confirmCharge")}
                   </button>
                   <button
                     type="button"
@@ -2756,7 +2809,7 @@ function KatshFormInner({
                     disabled={selfChargeSubmitting}
                     className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm disabled:opacity-50"
                   >
-                    Cancel
+                    {t("common:actions.cancel")}
                   </button>
                 </div>
               </div>

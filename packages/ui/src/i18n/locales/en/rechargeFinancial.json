@@ -1,1 +1,55 @@
-{}
+{
+  "history": {
+    "title": "History"
+  },
+  "common": {
+    "currency": "Currency",
+    "amount": "Amount",
+    "close": "Close"
+  },
+  "newItem": {
+    "category": "Category",
+    "categoryPlaceholder": "e.g. internet",
+    "subcategory": "Subcategory",
+    "subcategoryPlaceholder": "e.g. pubg",
+    "label": "Label",
+    "labelPlaceholder": "e.g. 60UC",
+    "cost": "Cost",
+    "sell": "Sell",
+    "order": "Order",
+    "add": "Add"
+  },
+  "sheet": {
+    "confirmPayment": "Confirm Payment",
+    "pay": "Pay {{amount}}",
+    "close": "Close",
+    "items": "Items ({{n}})",
+    "summary": "Summary",
+    "paymentMethod": "Payment Method",
+    "processing": "Processing..."
+  },
+  "cashout": {
+    "invalidAmount": "Please enter a valid amount greater than 0",
+    "exceedsWallet": "Amount exceeds the OMT App wallet balance",
+    "failed": "Cash-out failed",
+    "title": "Cash Out to OMT",
+    "commission": "Commission (0.1%):",
+    "accountCredited": "OMT account credited:",
+    "explainer": "No cash moves either way. The OMT App wallet balance goes down by the amount; the OMT account is credited the amount plus commission, recognised as profit once the account is settled.",
+    "confirm": "Confirm Cash-Out"
+  },
+  "walletExchange": {
+    "enterAmount": "Enter an amount to exchange.",
+    "enterRate": "Enter a valid exchange rate.",
+    "failed": "Wallet exchange failed.",
+    "converted": "Converted {{from}} to {{to}} in {{drawer}}.",
+    "intro": "Convert {{drawer}}'s own USD/LBP balance — this never touches the General drawer or a customer.",
+    "amountToExchange": "Amount to exchange ({{currency}})",
+    "available": "Available: {{amount}}",
+    "swap": "Swap direction",
+    "result": "Result ({{currency}})",
+    "rate": "Exchange rate (LBP per USD)",
+    "converting": "Converting...",
+    "convertTo": "Convert to {{currency}}"
+  }
+}

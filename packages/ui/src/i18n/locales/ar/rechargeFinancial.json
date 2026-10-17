@@ -1,1 +1,55 @@
-{}
+{
+  "history": {
+    "title": "السجل"
+  },
+  "common": {
+    "currency": "العملة",
+    "amount": "المبلغ",
+    "close": "إغلاق"
+  },
+  "newItem": {
+    "category": "الفئة",
+    "categoryPlaceholder": "مثلاً internet",
+    "subcategory": "الفئة الفرعية",
+    "subcategoryPlaceholder": "مثلاً pubg",
+    "label": "الاسم",
+    "labelPlaceholder": "مثلاً 60UC",
+    "cost": "الكلفة",
+    "sell": "البيع",
+    "order": "الترتيب",
+    "add": "أضف"
+  },
+  "sheet": {
+    "confirmPayment": "تأكيد الدفع",
+    "pay": "ادفع {{amount}}",
+    "close": "إغلاق",
+    "items": "الأصناف ({{n}})",
+    "summary": "الملخّص",
+    "paymentMethod": "طريقة الدفع",
+    "processing": "جارٍ التنفيذ..."
+  },
+  "cashout": {
+    "invalidAmount": "أدخل مبلغاً صحيحاً أكبر من 0",
+    "exceedsWallet": "المبلغ أكبر من رصيد محفظة OMT App",
+    "failed": "تعذّر السحب",
+    "title": "سحب إلى OMT",
+    "commission": "العمولة (0.1%):",
+    "accountCredited": "المبلغ المضاف لحساب OMT:",
+    "explainer": "لا يتحرّك أي نقد في الاتجاهين. ينقص رصيد محفظة OMT App بقيمة المبلغ؛ ويُضاف إلى حساب OMT المبلغ مع العمولة، وتُحتسب العمولة ربحاً عند تسوية الحساب.",
+    "confirm": "تأكيد السحب"
+  },
+  "walletExchange": {
+    "enterAmount": "أدخل مبلغاً للتصريف.",
+    "enterRate": "أدخل سعر صرف صحيحاً.",
+    "failed": "تعذّر تصريف المحفظة.",
+    "converted": "تم تحويل {{from}} إلى {{to}} في {{drawer}}.",
+    "intro": "حوّل رصيد {{drawer}} نفسه بين الدولار والليرة — لا يمسّ الصندوق العام ولا أي زبون.",
+    "amountToExchange": "المبلغ المراد تصريفه ({{currency}})",
+    "available": "المتوفّر: {{amount}}",
+    "swap": "عكس الاتجاه",
+    "result": "النتيجة ({{currency}})",
+    "rate": "سعر الصرف (ليرة لكل دولار)",
+    "converting": "جارٍ التحويل...",
+    "convertTo": "حوّل إلى {{currency}}"
+  }
+}

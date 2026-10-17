@@ -389,11 +389,11 @@ export function CryptoForm({
             id="crypto-amount"
             value={parseFloat(cryptoAmount) || 0}
             onChange={(n) => setCryptoAmount(n ? String(n) : "")}
-            className={`w-full bg-slate-900 border border-slate-700 rounded-lg pl-4 pr-16 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
+            className={`w-full bg-slate-900 border border-slate-700 rounded-lg ps-4 pe-16 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
             placeholder="0.00"
           />
           <span
-            className={`absolute right-3 top-1/2 -translate-y-1/2 ${brand.text} font-bold text-xs`}
+            className={`absolute end-3 top-1/2 -translate-y-1/2 ${brand.text} font-bold text-xs`}
           >
             USDT
           </span>
@@ -414,14 +414,14 @@ export function CryptoForm({
             Fee Amount — Optional
           </label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+            <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
               $
             </span>
             <DecimalInput
               id="crypto-fee"
               value={parseFloat(cryptoFee) || 0}
               onChange={(n) => setCryptoFee(n ? String(n) : "")}
-              className={`w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
+              className={`w-full bg-slate-800 border border-slate-600 rounded-lg ps-8 pe-4 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
               placeholder="0.00"
             />
           </div>

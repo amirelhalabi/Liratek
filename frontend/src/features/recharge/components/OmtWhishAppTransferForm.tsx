@@ -769,7 +769,7 @@ function OmtWhishAppTransferFormInner({
         </div>
         <div className="relative">
           {currency === "USD" && (
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+            <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
               $
             </span>
           )}
@@ -777,10 +777,10 @@ function OmtWhishAppTransferFormInner({
             id="transfer-amount"
             value={parseFloat(amount) || 0}
             onChange={(n) => setAmount(n ? String(n) : "")}
-            className={`w-full bg-slate-900 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-14 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
+            className={`w-full bg-slate-900 border border-slate-700 rounded-lg ${currency === "USD" ? "ps-8" : "ps-4"} pe-14 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
             placeholder={currency === "LBP" ? "0" : "0.00"}
           />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-medium">
+          <span className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-medium">
             {currency}
           </span>
         </div>
@@ -815,7 +815,7 @@ function OmtWhishAppTransferFormInner({
                     repository books commission in the transaction's currency,
                     so a "$" label on an LBP transfer was lying. */}
                 {currency === "USD" && (
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                  <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
                     $
                   </span>
                 )}
@@ -823,7 +823,7 @@ function OmtWhishAppTransferFormInner({
                   id="transfer-fee"
                   value={parseFloat(manualFee) || 0}
                   onChange={(n) => setManualFee(String(n))}
-                  className={`w-full bg-slate-800 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-4 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
+                  className={`w-full bg-slate-800 border border-slate-600 rounded-lg ${currency === "USD" ? "ps-8" : "ps-4"} pe-4 py-2.5 text-sm text-white focus:outline-none ${brand.focusBorder} transition-all`}
                   placeholder={
                     autoFee > 0
                       ? autoFee.toFixed(2) + " (auto)"
@@ -917,7 +917,7 @@ function OmtWhishAppTransferFormInner({
                   )}
                 </div>
                 {parsedAmount > 0 && (
-                  <div className="text-xs space-y-0.5 pl-6 border-l border-slate-600 ml-2">
+                  <div className="text-xs space-y-0.5 ps-6 border-s border-slate-600 ms-2">
                     <p className="text-slate-400">
                       Received into wallet:{" "}
                       <span className="text-white font-mono font-medium">

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { CatalogCurrency } from "@liratek/core";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 
@@ -14,11 +15,12 @@ export function WhishCurrencySwitch({
   value: CatalogCurrency;
   onChange: (next: CatalogCurrency) => void;
 }) {
+  const { t } = useTranslation("rechargeFinancial");
   const options: CatalogCurrency[] = ["USD", "LBP"];
   return (
     <div
       role="radiogroup"
-      aria-label="Currency"
+      aria-label={t("common.currency")}
       className="inline-flex items-center gap-1 rounded-lg border border-slate-700/50 bg-slate-800 p-1"
     >
       {options.map((option) => {

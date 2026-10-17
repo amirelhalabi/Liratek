@@ -1069,13 +1069,13 @@ export function FinancialForm({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={`Search ${activeProvider === "iPick" ? "iPick" : activeProvider === "Katsh" ? "Katsh" : "Whish App"} items...`}
-                className={`w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none ${brand.searchFocus} transition-all`}
+                className={`w-full px-4 py-2.5 ps-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none ${brand.searchFocus} transition-all`}
               />
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                  className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
                   aria-label="Clear search"
                   type="button"
                 >
@@ -1084,9 +1084,9 @@ export function FinancialForm({
               )}
             </div>
           )}
-          <div className="flex items-center gap-2 ml-auto shrink-0">
+          <div className="flex items-center gap-2 ms-auto shrink-0">
             {totalItems > 0 && (
-              <div className="text-right leading-tight">
+              <div className="text-end leading-tight">
                 <div className="text-xs text-white font-bold">
                   {totalItems} items
                 </div>
@@ -1211,7 +1211,7 @@ export function FinancialForm({
                     value: m.code,
                     label: m.label,
                   }))}
-                  buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-orange-500 transition-all cursor-pointer"
+                  buttonClassName="bg-slate-900 border border-slate-600 rounded-lg ps-3 pe-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-orange-500 transition-all cursor-pointer"
                 />
               </div>
             )}
@@ -1557,7 +1557,7 @@ export function FinancialForm({
               className={`w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${brand.focusBorder}`}
             />
             <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+              <div className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500">
                 <Phone size={14} />
               </div>
               <input
@@ -1566,7 +1566,7 @@ export function FinancialForm({
                 value={clientPhone}
                 onChange={(e) => setClientPhone(e.target.value)}
                 placeholder="Phone number (registers a new client)"
-                className={`w-full bg-slate-800 border border-slate-600 rounded-lg pl-10 pr-3 py-2 text-sm text-white font-mono focus:outline-none ${brand.focusBorder}`}
+                className={`w-full bg-slate-800 border border-slate-600 rounded-lg ps-10 pe-3 py-2 text-sm text-white font-mono focus:outline-none ${brand.focusBorder}`}
               />
             </div>
             {clientName.trim() && clientPhone.trim() && !clientId && (
