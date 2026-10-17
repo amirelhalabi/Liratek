@@ -50,6 +50,7 @@ export default function AllDrawersCheckpointModal({
 }: AllDrawersCheckpointModalProps) {
   useModalFocusFix(isOpen);
   const { t } = useTranslation("closing");
+  const { t: tc } = useTranslation("common");
 
   // Drawers counted today: the ones the window opened with, plus every one
   // saved since. A saved drawer stays listed — it just shows as counted.
@@ -123,7 +124,7 @@ export default function AllDrawersCheckpointModal({
           </div>
           <button
             type="button"
-            aria-label={t("common:actions.close")}
+            aria-label={tc("actions.close")}
             onClick={handleClose}
             disabled={anySaving}
             className="text-slate-400 hover:text-white transition-colors disabled:opacity-50"

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { appEvents, useApi } from "@liratek/ui";
 import { AlertTriangle, CheckCircle } from "lucide-react";
 import { localDay } from "@/shared/utils/localDay";
@@ -11,6 +12,7 @@ export function CheckpointScheduler({
   onCheckpointCreated,
 }: CheckpointSchedulerProps) {
   const api = useApi();
+  const { t } = useTranslation("loto");
   const [showPopup, setShowPopup] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastCheckpoint, setLastCheckpoint] = useState<any>(null);
@@ -77,6 +79,7 @@ export function CheckpointScheduler({
         checkpoint_date: localDay(),
         period_start: lastCheckpoint ? lastCheckpoint.period_end : "1970-01-01", // From beginning if no previous checkpoint
         period_end: localDay(),
+        // i18n-exempt: stored text sent to server (checkpoint note)
         note: `Scheduled checkpoint for ${new Date().toLocaleDateString()}`,
       };
 
@@ -84,7 +87,7 @@ export function CheckpointScheduler({
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Checkpoint created successfully!",
+          t("msg.checkpointCreated"),
           "success",
         );
         setShowPopup(false);
@@ -92,11 +95,11 @@ export function CheckpointScheduler({
         onCheckpointCreated?.(result.checkpoint);
       } else {
         console.error("Failed to create checkpoint:", result.error);
-        alert("Failed to create checkpoint: " + result.error);
+        alert(t("msg.checkpointFailed", { error: result.error }));
       }
     } catch (error) {
       console.error("Error creating checkpoint:", error);
-      alert("Error creating checkpoint: " + (error as Error).message);
+      alert(t("msg.checkpointError", { error: (error as Error).message }));
     } finally {
       setIsProcessing(false);
     }
@@ -118,11 +121,10 @@ export function CheckpointScheduler({
             <AlertTriangle className="w-6 h-6 text-yellow-500 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
               <h3 className="text-lg font-bold text-white mb-2">
-                Scheduled Checkpoint
+                {t("scheduler.title")}
               </h3>
               <p className="text-slate-300 mb-4">
-                It's time for the scheduled Loto checkpoint. Would you like to
-                create one now?
+                {t("scheduler.body")}
               </p>
 
               <div className="flex gap-3">
@@ -130,7 +132,7 @@ export function CheckpointScheduler({
                   onClick={handleDismiss}
                   className="flex-1 py-2.5 px-4 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
                 >
-                  Remind Me Later
+                  {t("scheduler.later")}
                 </button>
                 <button
                   onClick={handleCreateCheckpoint}
@@ -140,12 +142,12 @@ export function CheckpointScheduler({
                   {isProcessing ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Creating...
+                      {t("header.creating")}
                     </>
                   ) : (
                     <>
                       <CheckCircle className="w-4 h-4" />
-                      Create Now
+                      {t("scheduler.createNow")}
                     </>
                   )}
                 </button>

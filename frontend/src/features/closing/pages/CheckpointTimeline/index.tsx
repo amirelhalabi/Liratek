@@ -148,6 +148,7 @@ function drawersOf(checkpoint: CheckpointRecord): string[] {
 
 export default function CheckpointTimeline() {
   const { t } = useTranslation("closing");
+  const { t: tc } = useTranslation("common");
   const fmt = useFormat();
   const drawerText = useDrawerText();
   const drawerLabel = (name: string): string =>
@@ -1056,7 +1057,7 @@ export default function CheckpointTimeline() {
                 onClick={() => setViewCheckpoint(null)}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
               >
-                {t("common:actions.close")}
+                {tc("actions.close")}
               </button>
             </div>
           </div>

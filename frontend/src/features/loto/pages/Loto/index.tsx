@@ -3,6 +3,9 @@
  */
 
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { localDay } from "@/shared/utils/localDay";
 import { addDaysToDateString, type LotoSellPayload } from "@liratek/core";
@@ -52,6 +55,7 @@ interface TodayStats {
 
 export function LotoPage() {
   const api = useApi();
+  const { t } = useTranslation("loto");
   const { activeSession, addToCart: addToSessionCart } = useSession();
   // LIRA-069 W1.d — auto-print on a successful STANDALONE ticket sale
   // (skipped when a session is active; the session gets its own Print
@@ -197,7 +201,7 @@ export function LotoPage() {
     try {
       const lotoApi = (api as any)?.loto;
       if (!lotoApi) {
-        alert("Loto API is not available");
+        alert(t("msg.apiUnavailable"));
         return;
       }
 
@@ -224,7 +228,7 @@ export function LotoPage() {
         cashPrizeResult.success && cashPrizeResult.total > 0;
 
       if (tickets.length === 0 && !hasCashPrizes) {
-        alert("No sales or cash prizes to checkpoint.");
+        alert(t("msg.nothingToCheckpoint"));
         return;
       }
 
@@ -232,18 +236,19 @@ export function LotoPage() {
         checkpoint_date: today,
         period_start: periodStart,
         period_end: today,
+        // i18n-exempt: stored text sent to server (checkpoint note)
         note: `Manual checkpoint for ${new Date().toLocaleDateString()}`,
       });
 
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Checkpoint created successfully!",
+          t("msg.checkpointCreated"),
           "success",
         );
         loadTodayStats();
       } else {
-        alert("Failed to create checkpoint: " + result.error);
+        alert(t("msg.checkpointFailed", { error: result.error }));
       }
     } catch (error) {
       // LIRA-247: `error instanceof Error` is false for a thrown ApiError
@@ -251,8 +256,9 @@ export function LotoPage() {
       // refusal), so it used to fall back to "Unknown error" and hide the
       // real reason.
       alert(
-        "Error creating checkpoint: " +
-          getApiErrorMessage(error, "Unknown error"),
+        t("msg.checkpointError", {
+          error: getApiErrorMessage(error, t("msg.unknownError")),
+        }),
       );
     } finally {
       setIsCreatingCheckpoint(false);
@@ -261,20 +267,20 @@ export function LotoPage() {
 
   async function handleSubmit() {
     if (!saleAmount || parseFloat(saleAmount) <= 0) {
-      alert("Please enter a valid sale amount");
+      alert(t("msg.invalidSale"));
       return;
     }
 
     const lotoApi = (api as any)?.loto;
     if (!lotoApi) {
-      alert("Loto API is not available");
+      alert(t("msg.apiUnavailable"));
       return;
     }
 
     // PFT-R "For Partner": block + notify if no partner is selected — the
     // backend requires partnerId whenever partnerMode is "FOR".
     if (forPartner && !selectedPartnerId) {
-      alert("Please select a partner for this ticket");
+      alert(t("msg.selectPartner"));
       return;
     }
 
@@ -400,7 +406,8 @@ export function LotoPage() {
     if (activeSession && !forPartner) {
       addToSessionCart({
         module: "loto_ticket",
-        label: `Loto Ticket - ${parseFloat(saleAmount).toLocaleString()} LBP`,
+        // i18n-exempt: stored text sent to server (session basket item label)
+        label: `Loto Ticket - ${formatNumber(parseFloat(saleAmount))} LBP`,
         amount: parseFloat(saleAmount),
         currency: "LBP",
         ipcChannel: "loto:sell",
@@ -431,7 +438,7 @@ export function LotoPage() {
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Ticket sold successfully!",
+          t("msg.ticketSold"),
           "success",
         );
         if (!forPartner) {
@@ -457,13 +464,13 @@ export function LotoPage() {
         setSelectedPartnerId(null);
         loadTodayStats();
       } else {
-        alert("Failed to sell ticket: " + result.error);
+        alert(t("msg.sellFailed", { error: result.error }));
       }
     } catch (error) {
       // LIRA-247: the bare `catch {}` used to discard the thrown ApiError
       // entirely (e.g. a web 403 role refusal), always showing this generic
       // string regardless of the real reason.
-      alert(getApiErrorMessage(error, "Failed to sell ticket"));
+      alert(getApiErrorMessage(error, t("msg.sellFailedGeneric")));
     } finally {
       setIsSubmitting(false);
     }
@@ -471,13 +478,13 @@ export function LotoPage() {
 
   async function handleCashPrizeSubmit() {
     if (!cashPrizeAmount || parseFloat(cashPrizeAmount) <= 0) {
-      alert("Please enter a valid prize amount");
+      alert(t("msg.invalidPrize"));
       return;
     }
 
     const lotoApi = (api as any)?.loto;
     if (!lotoApi) {
-      alert("Loto API is not available");
+      alert(t("msg.apiUnavailable"));
       return;
     }
 
@@ -491,7 +498,8 @@ export function LotoPage() {
     if (activeSession) {
       addToSessionCart({
         module: "loto_prize",
-        label: `Loto Prize - ${parseFloat(cashPrizeAmount).toLocaleString()} LBP${cashPrizeTicketNumber.trim() ? ` (#${cashPrizeTicketNumber.trim()})` : ""}`,
+        // i18n-exempt: stored text sent to server (session basket item label)
+        label: `Loto Prize - ${formatNumber(parseFloat(cashPrizeAmount))} LBP${cashPrizeTicketNumber.trim() ? ` (#${cashPrizeTicketNumber.trim()})` : ""}`,
         amount: -parseFloat(cashPrizeAmount),
         currency: "LBP",
         ipcChannel: "loto:cash-prize:create",
@@ -511,7 +519,7 @@ export function LotoPage() {
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Cash prize recorded successfully!",
+          t("msg.prizeRecorded"),
           "success",
         );
         // Reset form
@@ -520,12 +528,12 @@ export function LotoPage() {
         // Reload stats
         loadTodayStats();
       } else {
-        alert("Failed to record cash prize: " + result.error);
+        alert(t("msg.prizeFailed", { error: result.error }));
       }
     } catch (error) {
       // LIRA-247: the bare `catch {}` used to discard the thrown ApiError
       // entirely, always showing this generic string.
-      alert(getApiErrorMessage(error, "Failed to record cash prize"));
+      alert(getApiErrorMessage(error, t("msg.prizeFailedGeneric")));
     } finally {
       setIsSubmittingCashPrize(false);
     }
@@ -534,7 +542,7 @@ export function LotoPage() {
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
-        title="Loto"
+        title={t("page.title")}
         actions={
           <div className="flex items-center gap-2">
             <StatsCards
@@ -552,7 +560,7 @@ export function LotoPage() {
             >
               <ClipboardCheck size={16} />
               <span className="font-medium">
-                {isCreatingCheckpoint ? "Creating..." : "Checkpoint"}
+                {isCreatingCheckpoint ? t("header.creating") : t("header.checkpoint")}
               </span>
             </button>
             <button
@@ -560,14 +568,14 @@ export function LotoPage() {
               className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
             >
               <History size={16} />
-              <span className="font-medium">History</span>
+              <span className="font-medium">{t("header.history")}</span>
             </button>
             <button
               onClick={() => setShowTicketHistoryModal(true)}
               className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
             >
               <Receipt size={16} />
-              <span className="font-medium">Ticket History</span>
+              <span className="font-medium">{t("header.ticketHistory")}</span>
             </button>
             <SettlementVerification />
           </div>
@@ -575,7 +583,7 @@ export function LotoPage() {
       />
 
       {/* Centered Forms with Tabs */}
-      <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6">
+      <div className="flex-1 min-h-0 overflow-y-auto -me-6 pe-6 pb-6">
         <div className="max-w-3xl mx-auto">
           {/* Tab Switcher */}
           <div className="flex gap-1 mb-4 bg-slate-800 rounded-lg p-1 border border-slate-700/50">
@@ -588,7 +596,7 @@ export function LotoPage() {
               }`}
             >
               <Plus className="w-4 h-4" />
-              Sell Ticket
+              {t("tabs.sell")}
             </button>
             <button
               onClick={() => setActiveTab("cashPrize")}
@@ -599,7 +607,7 @@ export function LotoPage() {
               }`}
             >
               <Trophy className="w-4 h-4" />
-              Cash Prize
+              {t("tabs.cashPrize")}
             </button>
           </div>
 
@@ -607,27 +615,27 @@ export function LotoPage() {
             <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-6 shadow-2xl">
               <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                 <Plus className="w-5 h-5 text-orange-500" />
-                Sell Ticket
+                {t("sell.title")}
               </h2>
 
               <div className="space-y-5">
                 {/* Sale Amount */}
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">
-                    Sale Amount (LBP) *
+                    {t("sell.amountLabel")}
                   </label>
                   <DecimalInput
                     value={parseFloat(saleAmount) || 0}
                     onChange={(n) => setSaleAmount(n ? String(n) : "")}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                    placeholder="Enter sale amount"
+                    placeholder={t("sell.amountPlaceholder")}
                   />
                 </div>
 
                 {/* Client Name + Phone */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                    Client
+                    {t("sell.client")}
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <ClientAutocompleteInput
@@ -647,11 +655,11 @@ export function LotoPage() {
                         setInitialPaymentMethod("CUSTOMER_ACCOUNT");
                         setPaymentInputKey((k) => k + 1);
                       }}
-                      placeholder="Client name (optional)"
+                      placeholder={t("sell.clientPlaceholder")}
                       className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
                     />
                     <div className="relative">
-                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                      <div className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500">
                         <Phone size={14} />
                       </div>
                       <input
@@ -659,14 +667,14 @@ export function LotoPage() {
                         inputMode="numeric"
                         value={clientPhone}
                         onChange={(e) => setClientPhone(e.target.value)}
-                        placeholder="Phone"
-                        className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-9 pr-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-orange-500"
+                        placeholder={t("sell.phonePlaceholder")}
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg ps-9 pe-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-orange-500"
                       />
                     </div>
                   </div>
                   {clientName.trim() && clientPhone.trim() && !clientId && (
                     <p className="text-xs text-orange-300/80 px-1">
-                      New client will be created on confirm.
+                      {t("sell.newClient")}
                     </p>
                   )}
                 </div>
@@ -692,13 +700,14 @@ export function LotoPage() {
                     selected partner's tab instead. */}
                 {forPartner ? (
                   <ForPartnerNotice testId="loto-partner-no-payment-notice">
-                    Partner ticket: nothing is collected now — the full{" "}
+                    {t("sell.partnerNoticeBefore")}{" "}
                     <span className="font-bold">
-                      {saleAmount ? parseFloat(saleAmount).toLocaleString() : 0}{" "}
-                      LBP
+                      <Ltr>
+                        {saleAmount ? formatNumber(parseFloat(saleAmount)) : 0}{" "}
+                        LBP
+                      </Ltr>
                     </span>{" "}
-                    goes on the partner&apos;s account, settled on the Partners
-                    page.
+                    {t("sell.partnerNoticeAfter")}
                   </ForPartnerNotice>
                 ) : (
                   <div>
@@ -780,7 +789,7 @@ export function LotoPage() {
                   disabled={isSubmitting || !saleAmount}
                   className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-lg transition-all mt-6 shadow-lg hover:shadow-orange-500/20"
                 >
-                  {isSubmitting ? "Selling..." : "Sell Ticket"}
+                  {isSubmitting ? t("sell.selling") : t("sell.submit")}
                 </button>
               </div>
             </div>
@@ -788,34 +797,34 @@ export function LotoPage() {
             <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-6 shadow-2xl">
               <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-yellow-500" />
-                Cash Prize
+                {t("prize.title")}
               </h2>
 
               <div className="space-y-5">
                 {/* Prize Amount */}
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">
-                    Prize Amount (LBP) *
+                    {t("prize.amountLabel")}
                   </label>
                   <DecimalInput
                     value={parseFloat(cashPrizeAmount) || 0}
                     onChange={(n) => setCashPrizeAmount(n ? String(n) : "")}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-yellow-500 transition-colors"
-                    placeholder="Enter prize amount"
+                    placeholder={t("prize.amountPlaceholder")}
                   />
                 </div>
 
                 {/* Ticket Number */}
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">
-                    Ticket Number
+                    {t("prize.ticketLabel")}
                   </label>
                   <input
                     type="text"
                     value={cashPrizeTicketNumber}
                     onChange={(e) => setCashPrizeTicketNumber(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-yellow-500 transition-colors"
-                    placeholder="Winning ticket number (optional)"
+                    placeholder={t("prize.ticketPlaceholder")}
                   />
                 </div>
 
@@ -825,7 +834,7 @@ export function LotoPage() {
                   disabled={isSubmittingCashPrize || !cashPrizeAmount}
                   className="w-full py-3.5 bg-yellow-500 hover:bg-yellow-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-lg transition-all mt-6 shadow-lg hover:shadow-yellow-500/20"
                 >
-                  {isSubmittingCashPrize ? "Recording..." : "Record Cash Prize"}
+                  {isSubmittingCashPrize ? t("prize.recording") : t("prize.submit")}
                 </button>
               </div>
             </div>

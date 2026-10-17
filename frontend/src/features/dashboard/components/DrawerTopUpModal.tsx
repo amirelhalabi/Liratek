@@ -98,6 +98,7 @@ export function DrawerTopUpModal({
 }: DrawerTopUpModalProps) {
   const api = useApi();
   const { t } = useTranslation("dashboard");
+  const { t: tc } = useTranslation("common");
   useModalFocusFix(isOpen);
   const [mode, setMode] = useState<TopUpMode>("external");
   const [amountUsd, setAmountUsd] = useState("");
@@ -1012,7 +1013,7 @@ export function DrawerTopUpModal({
             disabled={isSubmitting}
             className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
           >
-            {t("common:actions.cancel")}
+            {tc("actions.cancel")}
           </button>
           <button
             data-testid="drawer-topup-submit"

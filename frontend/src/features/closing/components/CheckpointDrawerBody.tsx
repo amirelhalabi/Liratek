@@ -24,6 +24,7 @@ export function CheckpointDrawerBody({
   notesId = "checkpoint-notes",
 }: CheckpointDrawerBodyProps) {
   const { t } = useTranslation("closing");
+  const { t: tc } = useTranslation("common");
   const drawerText = useDrawerText();
   const {
     drawer,
@@ -79,7 +80,7 @@ export function CheckpointDrawerBody({
             onClick={retryLoad}
             className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-slate-700 hover:bg-slate-600 transition-colors"
           >
-            {t("common:actions.retry")}
+            {tc("actions.retry")}
           </button>
         </div>
       )}

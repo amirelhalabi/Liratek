@@ -61,6 +61,7 @@ export function useDrawerCheckpoint({
   const [amountsReady, setAmountsReady] = useState(false);
 
   const { t } = useTranslation("closing");
+  const { t: tc } = useTranslation("common");
   const api = useApi();
   const drawer = drawerName as DrawerType;
   const drawerConfig = DRAWER_CONFIGS[drawer];
@@ -360,7 +361,7 @@ export function useDrawerCheckpoint({
   if (lineCreditsDiffs.length > 0 || hasValidityDiff) overallStatus = "diff";
 
   const saveLabel = (() => {
-    if (saving) return t("common:state.saving");
+    if (saving) return tc("state.saving");
     if (overallStatus === "match") return t("save.balanced");
     const parts: string[] = [];
     if (diffs.length > 2) {

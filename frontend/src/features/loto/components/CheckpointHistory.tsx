@@ -14,7 +14,9 @@ import {
   Pencil,
   Check,
 } from "lucide-react";
-import { format } from "date-fns";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { useFormat } from "@/i18n/useFormat";
 
 interface LotoCheckpoint {
   id: number;
@@ -54,6 +56,14 @@ interface CheckpointHistoryProps {
 export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
   useModalFocusFix(true);
   const api = useApi();
+  const { t } = useTranslation("loto");
+  const { t: tc } = useTranslation("common");
+  const { formatDate } = useFormat();
+  // Same output as date-fns "MMM dd, yyyy" / "MMM dd" in English.
+  const fmtDay = (d: string) =>
+    formatDate(new Date(d), { month: "short", day: "2-digit", year: "numeric" });
+  const fmtShort = (d: string) =>
+    formatDate(new Date(d), { month: "short", day: "2-digit" });
   const [checkpoints, setCheckpoints] = useState<LotoCheckpoint[]>([]);
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
     checkpoints,
@@ -106,7 +116,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
         setEditingId(null);
         await loadCheckpoints();
       } else {
-        alert(result.error ?? "Failed to save");
+        alert(result.error ?? t("history.saveFailed"));
       }
     } finally {
       setEditSaving(false);
@@ -138,7 +148,10 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
   async function handleDeleteCheckpoint(checkpoint: LotoCheckpoint) {
     if (checkpoint.is_settled) return;
     const confirmed = window.confirm(
-      `Delete checkpoint #${checkpoint.id} (${format(new Date(checkpoint.checkpoint_date), "MMM dd, yyyy")})?\n\nThis will unlink all associated tickets and cash prizes so they can be included in a new checkpoint.`,
+      t("history.deleteConfirm", {
+        id: checkpoint.id,
+        date: fmtDay(checkpoint.checkpoint_date),
+      }),
     );
     if (!confirmed) return;
     try {
@@ -146,10 +159,10 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
       if (result.success) {
         await loadCheckpoints();
       } else {
-        alert(result.error || "Failed to delete checkpoint");
+        alert(result.error || t("history.deleteFailed"));
       }
     } catch {
-      alert("Failed to delete checkpoint");
+      alert(t("history.deleteFailed"));
     }
   }
 
@@ -198,9 +211,9 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
             <h2 className="text-base font-semibold text-white flex items-center gap-2">
               <Calendar className="text-slate-400" size={18} />
-              Checkpoint History
-              <span className="text-xs text-slate-500 font-normal ml-1">
-                ({filteredData.length} records)
+              {t("history.title")}
+              <span className="text-xs text-slate-500 font-normal ms-1">
+                {t("history.records", { total: filteredData.length })}
               </span>
             </h2>
             <div className="flex items-center gap-2">
@@ -213,7 +226,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
               <button
                 onClick={onClose}
                 className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-                title="Close"
+                title={tc("actions.close")}
               >
                 <X size={18} />
               </button>
@@ -226,9 +239,9 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
               <div className="bg-slate-800 rounded-lg p-3 border border-slate-700/50">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs text-slate-400">Unsettled Sales</p>
+                    <p className="text-xs text-slate-400">{t("history.unsettledSales")}</p>
                     <p className="text-base font-bold text-red-400">
-                      {totalUnsettledSales.toLocaleString()} LBP
+                      {formatNumber(totalUnsettledSales)} LBP
                     </p>
                   </div>
                   <TrendingDown className="w-5 h-5 text-red-400" />
@@ -238,10 +251,10 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-slate-400">
-                      Unsettled Commission
+                      {t("history.unsettledCommission")}
                     </p>
                     <p className="text-base font-bold text-green-400">
-                      {totalUnsettledCommission.toLocaleString()} LBP
+                      {formatNumber(totalUnsettledCommission)} LBP
                     </p>
                   </div>
                   <TrendingUp className="w-5 h-5 text-green-400" />
@@ -251,7 +264,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-slate-400">
-                      Unsettled Checkpoints
+                      {t("history.unsettledCheckpoints")}
                     </p>
                     <p className="text-base font-bold text-white">
                       {unsettledCheckpoints.length}
@@ -267,44 +280,44 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
           <div className="flex-1 min-h-0 overflow-auto p-4">
             {loading ? (
               <div className="flex items-center justify-center py-12 text-slate-500">
-                <RefreshCw size={20} className="animate-spin mr-2" />
-                Loading...
+                <RefreshCw size={20} className="animate-spin me-2" />
+                {tc("state.loading")}
               </div>
             ) : (
               <DataTable<LotoCheckpoint>
                 columns={[
                   {
-                    header: "Date",
+                    header: t("history.date"),
                     className: "px-4 py-3",
                     sortKey: "checkpoint_date",
                   },
-                  { header: "Period", className: "px-4 py-3" },
+                  { header: t("history.period"), className: "px-4 py-3" },
                   {
-                    header: "Tickets",
-                    className: "px-4 py-3 text-right",
+                    header: t("history.tickets"),
+                    className: "px-4 py-3 text-end",
                     sortKey: "total_tickets",
                   },
                   {
-                    header: "↓ Sales (LBP)",
-                    className: "px-4 py-3 text-right",
+                    header: t("history.sales"),
+                    className: "px-4 py-3 text-end",
                     sortKey: "total_sales",
                   },
                   {
-                    header: "↑ Commission (LBP)",
-                    className: "px-4 py-3 text-right",
+                    header: t("history.commission"),
+                    className: "px-4 py-3 text-end",
                     sortKey: "total_commission",
                   },
                   {
-                    header: "Cash Prizes (LBP)",
-                    className: "px-4 py-3 text-right",
+                    header: t("history.cashPrizes"),
+                    className: "px-4 py-3 text-end",
                     sortKey: "total_cash_prizes",
                   },
                   {
-                    header: "Status",
+                    header: t("history.status"),
                     className: "px-4 py-3 text-center",
                   },
                   {
-                    header: "Actions",
+                    header: t("history.actions"),
                     className: "px-4 py-3 text-center",
                   },
                 ]}
@@ -313,9 +326,9 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                 exportPdf
                 exportFilename="loto-checkpoint-history"
                 className="w-full"
-                theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+                theadClassName="bg-slate-900/50 text-start text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
                 tbodyClassName="divide-y divide-slate-700/50"
-                emptyMessage="No checkpoints found."
+                emptyMessage={t("history.empty")}
                 renderRow={(checkpoint) => {
                   const isRefunded = Boolean(checkpoint.is_refunded);
                   const isEditing = editingId === checkpoint.id;
@@ -328,43 +341,34 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2 text-sm text-white font-medium">
                             <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                            {format(
-                              new Date(checkpoint.checkpoint_date),
-                              "MMM dd, yyyy",
-                            )}
+                            {fmtDay(checkpoint.checkpoint_date)}
                             {isRefunded && (
-                              <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                                Refunded
+                              <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                {t("history.refunded")}
                               </span>
                             )}
                           </div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-xs text-slate-400">
-                            {format(
-                              new Date(checkpoint.period_start),
-                              "MMM dd",
-                            )}{" "}
+                            {fmtShort(checkpoint.period_start)}{" "}
                             -{" "}
-                            {format(
-                              new Date(checkpoint.period_end),
-                              "MMM dd, yyyy",
-                            )}
+                            {fmtDay(checkpoint.period_end)}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right text-sm font-medium text-white font-mono">
+                        <td className="px-4 py-3 text-end text-sm font-medium text-white font-mono">
                           {checkpoint.total_tickets}
                         </td>
-                        <td className="px-4 py-3 text-right text-sm font-bold text-red-400 font-mono">
-                          <span className="mr-1 opacity-70">↓</span>
-                          {checkpoint.total_sales.toLocaleString()}
+                        <td className="px-4 py-3 text-end text-sm font-bold text-red-400 font-mono">
+                          <span className="me-1 opacity-70">↓</span>
+                          {formatNumber(checkpoint.total_sales)}
                         </td>
-                        <td className="px-4 py-3 text-right text-sm font-bold text-green-400 font-mono">
-                          <span className="mr-1 opacity-70">↑</span>
-                          {checkpoint.total_commission.toLocaleString()}
+                        <td className="px-4 py-3 text-end text-sm font-bold text-green-400 font-mono">
+                          <span className="me-1 opacity-70">↑</span>
+                          {formatNumber(checkpoint.total_commission)}
                         </td>
-                        <td className="px-4 py-3 text-right text-sm font-bold text-white font-mono">
-                          {(checkpoint.total_cash_prizes || 0).toLocaleString()}
+                        <td className="px-4 py-3 text-end text-sm font-bold text-white font-mono">
+                          {formatNumber(checkpoint.total_cash_prizes || 0)}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <span
@@ -374,7 +378,9 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                                 : "bg-yellow-900/60 text-yellow-300"
                             }`}
                           >
-                            {checkpoint.is_settled ? "Settled" : "Unsettled"}
+                            {checkpoint.is_settled
+                              ? t("history.settled")
+                              : t("history.unsettled")}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center">
@@ -382,7 +388,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                             <button
                               onClick={() => handleViewReport(checkpoint)}
                               className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors"
-                              title="View report"
+                              title={t("history.viewReport")}
                             >
                               <FileText size={16} />
                             </button>
@@ -392,14 +398,14 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                                   onClick={handleSaveEdit}
                                   disabled={editSaving}
                                   className="p-1.5 text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors disabled:opacity-50"
-                                  title="Save"
+                                  title={tc("actions.save")}
                                 >
                                   <Check size={15} />
                                 </button>
                                 <button
                                   onClick={() => setEditingId(null)}
                                   className="p-1.5 text-slate-400 hover:bg-slate-700 rounded-lg transition-colors"
-                                  title="Cancel"
+                                  title={tc("actions.cancel")}
                                 >
                                   <X size={15} />
                                 </button>
@@ -408,7 +414,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                               <button
                                 onClick={() => startEdit(checkpoint)}
                                 className="p-1.5 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded-lg transition-colors"
-                                title="Edit note"
+                                title={t("history.editNote")}
                               >
                                 <Pencil size={14} />
                               </button>
@@ -419,7 +425,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                                   handleDeleteCheckpoint(checkpoint)
                                 }
                                 className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-                                title="Delete checkpoint"
+                                title={t("history.deleteCheckpoint")}
                               >
                                 <Trash2 size={16} />
                               </button>
@@ -433,7 +439,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                             <div className="flex items-end gap-3">
                               <div className="flex-1">
                                 <label className="text-xs text-slate-400 block mb-1">
-                                  Note
+                                  {t("history.note")}
                                 </label>
                                 <input
                                   autoFocus
@@ -446,7 +452,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                                     if (e.key === "Escape") setEditingId(null);
                                   }}
                                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                                  placeholder="Add a note for this checkpoint..."
+                                  placeholder={t("history.notePlaceholder")}
                                 />
                               </div>
                             </div>
@@ -476,7 +482,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                   <FileText className="w-5 h-5 text-blue-400" />
-                  Checkpoint Report
+                  {t("report.title")}
                 </h3>
                 <button
                   onClick={() => setSelectedCheckpoint(null)}
@@ -489,33 +495,24 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
               <div className="mb-6">
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
-                    <p className="text-sm text-slate-400">Date</p>
+                    <p className="text-sm text-slate-400">{t("history.date")}</p>
                     <p className="text-white font-medium">
-                      {format(
-                        new Date(selectedCheckpoint.checkpoint_date),
-                        "MMM dd, yyyy",
-                      )}
+                      {fmtDay(selectedCheckpoint.checkpoint_date)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-slate-400">Period</p>
+                    <p className="text-sm text-slate-400">{t("history.period")}</p>
                     <p className="text-white font-medium">
-                      {format(
-                        new Date(selectedCheckpoint.period_start),
-                        "MMM dd, yyyy",
-                      )}{" "}
+                      {fmtDay(selectedCheckpoint.period_start)}{" "}
                       -{" "}
-                      {format(
-                        new Date(selectedCheckpoint.period_end),
-                        "MMM dd, yyyy",
-                      )}
+                      {fmtDay(selectedCheckpoint.period_end)}
                     </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-sm text-slate-400">Status</p>
+                    <p className="text-sm text-slate-400">{t("history.status")}</p>
                     <p
                       className={`font-medium ${
                         selectedCheckpoint.is_settled
@@ -523,11 +520,13 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                           : "text-yellow-400"
                       }`}
                     >
-                      {selectedCheckpoint.is_settled ? "Settled" : "Unsettled"}
+                      {selectedCheckpoint.is_settled
+                        ? t("history.settled")
+                        : t("history.unsettled")}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-slate-400">Tickets Sold</p>
+                    <p className="text-sm text-slate-400">{t("stats.ticketsSold")}</p>
                     <p className="text-white font-medium">
                       {selectedCheckpoint.total_tickets}
                     </p>
@@ -537,43 +536,42 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
 
               {reportLoading ? (
                 <div className="flex items-center justify-center py-8 text-slate-400">
-                  <RefreshCw size={16} className="animate-spin mr-2" />
-                  Loading report...
+                  <RefreshCw size={16} className="animate-spin me-2" />
+                  {t("report.loading")}
                 </div>
               ) : reportData ? (
                 <div className="space-y-4">
                   <div className="bg-slate-900 rounded-lg p-4">
                     <h4 className="font-medium text-white mb-3">
-                      Period Summary
+                      {t("report.periodSummary")}
                     </h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <p className="text-sm text-slate-400">Total Sales</p>
+                        <p className="text-sm text-slate-400">{t("stats.totalSales")}</p>
                         <p className="text-red-400 font-bold text-lg">
-                          {reportData.total_sales.toLocaleString()} LBP
+                          {formatNumber(reportData.total_sales)} LBP
                         </p>
                       </div>
                       <div>
                         <p className="text-sm text-slate-400">
-                          Commission Earned
+                          {t("report.commissionEarned")}
                         </p>
                         <p className="text-green-400 font-bold text-lg">
-                          {reportData.total_commission.toLocaleString()} LBP
+                          {formatNumber(reportData.total_commission)} LBP
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-slate-400">Tickets Sold</p>
+                        <p className="text-sm text-slate-400">{t("stats.ticketsSold")}</p>
                         <p className="text-white font-bold text-lg">
                           {reportData.total_tickets}
                         </p>
                       </div>
                       <div>
                         <p className="text-sm text-slate-400">
-                          Cash Prizes Paid
+                          {t("report.cashPrizesPaid")}
                         </p>
                         <p className="text-white font-bold text-lg">
-                          {(reportData.total_cash_prizes || 0).toLocaleString()}{" "}
-                          LBP
+                          {formatNumber(reportData.total_cash_prizes || 0)} LBP
                         </p>
                       </div>
                     </div>
@@ -581,21 +579,21 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
 
                   <div className="bg-slate-900 rounded-lg p-4">
                     <h4 className="font-medium text-white mb-3">
-                      Additional Info
+                      {t("report.additional")}
                     </h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <p className="text-sm text-slate-400">
-                          Outstanding Prizes
+                          {t("report.outstanding")}
                         </p>
                         <p className="text-white font-bold">
-                          {reportData.outstanding_prizes.toLocaleString()} LBP
+                          {formatNumber(reportData.outstanding_prizes)} LBP
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-slate-400">Total Fees</p>
+                        <p className="text-sm text-slate-400">{t("report.totalFees")}</p>
                         <p className="text-white font-bold">
-                          {reportData.total_fees.toLocaleString()} LBP
+                          {formatNumber(reportData.total_fees)} LBP
                         </p>
                       </div>
                     </div>
@@ -603,7 +601,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                 </div>
               ) : (
                 <div className="text-center py-8 text-slate-400">
-                  No report data available
+                  {t("report.empty")}
                 </div>
               )}
             </div>

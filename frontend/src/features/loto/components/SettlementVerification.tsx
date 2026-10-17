@@ -1,4 +1,8 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import {
   appEvents,
   useApi,
@@ -62,6 +66,9 @@ export function SettlementVerification({
   onSettlementComplete,
 }: SettlementVerificationProps) {
   const api = useApi();
+  const { t } = useTranslation("loto");
+  const { t: tc } = useTranslation("common");
+  const { formatDate } = useFormat();
   const { methods } = usePaymentMethods();
   // Payments use the BUY rate (owner decision 2026-07-06): every
   // MultiPaymentInput converts LBP↔USD at buyRate.
@@ -110,7 +117,7 @@ export function SettlementVerification({
       const checkpointsResult = await api.loto.checkpoint.getUnsettled();
       if (!checkpointsResult.success) {
         throw new Error(
-          checkpointsResult.error || "Failed to get unsettled checkpoints",
+          checkpointsResult.error || t("settle.failedLoadUnsettled"),
         );
       }
 
@@ -186,7 +193,7 @@ export function SettlementVerification({
     } catch (err) {
       console.error("Error loading settlement data:", err);
       setError(
-        err instanceof Error ? err.message : "Failed to load settlement data",
+        err instanceof Error ? err.message : t("settle.failedLoad"),
       );
     } finally {
       setIsLoading(false);
@@ -244,8 +251,7 @@ export function SettlementVerification({
           await api.loto.checkpoint.createScheduled(today);
         if (!checkpointResult.success || !checkpointResult.checkpoint) {
           throw new Error(
-            checkpointResult.error ||
-              "Failed to create checkpoint for unchecked activity",
+            checkpointResult.error || t("settle.failedCreateForUnchecked"),
           );
         }
         // Now settle the newly created checkpoint (exactly one checkpoint,
@@ -262,7 +268,7 @@ export function SettlementVerification({
         };
         const settleResult = await api.loto.checkpoint.settle(settlePayload);
         if (!settleResult.success) {
-          throw new Error(settleResult.error || "Failed to settle checkpoint");
+          throw new Error(settleResult.error || t("settle.failedSettleOne"));
         }
       } else {
         // Settle ALL existing checkpoints in ONE atomic batch. The payment
@@ -281,7 +287,7 @@ export function SettlementVerification({
         };
         const result = await api.loto.checkpoint.settleBatch(batchPayload);
         if (!result.success) {
-          throw new Error(result.error || "Failed to settle checkpoints");
+          throw new Error(result.error || t("settle.failedSettleMany"));
         }
       }
 
@@ -290,7 +296,7 @@ export function SettlementVerification({
 
       appEvents.emit(
         "notification:show",
-        "Loto settlement recorded successfully",
+        t("settle.recordedToast"),
         "success",
       );
       setSettlementSuccess(true);
@@ -307,7 +313,7 @@ export function SettlementVerification({
     } catch (err) {
       console.error("Error during settlement:", err);
       setError(
-        err instanceof Error ? err.message : "Failed to complete settlement",
+        err instanceof Error ? err.message : t("settle.failedComplete"),
       );
     } finally {
       setIsProcessing(false);
@@ -353,7 +359,7 @@ export function SettlementVerification({
         className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center gap-2"
       >
         <Calculator className="w-4 h-4" />
-        Settle
+        {t("settle.open")}
       </button>
     );
   }
@@ -367,10 +373,10 @@ export function SettlementVerification({
               <CheckCircle className="w-8 h-8 text-green-500" />
               <div>
                 <h3 className="text-xl font-bold text-white">
-                  Settlement Successful!
+                  {t("settle.successTitle")}
                 </h3>
                 <p className="text-slate-300 mt-2">
-                  All checkpoints have been settled successfully.
+                  {t("settle.successBody")}
                 </p>
               </div>
             </div>
@@ -414,7 +420,7 @@ export function SettlementVerification({
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
               <Calculator className="w-5 h-5 text-blue-500" />
-              Settle Checkpoints
+              {t("settle.title")}
             </h3>
             <button
               onClick={closeDialog}
@@ -428,7 +434,7 @@ export function SettlementVerification({
             <div className="bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-lg mb-6 flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
               <div>
-                <strong>Error:</strong> {error}
+                <strong>{t("settle.errorLabel")}</strong> {error}
               </div>
             </div>
           )}
@@ -436,15 +442,15 @@ export function SettlementVerification({
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-              <span className="ml-3 text-slate-300">
-                Loading checkpoints...
+              <span className="ms-3 text-slate-300">
+                {t("settle.loading")}
               </span>
             </div>
           ) : unsettledCheckpoints.length === 0 && !uncheckedActivity ? (
             <div className="text-center py-8 text-slate-400">
               <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-500" />
-              <p className="text-lg font-medium">All Caught Up!</p>
-              <p className="text-sm mt-1">No unsettled checkpoints found.</p>
+              <p className="text-lg font-medium">{t("settle.caughtUp")}</p>
+              <p className="text-sm mt-1">{t("settle.noUnsettled")}</p>
             </div>
           ) : (
             <>
@@ -454,7 +460,7 @@ export function SettlementVerification({
               ) && (
                 <div className="space-y-3 mb-6">
                   <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
-                    Checkpoint Details
+                    {t("settle.details")}
                   </h4>
 
                   {unsettledCheckpoints
@@ -492,24 +498,37 @@ export function SettlementVerification({
                                     }`}
                                   />
                                 </div>
-                                <div className="text-left">
+                                <div className="text-start">
                                   <p className="text-sm font-semibold text-white">
-                                    {new Date(
-                                      checkpoint.checkpoint_date,
-                                    ).toLocaleDateString("en-US", {
-                                      weekday: "short",
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
-                                    })}
+                                    {formatDate(
+                                      new Date(checkpoint.checkpoint_date),
+                                      {
+                                        weekday: "short",
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric",
+                                      },
+                                    )}
                                   </p>
                                   <p className="text-xs text-slate-400">
-                                    {checkpoint.total_tickets} tickets •{" "}
-                                    {checkpoint.total_sales.toLocaleString()}{" "}
-                                    LBP
+                                    {t("settle.tickets", {
+                                      count: checkpoint.total_tickets,
+                                    })}{" "}
+                                    •{" "}
+                                    <Ltr>
+                                      {formatNumber(checkpoint.total_sales)} LBP
+                                    </Ltr>
                                     {(checkpoint.total_cash_prizes_count || 0) >
                                       0 &&
-                                      ` • ${checkpoint.total_cash_prizes_count} cash prize${checkpoint.total_cash_prizes_count !== 1 ? "s" : ""}`}
+                                      ` • ${t(
+                                        checkpoint.total_cash_prizes_count === 1
+                                          ? "settle.cashPrizeOne"
+                                          : "settle.cashPrizeMany",
+                                        {
+                                          count:
+                                            checkpoint.total_cash_prizes_count,
+                                        },
+                                      )}`}
                                   </p>
                                 </div>
                               </div>
@@ -536,7 +555,7 @@ export function SettlementVerification({
                                       : "text-red-400"
                                   }`}
                                 >
-                                  Net
+                                  {t("settle.net")}
                                 </span>
                                 <span
                                   className={`text-sm font-bold ${
@@ -545,7 +564,7 @@ export function SettlementVerification({
                                       : "text-red-400"
                                   }`}
                                 >
-                                  {Math.abs(breakdown.net).toLocaleString()} LBP
+                                  {formatNumber(Math.abs(breakdown.net))} LBP
                                 </span>
                               </div>
                             )}
@@ -555,47 +574,47 @@ export function SettlementVerification({
                           {isExpanded && breakdown && (
                             <div className="bg-slate-900/50 p-4">
                               <h5 className="text-sm font-semibold text-white mb-4">
-                                How it's calculated
+                                {t("settle.howCalculated")}
                               </h5>
 
                               {/* Money Flow */}
                               <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                   <span className="text-sm text-slate-400">
-                                    Sales collected
+                                    {t("settle.salesCollected")}
                                   </span>
                                   <span className="text-sm font-bold text-green-400">
-                                    +{breakdown.sales.toLocaleString()} LBP
+                                    +{formatNumber(breakdown.sales)} LBP
                                   </span>
                                 </div>
 
                                 <div className="flex items-center justify-between">
                                   <span className="text-sm text-slate-400">
-                                    We keep (commission)
+                                    {t("settle.weKeep")}
                                   </span>
                                   <span className="text-sm font-bold text-blue-400">
-                                    +{breakdown.commission.toLocaleString()} LBP
+                                    +{formatNumber(breakdown.commission)} LBP
                                   </span>
                                 </div>
 
                                 <div className="flex items-center justify-between pt-2 border-t border-slate-700">
                                   <span className="text-sm text-slate-400">
-                                    We owe LOTO
+                                    {t("settle.weOweLoto")}
                                   </span>
                                   <span className="text-sm font-bold text-red-400">
-                                    {breakdown.weOweLoto.toLocaleString()} LBP
+                                    {formatNumber(breakdown.weOweLoto)} LBP
                                   </span>
                                 </div>
 
                                 {breakdown.cashPrizes > 0 && (
                                   <div className="flex items-center justify-between">
                                     <span className="text-sm text-slate-400">
-                                      LOTO owes us (cash prizes ×{" "}
-                                      {breakdown.cashPrizesCount})
+                                      {t("settle.lotoOwesUs", {
+                                        count: breakdown.cashPrizesCount,
+                                      })}
                                     </span>
                                     <span className="text-sm font-bold text-yellow-400">
-                                      +{breakdown.cashPrizes.toLocaleString()}{" "}
-                                      LBP
+                                      +{formatNumber(breakdown.cashPrizes)} LBP
                                     </span>
                                   </div>
                                 )}
@@ -612,7 +631,7 @@ export function SettlementVerification({
               {uncheckedActivity && (
                 <div className="mb-6">
                   <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
-                    Unchecked Activity
+                    {t("settle.unchecked")}
                   </h4>
                   <div className="bg-amber-900/20 border border-amber-700/50 rounded-lg overflow-hidden">
                     <div className="p-4">
@@ -623,18 +642,27 @@ export function SettlementVerification({
                           </div>
                           <div>
                             <p className="text-sm font-semibold text-white">
-                              Sales Without Checkpoint
+                              {t("settle.salesWithoutCheckpoint")}
                             </p>
                             <p className="text-xs text-slate-400">
-                              {uncheckedActivity.ticketsCount} ticket
-                              {uncheckedActivity.ticketsCount !== 1 ? "s" : ""}
+                              {t(
+                                uncheckedActivity.ticketsCount === 1
+                                  ? "settle.ticketOne"
+                                  : "settle.ticketMany",
+                                { count: uncheckedActivity.ticketsCount },
+                              )}
                               {uncheckedActivity.cashPrizesCount > 0 &&
-                                ` • ${uncheckedActivity.cashPrizesCount} cash prize${uncheckedActivity.cashPrizesCount !== 1 ? "s" : ""}`}
+                                ` • ${t(
+                                  uncheckedActivity.cashPrizesCount === 1
+                                    ? "settle.cashPrizeOne"
+                                    : "settle.cashPrizeMany",
+                                  { count: uncheckedActivity.cashPrizesCount },
+                                )}`}
                             </p>
                           </div>
                         </div>
                         <div
-                          className={`text-right px-3 py-2 rounded-lg ${
+                          className={`text-end px-3 py-2 rounded-lg ${
                             uncheckedActivity.net >= 0
                               ? "bg-green-900/30 border border-green-700/50"
                               : "bg-red-900/30 border border-red-700/50"
@@ -648,8 +676,8 @@ export function SettlementVerification({
                             }`}
                           >
                             {uncheckedActivity.net >= 0
-                              ? "LOTO pays us"
-                              : "We pay LOTO"}
+                              ? t("settle.lotoPaysUs")
+                              : t("settle.wePayLoto")}
                           </p>
                           <p
                             className={`text-sm font-bold ${
@@ -658,8 +686,7 @@ export function SettlementVerification({
                                 : "text-red-400"
                             }`}
                           >
-                            {Math.abs(uncheckedActivity.net).toLocaleString()}{" "}
-                            LBP
+                            {formatNumber(Math.abs(uncheckedActivity.net))} LBP
                           </p>
                         </div>
                       </div>
@@ -667,23 +694,22 @@ export function SettlementVerification({
                       {/* Details */}
                       <div className="grid grid-cols-3 gap-3 text-xs mb-4">
                         <div>
-                          <span className="text-slate-400">Sales:</span>{" "}
+                          <span className="text-slate-400">{t("settle.salesLabel")}</span>{" "}
                           <span className="text-green-400 font-medium">
-                            {uncheckedActivity.sales.toLocaleString()} LBP
+                            {formatNumber(uncheckedActivity.sales)} LBP
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-400">Commission:</span>{" "}
+                          <span className="text-slate-400">{t("settle.commissionLabel")}</span>{" "}
                           <span className="text-blue-400 font-medium">
-                            {uncheckedActivity.commission.toLocaleString()} LBP
+                            {formatNumber(uncheckedActivity.commission)} LBP
                           </span>
                         </div>
                         {uncheckedActivity.cashPrizes > 0 && (
                           <div>
-                            <span className="text-slate-400">Cash Prizes:</span>{" "}
+                            <span className="text-slate-400">{t("settle.cashPrizesLabel")}</span>{" "}
                             <span className="text-yellow-400 font-medium">
-                              {uncheckedActivity.cashPrizes.toLocaleString()}{" "}
-                              LBP
+                              {formatNumber(uncheckedActivity.cashPrizes)} LBP
                             </span>
                           </div>
                         )}
@@ -701,22 +727,26 @@ export function SettlementVerification({
                               loadSettlementData();
                             } else {
                               alert(
-                                "Failed to create checkpoint: " + result.error,
+                                t("msg.checkpointFailed", {
+                                  error: result.error,
+                                }),
                               );
                             }
                           } catch (err) {
                             alert(
-                              "Failed to create checkpoint: " +
-                                (err instanceof Error
-                                  ? err.message
-                                  : "Unknown error"),
+                              t("msg.checkpointFailed", {
+                                error:
+                                  err instanceof Error
+                                    ? err.message
+                                    : t("msg.unknownError"),
+                              }),
                             );
                           }
                         }}
                         className="w-full py-2 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
                       >
                         <Calculator className="w-4 h-4" />
-                        Create Checkpoint for These Sales
+                        {t("settle.createForThese")}
                       </button>
                     </div>
                   </div>
@@ -726,13 +756,13 @@ export function SettlementVerification({
               {/* Payment Method Selection */}
               <div className="mb-6">
                 <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
-                  Payment Method
+                  {t("settle.paymentMethod")}
                 </h4>
                 <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4">
                   <p className="text-xs text-slate-400 mb-3">
                     {totals.net >= 0
-                      ? "How LOTO pays you:"
-                      : "How you pay LOTO:"}
+                      ? t("settle.howLotoPays")
+                      : t("settle.howYouPay")}
                   </p>
                   <MultiPaymentInput
                     // LIRA-310 — once waived, the total drops by the waived
@@ -761,14 +791,16 @@ export function SettlementVerification({
                       data-testid="loto-settle-waived"
                     >
                       <span>
-                        Waived {waivedLbp.toLocaleString()} LBP — LOTO pays less
+                        {t("settle.waived", {
+                          amount: `${formatNumber(waivedLbp)} LBP`,
+                        })}
                       </span>
                       <button
                         type="button"
                         onClick={clearWaive}
                         className="underline text-slate-300 hover:text-white"
                       >
-                        Undo
+                        {t("settle.undo")}
                       </button>
                     </div>
                   )}
@@ -777,10 +809,9 @@ export function SettlementVerification({
                       className="mt-2 text-amber-400 text-xs"
                       data-testid="loto-settle-underpaid"
                     >
-                      The entered payment doesn't cover the settlement —
                       {waiveAllowed
-                        ? " enter the full amount or tap Waive for a small gap."
-                        : " enter the full amount."}
+                        ? t("settle.underpaidWaive")
+                        : t("settle.underpaid")}
                     </p>
                   )}
                 </div>
@@ -793,7 +824,7 @@ export function SettlementVerification({
                   disabled={isProcessing}
                   className="flex-1 py-3 px-4 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 text-white rounded-lg transition-colors"
                 >
-                  Cancel
+                  {tc("actions.cancel")}
                 </button>
                 <button
                   onClick={handleSettle}
@@ -807,17 +838,21 @@ export function SettlementVerification({
                   {isProcessing ? (
                     <span className="flex items-center gap-2">
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Processing...
+                      {t("settle.processing")}
                     </span>
                   ) : unsettledCheckpoints.length === 0 && uncheckedActivity ? (
                     <span className="flex items-center gap-2">
                       <CheckCircle className="w-5 h-5" />
-                      <span>Create Checkpoint & Settle</span>
+                      <span>{t("settle.createAndSettle")}</span>
                     </span>
                   ) : (
                     <span className="flex items-center gap-2">
                       <CheckCircle className="w-5 h-5" />
-                      <span>Settle All ({unsettledCheckpoints.length})</span>
+                      <span>
+                        {t("settle.settleAll", {
+                          count: unsettledCheckpoints.length,
+                        })}
+                      </span>
                     </span>
                   )}
                 </button>

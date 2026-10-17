@@ -35,6 +35,7 @@ export default function CheckpointModal({
 }: CheckpointModalProps) {
   useModalFocusFix(isOpen);
   const { t } = useTranslation("closing");
+  const { t: tc } = useTranslation("common");
   const drawerText = useDrawerText();
   const cp = useDrawerCheckpoint({ isOpen, drawerName, onSaved: onClose });
   const { saving, overallStatus, saveLabel, handleSave } = cp;
@@ -97,7 +98,7 @@ export default function CheckpointModal({
               disabled={saving}
               className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
             >
-              {t("common:actions.cancel")}
+              {tc("actions.cancel")}
             </button>
 
             <button
