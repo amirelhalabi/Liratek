@@ -6680,6 +6680,18 @@ Spec Kit: `specs/324-whish-usd-mode/` (spec, plan, tasks). Owner decisions: MTC/
 
 **What users will notice:** Recharge → Whish App → Bills has an LBP | USD switch; in USD the items show and sell at their dollar price and the cost comes out of the Whish App dollar balance; dollar-only items appear only in USD; prepaid cards stay LBP; set dollar selling prices in Settings → Mobile Services.
 
+## LIRA-331: Arabic app UI (Arabic + English, RTL) — SPEC DONE, plan next (owner decisions 2026-10-17)
+
+Why: all four Lebanese competitors (Table, Sandooq, MAPOS, Managely) offer Arabic; LiraTek's app is English-only (only the landing page has Arabic). See `marketing/instagram/COMPETITORS.md`. Spec Kit: `specs/331-arabic-ui/`. Desktop + web + phone app.
+
+Owner decisions 2026-10-17: Western digits 0-9 everywhere, also in Arabic; "What's new" stays English for now; receipts use one shop setting (English or Arabic, default English); a user's language does not sync between the desktop app and the web app. Plan decisions (OD-1..6): the Arabic landing page's signup links get `?lang=ar`; Arabic stays hidden until server messages are translated (P2); Lebanese month names; system-stored text shown as stored; seeded names translated only while unchanged; emails stay English. Plan: `specs/331-arabic-ui/tasks.md` (103 tasks, P1 web+desktop, P2 server+receipts, P3 phone app).
+
+## LIRA-332: Free trial on signup — SPEC DONE, plan next (owner decisions 2026-10-17)
+
+Why: competitors offer a no-card trial (Table 14 days, Managely 7 days); LiraTek signup has no trial or activation. A trial gives social posts a clear call to action. Spec Kit: `specs/332-free-trial/`.
+
+Owner decisions 2026-10-17: 14 days, no card. After it ends: sign in, view and export everything, no new records, no 7-day grace, nothing deleted, wording "trial ended". A linked offline PC still uploads sales recorded before the end, then follows the same rule. Sales a PC recorded after the end, before it heard about it, are held on the server and booked automatically on activation (D-332-A). Plan: `specs/332-free-trial/tasks.md` (69 tasks). Supersedes D2 "No trial" in `docs/plans/ongoing_plans/SUBSCRIPTION_MANAGEMENT_PLAN.md` (sign-up no longer needs an invite code).
+
 ## LIRA-333: Send the receipt on WhatsApp (wa.me link) — BUILT 2026-10-17 (owner decisions 2026-10-17)
 
 Owner decision: free `wa.me` link with the receipt text pre-filled, the cashier taps Send. No WhatsApp Cloud API, no per-message cost. Why: MAPOS and Managely advertise WhatsApp receipts; LiraTek has WhatsApp API settings but nothing sends. Spec Kit: `specs/333-whatsapp-receipt/`.
