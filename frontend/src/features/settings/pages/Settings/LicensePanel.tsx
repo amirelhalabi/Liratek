@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { KeyRound, RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { isElectron } from "@/api/backendApi";
 import logger from "@/utils/logger";
 
@@ -52,6 +53,7 @@ function hasLicenseChannel(): boolean {
   return isElectron() && typeof window.api?.license?.status === "function";
 }
 export default function LicensePanel() {
+  const { t } = useTranslation(["settings", "common"]);
   const [state, setState] = useState<LicenseState | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -69,13 +71,13 @@ export default function LicensePanel() {
           subscription: res.data.subscription,
         });
       } else {
-        setError(res.error ?? "Could not read the licence");
+        setError(res.error ?? t("license.readFailed"));
       }
     } catch (err) {
       logger.error("license status failed:", err);
-      setError("Could not read the licence");
+      setError(t("license.readFailed"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -84,8 +86,7 @@ export default function LicensePanel() {
   if (!hasLicenseChannel()) {
     return (
       <div className="text-sm text-slate-400">
-        Your plan is managed by LiraTek and applies automatically to this
-        account — there is no licence key to enter here.
+        {t("license.managed")}
       </div>
     );
   }
@@ -99,15 +100,15 @@ export default function LicensePanel() {
         licenseKey: keyInput.trim() || null,
       });
       if (res.success) {
-        setMessage(res.data?.detail ?? "Saved");
+        setMessage(res.data?.detail ?? t("license.saved"));
         setKeyInput("");
         await load();
       } else {
-        setError(res.error ?? "Could not save the key");
+        setError(res.error ?? t("license.saveFailed"));
       }
     } catch (err) {
       logger.error("license setKey failed:", err);
-      setError("Could not save the key");
+      setError(t("license.saveFailed"));
     } finally {
       setBusy(false);
     }
@@ -120,14 +121,14 @@ export default function LicensePanel() {
     try {
       const res = await window.api.license.check();
       if (res.success) {
-        setMessage(res.data?.detail ?? "Checked");
+        setMessage(res.data?.detail ?? t("license.checked"));
         await load();
       } else {
-        setError(res.error ?? "Check failed");
+        setError(res.error ?? t("license.checkFailed"));
       }
     } catch (err) {
       logger.error("license check failed:", err);
-      setError("Check failed");
+      setError(t("license.checkFailed"));
     } finally {
       setBusy(false);
     }
@@ -141,50 +142,51 @@ export default function LicensePanel() {
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
           <KeyRound className="w-4 h-4 text-violet-400" />
-          Licence
+          {t("license.title")}
         </h2>
         <p className="text-sm text-slate-400 mt-1">
-          Enter the key LiraTek gave you. Everything keeps working without one —
-          a key is what lets your plan be managed remotely.
+          {t("license.intro")}
         </p>
       </div>
 
       {/* Current state */}
       <div className="bg-slate-900 rounded-lg border border-slate-700 p-4 space-y-2">
         <Row
-          label="Licence key"
+          label={t("license.key")}
           value={
             state?.hasLicenseKey
-              ? (state.licenseKeyMasked ?? "Set")
-              : "Not set — no restrictions"
+              ? (state.licenseKeyMasked ?? t("license.keySet"))
+              : t("license.keyNotSet")
           }
         />
-        <Row label="Plan" value={sub?.plan ?? "—"} />
+        <Row label={t("license.plan")} value={sub?.plan ?? "—"} />
         <Row
-          label="Status"
+          label={t("license.status")}
           value={
             sub
               ? sub.status === "active"
-                ? "Active"
+                ? t("license.active")
                 : sub.status === "grace"
-                  ? `Payment overdue — full access until ${fmt(sub.graceEndsAt)}`
-                  : "Read-only — viewing and exporting still work"
+                  ? t("license.grace", { date: fmt(sub.graceEndsAt) })
+                  : t("license.readOnly")
               : "—"
           }
         />
         <Row
-          label="Renews / ends"
+          label={t("license.renews")}
           value={
-            sub?.currentPeriodEnd ? fmt(sub.currentPeriodEnd) : "No expiry"
+            sub?.currentPeriodEnd
+              ? fmt(sub.currentPeriodEnd)
+              : t("license.noExpiry")
           }
         />
         <Row
-          label="Modules"
+          label={t("license.modules")}
           value={
             modules === null || modules === undefined
-              ? "All modules"
+              ? t("license.allModules")
               : modules.length === 0
-                ? "None beyond the basics"
+                ? t("license.noModules")
                 : modules.join(", ")
           }
         />
@@ -193,7 +195,7 @@ export default function LicensePanel() {
       {/* Enter / replace the key */}
       <div className="space-y-2">
         <label className="text-xs text-slate-400 block" htmlFor="license-key">
-          {state?.hasLicenseKey ? "Replace the key" : "Licence key"}
+          {state?.hasLicenseKey ? t("license.replace") : t("license.key")}
         </label>
         <div className="flex gap-2">
           <input
@@ -202,7 +204,7 @@ export default function LicensePanel() {
             type="text"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
-            placeholder="lsk_..."
+            placeholder="lsk_..." // i18n-exempt: key format sample
             autoComplete="off"
             className="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
           />
@@ -212,22 +214,21 @@ export default function LicensePanel() {
             data-testid="license-save"
             className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg transition-colors"
           >
-            Save
+            {t("common:actions.save")}
           </button>
           <button
             onClick={checkNow}
             disabled={busy}
             data-testid="license-check"
-            title="Ask the server for the latest plan"
+            title={t("license.checkTitle")}
             className="px-3 py-2 bg-slate-700 hover:bg-slate-600 disabled:text-slate-500 text-white text-sm rounded-lg transition-colors flex items-center gap-1"
           >
             <RefreshCw className={`w-4 h-4 ${busy ? "animate-spin" : ""}`} />
-            Check now
+            {t("license.checkNow")}
           </button>
         </div>
         <p className="text-xs text-slate-500">
-          Leave the box empty and press Save to remove the key. Removing it
-          restores full access — it never locks anything.
+          {t("license.removeHint")}
         </p>
       </div>
 

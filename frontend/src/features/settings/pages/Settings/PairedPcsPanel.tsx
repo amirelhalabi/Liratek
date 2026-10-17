@@ -8,25 +8,33 @@
  * "Available on the web app". `api` is read through a ref (rule 25).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
 import type { PairedDeviceView } from "@liratek/core";
 import logger from "@/utils/logger";
+import { useFormat } from "@/i18n/useFormat";
 
-const STATE_LABEL: Record<string, string> = {
-  standby: "Ready (online)",
-  blocked: "Not ready",
-  offline: "Working offline",
-  finishing: "Sending its work",
-};
+/** Device states the server reports; anything else reads "Not seen yet". */
+const STATE_KEYS = {
+  standby: "pairedPcs.state.standby",
+  blocked: "pairedPcs.state.blocked",
+  offline: "pairedPcs.state.offline",
+  finishing: "pairedPcs.state.finishing",
+} as const;
 
-function when(iso: string | null): string {
-  if (!iso) return "never";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+function isKnownState(s: string | null | undefined): s is keyof typeof STATE_KEYS {
+  return s != null && Object.prototype.hasOwnProperty.call(STATE_KEYS, s);
 }
 
 export default function PairedPcsPanel() {
   const api = useApi();
+  const { t } = useTranslation(["settings", "common"]);
+  const { formatDateTime } = useFormat();
+  const when = (iso: string | null): string => {
+    if (!iso) return t("pairedPcs.never");
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : formatDateTime(d);
+  };
   const apiRef = useRef(api);
   apiRef.current = api;
   const [devices, setDevices] = useState<PairedDeviceView[]>([]);
@@ -38,12 +46,12 @@ export default function PairedPcsPanel() {
     try {
       const r = await apiRef.current.getPairedPcs();
       if (r.success && r.data) setDevices(r.data.devices);
-      else setError(r.error ?? "Could not load the paired PCs");
+      else setError(r.error ?? t("pairedPcs.loadFailed"));
     } catch (err) {
       logger.error("Failed to load paired PCs:", err);
-      setError("Could not load the paired PCs");
+      setError(t("pairedPcs.loadFailed"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -54,10 +62,10 @@ export default function PairedPcsPanel() {
     try {
       const r = action === "unpair" ? await apiRef.current.revokePairedPc(id) : await apiRef.current.renumberPairedPc(id);
       await load();
-      setError(r.success ? null : (r.error ?? (action === "unpair" ? "Could not unpair the PC" : "Could not ask the PC to renumber")));
+      setError(r.success ? null : (r.error ?? (action === "unpair" ? t("pairedPcs.unpairFailed") : t("pairedPcs.renumberFailed"))));
     } catch (err) {
       logger.error("Paired PC action failed:", err);
-      setError("The action failed");
+      setError(t("pairedPcs.actionFailed"));
     } finally {
       setBusy(false);
       setConfirm(null);
@@ -69,9 +77,9 @@ export default function PairedPcsPanel() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-white">Paired PCs</h2>
+        <h2 className="text-lg font-semibold text-white">{t("pairedPcs.title")}</h2>
         <p className="text-sm text-slate-400">
-          Desktop PCs that keep a copy of the shop and can keep working when the internet is down.
+          {t("pairedPcs.intro")}
         </p>
       </div>
 
@@ -82,11 +90,11 @@ export default function PairedPcsPanel() {
       )}
 
       {confirming && confirm && (
-        <div role="dialog" aria-label="Confirm" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+        <div role="dialog" aria-label={t("common:actions.confirm")} className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
           <p className="text-sm text-amber-200">
             {confirm.action === "unpair"
-              ? `Unpair ${confirming.name}? It will need to be paired again by an admin. Work it already sent is still booked.`
-              : `Renumber the unsent work of ${confirming.name}? The next time it connects, it gives its waiting items new numbers after the last one the server has, and sends them again. Nothing is booked twice.`}
+              ? t("pairedPcs.confirmUnpair", { name: confirming.name })
+              : t("pairedPcs.confirmRenumber", { name: confirming.name })}
           </p>
           <div className="mt-2 flex gap-2">
             <button
@@ -95,10 +103,10 @@ export default function PairedPcsPanel() {
               onClick={() => void act(confirming.id, confirm.action)}
               className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-sm"
             >
-              Confirm
+              {t("common:actions.confirm")}
             </button>
             <button type="button" onClick={() => setConfirm(null)} className="px-3 py-1.5 rounded-lg bg-slate-700 text-white text-sm">
-              Cancel
+              {t("common:actions.cancel")}
             </button>
           </div>
         </div>
@@ -108,8 +116,16 @@ export default function PairedPcsPanel() {
         <table className="w-full">
           <thead className="bg-slate-900">
             <tr>
-              {["PC", "Name", "Last seen", "State", "Waiting", "Version", ""].map((h) => (
-                <th key={h} className="text-start text-xs text-slate-400 px-4 py-3">
+              {[
+                t("pairedPcs.col.pc"),
+                t("pairedPcs.col.name"),
+                t("pairedPcs.col.lastSeen"),
+                t("pairedPcs.col.state"),
+                t("pairedPcs.col.waiting"),
+                t("pairedPcs.col.version"),
+                "",
+              ].map((h, i) => (
+                <th key={i} className="text-start text-xs text-slate-400 px-4 py-3">
                   {h}
                 </th>
               ))}
@@ -119,43 +135,47 @@ export default function PairedPcsPanel() {
             {devices.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-3 text-sm text-slate-400">
-                  No PC is paired yet.
+                  {t("pairedPcs.none")}
                 </td>
               </tr>
             )}
             {devices.map((d) => (
               <tr key={d.id} className="hover:bg-slate-700/50">
-                <td className="px-4 py-3 text-sm text-white">PC {d.deviceNo}</td>
+                <td className="px-4 py-3 text-sm text-white">{t("pairedPcs.pcNo", { n: d.deviceNo })}</td>
                 <td className="px-4 py-3 text-sm text-white">{d.name}</td>
                 <td className="px-4 py-3 text-sm text-slate-300">{when(d.lastSeenAt)}</td>
                 <td className="px-4 py-3 text-sm text-slate-300">
-                  {d.revokedAt ? "Unpaired" : (STATE_LABEL[d.state ?? ""] ?? "Not seen yet")}
+                  {d.revokedAt
+                    ? t("pairedPcs.unpaired")
+                    : isKnownState(d.state)
+                      ? t(STATE_KEYS[d.state])
+                      : t("pairedPcs.notSeen")}
                   {d.seqConflict && <div className="mt-1 text-xs text-red-300">{d.seqConflict.reason}</div>}
                   {d.renumberRequested && (
-                    <div className="mt-1 text-xs text-amber-300">Waiting for the PC to renumber its unsent work</div>
+                    <div className="mt-1 text-xs text-amber-300">{t("pairedPcs.renumberWaiting")}</div>
                   )}
                 </td>
-                <td className="px-4 py-3 text-sm text-slate-300">{d.pendingCount} waiting</td>
+                <td className="px-4 py-3 text-sm text-slate-300">{t("pairedPcs.waitingCount", { n: d.pendingCount })}</td>
                 <td className="px-4 py-3 text-sm text-slate-300">{d.appVersion ?? "—"}</td>
                 <td className="px-4 py-3 text-sm">
                   {!d.revokedAt && d.seqConflict && (
                     <button
                       type="button"
-                      aria-label={`Renumber ${d.name}`}
+                      aria-label={t("pairedPcs.renumberAria", { name: d.name })}
                       onClick={() => setConfirm({ id: d.id, action: "renumber" })}
                       className="me-2 px-3 py-1 rounded-lg bg-violet-700 text-white hover:bg-violet-600"
                     >
-                      Renumber unsent work
+                      {t("pairedPcs.renumber")}
                     </button>
                   )}
                   {!d.revokedAt && (
                     <button
                       type="button"
-                      aria-label={`Unpair ${d.name}`}
+                      aria-label={t("pairedPcs.unpairAria", { name: d.name })}
                       onClick={() => setConfirm({ id: d.id, action: "unpair" })}
                       className="px-3 py-1 rounded-lg bg-slate-700 text-white hover:bg-slate-600"
                     >
-                      Unpair
+                      {t("pairedPcs.unpair")}
                     </button>
                   )}
                 </td>

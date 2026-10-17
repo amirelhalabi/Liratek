@@ -112,7 +112,7 @@ export default function IntegrationsConfig() {
 
       <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-          WhatsApp Cloud API
+          {t("integrations.whatsappCloud")}
         </h3>
 
         <PasswordInput
