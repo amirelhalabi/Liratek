@@ -332,12 +332,13 @@ const CASES: Case[] = [
     run: async () => {
       setAccount(50, 0);
       await openSettle("debts-settle-open");
-      fireEvent.change(amountInputs()[0], { target: { value: "30" } });
+      // Waive only shows for a gap within the shared shortfall cap ($5).
+      fireEvent.change(amountInputs()[0], { target: { value: "46" } });
       fireEvent.click(await screen.findByTestId("waive-remaining"));
       await waitFor(() =>
         expect(
           (screen.getByTestId("debt-forgive-usd") as HTMLInputElement).value,
-        ).toBe("20.00"),
+        ).toBe("4.00"),
       );
       await confirmSettle();
       return repaid();
