@@ -60,5 +60,29 @@
     "typeCommand": "اكتب أمرك...",
     "send": "إرسال الأمر",
     "clickToSpeak": "اضغط للتكلّم"
+  },
+  "modules": {
+    "dashboard": "لوحة التحكم",
+    "closing": "الإقفال",
+    "audit": "السجل والمعاملات",
+    "settings": "الإعدادات",
+    "pos": "نقطة البيع",
+    "debts": "الحسابات",
+    "inventory": "المخزون",
+    "clients": "الزبائن",
+    "exchange": "صرف العملات",
+    "omt_whish": "OMT/Whish",
+    "recharge": "MTC/Alfa",
+    "expenses": "المصاريف",
+    "maintenance": "التصليحات",
+    "binance": "Binance",
+    "ipec_katch": "iPick/Katsh",
+    "custom_services": "الخدمات",
+    "profits": "الأرباح",
+    "customer_sessions": "جلسات الزبائن",
+    "partners": "الشركاء",
+    "loto": "لوتو",
+    "suppliers": "الموردون",
+    "vouchers": "القسائم"
   }
 }

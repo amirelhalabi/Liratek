@@ -27,6 +27,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
+import { moduleLabel } from "@/shared/utils/moduleLabel";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
@@ -272,7 +273,7 @@ export default function HomeGrid() {
       items.push({
         to: m.route,
         icon: iconMap[m.icon] || Circle,
-        label: m.label,
+        label: moduleLabel(m.key, m.label, t),
       });
     }
 
@@ -375,7 +376,9 @@ export default function HomeGrid() {
                     toggleFavorite(item.to);
                   }
                 }}
-                title={favorited ? t("nav.removeFavorite") : t("nav.addFavorite")}
+                title={
+                  favorited ? t("nav.removeFavorite") : t("nav.addFavorite")
+                }
                 aria-label={
                   favorited ? t("nav.removeFavorite") : t("nav.addFavorite")
                 }

@@ -60,5 +60,29 @@
     "typeCommand": "Type your command...",
     "send": "Send command",
     "clickToSpeak": "Click to speak"
+  },
+  "modules": {
+    "dashboard": "Dashboard",
+    "closing": "Closing",
+    "audit": "Audit & Transactions",
+    "settings": "Settings",
+    "pos": "Point of Sale",
+    "debts": "Accounts",
+    "inventory": "Inventory",
+    "clients": "Clients",
+    "exchange": "Exchange",
+    "omt_whish": "OMT/Whish",
+    "recharge": "MTC/Alfa",
+    "expenses": "Expenses",
+    "maintenance": "Maintenance",
+    "binance": "Binance",
+    "ipec_katch": "iPick/Katsh",
+    "custom_services": "Services",
+    "profits": "Profits",
+    "customer_sessions": "Sessions",
+    "partners": "Partners",
+    "loto": "Loto",
+    "suppliers": "Suppliers",
+    "vouchers": "Vouchers"
   }
 }

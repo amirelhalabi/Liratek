@@ -36,6 +36,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
+import { moduleLabel } from "@/shared/utils/moduleLabel";
 import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
@@ -165,7 +166,8 @@ export default function Sidebar({
                 to: "/phone-lines",
                 icon: Phone,
                 label: t("nav.phoneLines"),
-                prefetch: () => import("@/features/phoneLines/pages/PhoneLines"),
+                prefetch: () =>
+                  import("@/features/phoneLines/pages/PhoneLines"),
               });
             }
           }
@@ -174,7 +176,7 @@ export default function Sidebar({
         acc.push({
           to: m.route,
           icon: iconMap[m.icon] || Circle,
-          label: m.label,
+          label: moduleLabel(m.key, m.label, t),
         });
         return acc;
       }, []);
@@ -272,7 +274,9 @@ export default function Sidebar({
         <button
           onClick={toggleSidebar}
           className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          title={isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
+          title={
+            isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")
+          }
         >
           {isCollapsed ? (
             <DirIcon icon={PanelLeft} width={20} height={20} />
