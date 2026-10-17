@@ -1,5 +1,50 @@
 {
   "list": {
-    "title": "Clients"
+    "title": "Clients",
+    "add": "Add Client",
+    "searchPlaceholder": "Search by name or phone...",
+    "colInfo": "Client Info",
+    "colPhone": "Phone",
+    "colNotes": "Notes",
+    "colActions": "Actions",
+    "empty": "No clients found.",
+    "idPrefix": "ID: ",
+    "viewSessions": "View customer sessions",
+    "deleteConfirm": "Are you sure you want to delete this client? Cannot be undone if they have sales.",
+    "deleteFailed": "Delete failed"
+  },
+  "form": {
+    "newTitle": "New Client",
+    "editTitle": "Edit Client",
+    "fullName": "Full Name",
+    "fullNamePlaceholder": "John Doe",
+    "sendTestTitle": "Send test WhatsApp message",
+    "send": "Send",
+    "sending": "Sending...",
+    "whatsappOptIn": "Receive updates via WhatsApp",
+    "notes": "Notes (Optional)",
+    "notesPlaceholder": "Customer preferences, loyalty status...",
+    "save": "Save Client",
+    "saveFailed": "Failed to save client",
+    "unexpectedError": "An unexpected error occurred",
+    "phoneFirst": "Please enter a phone number first",
+    "whatsappSent": "WhatsApp message sent successfully!",
+    "whatsappFailed": "Failed to send WhatsApp message"
+  },
+  "sessions": {
+    "loading": "Loading sessions...",
+    "title": "Customer Sessions",
+    "empty": "No sessions found for this customer",
+    "sessionNo": "Session #{{id}}",
+    "totalSpent": "Total Spent",
+    "transactions": "Transactions ({{n}})",
+    "type": {
+      "SALE": "Sale",
+      "FINANCIAL_SERVICE": "Money Transfer",
+      "RECHARGE": "Recharge",
+      "MAINTENANCE": "Maintenance",
+      "CUSTOM_SERVICE": "Custom Service",
+      "EXCHANGE": "Exchange"
+    }
   }
 }

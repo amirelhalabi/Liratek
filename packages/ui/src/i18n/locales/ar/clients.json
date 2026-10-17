@@ -1,5 +1,50 @@
 {
   "list": {
-    "title": "الزبائن"
+    "title": "الزبائن",
+    "add": "إضافة زبون",
+    "searchPlaceholder": "ابحث بالاسم أو رقم الهاتف...",
+    "colInfo": "معلومات الزبون",
+    "colPhone": "الهاتف",
+    "colNotes": "ملاحظات",
+    "colActions": "إجراءات",
+    "empty": "لا يوجد زبائن.",
+    "idPrefix": "الرقم: ",
+    "viewSessions": "عرض جلسات الزبون",
+    "deleteConfirm": "هل أنت متأكد من حذف هذا الزبون؟ لا يمكن التراجع إذا كانت لديه مبيعات.",
+    "deleteFailed": "فشل الحذف"
+  },
+  "form": {
+    "newTitle": "زبون جديد",
+    "editTitle": "تعديل الزبون",
+    "fullName": "الاسم الكامل",
+    "fullNamePlaceholder": "مثال: علي حسن",
+    "sendTestTitle": "إرسال رسالة WhatsApp تجريبية",
+    "send": "إرسال",
+    "sending": "جارٍ الإرسال...",
+    "whatsappOptIn": "تلقّي التحديثات عبر WhatsApp",
+    "notes": "ملاحظات (اختياري)",
+    "notesPlaceholder": "تفضيلات الزبون، حالة الولاء...",
+    "save": "حفظ الزبون",
+    "saveFailed": "فشل حفظ الزبون",
+    "unexpectedError": "حدث خطأ غير متوقع",
+    "phoneFirst": "يرجى إدخال رقم الهاتف أولاً",
+    "whatsappSent": "تم إرسال رسالة WhatsApp بنجاح!",
+    "whatsappFailed": "فشل إرسال رسالة WhatsApp"
+  },
+  "sessions": {
+    "loading": "جارٍ تحميل الجلسات...",
+    "title": "جلسات الزبون",
+    "empty": "لا توجد جلسات لهذا الزبون",
+    "sessionNo": "جلسة رقم {{id}}",
+    "totalSpent": "إجمالي المصروف",
+    "transactions": "العمليات ({{n}})",
+    "type": {
+      "SALE": "بيع",
+      "FINANCIAL_SERVICE": "تحويل أموال",
+      "RECHARGE": "تشريج",
+      "MAINTENANCE": "تصليح",
+      "CUSTOM_SERVICE": "خدمة مخصّصة",
+      "EXCHANGE": "صرف عملات"
+    }
   }
 }

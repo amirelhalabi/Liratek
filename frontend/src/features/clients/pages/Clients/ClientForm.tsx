@@ -4,6 +4,7 @@ import { X, Save, MessageCircle, Send } from "lucide-react";
 import { useApi, type Client } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { createClient, updateClient } from "@/api/backendApi";
+import { useTranslation } from "react-i18next";
 
 interface ClientFormProps {
   onClose: () => void;
@@ -17,6 +18,7 @@ export default function ClientForm({
   client,
 }: ClientFormProps) {
   useModalFocusFix(true);
+  const { t } = useTranslation("clients");
   const api = useApi();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -89,11 +91,11 @@ export default function ClientForm({
       if (result.success) {
         onSave();
       } else {
-        setError(result.error || "Failed to save client");
+        setError(result.error || t("form.saveFailed"));
       }
     } catch (err) {
       logger.error("Failed to save client", { error: err });
-      setError("An unexpected error occurred");
+      setError(t("form.unexpectedError"));
     } finally {
       setIsLoading(false);
     }
@@ -101,7 +103,7 @@ export default function ClientForm({
 
   const handleSendWhatsApp = async () => {
     if (!formData.phone_number) {
-      setError("Please enter a phone number first");
+      setError(t("form.phoneFirst"));
       return;
     }
 
@@ -117,13 +119,13 @@ export default function ClientForm({
       );
 
       if (result.success) {
-        alert("WhatsApp message sent successfully!");
+        alert(t("form.whatsappSent"));
       } else {
-        setError(result.error || "Failed to send WhatsApp message");
+        setError(result.error || t("form.whatsappFailed"));
       }
     } catch (err) {
       logger.error("Failed to send WhatsApp message", { error: err });
-      setError("An unexpected error occurred");
+      setError(t("form.unexpectedError"));
     } finally {
       setIsSending(false);
     }
@@ -146,7 +148,7 @@ export default function ClientForm({
       >
         <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <h2 className="text-xl font-bold text-white">
-            {client ? "Edit Client" : "New Client"}
+            {client ? t("form.editTitle") : t("form.newTitle")}
           </h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white">
             <X size={24} />
@@ -165,7 +167,7 @@ export default function ClientForm({
               htmlFor="client-full-name"
               className="block text-sm font-medium text-slate-400 mb-1"
             >
-              Full Name
+              {t("form.fullName")}
             </label>
             <input
               id="client-full-name"
@@ -175,7 +177,7 @@ export default function ClientForm({
               onChange={handleChange}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
               required
-              placeholder="John Doe"
+              placeholder={t("form.fullNamePlaceholder")}
             />
           </div>
 
@@ -195,16 +197,16 @@ export default function ClientForm({
               onClick={handleSendWhatsApp}
               disabled={isSending || !formData.phone_number}
               className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Send test WhatsApp message"
+              title={t("form.sendTestTitle")}
             >
               <Send size={16} />
-              {isSending ? "Sending..." : "Send"}
+              {isSending ? t("form.sending") : t("form.send")}
             </button>
           </div>
 
           <div className="flex items-center justify-between py-2">
             <span className="text-slate-300 text-sm flex items-center gap-2">
-              Receive updates via WhatsApp
+              {t("form.whatsappOptIn")}
               <MessageCircle
                 size={16}
                 className={
@@ -243,7 +245,7 @@ export default function ClientForm({
               htmlFor="client-notes"
               className="block text-sm font-medium text-slate-400 mb-1"
             >
-              Notes (Optional)
+              {t("form.notes")}
             </label>
             <textarea
               id="client-notes"
@@ -251,7 +253,7 @@ export default function ClientForm({
               value={formData.notes}
               onChange={handleChange}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600 min-h-[100px]"
-              placeholder="Customer preferences, loyalty status..."
+              placeholder={t("form.notesPlaceholder")}
             />
           </div>
 
@@ -261,7 +263,7 @@ export default function ClientForm({
               onClick={onClose}
               className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </button>
             <button
               type="submit"
@@ -269,7 +271,7 @@ export default function ClientForm({
               className="flex items-center gap-2 px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               <Save size={18} />
-              {isLoading ? "Saving..." : "Save Client"}
+              {isLoading ? t("common:state.saving") : t("form.save")}
             </button>
           </div>
         </form>
