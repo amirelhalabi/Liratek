@@ -384,6 +384,7 @@ export type {
   SubscriptionStatusView,
   SubscriptionStanding,
 } from "./services/SubscriptionService.js";
+export type { SubscriptionHistoryEntry } from "./services/AuditService.js";
 
 // Dashboard "Net Profit — last 30 days" tile shape (DC-11,
 // OWNER_NOTES_2026-09-21.md §7.2; CHART-m5 verifier finding — this used to

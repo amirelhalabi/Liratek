@@ -250,7 +250,7 @@ Line numbers drift: search for the named symbol.
 
 ### Tests (write first, see them fail)
 
-- [ ] T043 [P] [US3] In `packages/core/src/services/__tests__/SubscriptionService.ownerActions.test.ts` (new, injected `now`):
+- [x] T043 [P] [US3] In `packages/core/src/services/__tests__/SubscriptionService.ownerActions.test.ts` (new, injected `now`):
   - **`activate(tenantId, null)`** on `trial` and on `trial_ended` → `active`, no period, trial columns NULL;
   - **`activate(tenantId, "2027-10-31")`** → `current_period_end` = `endOfShopDay("2027-10-31")` (UTC `2027-10-31 22:00:00`: DST ends at 00:00 on 2027-10-31, so 11-01 00:00 is +2; verified with Python `zoneinfo`), after which `runLapseSweep` behaves as today;
   - **activate** with `until` already over → refused;
@@ -261,8 +261,8 @@ Line numbers drift: search for the named symbol.
   - **neither action** reads or writes `tenants.status` (FR-016).
 
   Not proven failing-first (new contract).
-- [ ] T044 [P] [US3] In `packages/core/src/repositories/__tests__/AuditRepository.subscriptionHistory.test.ts` (new): platform audit rows for tenant A (`entity_type 'subscription'`) are returned newest first, limit 50. Tenant B's rows and other entity types are excluded.
-- [ ] T045 [P] [US3] In `backend/src/api/__tests__/admin.trial.api.test.ts` (new):
+- [x] T044 [P] [US3] In `packages/core/src/repositories/__tests__/AuditRepository.subscriptionHistory.test.ts` (new): platform audit rows for tenant A (`entity_type 'subscription'`) are returned newest first, limit 50. Tenant B's rows and other entity types are excluded.
+- [x] T045 [P] [US3] In `backend/src/api/__tests__/admin.trial.api.test.ts` (new):
   - a super admin can call `activate`, `extend-trial` and `history`;
   - a shop admin or staff, including an impersonation token, gets 403 (FR-017);
   - Zod refusals for bad dates;
@@ -271,8 +271,8 @@ Line numbers drift: search for the named symbol.
   - activate on a suspended tenant leaves `tenants.status='suspended'`;
   - `GET /subscriptions` rows carry `standing`, `trial` and `tenant_created_at` (FR-015);
   - after activate or extend, `scheduleOfflineRound` was called with the tenant id (mock).
-- [ ] T046 [P] [US3] In `frontend/src/features/admin/pages/Tenants/__tests__/TenantsPage.trial.test.tsx` (new): `PlanCell` shows "Trial · 12 days left · ends 2026-11-01" and "Trial ended 2026-11-01". The Suspend/Activate row button text is unchanged.
-- [ ] T047 [P] [US3] In `frontend/src/features/admin/components/__tests__/PlanModal.trial.test.tsx` (new):
+- [x] T046 [P] [US3] In `frontend/src/features/admin/pages/Tenants/__tests__/TenantsPage.trial.test.tsx` (new): `PlanCell` shows "Trial · 12 days left · ends 2026-11-01" and "Trial ended 2026-11-01". The Suspend/Activate row button text is unchanged.
+- [x] T047 [P] [US3] In `frontend/src/features/admin/components/__tests__/PlanModal.trial.test.tsx` (new):
   - **"Activate subscription"** with "No end date" sends `{until:null}`, and with a date sends `{until:"YYYY-MM-DD"}`;
   - **"Extend trial"** sends `{lastDay}`;
   - the field names are asserted by parsing the sent body through `activateSubscriptionSchema` and `extendTrialSchema` (rule 24);
@@ -282,17 +282,17 @@ Line numbers drift: search for the named symbol.
 
 ### Implementation
 
-- [ ] T048 [US3] In SS, add:
+- [x] T048 [US3] In SS, add:
   - `activate(tenantId, until: string | null)`: one `SR.update` setting `status:"active"`, `current_period_end`, and `grace_ends_at`, `trial_started_at`, `trial_ends_at` to null;
   - `extendTrial(tenantId, lastDay)`: the rules of data-model "State transitions".
 
   Both validate against the injected `now` through CAL, and both return `{ before, after }` views for the audit. Makes T043 pass.
-- [ ] T049 [US3] History read:
+- [x] T049 [US3] History read:
   - `AuditRepository.listSubscriptionHistory(tenantId, limit)`: platform scope through `runWithoutTenant`, `?` placeholders, filtered on `entity_type='subscription'` and the target-tenant metadata (match how `logAdminAction` stores `targetTenantId`);
   - `AuditService.subscriptionHistory(tenantId)`.
 
   Run `yarn check:tenant-scoping` and mark it `tenant-exempt` with a reason only if the control-plane read needs it. Makes T044 pass.
-- [ ] T050 [US3] In Admin, add:
+- [x] T050 [US3] In Admin, add:
   - `POST /subscriptions/:tenantId/activate` (`validateRequest(activateSubscriptionSchema)`);
   - `POST /subscriptions/:tenantId/extend-trial` (`validateRequest(extendTrialSchema)`);
   - `GET /subscriptions/:tenantId/history`;
@@ -305,8 +305,8 @@ Line numbers drift: search for the named symbol.
   - uses the admin router's existing error style.
 
   Static paths stay before `/:id` ones. Makes T045 pass.
-- [ ] T051 [US3] In `frontend/src/api/backendApi.ts`, add `adminActivateSubscription(tenantId, body: ActivateSubscriptionInput)`, `adminExtendTrial(tenantId, body: ExtendTrialInput)` and `adminSubscriptionHistory(tenantId)`. Each is `assertWebOnly`, the same as `adminUpdateSubscription`, and the payload types are imported from `@liratek/core` (rule 21). Extend `AdminSubscription` with `standing`, `trial` and `tenant_created_at`. Add the mutations and the history query in `frontend/src/features/admin/hooks/useSubscriptions.ts`, invalidating the subscriptions query.
-- [ ] T052 [US3] On the Tenants page and in PlanModal: the `PlanCell` trial texts and a "Created" date, plus the PlanModal sections "Activate subscription", "Extend trial" and "History" (contracts/ui-trial.md), each saved separately. Makes T046 and T047 pass.
+- [x] T051 [US3] In `frontend/src/api/backendApi.ts`, add `adminActivateSubscription(tenantId, body: ActivateSubscriptionInput)`, `adminExtendTrial(tenantId, body: ExtendTrialInput)` and `adminSubscriptionHistory(tenantId)`. Each is `assertWebOnly`, the same as `adminUpdateSubscription`, and the payload types are imported from `@liratek/core` (rule 21). Extend `AdminSubscription` with `standing`, `trial` and `tenant_created_at`. Add the mutations and the history query in `frontend/src/features/admin/hooks/useSubscriptions.ts`, invalidating the subscriptions query.
+- [x] T052 [US3] On the Tenants page and in PlanModal: the `PlanCell` trial texts and a "Created" date, plus the PlanModal sections "Activate subscription", "Extend trial" and "History" (contracts/ui-trial.md), each saved separately. Makes T046 and T047 pass.
 
 **Checkpoint**: US1 + US2 + US3 are complete together. This is the earliest point at which a push to `main` is acceptable (after Polish gates).
 

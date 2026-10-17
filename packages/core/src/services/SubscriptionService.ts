@@ -24,10 +24,24 @@ import {
 } from "../repositories/SubscriptionRepository.js";
 import { createChildLogger } from "../utils/logger.js";
 import {
+  endOfShopDay,
   parseUtcInstant,
+  toUtcSqlTimestamp,
   trialView,
   type TrialView,
 } from "../utils/trialCalendar.js";
+import { NotFoundError, ValidationError } from "../utils/errors.js";
+
+/** LIRA-332: refusal texts of the owner's trial actions (contracts §4). */
+export const SUBSCRIPTION_DATE_IN_PAST_MESSAGE = "Choose a date in the future";
+export const EXTEND_TRIAL_PAYING_SHOP_MESSAGE =
+  "This shop pays; use Activate subscription";
+
+/** Before/after views of one owner action, for its audit row (FR-022). */
+export interface SubscriptionChange {
+  before: SubscriptionStatusView;
+  after: SubscriptionStatusView;
+}
 import {
   GRACE_PERIOD_DAYS,
   UNGATEABLE_MODULES,
@@ -274,6 +288,81 @@ export class SubscriptionService {
     return updated;
   }
 
+  // ---------------------------------------------------------------------------
+  // LIRA-332: the owner's trial actions (data-model "State transitions").
+  // Separate from Suspend: neither reads nor writes `tenants.status` (FR-016).
+  // Days are shop days (Asia/Beirut); "over" is decided against this
+  // service's clock, never the client's.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * "Activate subscription": the shop pays from now on. Open-ended
+   * (`until = null`) or paid until the END of a shop day, stored as that
+   * exact instant so the lapse sweep moves it at 00:00 Beirut, not 00:00 UTC.
+   * One update: back to `active`, grace and trial cleared.
+   */
+  activate(tenantId: number, until: string | null): SubscriptionChange {
+    const before = this.requireView(tenantId);
+    let periodEnd: string | null = null;
+    if (until !== null) {
+      const end = endOfShopDay(until);
+      if (end.getTime() <= this.now().getTime()) {
+        throw new ValidationError(SUBSCRIPTION_DATE_IN_PAST_MESSAGE);
+      }
+      periodEnd = toUtcSqlTimestamp(end);
+    }
+    this.repo.update(tenantId, {
+      status: "active",
+      current_period_end: periodEnd,
+      grace_ends_at: null,
+      trial_started_at: null,
+      trial_ends_at: null,
+    });
+    const after = this.requireView(tenantId);
+    log.info({ tenantId, until }, "subscription activated");
+    return { before, after };
+  }
+
+  /**
+   * "Extend trial": the trial's new last day. Allowed on a trial (running or
+   * ended) and on an active shop with no paid period (an owner-created shop
+   * can be put on a trial). Refused for a paying shop (grace, read-only, or
+   * a paid period) and for a day already over.
+   */
+  extendTrial(tenantId: number, lastDay: string): SubscriptionChange {
+    const before = this.requireView(tenantId);
+    const row = this.repo.getByTenantId(tenantId);
+    if (!row) throw new NotFoundError("Subscription for tenant", tenantId);
+    const onTrial = before.standing === "trial" || before.standing === "trial_ended";
+    const freeNoPeriod =
+      row.status === "active" &&
+      row.current_period_end === null &&
+      row.grace_ends_at === null;
+    if (!onTrial && !freeNoPeriod) {
+      throw new ValidationError(EXTEND_TRIAL_PAYING_SHOP_MESSAGE);
+    }
+    const end = endOfShopDay(lastDay);
+    const now = this.now();
+    if (end.getTime() <= now.getTime()) {
+      throw new ValidationError(SUBSCRIPTION_DATE_IN_PAST_MESSAGE);
+    }
+    this.repo.update(tenantId, {
+      trial_ends_at: toUtcSqlTimestamp(end),
+      ...(row.trial_started_at
+        ? {}
+        : { trial_started_at: toUtcSqlTimestamp(now) }),
+    });
+    const after = this.requireView(tenantId);
+    log.info({ tenantId, lastDay }, "trial extended");
+    return { before, after };
+  }
+
+  private requireView(tenantId: number): SubscriptionStatusView {
+    const view = this.statusFor(tenantId);
+    if (!view) throw new NotFoundError("Subscription for tenant", tenantId);
+    return view;
+  }
+
   /** Replace the module allowlist. `null` restores "every module". */
   setEntitledModules(
     tenantId: number,
@@ -305,8 +394,17 @@ export class SubscriptionService {
     return updated;
   }
 
+  /**
+   * Every shop's row for the owner's list, each with its derived `standing`
+   * and `trial` view (LIRA-332, FR-015) — computed HERE, the same derivation
+   * the shop's own status route uses, so the two screens agree (rule 14,
+   * US4-4).
+   */
   listAll() {
-    return this.repo.listAll();
+    return this.repo.listAll().map((row) => {
+      const view = this.toView(row);
+      return { ...row, standing: view.standing, trial: view.trial };
+    });
   }
 
   /** Module keys the owner can put on a plan. */

@@ -19,6 +19,7 @@ import type {
   ExtendTrialInput,
   TrialView,
   SubscriptionStanding,
+  SubscriptionHistoryEntry,
 } from "@liratek/core";
 import type { DebtLedgerEntity } from "@liratek/ui";
 // LIRA-309 — phone lines held for sale (schema-derived payloads, rule 21).
@@ -7489,6 +7490,11 @@ export interface AdminSubscription {
   /** RAW JSON text, or null for "every module". */
   entitled_modules: string | null;
   notes: string | null;
+  /** LIRA-332: derived on the server, the same as the shop's own status. */
+  standing: SubscriptionStanding;
+  trial: TrialView | null;
+  /** When the shop itself was created. */
+  tenant_created_at: string;
 }
 
 export interface AdminSubscriptionsPayload {
@@ -7583,6 +7589,66 @@ export async function adminUpdateSubscription(
   if (!res.success) {
     throw new Error(res.error || "Failed to update the plan");
   }
+}
+
+/**
+ * LIRA-332 — the owner's trial actions. Web-only, like every control-plane
+ * call; payload types come from the core schemas (rule 21). The admin router
+ * answers refusals with 4xx (`requestJson` throws a plain ApiError object),
+ * so the server's own sentence ("Choose a date in the future") is lifted out
+ * with `messageFrom` and thrown as an Error the modal can show.
+ */
+async function adminTrialAction(
+  path: string,
+  body: ActivateSubscriptionInput | ExtendTrialInput,
+  fallback: string,
+): Promise<void> {
+  let res: { success: boolean; error?: unknown };
+  try {
+    res = await requestJson<{ success: boolean; error?: unknown }>(path, {
+      method: "POST",
+      body,
+    });
+  } catch (err) {
+    const details = (err as { details?: { error?: unknown } } | null)?.details;
+    throw new Error(messageFrom(details?.error ?? err, fallback));
+  }
+  if (!res.success) throw new Error(messageFrom(res.error, fallback));
+}
+
+export async function adminActivateSubscription(
+  tenantId: number,
+  body: ActivateSubscriptionInput,
+): Promise<void> {
+  assertWebOnly("Activating a subscription");
+  await adminTrialAction(
+    `/api/admin/subscriptions/${tenantId}/activate`,
+    body,
+    "Failed to activate the subscription",
+  );
+}
+
+export async function adminExtendTrial(
+  tenantId: number,
+  body: ExtendTrialInput,
+): Promise<void> {
+  assertWebOnly("Extending a trial");
+  await adminTrialAction(
+    `/api/admin/subscriptions/${tenantId}/extend-trial`,
+    body,
+    "Failed to extend the trial",
+  );
+}
+
+export async function adminSubscriptionHistory(
+  tenantId: number,
+): Promise<SubscriptionHistoryEntry[]> {
+  assertWebOnly("Reading subscription history");
+  const res = await requestJson<{
+    success: boolean;
+    data?: { entries: SubscriptionHistoryEntry[] };
+  }>(`/api/admin/subscriptions/${tenantId}/history`);
+  return res.success && res.data ? res.data.entries : [];
 }
 
 /**

@@ -16,8 +16,15 @@ import { X, Check, KeyRound, Copy, AlertTriangle } from "lucide-react";
 import {
   useUpdateSubscriptionMutation,
   useIssueLicenseKeyMutation,
+  useActivateSubscriptionMutation,
+  useExtendTrialMutation,
+  useSubscriptionHistoryQuery,
 } from "../hooks/useSubscriptions";
-import { UNGATEABLE_MODULES } from "@liratek/core";
+import {
+  UNGATEABLE_MODULES,
+  type ActivateSubscriptionInput,
+  type ExtendTrialInput,
+} from "@liratek/core";
 import type { AdminSubscription } from "@/api/backendApi";
 import logger from "@/utils/logger";
 
@@ -60,6 +67,25 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
 
   const update = useUpdateSubscriptionMutation();
   const issueKey = useIssueLicenseKeyMutation();
+  // LIRA-332: the trial actions and the per-shop history.
+  const activate = useActivateSubscriptionMutation();
+  const extend = useExtendTrialMutation();
+  const history = useSubscriptionHistoryQuery(subscription.tenant_id);
+  const [activateOpenEnded, setActivateOpenEnded] = useState(true);
+  const [activateUntil, setActivateUntil] = useState("");
+  const [extendLastDay, setExtendLastDay] = useState(
+    subscription.trial?.lastDay ?? "",
+  );
+  const onTrial =
+    subscription.standing === "trial" ||
+    subscription.standing === "trial_ended";
+  // Extend is also offered to an owner-created shop that pays nothing yet
+  // (active, no period, no grace) — the server re-checks (data-model).
+  const canExtend =
+    onTrial ||
+    (subscription.standing === "active" &&
+      !subscription.current_period_end &&
+      !subscription.grace_ends_at);
 
   // NO resync effect here, deliberately. An effect keyed on
   // `subscription` looked like good hygiene and was a BUG: saving
@@ -119,7 +145,26 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
       setIssuedKey(key);
     });
 
-  const busy = update.isPending || issueKey.isPending;
+  const doActivate = () =>
+    run("Subscription activated", () => {
+      // ONE payload, typed from the schema (rule 21/22).
+      const body: ActivateSubscriptionInput = {
+        until: activateOpenEnded ? null : activateUntil,
+      };
+      return activate.mutateAsync({ tenantId: subscription.tenant_id, body });
+    });
+
+  const doExtend = () =>
+    run("Trial extended", () => {
+      const body: ExtendTrialInput = { lastDay: extendLastDay };
+      return extend.mutateAsync({ tenantId: subscription.tenant_id, body });
+    });
+
+  const busy =
+    update.isPending ||
+    issueKey.isPending ||
+    activate.isPending ||
+    extend.isPending;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -144,6 +189,110 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
         </div>
 
         <div className="p-5 space-y-8">
+          {/* ── LIRA-332: free trial ─────────────────────────────────── */}
+          {subscription.trial && (
+            <p
+              data-testid="plan-trial-state"
+              className={`text-sm ${
+                subscription.standing === "trial_ended"
+                  ? "text-red-400"
+                  : "text-sky-300"
+              }`}
+            >
+              {subscription.standing === "trial_ended"
+                ? `Free trial ended ${subscription.trial.lastDay}.`
+                : `Free trial: ${subscription.trial.daysLeft} day(s) left, last day ${subscription.trial.lastDay}.`}
+            </p>
+          )}
+
+          {onTrial && (
+            <section className="space-y-3">
+              <div>
+                <h3 className="text-sm font-medium text-white">
+                  Activate subscription
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Ends the free trial: the shop pays from now on and can add
+                  records again. Separate from Suspend, which only stops
+                  sign-in.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-4 items-center text-sm text-slate-200">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="activate-end"
+                    checked={activateOpenEnded}
+                    onChange={() => setActivateOpenEnded(true)}
+                    className="accent-emerald-500"
+                  />
+                  No end date
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="activate-end"
+                    checked={!activateOpenEnded}
+                    onChange={() => setActivateOpenEnded(false)}
+                    className="accent-emerald-500"
+                  />
+                  Paid until
+                </label>
+                <input
+                  type="date"
+                  value={activateUntil}
+                  data-testid="plan-activate-until"
+                  disabled={activateOpenEnded}
+                  onChange={(e) => setActivateUntil(e.target.value)}
+                  className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm disabled:opacity-40"
+                />
+              </div>
+              <button
+                onClick={doActivate}
+                disabled={busy || (!activateOpenEnded && !activateUntil)}
+                data-testid="plan-activate-subscription"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg"
+              >
+                Activate subscription
+              </button>
+            </section>
+          )}
+
+          {canExtend && (
+            <section
+              className={`space-y-3 ${onTrial ? "pt-6 border-t border-slate-700" : ""}`}
+            >
+              <div>
+                <h3 className="text-sm font-medium text-white">Extend trial</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  The trial runs to the end of this day (Beirut time). An
+                  ended trial starts again.
+                </p>
+              </div>
+              <div className="flex gap-2 items-center">
+                <label className="text-xs text-slate-400" htmlFor="plan-extend-last-day">
+                  New last day of trial
+                </label>
+                <input
+                  id="plan-extend-last-day"
+                  type="date"
+                  value={extendLastDay}
+                  data-testid="plan-extend-last-day"
+                  onChange={(e) => setExtendLastDay(e.target.value)}
+                  className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"
+                />
+                <button
+                  onClick={doExtend}
+                  disabled={busy || !extendLastDay}
+                  data-testid="plan-extend-trial"
+                  className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg"
+                >
+                  Extend trial
+                </button>
+              </div>
+            </section>
+          )}
+
           {/* ── Modules ─────────────────────────────────────────────── */}
           <section className="space-y-3">
             <div>
@@ -293,6 +442,33 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
                   </button>
                 </div>
               </div>
+            )}
+          </section>
+
+          {/* ── LIRA-332: history ───────────────────────────────────── */}
+          <section className="space-y-2 pt-6 border-t border-slate-700">
+            <h3 className="text-sm font-medium text-white">History</h3>
+            {(history.data ?? []).length === 0 ? (
+              <p className="text-xs text-slate-500">
+                {history.isLoading ? "Loading…" : "No changes yet."}
+              </p>
+            ) : (
+              <ul data-testid="plan-history" className="space-y-1.5 text-xs">
+                {(history.data ?? []).map((entry, i) => (
+                  <li key={`${entry.at}-${i}`} className="text-slate-300">
+                    <span className="text-slate-500">{entry.at.slice(0, 16)}</span>{" "}
+                    · {entry.actor} · {entry.summary}
+                    {entry.oldValues?.standing !== undefined &&
+                      entry.newValues?.standing !== undefined && (
+                        <span className="text-slate-400">
+                          {" "}
+                          ({String(entry.oldValues.standing)} →{" "}
+                          {String(entry.newValues.standing)})
+                        </span>
+                      )}
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
 
