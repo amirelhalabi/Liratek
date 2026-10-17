@@ -458,7 +458,7 @@ test.describe("LIRA-132 — Telecom Only-Days credit model (MTC via iPick, B1 re
       // fills maxReturnableCredits(credits). For 3.79 that is 3.00 -- pinned
       // by the core unit test, re-asserted here because it is what the
       // repository will book as the CREDIT_RETURN leg.
-      const creditsInput = appPage.locator(`input[type="number"][step="0.5"]`);
+      const creditsInput = appPage.getByTestId("katsh-onlydays-credits");
       await expect(creditsInput).toBeVisible({ timeout: 5_000 });
       await expect(creditsInput).toHaveValue(
         String(EXPECTED_RETURNED_CREDITS),
@@ -695,7 +695,7 @@ test.describe("LIRA-132 — Telecom Only-Days credit model (MTC via iPick, B1 re
       });
 
       // ── Keep half the recoverable credit ──────────────────────────────────
-      const creditsInput = appPage.locator(`input[type="number"][step="0.5"]`);
+      const creditsInput = appPage.getByTestId("katsh-onlydays-credits");
       await expect(creditsInput).toHaveValue(
         String(EXPECTED_RETURNED_CREDITS),
         { timeout: 5_000 },

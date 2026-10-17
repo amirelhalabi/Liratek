@@ -168,7 +168,7 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
   },
   {
     key: "WHISH_APP",
-    label: "Whish App",
+    label: "Whish App", // i18n-exempt: product name (FR-009); also the basket entry label
     module: "ipec_katch",
     drawer: "Whish_App",
     formMode: "financial",
@@ -183,7 +183,7 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
   },
   {
     key: "OMT_APP",
-    label: "OMT App",
+    label: "OMT App", // i18n-exempt: product name (FR-009); also the basket entry label
     module: "ipec_katch",
     drawer: "OMT_App",
     formMode: "financial",
@@ -222,20 +222,25 @@ export const TELECOM_SERVICE_TYPES: {
   label: string;
   iconKey: string;
 }[] = [
+  // i18n-exempt: English fallback; TelecomForm shows recharge:telecom.types.<id>
   { id: "CREDIT_TRANSFER", label: "Credit", iconKey: "DollarSign" },
+  // i18n-exempt: English fallback; TelecomForm shows recharge:telecom.types.<id>
   { id: "DAYS", label: "Days", iconKey: "Clock" },
+  // i18n-exempt: English fallback; TelecomForm shows recharge:telecom.types.<id>
   { id: "ALFA_GIFT", label: "Alfa Gift", iconKey: "Zap" },
 ];
 
+// Tier labels are data: sent as `giftTier.label` and stored with the sale
+// (LIRA-329), so they are never translated (research R9).
 export const ALFA_GIFT_TIERS = {
-  "1GB": { label: "1 GB", usd: 3.5 },
-  "3GB": { label: "3 GB", usd: 6.9 },
-  "7GB": { label: "7 GB", usd: 9.0 },
-  "22GB": { label: "22 GB", usd: 14.5 },
-  "44GB": { label: "44 GB", usd: 21.0 },
-  "77GB": { label: "77 GB", usd: 31.0 },
-  "111GB": { label: "111 GB", usd: 40.0 },
-  "444GB": { label: "444 GB", usd: 129.0 },
+  "1GB": { label: "1 GB", usd: 3.5 }, // i18n-exempt: stored tier label
+  "3GB": { label: "3 GB", usd: 6.9 }, // i18n-exempt: stored tier label
+  "7GB": { label: "7 GB", usd: 9.0 }, // i18n-exempt: stored tier label
+  "22GB": { label: "22 GB", usd: 14.5 }, // i18n-exempt: stored tier label
+  "44GB": { label: "44 GB", usd: 21.0 }, // i18n-exempt: stored tier label
+  "77GB": { label: "77 GB", usd: 31.0 }, // i18n-exempt: stored tier label
+  "111GB": { label: "111 GB", usd: 40.0 }, // i18n-exempt: stored tier label
+  "444GB": { label: "444 GB", usd: 129.0 }, // i18n-exempt: stored tier label
 } as const;
 
 export const FINANCIAL_SERVICE_ICONS: Record<ServiceType, string> = {

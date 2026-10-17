@@ -224,7 +224,7 @@ describe("ProviderTabs — brand logos", () => {
       selected,
     );
     expect(selected.className).toBe(unselected.className);
-    expect(selected).toHaveClass("absolute", "-top-1", "-right-1");
+    expect(selected).toHaveClass("absolute", "-top-1", "-end-1");
   });
 
   it("no browser focus outline after a click; a keyboard focus ring only", () => {

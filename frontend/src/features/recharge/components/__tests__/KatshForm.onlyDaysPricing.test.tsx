@@ -340,7 +340,7 @@ describe("Only-Days owner pricing model (TELECOM_CREDIT_RATE_PLAN.md §Q4)", () 
     await enableOnlyDays();
 
     // Operator returns only 5 (default was 9) -> kept = 9 - 5 = 4.
-    const creditsInput = screen.getByRole("spinbutton");
+    const creditsInput = screen.getByTestId("katsh-onlydays-credits");
     fireEvent.change(creditsInput, { target: { value: "5" } });
 
     await waitFor(() =>
@@ -454,7 +454,7 @@ describe("Only-Days owner pricing model (TELECOM_CREDIT_RATE_PLAN.md §Q4)", () 
     await enableOnlyDays();
 
     // Return only 5 so kept_credits = 4, making the credit-price override visible.
-    const creditsInput = screen.getByRole("spinbutton");
+    const creditsInput = screen.getByTestId("katsh-onlydays-credits");
     fireEvent.change(creditsInput, { target: { value: "5" } });
 
     const creditPriceInput = await screen.findByRole("textbox", {
@@ -490,7 +490,7 @@ describe("Only-Days owner pricing model (TELECOM_CREDIT_RATE_PLAN.md §Q4)", () 
 
     // Return only 5 (default 9) -> kept = 4, so the credit price actually
     // multiplies into the total and the fallback level is observable.
-    const creditsInput = screen.getByRole("spinbutton");
+    const creditsInput = screen.getByTestId("katsh-onlydays-credits");
     fireEvent.change(creditsInput, { target: { value: "5" } });
 
     await waitFor(() =>
@@ -525,7 +525,7 @@ describe("Only-Days owner pricing model (TELECOM_CREDIT_RATE_PLAN.md §Q4)", () 
     await addItemToCart("10");
     await enableOnlyDays();
 
-    const creditsInput = screen.getByRole("spinbutton");
+    const creditsInput = screen.getByTestId("katsh-onlydays-credits");
     fireEvent.change(creditsInput, { target: { value: "5" } });
 
     await waitFor(() =>
@@ -618,8 +618,8 @@ describe("v160 — max_returned_credits_usd override", () => {
     mockGetAllSettings.mockResolvedValue([]);
   });
 
-  /** The Credits box is the only number input on the Only-Days row. */
-  const creditsInput = () => screen.getByRole("spinbutton");
+  /** The Only-Days Credits box (a text decimal input since LIRA-331). */
+  const creditsInput = () => screen.getByTestId("katsh-onlydays-credits");
 
   it("autofills the override, not the bare-card maximum", async () => {
     mockCatalogRows.push({
@@ -632,7 +632,7 @@ describe("v160 — max_returned_credits_usd override", () => {
     await addItemToCart("77.28");
     await enableOnlyDays();
 
-    await waitFor(() => expect(creditsInput()).toHaveValue(73.5));
+    await waitFor(() => expect(creditsInput()).toHaveValue("73.5"));
   });
 
   it("charges only the days price when the full override comes back", async () => {
@@ -645,7 +645,7 @@ describe("v160 — max_returned_credits_usd override", () => {
     renderWithItem(ITEM_77_28);
     await addItemToCart("77.28");
     await enableOnlyDays();
-    await waitFor(() => expect(creditsInput()).toHaveValue(73.5));
+    await waitFor(() => expect(creditsInput()).toHaveValue("73.5"));
 
     await openSheet();
     await submitWithCash();
@@ -668,7 +668,7 @@ describe("v160 — max_returned_credits_usd override", () => {
     renderWithItem(ITEM_77_28);
     await addItemToCart("77.28");
     await enableOnlyDays();
-    await waitFor(() => expect(creditsInput()).toHaveValue(73.5));
+    await waitFor(() => expect(creditsInput()).toHaveValue("73.5"));
 
     // The customer's line was empty, so the last $1.50 SMS could not be sent
     // and only $73 came back. The operator corrects the box.
@@ -695,7 +695,7 @@ describe("v160 — max_returned_credits_usd override", () => {
     await addItemToCart("77.28");
     await enableOnlyDays();
 
-    await waitFor(() => expect(creditsInput()).toHaveValue(73));
+    await waitFor(() => expect(creditsInput()).toHaveValue("73"));
 
     await openSheet();
     await submitWithCash();
@@ -722,7 +722,7 @@ describe("v160 — max_returned_credits_usd override", () => {
     await addItemToCart("77.28");
     await enableOnlyDays();
 
-    await waitFor(() => expect(creditsInput()).toHaveValue(73));
+    await waitFor(() => expect(creditsInput()).toHaveValue("73"));
   });
 });
 

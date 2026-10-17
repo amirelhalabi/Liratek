@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { ArrowUpRight, X, AlertTriangle, Info } from "lucide-react";
 import { omtAppCashoutCommission } from "@liratek/core";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -56,6 +59,7 @@ export function OmtAppCashoutModal({
   walletBalance,
   formatAmount,
 }: OmtAppCashoutModalProps) {
+  const { t } = useTranslation(["rechargeFinancial", "common"]);
   useModalFocusFix(isOpen);
 
   const [amount, setAmount] = useState("");
@@ -86,18 +90,18 @@ export function OmtAppCashoutModal({
     if (formatAmount) return formatAmount(value, currencyCode);
     return currencyCode === "USD"
       ? `$${value.toFixed(2)}`
-      : `${value.toLocaleString()} LBP`;
+      : `${formatNumber(value)} LBP`;
   };
 
   const handleSubmit = async () => {
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      alert("Please enter a valid amount greater than 0");
+      alert(t("cashout.invalidAmount"));
       return;
     }
     // D15: block an over-draw client-side too, matching the repository guard
     // — the repository re-checks and is the source of truth.
     if (exceedsWallet) {
-      alert("Amount exceeds the OMT App wallet balance");
+      alert(t("cashout.exceedsWallet"));
       return;
     }
 
@@ -106,7 +110,7 @@ export function OmtAppCashoutModal({
       await onConfirm({ amount: parsedAmount, currency });
       onClose();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Cash-out failed");
+      alert(error instanceof Error ? error.message : t("cashout.failed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -127,11 +131,12 @@ export function OmtAppCashoutModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <ArrowUpRight className="text-slate-400" size={18} />
-            Cash Out to OMT
+            {t("cashout.title")}
           </h2>
           <button
             onClick={onClose}
             disabled={isSubmitting}
+            aria-label={t("common.close")}
             className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
           >
             <X size={18} />
@@ -142,7 +147,7 @@ export function OmtAppCashoutModal({
         <div className="p-6 space-y-5">
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5">
-              Currency
+              {t("common.currency")}
             </label>
             <select
               data-testid="omt-app-cashout-currency"
@@ -161,7 +166,7 @@ export function OmtAppCashoutModal({
 
           <div>
             <label className="block text-sm font-medium text-slate-400 mb-2">
-              Amount
+              {t("common.amount")}
             </label>
             <div className="relative">
               <input
@@ -171,7 +176,10 @@ export function OmtAppCashoutModal({
                 autoComplete="off"
                 value={fmtCommas(amount)}
                 onChange={(e) => {
-                  const cleaned = e.target.value.replace(/,/g, "");
+                  const cleaned = normalizeDigits(e.target.value).replace(
+                    /,/g,
+                    "",
+                  );
                   if (isPartialDecimal(cleaned)) setAmount(cleaned);
                 }}
                 placeholder={currency === "LBP" ? "0" : "0.00"}
@@ -179,14 +187,14 @@ export function OmtAppCashoutModal({
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-lg font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
                 autoFocus
               />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+              <span className="absolute end-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
                 {currency}
               </span>
             </div>
             {exceedsWallet && (
               <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
                 <AlertTriangle size={12} />
-                Amount exceeds the OMT App wallet balance
+                {t("cashout.exceedsWallet")}
               </p>
             )}
           </div>
@@ -195,7 +203,7 @@ export function OmtAppCashoutModal({
               from the shared core commission function, never re-typed here. */}
           <div className="rounded-xl bg-slate-900/50 border border-slate-700/50 p-4 space-y-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400">Commission (0.1%):</span>
+              <span className="text-slate-400">{t("cashout.commission")}</span>
               <span
                 data-testid="omt-app-cashout-commission-preview"
                 className="text-white font-mono font-medium"
@@ -204,7 +212,9 @@ export function OmtAppCashoutModal({
               </span>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400">OMT account credited:</span>
+              <span className="text-slate-400">
+                {t("cashout.accountCredited")}
+              </span>
               <span className="text-emerald-400 font-mono font-medium">
                 {display(accountCredit, currency)}
               </span>
@@ -215,10 +225,7 @@ export function OmtAppCashoutModal({
             <div className="flex items-center gap-1.5">
               <Info className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
               <p className="text-[10px] leading-tight text-slate-400">
-                No cash moves either way. The OMT App wallet balance goes
-                down by the amount; the OMT account is credited the amount
-                plus commission, recognised as profit once the account is
-                settled.
+                {t("cashout.explainer")}
               </p>
             </div>
           </div>
@@ -231,21 +238,18 @@ export function OmtAppCashoutModal({
               disabled={isSubmitting}
               className="flex-1 px-4 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors font-medium text-sm disabled:opacity-50"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </button>
             <button
               type="button"
               data-testid="omt-app-cashout-submit"
               onClick={handleSubmit}
               disabled={
-                isSubmitting ||
-                !amount ||
-                parsedAmount <= 0 ||
-                exceedsWallet
+                isSubmitting || !amount || parsedAmount <= 0 || exceedsWallet
               }
               className="flex-1 px-4 py-2.5 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg bg-violet-600 hover:bg-violet-500 shadow-violet-500/20"
             >
-              {isSubmitting ? "Processing..." : "Confirm Cash-Out"}
+              {isSubmitting ? t("sheet.processing") : t("cashout.confirm")}
             </button>
           </div>
         </div>

@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { useFormat } from "@/i18n/useFormat";
 import {
   History,
   RefreshCw,
@@ -104,9 +107,9 @@ export function HistoryModal({
   onClose,
   onRefresh,
   formatAmount = (val, currency) =>
-    `${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`,
-  amountLabel = "Amount",
-  profitLabel = "Profit",
+    `${formatNumber(val, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`,
+  amountLabel,
+  profitLabel,
   showFeeAndProfit = false,
   amountAlwaysUsd = false,
   onUpdateMetadata,
@@ -116,6 +119,8 @@ export function HistoryModal({
   loadAll,
   totalOf = amountTotal,
 }: HistoryModalProps) {
+  const { t } = useTranslation(["rechargeFinancial", "common"]);
+  const { formatDate, formatTime, formatDateTime } = useFormat();
   useModalFocusFix(true);
   // The full list, when `loadAll` is given. Read through a ref so a caller's
   // inline arrow (a new identity every render) never re-fires the load
@@ -202,10 +207,12 @@ export function HistoryModal({
         onRefresh();
         void reloadAll();
       } else {
-        setEditError(result.error ?? "Failed to save");
+        setEditError(result.error ?? t("history.saveFailed"));
       }
     } catch (err) {
-      setEditError(err instanceof Error ? err.message : "Unexpected error");
+      setEditError(
+        err instanceof Error ? err.message : t("history.unexpectedError"),
+      );
     } finally {
       setEditSaving(false);
     }
@@ -231,9 +238,9 @@ export function HistoryModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <History className="text-slate-400" size={18} />
-            {provider} Transaction History
-            <span className="text-xs text-slate-500 font-normal ml-1">
-              ({filteredData.length} records)
+            {t("history.heading", { provider })}
+            <span className="text-xs text-slate-500 font-normal ms-1">
+              {t("history.records", { n: filteredData.length })}
             </span>
           </h2>
           <div className="flex items-center gap-2">
@@ -250,14 +257,14 @@ export function HistoryModal({
                 void reloadAll();
               }}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Refresh"
+              title={t("history.refresh")}
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Close"
+              title={t("common.close")}
             >
               <X size={18} />
             </button>
@@ -267,61 +274,61 @@ export function HistoryModal({
           <DataTable
             columns={[
               {
-                header: "Type",
+                header: t("history.colType"),
                 className: "px-5 py-3",
                 sortKey: "service_type",
               },
               {
-                header: amountLabel,
+                header: amountLabel ?? t("common.amount"),
                 className: "px-5 py-3",
                 sortKey: "amount",
               },
               {
-                header: "Cost",
+                header: t("history.colCost"),
                 className: "px-5 py-3",
                 sortKey: "cost",
               },
               ...(showFeeAndProfit
                 ? [
                     {
-                      header: "Fee",
+                      header: t("history.colFee"),
                       className: "px-5 py-3",
                       sortKey: "fee",
                     },
                     {
-                      header: "Profit",
+                      header: t("history.colProfit"),
                       className: "px-5 py-3",
                       sortKey: "profit",
                     },
                   ]
                 : [
                     {
-                      header: profitLabel,
+                      header: profitLabel ?? t("history.colProfit"),
                       className: "px-5 py-3",
                       sortKey: "commission",
                     },
                   ]),
               {
-                header: "Client",
+                header: t("history.colClient"),
                 className: "px-5 py-3",
                 sortKey: "client_name",
               },
               ...(onUpdateMetadata
                 ? [
                     {
-                      header: "Phone",
+                      header: t("history.colPhone"),
                       className: "px-5 py-3",
                       sortKey: "phone_number",
                     },
                   ]
                 : []),
               {
-                header: "Payment",
+                header: t("history.colPayment"),
                 className: "px-5 py-3",
                 sortKey: "paid_by",
               },
               {
-                header: "Time",
+                header: t("history.colTime"),
                 className: "px-5 py-3",
                 sortKey: "created_at",
               },
@@ -335,11 +342,11 @@ export function HistoryModal({
             data={filteredData}
             exportExcel
             exportPdf
-            exportFilename={`${provider.toLowerCase()}-history`}
+            exportFilename={`${provider.toLowerCase()}-history`} // i18n-exempt: file name
             className="w-full"
-            theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+            theadClassName="bg-slate-900/50 text-start text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
             tbodyClassName="divide-y divide-slate-700/50"
-            emptyMessage={`No ${provider} transactions yet.`}
+            emptyMessage={t("history.empty", { provider })}
             renderRow={(tx) => {
               const Icon = getIconComponent(
                 FINANCIAL_SERVICE_ICONS[tx.service_type as ServiceType],
@@ -352,10 +359,10 @@ export function HistoryModal({
                 tx.profit_pending && !isRefunded ? (
                   <span
                     data-testid="profit-pending-label"
-                    className="ml-2 inline-flex items-center rounded-full bg-amber-500/15 border border-amber-500/40 px-2 py-0.5 text-[10px] font-semibold text-amber-300"
-                    title="Charged to the customer's account — this profit counts on the Profits page once the customer pays"
+                    className="ms-2 inline-flex items-center rounded-full bg-amber-500/15 border border-amber-500/40 px-2 py-0.5 text-[10px] font-semibold text-amber-300"
+                    title={t("history.pendingTitle")}
                   >
-                    Pending until paid
+                    {t("history.pendingUntilPaid")}
                   </span>
                 ) : null;
               const isEditing = editingId === tx.id;
@@ -390,20 +397,24 @@ export function HistoryModal({
                         <span
                           className={`text-sm font-mono font-semibold ${tx.service_type === "SEND" ? "text-red-400" : "text-emerald-400"}`}
                         >
-                          {tx.service_type === "SEND" ? "↓ Out" : "↑ In"}
+                          {tx.service_type === "SEND"
+                            ? t("history.out")
+                            : t("history.in")}
                         </span>
                         {isRefunded && (
-                          <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                            Refunded
+                          <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                            {t("history.refunded")}
                           </span>
                         )}
                         {showMarginAlert && (
                           <span
-                            className="ml-2 inline-flex items-center gap-1 rounded-full bg-red-500/15 border border-red-500/40 px-2 py-0.5 text-[10px] font-semibold text-red-400 cursor-help"
-                            title={`Price to client was modified — margin: ${marginOverride.toLocaleString()} LBP`}
+                            className="ms-2 inline-flex items-center gap-1 rounded-full bg-red-500/15 border border-red-500/40 px-2 py-0.5 text-[10px] font-semibold text-red-400 cursor-help"
+                            title={t("history.marginTitle", {
+                              amount: formatNumber(marginOverride),
+                            })}
                           >
                             <AlertTriangle size={10} />
-                            Margin
+                            {t("history.margin")}
                           </span>
                         )}
                       </div>
@@ -437,9 +448,7 @@ export function HistoryModal({
                               : "text-amber-400"
                           }`}
                           title={
-                            isRefunded
-                              ? "Refunded — fee not realized"
-                              : undefined
+                            isRefunded ? t("history.refundedFee") : undefined
                           }
                         >
                           {(tx.cost ?? 0) === 0 && tx.commission !== 0
@@ -453,9 +462,7 @@ export function HistoryModal({
                               : "text-emerald-400"
                           }`}
                           title={
-                            isRefunded
-                              ? "Refunded — profit not realized"
-                              : undefined
+                            isRefunded ? t("history.refundedProfit") : undefined
                           }
                         >
                           {(tx.cost ?? 0) > 0
@@ -472,9 +479,7 @@ export function HistoryModal({
                             : "text-emerald-400"
                         }`}
                         title={
-                          isRefunded
-                            ? "Refunded — profit not realized"
-                            : undefined
+                          isRefunded ? t("history.refundedProfit") : undefined
                         }
                       >
                         {formatAmount(tx.commission, tx.currency)}
@@ -495,7 +500,7 @@ export function HistoryModal({
                             }))
                           }
                           className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-orange-500"
-                          placeholder="Client name"
+                          placeholder={t("history.clientName")}
                         />
                       ) : (
                         <div>
@@ -508,11 +513,22 @@ export function HistoryModal({
                               entityId={tx.id}
                               trigger={
                                 <span
-                                  className="ml-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors"
-                                  title={`Edited by ${tx.edited_by}${tx.edited_at ? ` at ${parseDbDate(tx.edited_at).toLocaleString()}` : ""}`}
+                                  className="ms-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors"
+                                  title={
+                                    tx.edited_at
+                                      ? t("history.editedByAt", {
+                                          user: tx.edited_by,
+                                          at: formatDateTime(
+                                            parseDbDate(tx.edited_at),
+                                          ),
+                                        })
+                                      : t("history.editedBy", {
+                                          user: tx.edited_by,
+                                        })
+                                  }
                                 >
                                   <Pencil size={8} />
-                                  Edited
+                                  {t("history.edited")}
                                 </span>
                               }
                             />
@@ -535,7 +551,7 @@ export function HistoryModal({
                               }))
                             }
                             className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-orange-500"
-                            placeholder="Phone number"
+                            placeholder={t("history.phoneNumber")}
                           />
                         ) : (
                           <div className="flex items-center gap-1 text-sm text-slate-400">
@@ -559,25 +575,29 @@ export function HistoryModal({
 
                     {/* Time */}
                     <td className="px-5 py-3 text-sm text-slate-400">
-                      {parseDbDate(tx.created_at).toLocaleTimeString([], {
+                      {formatTime(parseDbDate(tx.created_at), {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
                       <div className="text-xs text-slate-500">
-                        {parseDbDate(tx.created_at).toLocaleDateString()}
+                        {formatDate(parseDbDate(tx.created_at), {
+                          year: "numeric",
+                          month: "numeric",
+                          day: "numeric",
+                        })}
                       </div>
                     </td>
 
                     {/* Edit action */}
                     {onUpdateMetadata && (
-                      <td className="px-3 py-3 text-right">
+                      <td className="px-3 py-3 text-end">
                         {isEditing ? (
                           <div className="flex items-center justify-end gap-1">
                             <button
                               onClick={() => saveEdit(tx.id)}
                               disabled={editSaving}
                               className="p-1.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 transition-colors disabled:opacity-50"
-                              title="Save"
+                              title={t("history.save")}
                             >
                               <Check size={13} />
                             </button>
@@ -585,7 +605,7 @@ export function HistoryModal({
                               onClick={cancelEdit}
                               disabled={editSaving}
                               className="p-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-400 transition-colors"
-                              title="Cancel"
+                              title={t("common:actions.cancel")}
                             >
                               <X size={13} />
                             </button>
@@ -594,7 +614,7 @@ export function HistoryModal({
                           <button
                             onClick={() => startEdit(tx)}
                             className="p-1.5 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
-                            title="Edit metadata"
+                            title={t("history.editMetadata")}
                           >
                             <Pencil size={13} />
                           </button>
@@ -605,7 +625,7 @@ export function HistoryModal({
                     {/* Print (LIRA-069 W1.c) — provider-aware gate, same
                         predicate as the Transactions viewer and auto-print. */}
                     {canPrint && (
-                      <td className="px-3 py-3 text-right">
+                      <td className="px-3 py-3 text-end">
                         {isReceiptableTransaction({
                           type: transactionType as string,
                           provider: tx.provider,
@@ -614,7 +634,7 @@ export function HistoryModal({
                           <button
                             onClick={() => handlePrint(tx)}
                             className="p-1.5 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
-                            title="Print receipt"
+                            title={t("history.printReceipt")}
                           >
                             <Printer size={13} />
                           </button>
@@ -632,7 +652,7 @@ export function HistoryModal({
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-xs text-slate-500 shrink-0 w-10">
-                            Note
+                            {t("history.note")}
                           </span>
                           <input
                             type="text"
@@ -644,7 +664,7 @@ export function HistoryModal({
                               }))
                             }
                             className="flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-orange-500"
-                            placeholder="Add a note (optional)"
+                            placeholder={t("history.notePlaceholder")}
                           />
                           {editError && (
                             <span className="text-xs text-red-400">

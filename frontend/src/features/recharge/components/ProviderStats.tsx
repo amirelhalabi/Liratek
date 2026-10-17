@@ -1,4 +1,6 @@
 import { TrendingUp, Calendar, AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import type { SupplierOwed } from "../types";
 
 interface ProviderStatsProps {
@@ -24,6 +26,7 @@ export function ProviderStats({
   owedData,
   showOwedWarning = false,
 }: ProviderStatsProps) {
+  const { t } = useTranslation("recharge");
   return (
     <div className="grid grid-cols-3 gap-4">
       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700/50">
@@ -32,13 +35,15 @@ export function ProviderStats({
             <TrendingUp className={`w-4 h-4 ${providerColor}`} />
           </div>
           <span className="text-xs text-slate-500 font-medium uppercase tracking-wider">
-            {providerLabel} Today
+            {t("providerStats.today", { provider: providerLabel })}
           </span>
         </div>
         <p className="text-xl font-bold text-white">
           ${todayCommission.toFixed(2)}
         </p>
-        <p className="text-xs text-slate-500">{todayCount} transactions</p>
+        <p className="text-xs text-slate-500">
+          {t("providerStats.transactions", { n: todayCount })}
+        </p>
       </div>
 
       {allProvidersCommission !== undefined && (
@@ -48,14 +53,14 @@ export function ProviderStats({
               <Calendar className="w-4 h-4 text-violet-400" />
             </div>
             <span className="text-xs text-slate-500 font-medium uppercase tracking-wider">
-              All Providers Today
+              {t("providerStats.allToday")}
             </span>
           </div>
           <p className="text-xl font-bold text-white">
             ${allProvidersCommission.toFixed(2)}
           </p>
           <p className="text-xs text-slate-500">
-            {allProvidersCount} transactions
+            {t("providerStats.transactions", { n: allProvidersCount })}
           </p>
         </div>
       )}
@@ -67,14 +72,14 @@ export function ProviderStats({
               <AlertTriangle className="w-4 h-4 text-red-400" />
             </div>
             <span className="text-xs text-slate-500 font-medium uppercase tracking-wider">
-              Owed to {providerLabel}
+              {t("providerStats.owedTo", { provider: providerLabel })}
             </span>
           </div>
           <p className="text-xl font-bold text-red-400">
             ${(owedData.usd ?? 0).toFixed(2)}
           </p>
           <p className="text-xs text-red-400/70">
-            {(owedData.lbp ?? 0).toLocaleString()} LBP
+            {formatNumber(owedData.lbp ?? 0)} LBP
           </p>
         </div>
       )}

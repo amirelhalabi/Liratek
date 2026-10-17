@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import {
   TrendingUp,
   Sigma,
@@ -12,7 +14,7 @@ import type { ProviderConfig, CurrencyStats } from "../types";
 
 function formatCurrencyAmount(amount: number, currency: string): string {
   if (currency === "LBP") {
-    return `${Math.round(amount).toLocaleString()} LBP`;
+    return `${formatNumber(Math.round(amount))} LBP`;
   }
   return `$${amount.toFixed(2)}`;
 }
@@ -24,7 +26,7 @@ function formatDrawerBalance(
   const parts: string[] = [];
   if (balance.usdBalance !== 0) parts.push(`$${balance.usdBalance.toFixed(2)}`);
   if (balance.lbpBalance !== 0)
-    parts.push(`${Math.round(balance.lbpBalance).toLocaleString()} LBP`);
+    parts.push(`${formatNumber(Math.round(balance.lbpBalance))} LBP`);
   if (balance.usdtBalance) parts.push(`${balance.usdtBalance.toFixed(2)} USDT`);
   return parts.length > 0 ? parts.join(" · ") : fallback;
 }
@@ -126,6 +128,7 @@ export function CompactStats({
   isAdmin = false,
   drawerBalance,
 }: CompactStatsProps) {
+  const { t } = useTranslation("recharge");
   const profitDisplay =
     todayByCurrency && todayByCurrency.length > 0
       ? formatByCurrency(todayByCurrency)
@@ -137,8 +140,8 @@ export function CompactStats({
         {isAdmin && (
           <Metric
             icon={TrendingUp}
-            label="Profit"
-            hint="Profit today"
+            label={t("stats.profit")}
+            hint={t("stats.profitHint")}
             value={profitDisplay}
             valueClass={activeConfig?.color ?? "text-white"}
             accentBg={activeConfig?.bgTint}
@@ -146,30 +149,32 @@ export function CompactStats({
         )}
         <Metric
           icon={ArrowUpRight}
-          label="Sent"
-          hint="Sent today"
+          label={t("stats.sent")}
+          hint={t("stats.sentHint")}
           value={`$${cryptoOutToday?.toFixed(2) ?? "0.00"}`}
           valueClass="text-red-400"
         />
         <Metric
           icon={ArrowDownLeft}
-          label="Received"
-          hint="Received today"
+          label={t("stats.received")}
+          hint={t("stats.receivedHint")}
           value={`$${cryptoInToday?.toFixed(2) ?? "0.00"}`}
           valueClass="text-emerald-400"
         />
         <Metric
           icon={Hash}
-          label="Count"
-          hint="Sales today"
+          label={t("stats.count")}
+          hint={t("stats.countHint")}
           value={todayCount ?? 0}
           valueClass="text-slate-300"
         />
         {drawerBalance && (
           <Metric
             icon={Wallet}
-            label="Drawer"
-            hint={`${activeConfig?.label ?? "Provider"} drawer`}
+            label={t("stats.drawer")}
+            hint={t("stats.drawerHint", {
+              provider: activeConfig?.label ?? t("stats.provider"),
+            })}
             value={formatDrawerBalance(drawerBalance)}
             valueClass="text-emerald-400"
           />
@@ -183,8 +188,8 @@ export function CompactStats({
       {isAdmin && (
         <Metric
           icon={TrendingUp}
-          label="Profit"
-          hint="Profit today"
+          label={t("stats.profit")}
+          hint={t("stats.profitHint")}
           value={profitDisplay}
           valueClass={activeConfig?.color ?? "text-white"}
           accentBg={activeConfig?.bgTint}
@@ -194,8 +199,8 @@ export function CompactStats({
       {allProvidersCommission !== undefined && (
         <Metric
           icon={Sigma}
-          label="Total Profit"
-          hint="Total profit today (all providers)"
+          label={t("stats.totalProfit")}
+          hint={t("stats.totalProfitHint")}
           value={
             (allProvidersByCurrency && allProvidersByCurrency.length > 0
               ? formatByCurrency(allProvidersByCurrency)
@@ -203,7 +208,9 @@ export function CompactStats({
             // LIRA-163: without this, an all-post-cutover provider reads a
             // bare $0.00 — indistinguishable from genuinely zero commission.
             ((allProvidersAwaitingSettlementCount ?? 0) > 0
-              ? ` · ${allProvidersAwaitingSettlementCount} pending`
+              ? t("stats.pending", {
+                  n: allProvidersAwaitingSettlementCount,
+                })
               : "")
           }
         />
@@ -211,8 +218,8 @@ export function CompactStats({
 
       <Metric
         icon={Hash}
-        label="Count"
-        hint="Sales today"
+        label={t("stats.count")}
+        hint={t("stats.countHint")}
         value={todayCount ?? 0}
         valueClass="text-slate-300"
       />
@@ -220,8 +227,10 @@ export function CompactStats({
       {drawerBalance && (
         <Metric
           icon={Wallet}
-          label="Drawer"
-          hint={`${activeConfig?.label ?? "Provider"} drawer`}
+          label={t("stats.drawer")}
+          hint={t("stats.drawerHint", {
+            provider: activeConfig?.label ?? t("stats.provider"),
+          })}
           value={formatDrawerBalance(drawerBalance)}
           valueClass="text-emerald-400"
         />

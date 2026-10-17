@@ -4,6 +4,8 @@ import {
 } from "@/shared/brand/providerBrands";
 import { ProviderLogo } from "@/shared/components/ProviderLogo";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import {
   MultiPaymentInput,
   type Money,
@@ -191,7 +193,7 @@ export function PaymentSheet({
   onClose,
   onConfirm,
   isSubmitting = false,
-  title = "Confirm Payment",
+  title,
   subtitle,
   accentColor = "bg-violet-600 hover:bg-violet-500",
   confirmLabel,
@@ -232,6 +234,7 @@ export function PaymentSheet({
   counterFlow,
   confirmDisabled = false,
 }: PaymentSheetProps) {
+  const { t } = useTranslation("rechargeFinancial");
   useModalFocusFix(open);
   const [visible, setVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -256,7 +259,7 @@ export function PaymentSheet({
 
   const fmtMoney = (amount: number, currency: string) =>
     currency === "LBP"
-      ? `${Math.round(amount).toLocaleString()} LBP`
+      ? `${formatNumber(Math.round(amount))} LBP`
       : `$${amount.toFixed(2)}`;
 
   // Single payment line → display the user's chosen currency/amount.
@@ -270,9 +273,10 @@ export function PaymentSheet({
   // Several currencies owed and no single tender line: name each one.
   const owedLabel =
     !singleLine && totals && totals.length > 1
-      ? totals.map((t) => fmtMoney(t.amount, t.currency)).join(" + ")
+      ? totals.map((tot) => fmtMoney(tot.amount, tot.currency)).join(" + ")
       : fmtMoney(displayAmount, displayCurrency);
-  const defaultConfirmLabel = confirmLabel || `Pay ${owedLabel}`;
+  const defaultConfirmLabel =
+    confirmLabel || t("sheet.pay", { amount: owedLabel });
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -286,14 +290,16 @@ export function PaymentSheet({
 
       {/* Sheet Panel */}
       <div
-        className={`relative w-full max-w-lg bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
-          visible ? "translate-x-0" : "translate-x-full"
+        className={`relative w-full max-w-lg bg-slate-900 border-s border-slate-700 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
+          visible ? "translate-x-0" : "translate-x-full rtl:-translate-x-full"
         }`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/50">
           <div>
-            <h2 className="text-base font-bold text-white">{title}</h2>
+            <h2 className="text-base font-bold text-white">
+              {title ?? t("sheet.confirmPayment")}
+            </h2>
             {subtitle && (
               <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>
             )}
@@ -301,6 +307,7 @@ export function PaymentSheet({
           <button
             type="button"
             onClick={onClose}
+            aria-label={t("sheet.close")}
             className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <svg
@@ -330,11 +337,13 @@ export function PaymentSheet({
               className="min-h-36 flex flex-col rounded-xl bg-slate-800/60 border border-slate-700/40 p-4 gap-3"
             >
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                {`Items (${items.reduce((n, it) => n + it.quantity, 0)})`}
+                {t("sheet.items", {
+                  n: items.reduce((n, it) => n + it.quantity, 0),
+                })}
               </h3>
               <div
                 data-testid="payment-sheet-items-scroll"
-                className="min-h-0 overflow-y-auto -mr-2 pr-2 space-y-3"
+                className="min-h-0 overflow-y-auto -me-2 pe-2 space-y-3"
               >
                 {groupItemsByProvider(items).map((grp) => (
                   <div
@@ -350,12 +359,12 @@ export function PaymentSheet({
                         </span>
                         <span className="text-xs font-mono text-slate-400">
                           {grp.subtotals
-                            .map((t) => fmtMoney(t.amount, t.currency))
+                            .map((tot) => fmtMoney(tot.amount, tot.currency))
                             .join(" + ")}
                         </span>
                       </div>
                     )}
-                    <ul className={`space-y-2.5 ${grp.provider ? "pl-6" : ""}`}>
+                    <ul className={`space-y-2.5 ${grp.provider ? "ps-6" : ""}`}>
                       {grp.items.map((it) => {
                         const detail = [it.group, it.note]
                           .filter(Boolean)
@@ -387,7 +396,7 @@ export function PaymentSheet({
                                 </div>
                               )}
                             </div>
-                            <div className="shrink-0 text-right">
+                            <div className="shrink-0 text-end">
                               {it.quantity > 1 && (
                                 <div className="text-[11px] text-slate-400 font-mono">
                                   {`${it.quantity} × ${fmtMoney(it.unitPrice, it.currency)}`}
@@ -414,7 +423,7 @@ export function PaymentSheet({
           {summary.length > 0 && (
             <div className="rounded-xl bg-slate-800/60 border border-slate-700/40 p-4 space-y-2">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Summary
+                {t("sheet.summary")}
               </h3>
               {summary.map((line, i) => (
                 <div key={i} className="flex justify-between text-sm">
@@ -435,7 +444,7 @@ export function PaymentSheet({
           {/* Payment Method */}
           <div className="space-y-2">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Payment Method
+              {t("sheet.paymentMethod")}
             </h3>
             <MultiPaymentInput
               key={paymentInputKey}
@@ -507,7 +516,7 @@ export function PaymentSheet({
                 : `${accentColor} shadow-lg`
             }`}
           >
-            {isSubmitting ? "Processing..." : defaultConfirmLabel}
+            {isSubmitting ? t("sheet.processing") : defaultConfirmLabel}
           </button>
         </div>
       </div>

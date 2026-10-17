@@ -16,7 +16,7 @@ export function CardGroupTag({
   return (
     <span
       title={label}
-      className="ml-auto shrink-0 max-w-28 truncate rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-slate-300"
+      className="ms-auto shrink-0 max-w-28 truncate rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-slate-300"
     >
       {label}
     </span>

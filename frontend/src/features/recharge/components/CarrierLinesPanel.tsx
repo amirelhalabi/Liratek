@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Check, ChevronDown, Phone, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useApi, appEvents } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { sanitizeDecimal } from "@liratek/ui/utils/number";
 import type {
   CarrierLineEntity,
   CarrierLineOwedDeliveryEntity,
@@ -43,7 +46,7 @@ interface CarrierLinesPanelProps {
 }
 
 function formatUsd(value: number): string {
-  return `$${value.toLocaleString("en-US", {
+  return `$${formatNumber(value, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -90,6 +93,7 @@ export function CarrierLinesPanel({
   carrier,
   drawerUsd,
 }: CarrierLinesPanelProps) {
+  const { t } = useTranslation(["recharge", "common"]);
   const api = useApi();
   // m6 fix (rule 25): `useApi()` is only stable in production because
   // `ApiProvider` happens to hand out a module-level singleton — a test's
@@ -210,10 +214,10 @@ export function CarrierLinesPanel({
       } else {
         // m6 fix: a failed "Mark sent" used to fail silently — no
         // notification, nothing telling the operator to retry.
-        setMarkSentError(res.error || "Failed to mark as sent");
+        setMarkSentError(res.error || t("lines.markSentFailed"));
       }
     } catch {
-      setMarkSentError("Failed to mark as sent");
+      setMarkSentError(t("lines.markSentFailed"));
     } finally {
       setMarkingSentId(null);
     }
@@ -289,7 +293,7 @@ export function CarrierLinesPanel({
   const handleCreate = async () => {
     setCreateError("");
     if (!createPhone.trim()) {
-      setCreateError("Phone number is required");
+      setCreateError(t("lines.phoneRequired"));
       return;
     }
     const resolvedDate =
@@ -317,7 +321,7 @@ export function CarrierLinesPanel({
         setShowCreateForm(false);
         await load();
       } else {
-        setCreateError(res.error || "Failed to add line");
+        setCreateError(res.error || t("lines.addFailed"));
       }
     } finally {
       setCreating(false);
@@ -334,7 +338,7 @@ export function CarrierLinesPanel({
         data-testid={`add-carrier-line-${carrier}`}
         className="rounded-lg border border-dashed border-slate-600 bg-slate-800/40 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-white hover:bg-slate-800/60 transition-colors"
       >
-        + Add {CARRIER_LABEL[carrier]} line
+        {t("lines.addLine", { carrier: CARRIER_LABEL[carrier] })}
       </button>
     </div>
   ) : (
@@ -349,7 +353,9 @@ export function CarrierLinesPanel({
           </span>
         )}
         <div className="flex items-center gap-1">
-          <span className="text-slate-400 w-14 shrink-0">Phone</span>
+          <span className="text-slate-400 w-14 shrink-0">
+            {t("lines.phone")}
+          </span>
           <input
             type="text"
             value={createPhone}
@@ -359,22 +365,26 @@ export function CarrierLinesPanel({
           />
         </div>
         <div className="flex items-center gap-1">
-          <span className="text-slate-400 w-14 shrink-0">Label</span>
+          <span className="text-slate-400 w-14 shrink-0">
+            {t("lines.label")}
+          </span>
           <input
             type="text"
             value={createLabel}
             onChange={(e) => setCreateLabel(e.target.value)}
-            placeholder="optional"
+            placeholder={t("lines.optional")}
             className="flex-1 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
           />
         </div>
         <div className="flex items-center gap-1">
-          <span className="text-slate-400 w-14 shrink-0">Credits</span>
+          <span className="text-slate-400 w-14 shrink-0">
+            {t("lines.credits")}
+          </span>
           <input
-            type="number"
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             value={createCredits}
-            onChange={(e) => setCreateCredits(e.target.value)}
+            onChange={(e) => setCreateCredits(sanitizeDecimal(e.target.value))}
             className="w-20 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
           />
         </div>
@@ -386,14 +396,18 @@ export function CarrierLinesPanel({
             }
             className="text-slate-400 underline shrink-0"
           >
-            {createExpiryMode === "days" ? "days from today" : "pick date"}
+            {createExpiryMode === "days"
+              ? t("lines.daysFromToday")
+              : t("lines.pickDate")}
           </button>
           {createExpiryMode === "days" ? (
             <input
-              type="number"
-              min="0"
+              type="text"
+              inputMode="numeric"
               value={createDaysInput}
-              onChange={(e) => setCreateDaysInput(e.target.value)}
+              onChange={(e) =>
+                setCreateDaysInput(sanitizeDecimal(e.target.value))
+              }
               placeholder="30"
               className="w-14 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
             />
@@ -413,7 +427,7 @@ export function CarrierLinesPanel({
             onClick={handleCreate}
             className="px-2 py-0.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded"
           >
-            {creating ? "Adding…" : "Add"}
+            {creating ? t("lines.adding") : t("common:actions.add")}
           </button>
           <button
             type="button"
@@ -421,7 +435,7 @@ export function CarrierLinesPanel({
             disabled={creating}
             className="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded disabled:opacity-50"
           >
-            Cancel
+            {t("common:actions.cancel")}
           </button>
         </div>
       </div>
@@ -521,9 +535,7 @@ export function CarrierLinesPanel({
       newCredits < 0 ||
       newCredits >= current
     ) {
-      setUsageError(
-        `New balance must be between $0 and $${round2(current)} (below the current balance)`,
-      );
+      setUsageError(t("lines.usageRange", { max: round2(current) }));
       return;
     }
 
@@ -543,20 +555,21 @@ export function CarrierLinesPanel({
       });
       if (res.success) {
         const booked = res.data?.creditsUsed ?? round2(current - newCredits);
-        const msg = `Recorded a $${booked.toFixed(2)} ${CARRIER_LABEL[carrier]} line-usage expense`;
+        const msg = t("lines.usageRecorded", {
+          amount: booked.toFixed(2),
+          carrier: CARRIER_LABEL[carrier],
+        });
         if (quickUsage) appEvents.emit("notification:show", msg, "success");
         closeUsage();
         setUsageFeedback(msg);
         await load();
       } else {
-        const message = res.error || "Failed to record usage";
+        const message = res.error || t("lines.usageFailed");
         // The server's stale-balance rejection: someone moved this line while
         // the form was open. Say so plainly and pull the real figure back in
         // — re-submitting the stale number would book the wrong amount.
         if (/balance changed/i.test(message)) {
-          setUsageError(
-            "This line's balance changed since you opened the form — refreshed; re-enter the new balance.",
-          );
+          setUsageError(t("lines.balanceChanged"));
           setUsageNewBalance("");
           setUsageUsed("");
           await load();
@@ -580,8 +593,8 @@ export function CarrierLinesPanel({
       const detail = getApiErrorMessage(err, "").trim();
       setUsageError(
         detail
-          ? `Failed to record usage: ${detail}`
-          : "Failed to record usage — check your connection and try again",
+          ? t("lines.usageFailedDetail", { detail })
+          : t("lines.usageFailedOffline"),
       );
       // Deliberately NOT reloading here: the typed figures and the rendered
       // `expectedCurrentCredits` stay as they were, so if the write actually
@@ -603,9 +616,11 @@ export function CarrierLinesPanel({
           className="mb-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-300"
           data-testid="carrier-drawer-mismatch"
         >
-          The {CARRIER_LABEL[carrier]} drawer shows {formatUsd(drawerUsd)}, but
-          its SIM lines total {formatUsd(linesCreditsSum)}. Do a checkpoint that
-          counts each line to bring them back in line.
+          {t("lines.drawerMismatch", {
+            carrier: CARRIER_LABEL[carrier],
+            drawer: formatUsd(drawerUsd),
+            lines: formatUsd(linesCreditsSum),
+          })}
         </div>
       )}
       {usageFeedback && (
@@ -617,268 +632,293 @@ export function CarrierLinesPanel({
         </div>
       )}
       <div className="flex flex-col gap-2">
-        {(quickUsage
-          ? lines.filter((l) => l.id === usageLineId)
-          : lines
-        ).map((line) => {
-          const remaining =
-            line.validity_expires_at != null
-              ? daysRemaining(line.validity_expires_at)
-              : null;
-          const isBurned = isLineBurned(line);
-          const validityTone = lineValidityTone(line);
-          const isEditing = editingId === line.id;
-          const isRecordingUsage = usageLineId === line.id;
-          const currentCredits = line.credits ?? 0;
-          const parsedNewBalance =
-            usageNewBalance.trim() === "" ? NaN : Number(usageNewBalance);
-          const usageDelta = round2(currentCredits - parsedNewBalance);
-          // Submit gate — mirrors the server's own rejection (below the
-          // current balance, never negative). The server additionally
-          // enforces a $0.01 minimum delta and reports it if it bites.
-          const usageValid =
-            Number.isFinite(parsedNewBalance) &&
-            parsedNewBalance >= 0 &&
-            parsedNewBalance < currentCredits;
+        {(quickUsage ? lines.filter((l) => l.id === usageLineId) : lines).map(
+          (line) => {
+            const remaining =
+              line.validity_expires_at != null
+                ? daysRemaining(line.validity_expires_at)
+                : null;
+            const isBurned = isLineBurned(line);
+            const validityTone = lineValidityTone(line);
+            const isEditing = editingId === line.id;
+            const isRecordingUsage = usageLineId === line.id;
+            const currentCredits = line.credits ?? 0;
+            const parsedNewBalance =
+              usageNewBalance.trim() === "" ? NaN : Number(usageNewBalance);
+            const usageDelta = round2(currentCredits - parsedNewBalance);
+            // Submit gate — mirrors the server's own rejection (below the
+            // current balance, never negative). The server additionally
+            // enforces a $0.01 minimum delta and reports it if it bites.
+            const usageValid =
+              Number.isFinite(parsedNewBalance) &&
+              parsedNewBalance >= 0 &&
+              parsedNewBalance < currentCredits;
 
-          return (
-            <div
-              key={line.id}
-              className={
-                quickUsage
-                  ? ""
-                  : "rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs"
-              }
-            >
-              {isRecordingUsage ? (
-                <div
-                  className="flex flex-col gap-3 py-2 text-sm"
-                  data-testid={`carrier-line-usage-form-${line.id}`}
-                >
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="text-slate-400">Current balance</span>
-                    <span
-                      className={`${lineBalanceClass(line.credits)} font-mono text-xl font-semibold`}
-                    >
-                      ${currentCredits.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-slate-400">
-                      New balance
-                    </span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={usageNewBalance}
-                      onChange={(e) =>
-                        onUsageNewBalanceChange(e.target.value, currentCredits)
-                      }
-                      data-testid="carrier-line-usage-new-balance"
-                      autoFocus
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-slate-400">
-                      Credits used
-                    </span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={usageUsed}
-                      onChange={(e) =>
-                        onUsageUsedChange(e.target.value, currentCredits)
-                      }
-                      data-testid="carrier-line-usage-used"
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500"
-                    />
-                  </label>
-                  </div>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-slate-400">Note</span>
-                    <input
-                      type="text"
-                      value={usageNote}
-                      onChange={(e) => setUsageNote(e.target.value)}
-                      maxLength={500}
-                      placeholder="optional"
-                      data-testid="carrier-line-usage-note"
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-violet-500"
-                    />
-                  </label>
-                  <span
-                    data-testid="carrier-line-usage-preview"
-                    className={usageValid ? "text-amber-400" : "text-slate-500"}
+            return (
+              <div
+                key={line.id}
+                className={
+                  quickUsage
+                    ? ""
+                    : "rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs"
+                }
+              >
+                {isRecordingUsage ? (
+                  <div
+                    className="flex flex-col gap-3 py-2 text-sm"
+                    data-testid={`carrier-line-usage-form-${line.id}`}
                   >
-                    {usageValid
-                      ? `Records a $${usageDelta.toFixed(2)} expense`
-                      : `Enter a new balance below $${round2(currentCredits)}`}
-                  </span>
-                  {usageError && (
-                    <span
-                      className="text-red-400"
-                      data-testid="carrier-line-usage-error"
-                    >
-                      {usageError}
-                    </span>
-                  )}
-                  <div className="flex items-center justify-end gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={closeUsage}
-                      disabled={usageSaving}
-                      className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!usageValid || usageSaving}
-                      onClick={() => handleRecordUsage(line)}
-                      data-testid="carrier-line-usage-submit"
-                      className="px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium"
-                    >
-                      {usageSaving ? "Recording…" : "Record usage"}
-                    </button>
-                  </div>
-                </div>
-              ) : !isEditing ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(line)}
-                    className="flex items-center gap-2 text-left"
-                    data-testid={`carrier-line-${line.id}`}
-                  >
-                    <span className="font-mono text-white">
-                      {line.label || line.phone_number}
-                    </span>
-                    {line.is_primary === 1 && (
-                      <span
-                        className="px-1.5 py-0.5 rounded text-[10px] font-medium normal-case bg-amber-500/20 text-amber-400"
-                        data-testid={`carrier-line-primary-${line.id}`}
-                      >
-                        Primary
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-slate-400">
+                        {t("lines.currentBalance")}
                       </span>
-                    )}
-                    <span
-                      className={`${lineBalanceClass(line.credits)} font-mono`}
-                    >
-                      ${line.credits.toLocaleString()}
-                    </span>
-                    {remaining !== null && (
                       <span
-                        className={
-                          validityTone === "expired"
-                            ? "text-red-400 font-mono"
-                            : validityTone === "expiring"
-                              ? "text-amber-400 font-mono"
-                              : "text-slate-400 font-mono"
-                        }
+                        className={`${lineBalanceClass(line.credits)} font-mono text-xl font-semibold`}
                       >
-                        {remaining < 0
-                          ? `expired ${Math.abs(remaining)}d ago`
-                          : `${remaining}d left`}
+                        ${formatNumber(currentCredits)}
                       </span>
-                    )}
-                    {/* #28 (LIRA-218) — a sold-ahead balance is shown
-                        separately, never folded into "expired"/"burned":
-                        the line is never dead because of days sold ahead. */}
-                    {(line.days_owed ?? 0) > 0 && (
-                      <span
-                        className="text-amber-400 font-mono"
-                        title="Days promised to customers ahead of the line's own remaining days. Paid off automatically by the next recharge."
-                        data-testid={`carrier-line-sold-ahead-${line.id}`}
-                      >
-                        {line.days_owed} sold ahead
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-slate-400">
+                          {t("lines.newBalance")}
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={usageNewBalance}
+                          onChange={(e) =>
+                            onUsageNewBalanceChange(
+                              sanitizeDecimal(e.target.value),
+                              currentCredits,
+                            )
+                          }
+                          data-testid="carrier-line-usage-new-balance"
+                          autoFocus
+                          className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-slate-400">
+                          {t("lines.creditsUsed")}
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={usageUsed}
+                          onChange={(e) =>
+                            onUsageUsedChange(
+                              sanitizeDecimal(e.target.value),
+                              currentCredits,
+                            )
+                          }
+                          data-testid="carrier-line-usage-used"
+                          className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500"
+                        />
+                      </label>
+                    </div>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-slate-400">
+                        {t("lines.note")}
                       </span>
-                    )}
-                    {isBurned && (
-                      <span
-                        className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-300"
-                        title="Past the revival window — a charge will be refused. Register a new line."
-                        data-testid={`carrier-line-burned-${line.id}`}
-                      >
-                        burned
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openUsage(line)}
-                    data-testid={`carrier-line-usage-open-${line.id}`}
-                    title={`Book credits used from this ${CARRIER_LABEL[carrier]} line as an expense`}
-                    className="shrink-0 rounded border border-slate-600 px-1.5 py-0.5 text-[10px] text-slate-400 hover:border-slate-500 hover:bg-slate-700/60 hover:text-white transition-colors"
-                  >
-                    Record usage
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-1.5 min-w-[180px]">
-                  <div className="flex items-center gap-1">
-                    <span className="text-slate-400">Credits</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={creditsInput}
-                      onChange={(e) => setCreditsInput(e.target.value)}
-                      className="w-16 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
-                    />
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpiryMode(expiryMode === "days" ? "date" : "days")
-                      }
-                      className="text-slate-400 underline"
-                    >
-                      {expiryMode === "days" ? "days from today" : "pick date"}
-                    </button>
-                    {expiryMode === "days" ? (
                       <input
-                        type="number"
-                        min="0"
-                        value={daysInput}
-                        onChange={(e) => setDaysInput(e.target.value)}
-                        placeholder="30"
-                        className="w-14 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
+                        type="text"
+                        value={usageNote}
+                        onChange={(e) => setUsageNote(e.target.value)}
+                        maxLength={500}
+                        placeholder={t("lines.optional")}
+                        data-testid="carrier-line-usage-note"
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-violet-500"
                       />
-                    ) : (
-                      <input
-                        type="date"
-                        value={dateInput}
-                        onChange={(e) => setDateInput(e.target.value)}
-                        className="bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
-                      />
+                    </label>
+                    <span
+                      data-testid="carrier-line-usage-preview"
+                      className={
+                        usageValid ? "text-amber-400" : "text-slate-500"
+                      }
+                    >
+                      {usageValid
+                        ? t("lines.usagePreview", {
+                            amount: usageDelta.toFixed(2),
+                          })
+                        : t("lines.usagePrompt", {
+                            max: round2(currentCredits),
+                          })}
+                    </span>
+                    {usageError && (
+                      <span
+                        className="text-red-400"
+                        data-testid="carrier-line-usage-error"
+                      >
+                        {usageError}
+                      </span>
                     )}
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={closeUsage}
+                        disabled={usageSaving}
+                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg disabled:opacity-50"
+                      >
+                        {t("common:actions.cancel")}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!usageValid || usageSaving}
+                        onClick={() => handleRecordUsage(line)}
+                        data-testid="carrier-line-usage-submit"
+                        className="px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-medium"
+                      >
+                        {usageSaving
+                          ? t("lines.recording")
+                          : t("lines.recordUsage")}
+                      </button>
+                    </div>
                   </div>
+                ) : !isEditing ? (
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      disabled={saving}
-                      onClick={() => handleSave(line.id)}
-                      className="px-2 py-0.5 bg-orange-600 hover:bg-orange-500 text-white rounded"
+                      onClick={() => openEdit(line)}
+                      className="flex items-center gap-2 text-start"
+                      data-testid={`carrier-line-${line.id}`}
                     >
-                      Save
+                      <span className="font-mono text-white">
+                        {line.label || line.phone_number}
+                      </span>
+                      {line.is_primary === 1 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-medium normal-case bg-amber-500/20 text-amber-400"
+                          data-testid={`carrier-line-primary-${line.id}`}
+                        >
+                          {t("lines.primary")}
+                        </span>
+                      )}
+                      <span
+                        className={`${lineBalanceClass(line.credits)} font-mono`}
+                      >
+                        ${formatNumber(line.credits)}
+                      </span>
+                      {remaining !== null && (
+                        <span
+                          className={
+                            validityTone === "expired"
+                              ? "text-red-400 font-mono"
+                              : validityTone === "expiring"
+                                ? "text-amber-400 font-mono"
+                                : "text-slate-400 font-mono"
+                          }
+                        >
+                          {remaining < 0
+                            ? t("lines.expiredAgo", { n: Math.abs(remaining) })
+                            : t("lines.daysLeft", { n: remaining })}
+                        </span>
+                      )}
+                      {/* #28 (LIRA-218) — a sold-ahead balance is shown
+                        separately, never folded into "expired"/"burned":
+                        the line is never dead because of days sold ahead. */}
+                      {(line.days_owed ?? 0) > 0 && (
+                        <span
+                          className="text-amber-400 font-mono"
+                          title={t("lines.soldAheadTitle")}
+                          data-testid={`carrier-line-sold-ahead-${line.id}`}
+                        >
+                          {t("lines.soldAhead", { n: line.days_owed })}
+                        </span>
+                      )}
+                      {isBurned && (
+                        <span
+                          className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-300"
+                          title={t("lines.burnedTitle")}
+                          data-testid={`carrier-line-burned-${line.id}`}
+                        >
+                          {t("lines.burned")}
+                        </span>
+                      )}
                     </button>
                     <button
                       type="button"
-                      onClick={closeEdit}
-                      className="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded"
+                      onClick={() => openUsage(line)}
+                      data-testid={`carrier-line-usage-open-${line.id}`}
+                      title={t("lines.recordUsageTitle", {
+                        carrier: CARRIER_LABEL[carrier],
+                      })}
+                      className="shrink-0 rounded border border-slate-600 px-1.5 py-0.5 text-[10px] text-slate-400 hover:border-slate-500 hover:bg-slate-700/60 hover:text-white transition-colors"
                     >
-                      Cancel
+                      {t("lines.recordUsage")}
                     </button>
                   </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+                ) : (
+                  <div className="flex flex-col gap-1.5 min-w-[180px]">
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-400">
+                        {t("lines.credits")}
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={creditsInput}
+                        onChange={(e) =>
+                          setCreditsInput(sanitizeDecimal(e.target.value))
+                        }
+                        className="w-16 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpiryMode(expiryMode === "days" ? "date" : "days")
+                        }
+                        className="text-slate-400 underline"
+                      >
+                        {expiryMode === "days"
+                          ? t("lines.daysFromToday")
+                          : t("lines.pickDate")}
+                      </button>
+                      {expiryMode === "days" ? (
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={daysInput}
+                          onChange={(e) =>
+                            setDaysInput(sanitizeDecimal(e.target.value))
+                          }
+                          placeholder="30"
+                          className="w-14 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
+                        />
+                      ) : (
+                        <input
+                          type="date"
+                          value={dateInput}
+                          onChange={(e) => setDateInput(e.target.value)}
+                          className="bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
+                        />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => handleSave(line.id)}
+                        className="px-2 py-0.5 bg-orange-600 hover:bg-orange-500 text-white rounded"
+                      >
+                        {t("common:actions.save")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={closeEdit}
+                        className="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded"
+                      >
+                        {t("common:actions.cancel")}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          },
+        )}
       </div>
       {/* #28 (LIRA-218) — "days still to send": the sale was already
           recorded once (the DAYS transaction); Mark Sent only records
@@ -889,7 +929,7 @@ export function CarrierLinesPanel({
           data-testid="carrier-lines-owed-deliveries"
         >
           <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-            Days still to send
+            {t("lines.daysToSend")}
           </span>
           {markSentError && (
             <p
@@ -907,9 +947,11 @@ export function CarrierLinesPanel({
                 className="flex items-center gap-2 rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-xs"
                 data-testid={`carrier-line-owed-delivery-${d.id}`}
               >
-                <span className="text-amber-300 font-mono">{d.days_owed}d</span>
+                <span className="text-amber-300 font-mono">
+                  {t("lines.daysShort", { n: d.days_owed })}
+                </span>
                 <span className="text-slate-300">
-                  {d.client_name || "Walk-in"}
+                  {d.client_name || t("lines.walkIn")}
                 </span>
                 {line && (
                   <span className="text-slate-500 font-mono">
@@ -921,9 +963,9 @@ export function CarrierLinesPanel({
                   disabled={markingSentId === d.id}
                   onClick={() => handleMarkSent(d.id)}
                   data-testid={`carrier-line-owed-delivery-mark-sent-${d.id}`}
-                  className="ml-auto shrink-0 rounded border border-emerald-600/40 px-1.5 py-0.5 text-emerald-400 hover:bg-emerald-600/10 disabled:opacity-50"
+                  className="ms-auto shrink-0 rounded border border-emerald-600/40 px-1.5 py-0.5 text-emerald-400 hover:bg-emerald-600/10 disabled:opacity-50"
                 >
-                  Mark sent
+                  {t("lines.markSent")}
                 </button>
               </div>
             );
@@ -947,11 +989,14 @@ export function CarrierLinesPanel({
     drawerUsd,
     owedDeliveryCount: deliveriesForThisCarrier.length,
   });
-  const title = `${CARRIER_LABEL[carrier]} shop lines`;
+  const title = t("lines.title", { carrier: CARRIER_LABEL[carrier] });
   const usageLine = lines.find((l) => l.id === usageLineId) ?? null;
   const modalTitle =
     quickUsage && usageLine
-      ? `Record usage — ${CARRIER_LABEL[carrier]} ${usageLine.label || usageLine.phone_number}`
+      ? t("lines.recordUsageModal", {
+          carrier: CARRIER_LABEL[carrier],
+          line: usageLine.label || usageLine.phone_number,
+        })
       : title;
   const titleId = `carrier-lines-modal-title-${carrier}`;
 
@@ -973,7 +1018,7 @@ export function CarrierLinesPanel({
           className="h-11 rounded-lg px-4 text-sm font-medium flex items-center gap-2 border bg-slate-800/40 text-slate-400 hover:bg-slate-800/60 hover:text-white border-dashed border-slate-600 transition-all"
         >
           <Phone size={16} className="shrink-0" aria-hidden="true" />
-          <span>+ Add {CARRIER_LABEL[carrier]} line</span>
+          <span>{t("lines.addLine", { carrier: CARRIER_LABEL[carrier] })}</span>
         </button>
       ) : selectedLine ? (
         <div ref={pickerRef} className="relative">
@@ -988,8 +1033,10 @@ export function CarrierLinesPanel({
               }}
               data-testid={`carrier-lines-chip-${carrier}`}
               aria-haspopup="dialog"
-              title={`Record usage on ${selectedLine.label || selectedLine.phone_number}`}
-              className="flex items-center gap-2 rounded-l-lg pl-4 pr-3 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
+              title={t("lines.recordUsageOn", {
+                line: selectedLine.label || selectedLine.phone_number,
+              })}
+              className="flex items-center gap-2 rounded-s-lg ps-4 pe-3 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
             >
               <Phone size={16} className="shrink-0" aria-hidden="true" />
               <span className="font-mono text-white">
@@ -999,18 +1046,20 @@ export function CarrierLinesPanel({
                 className={`${lineBalanceClass(selectedLine.credits)} font-mono`}
                 data-testid="carrier-lines-chip-credits"
               >
-                ${selectedLine.credits.toLocaleString()}
+                ${formatNumber(selectedLine.credits)}
               </span>
             </button>
-            {(
+            {
               <button
                 type="button"
                 onClick={() => setPickerOpen((o) => !o)}
                 data-testid={`carrier-lines-picker-${carrier}`}
                 aria-haspopup="listbox"
                 aria-expanded={pickerOpen}
-                aria-label={`Other ${CARRIER_LABEL[carrier]} lines`}
-                className="flex items-center rounded-r-lg border-l border-slate-700 px-2 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
+                aria-label={t("lines.otherLines", {
+                  carrier: CARRIER_LABEL[carrier],
+                })}
+                className="flex items-center rounded-e-lg border-s border-slate-700 px-2 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
               >
                 <ChevronDown
                   size={16}
@@ -1018,21 +1067,23 @@ export function CarrierLinesPanel({
                   aria-hidden="true"
                 />
               </button>
-            )}
+            }
             {needsAttention && (
               <span
                 data-testid="carrier-lines-chip-warning"
-                aria-label="Needs attention"
-                className="pointer-events-none absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500"
+                aria-label={t("lines.needsAttention")}
+                className="pointer-events-none absolute -top-0.5 -end-0.5 w-2 h-2 rounded-full bg-amber-500"
               />
             )}
           </div>
           {pickerOpen && (
             <div
               role="listbox"
-              aria-label={`${CARRIER_LABEL[carrier]} lines`}
+              aria-label={t("lines.carrierLines", {
+                carrier: CARRIER_LABEL[carrier],
+              })}
               data-testid={`carrier-lines-picker-list-${carrier}`}
-              className="absolute left-0 top-full z-40 mt-1 min-w-full overflow-hidden rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-lg"
+              className="absolute start-0 top-full z-40 mt-1 min-w-full overflow-hidden rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-lg"
             >
               {orderedLines.map((line) => {
                 const isSelected = line.id === selectedLine.id;
@@ -1049,7 +1100,7 @@ export function CarrierLinesPanel({
                       );
                       setPickerOpen(false);
                     }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-start text-sm ${
                       isSelected
                         ? "bg-slate-800 text-white"
                         : "text-slate-300 hover:bg-violet-500/20 hover:text-white"
@@ -1063,13 +1114,13 @@ export function CarrierLinesPanel({
                     </span>
                     {line.is_primary === 1 && (
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-400">
-                        Primary
+                        {t("lines.primary")}
                       </span>
                     )}
                     <span
-                      className={`ml-auto pl-3 ${lineBalanceClass(line.credits)} font-mono`}
+                      className={`ms-auto ps-3 ${lineBalanceClass(line.credits)} font-mono`}
                     >
-                      ${line.credits.toLocaleString()}
+                      ${formatNumber(line.credits)}
                     </span>
                   </button>
                 );
@@ -1110,7 +1161,7 @@ export function CarrierLinesPanel({
                   setQuickUsage(false);
                   setModalOpen(false);
                 }}
-                aria-label="Close"
+                aria-label={t("common:actions.close")}
                 className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
               >
                 <X size={18} />
@@ -1118,7 +1169,6 @@ export function CarrierLinesPanel({
             </div>
             <div className="p-6 overflow-y-auto">
               {lines.length === 0 ? emptyBody : linesBody}
-
             </div>
           </div>
         </div>
