@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { LanguageSwitch } from "@/shared/components/LanguageSwitch";
 import { SetupProvider, useSetup } from "./context/SetupContext";
 import StepDetect from "./steps/StepDetect";
 import StepJoinShop from "./steps/StepJoinShop";
@@ -10,17 +12,18 @@ import StepDrawerAmounts from "./steps/StepDrawerAmounts";
 import StepComplete from "./steps/StepComplete";
 
 const STEPS = [
-  { label: "Account" },
-  { label: "Base System" },
-  { label: "Modules" },
-  { label: "Currencies" },
-  { label: "Users" },
-  { label: "Drawers" },
-  { label: "Done" },
-];
+  { labelKey: "progress.account" },
+  { labelKey: "progress.baseSystem" },
+  { labelKey: "progress.modules" },
+  { labelKey: "progress.currencies" },
+  { labelKey: "progress.users" },
+  { labelKey: "progress.drawers" },
+  { labelKey: "progress.done" },
+] as const;
 
 function WizardContent() {
   const { step } = useSetup();
+  const { t } = useTranslation("setup");
 
   // Steps 0 and -1 are the detection / join flow (no progress bar)
   const isDetectFlow = step <= 0;
@@ -30,8 +33,11 @@ function WizardContent() {
       <div className="w-full max-w-2xl">
         {/* Header */}
         <div className="mb-8 text-center">
+          <div className="flex justify-end mb-2">
+            <LanguageSwitch />
+          </div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
-            LiraTek Setup
+            {t("title")}
           </h1>
         </div>
 
@@ -56,11 +62,11 @@ function WizardContent() {
                     {isDone ? "\u2713" : stepNum}
                   </div>
                   <span
-                    className={`ml-1.5 text-xs hidden sm:block ${
+                    className={`ms-1.5 text-xs hidden sm:block ${
                       isCurrent ? "text-white" : "text-slate-500"
                     }`}
                   >
-                    {s.label}
+                    {t(s.labelKey)}
                   </span>
                   {i < 5 && (
                     <div
@@ -90,7 +96,7 @@ function WizardContent() {
 
         {!isDetectFlow && (
           <p className="text-center text-xs text-slate-600 mt-4">
-            Step {Math.min(step, 6)} of 6
+            {t("progress.stepOf", { step: Math.min(step, 6), total: 6 })}
           </p>
         )}
       </div>

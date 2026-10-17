@@ -213,6 +213,8 @@ import {
   beforeContentBlock,
   captureModalState,
 } from "./helpers/katshSettlement";
+import { rechargeProviderTab } from "./helpers/rechargeTabs";
+import { ensureGeneralFloat } from "./helpers/generalFloat";
 
 test.describe.configure({ retries: 0 });
 
@@ -315,16 +317,13 @@ async function fetchRecentByType(
 // retry, since a lingering notification toast from the PREVIOUS case's
 // top-up can sit over the tab row and swallow a plain click). ─────────────
 async function providerTab(page: Page, label: string, marker: Locator) {
-  const pattern = new RegExp(
-    `^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
-  );
   for (let attempt = 0; attempt < 4; attempt++) {
     await page
       .locator('[role="alert"]')
       .first()
       .waitFor({ state: "hidden", timeout: 6_000 })
       .catch(() => {});
-    const tab = page.locator("button").filter({ hasText: pattern }).first();
+    const tab = rechargeProviderTab(page, label);
     if (attempt === 0) {
       await tab.click({ force: true });
     } else {
@@ -892,6 +891,9 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
     appPage,
   }) => {
     await closeAllActiveSessions(appPage);
+    // Cases B and C pay LBP cash out of General; the repositories refuse an
+    // overdraw, and General's balance depends on which specs ran first.
+    await ensureGeneralFloat(appPage, 0, 100_000);
 
     // ── Case A -- topUpFromSupplier (Katsh): the OWNER'S OWN reported bug.
     // Debt-funded, zero legs -> "in" (green down arrow). ───────────────────

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { NO_CONNECTION } from "@/api/client";
+import { actionErrorMessage } from "@/auth/messages";
 import { getClientBalance, recordRepayment } from "@/api/debts";
 import { newIdempotencyKey } from "@/api/sales";
 import { ErrorBanner } from "@/components/ErrorBanner";
@@ -89,7 +90,7 @@ export default function ClientScreen() {
       setError(
         result.error === NO_CONNECTION
           ? "Not saved — no connection. Check your internet and tap Save again."
-          : result.error,
+          : actionErrorMessage(result.error),
       );
       return;
     }

@@ -1,0 +1,6 @@
+name = "devops"
+description = "Use for GitHub Actions, CI/CD, release workflows, build scripts, and deployment configuration."
+developer_instructions = """
+Read root AGENTS.md and .githubroot AGENTS.md before changing automation. Preserve the repository's current Node, Corepack, and Yarn setup; required concurrency and environment settings; secret handling; and draft-first release flow. Never hardcode credentials. Do not trigger releases or deployments unless explicitly requested. Check the actual current workflow files rather than relying on older examples in guidance.
+"""
+

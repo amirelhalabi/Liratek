@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
@@ -212,6 +213,7 @@ const colsClass: Record<number, string> = {
 };
 
 export default function HomeGrid() {
+  const { t } = useTranslation("layout");
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -244,7 +246,9 @@ export default function HomeGrid() {
       icon: LucideIcon;
       label: string;
       action?: () => void;
-    }> = [{ to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" }];
+    }> = [
+      { to: "/dashboard", icon: LayoutDashboard, label: t("nav.dashboard") },
+    ];
 
     let consolidatedInserted = false;
     for (const m of enabledModules) {
@@ -259,7 +263,7 @@ export default function HomeGrid() {
           items.push({
             to: "/recharge",
             icon: Smartphone,
-            label: "Mobile Recharge",
+            label: t("nav.mobileRecharge"),
           });
         }
         continue;
@@ -286,12 +290,12 @@ export default function HomeGrid() {
       return aPinned - bPinned;
     });
     return [dashboardItem, ...pinnedFirst];
-  }, [enabledModules, isAdmin, favorites]);
+  }, [enabledModules, isAdmin, favorites, t]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col animate-in fade-in duration-500">
       <div className="shrink-0 pb-2">
-        <h1 className="text-2xl font-bold text-white">Home</h1>
+        <h1 className="text-2xl font-bold text-white">{t("nav.home")}</h1>
       </div>
 
       <div
@@ -371,13 +375,13 @@ export default function HomeGrid() {
                     toggleFavorite(item.to);
                   }
                 }}
-                title={favorited ? "Remove from favorites" : "Add to favorites"}
+                title={favorited ? t("nav.removeFavorite") : t("nav.addFavorite")}
                 aria-label={
-                  favorited ? "Remove from favorites" : "Add to favorites"
+                  favorited ? t("nav.removeFavorite") : t("nav.addFavorite")
                 }
                 data-testid={`grid-favorite-${routeToKey(item.to)}`}
                 className={clsx(
-                  "absolute top-2 right-2 z-10 p-1.5 rounded-lg transition-opacity",
+                  "absolute top-2 end-2 z-10 p-1.5 rounded-lg transition-opacity",
                   "hover:bg-slate-700/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60",
                   favorited
                     ? "opacity-100"
@@ -412,7 +416,7 @@ export default function HomeGrid() {
       {isAdmin && flags.sessionManagement && (
         <div className="pt-2">
           <p className="text-s text-slate-500 tracking-wider mb-3">
-            Admin Actions
+            {t("nav.adminActions")}
           </p>
           <div className="flex gap-3">
             <button
@@ -422,7 +426,9 @@ export default function HomeGrid() {
               <div className="p-1.5 rounded-lg bg-blue-400/10">
                 <Clock size={18} className="text-blue-400" />
               </div>
-              <span className="text-sm font-medium">Checkpoint Timeline</span>
+              <span className="text-sm font-medium">
+                {t("nav.checkpointTimeline")}
+              </span>
             </button>
           </div>
         </div>

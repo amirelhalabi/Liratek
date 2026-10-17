@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { NO_CONNECTION } from "@/api/client";
+import { actionErrorMessage } from "@/auth/messages";
 import { newIdempotencyKey, recordServiceSale } from "@/api/sales";
 import { ClientPicker, useClientPicker } from "@/components/ClientPicker";
 import { ErrorBanner } from "@/components/ErrorBanner";
@@ -40,7 +41,7 @@ const CURRENCIES = [
 function messageFor(code: string): string {
   if (code === NO_CONNECTION) return "Not saved — no connection. Check your internet and tap Save again.";
   if (code === "DUPLICATE_IN_PROGRESS") return "This sale is still being saved. Wait a moment and check the latest transactions.";
-  return code;
+  return actionErrorMessage(code);
 }
 
 /**

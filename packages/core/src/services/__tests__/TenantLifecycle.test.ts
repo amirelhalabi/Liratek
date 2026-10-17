@@ -55,7 +55,8 @@ function createTestDb(): Database.Database {
       tenant_id INTEGER NOT NULL REFERENCES tenants(id),
       plan TEXT, status TEXT, current_period_end DATETIME,
       grace_ends_at DATETIME, license_key TEXT, entitled_modules TEXT,
-      notes TEXT, created_at DATETIME, updated_at DATETIME
+      notes TEXT, created_at DATETIME, updated_at DATETIME,
+      trial_started_at DATETIME, trial_ends_at DATETIME
     );
     -- NOT tenant-scoped: must survive untouched.
     CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT);

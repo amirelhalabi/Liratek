@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { MODULE_TIPS, DEFAULT_TIPS } from "@/constants/voiceBot";
+import { DirIcon } from "@liratek/ui/components/ui/DirIcon";
 
 interface VoiceBotTipsProps {
   isOpen: boolean;
@@ -74,7 +75,7 @@ export function VoiceBotTips({
   return (
     <div
       ref={tipsRef}
-      className="absolute top-full right-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-[60] animate-scale-in"
+      className="absolute top-full end-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-[60] animate-scale-in"
     >
       <div className="p-3">
         <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">
@@ -86,7 +87,7 @@ export function VoiceBotTips({
             <button
               key={index}
               onClick={() => handleExampleClick(example)}
-              className="w-full text-left px-2 text-sm text-slate-700 dark:text-slate-300 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded transition-colors"
+              className="w-full text-start px-2 text-sm text-slate-700 dark:text-slate-300 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded transition-colors"
             >
               {example}
             </button>
@@ -99,7 +100,7 @@ export function VoiceBotTips({
             disabled={currentPage === 0}
             className="p-1 rounded-lg bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/30 text-violet-600 dark:text-violet-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            <ChevronLeft size={16} />
+            <DirIcon icon={ChevronLeft} width={16} height={16} />
           </button>
 
           <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
@@ -113,7 +114,7 @@ export function VoiceBotTips({
             disabled={currentPage === totalPages - 1}
             className="p-1 rounded-lg bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/30 text-violet-600 dark:text-violet-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
-            <ChevronRight size={16} />
+            <DirIcon icon={ChevronRight} width={16} height={16} />
           </button>
         </div>
       </div>

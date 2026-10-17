@@ -6,27 +6,27 @@
  */
 
 import { useAuth } from "@/features/auth/context/AuthContext";
+import { useTranslation } from "react-i18next";
 import AccountAvatar from "@/features/account/components/AccountAvatar";
-
-const ROLE_LABELS: Record<string, string> = {
-  admin: "Admin",
-  staff: "Staff",
-};
 
 export default function ProfileSection({ email }: { email?: string | null }) {
   const { user } = useAuth();
+  const { t } = useTranslation("account");
 
   const role = user?.role ?? "";
+  // The role is a code; only known codes get a translated label.
+  const roleLabel =
+    role === "admin" || role === "staff" ? t(`profile.roles.${role}`) : role;
 
   return (
     <section
-      aria-label="Profile"
+      aria-label={t("profile.label")}
       className="flex items-center gap-3 px-1 py-1"
     >
       <AccountAvatar
         url={user?.pictureUrl}
         size={56}
-        alt="Account photo"
+        alt={t("profile.photo")}
         className="shrink-0 text-slate-400"
       />
       <div className="min-w-0">
@@ -35,7 +35,7 @@ export default function ProfileSection({ email }: { email?: string | null }) {
           <span aria-hidden="true" className="text-slate-500">
             {" - "}
           </span>
-          <span className="text-slate-300">{ROLE_LABELS[role] ?? role}</span>
+          <span className="text-slate-300">{roleLabel}</span>
         </p>
         {email && <p className="mt-0.5 text-sm text-slate-400">{email}</p>}
       </div>

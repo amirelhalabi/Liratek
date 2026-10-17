@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSetup } from "../context/SetupContext";
 
 export default function Step3DatabasePath() {
   const { updatePayload, setStep } = useSetup();
+  const { t } = useTranslation("setup");
   const [dbType, setDbType] = useState<"local" | "network">("local");
   const [networkPath, setNetworkPath] = useState("");
   const [testResult, setTestResult] = useState<"pass" | "fail" | null>(null);
@@ -35,11 +37,8 @@ export default function Step3DatabasePath() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white">Database Location</h2>
-        <p className="text-slate-400 text-sm mt-1">
-          Choose where to store your database. For multiple PCs on the same
-          network, use a shared network folder.
-        </p>
+        <h2 className="text-xl font-bold text-white">{t("database.title")}</h2>
+        <p className="text-slate-400 text-sm mt-1">{t("database.subtitle")}</p>
       </div>
 
       {/* Database Type Options */}
@@ -62,15 +61,14 @@ export default function Step3DatabasePath() {
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-white">
-                Local (This PC Only)
+                {t("database.local")}
               </span>
               <span className="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300">
-                Default
+                {t("database.default")}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              Database stored in this PC's app data folder. Other PCs cannot
-              access this data.
+              {t("database.localHint")}
             </p>
           </div>
         </label>
@@ -93,21 +91,21 @@ export default function Step3DatabasePath() {
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-white">
-                Network Shared (Multiple PCs)
+                {t("database.network")}
               </span>
               <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
-                Recommended for 2+ PCs
+                {t("database.recommended")}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              All PCs connect to the same database file on a shared network
-              folder.
+              {t("database.networkHint")}
             </p>
 
             {dbType === "network" && (
               <div className="mt-3 space-y-2">
                 <input
                   type="text"
+                  // i18n-exempt: example network path, not prose
                   placeholder="\\SERVER\LiratekDB\data.db"
                   value={networkPath}
                   onChange={(e) => {
@@ -127,23 +125,20 @@ export default function Step3DatabasePath() {
                         : "bg-violet-600 hover:bg-violet-500 text-white"
                     }`}
                   >
-                    {testing ? "Testing..." : "Test Connection"}
+                    {testing ? t("database.testing") : t("database.test")}
                   </button>
                   {testResult === "pass" && (
                     <span className="text-xs text-emerald-400 flex items-center gap-1">
-                      ✓ Connection successful
+                      {t("database.testPass")}
                     </span>
                   )}
                   {testResult === "fail" && (
                     <span className="text-xs text-red-400 flex items-center gap-1">
-                      ✗ Connection failed
+                      {t("database.testFail")}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500">
-                  💡 Tip: Create a shared folder on one PC (e.g., C:\LiratekDB)
-                  and share it on the network.
-                </p>
+                <p className="text-xs text-slate-500">{t("database.tip")}</p>
               </div>
             )}
           </div>
@@ -154,9 +149,8 @@ export default function Step3DatabasePath() {
       {dbType === "network" && (
         <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
           <p className="text-xs text-amber-300">
-            ⚠️ <strong>Important:</strong> Ensure the network folder is
-            accessible from all PCs before continuing. The PC hosting the folder
-            should remain powered on for other PCs to work.
+            ⚠️ <strong>{t("database.important")}</strong>{" "}
+            {t("database.warning")}
           </p>
         </div>
       )}
@@ -167,7 +161,7 @@ export default function Step3DatabasePath() {
           onClick={() => setStep(2)}
           className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
         >
-          Back
+          {t("nav.backPlain")}
         </button>
         <button
           onClick={handleNext}
@@ -178,7 +172,7 @@ export default function Step3DatabasePath() {
               : "bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20"
           }`}
         >
-          Next
+          {t("nav.nextPlain")}
         </button>
       </div>
     </div>

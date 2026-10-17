@@ -46,6 +46,7 @@
 
 import { test, expect, navigateTo } from "./fixtures";
 import type { Page } from "@playwright/test";
+import { rechargeProviderTab } from "./helpers/rechargeTabs";
 
 test.describe.configure({ retries: 0 });
 
@@ -143,10 +144,7 @@ const PROVIDER_MARKERS: Record<string, string> = {
 /** Click a recharge provider tab and verify its form actually rendered. */
 async function providerTab(page: Page, label: "Whish App" | "OMT App") {
   const marker = PROVIDER_MARKERS[label];
-  const tab = page
-    .locator("button")
-    .filter({ hasText: new RegExp(`^${label}$`) })
-    .first();
+  const tab = rechargeProviderTab(page, label);
   await expect(tab).toBeVisible({ timeout: 8_000 });
   await tab.click();
 

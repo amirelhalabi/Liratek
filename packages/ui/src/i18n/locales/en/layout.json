@@ -1,1 +1,64 @@
-{}
+{
+  "app": {
+    "loading": "Loading...",
+    "loadingExperience": "Loading experience..."
+  },
+  "nav": {
+    "home": "Home",
+    "dashboard": "Dashboard",
+    "mobileRecharge": "Mobile Recharge",
+    "phoneLines": "Phone Lines",
+    "warranty": "Warranty",
+    "checkpointTimeline": "Checkpoint Timeline",
+    "offlineWork": "Offline work",
+    "whatsNew": "What's new",
+    "expandSidebar": "Expand Sidebar",
+    "collapseSidebar": "Collapse Sidebar",
+    "adminActions": "Admin Actions",
+    "addFavorite": "Add to favorites",
+    "removeFavorite": "Remove from favorites"
+  },
+  "topBar": {
+    "home": "Home",
+    "notifications": "Notifications",
+    "noNotifications": "No notifications",
+    "filter": {
+      "all": "all",
+      "success": "success",
+      "info": "info",
+      "warning": "warning",
+      "error": "error"
+    },
+    "balance": "Balance",
+    "credit": "Credit",
+    "debt": "Debt",
+    "online": "Online",
+    "offline": "Offline",
+    "toLight": "Switch to light mode",
+    "toDark": "Switch to dark mode",
+    "adminFallback": "Admin",
+    "administrator": "Administrator",
+    "roles": {
+      "admin": "admin",
+      "staff": "staff",
+      "super_admin": "super_admin"
+    },
+    "myAccount": "My account",
+    "logout": "Logout",
+    "lowStock": "{{count}} products are low on stock",
+    "generalDrawerLimit": "General Drawer exceeds limit: {{amount}} > {{limit}}",
+    "omtDrawerLimit": "OMT Drawer exceeds limit: {{amount}} > {{limit}}"
+  },
+  "voiceBot": {
+    "open": "Voice assistant",
+    "title": "Voice Assistant",
+    "listening": "Listening...",
+    "stopRecording": "Stop recording",
+    "help": "Voice commands help",
+    "listeningPrompt": "I'm listening... Go ahead and speak!",
+    "speakNow": "Speak now...",
+    "typeCommand": "Type your command...",
+    "send": "Send command",
+    "clickToSpeak": "Click to speak"
+  }
+}

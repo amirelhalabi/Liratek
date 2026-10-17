@@ -1,4 +1,5 @@
 import React from "react";
+import { Translation } from "react-i18next";
 import logger from "@/utils/logger";
 
 interface ErrorBoundaryState {
@@ -58,6 +59,8 @@ export class ErrorBoundary extends React.Component<
   override render() {
     if (this.state.hasError) {
       return (
+        <Translation ns="shared">
+          {(t) => (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
           <div className="max-w-md w-full bg-slate-800 border border-red-800/50 rounded-2xl p-8 text-center">
             <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -77,18 +80,16 @@ export class ErrorBoundary extends React.Component<
             </div>
 
             <h1 className="text-xl font-semibold text-white mb-2">
-              Something went wrong
+              {t("errorBoundary.title")}
             </h1>
             <p className="text-slate-400 text-sm mb-6">
-              An unexpected error occurred in the application. You can try
-              reloading the current page, or restart the app if the problem
-              persists.
+              {t("errorBoundary.body")}
             </p>
 
             {this.state.error && (
-              <details className="text-left mb-6 bg-slate-900 rounded-lg p-3 text-xs text-red-300 font-mono">
+              <details className="text-start mb-6 bg-slate-900 rounded-lg p-3 text-xs text-red-300 font-mono">
                 <summary className="cursor-pointer text-slate-500 mb-2">
-                  Error details
+                  {t("errorBoundary.details")}
                 </summary>
                 {this.state.error.message}
               </details>
@@ -99,17 +100,19 @@ export class ErrorBoundary extends React.Component<
                 onClick={this.handleReload}
                 className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                Reload Page
+                {t("errorBoundary.reload")}
               </button>
               <button
                 onClick={() => window.location.reload()}
                 className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-medium rounded-lg transition-colors"
               >
-                Full Restart
+                {t("errorBoundary.restart")}
               </button>
             </div>
           </div>
         </div>
+          )}
+        </Translation>
       );
     }
 

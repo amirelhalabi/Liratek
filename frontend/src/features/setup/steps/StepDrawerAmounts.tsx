@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Wallet, Plus, X, Smartphone } from "lucide-react";
 import { DecimalInput, useApi } from "@liratek/ui";
 import { useSetup } from "../context/SetupContext";
@@ -68,6 +69,7 @@ const DRAWER_ACCENT: Record<string, string> = {
 
 export default function StepDrawerAmounts() {
   const { payload, updatePayload, setStep } = useSetup();
+  const { t } = useTranslation("setup");
   const api = useApi();
 
   // drawer → currency → numeric value
@@ -97,9 +99,7 @@ export default function StepDrawerAmounts() {
   >({});
   // Blocks Next (owner decision A: "Setup wizard requires a phone number for
   // any non-zero MTC/Alfa credits") — never a silent drop.
-  const [carrierLineError, setCarrierLineError] = useState<string | null>(
-    null,
-  );
+  const [carrierLineError, setCarrierLineError] = useState<string | null>(null);
 
   const enabledModules = payload.enabled_modules;
 
@@ -194,7 +194,7 @@ export default function StepDrawerAmounts() {
       const phone = draft.phone_number.trim();
       const credits = parseFloat(draft.credits) || 0;
       if (credits !== 0 && !phone) {
-        return `Enter a phone number for the ${meta.drawer} line before setting its credits.`;
+        return t("drawers.phoneRequired", { carrier: meta.drawer });
       }
     }
     return null;
@@ -297,16 +297,12 @@ export default function StepDrawerAmounts() {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-white mb-1">
-          Starting Drawer Amounts
+          {t("drawers.title")}
         </h2>
-        <p className="text-sm text-slate-400">
-          Optionally set the initial cash for each active drawer. Leave fields
-          empty to start at zero. You can always update these later from the
-          Dashboard.
-        </p>
+        <p className="text-sm text-slate-400">{t("drawers.subtitle")}</p>
       </div>
 
-      <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+      <div className="space-y-3 max-h-[50vh] overflow-y-auto pe-1">
         {visibleDrawers.map((drawer) => {
           const config = DRAWER_CONFIGS[drawer as DrawerType];
           const currencies = currenciesFor(drawer);
@@ -321,7 +317,7 @@ export default function StepDrawerAmounts() {
           return (
             <div
               key={drawer}
-              className={`bg-slate-900 rounded-xl border border-slate-600/40 border-l-4 border-l-${accent}-500 px-4 py-3`}
+              className={`bg-slate-900 rounded-xl border border-slate-600/40 border-s-4 border-s-${accent}-500 px-4 py-3`}
             >
               <div className="flex items-center gap-2 mb-3">
                 <Wallet className={`w-3.5 h-3.5 text-${accent}-400`} />
@@ -336,7 +332,7 @@ export default function StepDrawerAmounts() {
               </div>
               {isCarrierDrawer ? (
                 <p className="text-xs text-slate-500 italic">
-                  Set below in Carrier Lines ↓
+                  {t("drawers.setBelow")}
                 </p>
               ) : (
                 <div
@@ -354,7 +350,7 @@ export default function StepDrawerAmounts() {
                             type="button"
                             onClick={() => handleRemoveExtra(drawer, currency)}
                             className="text-slate-500 hover:text-red-400 transition-colors"
-                            title={`Remove ${currency}`}
+                            title={t("drawers.remove", { currency })}
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -387,7 +383,7 @@ export default function StepDrawerAmounts() {
                     }}
                     className="bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-slate-300 text-xs focus:outline-none focus:border-violet-500"
                   >
-                    <option value="">Add currency…</option>
+                    <option value="">{t("drawers.addCurrency")}</option>
                     {options.map((c) => (
                       <option key={c.code} value={c.code}>
                         {c.code} — {c.name}
@@ -407,15 +403,12 @@ export default function StepDrawerAmounts() {
         <div className="space-y-3">
           <div>
             <h3 className="text-sm font-semibold text-white">
-              Carrier Lines{" "}
-              <span className="text-slate-500 font-normal">(optional)</span>
+              {t("drawers.carrierLines")}{" "}
+              <span className="text-slate-500 font-normal">
+                {t("drawers.optional")}
+              </span>
             </h3>
-            <p className="text-xs text-slate-400">
-              The shop's own MTC/Alfa SIM line(s). A carrier's starting drawer
-              amount is always the SUM of its lines' Credits — there is no
-              separate drawer field. A phone number is required for any
-              non-zero credits.
-            </p>
+            <p className="text-xs text-slate-400">{t("drawers.carrierHint")}</p>
           </div>
 
           {carrierLineError && (
@@ -436,20 +429,20 @@ export default function StepDrawerAmounts() {
                 <div
                   key={meta.drawer}
                   data-testid={`setup-carrier-line-${meta.drawer}`}
-                  className={`bg-slate-900 rounded-xl border border-slate-600/40 border-l-4 border-l-${accent}-500 px-4 py-3`}
+                  className={`bg-slate-900 rounded-xl border border-slate-600/40 border-s-4 border-s-${accent}-500 px-4 py-3`}
                 >
                   <div className="flex items-center gap-2 mb-3">
                     <Smartphone className={`w-3.5 h-3.5 text-${accent}-400`} />
                     <span
                       className={`text-sm font-semibold text-${accent}-400`}
                     >
-                      {meta.drawer} Line
+                      {t("drawers.line", { carrier: meta.drawer })}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs text-slate-400 mb-1 block">
-                        Phone Number
+                        {t("drawers.phone")}
                       </label>
                       <input
                         type="text"
@@ -461,14 +454,14 @@ export default function StepDrawerAmounts() {
                             e.target.value,
                           )
                         }
-                        placeholder="e.g. 03123456"
+                        placeholder={t("drawers.phonePlaceholder")}
                         data-testid={`setup-carrier-phone-${meta.drawer}`}
                         className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
                       />
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 mb-1 block">
-                        Label
+                        {t("drawers.label")}
                       </label>
                       <input
                         type="text"
@@ -480,13 +473,13 @@ export default function StepDrawerAmounts() {
                             e.target.value,
                           )
                         }
-                        placeholder="e.g. Shop Line 1"
+                        placeholder={t("drawers.labelPlaceholder")}
                         className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
                       />
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 mb-1 block">
-                        Credits ($)
+                        {t("drawers.credits")}
                       </label>
                       <DecimalInput
                         value={parseFloat(draft.credits) || 0}
@@ -505,7 +498,7 @@ export default function StepDrawerAmounts() {
                     </div>
                     <div>
                       <label className="text-xs text-slate-400 mb-1 block">
-                        Validity Expires
+                        {t("drawers.validity")}
                       </label>
                       <input
                         type="date"
@@ -534,20 +527,20 @@ export default function StepDrawerAmounts() {
           onClick={() => setStep(5)}
           className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
         >
-          ← Back
+          {t("nav.back")}
         </button>
         <div className="flex gap-3">
           <button
             onClick={handleSkip}
             className="px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
           >
-            Skip
+            {t("nav.skip")}
           </button>
           <button
             onClick={handleNext}
             className="px-6 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-lg transition-colors"
           >
-            Next →
+            {t("nav.next")}
           </button>
         </div>
       </div>

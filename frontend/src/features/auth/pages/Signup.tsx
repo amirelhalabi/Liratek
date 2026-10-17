@@ -61,6 +61,8 @@ import {
   navigateAway,
 } from "@/features/auth/utils/browserNavigation";
 import PasswordInput from "@/shared/components/PasswordInput";
+import { useTranslation } from "react-i18next";
+import { LanguageSwitch } from "@/shared/components/LanguageSwitch";
 
 /**
  * Mirror of the server's slug rule so the field can be corrected before a
@@ -82,15 +84,14 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 const MIN_USERNAME = 3;
 const MIN_PASSWORD = 6;
 
-const INVITE_INVALID_FALLBACK =
-  "This invite link is not valid. Ask for a new invite.";
-const UNREACHABLE = "Could not reach the server. Please try again.";
-
 /** Upper bounds of `requestSignupLinkSchema` (formElapsedMs is an integer of
  * at most one day; shopNameHint at most 100 characters), so a slow visitor
  * or a long name is never refused by validation. */
 const MAX_FORM_ELAPSED_MS = 86_400_000;
 const MAX_SHOP_NAME_HINT = 100;
+
+/** The honeypot's label is read by bots only, so it stays in English. */
+const HONEYPOT_LABEL = "Website"; // i18n-exempt: bot-only honeypot label
 
 /** What the page shows before the shop form. */
 type Entry =
@@ -102,6 +103,10 @@ type Entry =
   | { kind: "unavailable" };
 
 export default function Signup() {
+  const { t } = useTranslation("auth");
+  const { t: tc } = useTranslation("common");
+  const INVITE_INVALID_FALLBACK = t("signup.inviteInvalid");
+  const UNREACHABLE = t("shared.unreachable");
   const navigate = useNavigate();
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -216,7 +221,7 @@ export default function Signup() {
       .catch(() => setEntry({ kind: "unavailable" }));
     // googleTicket only gates the redirect; the ref above keeps the decision
     // to once per link either way.
-  }, [inviteToken, googleTicket]);
+  }, [inviteToken, googleTicket, INVITE_INVALID_FALLBACK, UNREACHABLE]);
 
   // Start the form clock when the request form is first shown — not while
   // the page is still loading the status.
@@ -276,10 +281,7 @@ export default function Signup() {
       };
       const res = await requestSignupLink(payload);
       if (res.success) {
-        setRequestSent(
-          res.data?.message ??
-            "If this address can be used, we've emailed a link.",
-        );
+        setRequestSent(res.data?.message ?? t("signup.linkSentFallback"));
         return;
       }
       // The server spent the Turnstile token either way.
@@ -288,7 +290,7 @@ export default function Signup() {
         setEmailHasShop(true);
         return;
       }
-      setRequestError(messageFrom(res.error, "Could not send the link"));
+      setRequestError(messageFrom(res.error, t("shared.couldNotSendLink")));
     } catch (err) {
       logger.error("Sign-up link request failed:", err);
       setRequestError(messageFrom(err, UNREACHABLE));
@@ -324,7 +326,7 @@ export default function Signup() {
         return;
       }
 
-      setError(messageFrom(result.error, "Signup failed"));
+      setError(messageFrom(result.error, t("shared.signupFailed")));
     } catch (err) {
       logger.error("Signup request failed:", err);
       setError(messageFrom(err, UNREACHABLE));
@@ -371,22 +373,20 @@ export default function Signup() {
   if (created) {
     return (
       <div className={pageClass}>
+        <LanguageSwitch className="fixed top-4 end-4 z-20" />
         <div className={clsx(cardClass, "text-center")}>
           <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
           <h1 className={clsx(headingClass, "mb-2")}>
-            {created.name} is ready
+            {t("shared.isReady", { name: created.name })}
           </h1>
-          <p className={clsx(subtleClass, "mb-6")}>
-            Your shop has been created. Sign in with the admin account you just
-            chose.
-          </p>
+          <p className={clsx(subtleClass, "mb-6")}>{t("signup.readyIntro")}</p>
           <div
             className={clsx(
               "rounded-lg p-3 mb-6",
               dark ? "bg-slate-900" : "bg-gray-100",
             )}
           >
-            <span className={labelClass}>Your shop address</span>
+            <span className={labelClass}>{t("signup.yourShopAddress")}</span>
             {/* The real URL when subdomain tenancy is configured, the bare slug
                 otherwise. Not a router <Link>: this leaves the current origin
                 for the tenant's own subdomain, which is a full page load by
@@ -416,14 +416,14 @@ export default function Signup() {
               href={created.loginUrl}
               className="block w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors text-center"
             >
-              Go to your shop
+              {t("shared.goToYourShop")}
             </a>
           ) : (
             <button
               onClick={() => navigate("/login")}
               className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors"
             >
-              Go to sign in
+              {t("shared.goToSignIn")}
             </button>
           )}
         </div>
@@ -445,16 +445,18 @@ export default function Signup() {
   // sign-in page. Step 2 is the full form opened from the emailed link.
   const stepIndicator = (current: 1 | 2) => (
     <ol
-      aria-label="Sign-up steps"
+      aria-label={t("signup.stepsLabel")}
       className={clsx("mb-5 flex items-center gap-2 text-xs", subtleClass)}
     >
-      {(["Email", "Shop details"] as const).map((label, i) => {
+      {(["email", "shopDetails"] as const).map((step, i) => {
+        const label =
+          step === "email" ? t("shared.email") : t("signup.stepShopDetails");
         const n = (i + 1) as 1 | 2;
         const active = n === current;
         const done = n < current;
         return (
           <li
-            key={label}
+            key={step}
             aria-current={active ? "step" : undefined}
             className="flex items-center gap-2"
           >
@@ -492,9 +494,9 @@ export default function Signup() {
 
   const signInFooter = (
     <p className={clsx("mt-4 text-center", subtleClass)}>
-      Already have a shop?{" "}
+      {t("shared.alreadyHaveShop")}{" "}
       <Link to="/login" className="text-orange-500 hover:text-orange-400">
-        Sign in
+        {t("shared.signIn")}
       </Link>
     </p>
   );
@@ -502,8 +504,9 @@ export default function Signup() {
   if (entry.kind === "loading") {
     return (
       <div className={pageClass}>
+        <LanguageSwitch className="fixed top-4 end-4 z-20" />
         <div className={clsx(cardClass, "text-center")}>
-          <p className={subtleClass}>Loading...</p>
+          <p className={subtleClass}>{tc("state.loading")}</p>
         </div>
       </div>
     );
@@ -512,8 +515,11 @@ export default function Signup() {
   if (entry.kind === "invite-invalid") {
     return (
       <div className={pageClass}>
+        <LanguageSwitch className="fixed top-4 end-4 z-20" />
         <div className={cardClass}>
-          <h1 className={clsx(headingClass, "mb-4")}>Create your shop</h1>
+          <h1 className={clsx(headingClass, "mb-4")}>
+            {t("shared.createYourShop")}
+          </h1>
           {errorBox(entry.message)}
           {signInFooter}
         </div>
@@ -524,15 +530,16 @@ export default function Signup() {
   if (entry.kind === "unavailable") {
     return (
       <div className={pageClass}>
+        <LanguageSwitch className="fixed top-4 end-4 z-20" />
         <div className={clsx(cardClass, "text-center")}>
-          <h1 className={clsx(headingClass, "mb-2")}>Create your shop</h1>
+          <h1 className={clsx(headingClass, "mb-2")}>
+            {t("shared.createYourShop")}
+          </h1>
           {/* Google sign-up is open whenever Google is configured, even with
               the emailed form off (owner decision 2026-10-07). */}
           <GoogleSignInButton
             intent="signup"
-            fallback={
-              <p className={subtleClass}>Sign-up is not available right now.</p>
-            }
+            fallback={<p className={subtleClass}>{t("signup.unavailable")}</p>}
           />
           {signInFooter}
         </div>
@@ -545,15 +552,15 @@ export default function Signup() {
     if (requestSent) {
       return (
         <div className={pageClass}>
+          <LanguageSwitch className="fixed top-4 end-4 z-20" />
           <div className={clsx(cardClass, "text-center")}>
             <div className="flex justify-center">{stepIndicator(1)}</div>
             <Mail className="w-10 h-10 text-orange-500 mx-auto mb-3" />
-            <h1 className={clsx(headingClass, "mb-2")}>Check your inbox</h1>
+            <h1 className={clsx(headingClass, "mb-2")}>
+              {t("shared.checkInbox")}
+            </h1>
             <p className={subtleClass}>{requestSent}</p>
-            <p className={clsx(hintClass, "mt-3")}>
-              The link works once. If nothing arrives in a few minutes, check
-              your spam folder.
-            </p>
+            <p className={clsx(hintClass, "mt-3")}>{t("signup.linkOnce")}</p>
             {signInFooter}
           </div>
         </div>
@@ -562,11 +569,14 @@ export default function Signup() {
 
     return (
       <div className={pageClass}>
+        <LanguageSwitch className="fixed top-4 end-4 z-20" />
         <form onSubmit={handleRequest} className={cardClass}>
           {stepIndicator(1)}
-          <h1 className={clsx(headingClass, "mb-1")}>Create your shop</h1>
+          <h1 className={clsx(headingClass, "mb-1")}>
+            {t("shared.createYourShop")}
+          </h1>
           <p className={clsx(subtleClass, "mb-6")}>
-            Enter your email and we&apos;ll send you a link to set up your shop.
+            {t("signup.requestIntro")}
           </p>
 
           {/* Honeypot (LIRA-278): off-screen rather than display:none, out of
@@ -577,14 +587,14 @@ export default function Signup() {
             aria-hidden="true"
             style={{
               position: "absolute",
-              left: "-10000px",
+              left: "-10000px", // i18n-exempt: off-screen either way
               top: "auto",
               width: "1px",
               height: "1px",
               overflow: "hidden",
             }}
           >
-            <label htmlFor="signup-request-website">Website</label>
+            <label htmlFor="signup-request-website">{HONEYPOT_LABEL}</label>
             <input
               id="signup-request-website"
               data-testid="signup-request-website"
@@ -602,7 +612,7 @@ export default function Signup() {
           <div className="space-y-4">
             <div>
               <label className={labelClass} htmlFor="signup-request-email">
-                Email *
+                {t("shared.emailRequired")}
               </label>
               <input
                 id="signup-request-email"
@@ -614,7 +624,7 @@ export default function Signup() {
                   setEmailHasShop(false);
                 }}
                 className={inputClass}
-                placeholder="you@example.com"
+                placeholder="you@example.com" // i18n-exempt: example address
                 autoComplete="email"
                 autoFocus
                 aria-invalid={emailHasShop || undefined}
@@ -624,7 +634,7 @@ export default function Signup() {
 
             <div>
               <label className={labelClass} htmlFor="signup-request-shop-name">
-                Shop name (optional)
+                {t("signup.shopNameOptional")}
               </label>
               <input
                 id="signup-request-shop-name"
@@ -633,13 +643,11 @@ export default function Signup() {
                 value={requestShopName}
                 onChange={(e) => setRequestShopName(e.target.value)}
                 className={inputClass}
-                placeholder="Your shop name"
+                placeholder={t("signup.shopNamePlaceholder")}
                 autoComplete="organization"
                 maxLength={MAX_SHOP_NAME_HINT}
               />
-              <p className={hintClass}>
-                Fills in the form behind the link. You can change it there.
-              </p>
+              <p className={hintClass}>{t("signup.shopNameHelp")}</p>
             </div>
 
             {siteKey !== null && (
@@ -658,7 +666,7 @@ export default function Signup() {
             disabled={!canRequest}
             className="mt-6 w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
           >
-            {requesting ? "Sending..." : "Email me a sign-up link"}
+            {requesting ? t("shared.sending") : t("signup.emailMeLink")}
           </button>
 
           <GoogleSignInButton intent="signup" />
@@ -670,11 +678,14 @@ export default function Signup() {
 
   return (
     <div className={pageClass}>
+      <LanguageSwitch className="fixed top-4 end-4 z-20" />
       <form onSubmit={handleSubmit} className={cardClass}>
         {invite && stepIndicator(2)}
-        <h1 className={clsx(headingClass, "mb-1")}>Create your shop</h1>
+        <h1 className={clsx(headingClass, "mb-1")}>
+          {t("shared.createYourShop")}
+        </h1>
         <p className={clsx(subtleClass, "mb-6")}>
-          Everything else can be changed later in Settings.
+          {t("shared.changeLaterInSettings")}
         </p>
 
         {error && errorBox(error)}
@@ -683,7 +694,7 @@ export default function Signup() {
           {invite && (
             <div>
               <label className={labelClass} htmlFor="signup-email">
-                Email
+                {t("shared.email")}
               </label>
               {/* Locked: the server takes the shop's email from the invite,
                   never from the form. */}
@@ -700,7 +711,7 @@ export default function Signup() {
 
           <div>
             <label className={labelClass} htmlFor="signup-shop-name">
-              Shop name *
+              {t("shared.shopNameRequired")}
             </label>
             <input
               id="signup-shop-name"
@@ -709,7 +720,7 @@ export default function Signup() {
               value={shopName}
               onChange={(e) => setShopName(e.target.value)}
               className={inputClass}
-              placeholder="Your shop name"
+              placeholder={t("signup.shopNamePlaceholder")}
               autoComplete="organization"
               autoFocus
             />
@@ -717,7 +728,7 @@ export default function Signup() {
 
           <div>
             <label className={labelClass} htmlFor="signup-slug">
-              Shop address *
+              {t("shared.shopAddressRequired")}
             </label>
             <input
               id="signup-slug"
@@ -734,18 +745,15 @@ export default function Signup() {
                   !slugValid &&
                   "border-red-500 focus:border-red-500",
               )}
-              placeholder="cornertech"
+              placeholder="cornertech" // i18n-exempt: example address
               autoComplete="off"
             />
-            <p className={hintClass}>
-              Lowercase letters, numbers and dashes. This becomes your sign-in
-              address and cannot be changed later.
-            </p>
+            <p className={hintClass}>{t("shared.slugHint")}</p>
           </div>
 
           <div>
             <label className={labelClass} htmlFor="signup-username">
-              Admin username *
+              {t("shared.adminUsernameRequired")}
             </label>
             <input
               id="signup-username"
@@ -754,18 +762,17 @@ export default function Signup() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className={inputClass}
-              placeholder="admin"
+              placeholder="admin" // i18n-exempt: example username
               autoComplete="username"
             />
             <p className={hintClass}>
-              At least {MIN_USERNAME} characters. It only has to be unique
-              inside your own shop, so a common name is fine.
+              {t("signup.usernameHint", { min: MIN_USERNAME })}
             </p>
           </div>
 
           <div>
             <label className={labelClass} htmlFor="signup-password">
-              Admin password *
+              {t("shared.adminPasswordRequired")}
             </label>
             <PasswordInput
               label=""
@@ -778,7 +785,9 @@ export default function Signup() {
               inputClassName={inputClass}
               autoComplete="new-password"
             />
-            <p className={hintClass}>At least {MIN_PASSWORD} characters.</p>
+            <p className={hintClass}>
+              {t("shared.minChars", { min: MIN_PASSWORD })}
+            </p>
           </div>
         </div>
 
@@ -791,10 +800,10 @@ export default function Signup() {
           {loading ? (
             <span className="flex items-center justify-center gap-2">
               <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-              Creating your shop...
+              {t("shared.creatingShop")}
             </span>
           ) : (
-            "Create shop"
+            t("shared.createShop")
           )}
         </button>
 

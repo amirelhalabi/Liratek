@@ -11,7 +11,9 @@
  * before expiry, shop lines keep their 7-day warning (owner, 2026-10-11).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useApi } from "@liratek/ui";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import {
   classifyLineStatus,
   RESALE_LINE_EXPIRY_WARNING_DAYS,
@@ -45,6 +47,7 @@ export default function PhoneLines() {
   // rule 25: read api through a ref, never put it in a dependency array.
   const apiRef = useRef(api);
   apiRef.current = api;
+  const { t } = useTranslation("phoneLines");
 
   const [tab, setTab] = useState<Tab>("for-sale");
   const [lines, setLines] = useState<ResaleLineRow[]>([]);
@@ -93,12 +96,12 @@ export default function PhoneLines() {
     if (!edit) return;
     setError("");
     if (edit.carrier === "") {
-      setError("Choose the line's carrier (MTC or Alfa).");
+      setError(t("page.chooseCarrier"));
       return;
     }
     const credits = Number(edit.credits);
     if (!Number.isFinite(credits) || credits < 0) {
-      setError("Credit must be zero or more.");
+      setError(t("page.creditMin"));
       return;
     }
     // ONE payload, typed from the schema (rules 21, 22).
@@ -112,13 +115,13 @@ export default function PhoneLines() {
     try {
       const res = await apiRef.current.saveResaleLine(payload);
       if (!res.success) {
-        setError(res.error || "Could not save the line.");
+        setError(res.error || t("page.saveFailed"));
         return;
       }
       setEdit(null);
       await load(showSold);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the line.");
+      setError(err instanceof Error ? err.message : t("page.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -143,16 +146,21 @@ export default function PhoneLines() {
     try {
       const res = await apiRef.current.writeOffResaleLine(payload);
       if (!res.success) {
-        setError(res.error || "Could not write off the line.");
+        setError(res.error || t("page.writeOffFailed"));
         return;
       }
       setNotice(
-        `Line ${writeOffRow.phone_number ?? ""} written off — ${money(writeOffRow.cost_price_usd)} booked as a loss.`,
+        t("page.writtenOff", {
+          number: writeOffRow.phone_number ?? "",
+          amount: money(writeOffRow.cost_price_usd),
+        }),
       );
       setWriteOffRow(null);
       await load(showSold);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not write off the line.");
+      setError(
+        err instanceof Error ? err.message : t("page.writeOffFailed"),
+      );
     } finally {
       setSaving(false);
     }
@@ -167,10 +175,9 @@ export default function PhoneLines() {
       <div className="flex items-center gap-3">
         <Phone className="w-6 h-6 text-violet-400" />
         <div>
-          <h1 className="text-2xl font-bold text-white">Phone Lines</h1>
+          <h1 className="text-2xl font-bold text-white">{t("page.title")}</h1>
           <p className="text-sm text-slate-400">
-            Your shop lines and the lines you sell, with credit, expiry and
-            days left.
+            {t("page.intro")}
           </p>
         </div>
       </div>
@@ -178,10 +185,10 @@ export default function PhoneLines() {
       <div role="tablist" className="flex gap-2 border-b border-slate-700">
         {(
           [
-            ["for-sale", "For sale"],
-            ["shop", "Shop lines"],
+            ["for-sale", "page.tabForSale"],
+            ["shop", "page.tabShop"],
           ] as const
-        ).map(([key, label]) => (
+        ).map(([key, labelKey]) => (
           <button
             key={key}
             role="tab"
@@ -193,7 +200,7 @@ export default function PhoneLines() {
                 : "border-transparent text-slate-400 hover:text-slate-200"
             }`}
           >
-            {label}
+            {t(labelKey)}
           </button>
         ))}
       </div>
@@ -209,7 +216,7 @@ export default function PhoneLines() {
                 checked={onlyNoExpiry}
                 onChange={(e) => setOnlyNoExpiry(e.target.checked)}
               />
-              Only lines with no expiry set
+              {t("page.onlyNoExpiry")}
             </label>
             <label className="flex items-center gap-2">
               <input
@@ -217,7 +224,7 @@ export default function PhoneLines() {
                 checked={showSold}
                 onChange={(e) => setShowSold(e.target.checked)}
               />
-              Show sold lines
+              {t("page.showSold")}
             </label>
           </div>
 
@@ -238,7 +245,9 @@ export default function PhoneLines() {
               onCancel={() => setRechargeRow(null)}
               onDone={() => {
                 setNotice(
-                  `Line ${rechargeRow.phone_number ?? ""} recharged — its cost and price went up by what it cost.`,
+                  t("page.recharged", {
+                    number: rechargeRow.phone_number ?? "",
+                  }),
                 );
                 setRechargeRow(null);
                 void load(showSold);
@@ -249,24 +258,24 @@ export default function PhoneLines() {
           {writeOffRow && (
             <div className="border border-red-700/60 rounded-lg p-4 bg-red-950/30 space-y-3">
               <p className="text-sm text-slate-200">
-                Line {writeOffRow.phone_number} is lost. Book{" "}
-                <span className="font-semibold">{money(writeOffRow.cost_price_usd)}</span>{" "}
-                as a loss and take it out of stock? You can undo this from
-                Transactions.
+                {t("page.lostBefore", { number: writeOffRow.phone_number })}
+                <span className="font-semibold">{money(writeOffRow.cost_price_usd)}</span>
+                {t("page.lostAfter")}
               </p>
               <div className="flex gap-2">
                 <button
+                  data-testid="resale-line-writeoff-confirm"
                   onClick={handleWriteOff}
                   disabled={saving}
                   className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded text-sm"
                 >
-                  {saving ? "Writing off..." : "Write off"}
+                  {saving ? t("page.writingOff") : t("page.writeOff")}
                 </button>
                 <button
                   onClick={() => setWriteOffRow(null)}
                   className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm"
                 >
-                  Keep it
+                  {t("page.keepIt")}
                 </button>
               </div>
             </div>
@@ -276,13 +285,13 @@ export default function PhoneLines() {
             <table className="w-full text-sm">
               <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
                 <tr>
-                  <th className="text-left px-4 py-3">Number</th>
-                  <th className="text-left px-4 py-3">Carrier</th>
-                  <th className="text-left px-4 py-3">Credit</th>
-                  <th className="text-left px-4 py-3">Expiry</th>
-                  <th className="text-left px-4 py-3">Status</th>
-                  <th className="text-left px-4 py-3">Cost / Price</th>
-                  <th className="text-left px-4 py-3"></th>
+                  <th className="text-start px-4 py-3">{t("page.colNumber")}</th>
+                  <th className="text-start px-4 py-3">{t("page.colCarrier")}</th>
+                  <th className="text-start px-4 py-3">{t("page.colCredit")}</th>
+                  <th className="text-start px-4 py-3">{t("page.colExpiry")}</th>
+                  <th className="text-start px-4 py-3">{t("page.colStatus")}</th>
+                  <th className="text-start px-4 py-3">{t("page.colCostPrice")}</th>
+                  <th className="text-start px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700">
@@ -314,13 +323,13 @@ export default function PhoneLines() {
                           warningDays={RESALE_LINE_EXPIRY_WARNING_DAYS}
                         />
                       ) : (
-                        <span className="text-xs text-slate-400">Sold</span>
+                        <span className="text-xs text-slate-400">{t("page.sold")}</span>
                       )}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-slate-300">
                       {money(row.cost_price_usd)} / {money(row.selling_price_usd)}
                     </td>
-                    <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap">
+                    <td className="px-4 py-3 text-end space-x-1 whitespace-nowrap">
                       {row.is_unsold === 1 && row.carrier && !isLost(row) && (
                         <button
                           onClick={() => {
@@ -330,26 +339,28 @@ export default function PhoneLines() {
                           }}
                           className="px-2 py-0.5 bg-violet-900/40 hover:bg-violet-900/60 text-violet-200 rounded text-xs"
                         >
-                          Recharge
+                          {t("page.recharge")}
                         </button>
                       )}
                       {isLost(row) && (
                         <button
+                          data-testid={`resale-line-writeoff-${row.product_id}`}
                           onClick={() => {
                             setNotice("");
                             setWriteOffRow(row);
                           }}
                           className="px-2 py-0.5 bg-red-900/40 hover:bg-red-900/60 text-red-300 rounded text-xs"
                         >
-                          Write off
+                          {t("page.writeOff")}
                         </button>
                       )}
                       {row.is_unsold === 1 && (
                         <button
+                          data-testid={`resale-line-edit-${row.product_id}`}
                           onClick={() => openEdit(row)}
                           className="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-xs"
                         >
-                          Edit
+                          {t("page.edit")}
                         </button>
                       )}
                     </td>
@@ -358,8 +369,7 @@ export default function PhoneLines() {
                 {!loading && visible.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
-                      No lines for sale. Add them in Inventory under a category
-                      named like "Phone Lines".
+                      {t("page.empty")}
                     </td>
                   </tr>
                 )}
@@ -369,11 +379,11 @@ export default function PhoneLines() {
 
           {edit && (
             <div className="border border-slate-600 rounded-lg p-4 bg-slate-900/50 space-y-3">
-              <h2 className="text-white font-medium">Line details</h2>
+              <h2 className="text-white font-medium">{t("page.details")}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label htmlFor="rl-carrier" className="text-xs text-slate-400 block mb-1">
-                    Carrier
+                    {t("page.carrier")}
                   </label>
                   <select
                     id="rl-carrier"
@@ -383,14 +393,14 @@ export default function PhoneLines() {
                     }
                     className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
                   >
-                    <option value="">Choose…</option>
+                    <option value="">{t("page.choose")}</option>
                     <option value="mtc">MTC</option>
                     <option value="alfa">Alfa</option>
                   </select>
                 </div>
                 <div>
                   <label htmlFor="rl-expiry" className="text-xs text-slate-400 block mb-1">
-                    Expiry date
+                    {t("page.expiryDate")}
                   </label>
                   <input
                     id="rl-expiry"
@@ -402,32 +412,34 @@ export default function PhoneLines() {
                 </div>
                 <div>
                   <label htmlFor="rl-credits" className="text-xs text-slate-400 block mb-1">
-                    Credit ($)
+                    {t("page.creditUsd")}
                   </label>
                   <input
                     id="rl-credits"
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="text"
+                    inputMode="decimal"
                     value={edit.credits}
-                    onChange={(e) => setEdit({ ...edit, credits: e.target.value })}
+                    onChange={(e) =>
+                      setEdit({ ...edit, credits: normalizeDigits(e.target.value) })
+                    }
                     className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
                   />
                 </div>
               </div>
               <div className="flex gap-2">
                 <button
+                  data-testid="resale-line-save"
                   onClick={handleSave}
                   disabled={saving}
                   className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded text-sm"
                 >
-                  {saving ? "Saving..." : "Save line"}
+                  {saving ? t("page.saving") : t("page.saveLine")}
                 </button>
                 <button
                   onClick={() => setEdit(null)}
                   className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm"
                 >
-                  Cancel
+                  {t("page.cancel")}
                 </button>
               </div>
             </div>

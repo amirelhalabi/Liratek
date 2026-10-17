@@ -669,7 +669,7 @@ export default function MobileServicesManager() {
           <span className="text-sm font-semibold text-white">
             Mobile Service Items
           </span>
-          <span className="text-xs text-slate-500 ml-1">
+          <span className="text-xs text-slate-500 ms-1">
             ({activeCount} active / {totalCount} total)
           </span>
         </div>
@@ -690,19 +690,19 @@ export default function MobileServicesManager() {
         <div className="relative flex-1">
           <Search
             size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+            className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500"
           />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search items..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg ps-8 pe-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
             >
               <X size={14} />
             </button>
@@ -1162,7 +1162,7 @@ export default function MobileServicesManager() {
                                 collapsedSubcategories.has(subKey);
 
                               return (
-                                <div key={subKey} className="pl-6">
+                                <div key={subKey} className="ps-6">
                                   {/* Subcategory header */}
                                   <div
                                     className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-slate-800/30 transition-colors"
@@ -1219,7 +1219,7 @@ export default function MobileServicesManager() {
 
                                   {/* Items (rows) */}
                                   {!isSubCollapsed && (
-                                    <div className="pl-5 pb-2 space-y-px">
+                                    <div className="ps-5 pb-2 space-y-px">
                                       {sub.items.map((item) => {
                                         const isEditing =
                                           editing?.id === item.id;
@@ -2099,7 +2099,7 @@ export default function MobileServicesManager() {
                                                           ? `Matches the formula: cost − credits × ${tenantCostRateLbp?.toLocaleString()} LBP/$`
                                                           : `Hand-set. The formula at ${tenantCostRateLbp?.toLocaleString()} LBP/$ gives ${derivedDaysCost?.toLocaleString()}.`
                                                       }
-                                                      className={`ml-1 px-1 py-px rounded text-[9px] font-medium ${
+                                                      className={`ms-1 px-1 py-px rounded text-[9px] font-medium ${
                                                         daysCostOrigin ===
                                                         "derived"
                                                           ? "bg-slate-700/40 text-slate-400"
@@ -2191,7 +2191,7 @@ export default function MobileServicesManager() {
                                                   {maxReturnedIsOverride && (
                                                     <span
                                                       title={`Hand-set. A bare card returns $${computedMaxReturned}.`}
-                                                      className="ml-1 px-1 py-px rounded text-[9px] font-medium bg-sky-600/20 text-sky-400"
+                                                      className="ms-1 px-1 py-px rounded text-[9px] font-medium bg-sky-600/20 text-sky-400"
                                                     >
                                                       override
                                                     </span>

@@ -33,14 +33,18 @@ jest.mock("@liratek/core", () => jest.requireActual("@liratek/core"));
 
 const mockGetPrimaryCarrierLine = jest.fn();
 
+// Rule 25: one stable api object for the whole file (a fresh literal per
+// useApi() call re-fires every effect that depends on it).
+const mockApi = {
+  getRates: jest.fn().mockResolvedValue([]),
+  getAllSettings: jest.fn().mockResolvedValue([]),
+  getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
+  getPrimaryCarrierLine: mockGetPrimaryCarrierLine,
+};
+
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
-  useApi: () => ({
-    getRates: jest.fn().mockResolvedValue([]),
-    getAllSettings: jest.fn().mockResolvedValue([]),
-    getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
-    getPrimaryCarrierLine: mockGetPrimaryCarrierLine,
-  }),
+  useApi: () => mockApi,
 }));
 
 jest.mock("@/features/sessions/context/SessionContext", () => ({
@@ -170,7 +174,13 @@ describe("KatshForm self-charge dialog — sold-ahead payoff preview (#28/M7)", 
 
     renderKatshForm();
 
-    const chargeButton = await screen.findByText("Charge to shop line");
+    // The card grid is deferred (requestAnimationFrame + startTransition), so
+    // on a loaded CI runner it can take longer than findBy's 1 s default.
+    const chargeButton = await screen.findByText(
+      "Charge to shop line",
+      {},
+      { timeout: 10_000 },
+    );
     fireEvent.click(chargeButton);
 
     // Pre-fix: this testid never rendered at all (owedApplied was always 0
@@ -203,7 +213,13 @@ describe("KatshForm self-charge dialog — sold-ahead payoff preview (#28/M7)", 
 
     renderKatshForm();
 
-    const chargeButton = await screen.findByText("Charge to shop line");
+    // The card grid is deferred (requestAnimationFrame + startTransition), so
+    // on a loaded CI runner it can take longer than findBy's 1 s default.
+    const chargeButton = await screen.findByText(
+      "Charge to shop line",
+      {},
+      { timeout: 10_000 },
+    );
     fireEvent.click(chargeButton);
 
     await waitFor(() => {

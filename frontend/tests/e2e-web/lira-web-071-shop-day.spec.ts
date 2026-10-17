@@ -45,6 +45,10 @@ import * as XLSXns from "xlsx";
 import type { Locator, Page } from "@playwright/test";
 import { test, expect, closeAutoCheckpoint } from "./fixtures";
 import {
+  rechargeProviderTab,
+  selectRechargeProvider,
+} from "../e2e-electron/helpers/rechargeTabs";
+import {
   transactionDetailsSchema,
   type CreateFinancialServicePayload,
   type PartnerSettleInput,
@@ -425,7 +429,8 @@ test.describe.serial("lira-web-071 Shop Day", () => {
         expect(last.success, JSON.stringify(last)).toBeTruthy();
       }
       // After the 2nd IMEI the units match the stock count.
-      expect(last).toMatchObject({ drift: { matches: true } });
+      // REST envelope: { success, data: { units, drift } }.
+      expect(last).toMatchObject({ data: { drift: { matches: true } } });
       await page.getByRole("button", { name: "Done" }).click();
     }
   }
@@ -500,14 +505,11 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       "OMT App": "OMT_APP",
     };
     for (const tab of ["Katsh", "iPick", "OMT App"]) {
-      await go(
-        "/recharge",
-        page.getByRole("button", { name: tab, exact: true }).first(),
-      );
-      await page
-        .getByRole("button", { name: tab, exact: true })
-        .first()
-        .click();
+      await go("/recharge", rechargeProviderTab(page, tab));
+      // Wait until the tab is ACTIVE: the switch is a transition, and a
+      // Top-Up clicked before it lands opens the previous provider's window
+      // (CI once booked Katsh twice here). The heading proves which one.
+      await selectRechargeProvider(page, tab);
       const before = await lastTxnId(day);
       const d0 = await drawers(day);
       await page
@@ -515,6 +517,7 @@ test.describe.serial("lira-web-071 Shop Day", () => {
         .first()
         .click();
       const modal = topModal(page);
+      await expect(modal).toContainText(`Top Up ${tab} Drawer`);
       await modal.getByPlaceholder("0.00").fill("200");
       const res = waitPost(page, "/api/recharge/top-up-from-supplier");
       await modal
@@ -554,7 +557,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       .first()
       .click();
     const modal = topModal(page);
-    await modal.getByRole("button", { name: "Via Partner" }).click();
+    await modal
+      .getByRole("button", { name: "Via Partner", exact: true })
+      .click();
     await modal
       .getByRole("button", { name: /Direct \(no partner\)|Select partner/ })
       .first()
@@ -740,7 +745,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     );
     await payMethod(modal, 0).selectOption("CASH");
     await modal.getByTestId("discount-mode-discount").click();
-    await modal.getByLabel("Discount", { exact: true }).fill("2");
+    // POS's discount field has no label of its own (DiscountLine draws the
+    // word beside it); use its testid.
+    await modal.getByTestId("checkout-discount-input").fill("2");
     await payAmount(modal, 0).fill("20");
     await modal.getByTestId("return-usd").fill("5");
     const sale = waitPost(page, "/api/sales/process");

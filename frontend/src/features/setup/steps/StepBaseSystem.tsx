@@ -3,19 +3,21 @@ import {
   type ProviderBrandKey,
 } from "@/shared/brand/providerBrands";
 import { ProviderLogo } from "@/shared/components/ProviderLogo";
+import { useTranslation } from "react-i18next";
 import { useSetup } from "../context/SetupContext";
 
 const BASE_OPTIONS: ReadonlyArray<{
   brand: ProviderBrandKey;
   partner: ProviderBrandKey;
-  ownLine: string;
+  ownLineKey: "baseSystem.ownOmt" | "baseSystem.ownWhish";
 }> = [
-  { brand: "OMT", partner: "WHISH", ownLine: "I own an OMT system." },
-  { brand: "WHISH", partner: "OMT", ownLine: "I own a Whish system." },
+  { brand: "OMT", partner: "WHISH", ownLineKey: "baseSystem.ownOmt" },
+  { brand: "WHISH", partner: "OMT", ownLineKey: "baseSystem.ownWhish" },
 ];
 
 export default function StepBaseSystem() {
   const { updatePayload, setStep } = useSetup();
+  const { t } = useTranslation("setup");
 
   const handleSelect = (base: ProviderBrandKey) => {
     updatePayload({ base_system: base } as never);
@@ -26,15 +28,15 @@ export default function StepBaseSystem() {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-white">
-          Choose Your Base System
+          {t("baseSystem.title")}
         </h2>
         <p className="text-slate-400 text-sm mt-1">
-          Which system do you own? The other will require a partner.
+          {t("baseSystem.subtitle")}
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        {BASE_OPTIONS.map(({ brand, partner, ownLine }) => (
+        {BASE_OPTIONS.map(({ brand, partner, ownLineKey }) => (
           <button
             key={brand}
             onClick={() => handleSelect(brand)}
@@ -50,16 +52,18 @@ export default function StepBaseSystem() {
               {PROVIDER_BRANDS[brand].name}
             </span>
             <span className="text-slate-400 text-xs text-center">
-              {ownLine}
+              {t(ownLineKey)}
               <br />
-              {PROVIDER_BRANDS[partner].name} will require a partner.
+              {t("baseSystem.partnerRequired", {
+                partner: PROVIDER_BRANDS[partner].name,
+              })}
             </span>
           </button>
         ))}
       </div>
 
       <p className="text-xs text-slate-500 text-center">
-        This cannot be changed after setup.
+        {t("baseSystem.locked")}
       </p>
     </div>
   );

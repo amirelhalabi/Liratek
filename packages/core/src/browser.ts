@@ -57,6 +57,12 @@ export * from "./utils/lineStatus.js";
 // entry points: the frontend hides non-entitled modules and must apply the
 // same ungateable rule the backend enforces, rather than keeping a copy.
 export * from "./constants/subscription.js";
+// LIRA-332 — the free-trial calendar (explicit Asia/Beirut zone, DST-aware)
+// and the WhatsApp activation link. Pure leaves, in BOTH entry points: the
+// web banner and the phone render the server's trial view and build the same
+// link, while the server enforces with the same calendar (rule 14, rule 29).
+export * from "./utils/trialCalendar.js";
+export * from "./utils/activationLink.js";
 
 // Validators — zod schemas, no Node.js deps
 export * from "./validators/index.js";
@@ -101,6 +107,9 @@ export {
 // frontend's Recharge/index.tsx imports isSameLebanesePhone to detect
 // whether a typed phone number is the shop's own carrier line.
 export * from "./utils/phoneNumber.js";
+
+// LIRA-333 — the one WhatsApp phone rule (FR-014/015); pure, no imports.
+export * from "./utils/whatsappPhone.js";
 
 // Primary cash drawer names (OMT_System/Whish_System) — pure `as const`
 // tuple + one pure function, no Node.js deps. DrawerTopUpModal.tsx (the
@@ -375,6 +384,14 @@ export type {
 // load (same failure mode as the telecomCredit.js note earlier in this
 // file).
 export type { DailyStatsSnapshot } from "./services/ClosingService.js";
+// LIRA-332: the subscription status view (standing + trial) the web banner
+// and the owner's list render. Type-only: erased at compile time, so the
+// service (logger, db) never lands in the bundle (rule 29).
+export type {
+  SubscriptionStatusView,
+  SubscriptionStanding,
+} from "./services/SubscriptionService.js";
+export type { SubscriptionHistoryEntry } from "./services/AuditService.js";
 
 // Dashboard "Net Profit — last 30 days" tile shape (DC-11,
 // OWNER_NOTES_2026-09-21.md §7.2; CHART-m5 verifier finding — this used to
