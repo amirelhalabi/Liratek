@@ -19,11 +19,19 @@
 import { jest } from "@jest/globals";
 
 jest.mock("../../server.js", () => ({
-  logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 type Standing = "trial" | "trial_ended" | "active" | "grace" | "read_only";
-const statusFor = jest.fn<(tenantId: number) => { standing: Standing; canWrite: boolean } | null>();
+const statusFor =
+  jest.fn<
+    (tenantId: number) => { standing: Standing; canWrite: boolean } | null
+  >();
 const canWrite = jest.fn<(tenantId: number) => boolean>();
 
 jest.mock("@liratek/core", () => {
@@ -69,7 +77,10 @@ function view(standing: Standing) {
   };
 }
 
-function send(method: "post" | "put" | "patch" | "delete" | "get", path: string) {
+function send(
+  method: "post" | "put" | "patch" | "delete" | "get",
+  path: string,
+) {
   const agent = request(buildApp());
   return agent[method](path).set("Authorization", TOKEN);
 }
@@ -104,11 +115,14 @@ describe("an ended trial: record-creating writes are refused", () => {
     ["post", "/api/whatsapp/send-message"],
     ["post", "/api/auth/google/link/start"],
     ["post", "/api/mobile-service-items/seed"],
-  ] as const)("%s %s → HTTP 200 TRIAL_ENDED, handler never runs", async (method, path) => {
-    const res = await send(method, path).expect(200);
-    expect(res.body).toEqual(REFUSAL);
-    expect(reached).not.toHaveBeenCalled();
-  });
+  ] as const)(
+    "%s %s → HTTP 200 TRIAL_ENDED, handler never runs",
+    async (method, path) => {
+      const res = await send(method, path).expect(200);
+      expect(res.body).toEqual(REFUSAL);
+      expect(reached).not.toHaveBeenCalled();
+    },
+  );
 
   it("the exported message is the one every refusal uses", () => {
     expect(TRIAL_ENDED_MESSAGE).toBe(REFUSAL.error);
@@ -169,13 +183,38 @@ describe("an ended trial: the allowlist and reads pass", () => {
   });
 });
 
-describe("every other standing passes this gate", () => {
-  it.each(["trial", "active", "grace"] as const)("%s → POST /api/sales/process passes", async (standing) => {
-    statusFor.mockReturnValue(view(standing));
-    canWrite.mockReturnValue(true);
-    const res = await send("post", "/api/sales/process").expect(200);
+describe("owner decision 2026-10-17: backup and off-boarding staff still work", () => {
+  it("POST /api/reports/backup passes", async () => {
+    const res = await send("post", "/api/reports/backup").expect(200);
     expect(res.body.reached).toBe(true);
   });
+
+  it("deactivating a staff member (is_active 0) passes", async () => {
+    const res = await send("put", "/api/users/5/active")
+      .send({ is_active: 0 })
+      .expect(200);
+    expect(res.body.reached).toBe(true);
+  });
+
+  it("re-activating a staff member (is_active 1) is still refused", async () => {
+    const res = await send("put", "/api/users/5/active")
+      .send({ is_active: 1 })
+      .expect(200);
+    expect(res.body).toEqual(REFUSAL);
+    expect(reached).not.toHaveBeenCalled();
+  });
+});
+
+describe("every other standing passes this gate", () => {
+  it.each(["trial", "active", "grace"] as const)(
+    "%s → POST /api/sales/process passes",
+    async (standing) => {
+      statusFor.mockReturnValue(view(standing));
+      canWrite.mockReturnValue(true);
+      const res = await send("post", "/api/sales/process").expect(200);
+      expect(res.body.reached).toBe(true);
+    },
+  );
 
   it("read_only passes THIS gate (the older gate keeps its own rules)", async () => {
     statusFor.mockReturnValue(view("read_only"));
@@ -196,8 +235,15 @@ describe("no tenant, or an unknown standing, fails open", () => {
   });
 
   it("a platform user (tenantId null)", async () => {
-    verifyJwt.mockReturnValue({ tenantId: null, userId: 1, role: "super_admin" });
-    const res = await send("post", "/api/admin/subscriptions/7/activate").expect(200);
+    verifyJwt.mockReturnValue({
+      tenantId: null,
+      userId: 1,
+      role: "super_admin",
+    });
+    const res = await send(
+      "post",
+      "/api/admin/subscriptions/7/activate",
+    ).expect(200);
     expect(res.body.reached).toBe(true);
   });
 
@@ -226,7 +272,11 @@ describe("no tenant, or an unknown standing, fails open", () => {
 
 describe("wording (FR-011)", () => {
   it("never says overdue, lapsed or read-only", async () => {
-    for (const path of ["/api/users", "/api/settings/x", "/api/sales/process"]) {
+    for (const path of [
+      "/api/users",
+      "/api/settings/x",
+      "/api/sales/process",
+    ]) {
       const res = await send("post", path);
       expect(JSON.stringify(res.body)).not.toMatch(/overdue|lapsed|read-only/i);
     }

@@ -220,3 +220,11 @@ All file and line references were read from `main` on 2026-10-17. Line numbers d
 ## Owner decision 2026-10-17 — D-332-A
 
 Sales that a paired PC records offline after the trial ended, before it hears about the end, are **held on the server and booked automatically when the owner activates the shop**. Nothing is refused or deleted, and they stay out of the books until activation. The other research defaults stand: pairing a PC after the end stays allowed, users can change their own password and email, and super-admin impersonation is blocked like the shop.
+
+## Owner decision 2026-10-17 (after build): what an ended trial may still do
+
+From the blocked list in write-inventory.md, the owner allowed two more:
+- `POST /api/reports/backup`, so the shop can back up its own data.
+- `PUT /api/users/:id/active`, only when it deactivates (`is_active: 0`). Re-activating stays refused.
+
+Still refused: Google link/start, offline review dismiss/reviewed, WhatsApp sends.

@@ -57,6 +57,8 @@ export interface AllowedWrite {
   /** Matched against the lowercased path, query string removed. */
   path: RegExp;
   reason: string;
+  /** Optional extra condition on the parsed JSON body. */
+  body?: (body: unknown) => boolean;
 }
 
 /**
@@ -65,36 +67,146 @@ export interface AllowedWrite {
  */
 export const TRIAL_ENDED_ALLOWED_WRITES: readonly AllowedWrite[] = [
   // ── Sign-out and removing access ──────────────────────────────────────
-  { method: "POST", path: /^\/api\/auth\/logout\/?$/, reason: "sign-out (web, phone, and the old-token logout at every login)" },
-  { method: "POST", path: /^\/api\/auth\/sessions\/revoke-others\/?$/, reason: "signs out other devices (removes access)" },
-  { method: "DELETE", path: /^\/api\/auth\/sessions\/\d+\/?$/, reason: "ends one session (removes access)" },
-  { method: "DELETE", path: /^\/api\/auth\/google\/link\/?$/, reason: "removes the user's own Google sign-in" },
-  { method: "DELETE", path: /^\/api\/user-email\/\d+\/google\/?$/, reason: "admin removes a member's Google sign-in (off-boarding)" },
-  { method: "POST", path: /^\/api\/user-invitations\/\d+\/revoke\/?$/, reason: "revokes a pending invite (removes access)" },
-  { method: "POST", path: /^\/api\/offline\/devices\/\d+\/revoke\/?$/, reason: "unpairs a PC (removes access)" },
+  {
+    method: "POST",
+    path: /^\/api\/auth\/logout\/?$/,
+    reason: "sign-out (web, phone, and the old-token logout at every login)",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/auth\/sessions\/revoke-others\/?$/,
+    reason: "signs out other devices (removes access)",
+  },
+  {
+    method: "DELETE",
+    path: /^\/api\/auth\/sessions\/\d+\/?$/,
+    reason: "ends one session (removes access)",
+  },
+  {
+    method: "DELETE",
+    path: /^\/api\/auth\/google\/link\/?$/,
+    reason: "removes the user's own Google sign-in",
+  },
+  {
+    method: "DELETE",
+    path: /^\/api\/user-email\/\d+\/google\/?$/,
+    reason: "admin removes a member's Google sign-in (off-boarding)",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/user-invitations\/\d+\/revoke\/?$/,
+    reason: "revokes a pending invite (removes access)",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/offline\/devices\/\d+\/revoke\/?$/,
+    reason: "unpairs a PC (removes access)",
+  },
+  {
+    method: "PUT",
+    path: /^\/api\/users\/\d+\/active\/?$/,
+    reason:
+      "deactivates a staff member who left (owner decision 2026-10-17); re-activating stays refused",
+    body: (b) => (b as { is_active?: unknown } | undefined)?.is_active === 0,
+  },
+  // ── Keeping their own data safe (owner decision 2026-10-17) ───────────
+  {
+    method: "POST",
+    path: /^\/api\/reports\/backup\/?$/,
+    reason: "backs up the shop's own data",
+  },
   // ── Account safety: the user's own password and email (owner decision) ─
-  { method: "POST", path: /^\/api\/password-reset\/change\/?$/, reason: "own password" },
-  { method: "POST", path: /^\/api\/password-reset\/set-initial\/?$/, reason: "own first password (needed before unlinking Google)" },
-  { method: "POST", path: /^\/api\/user-email\/me\/change\/?$/, reason: "own email" },
-  { method: "POST", path: /^\/api\/user-email\/verify\/?$/, reason: "completes an own-email change (public token route)" },
+  {
+    method: "POST",
+    path: /^\/api\/password-reset\/change\/?$/,
+    reason: "own password",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/password-reset\/set-initial\/?$/,
+    reason: "own first password (needed before unlinking Google)",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/user-email\/me\/change\/?$/,
+    reason: "own email",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/user-email\/verify\/?$/,
+    reason: "completes an own-email change (public token route)",
+  },
   // ── View and export (POSTs that read) ─────────────────────────────────
-  { method: "POST", path: /^\/api\/profits\/(unlock|lock)\/?$/, reason: "view gate for Profits; in-memory grant, no DB write" },
-  { method: "POST", path: /^\/api\/audit\/search\/?$/, reason: "view: audit log search (read)" },
+  {
+    method: "POST",
+    path: /^\/api\/profits\/(unlock|lock)\/?$/,
+    reason: "view gate for Profits; in-memory grant, no DB write",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/audit\/search\/?$/,
+    reason: "view: audit log search (read)",
+  },
   { method: "POST", path: /^\/api\/reports\/pdf\/?$/, reason: "export" },
-  { method: "POST", path: /^\/api\/reports\/backup\/verify\/?$/, reason: "verifies a backup file; no write" },
-  { method: "POST", path: /^\/api\/vouchers\/validate\/?$/, reason: "view: looks a voucher code up (one SELECT)" },
-  { method: "POST", path: /^\/api\/exchange-lots\/preview\/?$/, reason: "view: FIFO dry run" },
-  { method: "POST", path: /^\/api\/product-units\/(list|summary|for-sale-items)\/?$/, reason: "view: phone units (read)" },
+  {
+    method: "POST",
+    path: /^\/api\/reports\/backup\/verify\/?$/,
+    reason: "verifies a backup file; no write",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/vouchers\/validate\/?$/,
+    reason: "view: looks a voucher code up (one SELECT)",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/exchange-lots\/preview\/?$/,
+    reason: "view: FIFO dry run",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/product-units\/(list|summary|for-sale-items)\/?$/,
+    reason: "view: phone units (read)",
+  },
   // ── Public routes (normally no bearer; listed so a stale header can never
   //    block signing in). Invite accept still cannot add a user to an
   //    ended shop: UserInvitationService refuses it.
-  { method: "POST", path: /^\/api\/auth\/(login|signup|signup\/request|signup\/invite\/check)\/?$/, reason: "public sign-in / sign-up" },
-  { method: "POST", path: /^\/api\/auth\/signin-code\/(request|verify)\/?$/, reason: "public sign-in code" },
-  { method: "POST", path: /^\/api\/auth\/google\/(start|choose|sso-exchange)\/?$/, reason: "public Google sign-in" },
-  { method: "POST", path: /^\/api\/mobile\/auth\/login\/?$/, reason: "public phone sign-in" },
-  { method: "POST", path: /^\/api\/password-reset\/(forgot|check|reset)\/?$/, reason: "public password reset" },
-  { method: "POST", path: /^\/api\/user-invitations\/(check|accept|google\/start)\/?$/, reason: "public invite link (accept refused in core for an ended shop)" },
-  { method: "POST", path: /^\/api\/offline\/pair\/?$/, reason: "pairing a PC is configuration, allowed after the end (owner decision)" },
+  {
+    method: "POST",
+    path: /^\/api\/auth\/(login|signup|signup\/request|signup\/invite\/check)\/?$/,
+    reason: "public sign-in / sign-up",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/auth\/signin-code\/(request|verify)\/?$/,
+    reason: "public sign-in code",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/auth\/google\/(start|choose|sso-exchange)\/?$/,
+    reason: "public Google sign-in",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/mobile\/auth\/login\/?$/,
+    reason: "public phone sign-in",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/password-reset\/(forgot|check|reset)\/?$/,
+    reason: "public password reset",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/user-invitations\/(check|accept|google\/start)\/?$/,
+    reason: "public invite link (accept refused in core for an ended shop)",
+  },
+  {
+    method: "POST",
+    path: /^\/api\/offline\/pair\/?$/,
+    reason:
+      "pairing a PC is configuration, allowed after the end (owner decision)",
+  },
 ];
 
 /** Lowercased path without the query string (Express routes ignore case). */
@@ -105,10 +217,12 @@ function normalisedPath(originalUrl: string): string {
 export function isTrialEndedAllowedWrite(
   method: string,
   originalUrl: string,
+  body?: unknown,
 ): boolean {
   const path = normalisedPath(originalUrl);
   return TRIAL_ENDED_ALLOWED_WRITES.some(
-    (w) => w.method === method && w.path.test(path),
+    (w) =>
+      w.method === method && w.path.test(path) && (!w.body || w.body(body)),
   );
 }
 
@@ -131,16 +245,15 @@ export function requireOpenTrial(
   const tenantId = resolveRequestTenantId(req);
   if (tenantId === null) return next();
 
-  if (isTrialEndedAllowedWrite(req.method, req.originalUrl)) return next();
+  if (isTrialEndedAllowedWrite(req.method, req.originalUrl, req.body))
+    return next();
 
   let ended = false;
   try {
-    ended = getSubscriptionService().statusFor(tenantId)?.standing === "trial_ended";
+    ended =
+      getSubscriptionService().statusFor(tenantId)?.standing === "trial_ended";
   } catch (error) {
-    logger.error(
-      { error, tenantId },
-      "trial check failed; allowing the write",
-    );
+    logger.error({ error, tenantId }, "trial check failed; allowing the write");
     return next();
   }
   if (!ended) return next();

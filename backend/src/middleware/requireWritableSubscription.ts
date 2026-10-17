@@ -165,7 +165,8 @@ function isSubscriptionGated(originalUrl: string): boolean {
   // case-insensitively: `/api/Settings/x` reaches the settings router, so it
   // must hit the same gate as `/api/settings/x`.
   const path = (originalUrl.split("?")[0] ?? "").toLowerCase();
-  if (SUBSCRIPTION_GATE_EXEMPT.some((exempt) => exempt.test(path))) return false;
+  if (SUBSCRIPTION_GATE_EXEMPT.some((exempt) => exempt.test(path)))
+    return false;
   return SUBSCRIPTION_GATED_PREFIXES.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`),
   );
@@ -213,7 +214,8 @@ export function requireWritableSubscription(
   // which would tell a shop that never paid that it is overdue. Paying shops
   // (read_only) are unaffected: this branch is only for trial_ended.
   if (isTrialEnded(tenantId)) {
-    if (isTrialEndedAllowedWrite(req.method, req.originalUrl)) return next();
+    if (isTrialEndedAllowedWrite(req.method, req.originalUrl, req.body))
+      return next();
     logger.warn(
       { tenantId, method: req.method, path: req.originalUrl },
       "write refused: free trial has ended",
