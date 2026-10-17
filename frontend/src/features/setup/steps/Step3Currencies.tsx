@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSetup } from "../context/SetupContext";
 import { useApi } from "@liratek/ui";
 
@@ -11,6 +12,7 @@ interface CurrencyRow {
 
 export default function Step3Currencies() {
   const { payload, updatePayload, setStep } = useSetup();
+  const { t } = useTranslation("setup");
   const api = useApi();
   const [currencies, setCurrencies] = useState<CurrencyRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,22 +46,23 @@ export default function Step3Currencies() {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">Currencies</h2>
+          <h2 className="text-xl font-bold text-white">
+            {t("currencies.title")}
+          </h2>
           <p className="text-slate-400 text-sm mt-1">
-            Select which currencies your shop will use. You can update this
-            later in Settings.
+            {t("currencies.subtitle")}
           </p>
         </div>
         <button
           onClick={() => setStep(5)}
           className="text-xs text-slate-400 hover:text-white underline mt-1"
         >
-          Skip — use defaults
+          {t("currencies.skip")}
         </button>
       </div>
 
       {loading ? (
-        <div className="text-slate-400 text-sm">Loading currencies...</div>
+        <div className="text-slate-400 text-sm">{t("currencies.loading")}</div>
       ) : (
         <div className="bg-slate-900/50 rounded-xl p-4 space-y-1">
           {currencies.map((cur) => {
@@ -72,7 +75,7 @@ export default function Step3Currencies() {
                 <div>
                   <p className="text-sm font-medium text-white">
                     {cur.code}
-                    <span className="ml-2 text-slate-400 font-normal">
+                    <span className="ms-2 text-slate-400 font-normal">
                       {cur.name}
                     </span>
                   </p>
@@ -87,7 +90,9 @@ export default function Step3Currencies() {
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      active ? "translate-x-6" : "translate-x-1"
+                      active
+                        ? "translate-x-6 rtl:-translate-x-6"
+                        : "translate-x-1 rtl:-translate-x-1"
                     }`}
                   />
                 </button>
@@ -102,13 +107,13 @@ export default function Step3Currencies() {
           onClick={() => setStep(3)}
           className="px-6 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors text-sm"
         >
-          ← Back
+          {t("nav.back")}
         </button>
         <button
           onClick={() => setStep(5)}
           className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-lg transition-colors text-sm"
         >
-          Next →
+          {t("nav.next")}
         </button>
       </div>
     </div>
