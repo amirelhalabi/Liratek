@@ -107,11 +107,12 @@ describe("PositionsPanel", () => {
     ]);
     render(<PositionsPanel refreshKey={0} onViewCurrency={jest.fn()} />);
 
-    const gain = await screen.findByText("+$25.00");
+    // LIRA-331: the amount sits in an <Ltr> inside the coloured span.
+    const gain = (await screen.findByText("+$25.00")).closest("span")!;
     expect(gain.className).toContain("text-emerald-400");
     // No separate sign-flip — a negative value carries its own "-" from
     // toFixed() after the literal "$" (matches HistoryModal's convention).
-    const loss = screen.getByText("$-30.00");
+    const loss = screen.getByText("$-30.00").closest("span")!;
     expect(loss.className).toContain("text-red-400");
 
     expect(screen.getByText("$1.1500")).toBeInTheDocument();

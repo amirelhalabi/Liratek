@@ -364,7 +364,8 @@ describe("Exchange HistoryModal — expandable settlement breakdown (Q16)", () =
     // No separate sign-flip on this table (matches the pre-existing Profit
     // column convention) — a negative profit_usd carries its own "-" from
     // toFixed(), rendered after the literal "$".
-    const negProfit = screen.getByText("$-5.0000");
+    // LIRA-331: the amount is inside an <Ltr> in the coloured cell.
+    const negProfit = screen.getByText("$-5.0000").closest("td")!;
     expect(negProfit.className).toContain("text-red-400");
     const settlementRow = negProfit.closest("tr");
     expect(settlementRow?.className).toContain("line-through");

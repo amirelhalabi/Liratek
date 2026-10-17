@@ -125,11 +125,11 @@ describe("Exchange HistoryModal — refunded row display (LIRA-131)", () => {
 
     const refundedProfit = within(refundedRow as HTMLElement).getByText(
       "$8.00",
-    );
+    ).closest("span")!; // LIRA-331: amount is inside an <Ltr>
     expect(refundedProfit.className).not.toContain("text-emerald-400");
     expect(refundedProfit.className).toContain("line-through");
 
-    const liveProfit = within(liveRow as HTMLElement).getByText("$5.00");
+    const liveProfit = within(liveRow as HTMLElement).getByText("$5.00").closest("span")!;
     expect(liveProfit.className).toContain("text-emerald-400");
     expect(liveProfit.className).not.toContain("line-through");
   });
