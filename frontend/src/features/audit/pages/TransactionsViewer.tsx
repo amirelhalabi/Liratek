@@ -396,10 +396,7 @@ export default function TransactionsViewer({
 
   const handleUndoRefund = useCallback(
     async (row: TransactionRow) => {
-      if (
-        !confirm(t("confirm.undoRefund"))
-      )
-        return;
+      if (!confirm(t("confirm.undoRefund"))) return;
       try {
         const res = await undoItemRefund(row.id);
         if (res.success) load();
@@ -492,10 +489,7 @@ export default function TransactionsViewer({
       // on which member "owns" the basket's legs is a follow-up, not this
       // ticket).
       if (row.session_id != null) {
-        if (
-          !confirm(t("confirm.refund"))
-        )
-          return;
+        if (!confirm(t("confirm.refund"))) return;
         void doRefund(row.id);
         return;
       }
@@ -505,10 +499,7 @@ export default function TransactionsViewer({
       // decision: simple swap-back — plain confirm, refund with NO
       // refundLegs; the server mirrors each leg negated.
       if (isSwapTransactionType(row.type)) {
-        if (
-          !confirm(t("confirm.refundExchange"))
-        )
-          return;
+        if (!confirm(t("confirm.refundExchange"))) return;
         void doRefund(row.id);
         return;
       }
@@ -542,10 +533,7 @@ export default function TransactionsViewer({
 
       const hasLegs = !!row.payments && row.payments.length > 0;
       if (!hasLegs && linkedUnits.length === 0) {
-        if (
-          !confirm(t("confirm.refund"))
-        )
-          return;
+        if (!confirm(t("confirm.refund"))) return;
         void doRefund(row.id);
         return;
       }
@@ -645,10 +633,7 @@ export default function TransactionsViewer({
    */
   const handleVoidSessionBasket = useCallback(
     async (sessionId: number) => {
-      if (
-        !confirm(t("confirm.voidBasket", { id: sessionId }))
-      )
-        return;
+      if (!confirm(t("confirm.voidBasket", { id: sessionId }))) return;
       try {
         const res = await voidSessionBasket(sessionId);
         if (res.success) load();
@@ -664,10 +649,7 @@ export default function TransactionsViewer({
    *  every original item ACTIVE and creates a REFUND row per item. */
   const handleRefundSessionBasket = useCallback(
     async (sessionId: number) => {
-      if (
-        !confirm(t("confirm.refundBasket", { id: sessionId }))
-      )
-        return;
+      if (!confirm(t("confirm.refundBasket", { id: sessionId }))) return;
       try {
         const res = await refundSessionBasket(sessionId);
         if (res.success) load();
@@ -912,8 +894,7 @@ export default function TransactionsViewer({
             {ownLines.map((line, i) => (
               <div key={`own-${i}`}>
                 {line.direction === "in" ? t("cells.legIn") : t("cells.legOut")}{" "}
-                — {line.method}:{" "}
-                {line.amountText}
+                — {line.method}: {line.amountText}
                 {line.drawersText && (
                   <span className="text-slate-500">
                     {"  {"}
@@ -936,8 +917,7 @@ export default function TransactionsViewer({
                     {line.direction === "in"
                       ? t("cells.legIn")
                       : t("cells.legOut")}{" "}
-                    — {line.method}:{" "}
-                    {line.amountText}
+                    — {line.method}: {line.amountText}
                     {line.drawersText && (
                       <span className="text-sky-600/70">
                         {"  {"}

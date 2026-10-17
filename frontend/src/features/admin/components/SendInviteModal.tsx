@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { CreateSignupInvitationInput } from "@liratek/core";
 import { messageFrom } from "@/api/apiError";
 import { useCreateSignupInvitationMutation } from "../hooks/useSignupInvitations";
@@ -20,6 +21,7 @@ interface SendInviteModalProps {
  * `messageFrom`, never `instanceof Error`.
  */
 export function SendInviteModal({ isOpen, onClose }: SendInviteModalProps) {
+  const { t } = useTranslation("admin");
   const createInvite = useCreateSignupInvitationMutation();
   const [email, setEmail] = useState("");
   const [shopNameHint, setShopNameHint] = useState("");
@@ -50,7 +52,7 @@ export function SendInviteModal({ isOpen, onClose }: SendInviteModalProps) {
       await createInvite.mutateAsync(payload);
       handleClose();
     } catch (err) {
-      setError(messageFrom(err, "Failed to send the invitation"));
+      setError(messageFrom(err, t("invite.failed")));
     }
   };
 
@@ -61,15 +63,15 @@ export function SendInviteModal({ isOpen, onClose }: SendInviteModalProps) {
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
       <div
         role="dialog"
-        aria-label="Send invite"
+        aria-label={t("invite.title")}
         className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-          <h3 className="text-lg font-bold text-white">Send invite</h3>
+          <h3 className="text-lg font-bold text-white">{t("invite.title")}</h3>
           <button
             type="button"
             onClick={handleClose}
-            aria-label="Close"
+            aria-label={t("invite.close")}
             className="text-slate-500 hover:text-white transition-colors"
           >
             <X size={20} />
@@ -77,10 +79,7 @@ export function SendInviteModal({ isOpen, onClose }: SendInviteModalProps) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <p className="text-sm text-slate-400">
-            We&apos;ll email a sign-up link that works once and expires in 72
-            hours. The shop will use this email as its contact address.
-          </p>
+          <p className="text-sm text-slate-400">{t("invite.intro")}</p>
 
           {error && (
             <div
@@ -96,7 +95,7 @@ export function SendInviteModal({ isOpen, onClose }: SendInviteModalProps) {
               className="text-xs text-slate-400 block mb-1"
               htmlFor="send-invite-email"
             >
-              Email *
+              {t("invite.email")}
             </label>
             <input
               id="send-invite-email"
@@ -105,7 +104,7 @@ export function SendInviteModal({ isOpen, onClose }: SendInviteModalProps) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className={inputClass}
-              placeholder="owner@shop.com"
+              placeholder={t("invite.emailPlaceholder")}
               autoComplete="off"
               autoFocus
             />
@@ -116,7 +115,7 @@ export function SendInviteModal({ isOpen, onClose }: SendInviteModalProps) {
               className="text-xs text-slate-400 block mb-1"
               htmlFor="send-invite-shop"
             >
-              Shop name (optional)
+              {t("invite.shopName")}
             </label>
             <input
               id="send-invite-shop"
@@ -125,7 +124,7 @@ export function SendInviteModal({ isOpen, onClose }: SendInviteModalProps) {
               value={shopNameHint}
               onChange={(e) => setShopNameHint(e.target.value)}
               className={inputClass}
-              placeholder="Prefills the sign-up form"
+              placeholder={t("invite.shopPlaceholder")}
               maxLength={100}
             />
           </div>
@@ -136,7 +135,7 @@ export function SendInviteModal({ isOpen, onClose }: SendInviteModalProps) {
             disabled={!canSubmit}
             className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
           >
-            {isSubmitting ? "Sending..." : "Send invite"}
+            {isSubmitting ? t("invite.sending") : t("invite.submit")}
           </button>
         </form>
       </div>

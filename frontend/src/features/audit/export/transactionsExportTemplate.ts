@@ -939,7 +939,8 @@ export function transactionsExportTemplate(
         for (const side of [dayMoney.in, dayMoney.out]) {
           for (const c of Object.keys(side)) side[c] = roundTo(side[c]!, c);
         }
-        const weekday = list[0]!.when.toLocaleDateString("en-GB", { // i18n-exempt: export date format (en-GB)
+        // i18n-exempt: export date format (en-GB)
+        const weekday = list[0]!.when.toLocaleDateString("en-GB", {
           weekday: "short",
         });
         return {

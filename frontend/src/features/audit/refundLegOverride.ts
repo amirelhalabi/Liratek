@@ -182,8 +182,8 @@ export function buildDefaultRefundLines(
     .filter(
       ([currencyCode, amount]) => Math.abs(amount) > epsilonFor(currencyCode),
     )
-    .filter(
-      (entry): entry is ["USD" | "LBP", number] => isRefundCurrency(entry[0]),
+    .filter((entry): entry is ["USD" | "LBP", number] =>
+      isRefundCurrency(entry[0]),
     )
     .map(([currencyCode, amount]) => {
       const candidate = largestLegByCurrency[currencyCode]?.method;
@@ -275,7 +275,8 @@ function toUsd(amount: number, currencyCode: string, rate: number): number {
   if (currencyCode === "USD") return amount;
   const table = usdRateTable(rate);
   try {
-    return convert({ amount, currency: currencyCode }, "USD", table, "buy").amount;
+    return convert({ amount, currency: currencyCode }, "USD", table, "buy")
+      .amount;
   } catch {
     return amount;
   }

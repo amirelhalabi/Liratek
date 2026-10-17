@@ -11,7 +11,14 @@
  * Not failing-first by nature (guard against future drift). The useApi mock
  * returns ONE stable object (rule 25).
  */
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  waitFor,
+} from "@testing-library/react";
+import type { WrongNumberCardRow } from "@liratek/core";
 import { i18n, loadLanguage } from "@/i18n/setup";
 import { WrongNumberPanel } from "../WrongNumberPanel";
 import { CreditsReceivedPanel } from "../CreditsReceivedPanel";
@@ -31,7 +38,12 @@ jest.mock("@liratek/ui", () => ({
 
 jest.mock("@/utils/logger", () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+  default: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 const ALFA_CARD = {
@@ -50,19 +62,27 @@ const ALFA_LINE = {
   is_active: 1,
   is_primary: 1,
 };
-const RECORD = {
+const RECORD: WrongNumberCardRow = {
   id: 11,
-  provider: "iPick" as const,
+  tenant_id: 1,
+  expense_id: 1,
+  expense_transaction_id: 1,
+  sale_transaction_id: null,
+  provider: "iPick",
   carrier: "alfa",
+  mobile_service_item_id: 1,
   card_label: "7.58",
   wrong_number: "70111222",
   right_number: "70333444",
-  status: "WAITING" as const,
+  status: "WAITING",
   card_cost_lbp: 770000,
   card_credit_usd: 7.58,
   total_recovered_usd: 0,
+  recovered_value_lbp: 0,
   remaining_loss_lbp: 770000,
   credits: [],
+  created_at: "2026-10-17 10:00:00",
+  updated_at: "2026-10-17 10:00:00",
 };
 
 type Lang = "en" | "ar";
@@ -86,7 +106,7 @@ async function recordFlow(
   const { container, unmount } = render(
     <WrongNumberPanel
       provider="iPick"
-      saleTransactionId={opts.fromSale ? 42 : undefined}
+      {...(opts.fromSale ? { saleTransactionId: 42 } : {})}
       saleText={opts.fromSale ? "Alfa 7.58" : null}
       onDone={jest.fn()}
       onCancel={jest.fn()}

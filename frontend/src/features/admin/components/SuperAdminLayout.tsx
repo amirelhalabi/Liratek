@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/features/auth/context/AuthContext";
 
 interface SuperAdminLayoutProps {
@@ -13,6 +14,7 @@ interface SuperAdminLayoutProps {
  * with no tenant in scope).
  */
 export function SuperAdminLayout({ children }: SuperAdminLayoutProps) {
+  const { t } = useTranslation("admin");
   const { logout } = useAuth();
   const navigate = useNavigate();
 
@@ -24,12 +26,14 @@ export function SuperAdminLayout({ children }: SuperAdminLayoutProps) {
   return (
     <div className="min-h-screen flex flex-col bg-slate-900">
       <header className="flex items-center justify-between px-6 py-4 bg-slate-800 border-b border-slate-700/50">
-        <span className="text-lg font-bold text-white">LiraTek Admin</span>
+        <span className="text-lg font-bold text-white">
+          {t("layout.title")}
+        </span>
         <button
           onClick={handleLogout}
           className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 hover:border-slate-500 transition-colors"
         >
-          Logout
+          {t("layout.logout")}
         </button>
       </header>
       <main className="flex-1 overflow-auto">{children}</main>

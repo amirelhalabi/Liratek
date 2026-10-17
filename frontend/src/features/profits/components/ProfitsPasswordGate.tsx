@@ -129,9 +129,7 @@ export function ProfitsPasswordGate({
           <h2 className="text-xl font-bold text-white mb-2">
             {t("gate.notSetTitle")}
           </h2>
-          <p className="text-sm text-slate-400 mb-6">
-            {t("gate.notSetBody")}
-          </p>
+          <p className="text-sm text-slate-400 mb-6">{t("gate.notSetBody")}</p>
           {user?.role === "admin" && (
             <button
               onClick={() => navigate("/settings?tab=profits")}
@@ -157,9 +155,7 @@ export function ProfitsPasswordGate({
             <h2 className="text-xl font-bold text-white mb-1">
               {t("gate.lockedTitle")}
             </h2>
-            <p className="text-sm text-slate-400">
-              {t("gate.lockedHint")}
-            </p>
+            <p className="text-sm text-slate-400">{t("gate.lockedHint")}</p>
             {timedOut && (
               <p className="text-xs text-orange-400 mt-2">
                 {t("gate.timedOut")}

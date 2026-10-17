@@ -42,7 +42,18 @@
       "suspended": "suspended",
       "archived": "archived"
     },
-    "planStatus": " · {{status}}"
+    "planStatus": " · {{status}}",
+    "trial": {
+      "oneDayLeft": "1 day left",
+      "daysLeft": "{{n}} days left",
+      "active": "Trial · {{left}} · ends {{day}}",
+      "ended": "Trial ended {{day}}"
+    },
+    "planState": {
+      "active": "active",
+      "grace": "grace",
+      "read_only": "read_only"
+    }
   },
   "add": {
     "title": "Add tenant",
@@ -105,7 +116,21 @@
     "copyNow": "Copy this now — it is shown once and cannot be retrieved later.",
     "copy": "Copy",
     "alwaysIncluded": "Always included: {{modules}}.",
-    "failed": "{{label}} failed"
+    "failed": "{{label}} failed",
+    "trialEnded": "Free trial ended {{day}}.",
+    "trialLeft": "Free trial: {{n}} day(s) left, last day {{day}}.",
+    "activateTitle": "Activate subscription",
+    "activateHint": "Ends the free trial: the shop pays from now on and can add records again. Separate from Suspend, which only stops sign-in.",
+    "noEndDate": "No end date",
+    "paidUntil": "Paid until",
+    "extendTitle": "Extend trial",
+    "extendHint": "The trial runs to the end of this day (Beirut time). An ended trial starts again.",
+    "newLastDay": "New last day of trial",
+    "activated": "Subscription activated",
+    "extended": "Trial extended",
+    "history": "History",
+    "historyLoading": "Loading…",
+    "historyEmpty": "No changes yet."
   },
   "invite": {
     "title": "Send invite",

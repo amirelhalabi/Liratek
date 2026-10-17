@@ -213,7 +213,7 @@ Each test builds the payload through the real builder or screen with `lng=en` an
 - [ ] T046 [P] [US1] `frontend/src/features/debts/**/__tests__/repayment.payloadLanguage.test.tsx`: repayment, discount/waive, account settle.
 - [ ] T047 [P] [US1] `frontend/src/features/exchange/**/__tests__/exchange.payloadLanguage.test.tsx` and `frontend/src/features/expenses/**/__tests__/expense.payloadLanguage.test.tsx`.
 - [ ] T048 [P] [US1] `frontend/src/features/closing/**/__tests__/closing.payloadLanguage.test.tsx`: drawer count and closing.
-- [ ] T049 [P] [US1] `frontend/src/features/{sessions,custom-services,maintenance,loto,suppliers,partners}/**/__tests__/*.payloadLanguage.test.tsx`: one file per module.
+- [ ] T049 [P] [US1] `frontend/src/features/{sessions,custom-services,maintenance,loto,suppliers,partners}/**/__tests__/*.payloadLanguage.test.tsx`: one file per module. (Partly done: suppliers and partners written, not failing-first (guard against future drift); sessions, custom-services, maintenance and loto remain.)
 
 ### Module conversions (all [P]: each owns its own folder and namespace files)
 
@@ -233,10 +233,10 @@ Each test builds the payload through the real builder or screen with `lng=en` an
 - [ ] T063 [P] [US1] `inventory` + `clients` + `warranty` + `vouchers`. Namespaces `inventory`, `clients`, `warranty`, `vouchers`; one agent, or split into 4 tasks.
 - [ ] T064 [P] [US1] `settings`, except `MobileServicesManager.tsx`/`CategoriesManager.tsx` and the T031 selects. Namespace `settings`.
 - [ ] T065 [P] [US1] `settings` catalog: `MobileServicesManager.tsx` (123 KB) and `CategoriesManager.tsx`. Namespace `settingsCatalog`.
-- [ ] T066 [P] [US1] `suppliers` + `partners`. Namespaces `suppliers`, `partners`. Depends on T049.
-- [ ] T067 [P] [US1] `profits`, with charts reversed in RTL. Namespace `profits`.
-- [ ] T068 [P] [US1] `audit` (Transactions viewer, detail panel, cells): type/direction/badge labels translated; stored `summary` shown as stored (OD-2, T090). Namespace `audit`.
-- [ ] T069 [P] [US1] `admin` + `phoneLines` + `wrongNumbers` + `offline`. Namespaces `admin`, `phoneLines`, `wrongNumbers`, `offline`.
+- [x] T066 [P] [US1] `suppliers` + `partners`. Namespaces `suppliers`, `partners`. Depends on T049.
+- [x] T067 [P] [US1] `profits`, with charts reversed in RTL. Namespace `profits`. (The Profits page draws no charts, so there was nothing to reverse.)
+- [x] T068 [P] [US1] `audit` (Transactions viewer, detail panel, cells): type/direction/badge labels translated; stored `summary` shown as stored (OD-2, T090). Namespace `audit`.
+- [x] T069 [P] [US1] `admin` + `phoneLines` + `wrongNumbers` + `offline`. Namespaces `admin`, `phoneLines`, `wrongNumbers`, `offline`. (Includes the free-trial admin texts: Plan editor and Tenants plan column. `shared/components/SubscriptionBanner.tsx` belongs to the `shared` namespace, not done here.)
 
 `whatsNew` is deliberately not converted (FR-012).
 

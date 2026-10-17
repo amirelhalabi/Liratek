@@ -133,9 +133,7 @@ export default function CashReportModal({ onClose }: { onClose: () => void }) {
             onFromChange={setFrom}
             onToChange={setTo}
           />
-          <span className="text-xs text-slate-500">
-            {t("cashReport.note")}
-          </span>
+          <span className="text-xs text-slate-500">{t("cashReport.note")}</span>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">

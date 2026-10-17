@@ -3,10 +3,7 @@ import { useTranslation } from "react-i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
 import { CounterpartySettleModal, type PaymentLine } from "@liratek/ui";
 import type { Money } from "@liratek/ui";
-import {
-  SHORTFALL_MAX,
-  type RefundKeptChangeInput,
-} from "@liratek/core";
+import { SHORTFALL_MAX, type RefundKeptChangeInput } from "@liratek/core";
 import type { TransactionPaymentLeg } from "../cashFlow";
 import {
   buildDefaultRefundLines,
@@ -264,8 +261,7 @@ export function RefundMethodModal({
     currentRate,
     activeKept,
   );
-  const validationError =
-    plainError == null ? null : (keptError ?? plainError);
+  const validationError = plainError == null ? null : (keptError ?? plainError);
   const isDefault = linesMatchDefault(overrideLines, defaults);
 
   const methodLabel = (code: string): string =>
@@ -284,9 +280,7 @@ export function RefundMethodModal({
     )
     .join(" + ");
 
-  const setKeptFromMpi = (
-    next: { usd: number; lbp: number } | null,
-  ): void => {
+  const setKeptFromMpi = (next: { usd: number; lbp: number } | null): void => {
     setKept(next ? { usd: next.usd, lbp: next.lbp } : null);
   };
 

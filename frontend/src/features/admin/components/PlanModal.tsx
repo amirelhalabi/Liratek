@@ -12,6 +12,7 @@
  */
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { X, Check, KeyRound, Copy, AlertTriangle } from "lucide-react";
 import {
   useUpdateSubscriptionMutation,
@@ -54,6 +55,7 @@ function parseModules(raw: string | null): string[] | null {
 }
 
 export function PlanModal({ subscription, sellableModules, onClose }: Props) {
+  const { t } = useTranslation("admin");
   const stored = parseModules(subscription.entitled_modules);
 
   /** null = unrestricted. Kept distinct from [] , which means nothing. */
@@ -118,12 +120,14 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
       setSaved(label);
     } catch (err) {
       logger.error(`${label} failed:`, err);
-      setError(err instanceof Error ? err.message : `${label} failed`);
+      setError(
+        err instanceof Error ? err.message : t("plan.failed", { label }),
+      );
     }
   };
 
   const saveModules = () =>
-    run("Modules saved", () =>
+    run(t("plan.modulesSaved"), () =>
       update.mutateAsync({
         tenantId: subscription.tenant_id,
         patch: { entitledModules: selected },
@@ -131,7 +135,7 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
     );
 
   const recordPayment = () =>
-    run("Payment recorded", () =>
+    run(t("plan.paymentRecorded"), () =>
       update.mutateAsync({
         tenantId: subscription.tenant_id,
         // Empty means "no expiry", which is a real choice, not a missing value.
@@ -140,13 +144,13 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
     );
 
   const doIssueKey = () =>
-    run("Licence key issued", async () => {
+    run(t("plan.keyIssuedDone"), async () => {
       const key = await issueKey.mutateAsync(subscription.tenant_id);
       setIssuedKey(key);
     });
 
   const doActivate = () =>
-    run("Subscription activated", () => {
+    run(t("plan.activated"), () => {
       // ONE payload, typed from the schema (rule 21/22).
       const body: ActivateSubscriptionInput = {
         until: activateOpenEnded ? null : activateUntil,
@@ -155,7 +159,7 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
     });
 
   const doExtend = () =>
-    run("Trial extended", () => {
+    run(t("plan.extended"), () => {
       const body: ExtendTrialInput = { lastDay: extendLastDay };
       return extend.mutateAsync({ tenantId: subscription.tenant_id, body });
     });
@@ -172,16 +176,16 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
         <div className="flex items-start justify-between p-5 border-b border-slate-700">
           <div>
             <h2 className="text-lg font-semibold text-white">
-              Plan — {subscription.tenant_name}
+              {t("plan.title", { name: subscription.tenant_name })}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              {subscription.tenant_slug} · status{" "}
+              {t("plan.status", { slug: subscription.tenant_slug })}
               <span className="text-slate-300">{subscription.status}</span>
             </p>
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("plan.close")}
             className="text-slate-400 hover:text-white"
           >
             <X className="w-5 h-5" />
@@ -200,8 +204,11 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
               }`}
             >
               {subscription.standing === "trial_ended"
-                ? `Free trial ended ${subscription.trial.lastDay}.`
-                : `Free trial: ${subscription.trial.daysLeft} day(s) left, last day ${subscription.trial.lastDay}.`}
+                ? t("plan.trialEnded", { day: subscription.trial.lastDay })
+                : t("plan.trialLeft", {
+                    n: subscription.trial.daysLeft,
+                    day: subscription.trial.lastDay,
+                  })}
             </p>
           )}
 
@@ -209,12 +216,10 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
             <section className="space-y-3">
               <div>
                 <h3 className="text-sm font-medium text-white">
-                  Activate subscription
+                  {t("plan.activateTitle")}
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Ends the free trial: the shop pays from now on and can add
-                  records again. Separate from Suspend, which only stops
-                  sign-in.
+                  {t("plan.activateHint")}
                 </p>
               </div>
               <div className="flex flex-wrap gap-4 items-center text-sm text-slate-200">
@@ -226,7 +231,7 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
                     onChange={() => setActivateOpenEnded(true)}
                     className="accent-emerald-500"
                   />
-                  No end date
+                  {t("plan.noEndDate")}
                 </label>
                 <label className="flex items-center gap-2">
                   <input
@@ -236,7 +241,7 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
                     onChange={() => setActivateOpenEnded(false)}
                     className="accent-emerald-500"
                   />
-                  Paid until
+                  {t("plan.paidUntil")}
                 </label>
                 <input
                   type="date"
@@ -253,7 +258,7 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
                 data-testid="plan-activate-subscription"
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg"
               >
-                Activate subscription
+                {t("plan.activateTitle")}
               </button>
             </section>
           )}
@@ -263,15 +268,19 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
               className={`space-y-3 ${onTrial ? "pt-6 border-t border-slate-700" : ""}`}
             >
               <div>
-                <h3 className="text-sm font-medium text-white">Extend trial</h3>
+                <h3 className="text-sm font-medium text-white">
+                  {t("plan.extendTitle")}
+                </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  The trial runs to the end of this day (Beirut time). An
-                  ended trial starts again.
+                  {t("plan.extendHint")}
                 </p>
               </div>
               <div className="flex gap-2 items-center">
-                <label className="text-xs text-slate-400" htmlFor="plan-extend-last-day">
-                  New last day of trial
+                <label
+                  className="text-xs text-slate-400"
+                  htmlFor="plan-extend-last-day"
+                >
+                  {t("plan.newLastDay")}
                 </label>
                 <input
                   id="plan-extend-last-day"
@@ -287,7 +296,7 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
                   data-testid="plan-extend-trial"
                   className="px-4 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg"
                 >
-                  Extend trial
+                  {t("plan.extendTitle")}
                 </button>
               </div>
             </section>
@@ -297,12 +306,10 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
           <section className="space-y-3">
             <div>
               <h3 className="text-sm font-medium text-white">
-                Modules this customer pays for
+                {t("plan.modulesTitle")}
               </h3>
               <p className="text-xs text-slate-400 mt-1">
-                The customer still chooses what to switch on — this is the
-                ceiling, not the setting. Dashboard, Settings, Audit and Closing
-                are always included and cannot be sold separately.
+                {t("plan.modulesHint")}
               </p>
             </div>
 
@@ -316,11 +323,11 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
                 }
                 className="accent-violet-500"
               />
-              Every module (no restriction)
+              {t("plan.everyModule")}
             </label>
 
             {!unrestricted && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pl-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 ps-6">
                 {sellableModules.map((key) => (
                   <label
                     key={key}
@@ -345,7 +352,7 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
               data-testid="plan-save-modules"
               className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg"
             >
-              Save modules
+              {t("plan.saveModules")}
             </button>
           </section>
 
@@ -353,12 +360,10 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
           <section className="space-y-3 pt-6 border-t border-slate-700">
             <div>
               <h3 className="text-sm font-medium text-white">
-                Record a payment
+                {t("plan.paymentTitle")}
               </h3>
               <p className="text-xs text-slate-400 mt-1">
-                Sets the plan back to active and runs it until this date. Leave
-                it empty for no expiry. Grace resets, so a later lapse gets a
-                full window.
+                {t("plan.paymentHint")}
               </p>
             </div>
             <div className="flex gap-2 items-center">
@@ -375,13 +380,14 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
                 data-testid="plan-record-payment"
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg"
               >
-                Record payment
+                {t("plan.recordPayment")}
               </button>
             </div>
             {subscription.grace_ends_at && (
               <p className="text-xs text-amber-400">
-                Currently in grace until{" "}
-                {subscription.grace_ends_at.slice(0, 10)}.
+                {t("plan.graceUntil", {
+                  date: subscription.grace_ends_at.slice(0, 10),
+                })}
               </p>
             )}
           </section>
@@ -391,19 +397,13 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
             <div>
               <h3 className="text-sm font-medium text-white flex items-center gap-2">
                 <KeyRound className="w-4 h-4 text-violet-400" />
-                Desktop licence key
+                {t("plan.keyTitle")}
               </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Only needed for a customer running the desktop app. Without a
-                key their install is unrestricted — issuing one is what lets
-                this plan reach it.
-              </p>
+              <p className="text-xs text-slate-400 mt-1">{t("plan.keyHint")}</p>
             </div>
 
             <p className="text-xs text-slate-400">
-              {subscription.license_key
-                ? "A key is currently issued."
-                : "No key issued."}
+              {subscription.license_key ? t("plan.keyIssued") : t("plan.noKey")}
             </p>
 
             <button
@@ -412,17 +412,14 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
               data-testid="plan-issue-key"
               className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:text-slate-500 text-white text-sm rounded-lg"
             >
-              {subscription.license_key
-                ? "Issue a new key (revokes the old one)"
-                : "Issue a key"}
+              {subscription.license_key ? t("plan.issueNew") : t("plan.issue")}
             </button>
 
             {issuedKey && (
               <div className="bg-slate-900 border border-violet-500/40 rounded-lg p-3 space-y-2">
                 <p className="text-xs text-amber-300 flex items-start gap-1">
                   <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                  Copy this now — it is shown once and cannot be retrieved
-                  later.
+                  {t("plan.copyNow")}
                 </p>
                 <div className="flex items-center gap-2">
                   <code
@@ -435,7 +432,7 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
                     onClick={() => {
                       void navigator.clipboard?.writeText(issuedKey);
                     }}
-                    title="Copy"
+                    title={t("plan.copy")}
                     className="text-slate-400 hover:text-white"
                   >
                     <Copy className="w-4 h-4" />
@@ -447,16 +444,22 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
 
           {/* ── LIRA-332: history ───────────────────────────────────── */}
           <section className="space-y-2 pt-6 border-t border-slate-700">
-            <h3 className="text-sm font-medium text-white">History</h3>
+            <h3 className="text-sm font-medium text-white">
+              {t("plan.history")}
+            </h3>
             {(history.data ?? []).length === 0 ? (
               <p className="text-xs text-slate-500">
-                {history.isLoading ? "Loading…" : "No changes yet."}
+                {history.isLoading
+                  ? t("plan.historyLoading")
+                  : t("plan.historyEmpty")}
               </p>
             ) : (
               <ul data-testid="plan-history" className="space-y-1.5 text-xs">
                 {(history.data ?? []).map((entry, i) => (
                   <li key={`${entry.at}-${i}`} className="text-slate-300">
-                    <span className="text-slate-500">{entry.at.slice(0, 16)}</span>{" "}
+                    <span className="text-slate-500">
+                      {entry.at.slice(0, 16)}
+                    </span>{" "}
                     · {entry.actor} · {entry.summary}
                     {entry.oldValues?.standing !== undefined &&
                       entry.newValues?.standing !== undefined && (
@@ -474,7 +477,9 @@ export function PlanModal({ subscription, sellableModules, onClose }: Props) {
 
           {/* Ungateable, stated once so the checkbox list needs no footnotes */}
           <p className="text-xs text-slate-500">
-            Always included: {UNGATEABLE_MODULES.join(", ")}.
+            {t("plan.alwaysIncluded", {
+              modules: UNGATEABLE_MODULES.join(", "),
+            })}
           </p>
 
           {saved && (

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { formatNumber } from "@liratek/ui/i18n/format";
-import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { useFormat } from "@/i18n/useFormat";
 import {
   appEvents,
@@ -209,6 +208,16 @@ function drawerDisplayLabel(drawerName: string, t: SuppliersT): string {
 }
 
 type SuppliersT = TFunction<"suppliers">;
+
+/** en-US output identical to the old `toLocaleString()`. */
+const FULL_DATE_TIME: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+};
 
 /**
  * Supplier balance is the signed sum of the ledger:
@@ -463,7 +472,8 @@ function describeBalance(
   const bucket = signBucket(amount);
   const cls = balanceTextColor(amount, BALANCE_EPS);
   if (bucket === "UP") return { text: t("balance.youOwe", { money }), cls };
-  if (bucket === "DOWN") return { text: t("balance.theyOweYou", { money }), cls };
+  if (bucket === "DOWN")
+    return { text: t("balance.theyOweYou", { money }), cls };
   return { text: t("balance.settled"), cls };
 }
 
@@ -739,7 +749,7 @@ function AccountLedgerTable({
                 {row.source_name}
               </div>
               <div
-                className={`text-right font-mono whitespace-nowrap ${
+                className={`text-end font-mono whitespace-nowrap ${
                   row.is_refunded
                     ? "line-through text-slate-500"
                     : balanceColor(row.amount_usd)
@@ -750,7 +760,7 @@ function AccountLedgerTable({
                   : "—"}
               </div>
               <div
-                className={`text-right font-mono whitespace-nowrap ${
+                className={`text-end font-mono whitespace-nowrap ${
                   row.is_refunded
                     ? "line-through text-slate-500"
                     : balanceColor(row.amount_lbp)
@@ -796,6 +806,7 @@ function AccountLedgerTable({
 
 export default function SuppliersPage() {
   const { t } = useTranslation("suppliers");
+  const { t: tc } = useTranslation("common");
   const { formatDateTime } = useFormat();
   const { methods } = usePaymentMethods();
   const { partnerSystem } = useShopBase();
@@ -1991,10 +2002,7 @@ export default function SuppliersPage() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
-      <PageHeader
-        title={t("page.title")}
-        subtitle={t("page.subtitle")}
-      />
+      <PageHeader title={t("page.title")} subtitle={t("page.subtitle")} />
 
       {/* Balance overview — was a bare `< 0 ? green : red` bypassing this
           page's own signBucket/BALANCE_EPS (latent bug #1, audit): exactly
@@ -2129,7 +2137,9 @@ export default function SuppliersPage() {
         {/* Right: Tabbed panel */}
         <div className="col-span-8 bg-slate-800 rounded-xl border border-slate-700/50 p-4 overflow-auto">
           {!selectedSupplier ? (
-            <div className="text-slate-400 text-sm">{t("list.selectPrompt")}</div>
+            <div className="text-slate-400 text-sm">
+              {t("list.selectPrompt")}
+            </div>
           ) : (
             <>
               {/* Header */}
@@ -2297,7 +2307,7 @@ export default function SuppliersPage() {
                     }}
                     className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
                   >
-                    {t("common:actions.refresh")}
+                    {tc("actions.refresh")}
                   </button>
                 </div>
               </div>
@@ -2462,7 +2472,7 @@ export default function SuppliersPage() {
                         renders identically for every supplier that reaches
                         this tab. */}
                     <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
-                      Commission Settlement
+                      {t("settleTab.heading")}
                     </h3>
                     {isOmtSettle && (
                       <div className="mb-2">
@@ -2470,7 +2480,7 @@ export default function SuppliersPage() {
                           value={settleCovered}
                           onChange={handleSettleCoveredChange}
                           testIdPrefix="supplier-settle-covered"
-                          heading="Which OMT shares does this statement include?"
+                          heading={t("settleTab.coveredHeading")}
                         />
                       </div>
                     )}
@@ -2495,7 +2505,9 @@ export default function SuppliersPage() {
                             }
                             className="w-4 h-4 rounded border-slate-600 bg-slate-900"
                           />
-                          Select all ({selectableUnsettled.length})
+                          {t("settleTab.selectAll", {
+                            n: selectableUnsettled.length,
+                          })}
                         </label>
                         <button
                           data-testid="supplier-settle-open"
@@ -2505,12 +2517,12 @@ export default function SuppliersPage() {
                           }
                           title={
                             isMixedModelBatch
-                              ? "Selection mixes legacy and new-model commission transactions — settle them in separate batches"
+                              ? t("settleTab.mixedTitle")
                               : undefined
                           }
                           className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium"
                         >
-                          Settle
+                          {t("tabs.settle")}
                           {selectedSettleIds.size > 0
                             ? ` (${selectedSettleIds.size})`
                             : ""}
@@ -2524,19 +2536,18 @@ export default function SuppliersPage() {
                         legacy rows' already-embedded cut. */}
                       {isMixedModelBatch && (
                         <div className="px-3 py-2 bg-amber-900/30 border-t border-amber-700/40 text-xs text-amber-300">
-                          This selection mixes legacy and new-model commission
-                          transactions — they can&apos;t be settled in one
-                          batch. Deselect one group and settle it separately.
+                          {t("settleTab.mixedWarning")}
                         </div>
                       )}
                       {unsettledQuery.isLoading ? (
                         <div className="text-slate-400 text-xs py-4 text-center">
-                          Loading pending transactions…
+                          {t("settleTab.loading")}
                         </div>
                       ) : displayUnsettled.length === 0 ? (
                         <div className="text-slate-500 text-xs py-4 text-center">
-                          No pending transactions to settle for{" "}
-                          {selectedSupplier.name}
+                          {t("settleTab.empty", {
+                            name: selectedSupplier.name,
+                          })}
                         </div>
                       ) : (
                         <>
@@ -2549,10 +2560,16 @@ export default function SuppliersPage() {
                             reaches this tab, not just Katsh. */}
                           <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/40 border-t border-slate-700 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                             <span className="w-4 shrink-0" aria-hidden="true" />
-                            <span className="flex-1">Type</span>
-                            <span className="font-mono text-right">Amount</span>
-                            <span className="w-20 text-right">Commission</span>
-                            <span className="w-36 text-right">Date</span>
+                            <span className="flex-1">{t("table.type")}</span>
+                            <span className="font-mono text-end">
+                              {t("table.amount")}
+                            </span>
+                            <span className="w-20 text-end">
+                              {t("table.commission")}
+                            </span>
+                            <span className="w-36 text-end">
+                              {t("table.date")}
+                            </span>
                           </div>
                           <div className="max-h-[30vh] overflow-y-auto divide-y divide-slate-700">
                             {displayUnsettled.map((row) => {
@@ -2579,11 +2596,12 @@ export default function SuppliersPage() {
                                   />
                                   <span className="flex-1 text-slate-300">
                                     {row.service_type === "BILL"
-                                      ? "Bill"
-                                      : row.omt_service_type || row.service_type}
+                                      ? t("settleTab.bill")
+                                      : row.omt_service_type ||
+                                        row.service_type}
                                     {waiting && (
-                                      <span className="ml-2 px-1 py-0.5 rounded bg-slate-700 text-slate-400 text-[9px] font-semibold">
-                                        Waiting — not in this statement
+                                      <span className="ms-2 px-1 py-0.5 rounded bg-slate-700 text-slate-400 text-[9px] font-semibold">
+                                        {t("settleTab.waiting")}
                                       </span>
                                     )}
                                   </span>
@@ -2598,11 +2616,12 @@ export default function SuppliersPage() {
                                       row.amount,
                                       row.omt_fee,
                                       row.currency,
+                                      t,
                                     );
                                     return (
                                       <span
                                         data-testid="settle-row-amount"
-                                        className="font-mono text-white text-right leading-tight"
+                                        className="font-mono text-white text-end leading-tight"
                                       >
                                         <div>{cell.main}</div>
                                         {cell.breakdown && (
@@ -2616,7 +2635,7 @@ export default function SuppliersPage() {
                                       </span>
                                     );
                                   })()}
-                                  <span className="font-mono text-emerald-400 w-20 text-right">
+                                  <span className="font-mono text-emerald-400 w-20 text-end">
                                     {row.service_type === "BILL" ? (
                                       // Commission is entered AT settlement (D8) —
                                       // no per-row commission to show for a bill.
@@ -2627,8 +2646,11 @@ export default function SuppliersPage() {
                                       "—"
                                     )}
                                   </span>
-                                  <span className="text-slate-500 w-36 text-right">
-                                    {parseDbDate(row.created_at).toLocaleString()}
+                                  <span className="text-slate-500 w-36 text-end">
+                                    {formatDateTime(
+                                      parseDbDate(row.created_at),
+                                      FULL_DATE_TIME,
+                                    )}
                                   </span>
                                 </label>
                               );
@@ -2647,30 +2669,34 @@ export default function SuppliersPage() {
                             // implied a payment that never happens — say what
                             // is true instead.
                             <span className="text-emerald-400">
-                              {selectedSupplier.name} owes you a settlement
-                              commission — set the rate/count in Settle
+                              {t("settleTab.billsOwes", {
+                                name: selectedSupplier.name,
+                              })}
                             </span>
                           ) : (
                             <>
                               <span>
                                 {isNewModelBatch ? (
                                   <>
-                                    Owed{" "}
-                                    {formatMoney(
-                                      preSettleOwed,
-                                      preSettleCurrency,
-                                    )}{" "}
-                                    − commission (entered below)
+                                    {t("settleTab.owedNewModel", {
+                                      money: formatMoney(
+                                        preSettleOwed,
+                                        preSettleCurrency,
+                                      ),
+                                    })}
                                   </>
                                 ) : (
                                   <>
-                                    Owed ${settleTotalOwedUsd.toFixed(2)} −
-                                    commission ${settleCommissionUsd.toFixed(4)}
+                                    {t("settleTab.owedLegacy", {
+                                      owed: settleTotalOwedUsd.toFixed(2),
+                                      commission:
+                                        settleCommissionUsd.toFixed(4),
+                                    })}
                                   </>
                                 )}
                               </span>
                               <span className="font-mono font-bold text-white">
-                                Net you pay:{" "}
+                                {t("settleTab.netYouPay")}{" "}
                                 {formatMoney(
                                   preSettleNetPay,
                                   preSettleCurrency,
@@ -2707,8 +2733,8 @@ export default function SuppliersPage() {
                             }`}
                           >
                             {dir === "PAY"
-                              ? "Pay Supplier"
-                              : "Supplier Paid Us"}
+                              ? t("cashflow.paySupplier")
+                              : t("cashflow.supplierPaidUs")}
                           </button>
                         ))}
                       </div>
@@ -2728,7 +2754,7 @@ export default function SuppliersPage() {
                       // account; the server books the net.
                       onReturnChange: setCashflowReturnLegs,
                       unreturnedChangeTo: "ACCOUNT_BALANCE",
-                      accountLabel: "the supplier's account",
+                      accountLabel: t("cashflow.accountLabel"),
                       cashOnlyReturn: true,
                       showPmFee: false,
                       // CQ-10: discount is PAY-only (the supplier forgiving part
@@ -2761,8 +2787,8 @@ export default function SuppliersPage() {
                     onConfirm={handleCashflow}
                     confirmLabel={
                       cashflowDirection === "PAY"
-                        ? "Record Payment"
-                        : "Record Receipt"
+                        ? t("cashflow.recordPayment")
+                        : t("cashflow.recordReceipt")
                     }
                     confirmColor={cashflowDirection === "PAY" ? "red" : "green"}
                     isSubmitting={supplierCashflow.isPending}
@@ -2770,7 +2796,7 @@ export default function SuppliersPage() {
                     {cashflowDirection === "PAY" && cashflowDiscount > 0 && (
                       <div>
                         <label className="block text-xs text-slate-400 mb-1">
-                          Discount reason (optional)
+                          {t("cashflow.discountReason")}
                         </label>
                         <input
                           data-testid="supplier-cashflow-discount-reason"
@@ -2779,14 +2805,14 @@ export default function SuppliersPage() {
                             setCashflowDiscountReason(e.target.value)
                           }
                           className="w-full bg-slate-950 border border-emerald-700/40 rounded-lg px-3 py-2 text-white text-sm"
-                          placeholder="Why the supplier is forgiving this amount…"
+                          placeholder={t("cashflow.discountReasonPlaceholder")}
                         />
                       </div>
                     )}
 
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">
-                        Note (optional)
+                        {t("form.noteOptional")}
                       </label>
                       <input
                         data-testid="supplier-cashflow-note"
@@ -2795,8 +2821,8 @@ export default function SuppliersPage() {
                         className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
                         placeholder={
                           cashflowDirection === "PAY"
-                            ? "Payment to supplier…"
-                            : "Amount received from supplier…"
+                            ? t("cashflow.notePlaceholderPay")
+                            : t("cashflow.notePlaceholderReceive")
                         }
                       />
                     </div>
@@ -2816,35 +2842,41 @@ export default function SuppliersPage() {
         selectedSupplier.is_active !== 0 &&
         !isProductSupplier && (
           <SupplierTableModal
-            title={`${selectedSupplier.name} — Transactions`}
+            title={t("txns.title", { name: selectedSupplier.name })}
             onClose={closeTable}
           >
             <div className="space-y-3">
               {allTxnsQuery.isLoading ? (
                 <div className="text-slate-400 text-sm py-6 text-center">
-                  Loading transactions…
+                  {t("txns.loading")}
                 </div>
               ) : allTxns.length === 0 ? (
                 <div className="text-slate-500 text-sm py-6 text-center">
-                  No transactions found for {selectedSupplier.name}
+                  {t("txns.empty", { name: selectedSupplier.name })}
                 </div>
               ) : (
                 <div className="border border-slate-700 rounded-xl overflow-hidden">
                   <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-300 text-xs font-semibold px-3 py-2">
                     <div className={hasOmtFee ? "col-span-2" : "col-span-3"}>
-                      Type
+                      {t("table.type")}
                     </div>
                     <div
-                      className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right`}
+                      className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-end`}
                     >
-                      Amount
+                      {t("table.amount")}
                     </div>
                     {hasOmtFee && (
-                      <div className="col-span-2 text-right">OMT Fee</div>
+                      <div className="col-span-2 text-end">
+                        {t("table.omtFee")}
+                      </div>
                     )}
-                    <div className="col-span-2 text-right">Commission</div>
-                    <div className="col-span-2 text-right">Status</div>
-                    <div className="col-span-2">Date</div>
+                    <div className="col-span-2 text-end">
+                      {t("table.commission")}
+                    </div>
+                    <div className="col-span-2 text-end">
+                      {t("table.status")}
+                    </div>
+                    <div className="col-span-2">{t("table.date")}</div>
                   </div>
                   <div className="max-h-[65vh] overflow-y-auto">
                     {sortedAllTxns.map((txn) => (
@@ -2868,11 +2900,12 @@ export default function SuppliersPage() {
                             txn.amount,
                             txn.omt_fee,
                             txn.currency,
+                            t,
                           );
                           return (
                             <div
                               data-testid="supplier-txn-amount"
-                              className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right font-mono text-white leading-tight`}
+                              className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-end font-mono text-white leading-tight`}
                             >
                               <div>{cell.main}</div>
                               {cell.breakdown && (
@@ -2887,14 +2920,14 @@ export default function SuppliersPage() {
                           );
                         })()}
                         {hasOmtFee && (
-                          <div className="col-span-2 text-right font-mono text-amber-400">
+                          <div className="col-span-2 text-end font-mono text-amber-400">
                             {txn.omt_fee ? `$${txn.omt_fee.toFixed(2)}` : "—"}
                           </div>
                         )}
-                        <div className="col-span-2 text-right font-mono text-emerald-400">
+                        <div className="col-span-2 text-end font-mono text-emerald-400">
                           {txn.commission > 0 ? (
                             txn.currency === "LBP" ? (
-                              `${Math.round(txn.commission).toLocaleString()} LBP`
+                              `${formatNumber(Math.round(txn.commission))} LBP`
                             ) : (
                               `$${txn.commission.toFixed(4)}`
                             )
@@ -2908,7 +2941,7 @@ export default function SuppliersPage() {
                             // by getAllByProvider for display only.
                             [
                               (txn.settled_commission_lbp ?? 0) > 0
-                                ? `${Math.round(txn.settled_commission_lbp!).toLocaleString()} LBP`
+                                ? `${formatNumber(Math.round(txn.settled_commission_lbp!))} LBP`
                                 : null,
                               (txn.settled_commission_usd ?? 0) > 0
                                 ? `$${txn.settled_commission_usd!.toFixed(2)}`
@@ -2920,12 +2953,12 @@ export default function SuppliersPage() {
                             <span className="text-slate-600">—</span>
                           )}
                         </div>
-                        <div className="col-span-2 text-right">
+                        <div className="col-span-2 text-end">
                           {isVoidedTxn(txn) ? (
                             // G40 — same grey "voided" treatment the
                             // ledger rows above already use.
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-600/50 text-slate-300">
-                              Voided
+                              {t("status.voided")}
                             </span>
                           ) : txn.supplier_owed === 0 &&
                             txn.settlement_id == null ? (
@@ -2935,11 +2968,11 @@ export default function SuppliersPage() {
                             <span className="text-slate-600">—</span>
                           ) : txn.settlement_id != null ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-900/50 text-blue-300">
-                              Settled
+                              {t("status.settled")}
                             </span>
                           ) : txn.fifo_status === "paid" ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
-                              Paid
+                              {t("status.paid")}
                             </span>
                           ) : txn.fifo_status === "partial" ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
@@ -2947,12 +2980,15 @@ export default function SuppliersPage() {
                             </span>
                           ) : (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/50 text-red-400">
-                              Unpaid
+                              {t("status.unpaid")}
                             </span>
                           )}
                         </div>
                         <div className="col-span-2 text-xs text-slate-400">
-                          {parseDbDate(txn.created_at).toLocaleString()}
+                          {formatDateTime(
+                            parseDbDate(txn.created_at),
+                            FULL_DATE_TIME,
+                          )}
                         </div>
                       </div>
                     ))}
@@ -2962,27 +2998,22 @@ export default function SuppliersPage() {
                       {/* Rows that owe nothing (wallet-provider transfers)
                               carry no payment status — exclude them from the
                               counts, matching the "—" status cell above. */}
-                      {
-                        liveTxns.filter(
-                          (t) =>
-                            t.supplier_owed > 0 && t.fifo_status === "paid",
-                        ).length
-                      }{" "}
-                      paid ·{" "}
-                      {
-                        liveTxns.filter(
-                          (t) =>
-                            t.supplier_owed > 0 && t.fifo_status === "partial",
-                        ).length
-                      }{" "}
-                      partial ·{" "}
-                      {
-                        liveTxns.filter(
-                          (t) =>
-                            t.supplier_owed > 0 && t.fifo_status === "unpaid",
-                        ).length
-                      }{" "}
-                      unpaid
+                      {t("txns.counts", {
+                        paid: liveTxns.filter(
+                          (row) =>
+                            row.supplier_owed > 0 && row.fifo_status === "paid",
+                        ).length,
+                        partial: liveTxns.filter(
+                          (row) =>
+                            row.supplier_owed > 0 &&
+                            row.fifo_status === "partial",
+                        ).length,
+                        unpaid: liveTxns.filter(
+                          (row) =>
+                            row.supplier_owed > 0 &&
+                            row.fifo_status === "unpaid",
+                        ).length,
+                      })}
                     </span>
                     <span className="font-mono font-bold text-white">
                       {(() => {
@@ -3022,12 +3053,14 @@ export default function SuppliersPage() {
                             ? `$${outstandingUsd.toFixed(2)}`
                             : null,
                           outstandingLbp >= 0.5
-                            ? `${Math.round(outstandingLbp).toLocaleString()} LBP`
+                            ? `${formatNumber(Math.round(outstandingLbp))} LBP`
                             : null,
                         ].filter(Boolean);
                         return parts.length > 0
-                          ? `Outstanding: ${parts.join(" · ")}`
-                          : "Fully covered";
+                          ? t("txns.outstanding", {
+                              amounts: parts.join(" · "),
+                            })
+                          : t("txns.fullyCovered");
                       })()}
                     </span>
                   </div>
@@ -3038,7 +3071,7 @@ export default function SuppliersPage() {
         )}
       {openTable === "payments" && selectedSupplier && (
         <SupplierTableModal
-          title={`${selectedSupplier.name} — Payments`}
+          title={t("payments.title", { name: selectedSupplier.name })}
           onClose={closeTable}
         >
           {/* Ledger history — LIRA-188 (D6): an account parent shows
@@ -3056,11 +3089,11 @@ export default function SuppliersPage() {
             <div>
               <div className="border border-slate-700 rounded-xl overflow-hidden">
                 <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
-                  <div className="col-span-2">Type</div>
-                  <div className="col-span-2 text-right">USD</div>
-                  <div className="col-span-2 text-right">LBP</div>
-                  <div className="col-span-4">Note</div>
-                  <div className="col-span-2">Date</div>
+                  <div className="col-span-2">{t("table.type")}</div>
+                  <div className="col-span-2 text-end">USD</div>
+                  <div className="col-span-2 text-end">LBP</div>
+                  <div className="col-span-4">{t("ledger.note")}</div>
+                  <div className="col-span-2">{t("table.date")}</div>
                 </div>
                 <div className="max-h-[65vh] overflow-y-auto">
                   {ledger.map((row) => (
@@ -3078,7 +3111,7 @@ export default function SuppliersPage() {
                         />
                         {!!row.is_refunded && (
                           <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
-                            VOIDED
+                            {t("ledger.voided")}
                           </span>
                         )}
                       </div>
@@ -3106,12 +3139,11 @@ export default function SuppliersPage() {
                           isZeroRow && commissionUsd > 0;
                         const showLbpCommission =
                           isZeroRow && commissionLbp > 0;
-                        const commissionTitle =
-                          "Commission collected at settlement — does not change the balance";
+                        const commissionTitle = t("payments.commissionTitle");
                         return (
                           <>
                             <div
-                              className={`col-span-2 text-right font-mono ${
+                              className={`col-span-2 text-end font-mono ${
                                 row.is_refunded
                                   ? "line-through text-slate-500"
                                   : showUsdCommission
@@ -3129,7 +3161,7 @@ export default function SuppliersPage() {
                                   : "—"}
                             </div>
                             <div
-                              className={`col-span-2 text-right font-mono ${
+                              className={`col-span-2 text-end font-mono ${
                                 row.is_refunded
                                   ? "line-through text-slate-500"
                                   : showLbpCommission
@@ -3141,9 +3173,9 @@ export default function SuppliersPage() {
                               }
                             >
                               {row.amount_lbp !== 0
-                                ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
+                                ? `${row.amount_lbp > 0 ? "+" : ""}${formatNumber(row.amount_lbp)}`
                                 : showLbpCommission
-                                  ? Math.round(commissionLbp).toLocaleString()
+                                  ? formatNumber(Math.round(commissionLbp))
                                   : "—"}
                             </div>
                           </>
@@ -3153,13 +3185,16 @@ export default function SuppliersPage() {
                         {row.note || ""}
                       </div>
                       <div className="col-span-2 text-slate-400 text-xs">
-                        {parseDbDate(row.created_at).toLocaleString()}
+                        {formatDateTime(
+                          parseDbDate(row.created_at),
+                          FULL_DATE_TIME,
+                        )}
                       </div>
                     </div>
                   ))}
                   {ledger.length === 0 && (
                     <div className="text-slate-500 text-sm p-3">
-                      No payment entries yet.
+                      {t("ledger.empty")}
                     </div>
                   )}
                 </div>
@@ -3188,16 +3223,16 @@ export default function SuppliersPage() {
             onMouseDown={(e) => e.stopPropagation()}
           >
             <h3 className="text-xl font-bold text-white mb-1">
-              Add Credit / Debt
+              {t("adjust.open")}
             </h3>
             <p className="text-xs text-slate-400 mb-4">
-              Manual ledger correction for {selectedSupplier.name}.
+              {t("adjust.subtitle", { name: selectedSupplier.name })}
             </p>
             <div className="space-y-4">
               {/* Direction */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                  Direction
+                  {t("adjust.direction")}
                 </label>
                 <div className="flex gap-2">
                   <button
@@ -3210,7 +3245,7 @@ export default function SuppliersPage() {
                     }`}
                   >
                     <ArrowDownLeft className="w-3.5 h-3.5" />
-                    CREDIT (we owe them)
+                    {t("adjust.credit")}
                   </button>
                   <button
                     data-testid="supplier-adjust-direction-debit"
@@ -3222,7 +3257,7 @@ export default function SuppliersPage() {
                     }`}
                   >
                     <ArrowUpRight className="w-3.5 h-3.5" />
-                    DEBIT (they owe us)
+                    {t("adjust.debit")}
                   </button>
                 </div>
               </div>
@@ -3231,7 +3266,7 @@ export default function SuppliersPage() {
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                    Amount
+                    {t("table.amount")}
                   </label>
                   <input
                     type="text"
@@ -3251,7 +3286,7 @@ export default function SuppliersPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                    Currency
+                    {t("form.currency")}
                   </label>
                   <div className="flex gap-1">
                     {(["USD", "LBP"] as const).map((c) => (
@@ -3275,7 +3310,7 @@ export default function SuppliersPage() {
               {/* Note */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                  Note
+                  {t("ledger.note")}
                 </label>
                 <input
                   type="text"
@@ -3283,7 +3318,7 @@ export default function SuppliersPage() {
                   value={adjustNote}
                   onChange={(e) => setAdjustNote(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500"
-                  placeholder="Optional note..."
+                  placeholder={t("adjust.notePlaceholder")}
                 />
               </div>
 
@@ -3299,13 +3334,12 @@ export default function SuppliersPage() {
                   className="mt-0.5 accent-indigo-500"
                 />
                 <span className="text-xs text-slate-300">
-                  <span className="font-medium text-white">Cash moved</span> —
-                  this entry moves the drawer:{" "}
+                  <span className="font-medium text-white">
+                    {t("adjust.cashMoved")}
+                  </span>{" "}
                   {adjustDirection === "CREDIT"
-                    ? "cash IN from the supplier"
-                    : "cash OUT to the supplier"}
-                  . Untick for a paper-only ledger correction (no drawer
-                  change).
+                    ? t("adjust.cashMovedInHint")
+                    : t("adjust.cashMovedOutHint")}
                 </span>
               </label>
 
@@ -3314,7 +3348,7 @@ export default function SuppliersPage() {
                   onClick={() => setShowAdjustModal(false)}
                   className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
                 >
-                  Cancel
+                  {tc("actions.cancel")}
                 </button>
                 <button
                   disabled={
@@ -3325,7 +3359,9 @@ export default function SuppliersPage() {
                   onClick={handleSupplierAdjust}
                   className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20"
                 >
-                  {adjustSubmitting ? "Processing..." : "Save entry"}
+                  {adjustSubmitting
+                    ? t("form.processing")
+                    : t("adjust.saveEntry")}
                 </button>
               </div>
             </div>
@@ -3348,24 +3384,23 @@ export default function SuppliersPage() {
           >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-white">
-                Record Debt — {selectedSupplier.name}
+                {t("recordDebt.title", { name: selectedSupplier.name })}
               </h3>
               <button
                 onClick={() => setShowRecordDebtModal(false)}
                 className="text-slate-400 hover:text-white"
+                aria-label={tc("actions.close")}
               >
                 ✕
               </button>
             </div>
             <p className="text-xs text-slate-400">
-              Books what you owe {selectedSupplier.name} for products not yet
-              received — attach them to this debt later from Inventory's
-              "Receive Stock" form, instead of booking a second debt.
+              {t("recordDebt.hint", { name: selectedSupplier.name })}
             </p>
             <div className="flex gap-2">
               <div className="flex-1">
                 <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                  Amount (USD)
+                  {t("form.amountUsd")}
                 </label>
                 <input
                   type="text"
@@ -3384,7 +3419,7 @@ export default function SuppliersPage() {
               </div>
               <div className="flex-1">
                 <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                  Amount (LBP)
+                  {t("form.amountLbp")}
                 </label>
                 <input
                   type="text"
@@ -3404,14 +3439,14 @@ export default function SuppliersPage() {
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">
-                Note (optional)
+                {t("form.noteOptional")}
               </label>
               <input
                 data-testid="supplier-record-debt-note"
                 value={recordDebtNote}
                 onChange={(e) => setRecordDebtNote(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
-                placeholder="e.g. Invoice #1234, 20 units incoming"
+                placeholder={t("recordDebt.notePlaceholder")}
               />
             </div>
             <div className="pt-2 flex gap-3">
@@ -3419,7 +3454,7 @@ export default function SuppliersPage() {
                 onClick={() => setShowRecordDebtModal(false)}
                 className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
               >
-                Cancel
+                {tc("actions.cancel")}
               </button>
               <button
                 disabled={
@@ -3434,7 +3469,9 @@ export default function SuppliersPage() {
                 onClick={handleRecordDebt}
                 className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20"
               >
-                {recordDebt.isPending ? "Saving..." : "Record debt"}
+                {recordDebt.isPending
+                  ? tc("state.saving")
+                  : t("recordDebt.submit")}
               </button>
             </div>
           </div>
@@ -3447,11 +3484,18 @@ export default function SuppliersPage() {
           cash/commission only. */}
       {showSettleConfirm && selectedSupplier && isAdmin && (
         <CounterpartySettleModal
-          title={`Settle ${selectedSettleIds.size} transaction${selectedSettleIds.size !== 1 ? "s" : ""} with ${selectedSupplier.name}`}
+          title={
+            selectedSettleIds.size === 1
+              ? t("settle.confirmTitleOne", { name: selectedSupplier.name })
+              : t("settle.confirmTitleMany", {
+                  n: selectedSettleIds.size,
+                  name: selectedSupplier.name,
+                })
+          }
           panelClassName="max-w-md"
           onCancel={() => setShowSettleConfirm(false)}
           onConfirm={handleBatchSettle}
-          confirmLabel="Confirm Settlement"
+          confirmLabel={t("settle.confirm")}
           confirmColor="blue"
           isSubmitting={settleSubmitting}
           confirmDisabled={settleConfirmDisabled}
@@ -3467,7 +3511,9 @@ export default function SuppliersPage() {
                 // rather than showing a number that can never be anything
                 // but a misleading zero.
                 <div className="flex justify-between text-slate-300">
-                  <span>Total owed to {selectedSupplier.name} (fee-net):</span>
+                  <span>
+                    {t("settle.totalOwed", { name: selectedSupplier.name })}
+                  </span>
                   <span className="font-mono font-bold text-white">
                     ${settleTotalOwedUsd.toFixed(2)}
                   </span>
@@ -3493,7 +3539,9 @@ export default function SuppliersPage() {
                             : "bg-slate-700 text-slate-300 hover:bg-slate-600"
                         }`}
                       >
-                        {mode === "LUMP" ? "Lump sum" : "Rate × count"}
+                        {mode === "LUMP"
+                          ? t("settle.lumpSum")
+                          : t("settle.rateCount")}
                       </button>
                     ))}
                   </div>
@@ -3502,7 +3550,7 @@ export default function SuppliersPage() {
                     <div className="flex gap-2">
                       <div className="flex-1">
                         <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                          Commission (USD)
+                          {t("settle.commissionUsd")}
                         </label>
                         <input
                           type="text"
@@ -3521,7 +3569,7 @@ export default function SuppliersPage() {
                       </div>
                       <div className="flex-1">
                         <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                          Commission (LBP)
+                          {t("settle.commissionLbp")}
                         </label>
                         <input
                           type="text"
@@ -3544,7 +3592,7 @@ export default function SuppliersPage() {
                       <div className="flex gap-2">
                         <div className="flex-1">
                           <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                            Rate per unit
+                            {t("settle.ratePerUnit")}
                           </label>
                           <input
                             type="text"
@@ -3563,7 +3611,7 @@ export default function SuppliersPage() {
                         </div>
                         <div>
                           <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                            Currency
+                            {t("form.currency")}
                           </label>
                           <div className="flex gap-1">
                             {(["USD", "LBP"] as const).map((c) => (
@@ -3585,7 +3633,7 @@ export default function SuppliersPage() {
                         </div>
                         <div className="w-20">
                           <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                            Count
+                            {t("settle.count")}
                           </label>
                           <input
                             type="text"
@@ -3602,13 +3650,13 @@ export default function SuppliersPage() {
                           />
                         </div>
                       </div>
-                      <div className="text-[11px] text-slate-500 text-right">
+                      <div className="text-[11px] text-slate-500 text-end">
                         {settleRateInput || "0"} {settleRateCurrency} ×{" "}
                         {settleUnitCountInput || "0"} ={" "}
                         <span className="text-emerald-400 font-mono">
                           {settleRateCurrency === "USD"
                             ? `$${settleEnteredCommissionUsd.toFixed(2)}`
-                            : `${Math.round(settleEnteredCommissionLbp).toLocaleString()} LBP`}
+                            : `${formatNumber(Math.round(settleEnteredCommissionLbp))} LBP`}
                         </span>
                       </div>
                     </div>
@@ -3616,7 +3664,7 @@ export default function SuppliersPage() {
                 </>
               ) : (
                 <div className="flex justify-between text-slate-300">
-                  <span>Your commission (already netted out):</span>
+                  <span>{t("settle.yourCommission")}</span>
                   <span className="font-mono text-emerald-400">
                     ${settleCommissionUsd.toFixed(4)}
                   </span>
@@ -3636,7 +3684,7 @@ export default function SuppliersPage() {
                 <div className="space-y-2">
                   <div className="flex justify-between font-bold">
                     <span className="text-white">
-                      {selectedSupplier.name} owes you:
+                      {t("settle.owesYou", { name: selectedSupplier.name })}
                     </span>
                     <span className="font-mono text-emerald-400 text-base">
                       {formatMoney(
@@ -3667,27 +3715,29 @@ export default function SuppliersPage() {
                             : "bg-slate-700 text-slate-300 hover:bg-slate-600"
                         }`}
                       >
-                        {mode === "TOP_UP" ? "Top-up" : "Other payment"}
+                        {mode === "TOP_UP"
+                          ? t("settle.topUp")
+                          : t("settle.otherPayment")}
                       </button>
                     ))}
                   </div>
 
                   {settleCommissionCollectionMode === "TOP_UP" ? (
                     <p className="text-[11px] text-slate-500">
-                      Arrives as a top-up to the {selectedSupplier.name} balance
-                      when you confirm — no payment for you to make.
+                      {t("settle.topUpHint", { name: selectedSupplier.name })}
                     </p>
                   ) : (
                     <p className="text-[11px] text-slate-500">
-                      Pick how {selectedSupplier.name} pays you below — the
-                      amount is prefilled from the commission above.
+                      {t("settle.otherPaymentHint", {
+                        name: selectedSupplier.name,
+                      })}
                     </p>
                   )}
                 </div>
               ) : (
                 <div className="flex justify-between font-bold">
                   <span className="text-white">
-                    Net payment to {selectedSupplier.name}:
+                    {t("settle.netPaymentTo", { name: selectedSupplier.name })}
                   </span>
                   {/* LIRA-119 — respects settleNetPayCurrency instead of a
                       hardcoded "$" prefix. */}
@@ -3706,9 +3756,7 @@ export default function SuppliersPage() {
                   className="text-amber-400 text-xs"
                   data-testid="settle-payment-mismatch"
                 >
-                  The entered payment doesn&apos;t cover the amount owed for
-                  these transactions — enter the full net amount or deselect
-                  some transactions.
+                  {t("settle.mismatch")}
                 </p>
               )}
             </div>
@@ -3764,7 +3812,7 @@ export default function SuppliersPage() {
                   // supplier's account; the server books the extra.
                   onReturnChange: setSettleReturnLegs,
                   unreturnedChangeTo: "ACCOUNT_BALANCE",
-                  accountLabel: "the supplier's account",
+                  accountLabel: t("cashflow.accountLabel"),
                   cashOnlyReturn: true,
                   showPmFee: false,
                   showDiscount: false,
@@ -3785,14 +3833,16 @@ export default function SuppliersPage() {
         >
           <div>
             <label className="block text-xs text-slate-400 mb-1">
-              Note (optional)
+              {t("form.noteOptional")}
             </label>
             <input
               data-testid="supplier-settle-note"
               value={settleNote}
               onChange={(e) => setSettleNote(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
-              placeholder={`Settlement with ${selectedSupplier.name}`}
+              placeholder={t("settle.notePlaceholder", {
+                name: selectedSupplier.name,
+              })}
             />
           </div>
         </CounterpartySettleModal>

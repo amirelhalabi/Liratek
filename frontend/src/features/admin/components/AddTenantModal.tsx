@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { AdminCreateTenantPayload } from "@/api/backendApi";
 import PasswordInput from "@/shared/components/PasswordInput";
 
@@ -31,6 +32,7 @@ export function AddTenantModal({
   isSubmitting,
   error,
 }: AddTenantModalProps) {
+  const { t } = useTranslation("admin");
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
@@ -94,10 +96,11 @@ export function AddTenantModal({
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-          <h3 className="text-lg font-bold text-white">Add tenant</h3>
+          <h3 className="text-lg font-bold text-white">{t("add.title")}</h3>
           <button
             type="button"
             onClick={handleClose}
+            aria-label={t("delete.close")}
             className="text-slate-500 hover:text-white transition-colors"
           >
             <X size={20} />
@@ -112,19 +115,23 @@ export function AddTenantModal({
           )}
 
           <div>
-            <label className="text-xs text-slate-400 block mb-1">Name *</label>
+            <label className="text-xs text-slate-400 block mb-1">
+              {t("add.name")}
+            </label>
             <input
               type="text"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-              placeholder="Acme Retail"
+              placeholder={t("add.namePlaceholder")}
               required
             />
           </div>
 
           <div>
-            <label className="text-xs text-slate-400 block mb-1">Slug *</label>
+            <label className="text-xs text-slate-400 block mb-1">
+              {t("add.slug")}
+            </label>
             <input
               type="text"
               value={slug}
@@ -133,16 +140,15 @@ export function AddTenantModal({
                 setSlug(e.target.value.toLowerCase());
               }}
               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-              placeholder="acme-retail"
+              placeholder={t("add.slugPlaceholder")}
               required
             />
             <p className="text-[11px] text-slate-500 mt-1">
-              Lowercase letters, numbers, and hyphens only — this becomes the
-              tenant&apos;s future subdomain and can&apos;t be changed later.
+              {t("add.slugHint")}
             </p>
             {slug.length > 0 && !slugValid && (
               <p className="text-[11px] text-red-400 mt-1">
-                Only lowercase letters, numbers, and hyphens are allowed.
+                {t("add.slugInvalid")}
               </p>
             )}
           </div>
@@ -150,7 +156,7 @@ export function AddTenantModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Contact name
+                {t("add.contactName")}
               </label>
               <input
                 type="text"
@@ -161,7 +167,7 @@ export function AddTenantModal({
             </div>
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Contact phone
+                {t("add.contactPhone")}
               </label>
               <input
                 type="text"
@@ -177,7 +183,7 @@ export function AddTenantModal({
               className="text-xs text-slate-400 block mb-1"
               htmlFor="add-tenant-contact-email"
             >
-              Contact email
+              {t("add.contactEmail")}
             </label>
             <input
               id="add-tenant-contact-email"
@@ -186,16 +192,18 @@ export function AddTenantModal({
               value={contactEmail}
               onChange={(e) => setContactEmail(e.target.value)}
               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-              placeholder="owner@shop.com"
+              placeholder={t("add.emailPlaceholder")}
               autoComplete="off"
             />
             <p className="text-[11px] text-slate-500 mt-1">
-              Optional. One shop per email address.
+              {t("add.emailHint")}
             </p>
           </div>
 
           <div>
-            <label className="text-xs text-slate-400 block mb-1">Notes</label>
+            <label className="text-xs text-slate-400 block mb-1">
+              {t("add.notes")}
+            </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -207,7 +215,7 @@ export function AddTenantModal({
           <div className="border-t border-slate-700 pt-4 grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Admin username *
+                {t("add.adminUsername")}
               </label>
               <input
                 type="text"
@@ -223,7 +231,7 @@ export function AddTenantModal({
                 className="text-xs text-slate-400 block mb-1"
                 htmlFor="add-tenant-admin-password"
               >
-                Admin password *
+                {t("add.adminPassword")}
               </label>
               <PasswordInput
                 label=""
@@ -245,7 +253,7 @@ export function AddTenantModal({
             disabled={!canSubmit}
             className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
           >
-            {isSubmitting ? "Creating..." : "Create tenant"}
+            {isSubmitting ? t("add.creating") : t("add.create")}
           </button>
         </form>
       </div>

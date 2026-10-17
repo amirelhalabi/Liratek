@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Plus, ExternalLink, RefreshCw, Send } from "lucide-react";
 import { ConfirmModal } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { useFormat } from "@/i18n/useFormat";
 import {
   useTenantsQuery,
   useCreateTenantMutation,
@@ -21,6 +24,23 @@ import type {
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { messageFrom } from "@/api/apiError";
 
+/** en-US output identical to the old `toLocaleString()`. */
+const FULL_DATE_TIME: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+};
+
+/** en-US output identical to the old `toLocaleDateString()`. */
+const NUMERIC_DATE: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+};
+
 const STATUS_BADGE_CLASSES: Record<AdminTenant["status"], string> = {
   active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   suspended: "bg-amber-500/15 text-amber-400 border-amber-500/30",
@@ -28,11 +48,12 @@ const STATUS_BADGE_CLASSES: Record<AdminTenant["status"], string> = {
 };
 
 function StatusBadge({ status }: { status: AdminTenant["status"] }) {
+  const { t } = useTranslation("admin");
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE_CLASSES[status]}`}
     >
-      {status}
+      {t(`tenants.status.${status}`)}
     </span>
   );
 }
@@ -45,31 +66,40 @@ function StatusBadge({ status }: { status: AdminTenant["status"] }) {
  * it is the normal state for anything that predates subscriptions.
  */
 function PlanCell({ row }: { row: AdminSubscription | undefined }) {
+  const { t } = useTranslation("admin");
   if (!row) return <span className="text-slate-500">—</span>;
 
   // LIRA-332: the server's trial view, verbatim (no date math here).
   if (row.standing === "trial" && row.trial) {
-    const left = row.trial.daysLeft === 1 ? "1 day left" : `${row.trial.daysLeft} days left`;
+    const left =
+      row.trial.daysLeft === 1
+        ? t("tenants.trial.oneDayLeft")
+        : t("tenants.trial.daysLeft", { n: row.trial.daysLeft });
     return (
       <span className={row.trial.endsSoon ? "text-amber-400" : "text-sky-300"}>
-        Trial · {left} · ends {row.trial.lastDay}
+        {t("tenants.trial.active", { left, day: row.trial.lastDay })}
       </span>
     );
   }
   if (row.standing === "trial_ended" && row.trial) {
-    return <span className="text-red-400">Trial ended {row.trial.lastDay}</span>;
+    return (
+      <span className="text-red-400">
+        {t("tenants.trial.ended", { day: row.trial.lastDay })}
+      </span>
+    );
   }
 
   const modules = row.entitled_modules;
-  let scope = "all modules";
+  let scope = t("tenants.allModules");
   if (modules) {
     try {
       const parsed: unknown = JSON.parse(modules);
-      if (Array.isArray(parsed)) scope = `${parsed.length} modules`;
+      if (Array.isArray(parsed))
+        scope = t("tenants.nModules", { count: parsed.length });
     } catch {
       // Unparseable reads as unrestricted everywhere else; stay consistent
       // rather than showing an error in a table cell.
-      scope = "all modules";
+      scope = t("tenants.allModules");
     }
   }
 
@@ -83,12 +113,17 @@ function PlanCell({ row }: { row: AdminSubscription | undefined }) {
   return (
     <span className={tone}>
       {scope}
-      {row.status !== "active" && ` · ${row.status}`}
+      {row.status !== "active" &&
+        t("tenants.planStatus", {
+          status: t(`tenants.planState.${row.status}`),
+        })}
     </span>
   );
 }
 
 export function TenantsPage() {
+  const { t } = useTranslation("admin");
+  const { formatDate, formatDateTime } = useFormat();
   const {
     data: tenants = [],
     isLoading,
@@ -131,7 +166,7 @@ export function TenantsPage() {
       // (e.g. the 409 duplicate-slug / EMAIL_ALREADY_HAS_SHOP cases), whose
       // `message` is itself `{ code, message }` — not an Error. messageFrom
       // unwraps every shape so the server's words reach the form.
-      setCreateError(messageFrom(err, "Failed to create tenant"));
+      setCreateError(messageFrom(err, t("tenants.createFailed")));
     }
   };
 
@@ -184,7 +219,7 @@ export function TenantsPage() {
       window.open(href, "_blank", "noopener,noreferrer");
     } catch (err) {
       setImpersonateError(
-        err instanceof Error ? err.message : "Failed to start impersonation",
+        err instanceof Error ? err.message : t("tenants.impersonateFailed"),
       );
     } finally {
       setImpersonatingId(null);
@@ -194,7 +229,7 @@ export function TenantsPage() {
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center text-slate-400">
-        Loading tenants...
+        {t("tenants.loading")}
       </div>
     );
   }
@@ -202,7 +237,7 @@ export function TenantsPage() {
   if (isError) {
     return (
       <div className="h-full flex items-center justify-center text-red-400">
-        {error instanceof Error ? error.message : "Failed to load tenants"}
+        {error instanceof Error ? error.message : t("tenants.loadFailed")}
       </div>
     );
   }
@@ -210,13 +245,13 @@ export function TenantsPage() {
   return (
     <div className="h-full p-6">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-white">Tenants</h1>
+        <h1 className="text-2xl font-bold text-white">{t("tenants.title")}</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => refetch()}
             disabled={isFetching}
             className="p-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors"
-            title="Refresh"
+            title={t("tenants.refresh")}
           >
             <RefreshCw size={16} className={isFetching ? "animate-spin" : ""} />
           </button>
@@ -225,7 +260,7 @@ export function TenantsPage() {
             className="flex items-center gap-2 px-4 py-2 border border-orange-500/60 text-orange-300 hover:bg-orange-500/10 text-sm font-semibold rounded-lg transition-colors"
           >
             <Send size={16} />
-            Send invite
+            {t("tenants.sendInvite")}
           </button>
           <button
             onClick={() => {
@@ -235,7 +270,7 @@ export function TenantsPage() {
             className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold rounded-lg transition-colors"
           >
             <Plus size={16} />
-            Add tenant
+            {t("tenants.addTenant")}
           </button>
         </div>
       </div>
@@ -248,37 +283,36 @@ export function TenantsPage() {
 
       {tenants.length === 0 ? (
         <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-10 text-center text-slate-400">
-          No tenants yet. Click &quot;Add tenant&quot; to provision the first
-          one.
+          {t("tenants.empty")}
         </div>
       ) : (
         <div className="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden">
           <table className="w-full">
             <thead className="bg-slate-900">
               <tr>
-                <th className="text-left text-xs text-slate-400 px-4 py-3">
-                  Name
+                <th className="text-start text-xs text-slate-400 px-4 py-3">
+                  {t("tenants.colName")}
                 </th>
-                <th className="text-left text-xs text-slate-400 px-4 py-3">
-                  Slug
+                <th className="text-start text-xs text-slate-400 px-4 py-3">
+                  {t("tenants.colSlug")}
                 </th>
-                <th className="text-left text-xs text-slate-400 px-4 py-3">
-                  Status
+                <th className="text-start text-xs text-slate-400 px-4 py-3">
+                  {t("tenants.colStatus")}
                 </th>
-                <th className="text-left text-xs text-slate-400 px-4 py-3">
-                  Users
+                <th className="text-start text-xs text-slate-400 px-4 py-3">
+                  {t("tenants.colUsers")}
                 </th>
-                <th className="text-left text-xs text-slate-400 px-4 py-3">
-                  Plan
+                <th className="text-start text-xs text-slate-400 px-4 py-3">
+                  {t("tenants.colPlan")}
                 </th>
-                <th className="text-left text-xs text-slate-400 px-4 py-3">
-                  Last activity
+                <th className="text-start text-xs text-slate-400 px-4 py-3">
+                  {t("tenants.colLastActivity")}
                 </th>
-                <th className="text-left text-xs text-slate-400 px-4 py-3">
-                  Created
+                <th className="text-start text-xs text-slate-400 px-4 py-3">
+                  {t("tenants.colCreated")}
                 </th>
-                <th className="text-right text-xs text-slate-400 px-4 py-3">
-                  Actions
+                <th className="text-end text-xs text-slate-400 px-4 py-3">
+                  {t("tenants.colActions")}
                 </th>
               </tr>
             </thead>
@@ -295,18 +329,21 @@ export function TenantsPage() {
                     <StatusBadge status={tenant.status} />
                   </td>
                   <td className="px-4 py-3 text-sm text-white">
-                    {tenant.user_count.toLocaleString()}
+                    {formatNumber(tenant.user_count)}
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <PlanCell row={planFor(tenant.id)} />
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-400">
                     {tenant.last_activity
-                      ? parseDbDate(tenant.last_activity).toLocaleString()
+                      ? formatDateTime(
+                          parseDbDate(tenant.last_activity),
+                          FULL_DATE_TIME,
+                        )
                       : "—"}
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-400">
-                    {parseDbDate(tenant.created_at).toLocaleDateString()}
+                    {formatDate(parseDbDate(tenant.created_at), NUMERIC_DATE)}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
@@ -318,31 +355,33 @@ export function TenantsPage() {
                         disabled={tenant.id === 1}
                         title={
                           tenant.id === 1
-                            ? "The default tenant cannot be deleted"
-                            : "Delete this tenant permanently"
+                            ? t("tenants.deleteDefault")
+                            : t("tenants.deleteHint")
                         }
                         className="text-xs px-3 py-1.5 rounded-lg border border-red-500/40 text-red-300 hover:bg-red-500/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
                       >
-                        Delete
+                        {t("tenants.delete")}
                       </button>
                       <button
                         onClick={() => setPlanTenantId(tenant.id)}
                         disabled={!planFor(tenant.id)}
                         title={
                           planFor(tenant.id)
-                            ? "Manage plan"
-                            : "No subscription record"
+                            ? t("tenants.managePlan")
+                            : t("tenants.noSubscription")
                         }
                         className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 disabled:opacity-40 transition-colors"
                       >
-                        Plan
+                        {t("tenants.plan")}
                       </button>
                       {tenant.status !== "archived" && (
                         <button
                           onClick={() => setConfirmTarget(tenant)}
                           className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
                         >
-                          {tenant.status === "active" ? "Suspend" : "Activate"}
+                          {tenant.status === "active"
+                            ? t("tenants.suspend")
+                            : t("tenants.activate")}
                         </button>
                       )}
                       {tenant.status === "active" && (
@@ -353,8 +392,8 @@ export function TenantsPage() {
                         >
                           <ExternalLink size={12} />
                           {impersonatingId === tenant.id
-                            ? "Connecting..."
-                            : "Connect as admin"}
+                            ? t("tenants.connecting")
+                            : t("tenants.connect")}
                         </button>
                       )}
                     </div>
@@ -404,16 +443,18 @@ export function TenantsPage() {
         isOpen={confirmTarget != null}
         title={
           confirmTarget?.status === "active"
-            ? "Suspend tenant?"
-            : "Activate tenant?"
+            ? t("tenants.suspendTitle")
+            : t("tenants.activateTitle")
         }
         message={
           confirmTarget?.status === "active"
-            ? `This blocks all logins for "${confirmTarget?.name}" until reactivated.`
-            : `This restores login access for "${confirmTarget?.name}".`
+            ? t("tenants.suspendMessage", { name: confirmTarget?.name ?? "" })
+            : t("tenants.activateMessage", { name: confirmTarget?.name ?? "" })
         }
         confirmLabel={
-          confirmTarget?.status === "active" ? "Suspend" : "Activate"
+          confirmTarget?.status === "active"
+            ? t("tenants.suspend")
+            : t("tenants.activate")
         }
         variant={confirmTarget?.status === "active" ? "danger" : "info"}
         onConfirm={confirmToggleStatus}

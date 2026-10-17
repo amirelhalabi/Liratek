@@ -228,7 +228,7 @@ function PartnerFormModal({
   onClose,
   onSaved,
 }: PartnerFormModalProps) {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   const { partnerSystem } = useShopBase();
   const [name, setName] = useState(partner?.name ?? "");
   const [phone, setPhone] = useState(partner?.phone ?? "");
@@ -392,7 +392,7 @@ interface SettleModalProps {
 }
 
 function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   // CQ-11: split-leg settlement (MultiPaymentInput) is the default path —
   // legs are locked to `currency` (the `currencies` prop below offers only
@@ -847,7 +847,7 @@ interface RecordTxModalProps {
  * covers that.
  */
 function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   const txType = "ADJUSTMENT";
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
@@ -1047,7 +1047,7 @@ interface WriteOffModalProps {
 }
 
 function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [reason, setReason] = useState("");
@@ -1212,7 +1212,7 @@ function DeactivateModal({
   onClose: () => void;
   onDeactivated: () => void;
 }) {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   const [submitting, setSubmitting] = useState(false);
   const api = useApi();
 
@@ -1298,7 +1298,7 @@ function parseTransactionType(raw: string | null): {
 }
 
 function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   const { formatDateTime } = useFormat();
   const [expanded, setExpanded] = useState(false);
   const isDebit = entry.direction === "DEBIT";
@@ -1480,7 +1480,7 @@ function DetailPanel({
   onActivate,
   onWriteOff,
 }: DetailPanelProps) {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   // CQ-10 (D4): only when the partner has something left to forgive — a
@@ -1938,7 +1938,7 @@ function PartnerCard({
   isSelected: boolean;
   onToggle: () => void;
 }) {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   return (
     <button
       onClick={onToggle}
@@ -2018,7 +2018,7 @@ function PartnerCard({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function PartnersPage() {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   const [partners, setPartners] = useState<PartnerWithBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [includeInactive, setIncludeInactive] = useState(false);

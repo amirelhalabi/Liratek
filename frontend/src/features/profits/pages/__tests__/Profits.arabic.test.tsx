@@ -141,12 +141,11 @@ afterEach(() => i18n.changeLanguage("en"));
 describe("Profits — Arabic UI (LIRA-331)", () => {
   it("keeps the English Overview text unchanged", async () => {
     render(<Profits />);
-    expect(
-      await screen.findByText("Total Net Profit"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Total Net Profit")).toBeInTheDocument();
     expect(screen.getByText("Product Sales")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Cash intake by method/ }))
-      .toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Cash intake by method/ }),
+    ).toBeInTheDocument();
   });
 
   it("renders the Overview in Arabic, data labels untouched", async () => {

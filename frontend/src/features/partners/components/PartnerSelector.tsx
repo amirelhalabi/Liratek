@@ -33,7 +33,7 @@ export function PartnerSelector({
   autoSelectSingle,
   systemFilter,
 }: PartnerSelectorProps): React.ReactElement | null {
-  const { t } = useTranslation("partners");
+  const { t } = useTranslation(["partners", "common"]);
   const [allPartners, setAllPartners] = useState<Partner[]>([]);
   // Shop-day 2026-10-16: an empty list used to mean three different things —
   // still loading, the request failed, or the shop really has no partners —

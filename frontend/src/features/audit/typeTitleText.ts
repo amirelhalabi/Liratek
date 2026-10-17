@@ -21,7 +21,11 @@ type WhatKey = keyof TitlesCatalog["what"];
 
 type AuditT = TFunction<"audit">;
 
-const norm = (s: string) => s.trim().replace(/[_\s]+/g, " ").toLowerCase();
+const norm = (s: string) =>
+  s
+    .trim()
+    .replace(/[_\s]+/g, " ")
+    .toLowerCase();
 
 /** English titles/labels (case- and underscore-insensitive) → catalog key. */
 const EXACT: ReadonlyMap<string, ExactTitleKey> = new Map(
@@ -142,7 +146,12 @@ export function titleKeyFor(
   title: string,
 ):
   | { kind: "exact"; key: ExactTitleKey }
-  | { kind: "composed"; provider: string; providerKey: ProviderKey | null; what: WhatKey }
+  | {
+      kind: "composed";
+      provider: string;
+      providerKey: ProviderKey | null;
+      what: WhatKey;
+    }
   | { kind: "provider"; providerKey: ProviderKey }
   | null {
   const n = norm(title);
@@ -179,7 +188,8 @@ export function translateTitle(
   const found = titleKeyFor(title);
   if (!found) return title;
   if (found.kind === "exact") return t(`titles.exact.${found.key}`);
-  if (found.kind === "provider") return t(`titles.provider.${found.providerKey}`);
+  if (found.kind === "provider")
+    return t(`titles.provider.${found.providerKey}`);
   return t("titles.pattern", {
     provider: found.providerKey
       ? t(`titles.provider.${found.providerKey}`)

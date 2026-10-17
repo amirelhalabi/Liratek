@@ -207,9 +207,7 @@ export default function AuditPage() {
               onChange={(e) => setAuditFrom(e.target.value)}
               className={inputClass}
             />
-            <label className="text-xs text-slate-400">
-              {t("filters.to")}
-            </label>
+            <label className="text-xs text-slate-400">{t("filters.to")}</label>
             <input
               type="date"
               value={auditTo}
