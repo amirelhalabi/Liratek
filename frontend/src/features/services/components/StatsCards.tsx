@@ -1,4 +1,6 @@
 import { TrendingUp, Calendar } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { PROVIDER_BRANDS } from "@/shared/brand/providerBrands";
 
 interface CurrencyStats {
@@ -32,9 +34,9 @@ interface StatsCardsProps {
 
 function formatCurrencyAmount(amount: number, currency: string): string {
   if (currency === "LBP") {
-    return `${Math.round(amount).toLocaleString()} LBP`;
+    return `${formatNumber(Math.round(amount))} LBP`;
   }
-  return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$${formatNumber(amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatByCurrency(byCurrency: CurrencyStats[]): string {
@@ -53,10 +55,11 @@ function getBalanceColor(usd: number): string {
   return "text-slate-300";
 }
 
-function getBalanceLabel(usd: number): string {
-  if (usd > 0) return "Owe";
-  if (usd < 0) return "Due";
-  return "";
+/** The key of the owed/due caption, or null when the balance is zero. */
+function getBalanceLabelKey(usd: number): "stats.owe" | "stats.due" | null {
+  if (usd > 0) return "stats.owe";
+  if (usd < 0) return "stats.due";
+  return null;
 }
 
 export function StatsCards({
@@ -68,6 +71,11 @@ export function StatsCards({
   monthAwaitingSettlementCount,
   owedByProvider,
 }: StatsCardsProps) {
+  const { t } = useTranslation("services");
+  const balanceLabel = (usd: number) => {
+    const key = getBalanceLabelKey(usd);
+    return key ? t(key) : "";
+  };
   return (
     <div className="flex flex-wrap gap-2">
       {/* Today */}
@@ -75,14 +83,16 @@ export function StatsCards({
         <TrendingUp
           className={`w-4 h-4 shrink-0 ${PROVIDER_BRANDS.OMT.text}`}
         />
-        <span className="font-medium whitespace-nowrap">Today</span>
+        <span className="font-medium whitespace-nowrap">
+          {t("stats.today")}
+        </span>
         <span
           className={`font-bold ${PROVIDER_BRANDS.OMT.text} flex flex-col items-end leading-tight`}
         >
           <span>
             {todayByCurrency && todayByCurrency.length > 0
               ? formatByCurrency(todayByCurrency)
-              : `$${todayCommission.toLocaleString(undefined, {
+              : `$${formatNumber(todayCommission, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}`}
@@ -95,7 +105,9 @@ export function StatsCards({
               data-testid="services-today-awaiting-settlement"
               className="text-[10px] font-normal text-slate-400"
             >
-              {todayAwaitingSettlementCount} awaiting settlement
+              {t("stats.awaitingSettlement", {
+                n: todayAwaitingSettlementCount,
+              })}
             </span>
           )}
         </span>
@@ -104,12 +116,14 @@ export function StatsCards({
       {/* Month */}
       <div className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white">
         <Calendar className="w-4 h-4 shrink-0 text-blue-400" />
-        <span className="font-medium whitespace-nowrap">Month</span>
+        <span className="font-medium whitespace-nowrap">
+          {t("stats.month")}
+        </span>
         <span className="font-bold text-blue-400 flex flex-col items-end leading-tight">
           <span>
             {monthByCurrency && monthByCurrency.length > 0
               ? formatByCurrency(monthByCurrency)
-              : `$${monthCommission.toLocaleString(undefined, {
+              : `$${formatNumber(monthCommission, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}`}
@@ -119,7 +133,9 @@ export function StatsCards({
               data-testid="services-month-awaiting-settlement"
               className="text-[10px] font-normal text-slate-400"
             >
-              {monthAwaitingSettlementCount} awaiting settlement
+              {t("stats.awaitingSettlement", {
+                n: monthAwaitingSettlementCount,
+              })}
             </span>
           )}
         </span>
@@ -133,16 +149,16 @@ export function StatsCards({
             className={`font-bold ${getBalanceColor(owedByProvider.OMT.usd ?? 0)}`}
           >
             $
-            {Math.abs(owedByProvider.OMT.usd ?? 0).toLocaleString(undefined, {
+            {formatNumber(Math.abs(owedByProvider.OMT.usd ?? 0), {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}
           </span>
-          {getBalanceLabel(owedByProvider.OMT.usd ?? 0) && (
+          {balanceLabel(owedByProvider.OMT.usd ?? 0) && (
             <span
               className={`text-sm ${getBalanceColor(owedByProvider.OMT.usd ?? 0)} opacity-70`}
             >
-              {getBalanceLabel(owedByProvider.OMT.usd ?? 0)}
+              {balanceLabel(owedByProvider.OMT.usd ?? 0)}
             </span>
           )}
         </div>
@@ -151,21 +167,22 @@ export function StatsCards({
       {/* WHISH */}
       {owedByProvider.WHISH && (
         <div className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white">
-          <span className="font-medium whitespace-nowrap">WHISH</span>
+          {/* Provider code, shown as is (brand). */}
+          <span className="font-medium whitespace-nowrap">{"WHISH"}</span>
           <span
             className={`font-bold ${getBalanceColor(owedByProvider.WHISH.usd ?? 0)}`}
           >
             $
-            {Math.abs(owedByProvider.WHISH.usd ?? 0).toLocaleString(undefined, {
+            {formatNumber(Math.abs(owedByProvider.WHISH.usd ?? 0), {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}
           </span>
-          {getBalanceLabel(owedByProvider.WHISH.usd ?? 0) && (
+          {balanceLabel(owedByProvider.WHISH.usd ?? 0) && (
             <span
               className={`text-sm ${getBalanceColor(owedByProvider.WHISH.usd ?? 0)} opacity-70`}
             >
-              {getBalanceLabel(owedByProvider.WHISH.usd ?? 0)}
+              {balanceLabel(owedByProvider.WHISH.usd ?? 0)}
             </span>
           )}
         </div>
