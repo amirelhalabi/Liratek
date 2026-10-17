@@ -4,11 +4,13 @@
  */
 
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import logger from "@/utils/logger";
 import type { Currency } from "../types";
 import { useApi } from "@liratek/ui";
 
 export function useCurrencies() {
+  const { t } = useTranslation("closing");
   const api = useApi();
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,7 @@ export function useCurrencies() {
       setCurrencies(active);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to load currencies";
+        err instanceof Error ? err.message : t("save.currenciesFailed");
       setError(message);
       logger.error("[useCurrencies] Error:", err);
     } finally {

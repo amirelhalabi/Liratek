@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateServerError } from "@liratek/ui/i18n/serverMessage";
 import { X, MinusCircle, Plus, Trash2 } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, useApi } from "@liratek/ui";
@@ -21,6 +23,8 @@ export function DrawerCashoutModal({
   onSuccess,
 }: DrawerCashoutModalProps) {
   const api = useApi();
+  const { t } = useTranslation("dashboard");
+  const { t: tc } = useTranslation("common");
   useModalFocusFix(isOpen);
   const { activeCurrencies, getDecimals } = useCurrencyContext();
   const [amountUsd, setAmountUsd] = useState("");
@@ -88,12 +92,12 @@ export function DrawerCashoutModal({
     const trimmedNotes = notes.trim();
 
     if (usd <= 0 && lbp <= 0 && extra_currencies.length === 0) {
-      alert("Please enter at least one amount greater than 0.");
+      alert(t("drawer.amountRequired"));
       return;
     }
 
     if (!trimmedNotes) {
-      alert("Please enter a reason for this cash-out.");
+      alert(t("cashout.reasonRequired"));
       return;
     }
 
@@ -109,16 +113,16 @@ export function DrawerCashoutModal({
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Cash removed from drawer.",
+          t("cashout.success"),
           "success",
         );
         resetForm();
         onSuccess();
       } else {
-        alert(result.error ?? "Failed to cash out drawer.");
+        alert(translateServerError(result, t, t("cashout.failed")));
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Unexpected error.");
+      alert(err instanceof Error ? err.message : t("drawer.unexpectedError"));
     } finally {
       setIsSubmitting(false);
     }
@@ -134,7 +138,7 @@ export function DrawerCashoutModal({
           <div className="flex items-center gap-2">
             <MinusCircle className="w-5 h-5 text-rose-400" />
             <h2 className="text-lg font-bold text-white">
-              Cash Out — General Drawer
+              {t("cashout.title")}
             </h2>
           </div>
           <button
@@ -149,16 +153,17 @@ export function DrawerCashoutModal({
           {/* USD Amount */}
           <div>
             <label className="text-xs text-slate-400 block mb-1">
-              USD Amount
+              {t("drawer.usdAmount")}
             </label>
             <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-rose-500 transition-colors">
-              <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+              <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
                 $
               </span>
               <DecimalInput
                 value={parseFloat(amountUsd) || 0}
                 onChange={(n) => setAmountUsd(n ? String(n) : "")}
                 placeholder="0.00"
+                data-testid="drawer-cashout-amount-usd-input"
                 className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
               />
             </div>
@@ -167,16 +172,17 @@ export function DrawerCashoutModal({
           {/* LBP Amount */}
           <div>
             <label className="text-xs text-slate-400 block mb-1">
-              LBP Amount
+              {t("drawer.lbpAmount")}
             </label>
             <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-rose-500 transition-colors">
-              <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+              <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
                 LBP
               </span>
               <DecimalInput
                 value={parseFloat(amountLbp) || 0}
                 onChange={(n) => setAmountLbp(n ? String(n) : "")}
                 placeholder="0"
+                data-testid="drawer-cashout-amount-lbp-input"
                 className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
               />
             </div>
@@ -188,11 +194,11 @@ export function DrawerCashoutModal({
               {extraCurrencies.map((row, index) => (
                 <div key={`${row.currency_code}-${index}`}>
                   <label className="text-xs text-slate-400 block mb-1">
-                    {row.currency_code} Amount
+                    {t("drawer.currencyAmount", { code: row.currency_code })}
                   </label>
                   <div className="flex items-center gap-2">
                     <div className="flex items-center flex-1 bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-rose-500 transition-colors">
-                      <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                      <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
                         {row.currency_code}
                       </span>
                       <DecimalInput
@@ -202,6 +208,7 @@ export function DrawerCashoutModal({
                         }
                         decimals={getDecimals(row.currency_code)}
                         placeholder="0"
+                        data-testid={`drawer-cashout-extra-amount-${index}`}
                         className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
                       />
                     </div>
@@ -209,7 +216,7 @@ export function DrawerCashoutModal({
                       type="button"
                       onClick={() => handleRemoveExtra(index)}
                       className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
-                      aria-label={`Remove ${row.currency_code}`}
+                      aria-label={t("cashout.removeCurrency", { code: row.currency_code })}
                     >
                       <Trash2 size={16} />
                     </button>
@@ -221,14 +228,14 @@ export function DrawerCashoutModal({
 
           {addableCurrencies.length > 0 && (
             <div className="relative">
-              <Plus className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Plus className="w-3.5 h-3.5 text-slate-500 absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <select
                 value=""
                 data-testid="drawer-cashout-add-currency"
                 onChange={(e) => handleAddCurrency(e.target.value)}
-                className="w-full bg-slate-900/60 border border-dashed border-slate-600 rounded-lg pl-8 pr-3 py-2 text-xs text-slate-400 focus:outline-none focus:border-rose-500 cursor-pointer"
+                className="w-full bg-slate-900/60 border border-dashed border-slate-600 rounded-lg ps-8 pe-3 py-2 text-xs text-slate-400 focus:outline-none focus:border-rose-500 cursor-pointer"
               >
-                <option value="">Add another currency</option>
+                <option value="">{t("cashout.addCurrency")}</option>
                 {addableCurrencies.map((c) => (
                   <option key={c.code} value={c.code}>
                     {c.code}
@@ -242,13 +249,14 @@ export function DrawerCashoutModal({
           {/* Notes (required) */}
           <div>
             <label className="text-xs text-slate-400 block mb-1">
-              Reason *
+              {t("cashout.reason")}
             </label>
             <textarea
               rows={3}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Why is this cash being taken out?"
+              data-testid="drawer-cashout-notes-input"
+              placeholder={t("cashout.reasonPlaceholder")}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500 placeholder:text-slate-600 resize-none transition-colors"
             />
           </div>
@@ -261,14 +269,15 @@ export function DrawerCashoutModal({
             disabled={isSubmitting}
             className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
           >
-            Cancel
+            {tc("actions.cancel")}
           </button>
           <button
+            data-testid="drawer-cashout-submit"
             onClick={handleSubmit}
             disabled={isSubmitting || trimmedNotesEmpty}
             className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-semibold rounded-lg transition-colors"
           >
-            {isSubmitting ? "Processing..." : "Cash Out"}
+            {isSubmitting ? t("drawer.processing") : t("cashout.submit")}
           </button>
         </div>
       </div>

@@ -6,6 +6,13 @@ import {
   useRef,
   Suspense,
 } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import type { Language } from "@liratek/core";
+import { formatDate, formatTime } from "@liratek/ui/i18n/format";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
 import { lazyWithReload } from "@/shared/utils/lazyWithReload";
 import { useNavigate } from "react-router-dom";
 import {
@@ -96,10 +103,21 @@ type ChartType = "Sales" | "Profit";
  * the IPC channel/REST query param and `DashboardChart`'s `chartType` prop
  * both key off — only the DISPLAYED text changes here.
  */
-const CHART_TYPE_LABELS: Record<ChartType, string> = {
-  Sales: "Product & Telecom Sales",
-  Profit: "Profit",
-};
+const CHART_TYPE_LABEL_KEYS = {
+  Sales: "chart.typeSales",
+  Profit: "chart.typeProfit",
+} as const satisfies Record<ChartType, string>;
+
+/** DC-7 — the widgets loadData fetches; a failed one is shown by name. */
+type WidgetId =
+  | "salesStats"
+  | "chart"
+  | "todaysSales"
+  | "drawerBalances"
+  | "debtSummary"
+  | "inventoryStock"
+  | "netProfit"
+  | "topDebtors";
 
 /** The three tabbed dashboard insight panels */
 type DashboardTab = "trend" | "sales" | "debtors";
@@ -150,10 +168,15 @@ function NameAmountTable({
     currencyCode: string,
   ) => string;
 }) {
+  const { t } = useTranslation("dashboard");
   return (
     <DataTable<NameAmountRow>
       columns={[
-        { header: "Name", sortKey: "name", className: INSIGHT_TH_CLS },
+        {
+          header: t("insights.colName"),
+          sortKey: "name",
+          className: INSIGHT_TH_CLS,
+        },
         {
           header: "USD",
           sortKey: "usd",
@@ -169,7 +192,7 @@ function NameAmountTable({
       ]}
       data={rows}
       emptyMessage={emptyMessage}
-      className="w-full text-left"
+      className="w-full text-start"
       theadClassName="bg-slate-900 text-slate-400 text-xs uppercase sticky top-0 z-10"
       getSortValue={(row, key) =>
         key === "name" ? row.name : key === "usd" ? row.usd : row.lbp
@@ -201,9 +224,11 @@ function NameAmountTable({
  * model) — the generic underscore-replace would otherwise render the bare
  * "OMT System" / "Whish System" wording the plan retires.
  */
-function formatDrawerLabel(name: string): string {
-  if (name === "OMT_System") return "OMT Cash Drawer";
-  if (name === "Whish_System") return "Whish Cash Drawer";
+function formatDrawerLabel(name: string, t: TFunction<"dashboard">): string {
+  if (name === "OMT_System") return t("drawer.primaryLabel", { brand: "OMT" });
+  if (name === "Whish_System")
+    return t("drawer.primaryLabel", { brand: "Whish" });
+  if (name === "General") return t("drawer.generalName");
   return name
     .replace(/_/g, " ")
     .replace(/Drawer B$/i, "Drawer")
@@ -221,10 +246,10 @@ function CURRENCY_ORDER(code: string): number {
  * Absolute "last checkpoint" timestamp. Shows the time only when the
  * checkpoint is from today, otherwise prefixes the date. 12-hour AM/PM format.
  */
-function formatCheckpointTime(iso: string): string {
+function formatCheckpointTime(iso: string, lang: Language): string {
   const date = parseDbDate(iso);
   const now = new Date();
-  const time = date.toLocaleTimeString([], {
+  const time = formatTime(date, lang, {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
@@ -234,7 +259,7 @@ function formatCheckpointTime(iso: string): string {
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate();
   if (sameDay) return time;
-  const day = date.toLocaleDateString([], { month: "short", day: "numeric" });
+  const day = formatDate(date, lang, { month: "short", day: "numeric" });
   return `${day}, ${time}`;
 }
 
@@ -324,6 +349,9 @@ export default function Dashboard() {
   const apiRef = useRef(api);
   apiRef.current = api;
   const navigate = useNavigate();
+  const { t } = useTranslation("dashboard");
+  const { language, formatNumber: fmtNumber, formatDate: fmtDate } =
+    useFormat();
   const { user } = useAuth();
   const { formatAmount, getSymbol } = useCurrencyContext();
   const { isModuleEnabled } = useModules();
@@ -338,8 +366,9 @@ export default function Dashboard() {
   const { sellRate } = useSellRate();
   const primaryDrawerName =
     baseSystem === "WHISH" ? "Whish_System" : "OMT_System";
-  const primaryDrawerLabel =
-    baseSystem === "WHISH" ? "Whish Cash Drawer" : "OMT Cash Drawer";
+  const primaryDrawerLabel = t("drawer.primaryLabel", {
+    brand: baseSystem === "WHISH" ? "Whish" : "OMT",
+  });
 
   const debtEnabled = isModuleEnabled("debts");
 
@@ -426,13 +455,13 @@ export default function Dashboard() {
   const [insightRowsLimit, setInsightRowsLimit] = useState<number | "">(50);
   /** Tab bar options; Top Debtors only shows when the debts module is on */
   const insightTabs: ServiceTypeOption[] = [
-    { id: "trend", label: "Sales Trend", iconKey: "ArrowUpCircle" },
-    { id: "sales", label: "Today's Sales", iconKey: "Clock" },
+    { id: "trend", label: t("insights.tabTrend"), iconKey: "ArrowUpCircle" },
+    { id: "sales", label: t("insights.tabSales"), iconKey: "Clock" },
     ...(debtEnabled
       ? [
           {
             id: "debtors",
-            label: "Top Debtors",
+            label: t("insights.tabDebtors"),
             iconKey: "CreditCard",
           } as ServiceTypeOption,
         ]
@@ -441,14 +470,18 @@ export default function Dashboard() {
   /** Editable "Rows:" cap shared by the Today's Sales / Top Debtors tables */
   const rowsControl = (
     <div className="flex items-center gap-1.5">
-      <label className="text-xs text-slate-400">Rows:</label>
+      <label className="text-xs text-slate-400">{t("insights.rows")}</label>
       <input
-        type="number"
-        min={1}
+        type="text"
+        inputMode="numeric"
         value={insightRowsLimit}
         onChange={(e) => {
-          const v = e.target.value;
-          setInsightRowsLimit(v === "" ? "" : Math.max(1, Number(v)));
+          // LIRA-331: a text field (Arabic-Indic digits are normalised);
+          // a non-number keeps the previous value, never NaN.
+          const v = normalizeDigits(e.target.value).trim();
+          if (v === "") return setInsightRowsLimit("");
+          const n = Number(v);
+          if (Number.isFinite(n)) setInsightRowsLimit(Math.max(1, Math.floor(n)));
         }}
         className="w-16 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-violet-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
       />
@@ -515,7 +548,7 @@ export default function Dashboard() {
    *  Empty on a normal load; surfaced via the PageAlerts pill below so a
    *  failure is visible instead of the tile silently staying at its last
    *  (or initial 0) value. */
-  const [widgetLoadErrors, setWidgetLoadErrors] = useState<string[]>([]);
+  const [widgetLoadErrors, setWidgetLoadErrors] = useState<WidgetId[]>([]);
   /** CHART-STALE-ON-TYPE-SWITCH (chart-lane round-1 review,
    *  OWNER_NOTES_2026-09-21.md §7.1) — which `ChartType` the rows currently
    *  in `chartData` were loaded for. A ref, not state: it's read/written
@@ -564,21 +597,20 @@ export default function Dashboard() {
         apiRef.current.getDebtors(),
       ]);
 
-      const failedWidgets: string[] = [];
-      if (statsResult.status === "rejected") failedWidgets.push("Sales stats");
-      if (profitChartResult.status === "rejected")
-        failedWidgets.push("Sales/Profit chart");
+      const failedWidgets: WidgetId[] = [];
+      if (statsResult.status === "rejected") failedWidgets.push("salesStats");
+      if (profitChartResult.status === "rejected") failedWidgets.push("chart");
       if (salesTodayResult.status === "rejected")
-        failedWidgets.push("Today's sales");
+        failedWidgets.push("todaysSales");
       if (drawerResult.status === "rejected")
-        failedWidgets.push("Drawer balances");
-      if (debtResult.status === "rejected") failedWidgets.push("Debt summary");
+        failedWidgets.push("drawerBalances");
+      if (debtResult.status === "rejected") failedWidgets.push("debtSummary");
       if (stockStatsResult.status === "rejected")
-        failedWidgets.push("Inventory stock");
+        failedWidgets.push("inventoryStock");
       if (netProfitResult.status === "rejected")
-        failedWidgets.push("Net profit (30d)");
+        failedWidgets.push("netProfit");
       if (debtorsResult.status === "rejected")
-        failedWidgets.push("Top debtors");
+        failedWidgets.push("topDebtors");
       setWidgetLoadErrors(failedWidgets);
 
       const statsData =
@@ -617,13 +649,10 @@ export default function Dashboard() {
         // rule 1 — no explicit `any` here: `profitChartResult.value` is
         // already `ChartDataPoint[]` (the `getProfitSalesChart` adapter
         // return type), so `d` infers correctly without an annotation.
+        // LIRA-331: rows keep the raw "YYYY-MM-DD" day; the label is
+        // formatted at render (`displayChartData`) in the shown language.
         const formattedChartData = profitChartResult.value.map((d) => ({
           ...d,
-          // DC-8: parse the "YYYY-MM-DD" day string as LOCAL, not UTC.
-          date: parseLocalDateOnly(d.date).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          }),
         }));
         setChartData(formattedChartData);
         chartDataTypeRef.current = chartType;
@@ -857,26 +886,37 @@ export default function Dashboard() {
   );
 
   // Financial Metrics (Row 1)
-  const financialCards = [
+  type StatCard = {
+    id: string;
+    label: string;
+    singleValue?: string;
+    usdValue?: number;
+    lbpValue?: number;
+  };
+  const financialCards: StatCard[] = [
     {
-      label: "Sales Revenue (Today)",
+      id: "salesRevenue",
+      label: t("cards.salesRevenue"),
       usdValue: stats.totalSalesUSD,
       lbpValue: stats.totalSalesLBP,
     },
     {
-      label: "Cash Collected (Today)",
+      id: "cashCollected",
+      label: t("cards.cashCollected"),
       usdValue: stats.cashCollectedUSD,
       lbpValue: stats.cashCollectedLBP,
     },
     {
-      label: "Orders Processed",
+      id: "ordersProcessed",
+      label: t("cards.ordersProcessed"),
       singleValue: stats.ordersCount.toString(),
     },
     // Only show Total Debt card when debt module is enabled
     ...(debtEnabled
       ? [
           {
-            label: "Total Debt",
+            id: "totalDebt",
+            label: t("cards.totalDebt"),
             usdValue: debtSummary.totalDebtUsd,
             lbpValue: debtSummary.totalDebtLbp,
           },
@@ -885,7 +925,7 @@ export default function Dashboard() {
   ];
 
   type DrawerAccent = {
-    label: string;
+    labelCls: string;
     btn: string;
     borderL: string;
     glow: string;
@@ -896,7 +936,7 @@ export default function Dashboard() {
   // unbranded till keeps a hand-picked one here.
   const DRAWER_COLORS: Record<string, DrawerAccent> = {
     General: {
-      label: "text-blue-400",
+      labelCls: "text-blue-400",
       btn: "text-blue-400    hover:text-white hover:bg-slate-700",
       borderL: "border-l-blue-500",
       glow: "bg-blue-500",
@@ -904,7 +944,7 @@ export default function Dashboard() {
     },
   };
   const DRAWER_COLOR_DEFAULT: DrawerAccent = {
-    label: "text-slate-400",
+    labelCls: "text-slate-400",
     btn: "text-slate-400 hover:text-white hover:bg-slate-700",
     borderL: "border-l-violet-500",
     glow: "bg-violet-500",
@@ -916,7 +956,7 @@ export default function Dashboard() {
     if (brand) {
       const b = PROVIDER_BRANDS[brand];
       return {
-        label: b.accentText,
+        labelCls: b.accentText,
         btn: `${b.accentText} hover:text-white hover:bg-slate-700`,
         borderL: b.accentEdge,
         glow: b.accentFill,
@@ -933,25 +973,25 @@ export default function Dashboard() {
     hoverShadow: string;
   };
   const FINANCIAL_ACCENTS: Record<string, CardAccent> = {
-    "Sales Revenue (Today)": {
+    salesRevenue: {
       labelColor: "text-violet-400",
       borderL: "border-l-violet-500",
       glow: "bg-violet-500",
       hoverShadow: "hover:shadow-violet-500/20 hover:border-violet-500/50",
     },
-    "Cash Collected (Today)": {
+    cashCollected: {
       labelColor: "text-emerald-400",
       borderL: "border-l-emerald-500",
       glow: "bg-emerald-500",
       hoverShadow: "hover:shadow-emerald-500/20 hover:border-emerald-500/50",
     },
-    "Orders Processed": {
+    ordersProcessed: {
       labelColor: "text-sky-400",
       borderL: "border-l-sky-500",
       glow: "bg-sky-500",
       hoverShadow: "hover:shadow-sky-500/20 hover:border-sky-500/50",
     },
-    "Total Debt": {
+    totalDebt: {
       labelColor: "text-rose-400",
       borderL: "border-l-rose-500",
       glow: "bg-rose-500",
@@ -959,19 +999,19 @@ export default function Dashboard() {
     },
   };
   const STOCK_ACCENTS: Record<string, CardAccent> = {
-    "Stock Budget": {
+    stockBudget: {
       labelColor: "text-amber-400",
       borderL: "border-l-amber-500",
       glow: "bg-amber-500",
       hoverShadow: "hover:shadow-amber-500/20 hover:border-amber-500/50",
     },
-    "Stock Count": {
+    stockCount: {
       labelColor: "text-cyan-400",
       borderL: "border-l-cyan-500",
       glow: "bg-cyan-500",
       hoverShadow: "hover:shadow-cyan-500/20 hover:border-cyan-500/50",
     },
-    "Net Profit — Last 30 Days": {
+    netProfit: {
       labelColor: "text-green-400",
       borderL: "border-l-green-500",
       glow: "bg-green-500",
@@ -1004,7 +1044,7 @@ export default function Dashboard() {
     );
     return {
       name,
-      label: formatDrawerLabel(name),
+      label: formatDrawerLabel(name, t),
       currencies: displayCurrencies,
       checkedAt: drawerStatuses[name]?.checked_at ?? null,
       varianceUsd,
@@ -1021,10 +1061,9 @@ export default function Dashboard() {
       items.push({
         id: "initial-balances",
         icon: Wallet,
-        title: "Starting drawer amounts not set",
-        detail:
-          "Set the opening cash for each active drawer so balances are accurate from day one.",
-        actionLabel: "Set now",
+        title: t("alerts.initialTitle"),
+        detail: t("alerts.initialDetail"),
+        actionLabel: t("alerts.initialAction"),
         onAction: () => setShowInitialDrawerModal(true),
       });
     }
@@ -1033,10 +1072,9 @@ export default function Dashboard() {
       items.push({
         id: "starting-checkpoint",
         icon: ClipboardCheck,
-        title: "No starting checkpoint recorded",
-        detail:
-          "Record an opening checkpoint so the timeline has a baseline to reconcile against.",
-        actionLabel: "Record now",
+        title: t("alerts.checkpointTitle"),
+        detail: t("alerts.checkpointDetail"),
+        actionLabel: t("alerts.checkpointAction"),
         onAction: () =>
           appEvents.emit("checkpoint:open", {
             drawerName: drawerEntries[0]?.[0] ?? "General",
@@ -1061,10 +1099,12 @@ export default function Dashboard() {
         icon: Phone,
         title:
           otherCarrierLineAlerts.length > 1
-            ? "Carrier lines need attention"
-            : "Carrier line needs attention",
-        detail: otherCarrierLineAlerts.map(carrierLineAlertText).join(" · "),
-        actionLabel: "Review",
+            ? t("alerts.carrierTitleMany")
+            : t("alerts.carrierTitleOne"),
+        detail: otherCarrierLineAlerts
+          .map((a) => carrierLineAlertText(a, t))
+          .join(" · "),
+        actionLabel: t("alerts.review"),
         onAction: () => navigate("/settings?tab=carrier-lines"),
       });
     }
@@ -1075,10 +1115,10 @@ export default function Dashboard() {
         icon: Phone,
         title:
           resaleLineAlerts.length > 1
-            ? "Lines for sale need attention"
-            : "Line for sale needs attention",
+            ? t("alerts.resaleTitleMany")
+            : t("alerts.resaleTitleOne"),
         detail: resaleLineAlerts.map(resaleLineAlertText).join(" · "),
-        actionLabel: "Open Phone Lines",
+        actionLabel: t("alerts.resaleAction"),
         onAction: () => navigate("/phone-lines"),
       });
     }
@@ -1092,10 +1132,12 @@ export default function Dashboard() {
         icon: AlertTriangle,
         title:
           widgetLoadErrors.length === 1
-            ? "1 dashboard widget failed to load"
-            : `${widgetLoadErrors.length} dashboard widgets failed to load`,
-        detail: `${widgetLoadErrors.join(", ")} — showing the last known values.`,
-        actionLabel: "Retry now",
+            ? t("alerts.widgetsFailedOne")
+            : t("alerts.widgetsFailedMany", { n: widgetLoadErrors.length }),
+        detail: t("alerts.widgetsFailedDetail", {
+          names: widgetLoadErrors.map((id) => t(`widgets.${id}`)).join(", "),
+        }),
+        actionLabel: t("alerts.retry"),
         onAction: () => {
           void loadData();
         },
@@ -1113,20 +1155,38 @@ export default function Dashboard() {
     navigate,
     widgetLoadErrors,
     loadData,
+    t,
   ]);
 
+  // LIRA-331 — the chart's day labels, in the shown language. DC-8: the
+  // "YYYY-MM-DD" day is parsed as LOCAL, never UTC.
+  const displayChartData = useMemo(
+    () =>
+      chartData.map((d) => ({
+        ...d,
+        date: fmtDate(parseLocalDateOnly(d.date), {
+          month: "short",
+          day: "numeric",
+        }),
+      })),
+    [chartData, fmtDate],
+  );
+
   // Credits & Stock (Row 3)
-  const creditsAndStockCards = [
+  const creditsAndStockCards: StatCard[] = [
     {
-      label: "Stock Budget",
+      id: "stockBudget",
+      label: t("cards.stockBudget"),
       singleValue: formatAmount(stats.stockBudgetUSD, "USD"),
     },
     {
-      label: "Stock Count",
-      singleValue: `${stats.stockCount.toLocaleString()} items`,
+      id: "stockCount",
+      label: t("cards.stockCount"),
+      singleValue: t("cards.stockItems", { n: fmtNumber(stats.stockCount) }),
     },
     {
-      label: "Net Profit — Last 30 Days",
+      id: "netProfit",
+      label: t("cards.netProfit"),
       usdValue: stats.netProfitLast30USD,
       lbpValue: stats.netProfitLast30LBP,
     },
@@ -1136,7 +1196,7 @@ export default function Dashboard() {
     <>
       <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 pt-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
         <PageHeader
-          title="Dashboard"
+          title={t("page.title")}
           actions={<PageAlerts alerts={pageAlerts} />}
         />
 
@@ -1154,7 +1214,7 @@ export default function Dashboard() {
               >
                 <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
                 <p className="flex-1 min-w-0 text-sm font-medium text-red-200">
-                  {carrierLineAlertText(alert)}
+                  {carrierLineAlertText(alert, t)}
                 </p>
                 <button
                   type="button"
@@ -1162,7 +1222,7 @@ export default function Dashboard() {
                   onClick={() => navigate("/settings?tab=carrier-lines")}
                   className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/15 text-red-200 border border-red-500/30 hover:bg-red-500/25 transition-all"
                 >
-                  Review
+                  {t("alerts.review")}
                 </button>
               </div>
             ))}
@@ -1180,22 +1240,22 @@ export default function Dashboard() {
                 <Wallet className="w-5 h-5 text-orange-400 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-orange-200 truncate">
-                    Holding for {hold.client_name}
+                    {t("holds.holdingFor", { name: hold.client_name })}
                   </p>
                   <div className="flex items-center gap-2 text-xs mt-0.5">
                     {hold.remaining_usd > 0 && (
-                      <span className="text-orange-300 font-mono">
+                      <Ltr className="text-orange-300 font-mono">
                         $
-                        {hold.remaining_usd.toLocaleString(undefined, {
+                        {fmtNumber(hold.remaining_usd, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}
-                      </span>
+                      </Ltr>
                     )}
                     {hold.remaining_lbp > 0 && (
-                      <span className="text-orange-300 font-mono">
-                        {hold.remaining_lbp.toLocaleString()} LBP
-                      </span>
+                      <Ltr className="text-orange-300 font-mono">
+                        {fmtNumber(hold.remaining_lbp)} LBP
+                      </Ltr>
                     )}
                   </div>
                 </div>
@@ -1206,7 +1266,7 @@ export default function Dashboard() {
                   className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition-all flex items-center gap-1"
                 >
                   <HandCoins size={13} />
-                  Collect
+                  {t("holds.collect")}
                 </button>
               </div>
             ))}
@@ -1222,18 +1282,19 @@ export default function Dashboard() {
         )}
 
         {/* Scrollable content area */}
-        <div className="flex-1 min-h-0 overflow-y-auto -mr-6 pr-6 pb-6 space-y-6">
+        <div className="flex-1 min-h-0 overflow-y-auto -me-6 pe-6 pb-6 space-y-6">
           {/* Financial Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {financialCards.map((stat) => {
-              const accent = FINANCIAL_ACCENTS[stat.label] ?? ACCENT_DEFAULT;
+              const accent = FINANCIAL_ACCENTS[stat.id] ?? ACCENT_DEFAULT;
               return (
                 <div
-                  key={stat.label}
+                  key={stat.id}
+                  // i18n-exempt: accent edge stays physical (border-l) to match PROVIDER_BRANDS.accentEdge in shared/brand/providerBrands.ts
                   className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
                 >
                   <div
-                    className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`}
+                    className={`absolute -top-5 -end-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`}
                   />
                   <div className="relative">
                     <h3
@@ -1255,7 +1316,7 @@ export default function Dashboard() {
                             </p>
                           </div>
                           <div className="flex-1">
-                            <p className="text-base font-bold text-violet-400 text-right">
+                            <p className="text-base font-bold text-violet-400 text-end">
                               {formatAmount(stat.lbpValue, "LBP")}
                             </p>
                           </div>
@@ -1272,15 +1333,15 @@ export default function Dashboard() {
               whichever system is primary — so the pairing is finally
               semantically correct; only the label/name follow shop_base_system. */}
           {(drawerBalances["General"] || drawerBalances[primaryDrawerName]) && (
-            <div className="flex items-stretch bg-slate-800 rounded-xl border border-slate-700/40 border-l-2 border-l-emerald-500 shadow-lg hover:shadow-emerald-500/20 hover:shadow-xl hover:border-emerald-500/50 transition-all duration-200 overflow-hidden self-start">
-              <div className="flex items-center gap-2 px-4 bg-slate-900/50 border-r border-slate-700/60 shrink-0">
+            <div className="flex items-stretch bg-slate-800 rounded-xl border border-slate-700/40 border-s-2 border-s-emerald-500 shadow-lg hover:shadow-emerald-500/20 hover:shadow-xl hover:border-emerald-500/50 transition-all duration-200 overflow-hidden self-start">
+              <div className="flex items-center gap-2 px-4 bg-slate-900/50 border-e border-slate-700/60 shrink-0">
                 <Banknote size={13} className="text-emerald-400" />
                 <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">
-                  Cash on Hand
+                  {t("cashOnHand.title")}
                 </span>
               </div>
               {[
-                { key: "General", label: "General" },
+                { key: "General", label: t("drawer.generalName") },
                 { key: primaryDrawerName, label: primaryDrawerLabel },
               ].map(({ key, label }, i) => {
                 const raw = drawerBalances[key];
@@ -1289,7 +1350,7 @@ export default function Dashboard() {
                   <div
                     key={key}
                     data-testid={`cash-on-hand-${key}`}
-                    className={`px-5 py-3 ${i < 1 ? "border-r border-slate-700/60" : ""}`}
+                    className={`px-5 py-3 ${i < 1 ? "border-e border-slate-700/60" : ""}`}
                   >
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-1">
                       {label}
@@ -1324,7 +1385,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   <Wallet className="text-sky-400" />
-                  Drawer Balances
+                  {t("drawers.title")}
                 </h2>
                 <div className="flex items-center gap-2">
                   <button
@@ -1332,7 +1393,7 @@ export default function Dashboard() {
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors"
                   >
                     <Plus size={14} />
-                    Top Up
+                    {t("drawers.topUp")}
                   </button>
                   {user?.role === "admin" && (
                     <button
@@ -1340,7 +1401,7 @@ export default function Dashboard() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium rounded-lg transition-colors"
                     >
                       <Minus size={14} />
-                      Cash Out
+                      {t("drawers.cashOut")}
                     </button>
                   )}
                 </div>
@@ -1352,17 +1413,18 @@ export default function Dashboard() {
                     <div
                       key={stat.label}
                       data-testid={`drawer-card-${stat.name}`}
+                      // i18n-exempt: accent edge stays physical (border-l) to match PROVIDER_BRANDS.accentEdge in shared/brand/providerBrands.ts
                       className={`relative bg-slate-800 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
                     >
                       {/* Corner glow orb */}
                       <div
-                        className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`}
+                        className={`absolute -top-5 -end-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`}
                       />
 
                       <div className="relative p-3">
                         <div className="flex items-center justify-between gap-1 mb-1">
                           <h3
-                            className={`text-[11px] font-bold uppercase tracking-widest truncate ${accent.label}`}
+                            className={`text-[11px] font-bold uppercase tracking-widest truncate ${accent.labelCls}`}
                           >
                             <BrandedLabel code={stat.name} label={stat.label} />
                           </h3>
@@ -1374,7 +1436,7 @@ export default function Dashboard() {
                                 })
                               }
                               className={`p-1 ${accent.btn} rounded transition-colors shrink-0`}
-                              title="Checkpoint"
+                              title={t("drawers.checkpoint")}
                             >
                               <ClipboardCheck size={12} />
                             </button>
@@ -1389,8 +1451,8 @@ export default function Dashboard() {
                               className={`text-[10px] truncate ${stalenessTextColor(stat.checkedAt)}`}
                             >
                               {stat.checkedAt
-                                ? formatCheckpointTime(stat.checkedAt)
-                                : "Never"}
+                                ? formatCheckpointTime(stat.checkedAt, language)
+                                : t("drawers.never")}
                             </span>
                             {/* LIRA-086 — accuracy of that checkpoint
                                 (counted vs. expected), separate signal from
@@ -1398,10 +1460,12 @@ export default function Dashboard() {
                             {stat.varianceColor && (
                               <span
                                 data-testid={`checkpoint-variance-${stat.name}`}
-                                className={`w-1.5 h-1.5 rounded-full shrink-0 ml-1 ${VARIANCE_DOT_CLASS[stat.varianceColor]}`}
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ms-1 ${VARIANCE_DOT_CLASS[stat.varianceColor]}`}
                                 title={
                                   stat.varianceUsd !== null
-                                    ? `Last checkpoint was off by ~$${stat.varianceUsd.toFixed(2)} from expected`
+                                    ? t("drawers.varianceTitle", {
+                                        amount: `$${stat.varianceUsd.toFixed(2)}`,
+                                      })
                                     : undefined
                                 }
                               />
@@ -1423,7 +1487,9 @@ export default function Dashboard() {
                               </p>
                             ))}
                           {Object.keys(stat.currencies).length === 0 && (
-                            <p className="text-xs text-slate-500">No balance</p>
+                            <p className="text-xs text-slate-500">
+                              {t("drawers.noBalance")}
+                            </p>
                           )}
                         </div>
                       </div>
@@ -1438,18 +1504,19 @@ export default function Dashboard() {
           <div>
             <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
               <Package className="text-amber-400" />
-              Credits & Stock
+              {t("stock.title")}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {creditsAndStockCards.map((stat) => {
-                const accent = STOCK_ACCENTS[stat.label] ?? ACCENT_DEFAULT;
+                const accent = STOCK_ACCENTS[stat.id] ?? ACCENT_DEFAULT;
                 return (
                   <div
-                    key={stat.label}
+                    key={stat.id}
+                    // i18n-exempt: accent edge stays physical (border-l) to match PROVIDER_BRANDS.accentEdge in shared/brand/providerBrands.ts
                     className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
                   >
                     <div
-                      className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`}
+                      className={`absolute -top-5 -end-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`}
                     />
                     <div className="relative">
                       <h3
@@ -1471,7 +1538,7 @@ export default function Dashboard() {
                               </p>
                             </div>
                             <div className="flex-1">
-                              <p className="text-base font-bold text-violet-400 text-right">
+                              <p className="text-base font-bold text-violet-400 text-end">
                                 {formatAmount(stat.lbpValue, "LBP")}
                               </p>
                             </div>
@@ -1528,12 +1595,13 @@ export default function Dashboard() {
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-amber-800 dark:text-amber-300 font-semibold text-sm">
-                      Pending Settlement
+                      {t("pending.title")}
                       {hasSupplierRows && (
                         <>
                           {" "}
-                          — {totalTxns} transaction
-                          {totalTxns !== 1 ? "s" : ""}
+                          {totalTxns !== 1
+                            ? t("pending.transactionsMany", { n: totalTxns })
+                            : t("pending.transactionsOne", { n: totalTxns })}
                         </>
                       )}
                     </p>
@@ -1609,14 +1677,15 @@ export default function Dashboard() {
                                 </span>
                               )}
                               {(hasPendingUsd || hasPendingLbp) &&
-                                " commission"}
+                                ` ${t("pending.commission")}`}
                               {(hasPendingUsd || hasPendingLbp) &&
                                 hasAwaiting &&
                                 " + "}
                               {hasAwaiting && (
                                 <span className="text-amber-900 dark:text-amber-300 font-semibold">
-                                  {r.awaiting_settlement_count} awaiting
-                                  settlement
+                                  {t("pending.awaiting", {
+                                    n: r.awaiting_settlement_count,
+                                  })}
                                 </span>
                               )}
                               {(hasOwedUsd || hasOwedLbp) && " — "}
@@ -1631,8 +1700,9 @@ export default function Dashboard() {
                                   {formatAmount(r.total_owed_lbp, "LBP")}
                                 </span>
                               )}
-                              {(hasOwedUsd || hasOwedLbp) && " owed"} ({r.count}{" "}
-                              txns)
+                              {(hasOwedUsd || hasOwedLbp) &&
+                                ` ${t("pending.owed")}`}{" "}
+                              {t("pending.txns", { n: r.count })}
                             </span>
                           );
                         })}
@@ -1644,7 +1714,7 @@ export default function Dashboard() {
                           totalPendingLbp > 0 ||
                           totalAwaitingSettlement > 0) && (
                           <>
-                            Total pending:{" "}
+                            {t("pending.total")}{" "}
                             {totalPendingUsd > 0 && (
                               <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
                                 ${totalPendingUsd.toFixed(4)}
@@ -1663,12 +1733,14 @@ export default function Dashboard() {
                               " + "}
                             {totalAwaitingSettlement > 0 && (
                               <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
-                                {totalAwaitingSettlement} awaiting settlement
+                                {t("pending.awaiting", {
+                                  n: totalAwaitingSettlement,
+                                })}
                               </span>
                             )}{" "}
                           </>
                         )}
-                        — settle via Settings → Supplier Ledger
+                        {t("pending.settleSuppliers")}
                       </p>
                     )}
                     {partnerSettlementLines.length > 0 && (
@@ -1683,10 +1755,10 @@ export default function Dashboard() {
                               data-testid="partner-settlement-line"
                               className="text-xs text-amber-700 dark:text-amber-400/80 font-mono"
                             >
-                              {line.name} (partner):{" "}
+                              {t("pending.partnerName", { name: line.name })}{" "}
                               {line.youOwe.length > 0 && (
                                 <>
-                                  you owe{" "}
+                                  {t("pending.youOwe")}{" "}
                                   <span className="text-amber-900 dark:text-amber-300 font-semibold">
                                     {fmtPartnerAmounts(line.youOwe)}
                                   </span>
@@ -1697,7 +1769,7 @@ export default function Dashboard() {
                                 "; "}
                               {line.owesYou.length > 0 && (
                                 <>
-                                  owes you{" "}
+                                  {t("pending.owesYou")}{" "}
                                   <span className="text-amber-900 dark:text-amber-300 font-semibold">
                                     {fmtPartnerAmounts(line.owesYou)}
                                   </span>
@@ -1707,7 +1779,7 @@ export default function Dashboard() {
                           ))}
                         </div>
                         <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
-                          Settle partner balances via Partners
+                          {t("pending.settlePartners")}
                         </p>
                       </>
                     )}
@@ -1727,10 +1799,11 @@ export default function Dashboard() {
             />
 
             <div
+              // i18n-exempt: accent edge stays physical (border-l) to match PROVIDER_BRANDS.accentEdge in shared/brand/providerBrands.ts
               className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${TAB_ACCENT[activeTab].borderL} shadow-lg transition-all duration-200 flex flex-col h-[420px] lg:h-[520px] min-h-0 overflow-hidden`}
             >
               <div
-                className={`absolute -top-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-10 pointer-events-none ${TAB_ACCENT[activeTab].glow}`}
+                className={`absolute -top-6 -end-6 w-24 h-24 rounded-full blur-3xl opacity-10 pointer-events-none ${TAB_ACCENT[activeTab].glow}`}
               />
 
               {/* Sales Trend */}
@@ -1738,7 +1811,9 @@ export default function Dashboard() {
                 <>
                   <div className="relative flex justify-between items-center mb-1">
                     <h3 className="text-lg font-bold text-white">
-                      {CHART_TYPE_LABELS[chartType]} Trend (Last 30 Days)
+                      {t("chart.trendTitle", {
+                        type: t(CHART_TYPE_LABEL_KEYS[chartType]),
+                      })}
                     </h3>
                     <Select
                       value={chartType}
@@ -1746,17 +1821,19 @@ export default function Dashboard() {
                       options={[
                         {
                           value: "Sales",
-                          label: CHART_TYPE_LABELS.Sales,
+                          label: t(CHART_TYPE_LABEL_KEYS.Sales),
                         },
-                        { value: "Profit", label: "Profit" },
+                        {
+                          value: "Profit",
+                          label: t(CHART_TYPE_LABEL_KEYS.Profit),
+                        },
                       ]}
                       buttonClassName="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
                     />
                   </div>
                   {chartType === "Sales" && (
                     <p className="relative text-[11px] text-slate-500 mb-2">
-                      The USD line is the USD VALUE of what was sold, not cash
-                      collected in USD.
+                      {t("chart.usdNote")}
                     </p>
                   )}
                   <div className="flex-1 w-full min-h-0">
@@ -1766,7 +1843,7 @@ export default function Dashboard() {
                       }
                     >
                       <DashboardChart
-                        chartData={chartData}
+                        chartData={displayChartData}
                         chartType={chartType}
                         maxUsdSales={maxUsdSales}
                         maxLbpSales={maxLbpSales}
@@ -1784,7 +1861,7 @@ export default function Dashboard() {
                   <div className="relative flex justify-between items-center mb-3">
                     <h3 className="text-md font-bold text-white flex items-center gap-2">
                       <Clock size={16} className="text-blue-400" />
-                      Today's Sales
+                      {t("insights.tabSales")}
                     </h3>
                     {rowsControl}
                   </div>
@@ -1794,11 +1871,11 @@ export default function Dashboard() {
                         .slice(0, insightRowsLimit || 50)
                         .map((sale) => ({
                           key: sale.id,
-                          name: sale.client_name || "Walk-in Client",
+                          name: sale.client_name || t("insights.walkIn"),
                           usd: sale.paid_usd,
                           lbp: sale.paid_lbp,
                         }))}
-                      emptyMessage="No sales yet today."
+                      emptyMessage={t("insights.noSales")}
                       formatAmount={formatAmount}
                     />
                   </div>
@@ -1811,7 +1888,7 @@ export default function Dashboard() {
                   <div className="relative flex justify-between items-center mb-3">
                     <h3 className="text-md font-bold text-white flex items-center gap-2">
                       <BarChart2 size={16} className="text-rose-400" />
-                      Top Debtors
+                      {t("insights.tabDebtors")}
                     </h3>
                     {rowsControl}
                   </div>
@@ -1826,7 +1903,7 @@ export default function Dashboard() {
                           usd: d.total_debt_usd,
                           lbp: d.total_debt_lbp,
                         }))}
-                      emptyMessage="No debtors"
+                      emptyMessage={t("insights.noDebtors")}
                       formatAmount={formatAmount}
                     />
                   </div>

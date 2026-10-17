@@ -1,4 +1,13 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { useFormat } from "@/i18n/useFormat";
+import {
+  categoryLabel,
+  fulfillmentLabel,
+  workStatusLabel,
+} from "@/features/custom-services/utils/labels";
 import {
   History,
   RefreshCw,
@@ -17,7 +26,6 @@ import {
   TERMINAL_FULFILLMENT_STATUS,
   type FulfillmentStatus,
   WORK_STATUSES,
-  WORK_STATUS_LABELS,
   type WorkStatus,
 } from "@liratek/core";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -49,30 +57,34 @@ const INSURANCE_CATEGORY = "insurance";
  *  Maintenance's `statusBadge` (`features/maintenance/pages/Maintenance/
  *  index.tsx`), same 4-step shape (not-yet-physical -> physical ->
  *  handed-over), one color per step. */
-function fulfillmentBadge(status: FulfillmentStatus): {
+function fulfillmentBadge(
+  status: FulfillmentStatus,
+  t: TFunction<"customServices">,
+): {
   label: string;
   className: string;
 } {
+  const label = fulfillmentLabel(status, t);
   switch (status) {
     case "ORDERED":
       return {
-        label: "Ordered",
+        label,
         className: "bg-blue-500/10 text-blue-400 border border-blue-500/30",
       };
     case "ISSUED":
       return {
-        label: "Issued",
+        label,
         className: "bg-amber-500/10 text-amber-400 border border-amber-500/30",
       };
     case "RECEIVED":
       return {
-        label: "Received",
+        label,
         className:
           "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30",
       };
     case "DELIVERED":
       return {
-        label: "Delivered",
+        label,
         className: "bg-slate-500/10 text-slate-300 border border-slate-500/30",
       };
   }
@@ -115,7 +127,9 @@ function nextFulfillmentStatus(
   return FULFILLMENT_STATUSES[idx + 1] ?? null;
 }
 
-function formatTime(dateStr: string): string {
+type FormatFns = ReturnType<typeof useFormat>;
+
+function formatTime(dateStr: string, f: FormatFns): string {
   const d = parseDbDate(dateStr);
   const now = new Date();
   const sameDay =
@@ -123,12 +137,12 @@ function formatTime(dateStr: string): string {
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
   if (sameDay) {
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return f.formatTime(d, { hour: "2-digit", minute: "2-digit" });
   }
   return (
-    d.toLocaleDateString([], { month: "short", day: "numeric" }) +
+    f.formatDate(d, { month: "short", day: "numeric" }) +
     " " +
-    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    f.formatTime(d, { hour: "2-digit", minute: "2-digit" })
   );
 }
 
@@ -149,6 +163,9 @@ export function HistoryModal({
 }: HistoryModalProps) {
   useModalFocusFix(true);
   const api = useApi();
+  const { t } = useTranslation("customServices");
+  const { t: tc } = useTranslation("common");
+  const fmt = useFormat();
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
     history,
     "created_at",
@@ -216,13 +233,13 @@ export function HistoryModal({
       if (result.success) {
         onRefresh();
       } else {
-        alert(result.error ?? "Failed to update status.");
+        alert(result.error ?? t("history.statusFailed"));
       }
     } catch (error) {
       logger.error("Advance fulfilment status failed:", error);
       // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to be
       // discarded here in favor of this hardcoded string.
-      alert(getApiErrorMessage(error, "Failed to update status."));
+      alert(getApiErrorMessage(error, t("history.statusFailed")));
     } finally {
       setAdvancingId(null);
     }
@@ -243,11 +260,11 @@ export function HistoryModal({
       if (result.success) {
         onRefresh();
       } else {
-        alert(result.error ?? "Failed to update work status.");
+        alert(result.error ?? t("history.workStatusFailed"));
       }
     } catch (error) {
       logger.error("Set work status failed:", error);
-      alert(getApiErrorMessage(error, "Failed to update work status."));
+      alert(getApiErrorMessage(error, t("history.workStatusFailed")));
     } finally {
       setWorkStatusChangingId(null);
     }
@@ -261,9 +278,7 @@ export function HistoryModal({
    *  would contradict "Cancelled" as a visible, derived label). */
   async function handleCancel(tx: CustomServiceEntry) {
     if (
-      !confirm(
-        "Cancel this insurance? Any payment already collected will be refunded.",
-      )
+      !confirm(t("history.cancelInsuranceConfirm"))
     ) {
       return;
     }
@@ -272,20 +287,20 @@ export function HistoryModal({
       const txn = await getTransactionBySource("custom_services", tx.id);
       const txnId = (txn as { id?: number } | null)?.id;
       if (!txnId) {
-        alert("Could not find the transaction for this insurance.");
+        alert(t("history.insuranceTxnMissing"));
         return;
       }
       const result = await refundTransaction(txnId);
       if (result.success) {
         onRefresh();
       } else {
-        alert(result.error ?? "Failed to cancel insurance.");
+        alert(result.error ?? t("history.cancelInsuranceFailed"));
       }
     } catch (error) {
       logger.error("Cancel insurance failed:", error);
       // LIRA-247: surface the real refusal reason instead of this hardcoded
       // string, mirroring the fix above in handleAdvanceFulfillment.
-      alert(getApiErrorMessage(error, "Failed to cancel insurance."));
+      alert(getApiErrorMessage(error, t("history.cancelInsuranceFailed")));
     } finally {
       setCancellingId(null);
     }
@@ -333,7 +348,7 @@ export function HistoryModal({
         setEditingId(null);
         onRefresh();
       } else {
-        alert(result.error ?? "Failed to save");
+        alert(result.error ?? t("history.saveFailed"));
       }
     } finally {
       setEditSaving(false);
@@ -352,9 +367,9 @@ export function HistoryModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <History className="text-slate-400" size={18} />
-            Service History
-            <span className="text-xs text-slate-500 font-normal ml-1">
-              ({scopedData.length} records)
+            {t("history.title")}
+            <span className="text-xs text-slate-500 font-normal ms-1">
+              {t("history.records", { total: scopedData.length })}
             </span>
           </h2>
           <div className="flex items-center gap-2">
@@ -374,7 +389,7 @@ export function HistoryModal({
                       : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  {tab}
+                  {tab === "All" ? t("history.tabAll") : t("history.tabInsurance")}
                 </button>
               ))}
             </div>
@@ -387,10 +402,10 @@ export function HistoryModal({
               }
               className="bg-slate-800/60 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-300"
             >
-              <option value="All">All work status</option>
+              <option value="All">{t("history.allWorkStatus")}</option>
               {WORK_STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {WORK_STATUS_LABELS[s]}
+                  {workStatusLabel(s, t)}
                 </option>
               ))}
             </select>
@@ -403,14 +418,14 @@ export function HistoryModal({
             <button
               onClick={onRefresh}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Refresh"
+              title={tc("actions.refresh")}
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Close"
+              title={tc("actions.close")}
             >
               <X size={18} />
             </button>
@@ -419,24 +434,24 @@ export function HistoryModal({
         <div className="flex-1 min-h-0 overflow-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-slate-500">
-              <RefreshCw size={20} className="animate-spin mr-2" />
-              Loading...
+              <RefreshCw size={20} className="animate-spin me-2" />
+              {tc("state.loading")}
             </div>
           ) : (
             <DataTable<CustomServiceEntry>
               columns={[
                 {
-                  header: "Time",
+                  header: t("history.time"),
                   className: "px-4 py-3",
                   sortKey: "created_at",
                 },
                 {
-                  header: "Description",
+                  header: t("history.description"),
                   className: "px-4 py-3",
                   sortKey: "description",
                 },
                 {
-                  header: "Category",
+                  header: t("history.category"),
                   className: "px-4 py-3",
                   sortKey: "category",
                 },
@@ -444,38 +459,38 @@ export function HistoryModal({
                   // LIRA-155, item 4 — insurance fulfilment status, derived
                   // "Cancelled" on a refund. Blank for every non-insurance
                   // row (untracked).
-                  header: "Status",
+                  header: t("history.status"),
                   className: "px-4 py-3",
                 },
                 {
                   // LIRA-083 — work-in-progress lifecycle, every row has one
                   // (not gated on category, unlike the fulfilment Status
                   // column above).
-                  header: "Work Status",
+                  header: t("history.workStatus"),
                   className: "px-4 py-3",
                 },
                 {
-                  header: "Customer",
+                  header: t("history.customer"),
                   className: "px-4 py-3",
                   sortKey: "client_name",
                 },
                 {
-                  header: "Cost",
-                  className: "px-4 py-3 text-right",
+                  header: t("history.cost"),
+                  className: "px-4 py-3 text-end",
                   sortKey: "cost_usd",
                 },
                 {
-                  header: "Price",
-                  className: "px-4 py-3 text-right",
+                  header: t("history.price"),
+                  className: "px-4 py-3 text-end",
                   sortKey: "price_usd",
                 },
                 {
-                  header: "Profit",
-                  className: "px-4 py-3 text-right",
+                  header: t("history.profit"),
+                  className: "px-4 py-3 text-end",
                   sortKey: "profit_usd",
                 },
                 {
-                  header: "Paid By",
+                  header: t("history.paidBy"),
                   className: "px-4 py-3",
                   sortKey: "paid_by",
                 },
@@ -487,9 +502,9 @@ export function HistoryModal({
               exportPdf
               exportFilename="custom-services-history"
               className="w-full"
-              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              theadClassName="bg-slate-900/50 text-start text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
               tbodyClassName="divide-y divide-slate-700/50"
-              emptyMessage="No services recorded yet."
+              emptyMessage={t("history.empty")}
               renderRow={(tx) => {
                 const isRefunded = Boolean(tx.is_refunded);
                 const isEditing = editingId === tx.id;
@@ -500,7 +515,7 @@ export function HistoryModal({
                       className={`hover:bg-slate-700/20 transition-colors${isRefunded ? " opacity-50" : ""}`}
                     >
                       <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap">
-                        {formatTime(tx.created_at)}
+                        {formatTime(tx.created_at, fmt)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm text-white font-medium flex items-center gap-1 flex-wrap">
@@ -513,8 +528,8 @@ export function HistoryModal({
                           )}
                           {tx.description}
                           {isRefunded && (
-                            <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                              Refunded
+                            <span className="ms-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                              {t("history.refunded")}
                             </span>
                           )}
                           {tx.edited_by && (
@@ -522,9 +537,9 @@ export function HistoryModal({
                               entityType="custom_service"
                               entityId={tx.id}
                               trigger={
-                                <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors">
+                                <span className="ms-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors">
                                   <Pencil size={8} />
-                                  Edited
+                                  {t("history.edited")}
                                 </span>
                               }
                             />
@@ -540,12 +555,7 @@ export function HistoryModal({
                         {tx.category ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 border border-purple-500/30 text-purple-400">
                             <Tag size={10} />
-                            {tx.category === "digital_account"
-                              ? "Digital Account"
-                              : tx.category === "hold_money"
-                                ? "Hold Money"
-                                : tx.category.charAt(0).toUpperCase() +
-                                  tx.category.slice(1)}
+                            {categoryLabel(tx.category, t)}
                           </span>
                         ) : (
                           <span className="text-xs text-slate-600">—</span>
@@ -559,23 +569,23 @@ export function HistoryModal({
                           // cancelled insurance IS a refunded insurance,
                           // there is only one fact.
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/30">
-                            Cancelled
+                            {t("history.cancelled")}
                           </span>
                         ) : !tx.fulfillment_status ? (
                           <span className="text-xs text-slate-600">—</span>
                         ) : (
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span
-                              className={`px-2 py-0.5 rounded-full text-xs font-medium ${fulfillmentBadge(tx.fulfillment_status).className}`}
+                              className={`px-2 py-0.5 rounded-full text-xs font-medium ${fulfillmentBadge(tx.fulfillment_status, t).className}`}
                             >
-                              {fulfillmentBadge(tx.fulfillment_status).label}
+                              {fulfillmentBadge(tx.fulfillment_status, t).label}
                             </span>
                             {(() => {
                               const next = nextFulfillmentStatus(
                                 tx.fulfillment_status,
                               );
                               if (!next) return null;
-                              const nextLabel = fulfillmentBadge(next).label;
+                              const nextLabel = fulfillmentBadge(next, t).label;
                               return (
                                 <button
                                   type="button"
@@ -585,11 +595,11 @@ export function HistoryModal({
                                   }
                                   disabled={advancingId === tx.id}
                                   className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap disabled:opacity-50"
-                                  title={`Mark ${nextLabel}`}
+                                  title={t("history.markAs", { status: nextLabel })}
                                 >
                                   {advancingId === tx.id
                                     ? "..."
-                                    : `Mark ${nextLabel}`}
+                                    : t("history.markAs", { status: nextLabel })}
                                 </button>
                               );
                             })()}
@@ -619,7 +629,7 @@ export function HistoryModal({
                               value={s}
                               className="bg-slate-800 text-slate-200"
                             >
-                              {WORK_STATUS_LABELS[s]}
+                              {workStatusLabel(s, t)}
                             </option>
                           ))}
                         </select>
@@ -634,17 +644,17 @@ export function HistoryModal({
                         {tx.phone_number && (
                           <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
                             <Phone size={10} />
-                            {tx.phone_number}
+                            <Ltr>{tx.phone_number}</Ltr>
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right text-sm font-mono text-slate-400">
+                      <td className="px-4 py-3 text-end text-sm font-mono text-slate-400">
                         {formatServiceAmount(tx.cost_usd, tx.cost_lbp)}
                       </td>
-                      <td className="px-4 py-3 text-right text-sm font-mono text-white font-medium">
+                      <td className="px-4 py-3 text-end text-sm font-mono text-white font-medium">
                         {formatServiceAmount(tx.price_usd, tx.price_lbp)}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-end">
                         <span
                           // LIRA-130: profit_usd/profit_lbp are a GENERATED
                           // column (price - cost) — a refund can never
@@ -664,7 +674,7 @@ export function HistoryModal({
                           }`}
                           title={
                             isRefunded
-                              ? "Refunded — profit not realized"
+                              ? t("history.refundedProfit")
                               : undefined
                           }
                         >
@@ -690,14 +700,14 @@ export function HistoryModal({
                                 onClick={handleSaveEdit}
                                 disabled={editSaving}
                                 className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors disabled:opacity-50"
-                                title="Save"
+                                title={tc("actions.save")}
                               >
                                 <Check size={13} />
                               </button>
                               <button
                                 onClick={() => setEditingId(null)}
                                 className="p-1 text-slate-400 hover:bg-slate-700 rounded-lg transition-colors"
-                                title="Cancel"
+                                title={tc("actions.cancel")}
                               >
                                 <X size={13} />
                               </button>
@@ -706,7 +716,7 @@ export function HistoryModal({
                             <button
                               onClick={() => startEdit(tx)}
                               className="p-1 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded-lg transition-colors"
-                              title="Edit metadata"
+                              title={t("history.editMetadata")}
                             >
                               <Pencil size={13} />
                             </button>
@@ -722,7 +732,7 @@ export function HistoryModal({
                                 onClick={() => handleCancel(tx)}
                                 disabled={cancellingId === tx.id}
                                 className="text-slate-600 hover:text-red-400 transition-colors p-1 disabled:opacity-50"
-                                title="Cancel insurance (refund)"
+                                title={t("history.cancelInsurance")}
                               >
                                 <Ban size={14} />
                               </button>
@@ -731,7 +741,7 @@ export function HistoryModal({
                             <button
                               onClick={() => onVoid(tx.id)}
                               className="text-slate-600 hover:text-red-400 transition-colors p-1"
-                              title="Void service"
+                              title={t("history.voidService")}
                             >
                               <Ban size={14} />
                             </button>
@@ -742,7 +752,7 @@ export function HistoryModal({
                             <button
                               onClick={() => handlePrint(tx)}
                               className="text-slate-500 hover:text-white transition-colors p-1"
-                              title="Print receipt"
+                              title={t("history.printReceipt")}
                             >
                               <Printer size={14} />
                             </button>
@@ -756,7 +766,7 @@ export function HistoryModal({
                           <div className="flex items-end gap-3 flex-wrap">
                             <div className="flex-1 min-w-[140px]">
                               <label className="text-xs text-slate-400 block mb-1">
-                                Description
+                                {t("history.description")}
                               </label>
                               <input
                                 value={editForm.description}
@@ -767,12 +777,12 @@ export function HistoryModal({
                                   }))
                                 }
                                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 w-full"
-                                placeholder="Description"
+                                placeholder={t("history.description")}
                               />
                             </div>
                             <div>
                               <label className="text-xs text-slate-400 block mb-1">
-                                Client Name
+                                {t("history.clientName")}
                               </label>
                               <input
                                 value={editForm.client_name}
@@ -783,12 +793,12 @@ export function HistoryModal({
                                   }))
                                 }
                                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 w-40"
-                                placeholder="Client name"
+                                placeholder={t("history.clientNamePlaceholder")}
                               />
                             </div>
                             <div>
                               <label className="text-xs text-slate-400 block mb-1">
-                                Phone
+                                {t("form.phone")}
                               </label>
                               <input
                                 value={editForm.phone_number}
@@ -799,12 +809,12 @@ export function HistoryModal({
                                   }))
                                 }
                                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 w-36"
-                                placeholder="Phone number"
+                                placeholder={t("history.phonePlaceholder")}
                               />
                             </div>
                             <div className="flex-1 min-w-[120px]">
                               <label className="text-xs text-slate-400 block mb-1">
-                                Note
+                                {t("history.note")}
                               </label>
                               <input
                                 value={editForm.note}
@@ -815,7 +825,7 @@ export function HistoryModal({
                                   }))
                                 }
                                 className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 w-full"
-                                placeholder="Note"
+                                placeholder={t("history.note")}
                               />
                             </div>
                           </div>

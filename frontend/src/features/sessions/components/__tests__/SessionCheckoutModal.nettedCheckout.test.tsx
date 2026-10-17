@@ -125,9 +125,7 @@ jest.mock("@liratek/ui", () => ({
   useApi: () => mockApi,
   MultiPaymentInput: (props: Record<string, unknown>) => (
     <div data-testid="stub-multi-payment-input">
-      <div data-testid="mpi-totals">
-        {JSON.stringify(props.totals)}
-      </div>
+      <div data-testid="mpi-totals">{JSON.stringify(props.totals)}</div>
       <button
         type="button"
         data-testid="tender-50-usd-cash"

@@ -1,1 +1,178 @@
-{}
+{
+  "page": {
+    "title": "لوحة التحكم"
+  },
+  "drawer": {
+    "amountRequired": "أدخل مبلغاً واحداً على الأقل أكبر من 0.",
+    "unexpectedError": "حدث خطأ غير متوقع.",
+    "usdAmount": "المبلغ بالدولار",
+    "lbpAmount": "المبلغ بالليرة",
+    "currencyAmount": "المبلغ بـ {{code}}",
+    "processing": "جارٍ التنفيذ...",
+    "notes": "ملاحظات",
+    "optional": "(اختياري)",
+    "addNote": "أضف ملاحظة...",
+    "primaryLabel": "صندوق {{brand}} النقدي",
+    "generalName": "العام"
+  },
+  "cashout": {
+    "title": "سحب نقدي — الصندوق العام",
+    "reasonRequired": "أدخل سبب هذا السحب.",
+    "success": "تم سحب المبلغ من الصندوق.",
+    "failed": "تعذّر السحب من الصندوق.",
+    "removeCurrency": "إزالة {{code}}",
+    "addCurrency": "إضافة عملة أخرى",
+    "reason": "السبب *",
+    "reasonPlaceholder": "لماذا يُسحب هذا المبلغ؟",
+    "submit": "سحب نقدي"
+  },
+  "topup": {
+    "noMarketRate": "لا يوجد سعر سوق لـ {{code}} — اضغط \"تعديل\" لإدخاله يدوياً.",
+    "selectSource": "اختر الصندوق الذي يُؤخذ منه المبلغ.",
+    "success": "تمت تعبئة الصندوق بنجاح.",
+    "failed": "تعذّرت تعبئة الصندوق.",
+    "title": "تعبئة الصندوق العام",
+    "modeExternal": "من الخارج (إدخال نقد)",
+    "modeFromDrawer": "من صندوق",
+    "modeTransfer": "تحويل",
+    "submit": "تعبئة",
+    "otherCurrencies": "عملات أخرى",
+    "noOtherCurrencies": "لا توجد عملات أخرى — أضف عملة من الإعدادات ← العملات، أو تحقّق من الاتصال لجلب اللائحة المباشرة.",
+    "removeCurrency": "إزالة العملة",
+    "basisLine": "أساس الكلفة: سعر السوق {{rate}} USD/{{code}}",
+    "basisMissing": "لم يُعثر على سعر سوق لـ {{code}} — أدخله يدوياً.",
+    "unit": "وحدة",
+    "thisCurrency": "هذه العملة",
+    "edit": "تعديل",
+    "acquisitionRate": "سعر الشراء (USD لكل {{code}})",
+    "acquisitionHint": "كم كلّفك {{code}} واحد بالدولار — يحدّد أساس الكلفة لربح الصرف.",
+    "addCurrency": "إضافة عملة"
+  },
+  "transfer": {
+    "success": "تم نقل {{amounts}} من {{from}} إلى {{to}}.",
+    "failed": "تعذّر تحويل المبلغ.",
+    "title": "تحويل نقد بين الصناديق",
+    "intro": "انقل النقد الفعلي بين الصندوق العام و{{label}} — صندوق المحل نفسه عند شبّاك تحويل الأموال. هذا نقل بين صندوقين للمحل نفسه؛ لا يحقّق أي ربح.",
+    "negativeOne": "صندوق برصيد سالب",
+    "negativeMany": "{{n}} أرصدة صناديق بالسالب",
+    "negativeHint": "دُفع نقد لم يكن في الصندوق — سجّل النقل الذي يغطّيه.",
+    "coverIt": "غطِّه",
+    "direction": "الاتجاه",
+    "directionArrow": "{{from}} ← {{to}}",
+    "balanceLabel": "رصيد {{drawer}}:",
+    "insufficient": "رصيد {{drawer}} لا يكفي لهذا التحويل.",
+    "from": "من",
+    "into": "إلى"
+  },
+  "fromDrawer": {
+    "source": "الصندوق المصدر",
+    "none": "لا توجد صناديق",
+    "balance": "الرصيد:"
+  },
+  "chart": {
+    "seriesSalesUsd": "مبيعات البضاعة والاتصالات (USD)",
+    "seriesSalesLbp": "مبيعات البضاعة والاتصالات (LBP)",
+    "seriesProfitUsd": "الربح (USD)",
+    "seriesProfitLbp": "الربح (LBP)",
+    "typeSales": "مبيعات البضاعة والاتصالات",
+    "typeProfit": "الربح",
+    "trendTitle": "اتجاه {{type}} (آخر 30 يوماً)",
+    "usdNote": "خط الدولار هو قيمة المبيع بالدولار، وليس النقد المقبوض بالدولار."
+  },
+  "commissions": {
+    "empty": "لا توجد بيانات عمولة",
+    "pendingName": "{{name}} (معلّقة)"
+  },
+  "carrierLines": {
+    "missing": "لا يوجد خط فعّال لـ {{carrier}}",
+    "deadlineWithin": "اشحن خلال {{n}} يوم لتسليمها",
+    "deadlineNow": "اشحن الآن لتسليمها",
+    "soldAhead": "{{carrier}} — {{line}} عليه {{n}} يوم مبيعة سلفاً — {{deadline}}",
+    "expiredAgo": "انتهى منذ {{n}} يوم",
+    "expiresToday": "ينتهي اليوم",
+    "expiresIn": "ينتهي خلال {{n}} يوم",
+    "expiring": "{{carrier}} — {{line}} {{status}}"
+  },
+  "alerts": {
+    "initialTitle": "مبالغ الصناديق الافتتاحية غير محدّدة",
+    "initialDetail": "حدّد النقد الافتتاحي لكل صندوق فعّال لتكون الأرصدة دقيقة من اليوم الأول.",
+    "initialAction": "حدّدها الآن",
+    "checkpointTitle": "لم يُسجَّل عدّ افتتاحي",
+    "checkpointDetail": "سجّل عدّاً افتتاحياً ليكون للسجلّ نقطة بداية للمطابقة.",
+    "checkpointAction": "سجّله الآن",
+    "carrierTitleMany": "خطوط الشبكة تحتاج انتباهاً",
+    "carrierTitleOne": "خط شبكة يحتاج انتباهاً",
+    "review": "مراجعة",
+    "resaleTitleMany": "خطوط للبيع تحتاج انتباهاً",
+    "resaleTitleOne": "خط للبيع يحتاج انتباهاً",
+    "resaleAction": "فتح الخطوط",
+    "widgetsFailedOne": "تعذّر تحميل قسم واحد من لوحة التحكم",
+    "widgetsFailedMany": "تعذّر تحميل {{n}} أقسام من لوحة التحكم",
+    "widgetsFailedDetail": "{{names}} — تُعرض آخر القيم المعروفة.",
+    "retry": "إعادة المحاولة الآن"
+  },
+  "widgets": {
+    "salesStats": "إحصاءات المبيعات",
+    "chart": "رسم المبيعات/الأرباح",
+    "todaysSales": "مبيعات اليوم",
+    "drawerBalances": "أرصدة الصناديق",
+    "debtSummary": "ملخّص الديون",
+    "inventoryStock": "المخزون",
+    "netProfit": "صافي الربح (30 يوماً)",
+    "topDebtors": "أكبر المدينين"
+  },
+  "cards": {
+    "salesRevenue": "إيرادات المبيعات (اليوم)",
+    "cashCollected": "النقد المقبوض (اليوم)",
+    "ordersProcessed": "الطلبات المنجزة",
+    "totalDebt": "مجموع الديون",
+    "stockBudget": "قيمة المخزون",
+    "stockCount": "عدد قطع المخزون",
+    "stockItems": "{{n}} قطعة",
+    "netProfit": "صافي الربح — آخر 30 يوماً"
+  },
+  "cashOnHand": {
+    "title": "النقد الموجود"
+  },
+  "drawers": {
+    "title": "أرصدة الصناديق",
+    "topUp": "تعبئة",
+    "cashOut": "سحب نقدي",
+    "checkpoint": "عدّ الصندوق",
+    "never": "لم يُعدّ بعد",
+    "varianceTitle": "آخر عدّ اختلف بحوالى {{amount}} عن المتوقّع",
+    "noBalance": "لا رصيد"
+  },
+  "stock": {
+    "title": "الأرصدة والمخزون"
+  },
+  "holds": {
+    "holdingFor": "أمانة لـ {{name}}",
+    "collect": "تسليم"
+  },
+  "pending": {
+    "title": "بانتظار التسوية",
+    "transactionsOne": "— {{n}} عملية",
+    "transactionsMany": "— {{n}} عمليات",
+    "commission": "عمولة",
+    "awaiting": "{{n}} بانتظار التسوية",
+    "owed": "مستحقّ",
+    "txns": "({{n}} عمليات)",
+    "total": "مجموع المعلّق:",
+    "settleSuppliers": "— سوِّ من الإعدادات ← دفتر المورّدين",
+    "partnerName": "{{name}} (شريك):",
+    "youOwe": "مستحقّ عليك",
+    "owesYou": "مستحقّ لك",
+    "settlePartners": "سوِّ أرصدة الشركاء من صفحة الشركاء"
+  },
+  "insights": {
+    "tabTrend": "اتجاه المبيعات",
+    "tabSales": "مبيعات اليوم",
+    "tabDebtors": "أكبر المدينين",
+    "rows": "الأسطر:",
+    "colName": "الاسم",
+    "walkIn": "زبون عابر",
+    "noSales": "لا مبيعات اليوم بعد.",
+    "noDebtors": "لا يوجد مدينون"
+  }
+}

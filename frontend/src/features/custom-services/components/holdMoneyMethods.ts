@@ -14,6 +14,7 @@ export interface HoldMoneyMethodOption {
  * real list replaces it as soon as it arrives.
  */
 const CASH_ONLY: readonly HoldMoneyMethodOption[] = [
+  // i18n-exempt: same English label as the payment_methods table rows it stands in for
   { code: "CASH", label: "Cash" },
 ];
 

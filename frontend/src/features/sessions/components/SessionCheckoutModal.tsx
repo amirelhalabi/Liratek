@@ -14,11 +14,15 @@ import { getApiErrorMessage } from "@/shared/utils/apiErrorMessage";
 import {
   appEvents,
   canChargeToCustomerAccount,
+  DecimalInput,
   MultiPaymentInput,
   useApi,
   type PaymentLine,
 } from "@liratek/ui";
-import { basketHasNothingToCollect, splitBasketCashOmtFirst } from "@liratek/core";
+import {
+  basketHasNothingToCollect,
+  splitBasketCashOmtFirst,
+} from "@liratek/core";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useSession } from "../context/SessionContext";
 import {
@@ -38,6 +42,10 @@ import {
   type SessionReceiptLeg,
 } from "../utils/sessionReceipt";
 import type { CartItem } from "../types/cart";
+import { Trans, useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 
 /** W1.b — snapshot taken BEFORE clearCart()/session-close so the Print
  *  button (rendered AFTER checkout, once activeSession has already gone
@@ -60,24 +68,28 @@ interface SessionCheckoutModalProps {
   onClose: () => void;
 }
 
-/** Module label mapping for display */
-const MODULE_LABELS: Record<string, string> = {
-  pos: "POS Sale",
-  recharge_mtc: "MTC Recharge",
-  recharge_alfa: "Alfa Recharge",
-  omt_app: "OMT App Transfer",
-  whish_app: "Whish App Transfer",
-  ipick: "iPick",
-  katsh: "KATCH",
-  binance_send: "Binance Send",
-  binance_receive: "Binance Receive",
-  omt_system: "OMT System",
-  whish_system: "Whish System",
-  loto_ticket: "Loto Ticket",
-  loto_prize: "Loto Prize",
-  custom_service: "Custom Service",
-  maintenance: "Maintenance",
-};
+/** Module label for display, translated from the module code (the code
+ *  itself is the data; an unknown code shows as-is). */
+function moduleLabel(module: string, t: TFunction<"sessions">): string {
+  const labels: Record<string, string> = {
+    pos: t("module.pos"),
+    recharge_mtc: t("module.recharge_mtc"),
+    recharge_alfa: t("module.recharge_alfa"),
+    omt_app: t("module.omt_app"),
+    whish_app: t("module.whish_app"),
+    ipick: t("module.ipick"),
+    katsh: t("module.katsh"),
+    binance_send: t("module.binance_send"),
+    binance_receive: t("module.binance_receive"),
+    omt_system: t("module.omt_system"),
+    whish_system: t("module.whish_system"),
+    loto_ticket: t("module.loto_ticket"),
+    loto_prize: t("module.loto_prize"),
+    custom_service: t("module.custom_service"),
+    maintenance: t("module.maintenance"),
+  };
+  return labels[module] || module;
+}
 
 /**
  * Read a cart item's profit cap (in the item's own currency). The per-item
@@ -198,7 +210,7 @@ function isCashoutItem(item: CartItem): boolean {
 
 function formatAmount(amount: number, currency: string): string {
   if (currency === "LBP") {
-    return `${Math.abs(amount).toLocaleString()} LBP`;
+    return `${formatNumber(Math.abs(amount))} LBP`;
   }
   if (currency === "USDT") {
     return `${Math.abs(amount).toFixed(2)} USDT`;
@@ -226,6 +238,8 @@ export function SessionCheckoutModal({
   onClose,
 }: SessionCheckoutModalProps) {
   useModalFocusFix(isOpen);
+  const { t } = useTranslation("sessions");
+  const { t: tc } = useTranslation("common");
   const api = useApi();
   const {
     activeSession,
@@ -625,17 +639,26 @@ export function SessionCheckoutModal({
     if ((system.USD ?? 0) <= 0 && (system.LBP ?? 0) <= 0) return null;
     const fmt = (byCur: Record<string, number>): string =>
       [
-        byCur.USD > 0.004 ? `$${byCur.USD.toFixed(2).replace(/\.00$/, "")}` : "",
-        byCur.LBP > 0.5 ? `${Math.round(byCur.LBP).toLocaleString()} LBP` : "",
+        byCur.USD > 0.004
+          ? `$${byCur.USD.toFixed(2).replace(/\.00$/, "")}`
+          : "",
+        byCur.LBP > 0.5 ? `${formatNumber(Math.round(byCur.LBP))} LBP` : "",
       ]
         .filter(Boolean)
         .join(" + ");
     return {
-      systemLabel: baseSystem === "WHISH" ? "Whish Cash Drawer" : "OMT Cash Drawer",
+      systemDrawer: baseSystem === "WHISH" ? "WHISH" : "OMT",
       systemText: fmt(system),
       generalText: fmt(general),
     };
-  }, [baseSystem, cartItems, collectLines, returnLines, allMethods, exchangeRate]);
+  }, [
+    baseSystem,
+    cartItems,
+    collectLines,
+    returnLines,
+    allMethods,
+    exchangeRate,
+  ]);
   const collectReturnLines = hasChargeToCollect ? returnLines : NO_LINES;
   useEffect(() => {
     if (!hasChargeToCollect) {
@@ -900,7 +923,14 @@ export function SessionCheckoutModal({
     if (!waived) return;
     const gap = combinedTotalUSD + extraUSD - paidUSD;
     if (Math.abs(gap - waivedUSD) > combinedTolerance) setWaived(null);
-  }, [waived, waivedUSD, combinedTotalUSD, extraUSD, paidUSD, combinedTolerance]);
+  }, [
+    waived,
+    waivedUSD,
+    combinedTotalUSD,
+    extraUSD,
+    paidUSD,
+    combinedTolerance,
+  ]);
 
   if (!isOpen) return null;
   // Checkout closes the session (is_active = 0), so activeSession goes null
@@ -909,29 +939,27 @@ export function SessionCheckoutModal({
 
   const handleCheckout = async () => {
     if (!activeSession) {
-      setError("No active session");
+      setError(t("checkout.errorNoSession"));
       return;
     }
 
     if (!user) {
-      setError("No authenticated user");
+      setError(t("checkout.errorNoUser"));
       return;
     }
 
     if (cartItems.length === 0) {
-      setError("Cart is empty");
+      setError(t("checkout.errorEmptyCart"));
       return;
     }
 
     if (!isPaymentValid) {
-      setError("Payment total does not match cart total");
+      setError(t("checkout.errorPaymentMismatch"));
       return;
     }
 
     if (customerAccountBlocked) {
-      setError(
-        "Customer Account requires both a customer name and phone number. Add a phone to this session or pick another payment method.",
-      );
+      setError(t("checkout.errorAccountNeedsPhone"));
       return;
     }
 
@@ -1050,7 +1078,7 @@ export function SessionCheckoutModal({
         await refreshActiveSessions();
         appEvents.emit(
           "notification:show",
-          `Checkout complete — ${result.itemCount} items processed`,
+          t("checkout.completeNotice", { n: result.itemCount }),
           "success",
         );
         // LIRA-212 Tier A: a checkout can book a 'Session Debt' row on the
@@ -1060,7 +1088,7 @@ export function SessionCheckoutModal({
         // Print + Close success view instead of closing immediately.
         setCheckoutSuccess(receiptSnapshot);
       } else {
-        setError(result.error || "Checkout failed");
+        setError(result.error || t("checkout.failed"));
         logger.error(`Session checkout failed: ${result.error}`);
       }
     } catch (err) {
@@ -1068,7 +1096,7 @@ export function SessionCheckoutModal({
       // plain `{status,message,details}` object, e.g. a web 403 role
       // refusal), so it used to fall back to "Checkout failed" and hide the
       // real reason.
-      const msg = getApiErrorMessage(err, "Checkout failed");
+      const msg = getApiErrorMessage(err, t("checkout.failed"));
       setError(msg);
       logger.error(`Session checkout error: ${msg}`);
     } finally {
@@ -1135,12 +1163,16 @@ export function SessionCheckoutModal({
                 </div>
                 <div>
                   <h2 className="text-lg font-semibold text-white">
-                    Checkout Complete
+                    {t("checkout.completeTitle")}
                   </h2>
                   <p className="text-xs text-slate-400">
-                    {checkoutSuccess.customerName || "Walk-in"} —{" "}
-                    {checkoutSuccess.itemCount} item
-                    {checkoutSuccess.itemCount !== 1 ? "s" : ""} processed
+                    {checkoutSuccess.customerName || t("checkout.walkIn")} —{" "}
+                    {t(
+                      checkoutSuccess.itemCount !== 1
+                        ? "checkout.itemsProcessed"
+                        : "checkout.itemProcessed",
+                      { n: checkoutSuccess.itemCount },
+                    )}
                   </p>
                 </div>
               </div>
@@ -1156,7 +1188,7 @@ export function SessionCheckoutModal({
             <div className="flex-1 overflow-y-auto px-5 py-10 flex flex-col items-center justify-center gap-3 text-center">
               <CheckCircle className="w-12 h-12 text-emerald-400" />
               <p className="text-sm text-slate-300">
-                Payment recorded. Print a receipt for the customer, or close.
+                {t("checkout.completeBody")}
               </p>
             </div>
 
@@ -1168,13 +1200,13 @@ export function SessionCheckoutModal({
                 className="flex-1 py-2.5 rounded-lg font-medium text-sm text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
               >
                 <Printer className="w-4 h-4" />
-                Print Receipt
+                {t("checkout.printReceipt")}
               </button>
               <button
                 onClick={handleSuccessClose}
                 className="flex-1 py-2.5 rounded-lg font-semibold text-sm text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
-                Close
+                {tc("actions.close")}
               </button>
             </div>
           </>
@@ -1189,11 +1221,16 @@ export function SessionCheckoutModal({
                   </div>
                   <div>
                     <h2 className="text-lg font-semibold text-white">
-                      Session Checkout
+                      {t("checkout.title")}
                     </h2>
                     <p className="text-xs text-slate-400">
-                      {activeSession.customer_name || "Walk-in"} —{" "}
-                      {cartItems.length} item{cartItems.length !== 1 ? "s" : ""}
+                      {activeSession.customer_name || t("checkout.walkIn")} —{" "}
+                      {t(
+                        cartItems.length !== 1
+                          ? "checkout.itemMany"
+                          : "checkout.itemOne",
+                        { n: cartItems.length },
+                      )}
                     </p>
                   </div>
                 </div>
@@ -1211,7 +1248,7 @@ export function SessionCheckoutModal({
                 {/* Cart Items with Per-Item Payment Method */}
                 <div className="space-y-3">
                   <h3 className="text-sm font-medium text-slate-300">
-                    Cart Items
+                    {t("checkout.cartItems")}
                   </h3>
                   {Array.from(groupedItems.entries()).map(([module, items]) => (
                     <div
@@ -1219,7 +1256,7 @@ export function SessionCheckoutModal({
                       className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3"
                     >
                       <div className="text-xs font-medium text-slate-400 mb-2">
-                        {MODULE_LABELS[module] || module}
+                        {moduleLabel(module, t)}
                       </div>
                       <div className="space-y-2">
                         {items.map((item) => {
@@ -1236,38 +1273,47 @@ export function SessionCheckoutModal({
                               the service, named in the label; the wallet
                               movement is shop bookkeeping). */}
                                 <span
-                                  className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right shrink-0 ${
+                                  className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-end shrink-0 ${
                                     item.amount < 0
                                       ? "text-red-400"
                                       : "text-emerald-400"
                                   }`}
                                 >
-                                  {item.amount < 0 ? "-" : "+"}
-                                  {binanceCashSide(item)
-                                    ? `$${Math.abs(item.amount).toFixed(2)}`
-                                    : formatAmount(item.amount, item.currency)}
+                                  <Ltr>
+                                    {item.amount < 0 ? "-" : "+"}
+                                    {binanceCashSide(item)
+                                      ? `$${Math.abs(item.amount).toFixed(2)}`
+                                      : formatAmount(
+                                          item.amount,
+                                          item.currency,
+                                        )}
+                                  </Ltr>
                                 </span>
                               </div>
 
                               {/* Per-item discount — capped at the item's profit.
                             Hidden for items with no profit concept. */}
                               {profitCap > 0 && (
-                                <div className="flex items-center justify-end gap-2 pl-1">
+                                <div className="flex items-center justify-end gap-2 ps-1">
                                   <label className="text-[11px] text-slate-400 whitespace-nowrap">
-                                    Discount (max{" "}
-                                    {formatAmount(profitCap, item.currency)})
+                                    <Trans
+                                      t={t}
+                                      i18nKey="checkout.discountMax"
+                                      values={{
+                                        amount: formatAmount(
+                                          profitCap,
+                                          item.currency,
+                                        ),
+                                      }}
+                                      components={{ ltr: <bdi dir="ltr" /> }}
+                                    />
                                   </label>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    max={profitCap}
-                                    step={item.currency === "LBP" ? 1000 : 0.01}
-                                    value={discount || ""}
-                                    onChange={(e) => {
-                                      const raw =
-                                        parseFloat(e.target.value) || 0;
+                                  <DecimalInput
+                                    value={discount}
+                                    decimals={item.currency === "LBP" ? 0 : 2}
+                                    onChange={(raw) => {
                                       const clamped = Math.min(
-                                        Math.max(0, raw),
+                                        Math.max(0, raw || 0),
                                         profitCap,
                                       );
                                       setItemDiscounts((prev) => ({
@@ -1275,7 +1321,7 @@ export function SessionCheckoutModal({
                                         [item.id]: clamped,
                                       }));
                                     }}
-                                    className="w-28 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-white font-mono text-right focus:outline-none focus:border-orange-500"
+                                    className="w-28 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-white font-mono text-end focus:outline-none focus:border-orange-500"
                                     placeholder="0"
                                   />
                                 </div>
@@ -1294,7 +1340,7 @@ export function SessionCheckoutModal({
                 {(netUsd !== 0 || netLbp !== 0) && (
                   <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2 flex items-center justify-between">
                     <span className="text-sm font-medium text-slate-300">
-                      Total
+                      {t("checkout.total")}
                     </span>
                     <span className="flex items-center gap-3 font-mono text-sm">
                       {netUsd !== 0 && (
@@ -1303,8 +1349,10 @@ export function SessionCheckoutModal({
                             netUsd < 0 ? "text-red-400" : "text-emerald-400"
                           }
                         >
-                          {netUsd < 0 ? "-" : ""}
-                          {formatAmount(netUsd, "USD")}
+                          <Ltr>
+                            {netUsd < 0 ? "-" : ""}
+                            {formatAmount(netUsd, "USD")}
+                          </Ltr>
                         </span>
                       )}
                       {netLbp !== 0 && (
@@ -1313,8 +1361,10 @@ export function SessionCheckoutModal({
                             netLbp < 0 ? "text-red-400" : "text-emerald-400"
                           }
                         >
-                          {netLbp < 0 ? "-" : ""}
-                          {formatAmount(netLbp, "LBP")}
+                          <Ltr>
+                            {netLbp < 0 ? "-" : ""}
+                            {formatAmount(netLbp, "LBP")}
+                          </Ltr>
                         </span>
                       )}
                     </span>
@@ -1395,7 +1445,7 @@ export function SessionCheckoutModal({
                       // (no discount on a basket). The input adds it to
                       // its total and reports it; capped at the basket.
                       onExtraChange={handleExtraChange}
-                      label="Payment"
+                      label={t("checkout.payment")}
                       initialMethod={chosenFirstMethod ?? initialMethod}
                       clientId={sessionClientId}
                       fetchClientVouchers={fetchClientVouchers}
@@ -1414,19 +1464,25 @@ export function SessionCheckoutModal({
                     className="bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2 text-sm"
                   >
                     <div className="text-xs font-medium text-slate-300 mb-1">
-                      Goes to
+                      {t("checkout.goesTo")}
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">{goesTo.systemLabel}</span>
+                      <span className="text-slate-400">
+                        {goesTo.systemDrawer === "WHISH"
+                          ? t("checkout.whishCashDrawer")
+                          : t("checkout.omtCashDrawer")}
+                      </span>
                       <span className="font-mono text-emerald-400">
-                        {goesTo.systemText}
+                        <Ltr>{goesTo.systemText}</Ltr>
                       </span>
                     </div>
                     {goesTo.generalText && (
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-400">General</span>
+                        <span className="text-slate-400">
+                          {t("checkout.general")}
+                        </span>
                         <span className="font-mono text-emerald-400">
-                          {goesTo.generalText}
+                          <Ltr>{goesTo.generalText}</Ltr>
                         </span>
                       </div>
                     )}
@@ -1453,18 +1509,18 @@ export function SessionCheckoutModal({
                 {(payoutUsd > 0 || payoutLbp > 0) && (
                   <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3 space-y-2">
                     <div className="text-xs font-medium text-slate-300">
-                      Payout to customer
+                      {t("checkout.payoutToCustomer")}
                     </div>
                     {(cashNetEligibleUsd > 0 || cashNetEligibleLbp > 0) && (
                       <p className="text-[11px] text-slate-400">
-                        The General-drawer portion nets against the payment
-                        below — only the physical difference is collected or
-                        handed back as change.
+                        {t("checkout.payoutNetNote")}
                       </p>
                     )}
                     {payoutUsd > 0 && (
                       <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="text-slate-400 shrink-0">USD</span>
+                        <span className="text-slate-400 shrink-0">
+                          {tc("currency.USD")}
+                        </span>
                         <span
                           className={`font-mono ${
                             resolvedPayoutMethodUsd === "CUSTOMER_ACCOUNT"
@@ -1472,7 +1528,7 @@ export function SessionCheckoutModal({
                               : "text-amber-400"
                           }`}
                         >
-                          {formatAmount(-payoutUsd, "USD")}
+                          <Ltr>{formatAmount(-payoutUsd, "USD")}</Ltr>
                         </span>
                         <select
                           data-testid="payout-method-select-USD"
@@ -1495,7 +1551,9 @@ export function SessionCheckoutModal({
                     )}
                     {payoutLbp > 0 && (
                       <div className="flex items-center justify-between gap-2 text-sm">
-                        <span className="text-slate-400 shrink-0">LBP</span>
+                        <span className="text-slate-400 shrink-0">
+                          {tc("currency.LBP")}
+                        </span>
                         <span
                           className={`font-mono ${
                             resolvedPayoutMethodLbp === "CUSTOMER_ACCOUNT"
@@ -1503,7 +1561,7 @@ export function SessionCheckoutModal({
                               : "text-amber-400"
                           }`}
                         >
-                          {formatAmount(-payoutLbp, "LBP")}
+                          <Ltr>{formatAmount(-payoutLbp, "LBP")}</Ltr>
                         </span>
                         <select
                           data-testid="payout-method-select-LBP"
@@ -1548,9 +1606,10 @@ export function SessionCheckoutModal({
                   disabled={isProcessing}
                   className="flex-1 py-2.5 rounded-lg font-medium text-sm text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors disabled:opacity-50"
                 >
-                  Cancel
+                  {tc("actions.cancel")}
                 </button>
                 <button
+                  data-testid="session-checkout-confirm"
                   onClick={handleCheckout}
                   disabled={
                     isProcessing ||
@@ -1563,12 +1622,12 @@ export function SessionCheckoutModal({
                   {isProcessing ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Processing...
+                      {t("checkout.processing")}
                     </>
                   ) : (
                     <>
                       <CheckCircle className="w-4 h-4" />
-                      Confirm Checkout
+                      {t("checkout.confirm")}
                     </>
                   )}
                 </button>

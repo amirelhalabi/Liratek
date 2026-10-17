@@ -53,7 +53,12 @@ jest.mock("@/api/realtime", () => ({
 
 jest.mock("@/utils/logger", () => ({
   __esModule: true,
-  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+  default: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 import { SessionProvider, useSession } from "../SessionContext";
@@ -62,7 +67,9 @@ function Probe() {
   const { activeSession, cartItems, addToCart } = useSession();
   return (
     <div>
-      <div data-testid="session">{activeSession ? activeSession.id : "none"}</div>
+      <div data-testid="session">
+        {activeSession ? activeSession.id : "none"}
+      </div>
       <div data-testid="count">{cartItems.length}</div>
       <button
         onClick={() =>
@@ -88,7 +95,9 @@ async function renderWithSession() {
       <Probe />
     </SessionProvider>,
   );
-  await waitFor(() => expect(screen.getByTestId("session").textContent).toBe("12"));
+  await waitFor(() =>
+    expect(screen.getByTestId("session").textContent).toBe("12"),
+  );
   expect(screen.getByTestId("count").textContent).toBe("0");
 }
 
@@ -99,11 +108,24 @@ describe("SessionContext.addToCart — server refusal", () => {
     jest.clearAllMocks();
     mockApi.session.getActiveSessions.mockResolvedValue({
       success: true,
-      sessions: [{ id: 12, started_at: "2026-10-07 10:00:00", started_by: "admin", is_active: 1 }],
+      sessions: [
+        {
+          id: 12,
+          started_at: "2026-10-07 10:00:00",
+          started_by: "admin",
+          is_active: 1,
+        },
+      ],
     });
-    mockApi.session.getTodayAllSessions.mockResolvedValue({ success: true, sessions: [] });
+    mockApi.session.getTodayAllSessions.mockResolvedValue({
+      success: true,
+      sessions: [],
+    });
     mockApi.session.cartGet.mockResolvedValue({ success: true, items: [] });
-    mockApi.session.getTransactions.mockResolvedValue({ success: true, transactions: [] });
+    mockApi.session.getTransactions.mockResolvedValue({
+      success: true,
+      transactions: [],
+    });
     mockApi.getSessionDetails.mockResolvedValue({ success: true });
     alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
   });
@@ -123,7 +145,9 @@ describe("SessionContext.addToCart — server refusal", () => {
       screen.getByText("add").click();
     });
 
-    await waitFor(() => expect(mockApi.session.cartAdd).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mockApi.session.cartAdd).toHaveBeenCalledTimes(1),
+    );
     await waitFor(() =>
       expect(alertSpy).toHaveBeenCalledWith("Enter a selling price first."),
     );
@@ -131,7 +155,10 @@ describe("SessionContext.addToCart — server refusal", () => {
   });
 
   it("does not add the line when cartAdd throws (nothing was stored)", async () => {
-    mockApi.session.cartAdd.mockRejectedValue({ status: 500, message: "Network down" });
+    mockApi.session.cartAdd.mockRejectedValue({
+      status: 500,
+      message: "Network down",
+    });
     await renderWithSession();
 
     await act(async () => {
@@ -150,7 +177,9 @@ describe("SessionContext.addToCart — server refusal", () => {
       screen.getByText("add").click();
     });
 
-    await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("1"));
+    await waitFor(() =>
+      expect(screen.getByTestId("count").textContent).toBe("1"),
+    );
     expect(alertSpy).not.toHaveBeenCalled();
   });
 });

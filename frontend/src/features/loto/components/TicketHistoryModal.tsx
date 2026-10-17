@@ -29,6 +29,9 @@
  * every other service module's History modal uses.
  */
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { useFormat } from "@/i18n/useFormat";
 import { History, RefreshCw, X, Printer, Pencil } from "lucide-react";
 import { DataTable, useApi, DateRangeFilter } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -65,13 +68,16 @@ interface TicketHistoryModalProps {
 
 function fmtAmount(amount: number, currency: string): string {
   return currency === "LBP"
-    ? `${amount.toLocaleString()} LBP`
+    ? `${formatNumber(amount)} LBP`
     : `$${amount.toFixed(2)}`;
 }
 
 export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
   useModalFocusFix(true);
   const api = useApi();
+  const { t } = useTranslation("loto");
+  const { t: tc } = useTranslation("common");
+  const { formatDate, formatTime, formatDateTime } = useFormat();
   const shopInfo = useShopInfo();
   const [tickets, setTickets] = useState<LotoTicketRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -136,9 +142,9 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <History className="text-slate-400" size={18} />
-            Loto Ticket History
-            <span className="text-xs text-slate-500 font-normal ml-1">
-              ({filteredData.length} records)
+            {t("tickets.title")}
+            <span className="text-xs text-slate-500 font-normal ms-1">
+              {t("history.records", { total: filteredData.length })}
             </span>
           </h2>
           <div className="flex items-center gap-2">
@@ -152,14 +158,14 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
             <button
               onClick={loadTickets}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Refresh"
+              title={tc("actions.refresh")}
             >
               <RefreshCw size={14} />
             </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="Close"
+              title={tc("actions.close")}
             >
               <X size={18} />
             </button>
@@ -168,39 +174,39 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
         <div className="flex-1 min-h-0 overflow-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-slate-500">
-              <RefreshCw size={20} className="animate-spin mr-2" />
-              Loading...
+              <RefreshCw size={20} className="animate-spin me-2" />
+              {tc("state.loading")}
             </div>
           ) : (
             <DataTable<LotoTicketRow>
               columns={[
                 {
-                  header: "Date",
+                  header: t("history.date"),
                   className: "px-5 py-3",
                   sortKey: "sale_date",
                 },
                 {
-                  header: "Ticket #",
+                  header: t("tickets.ticketNo"),
                   className: "px-5 py-3",
                   sortKey: "ticket_number",
                 },
                 {
-                  header: "Client",
+                  header: t("sell.client"),
                   className: "px-5 py-3",
                   sortKey: "client_name",
                 },
                 {
-                  header: "Sale Amount",
+                  header: t("tickets.saleAmount"),
                   className: "px-5 py-3",
                   sortKey: "sale_amount",
                 },
                 {
-                  header: "Commission",
+                  header: t("stats.commission"),
                   className: "px-5 py-3",
                   sortKey: "commission_amount",
                 },
                 {
-                  header: "Payment",
+                  header: t("tickets.payment"),
                   className: "px-5 py-3",
                   sortKey: "payment_method",
                 },
@@ -211,9 +217,9 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
               exportPdf
               exportFilename="loto-ticket-history"
               className="w-full"
-              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              theadClassName="bg-slate-900/50 text-start text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
               tbodyClassName="divide-y divide-slate-700/50"
-              emptyMessage="No loto tickets sold yet."
+              emptyMessage={t("tickets.empty")}
               renderRow={(ticket) => {
                 const isRefunded = Boolean(ticket.is_refunded);
                 const wasEdited = Boolean(ticket.edited_by);
@@ -224,9 +230,13 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
                   >
                     {/* Date */}
                     <td className="px-5 py-3 text-sm text-slate-400 whitespace-nowrap">
-                      {parseDbDate(ticket.created_at).toLocaleDateString()}
+                      {formatDate(parseDbDate(ticket.created_at), {
+                        year: "numeric",
+                        month: "numeric",
+                        day: "numeric",
+                      })}
                       <div className="text-xs text-slate-500">
-                        {parseDbDate(ticket.created_at).toLocaleTimeString([], {
+                        {formatTime(parseDbDate(ticket.created_at), {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
@@ -245,8 +255,8 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
                           {ticket.client_name || "—"}
                         </span>
                         {isRefunded && (
-                          <span className="ml-1 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                            Refunded
+                          <span className="ms-1 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                            {t("history.refunded")}
                           </span>
                         )}
                         {wasEdited && (
@@ -255,11 +265,30 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
                             entityId={ticket.id}
                             trigger={
                               <span
-                                className="ml-1 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors"
-                                title={`Edited by ${ticket.edited_by}${ticket.edited_at ? ` at ${parseDbDate(ticket.edited_at).toLocaleString()}` : ""}`}
+                                className="ms-1 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors"
+                                title={
+                                  ticket.edited_at
+                                    ? t("tickets.editedByAt", {
+                                        user: ticket.edited_by,
+                                        at: formatDateTime(
+                                          parseDbDate(ticket.edited_at),
+                                          {
+                                            year: "numeric",
+                                            month: "numeric",
+                                            day: "numeric",
+                                            hour: "numeric",
+                                            minute: "2-digit",
+                                            second: "2-digit",
+                                          },
+                                        ),
+                                      })
+                                    : t("tickets.editedBy", {
+                                        user: ticket.edited_by,
+                                      })
+                                }
                               >
                                 <Pencil size={8} />
-                                Edited
+                                {t("tickets.edited")}
                               </span>
                             }
                           />
@@ -290,7 +319,7 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
                         provider concept, so this always resolves true today —
                         the canonical call is kept so a future change to the
                         gate is automatically honored here too, rule 14). */}
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-3 py-3 text-end">
                       {isReceiptableRow({
                         type: "LOTO",
                         metadata_json: null,
@@ -298,7 +327,7 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
                         <button
                           onClick={() => handlePrint(ticket)}
                           className="p-1.5 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
-                          title="Print receipt"
+                          title={t("tickets.printReceipt")}
                         >
                           <Printer size={13} />
                         </button>

@@ -1,1 +1,106 @@
-{}
+{
+  "page": {
+    "title": "Maintenance",
+    "history": "History"
+  },
+  "status": {
+    "All": "All",
+    "Received": "Received",
+    "In_Progress": "In Progress",
+    "Ready": "Ready",
+    "Delivered": "Delivered",
+    "Delivered_Paid": "Delivered & Paid"
+  },
+  "jobs": {
+    "heading": "Jobs ({{total}})",
+    "empty": "No jobs in this status",
+    "refunded": "Refunded",
+    "markInProgress": "Mark In Progress",
+    "markReady": "Mark Ready",
+    "start": "Start",
+    "ready": "Ready",
+    "delete": "Delete job"
+  },
+  "form": {
+    "newJob": "New Repair Job",
+    "editJob": "Edit Job",
+    "deviceName": "Device Name / Model *",
+    "devicePlaceholder": "e.g., iPhone 13 Pro Max",
+    "issue": "Issue Description *",
+    "issuePlaceholder": "e.g., Broken Screen, Battery Replacement...",
+    "warranty": "Repair warranty (months)",
+    "noWarranty": "No warranty",
+    "warrantyUntil": "Warranty until",
+    "costPrice": "Repair Cost / Price",
+    "locked": "Paid job — void or refund to change the amount",
+    "unlocked": "This job was voided or refunded — amounts are editable again.",
+    "cost": "Repair Cost ({{currency}})",
+    "price": "Price to Client ({{currency}})",
+    "clientName": "Client Name",
+    "walkIn": "Walk-in Client",
+    "phone": "Phone Number",
+    "optional": "Optional"
+  },
+  "totals": {
+    "labour": "Labour",
+    "parts": "Parts",
+    "due": "Due",
+    "total": "Total"
+  },
+  "timeline": {
+    "title": "Status Timeline",
+    "empty": "No status changes recorded yet.",
+    "from": "{{status}} →"
+  },
+  "profit": {
+    "title": "Profit",
+    "labourMargin": "Labour margin",
+    "partsMargin": "Parts margin",
+    "total": "Total"
+  },
+  "actions": {
+    "saveDraft": "Save as Draft",
+    "checkout": "Proceed to Checkout"
+  },
+  "alerts": {
+    "error": "Error: {{message}}",
+    "statusFailed": "Failed to update status",
+    "deleteFailed": "Failed to delete job",
+    "saveFailed": "Failed to save job",
+    "paymentFailed": "Failed to process payment",
+    "paymentDone": "Maintenance payment processed successfully",
+    "confirmDelete": "Delete this job?",
+    "confirmDiscard": "Discard unsaved changes?"
+  },
+  "history": {
+    "title": "Maintenance History",
+    "records": "({{total}} records)",
+    "date": "Date",
+    "client": "Client",
+    "deviceIssue": "Device / Issue",
+    "status": "Status",
+    "price": "Price",
+    "paid": "Paid",
+    "actions": "Actions",
+    "empty": "No maintenance jobs found.",
+    "unknown": "Unknown",
+    "refunded": "Refunded",
+    "edited": "Edited",
+    "void": "Void job",
+    "print": "Print receipt"
+  },
+  "parts": {
+    "title": "Parts",
+    "searchAll": "Search all categories",
+    "searchAllPlaceholder": "Search all products...",
+    "searchPlaceholder": "Search parts...",
+    "searching": "Searching...",
+    "noProducts": "No products found",
+    "outOfStock": "Out of stock",
+    "stock": "Stock: {{qty}}",
+    "remove": "Remove part"
+  },
+  "amount": {
+    "listVsCharged": "List price {{list}}, charged {{charged}}"
+  }
+}

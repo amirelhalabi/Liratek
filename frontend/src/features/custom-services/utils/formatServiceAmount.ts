@@ -5,12 +5,16 @@
  * a service sold at a loss read "$0.00" while the Profits page showed the
  * loss. Every NON-ZERO part is shown, with its sign; an all-zero amount
  * reads "$0.00", unchanged.
+ *
+ * LIRA-331: numbers are en-US in both languages (FR-016).
  */
+import { formatNumber } from "@liratek/ui/i18n/format";
+
 export function formatServiceAmount(usd: number, lbp: number): string {
   const parts: string[] = [];
   if (usd !== 0) {
     parts.push(`${usd < 0 ? "-" : ""}$${Math.abs(usd).toFixed(2)}`);
   }
-  if (lbp !== 0) parts.push(`${lbp.toLocaleString()} LBP`);
+  if (lbp !== 0) parts.push(`${formatNumber(lbp)} LBP`);
   return parts.join(" + ") || "$0.00";
 }

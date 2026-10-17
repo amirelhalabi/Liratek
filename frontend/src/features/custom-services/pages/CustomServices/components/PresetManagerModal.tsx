@@ -6,6 +6,9 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { categoryLabel } from "@/features/custom-services/utils/labels";
 import {
   X,
   Plus,
@@ -63,6 +66,8 @@ export function PresetManagerModal({
 }: PresetManagerModalProps) {
   useModalFocusFix(true);
   const api = useApi();
+  const { t } = useTranslation("customServices");
+  const { t: tc } = useTranslation("common");
 
   const [presets, setPresets] = useState<ServicePreset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,7 +101,7 @@ export function PresetManagerModal({
 
   const handleAdd = async () => {
     if (!form.name.trim()) {
-      alert("Name is required");
+      alert(t("presets.nameRequired"));
       return;
     }
     setSaving(true);
@@ -115,13 +120,13 @@ export function PresetManagerModal({
         await loadPresets();
         onPresetsChanged();
       } else {
-        alert(result.error ?? "Failed to create preset");
+        alert(result.error ?? t("presets.createFailed"));
       }
     } catch (err) {
       // LIRA-247: a thrown ApiError used to be discarded in favor of this
       // hardcoded string.
       logger.error("Failed to create preset:", err);
-      alert(getApiErrorMessage(err, "Failed to create preset"));
+      alert(getApiErrorMessage(err, t("presets.createFailed")));
     } finally {
       setSaving(false);
     }
@@ -157,33 +162,33 @@ export function PresetManagerModal({
         await loadPresets();
         onPresetsChanged();
       } else {
-        alert(result.error ?? "Failed to update preset");
+        alert(result.error ?? t("presets.updateFailed"));
       }
     } catch (err) {
       // LIRA-247: a thrown ApiError used to be discarded in favor of this
       // hardcoded string.
       logger.error("Failed to update preset:", err);
-      alert(getApiErrorMessage(err, "Failed to update preset"));
+      alert(getApiErrorMessage(err, t("presets.updateFailed")));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: number, name: string) => {
-    if (!confirm(`Delete preset "${name}"? This cannot be undone.`)) return;
+    if (!confirm(t("presets.deleteConfirm", { name }))) return;
     try {
       const result = await api.servicePresets.delete(id);
       if (result.success) {
         await loadPresets();
         onPresetsChanged();
       } else {
-        alert(result.error ?? "Failed to delete preset");
+        alert(result.error ?? t("presets.deleteFailed"));
       }
     } catch (err) {
       // LIRA-247: a thrown ApiError used to be discarded in favor of this
       // hardcoded string.
       logger.error("Failed to delete preset:", err);
-      alert(getApiErrorMessage(err, "Failed to delete preset"));
+      alert(getApiErrorMessage(err, t("presets.deleteFailed")));
     }
   };
 
@@ -196,13 +201,13 @@ export function PresetManagerModal({
         await loadPresets();
         onPresetsChanged();
       } else {
-        alert(result.error ?? "Failed to toggle preset");
+        alert(result.error ?? t("presets.toggleFailed"));
       }
     } catch (err) {
       // LIRA-247: this used to fail completely silently on a thrown error —
       // no alert at all, just a logged line the operator never sees.
       logger.error("Failed to toggle preset:", err);
-      alert(getApiErrorMessage(err, "Failed to toggle preset"));
+      alert(getApiErrorMessage(err, t("presets.toggleFailed")));
     }
   };
 
@@ -214,30 +219,30 @@ export function PresetManagerModal({
   const renderForm = (isNew: boolean) => (
     <div className="flex flex-wrap items-end gap-3 p-3 bg-slate-800/60 rounded-xl border border-slate-700/50">
       <div className="flex-1 min-w-[160px]">
-        <label className="text-xs text-slate-400 block mb-1">Name *</label>
+        <label className="text-xs text-slate-400 block mb-1">{t("presets.name")}</label>
         <input
           value={form.name}
           onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-teal-500"
-          placeholder="e.g. Netflix Premium 1 Month"
+          placeholder={t("presets.namePlaceholder")}
         />
       </div>
       <div className="w-32">
-        <label className="text-xs text-slate-400 block mb-1">Category</label>
+        <label className="text-xs text-slate-400 block mb-1">{t("presets.category")}</label>
         <Select
           value={form.category}
           onChange={(v) => setForm((f) => ({ ...f, category: v }))}
           options={[
-            { value: "digital_account", label: "Digital Account" },
-            { value: "repair", label: "Repair" },
-            { value: "activation", label: "Activation" },
-            { value: "other", label: "Other" },
+            { value: "digital_account", label: categoryLabel("digital_account", t) },
+            { value: "repair", label: categoryLabel("repair", t) },
+            { value: "activation", label: categoryLabel("activation", t) },
+            { value: "other", label: categoryLabel("other", t) },
           ]}
           buttonClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-teal-500"
         />
       </div>
       <div className="w-24">
-        <label className="text-xs text-slate-400 block mb-1">Cost $</label>
+        <label className="text-xs text-slate-400 block mb-1">{t("presets.costUsd")}</label>
         <DecimalInput
           value={parseFloat(form.cost_usd) || 0}
           onChange={(n) =>
@@ -248,7 +253,7 @@ export function PresetManagerModal({
         />
       </div>
       <div className="w-24">
-        <label className="text-xs text-slate-400 block mb-1">Price $</label>
+        <label className="text-xs text-slate-400 block mb-1">{t("presets.priceUsd")}</label>
         <DecimalInput
           value={parseFloat(form.price_usd) || 0}
           onChange={(n) =>
@@ -259,7 +264,7 @@ export function PresetManagerModal({
         />
       </div>
       <div className="w-28">
-        <label className="text-xs text-slate-400 block mb-1">Cost LBP</label>
+        <label className="text-xs text-slate-400 block mb-1">{t("presets.costLbp")}</label>
         <DecimalInput
           value={parseFloat(form.cost_lbp) || 0}
           onChange={(n) =>
@@ -270,7 +275,7 @@ export function PresetManagerModal({
         />
       </div>
       <div className="w-28">
-        <label className="text-xs text-slate-400 block mb-1">Price LBP</label>
+        <label className="text-xs text-slate-400 block mb-1">{t("presets.priceLbp")}</label>
         <DecimalInput
           value={parseFloat(form.price_lbp) || 0}
           onChange={(n) =>
@@ -315,9 +320,9 @@ export function PresetManagerModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/60">
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <Settings className="text-slate-400" size={18} />
-            Manage Service Presets
-            <span className="text-xs text-slate-500 font-normal ml-1">
-              ({presets.length} presets)
+            {t("presets.title")}
+            <span className="text-xs text-slate-500 font-normal ms-1">
+              {t("presets.count", { total: presets.length })}
             </span>
           </h2>
           <div className="flex items-center gap-2">
@@ -330,7 +335,7 @@ export function PresetManagerModal({
                 className="px-3 py-1.5 rounded-lg text-xs font-medium bg-teal-600 hover:bg-teal-500 text-white transition-all flex items-center gap-1"
               >
                 <Plus size={14} />
-                Add Preset
+                {t("presets.add")}
               </button>
             )}
             <button
@@ -349,12 +354,12 @@ export function PresetManagerModal({
 
           {loading ? (
             <div className="flex items-center justify-center py-12 text-slate-500">
-              <RefreshCw size={20} className="animate-spin mr-2" />
-              Loading...
+              <RefreshCw size={20} className="animate-spin me-2" />
+              {tc("state.loading")}
             </div>
           ) : presets.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
-              <p>No presets yet. Click "Add Preset" to create one.</p>
+              <p>{t("presets.empty")}</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -376,29 +381,35 @@ export function PresetManagerModal({
                             {preset.name}
                           </span>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/10 border border-purple-500/30 text-purple-400">
-                            {preset.category === "digital_account"
-                              ? "Digital Account"
-                              : preset.category.charAt(0).toUpperCase() +
-                                preset.category.slice(1)}
+                            {categoryLabel(preset.category, t)}
                           </span>
                           {!preset.is_active && (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-500/10 border border-red-500/30 text-red-400">
-                              Inactive
+                              {t("presets.inactive")}
                             </span>
                           )}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
-                          Cost: ${preset.cost_usd.toFixed(2)}
-                          {preset.cost_lbp > 0 &&
-                            ` + ${preset.cost_lbp.toLocaleString()} LBP`}
+                          {t("presets.costLine", {
+                            amount: `$${preset.cost_usd.toFixed(2)}${
+                              preset.cost_lbp > 0
+                                ? ` + ${formatNumber(preset.cost_lbp)} LBP`
+                                : ""
+                            }`,
+                          })}
                           {" · "}
-                          Price: ${preset.price_usd.toFixed(2)}
-                          {preset.price_lbp > 0 &&
-                            ` + ${preset.price_lbp.toLocaleString()} LBP`}
+                          {t("presets.priceLine", {
+                            amount: `$${preset.price_usd.toFixed(2)}${
+                              preset.price_lbp > 0
+                                ? ` + ${formatNumber(preset.price_lbp)} LBP`
+                                : ""
+                            }`,
+                          })}
                           {" · "}
                           <span className="text-emerald-400 font-medium">
-                            Profit: $
-                            {(preset.price_usd - preset.cost_usd).toFixed(2)}
+                            {t("presets.profitLine", {
+                              amount: `$${(preset.price_usd - preset.cost_usd).toFixed(2)}`,
+                            })}
                           </span>
                         </div>
                       </div>
@@ -410,21 +421,27 @@ export function PresetManagerModal({
                               ? "text-emerald-400 hover:bg-emerald-400/10"
                               : "text-slate-500 hover:bg-slate-700"
                           }`}
-                          title={preset.is_active ? "Deactivate" : "Activate"}
+                          title={
+                            preset.is_active
+                              ? t("presets.deactivate")
+                              : t("presets.activate")
+                          }
                         >
-                          {preset.is_active ? "Active" : "Inactive"}
+                          {preset.is_active
+                            ? t("presets.active")
+                            : t("presets.inactive")}
                         </button>
                         <button
                           onClick={() => startEdit(preset)}
                           className="p-1.5 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded-lg transition-colors"
-                          title="Edit"
+                          title={tc("actions.edit")}
                         >
                           <Pencil size={14} />
                         </button>
                         <button
                           onClick={() => handleDelete(preset.id, preset.name)}
                           className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-                          title="Delete"
+                          title={tc("actions.delete")}
                         >
                           <Trash2 size={14} />
                         </button>

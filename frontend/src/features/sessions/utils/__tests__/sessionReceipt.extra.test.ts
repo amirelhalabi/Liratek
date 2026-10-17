@@ -10,7 +10,12 @@ const base = {
   sessionId: 9,
   items: [{ label: "Screen fix", amount: 10, currency: "USD" }],
   legs: [
-    { method: "CASH", currency_code: "USD", amount: 12, direction: "IN" as const },
+    {
+      method: "CASH",
+      currency_code: "USD",
+      amount: 12,
+      direction: "IN" as const,
+    },
   ],
   createdAt: "2026-10-14T12:00:00.000Z",
 };

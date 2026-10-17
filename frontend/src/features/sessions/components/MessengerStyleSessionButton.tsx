@@ -3,8 +3,10 @@ import { UserPlus } from "lucide-react";
 import { StartSessionModal } from "./StartSessionModal";
 import { useSession } from "../context/SessionContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useTranslation } from "react-i18next";
 
 export function MessengerStyleSessionButton() {
+  const { t } = useTranslation("sessions");
   const { allActiveSessions, activeSession, switchToSession } = useSession();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
@@ -64,7 +66,7 @@ export function MessengerStyleSessionButton() {
       )}
 
       {/* Speed Dial Container */}
-      <div className="fixed top-6 right-6 z-50 flex flex-col items-center gap-3">
+      <div className="fixed top-6 end-6 z-50 flex flex-col items-center gap-3">
         {/* Expanded Session Avatars - Vertical Stack */}
         {isExpanded && allActiveSessions.length > 0 && (
           <div className="flex flex-col items-center gap-3 mb-2">
@@ -73,7 +75,7 @@ export function MessengerStyleSessionButton() {
               onClick={handleNewSessionClick}
               className="w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 text-white shadow-xl flex items-center justify-center transition-all hover:scale-110 border-2 border-violet-500/50 animate-in slide-in-from-bottom-2 duration-200"
               style={{ animationDelay: "0ms" }}
-              title="New Customer Session"
+              title={t("newCustomerSession")}
             >
               <UserPlus size={20} />
             </button>
@@ -89,7 +91,7 @@ export function MessengerStyleSessionButton() {
                     : "border-slate-700"
                 } animate-in slide-in-from-bottom-2 duration-200`}
                 style={{ animationDelay: `${(index + 1) * 50}ms` }}
-                title={session.customer_name || "Unknown Customer"}
+                title={session.customer_name || t("unknownCustomer")}
               >
                 <span className="text-sm">
                   {getInitials(session.customer_name)}
@@ -105,8 +107,8 @@ export function MessengerStyleSessionButton() {
           className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 text-white shadow-2xl flex items-center justify-center transition-all hover:scale-110 border-2 border-violet-500/50"
           title={
             allActiveSessions.length === 0
-              ? "New Customer Session"
-              : "Manage Sessions"
+              ? t("newCustomerSession")
+              : t("messenger.manage")
           }
         >
           {isExpanded ? (
@@ -115,7 +117,7 @@ export function MessengerStyleSessionButton() {
             <>
               <UserPlus size={32} />
               {allActiveSessions.length > 0 && (
-                <span className="absolute -bottom-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center border-2 border-slate-900 shadow-lg">
+                <span className="absolute -bottom-1 -end-1 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center border-2 border-slate-900 shadow-lg">
                   {allActiveSessions.length}
                 </span>
               )}

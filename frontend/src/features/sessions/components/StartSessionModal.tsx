@@ -6,6 +6,7 @@ import type { Client } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { useApi } from "@liratek/ui";
+import { useTranslation } from "react-i18next";
 
 interface StartSessionModalProps {
   isOpen: boolean;
@@ -14,6 +15,8 @@ interface StartSessionModalProps {
 
 export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   useModalFocusFix(isOpen);
+  const { t } = useTranslation("sessions");
+  const { t: tc } = useTranslation("common");
   const api = useApi();
   const { startSession } = useSession();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -72,12 +75,12 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
     e.preventDefault();
 
     if (!customerName.trim()) {
-      setError("Customer name is required");
+      setError(t("start.errorNameRequired"));
       return;
     }
 
     if (isDuplicateName) {
-      setError("This customer already has an open session. Close it first.");
+      setError(t("start.errorDuplicate"));
       return;
     }
 
@@ -97,7 +100,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
 
       onClose();
     } catch (err: any) {
-      setError(err?.message || "Failed to start session");
+      setError(err?.message || t("start.failed"));
     } finally {
       setLoading(false);
     }
@@ -115,7 +118,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-700">
           <h2 className="text-xl font-semibold text-white">
-            New Customer Session
+            {t("newCustomerSession")}
           </h2>
           <button
             onClick={onClose}
@@ -149,8 +152,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
           {isDuplicateName && (
             <div className="p-3 bg-amber-900/30 border border-amber-700 rounded-md">
               <p className="text-sm text-amber-400">
-                This customer already has an open session. Close it before
-                starting a new one.
+                {t("start.duplicateWarning")}
               </p>
             </div>
           )}
@@ -158,7 +160,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
           {/* Customer Name */}
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
-              Customer Name <span className="text-red-500">*</span>
+              {t("start.customerName")} <span className="text-red-500">*</span>
             </label>
             {selectedClient ? (
               <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
@@ -193,7 +195,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                   setCustomerName(client.full_name);
                   setCustomerPhone(client.phone_number || "");
                 }}
-                placeholder="Search client by name or phone..."
+                placeholder={t("start.searchPlaceholder")}
                 className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
                 disabled={loading}
                 showDebtBadge
@@ -208,8 +210,10 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
               htmlFor="customer-phone"
               className="block text-sm font-medium text-slate-300 mb-1"
             >
-              Phone Number{" "}
-              <span className="text-slate-500 text-xs">(optional)</span>
+              {t("start.phoneNumber")}{" "}
+              <span className="text-slate-500 text-xs">
+                {t("start.optional")}
+              </span>
             </label>
             <input
               id="customer-phone"
@@ -230,14 +234,12 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                 phone-less client is picked from the autocomplete. */}
             {!selectedClient && customerName.trim() && customerPhone.trim() && (
               <p className="text-xs text-emerald-300/80 mt-1 px-1">
-                Customer will be registered as a client — if this phone already
-                belongs to a client, that client is used.
+                {t("start.willRegister")}
               </p>
             )}
             {customerName.trim() && !customerPhone.trim() && (
               <p className="text-xs text-amber-300/80 mt-1 px-1">
-                No phone number — the customer won&apos;t be saved as a client
-                and Customer Account payment will be unavailable.
+                {t("start.noPhone")}
               </p>
             )}
           </div>
@@ -248,14 +250,17 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
               htmlFor="customer-notes"
               className="block text-sm font-medium text-slate-300 mb-1"
             >
-              Notes <span className="text-slate-500 text-xs">(optional)</span>
+              {t("start.notes")}{" "}
+              <span className="text-slate-500 text-xs">
+                {t("start.optional")}
+              </span>
             </label>
             <textarea
               id="customer-notes"
               value={customerNotes}
               onChange={(e) => setCustomerNotes(e.target.value)}
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-violet-500 resize-none"
-              placeholder="Regular customer, prefers cash..."
+              placeholder={t("start.notesPlaceholder")}
               rows={3}
               disabled={loading}
             />
@@ -269,7 +274,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
               className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors"
               disabled={loading}
             >
-              Cancel
+              {tc("actions.cancel")}
             </button>
             <button
               type="submit"
@@ -281,7 +286,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                 isDuplicateName
               }
             >
-              {loading ? "Starting..." : "Start Session"}
+              {loading ? t("start.starting") : t("start.start")}
             </button>
           </div>
         </form>

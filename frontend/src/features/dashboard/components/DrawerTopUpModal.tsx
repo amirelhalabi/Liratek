@@ -1,4 +1,8 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { translateServerError } from "@liratek/ui/i18n/serverMessage";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { X, PlusCircle, ArrowRightLeft, Plus, Landmark } from "lucide-react";
 import {
   PRIMARY_CASH_DRAWER_NAMES,
@@ -77,8 +81,8 @@ const primaryCashDrawerNames: readonly string[] = PRIMARY_CASH_DRAWER_NAMES;
 
 function formatDrawerAmount(amount: number, currency: "USD" | "LBP"): string {
   return currency === "LBP"
-    ? `${Math.round(amount).toLocaleString()} LBP`
-    : `$${amount.toLocaleString()}`;
+    ? `${formatNumber(Math.round(amount))} LBP`
+    : `$${formatNumber(amount)}`;
 }
 
 interface DrawerTopUpModalProps {
@@ -93,6 +97,8 @@ export function DrawerTopUpModal({
   onSuccess,
 }: DrawerTopUpModalProps) {
   const api = useApi();
+  const { t } = useTranslation("dashboard");
+  const { t: tc } = useTranslation("common");
   useModalFocusFix(isOpen);
   const [mode, setMode] = useState<TopUpMode>("external");
   const [amountUsd, setAmountUsd] = useState("");
@@ -176,7 +182,7 @@ export function DrawerTopUpModal({
   }
 
   function formatBasisRate(usdPerUnit: number): string {
-    return usdPerUnit.toLocaleString(undefined, {
+    return formatNumber(usdPerUnit, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 6,
     });
@@ -191,8 +197,12 @@ export function DrawerTopUpModal({
   const { baseSystem } = useShopBase();
   const primaryDrawerName =
     baseSystem === "WHISH" ? "Whish_System" : "OMT_System";
-  const primaryDrawerLabel =
-    baseSystem === "WHISH" ? "Whish Cash Drawer" : "OMT Cash Drawer";
+  const primaryDrawerLabel = t("drawer.primaryLabel", {
+    brand: baseSystem === "WHISH" ? "Whish" : "OMT",
+  });
+  /** A drawer name for display only — never sent to the server. */
+  const drawerText = (name: string): string =>
+    name === "General" ? t("drawer.generalName") : name.replace(/_/g, " ");
   const [transferDirection, setTransferDirection] =
     useState<TransferDirection>("to_primary");
   const [transferBalances, setTransferBalances] = useState<
@@ -307,7 +317,7 @@ export function DrawerTopUpModal({
         : [];
 
     if (usd <= 0 && lbp <= 0 && extraLegs.length === 0) {
-      alert("Please enter at least one amount greater than 0.");
+      alert(t("drawer.amountRequired"));
       return;
     }
 
@@ -324,14 +334,12 @@ export function DrawerTopUpModal({
       return resolveBasis(leg.currency_code) === null;
     });
     if (missingBasis) {
-      alert(
-        `No market rate available for ${missingBasis.currency_code} — click "edit" to enter one manually.`,
-      );
+      alert(t("topup.noMarketRate", { code: missingBasis.currency_code }));
       return;
     }
 
     if (mode === "from_drawer" && !selectedDrawer) {
-      alert("Please select a source drawer.");
+      alert(t("topup.selectSource"));
       return;
     }
 
@@ -373,7 +381,7 @@ export function DrawerTopUpModal({
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Drawer topped up successfully.",
+          t("topup.success"),
           "success",
         );
         setAmountUsd("");
@@ -382,10 +390,10 @@ export function DrawerTopUpModal({
         setExtraCurrencies([]);
         onSuccess();
       } else {
-        alert(result.error ?? "Failed to top up drawer.");
+        alert(translateServerError(result, t, t("topup.failed")));
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Unexpected error.");
+      alert(err instanceof Error ? err.message : t("drawer.unexpectedError"));
     } finally {
       setIsSubmitting(false);
     }
@@ -395,7 +403,7 @@ export function DrawerTopUpModal({
     const usd = parseFloat(amountUsd) || 0;
     const lbp = parseFloat(amountLbp) || 0;
     if (usd <= 0 && lbp <= 0) {
-      alert("Please enter at least one amount greater than 0.");
+      alert(t("drawer.amountRequired"));
       return;
     }
 
@@ -425,7 +433,11 @@ export function DrawerTopUpModal({
         ].filter((v): v is string => v !== null);
         appEvents.emit(
           "notification:show",
-          `${parts.join(" + ")} moved from ${fromDrawer.replace(/_/g, " ")} into ${toDrawer.replace(/_/g, " ")}.`,
+          t("transfer.success", {
+            amounts: parts.join(" + "),
+            from: drawerText(fromDrawer),
+            to: drawerText(toDrawer),
+          }),
           "success",
         );
         setAmountUsd("");
@@ -433,10 +445,10 @@ export function DrawerTopUpModal({
         setNotes("");
         onSuccess();
       } else {
-        alert(result.error ?? "Failed to transfer funds.");
+        alert(translateServerError(result, t, t("transfer.failed")));
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Unexpected error.");
+      alert(err instanceof Error ? err.message : t("drawer.unexpectedError"));
     } finally {
       setIsSubmitting(false);
     }
@@ -463,7 +475,7 @@ export function DrawerTopUpModal({
   ].filter((v): v is string => v !== null);
 
   const modalTitle =
-    mode === "transfer" ? "Transfer Drawer Cash" : "Top Up General Drawer";
+    mode === "transfer" ? t("transfer.title") : t("topup.title");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
@@ -491,6 +503,7 @@ export function DrawerTopUpModal({
         {/* Mode Toggle */}
         <div className="flex gap-2 mb-5">
           <button
+            data-testid="drawer-external-mode-toggle"
             onClick={() => setMode("external")}
             className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors ${
               mode === "external"
@@ -498,9 +511,10 @@ export function DrawerTopUpModal({
                 : "bg-slate-700 text-slate-300 hover:bg-slate-600"
             }`}
           >
-            External (Cash In)
+            {t("topup.modeExternal")}
           </button>
           <button
+            data-testid="drawer-from-drawer-mode-toggle"
             onClick={() => setMode("from_drawer")}
             className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
               mode === "from_drawer"
@@ -509,7 +523,7 @@ export function DrawerTopUpModal({
             }`}
           >
             <ArrowRightLeft size={14} />
-            From Drawer
+            {t("topup.modeFromDrawer")}
           </button>
           <button
             data-testid="drawer-transfer-mode-toggle"
@@ -521,17 +535,14 @@ export function DrawerTopUpModal({
             }`}
           >
             <Landmark size={14} />
-            Transfer
+            {t("topup.modeTransfer")}
           </button>
         </div>
 
         {mode === "transfer" ? (
           <div className="space-y-4">
             <p className="text-xs text-slate-400">
-              Move physical cash between General and the {primaryDrawerLabel}—
-              the shop&apos;s own till at the money-transfer counter. This moves
-              cash between two of the shop&apos;s own drawers; it earns no
-              profit.
+              {t("transfer.intro", { label: primaryDrawerLabel })}
             </p>
 
             {/* NEGATIVE-DRAWER PROMPT (owner decision 2026-08-01).
@@ -564,12 +575,11 @@ export function DrawerTopUpModal({
                 >
                   <p className="text-xs font-semibold text-red-300">
                     {negatives.length === 1
-                      ? "A drawer is in the red"
-                      : `${negatives.length} drawer balances are in the red`}
+                      ? t("transfer.negativeOne")
+                      : t("transfer.negativeMany", { n: negatives.length })}
                   </p>
                   <p className="text-[11px] text-red-200/80">
-                    Cash was paid out that the drawer did not hold — record the
-                    move that covers it.
+                    {t("transfer.negativeHint")}
                   </p>
                   {negatives.map(({ drawer, cur, bal }) => (
                     <div
@@ -577,12 +587,12 @@ export function DrawerTopUpModal({
                       className="flex items-center justify-between gap-2"
                     >
                       <span className="text-xs text-slate-200">
-                        {drawer.replace(/_/g, " ")}:{" "}
-                        <span className="font-semibold text-red-300">
+                        {drawerText(drawer)}:{" "}
+                        <Ltr className="font-semibold text-red-300">
                           {cur === "USD"
                             ? `-$${Math.abs(bal).toFixed(2)}`
-                            : `-${Math.abs(bal).toLocaleString()} LBP`}
-                        </span>
+                            : `-${formatNumber(Math.abs(bal))} LBP`}
+                        </Ltr>
                       </span>
                       <button
                         type="button"
@@ -598,7 +608,7 @@ export function DrawerTopUpModal({
                         }}
                         className="shrink-0 text-[11px] font-medium px-2 py-1 rounded-md bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors"
                       >
-                        Cover it
+                        {t("transfer.coverIt")}
                       </button>
                     </div>
                   ))}
@@ -609,7 +619,7 @@ export function DrawerTopUpModal({
             {/* Direction (bidirectional — owner decision #12) */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Direction
+                {t("transfer.direction")}
               </label>
               <div
                 data-testid="drawer-transfer-direction-toggle"
@@ -624,7 +634,10 @@ export function DrawerTopUpModal({
                       : "bg-slate-900 text-slate-400 border border-slate-700 hover:text-slate-200"
                   }`}
                 >
-                  General → {primaryDrawerLabel}
+                  {t("transfer.directionArrow", {
+                    from: t("drawer.generalName"),
+                    to: primaryDrawerLabel,
+                  })}
                 </button>
                 <button
                   type="button"
@@ -635,23 +648,28 @@ export function DrawerTopUpModal({
                       : "bg-slate-900 text-slate-400 border border-slate-700 hover:text-slate-200"
                   }`}
                 >
-                  {primaryDrawerLabel} → General
+                  {t("transfer.directionArrow", {
+                    from: primaryDrawerLabel,
+                    to: t("drawer.generalName"),
+                  })}
                 </button>
               </div>
               <p className="mt-1.5 text-xs text-slate-500">
-                {transferFromDrawer.replace(/_/g, " ")} balance:{" "}
-                {formatDrawerAmount(transferFromBalanceUsd, "USD")} /{" "}
-                {formatDrawerAmount(transferFromBalanceLbp, "LBP")}
+                {t("transfer.balanceLabel", {
+                  drawer: drawerText(transferFromDrawer),
+                })}{" "}
+                <Ltr>{formatDrawerAmount(transferFromBalanceUsd, "USD")}</Ltr> /{" "}
+                <Ltr>{formatDrawerAmount(transferFromBalanceLbp, "LBP")}</Ltr>
               </p>
             </div>
 
             {/* USD Amount */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                USD Amount
+                {t("drawer.usdAmount")}
               </label>
               <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-amber-500 transition-colors">
-                <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
                   $
                 </span>
                 <DecimalInput
@@ -667,10 +685,10 @@ export function DrawerTopUpModal({
             {/* LBP Amount */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                LBP Amount
+                {t("drawer.lbpAmount")}
               </label>
               <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-amber-500 transition-colors">
-                <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
                   LBP
                 </span>
                 <DecimalInput
@@ -686,8 +704,9 @@ export function DrawerTopUpModal({
 
             {transferInsufficient && (
               <p className="text-xs text-red-400">
-                {transferFromDrawer.replace(/_/g, " ")} does not have enough
-                funds for this transfer.
+                {t("transfer.insufficient", {
+                  drawer: drawerText(transferFromDrawer),
+                })}
               </p>
             )}
 
@@ -700,17 +719,17 @@ export function DrawerTopUpModal({
                 {transferPreviewAmounts.map((amountLabel) => (
                   <p key={amountLabel}>
                     <span className="text-red-400 font-semibold">−</span>{" "}
-                    {amountLabel} from{" "}
+                    <Ltr>{amountLabel}</Ltr> {t("transfer.from")}{" "}
                     <span className="text-white font-medium">
-                      {transferFromDrawer.replace(/_/g, " ")}
+                      {drawerText(transferFromDrawer)}
                     </span>
                     {" · "}
                     <span className="text-emerald-400 font-semibold">
                       +
                     </span>{" "}
-                    {amountLabel} into{" "}
+                    <Ltr>{amountLabel}</Ltr> {t("transfer.into")}{" "}
                     <span className="text-white font-medium">
-                      {transferToDrawer.replace(/_/g, " ")}
+                      {drawerText(transferToDrawer)}
                     </span>
                   </p>
                 ))}
@@ -720,13 +739,15 @@ export function DrawerTopUpModal({
             {/* Notes */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Notes <span className="text-slate-600">(optional)</span>
+                {t("drawer.notes")}{" "}
+                <span className="text-slate-600">{t("drawer.optional")}</span>
               </label>
               <textarea
                 rows={3}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add a note..."
+                placeholder={t("drawer.addNote")}
+                data-testid="drawer-transfer-notes-input"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 placeholder:text-slate-600 resize-none transition-colors"
               />
             </div>
@@ -737,14 +758,14 @@ export function DrawerTopUpModal({
             {mode === "from_drawer" && (
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
-                  Source Drawer
+                  {t("fromDrawer.source")}
                 </label>
                 <Select
                   value={selectedDrawer}
                   onChange={(v) => setSelectedDrawer(v)}
                   options={
                     sourceDrawers.length === 0
-                      ? [{ value: "", label: "No drawers available" }]
+                      ? [{ value: "", label: t("fromDrawer.none") }]
                       : sourceDrawers.map((d) => ({
                           value: d.drawer_name,
                           label: d.drawer_name.replace("_", " "),
@@ -754,9 +775,12 @@ export function DrawerTopUpModal({
                 />
                 {currentDrawer && (
                   <p className="mt-1.5 text-xs text-slate-500">
-                    Balance: ${currentDrawer.balance_usd.toLocaleString()} USD
-                    {currentDrawer.balance_lbp > 0 &&
-                      ` / ${currentDrawer.balance_lbp.toLocaleString()} LBP`}
+                    {t("fromDrawer.balance")}{" "}
+                    <Ltr>
+                      ${formatNumber(currentDrawer.balance_usd)} USD
+                      {currentDrawer.balance_lbp > 0 &&
+                        ` / ${formatNumber(currentDrawer.balance_lbp)} LBP`}
+                    </Ltr>
                   </p>
                 )}
               </div>
@@ -765,16 +789,17 @@ export function DrawerTopUpModal({
             {/* USD Amount */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                USD Amount
+                {t("drawer.usdAmount")}
               </label>
               <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
-                <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
                   $
                 </span>
                 <DecimalInput
                   value={parseFloat(amountUsd) || 0}
                   onChange={(n) => setAmountUsd(n ? String(n) : "")}
                   placeholder="0.00"
+                  data-testid="drawer-topup-amount-usd-input"
                   className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
                 />
               </div>
@@ -783,16 +808,17 @@ export function DrawerTopUpModal({
             {/* LBP Amount */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                LBP Amount
+                {t("drawer.lbpAmount")}
               </label>
               <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
-                <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
                   LBP
                 </span>
                 <DecimalInput
                   value={parseFloat(amountLbp) || 0}
                   onChange={(n) => setAmountLbp(n ? String(n) : "")}
                   placeholder="0"
+                  data-testid="drawer-topup-amount-lbp-input"
                   className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
                 />
               </div>
@@ -802,14 +828,13 @@ export function DrawerTopUpModal({
             {mode === "external" && (
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
-                  Other Currencies{" "}
-                  <span className="text-slate-600">(optional)</span>
+                  {t("topup.otherCurrencies")}{" "}
+                  <span className="text-slate-600">{t("drawer.optional")}</span>
                 </label>
 
                 {currencyOptions.length === 0 ? (
                   <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5">
-                    No other currencies available — add one in Settings →
-                    Currencies, or check the connection for the live list.
+                    {t("topup.noOtherCurrencies")}
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -867,7 +892,7 @@ export function DrawerTopUpModal({
                               type="button"
                               onClick={() => removeCurrencyRow(index)}
                               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
-                              aria-label="Remove currency"
+                              aria-label={t("topup.removeCurrency")}
                             >
                               <X size={16} />
                             </button>
@@ -881,18 +906,22 @@ export function DrawerTopUpModal({
                             establishes the basis. */}
                           {needsAcquisitionRate &&
                             (!row.showRateOverride ? (
-                              <div className="pl-1 flex items-center justify-between gap-2">
+                              <div className="ps-1 flex items-center justify-between gap-2">
                                 <span
                                   data-testid={`drawer-topup-basis-line-${index}`}
                                   className="text-[11px] text-slate-500"
                                 >
                                   {basis
-                                    ? `Cost basis: market rate ${formatBasisRate(
-                                        basis.usdPerUnit,
-                                      )} USD/${row.currency_code || "unit"}`
-                                    : `No market rate found for ${
-                                        row.currency_code || "this currency"
-                                      } — enter one manually.`}
+                                    ? t("topup.basisLine", {
+                                        rate: formatBasisRate(basis.usdPerUnit),
+                                        code:
+                                          row.currency_code || t("topup.unit"),
+                                      })
+                                    : t("topup.basisMissing", {
+                                        code:
+                                          row.currency_code ||
+                                          t("topup.thisCurrency"),
+                                      })}
                                 </span>
                                 <button
                                   type="button"
@@ -904,17 +933,18 @@ export function DrawerTopUpModal({
                                   }
                                   className="shrink-0 text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
                                 >
-                                  edit
+                                  {t("topup.edit")}
                                 </button>
                               </div>
                             ) : (
-                              <div className="pl-1">
+                              <div className="ps-1">
                                 <label className="text-[11px] text-slate-500 block mb-1">
-                                  Acquisition rate (USD per{" "}
-                                  {row.currency_code || "unit"})
+                                  {t("topup.acquisitionRate", {
+                                    code: row.currency_code || t("topup.unit"),
+                                  })}
                                 </label>
                                 <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
-                                  <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                                  <span className="px-3 text-sm text-slate-400 border-e border-slate-700">
                                     $
                                   </span>
                                   <DecimalInput
@@ -930,9 +960,9 @@ export function DrawerTopUpModal({
                                   />
                                 </div>
                                 <p className="mt-1 text-[11px] text-slate-500">
-                                  What one {row.currency_code || "unit"} cost
-                                  you in USD — sets the cost basis for exchange
-                                  profit.
+                                  {t("topup.acquisitionHint", {
+                                    code: row.currency_code || t("topup.unit"),
+                                  })}
                                 </p>
                               </div>
                             ))}
@@ -942,6 +972,7 @@ export function DrawerTopUpModal({
 
                     <button
                       type="button"
+                      data-testid="drawer-topup-add-currency"
                       onClick={addCurrencyRow}
                       disabled={
                         extraCurrencies.length >= currencyOptions.length
@@ -949,7 +980,7 @@ export function DrawerTopUpModal({
                       className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
                     >
                       <Plus size={14} />
-                      Add currency
+                      {t("topup.addCurrency")}
                     </button>
                   </div>
                 )}
@@ -959,13 +990,15 @@ export function DrawerTopUpModal({
             {/* Notes */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Notes <span className="text-slate-600">(optional)</span>
+                {t("drawer.notes")}{" "}
+                <span className="text-slate-600">{t("drawer.optional")}</span>
               </label>
               <textarea
                 rows={3}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add a note..."
+                placeholder={t("drawer.addNote")}
+                data-testid="drawer-topup-notes-input"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 placeholder:text-slate-600 resize-none transition-colors"
               />
             </div>
@@ -980,7 +1013,7 @@ export function DrawerTopUpModal({
             disabled={isSubmitting}
             className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
           >
-            Cancel
+            {tc("actions.cancel")}
           </button>
           <button
             data-testid="drawer-topup-submit"
@@ -999,12 +1032,12 @@ export function DrawerTopUpModal({
             } disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-semibold rounded-lg transition-colors`}
           >
             {isSubmitting
-              ? "Processing..."
+              ? t("drawer.processing")
               : mode === "transfer"
-                ? "Transfer"
+                ? t("topup.modeTransfer")
                 : mode === "from_drawer"
-                  ? "Transfer"
-                  : "Top Up"}
+                  ? t("topup.modeTransfer")
+                  : t("topup.submit")}
           </button>
         </div>
       </div>

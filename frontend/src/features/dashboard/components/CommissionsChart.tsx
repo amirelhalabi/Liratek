@@ -6,6 +6,7 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+import { useTranslation } from "react-i18next";
 
 // Realized commission colors (solid)
 const REALIZED_COLORS = ["#8b5cf6", "#ec4899", "#3b82f6", "#10b981", "#6366f1"];
@@ -27,13 +28,20 @@ export default function CommissionsChart({
   pieData,
   formatAmount,
 }: CommissionsChartProps) {
+  const { t } = useTranslation("dashboard");
   // Build two rings:
   // Inner ring: realized (settled) commission per provider
   // Outer ring: pending commission per provider (amber slices)
   const realizedData = pieData.filter((p) => p.value > 0);
   const pendingData = pieData
     .filter((p) => (p.pending ?? 0) > 0)
-    .map((p) => ({ name: `${p.name} (Pending)`, value: p.pending! }));
+    .map((p) => ({
+      name: t("commissions.pendingName", { name: p.name }),
+      value: p.pending!,
+    }));
+  // Which slice names are the pending ring's — compared by identity with
+  // the names built just above, never by searching for a word in a label.
+  const pendingNames = new Set(pendingData.map((p) => p.name));
 
   const hasPending = pendingData.length > 0;
   const hasRealized = realizedData.length > 0;
@@ -42,7 +50,7 @@ export default function CommissionsChart({
   if (!hasRealized && !hasPending) {
     return (
       <div className="h-full flex items-center justify-center text-slate-500 text-sm">
-        No commission data
+        {t("commissions.empty")}
       </div>
     );
   }
@@ -106,14 +114,14 @@ export default function CommissionsChart({
           itemStyle={{ color: "#fff" }}
           formatter={(value, name) => [
             formatAmount(Number(value || 0), "USD"),
-            String(name).includes("Pending") ? `${name} ⚠` : name,
+            pendingNames.has(String(name)) ? `${name} ⚠` : name,
           ]}
         />
         <Legend
           verticalAlign="bottom"
           height={36}
           formatter={(value) =>
-            String(value).includes("Pending") ? (
+            pendingNames.has(String(value)) ? (
               <span style={{ color: PENDING_COLOR }}>{value}</span>
             ) : (
               value

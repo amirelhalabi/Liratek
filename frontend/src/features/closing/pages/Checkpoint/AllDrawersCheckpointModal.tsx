@@ -17,14 +17,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   useDrawerCheckpoint,
   SAVE_STYLES,
 } from "../../hooks/useDrawerCheckpoint";
 import { CheckpointDrawerBody } from "../../components/CheckpointDrawerBody";
-import { DRAWER_CONFIGS } from "../../config/drawers";
-import type { DrawerType } from "../../types";
+import { useDrawerText } from "../../hooks/useDrawerText";
 
 export interface AllDrawersCheckpointEntry {
   name: string;
@@ -43,15 +43,14 @@ interface SectionState {
   saving: boolean;
 }
 
-const drawerLabel = (name: string): string =>
-  DRAWER_CONFIGS[name as DrawerType]?.label ?? name;
-
 export default function AllDrawersCheckpointModal({
   isOpen,
   drawers,
   onClose,
 }: AllDrawersCheckpointModalProps) {
   useModalFocusFix(isOpen);
+  const { t } = useTranslation("closing");
+  const { t: tc } = useTranslation("common");
 
   // Drawers counted today: the ones the window opened with, plus every one
   // saved since. A saved drawer stays listed — it just shows as counted.
@@ -86,10 +85,7 @@ export default function AllDrawersCheckpointModal({
   const handleClose = () => {
     if (anySaving) return;
     const dirty = Object.values(sections.current).some((s) => s.dirty);
-    if (
-      !dirty ||
-      confirm("You have unsaved changes. Are you sure you want to close?")
-    ) {
+    if (!dirty || confirm(t("checkpoint.unsavedConfirm"))) {
       onClose();
     }
   };
@@ -120,16 +116,15 @@ export default function AllDrawersCheckpointModal({
               id="all-drawers-checkpoint-title"
               className="text-xl font-bold text-white"
             >
-              Checkpoint — all drawers
+              {t("allDrawers.title")}
             </h2>
             <p className="text-slate-400 text-sm mt-1">
-              Count each drawer and save it on its own. Adjust any amount that
-              differs from the expected balance.
+              {t("allDrawers.subtitle")}
             </p>
           </div>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={tc("actions.close")}
             onClick={handleClose}
             disabled={anySaving}
             className="text-slate-400 hover:text-white transition-colors disabled:opacity-50"
@@ -165,7 +160,10 @@ export default function AllDrawersCheckpointModal({
             className="text-sm text-slate-400"
             data-testid="checkpoint-progress"
           >
-            {countedCount} of {drawers.length} drawers counted today
+            {t("allDrawers.progress", {
+              counted: countedCount,
+              total: drawers.length,
+            })}
           </p>
           <button
             type="button"
@@ -173,7 +171,7 @@ export default function AllDrawersCheckpointModal({
             disabled={anySaving}
             className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
           >
-            Done
+            {t("allDrawers.done")}
           </button>
         </div>
       </div>
@@ -189,23 +187,25 @@ function CountedDrawerRow({
   name: string;
   onRecount: () => void;
 }) {
+  const { t } = useTranslation("closing");
+  const drawerText = useDrawerText();
   return (
     <div
       data-testid={`checkpoint-drawer-${name}`}
       className="flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3"
     >
-      <p className="font-semibold text-white">{drawerLabel(name)}</p>
+      <p className="font-semibold text-white">{drawerText.label(name)}</p>
       <div className="flex items-center gap-3">
         <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-400">
           <CheckCircle2 size={16} aria-hidden="true" />
-          Counted today
+          {t("allDrawers.countedToday")}
         </span>
         <button
           type="button"
           onClick={onRecount}
           className="px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-600 transition-colors"
         >
-          Re-count
+          {t("allDrawers.recount")}
         </button>
       </div>
     </div>
@@ -225,6 +225,8 @@ function DrawerCheckpointPanel({
   onSaved: (name: string) => void;
   onStateChange: (name: string, state: SectionState) => void;
 }) {
+  const { t } = useTranslation("closing");
+  const drawerText = useDrawerText();
   const cp = useDrawerCheckpoint({
     isOpen: true,
     drawerName: name,
@@ -242,13 +244,13 @@ function DrawerCheckpointPanel({
   return (
     <section
       data-testid={`checkpoint-drawer-${name}`}
-      aria-label={drawerLabel(name)}
+      aria-label={drawerText.label(name)}
       className="rounded-xl border border-slate-700 bg-slate-800 p-4 space-y-4"
     >
       <div className="flex items-center justify-between gap-3">
-        <p className="font-semibold text-white">{drawerLabel(name)}</p>
+        <p className="font-semibold text-white">{drawerText.label(name)}</p>
         <span className="text-xs font-medium text-amber-400">
-          {recount ? "Counting again" : "Not counted yet"}
+          {recount ? t("allDrawers.countingAgain") : t("allDrawers.notCounted")}
         </span>
       </div>
       <CheckpointDrawerBody cp={cp} notesId={`checkpoint-notes-${name}`} />

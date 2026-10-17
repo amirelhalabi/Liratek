@@ -1,1 +1,146 @@
-{}
+{
+  "timeline": {
+    "title": "Checkpoints",
+    "initialSetup": "Initial setup",
+    "drawersCount": "{{n}} drawers",
+    "short": "Short {{amount}}",
+    "over": "Over {{amount}}",
+    "lineEdit": "Line edit",
+    "allDrawersBadge": "All drawers",
+    "balanced": "Balanced",
+    "viewDetails": "View details",
+    "searchPlaceholder": "Search drawer, user, notes…",
+    "allDrawersOption": "All Drawers",
+    "rows": "Rows:",
+    "setupHintBefore": "Initial drawer setup was recorded on",
+    "setupHintAfter": "— before the selected date range, so it isn't shown below.",
+    "showFromSetup": "Show from setup →",
+    "loading": "Loading checkpoints...",
+    "noneFor": "No checkpoints found for {{range}}",
+    "empty": "No checkpoints found",
+    "today": "today",
+    "colTime": "Time",
+    "colDrawer": "Drawer",
+    "colCounted": "Counted",
+    "colUser": "User",
+    "colNotes": "Notes"
+  },
+  "details": {
+    "title": "Checkpoint Details — {{drawer}}",
+    "titleAll": "Checkpoint Details — {{drawer}} (all drawers)",
+    "closeAria": "Close details",
+    "amounts": "Amounts",
+    "expectedToCounted": "Expected → Counted",
+    "noAmounts": "No amounts recorded",
+    "matched": "Matched",
+    "carrierLines": "Carrier Lines",
+    "notSet": "not set",
+    "notCounted": "not counted"
+  },
+  "variance": {
+    "inCurrencies": "Variance in {{n}} currencies",
+    "creditsOnLines": "Credits variance on {{n}} lines",
+    "validityOnLines": "Validity variance on {{n}} lines",
+    "validity": "Validity {{days}}",
+    "listSeparator": ", "
+  },
+  "drawers": {
+    "General": { "label": "General", "description": "Main cash register" },
+    "OMT_System": {
+      "label": "OMT Cash Drawer",
+      "description": "Physical cash drawer at the OMT counter"
+    },
+    "OMT_App": { "label": "OMT App", "description": "OMT app wallet" },
+    "Whish_App": { "label": "Whish App", "description": "Whish app" },
+    "Binance": { "label": "Binance", "description": "Binance wallet" },
+    "MTC": { "label": "MTC", "description": "MTC recharges" },
+    "Alfa": { "label": "Alfa", "description": "Alfa recharges" },
+    "iPick": { "label": "iPick", "description": "iPick services" },
+    "Katsh": { "label": "Katsh", "description": "Katsh services" },
+    "Whish_System": {
+      "label": "Whish Cash Drawer",
+      "description": "Physical cash drawer at the Whish counter"
+    }
+  },
+  "card": {
+    "match": "Match",
+    "expected": "Expected: {{value}}",
+    "resetToExpected": "Reset to expected",
+    "reset": "reset",
+    "credits": "Credits",
+    "validity": "Validity",
+    "activeLine": "{{n}} active line",
+    "activeLines": "{{n}} active lines",
+    "drawerSum": "Drawer (sum)",
+    "totalInfo": "Total ≈ (info only)",
+    "totalLine": "expected {{expected}} · counted {{counted}}",
+    "noCurrencies": "No currencies to display."
+  },
+  "body": {
+    "loadingCurrencies": "Loading currencies...",
+    "loadFailed": "Couldn't load this drawer: {{error}}. Saving is off until it loads.",
+    "noActiveCurrencies": "No active currencies found. Please enable at least one currency in Settings → Currency Manager.",
+    "loadingLines": "Loading lines…",
+    "noActiveLine": "No active {{drawer}} line",
+    "noActiveLineHint": "This drawer's balance always equals the sum of its active SIM lines' credits. Add the shop's {{drawer}} line before counting this drawer.",
+    "phoneNumber": "Phone Number",
+    "phonePlaceholder": "e.g. 03123456",
+    "startingCredits": "Starting Credits ($)",
+    "adding": "Adding…",
+    "addLine": "Add Line",
+    "manageLinesHint": "Or manage lines from Settings → Carrier Lines.",
+    "noDrawerCurrencies": "No currencies configured for this drawer.",
+    "inactive": "Inactive",
+    "partnerDebt": "{{system}} System debt is tracked via Partners.",
+    "noActivePartner": "No active partner — drawer is read-only.",
+    "notesLabel": "Notes (Optional)",
+    "notesPlaceholder": "Explain any variances or issues..."
+  },
+  "save": {
+    "balanced": "Save Checkpoint — Balanced",
+    "withVariance": "Save — {{parts}}",
+    "enterPhone": "Enter a phone number to add a line.",
+    "addLineFailed": "Failed to add the line",
+    "failed": "Failed to save checkpoint",
+    "unexpected": "An unexpected error occurred",
+    "loadCurrenciesFailed": "Failed to load this drawer's currencies",
+    "currenciesFailed": "Failed to load currencies",
+    "expectedFailed": "Failed to fetch expected balances"
+  },
+  "checkpoint": {
+    "title": "Checkpoint — {{drawer}}",
+    "subtitle": "Adjust any amount that differs from the expected balance, then save.",
+    "unsavedConfirm": "You have unsaved changes. Are you sure you want to close?"
+  },
+  "allDrawers": {
+    "title": "Checkpoint — all drawers",
+    "subtitle": "Count each drawer and save it on its own. Adjust any amount that differs from the expected balance.",
+    "progress": "{{counted}} of {{total}} drawers counted today",
+    "done": "Done",
+    "countedToday": "Counted today",
+    "recount": "Re-count",
+    "countingAgain": "Counting again",
+    "notCounted": "Not counted yet"
+  },
+  "initial": {
+    "title": "Initial Drawer Amounts",
+    "subtitle": "Set the starting cash for each active drawer",
+    "loadFailed": "Couldn't load the drawers: {{error}}",
+    "loadFailedFallback": "Failed to load the drawers",
+    "addCurrency": "Add currency",
+    "noDrawers": "No drawers to configure.",
+    "skip": "Skip for now",
+    "saving": "Saving…",
+    "save": "Save Amounts",
+    "addCurrencyFailed": "Failed to add currency to {{drawer}}",
+    "saveFailed": "Failed to save drawer amounts"
+  },
+  "since": {
+    "none": "No movements since the last count",
+    "one": "{{n}} movement since the last count",
+    "many": "{{n}} movements since the last count"
+  },
+  "modalHeader": {
+    "close": "Close modal"
+  }
+}

@@ -1,4 +1,7 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { X, HandCoins, RefreshCw } from "lucide-react";
 import {
   appEvents,
@@ -54,6 +57,8 @@ export function HoldMoneyPickupSheet({
   onCollected,
 }: HoldMoneyPickupSheetProps) {
   const api = useApi();
+  const { t } = useTranslation("customServices");
+  const { t: tc } = useTranslation("common");
   const { methods } = usePaymentMethods();
   const { buyRate } = useSellRate();
 
@@ -149,8 +154,8 @@ export function HoldMoneyPickupSheet({
         appEvents.emit(
           "notification:show",
           isPartial
-            ? `Returned part of the hold to ${hold.client_name}.`
-            : `Returned hold to ${hold.client_name}.`,
+            ? t("pickup.returnedPart", { name: hold.client_name })
+            : t("pickup.returnedAll", { name: hold.client_name }),
           "success",
         );
         appEvents.emit("holdMoney:changed");
@@ -159,7 +164,7 @@ export function HoldMoneyPickupSheet({
       } else {
         appEvents.emit(
           "notification:show",
-          res.error ?? "Failed to collect hold.",
+          res.error ?? t("pickup.failed"),
           "error",
         );
       }
@@ -169,7 +174,7 @@ export function HoldMoneyPickupSheet({
       logger.error("[HoldMoney] pickup failed", err);
       appEvents.emit(
         "notification:show",
-        getApiErrorMessage(err, "Failed to collect hold."),
+        getApiErrorMessage(err, t("pickup.failed")),
         "error",
       );
     } finally {
@@ -194,10 +199,10 @@ export function HoldMoneyPickupSheet({
         <div className="flex items-start justify-between mb-4">
           <div>
             <h3 className="text-xl font-bold text-white">
-              Return hold — {hold.client_name}
+              {t("pickup.title", { name: hold.client_name })}
             </h3>
             <div className="text-xs text-slate-400 mt-1">
-              Still held:{" "}
+              {t("pickup.stillHeld")}{" "}
               {hold.remaining_usd > EPS_USD && (
                 <span className="font-mono text-orange-300">
                   ${hold.remaining_usd.toFixed(2)}
@@ -208,7 +213,7 @@ export function HoldMoneyPickupSheet({
                 : ""}
               {hold.remaining_lbp > EPS_LBP && (
                 <span className="font-mono text-orange-300">
-                  {hold.remaining_lbp.toLocaleString()} LBP
+                  {formatNumber(hold.remaining_lbp)} LBP
                 </span>
               )}
             </div>
@@ -217,7 +222,7 @@ export function HoldMoneyPickupSheet({
             type="button"
             onClick={onClose}
             className="text-slate-400 hover:text-white transition-colors"
-            aria-label="Close"
+            aria-label={tc("actions.close")}
           >
             <X className="w-5 h-5" />
           </button>
@@ -226,11 +231,10 @@ export function HoldMoneyPickupSheet({
         <div className="space-y-4">
           <div className="p-4 rounded-xl bg-orange-400/5 border border-orange-400/20 space-y-3">
             <span className="block text-xs font-medium text-orange-400 uppercase tracking-wider">
-              Amount to Return
+              {t("pickup.amountToReturn")}
             </span>
             <p className="text-[11px] text-slate-500">
-              Defaults to the full remaining balance — lower either field for a
-              partial pickup.
+              {t("pickup.amountHint")}
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -275,7 +279,7 @@ export function HoldMoneyPickupSheet({
 
           <div>
             <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-              Paid Out Via
+              {t("pickup.paidOutVia")}
             </label>
             <MultiPaymentInput
               key={`${returnUsd}-${returnLbp > 0 ? "lbp" : "no-lbp"}-${pickupCurrency ?? "mixed"}`}
@@ -307,7 +311,7 @@ export function HoldMoneyPickupSheet({
               ]}
               exchangeRate={buyRate}
               onExchangeRateChange={setEffectiveRate}
-              label="Payout"
+              label={t("pickup.payoutLabel")}
             />
           </div>
 
@@ -316,21 +320,22 @@ export function HoldMoneyPickupSheet({
               className="text-xs text-emerald-400"
               data-testid="hold-pickup-kept-note"
             >
-              Keeping{" "}
+              {t("pickup.keeping")}{" "}
+              <Ltr>
               {[
                 twoCurrencyKept.usd >= EPS_USD
                   ? `$${twoCurrencyKept.usd.toFixed(2)}`
                   : null,
                 twoCurrencyKept.lbp >= EPS_LBP
-                  ? `${twoCurrencyKept.lbp.toLocaleString("en-US")} LBP`
+                  ? `${formatNumber(twoCurrencyKept.lbp)} LBP`
                   : null,
               ]
                 .filter(Boolean)
-                .join(" + ")}{" "}
-              as profit
+                .join(" + ")}
+              </Ltr>{" "}
               {isPartial
-                ? " — this part of the hold is cleared in full."
-                : " — the hold is closed in full."}
+                ? t("pickup.asProfitPart")
+                : t("pickup.asProfitAll")}
             </p>
           )}
 
@@ -341,7 +346,7 @@ export function HoldMoneyPickupSheet({
               disabled={isSubmitting}
               className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors disabled:opacity-50"
             >
-              Cancel
+              {tc("actions.cancel")}
             </button>
             <button
               type="button"
@@ -352,12 +357,13 @@ export function HoldMoneyPickupSheet({
             >
               {isSubmitting ? (
                 <>
-                  <RefreshCw size={16} className="animate-spin" /> Processing…
+                  <RefreshCw size={16} className="animate-spin" />{" "}
+                  {t("hold.processingEllipsis")}
                 </>
               ) : (
                 <>
                   <HandCoins size={16} />
-                  {isPartial ? "Return Part" : "Return Hold"}
+                  {isPartial ? t("pickup.returnPart") : t("pickup.returnHold")}
                 </>
               )}
             </button>

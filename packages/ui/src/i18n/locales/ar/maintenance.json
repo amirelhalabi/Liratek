@@ -1,1 +1,106 @@
-{}
+{
+  "page": {
+    "title": "التصليحات",
+    "history": "السجل"
+  },
+  "status": {
+    "All": "الكل",
+    "Received": "مستلَم",
+    "In_Progress": "قيد التصليح",
+    "Ready": "جاهز",
+    "Delivered": "مُسلَّم",
+    "Delivered_Paid": "مُسلَّم ومدفوع"
+  },
+  "jobs": {
+    "heading": "الأشغال ({{total}})",
+    "empty": "لا أشغال بهذه الحالة",
+    "refunded": "مُسترَد",
+    "markInProgress": "حوّل إلى قيد التصليح",
+    "markReady": "حوّل إلى جاهز",
+    "start": "ابدأ",
+    "ready": "جاهز",
+    "delete": "حذف الشغلة"
+  },
+  "form": {
+    "newJob": "تصليح جديد",
+    "editJob": "تعديل الشغلة",
+    "deviceName": "اسم الجهاز / الموديل *",
+    "devicePlaceholder": "مثلاً iPhone 13 Pro Max",
+    "issue": "وصف العطل *",
+    "issuePlaceholder": "مثلاً شاشة مكسورة، تبديل بطارية...",
+    "warranty": "كفالة التصليح (بالأشهر)",
+    "noWarranty": "بلا كفالة",
+    "warrantyUntil": "الكفالة لغاية",
+    "costPrice": "كلفة / سعر التصليح",
+    "locked": "شغلة مدفوعة — ألغِها أو استردّها لتغيير المبلغ",
+    "unlocked": "هذه الشغلة أُلغيت أو استُردّت — يمكن تعديل المبالغ من جديد.",
+    "cost": "كلفة التصليح ({{currency}})",
+    "price": "السعر على الزبون ({{currency}})",
+    "clientName": "اسم الزبون",
+    "walkIn": "زبون عابر",
+    "phone": "رقم الهاتف",
+    "optional": "اختياري"
+  },
+  "totals": {
+    "labour": "اليد العاملة",
+    "parts": "القطع",
+    "due": "المستحق",
+    "total": "المجموع"
+  },
+  "timeline": {
+    "title": "تسلسل الحالات",
+    "empty": "لم تُسجَّل أي تغييرات في الحالة بعد.",
+    "from": "{{status}} ←"
+  },
+  "profit": {
+    "title": "الربح",
+    "labourMargin": "ربح اليد العاملة",
+    "partsMargin": "ربح القطع",
+    "total": "المجموع"
+  },
+  "actions": {
+    "saveDraft": "حفظ كمسودة",
+    "checkout": "متابعة للدفع"
+  },
+  "alerts": {
+    "error": "خطأ: {{message}}",
+    "statusFailed": "تعذّر تحديث الحالة",
+    "deleteFailed": "تعذّر حذف الشغلة",
+    "saveFailed": "تعذّر حفظ الشغلة",
+    "paymentFailed": "تعذّر إتمام الدفع",
+    "paymentDone": "تمّ دفع التصليح بنجاح",
+    "confirmDelete": "حذف هذه الشغلة؟",
+    "confirmDiscard": "تجاهل التغييرات غير المحفوظة؟"
+  },
+  "history": {
+    "title": "سجل التصليحات",
+    "records": "({{total}} سجل)",
+    "date": "التاريخ",
+    "client": "الزبون",
+    "deviceIssue": "الجهاز / العطل",
+    "status": "الحالة",
+    "price": "السعر",
+    "paid": "المدفوع",
+    "actions": "إجراءات",
+    "empty": "لا توجد أشغال تصليح.",
+    "unknown": "غير معروف",
+    "refunded": "مُسترَد",
+    "edited": "معدَّل",
+    "void": "إلغاء الشغلة",
+    "print": "طباعة الإيصال"
+  },
+  "parts": {
+    "title": "القطع",
+    "searchAll": "البحث في كل الفئات",
+    "searchAllPlaceholder": "ابحث في كل المنتجات...",
+    "searchPlaceholder": "ابحث عن قطع...",
+    "searching": "جارٍ البحث...",
+    "noProducts": "لا منتجات",
+    "outOfStock": "نفد من المخزون",
+    "stock": "المخزون: {{qty}}",
+    "remove": "إزالة القطعة"
+  },
+  "amount": {
+    "listVsCharged": "السعر الأساسي {{list}}، المدفوع {{charged}}"
+  }
+}

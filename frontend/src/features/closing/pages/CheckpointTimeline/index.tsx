@@ -1,8 +1,13 @@
 import { Fragment, useState, useEffect, useMemo, useRef } from "react";
 import { PageHeader, Select, useApi, DateRangeFilter } from "@liratek/ui";
 import { Clock, Eye, X, Check, AlertTriangle } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { useFormat } from "@/i18n/useFormat";
 import { DataTable, appEvents } from "@liratek/ui";
-import { DRAWER_CONFIGS, DRAWER_ORDER } from "../../config/drawers";
+import { DRAWER_ORDER } from "../../config/drawers";
+import { useDrawerText } from "../../hooks/useDrawerText";
 import { BrandedLabel } from "@/shared/components/BrandedLabel";
 import {
   formatCurrencyAmount,
@@ -117,11 +122,6 @@ function todayISO(): string {
 /** The drawer name an all-drawers checkpoint (initial setup) is stored under. */
 const ALL_DRAWERS = "AGGREGATED";
 
-function drawerLabel(name: string): string {
-  if (name === ALL_DRAWERS) return "Initial setup";
-  return DRAWER_CONFIGS[name as DrawerType]?.label ?? name;
-}
-
 /** The counted amount. 0 is a real count; only a missing count (NULL in the
  *  database, never written by today's checkpoint) falls back to expected. */
 function countedOf(c: CheckpointCurrency): number {
@@ -132,11 +132,6 @@ function countedOf(c: CheckpointCurrency): number {
 function formatMoney(amount: number, code: string): string {
   const value = formatCurrencyAmount(amount, code);
   return code === "USD" ? `$${value}` : `${value} ${code}`;
-}
-
-/** counted − expected in words, e.g. "Short $3.00" / "Over 50,000 LBP". */
-function shortOrOver(variance: number, amount: string): string {
-  return `${variance < 0 ? "Short" : "Over"} ${amount}`;
 }
 
 /** The drawers a checkpoint's amount lines belong to, in Dashboard order. */
@@ -152,6 +147,15 @@ function drawersOf(checkpoint: CheckpointRecord): string[] {
 }
 
 export default function CheckpointTimeline() {
+  const { t } = useTranslation("closing");
+  const { t: tc } = useTranslation("common");
+  const fmt = useFormat();
+  const drawerText = useDrawerText();
+  const drawerLabel = (name: string): string =>
+    name === ALL_DRAWERS ? t("timeline.initialSetup") : drawerText.label(name);
+  /** counted − expected in words, e.g. "Short $3.00" / "Over 50,000 LBP". */
+  const shortOrOver = (variance: number, amount: string): string =>
+    t(variance < 0 ? "timeline.short" : "timeline.over", { amount });
   const api = useApi();
   // Rule 25 — `api`'s identity is only stable because `ApiProvider` happens
   // to hand out a module-level singleton; nothing enforces that, and a test
@@ -252,21 +256,11 @@ export default function CheckpointTimeline() {
     }
   };
 
-  const formatTime = (iso: string) => {
-    const date = parseDbDate(iso);
-    return date.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+  const formatTime = (iso: string) =>
+    fmt.formatTime(parseDbDate(iso), { hour: "2-digit", minute: "2-digit" });
 
-  const formatCurrency = (amount: number, code: string) => {
-    if (code === "LBP") return amount.toLocaleString();
-    return amount.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  };
+  // Same rule as the count screen: LBP whole, others to the cent.
+  const formatCurrency = formatCurrencyAmount;
 
   const getAggregatedTotals = (checkpoint: CheckpointRecord) => {
     const totals: Record<string, number> = {};
@@ -288,7 +282,8 @@ export default function CheckpointTimeline() {
   // since one total across drawers is money no single drawer holds.
   const getAmountDisplay = (checkpoint: CheckpointRecord): string => {
     const drawers = drawersOf(checkpoint);
-    if (drawers.length > 1) return `${drawers.length} drawers`;
+    if (drawers.length > 1)
+      return t("timeline.drawersCount", { n: drawers.length });
     const totals = getAggregatedTotals(checkpoint);
     const nonZero = new Set(
       checkpoint.currencies
@@ -342,16 +337,20 @@ export default function CheckpointTimeline() {
   ): string => {
     const parts: string[] =
       diffs.length > 2
-        ? [`Variance in ${diffs.length} currencies`]
+        ? [t("variance.inCurrencies", { n: diffs.length })]
         : diffs.map((d) =>
             shortOrOver(d.variance, formatMoney(Math.abs(d.variance), d.code)),
           );
     if (validityDiffs.length === 1) {
-      parts.push(`Validity ${formatDayVariance(validityDiffs[0].days)}`);
+      parts.push(
+        t("variance.validity", {
+          days: formatDayVariance(validityDiffs[0].days),
+        }),
+      );
     } else if (validityDiffs.length > 1) {
-      parts.push(`Validity variance on ${validityDiffs.length} lines`);
+      parts.push(t("variance.validityOnLines", { n: validityDiffs.length }));
     }
-    return parts.join(", ");
+    return parts.join(t("variance.listSeparator"));
   };
 
   const filteredCheckpoints = useMemo(() => {
@@ -364,7 +363,8 @@ export default function CheckpointTimeline() {
         cp.user_name.toLowerCase().includes(q) ||
         (cp.notes ?? "").toLowerCase().includes(q),
     );
-  }, [checkpoints, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkpoints, search, t]);
 
   // LIRA-252 wave 2 — the same search box also matches a manual carrier-line
   // adjustment's actor/line/reason, so narrowing the timeline by user or
@@ -449,21 +449,19 @@ export default function CheckpointTimeline() {
     rows.every((r, i) => i === 0 || timeOf(rows[i - 1]) <= timeOf(r));
   const dayHeadings =
     multiDay && visibleOrder.length > 0 && isTimeOrdered(visibleOrder);
-  const dayKey = (iso: string) => parseDbDate(iso).toLocaleDateString("en-CA");
+  // A comparison key, never shown: the local calendar day (rule 27).
+  const dayKey = (iso: string) => localDay(parseDbDate(iso));
   const formatDayHeading = (iso: string) =>
-    parseDbDate(iso).toLocaleDateString("en-US", {
+    fmt.formatDate(parseDbDate(iso), {
       weekday: "short",
       year: "numeric",
       month: "short",
       day: "numeric",
-    }) + (dayKey(iso) === todayISO() ? " · today" : "");
+    }) + (dayKey(iso) === todayISO() ? ` · ${t("timeline.today")}` : "");
   const formatDay = (iso: string) =>
-    parseDbDate(iso).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
+    fmt.formatDate(parseDbDate(iso), { month: "short", day: "numeric" });
   const formatFullDate = (iso: string) =>
-    parseDbDate(iso).toLocaleDateString("en-US", {
+    fmt.formatDate(parseDbDate(iso), {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -504,28 +502,28 @@ export default function CheckpointTimeline() {
             <span className="inline-flex items-center gap-1">
               {lineDrawerLabel}
               <span className="text-[10px] uppercase tracking-wide text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">
-                Line edit
+                {t("timeline.lineEdit")}
               </span>
             </span>
             {meta.phoneNumber && (
               <div className="text-[11px] text-slate-500 font-mono">
-                {meta.phoneNumber}
+                <Ltr>{meta.phoneNumber}</Ltr>
               </div>
             )}
           </td>
           <td className="p-2">
-            <span
+            <Ltr
               className={`font-mono font-medium ${signed >= 0 ? "text-emerald-400" : "text-red-400"}`}
             >
               {signed >= 0 ? "+$" : "-$"}
               {formatCurrencyAmount(Math.abs(signed), "USD")}
-            </span>
+            </Ltr>
           </td>
           <td className="p-2 text-slate-300">{adjustment.user_name}</td>
           <td className="p-2 text-slate-400 italic max-w-xs truncate">
             {adjustment.summary || meta.reason || "—"}
           </td>
-          <td className="p-2 text-right" />
+          <td className="p-2 text-end" />
         </tr>
       );
     }
@@ -547,7 +545,7 @@ export default function CheckpointTimeline() {
             />
             {checkpoint.drawer_name === ALL_DRAWERS && (
               <span className="text-[10px] uppercase tracking-wide text-violet-300 bg-violet-500/10 px-1.5 py-0.5 rounded">
-                All drawers
+                {t("timeline.allDrawersBadge")}
               </span>
             )}
           </span>
@@ -566,7 +564,7 @@ export default function CheckpointTimeline() {
               checkpoint.currencies.length > 0 && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
                   <Check className="w-3 h-3 flex-shrink-0" />
-                  Balanced
+                  {t("timeline.balanced")}
                 </span>
               )
             )}
@@ -576,12 +574,12 @@ export default function CheckpointTimeline() {
         <td className="p-2 text-slate-400 italic max-w-xs truncate">
           {checkpoint.notes || "—"}
         </td>
-        <td className="p-2 text-right">
+        <td className="p-2 text-end">
           <div className="flex items-center justify-end gap-1">
             <button
               onClick={() => setViewCheckpoint(checkpoint)}
               className="p-1.5 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-              title="View details"
+              title={t("timeline.viewDetails")}
             >
               <Eye size={14} />
             </button>
@@ -592,7 +590,7 @@ export default function CheckpointTimeline() {
   };
 
   const formatDateLabel = (iso: string) =>
-    new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
+    fmt.formatDate(new Date(`${iso}T00:00:00`), {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -600,7 +598,7 @@ export default function CheckpointTimeline() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
-      <PageHeader title="Checkpoints" />
+      <PageHeader title={t("timeline.title")} />
 
       {/* Timeline Filters */}
       <div>
@@ -609,7 +607,7 @@ export default function CheckpointTimeline() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search drawer, user, notes…"
+            placeholder={t("timeline.searchPlaceholder")}
             className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 w-56"
           />
 
@@ -617,10 +615,10 @@ export default function CheckpointTimeline() {
             value={filters.drawer_name}
             onChange={(v) => setFilters({ ...filters, drawer_name: v })}
             options={[
-              { value: "", label: "All Drawers" },
+              { value: "", label: t("timeline.allDrawersOption") },
               ...DRAWER_ORDER.map((d) => ({
                 value: d,
-                label: DRAWER_CONFIGS[d]?.label ?? d,
+                label: drawerText.label(d),
               })),
             ]}
           />
@@ -632,12 +630,17 @@ export default function CheckpointTimeline() {
             onToChange={(v) => setFilters({ ...filters, date_to: v })}
           />
 
-          <div className="flex items-center gap-2 ml-auto">
-            <label className="text-sm text-slate-400">Rows:</label>
+          <div className="flex items-center gap-2 ms-auto">
+            <label className="text-sm text-slate-400">
+              {t("timeline.rows")}
+            </label>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={limit}
-              onChange={(e) => setLimit(Number(e.target.value) || 100)}
+              onChange={(e) =>
+                setLimit(Number(normalizeDigits(e.target.value)) || 100)
+              }
               className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 w-20"
             />
           </div>
@@ -649,17 +652,17 @@ export default function CheckpointTimeline() {
         <div className="flex items-center gap-3 px-4 py-2.5 bg-violet-500/10 border border-violet-500/30 rounded-xl">
           <Clock className="w-4 h-4 text-violet-300 shrink-0" />
           <p className="text-xs text-violet-200 flex-1 min-w-0">
-            Initial drawer setup was recorded on{" "}
+            {t("timeline.setupHintBefore")}{" "}
             <span className="font-semibold">
               {formatDateLabel(initialCheckpointDate!)}
             </span>{" "}
-            — before the selected date range, so it isn&apos;t shown below.
+            {t("timeline.setupHintAfter")}
           </p>
           <button
             onClick={jumpToInitialSetup}
             className="text-xs font-medium text-violet-100 bg-violet-600/40 hover:bg-violet-600/60 px-3 py-1.5 rounded-lg transition-colors shrink-0"
           >
-            Show from setup →
+            {t("timeline.showFromSetup")}
           </button>
         </div>
       )}
@@ -668,46 +671,48 @@ export default function CheckpointTimeline() {
       <div className="min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto">
         {loading ? (
           <div className="p-8 text-center text-slate-400 animate-pulse">
-            Loading checkpoints...
+            {t("timeline.loading")}
           </div>
         ) : checkpoints.length === 0 && carrierAdjustments.length === 0 ? (
           <div className="p-8 text-center text-slate-400">
             <Clock size={48} className="mx-auto mb-4 opacity-50" />
             <p>
-              No checkpoints found for{" "}
-              {filters.date_from === filters.date_to
-                ? filters.date_from
-                : `${filters.date_from} – ${filters.date_to}`}
+              {t("timeline.noneFor", {
+                range:
+                  filters.date_from === filters.date_to
+                    ? filters.date_from
+                    : `${filters.date_from} – ${filters.date_to}`,
+              })}
             </p>
           </div>
         ) : (
           <DataTable
             columns={[
               {
-                header: "Time",
+                header: t("timeline.colTime"),
                 sortKey: "created_at",
                 width: "100px",
                 className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
               {
-                header: "Drawer",
+                header: t("timeline.colDrawer"),
                 sortKey: "drawer_name",
                 width: "140px",
                 className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
               {
-                header: "Counted",
+                header: t("timeline.colCounted"),
                 sortKey: "amount",
                 className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
               {
-                header: "User",
+                header: t("timeline.colUser"),
                 sortKey: "user_name",
                 width: "120px",
                 className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
               {
-                header: "Notes",
+                header: t("timeline.colNotes"),
                 sortKey: "notes",
                 className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
@@ -719,22 +724,22 @@ export default function CheckpointTimeline() {
             ]}
             data={displayedRows}
             loading={loading}
-            emptyMessage="No checkpoints found"
+            emptyMessage={t("timeline.empty")}
             exportExcel
             exportPdf
             exportFilename="checkpoints"
             exportDefaultColumns={[
-              "Time",
-              "Drawer",
-              "Counted",
-              "User",
-              "Notes",
+              t("timeline.colTime"),
+              t("timeline.colDrawer"),
+              t("timeline.colCounted"),
+              t("timeline.colUser"),
+              t("timeline.colNotes"),
             ]}
             showRowCount
             totalRowCount={timelineRows.length}
             defaultSortKey="created_at"
             defaultSortDirection="desc"
-            className="w-full text-left"
+            className="w-full text-start"
             theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
             getSortValue={(row, key) => {
               if (key === "created_at")
@@ -793,33 +798,42 @@ export default function CheckpointTimeline() {
             <div className="p-6 pb-4 border-b border-slate-700 space-y-2">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-lg font-semibold text-white">
-                  Checkpoint Details — {drawerLabel(viewCheckpoint.drawer_name)}
-                  {viewCheckpoint.drawer_name === ALL_DRAWERS &&
-                    " (all drawers)"}
+                  {t(
+                    viewCheckpoint.drawer_name === ALL_DRAWERS
+                      ? "details.titleAll"
+                      : "details.title",
+                    { drawer: drawerLabel(viewCheckpoint.drawer_name) },
+                  )}
                 </h2>
                 <button
                   onClick={() => setViewCheckpoint(null)}
                   className="p-1 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-                  aria-label="Close details"
+                  aria-label={t("details.closeAria")}
                 >
                   <X size={18} />
                 </button>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">Time</span>
+                <span className="text-slate-400">
+                  {t("timeline.colTime")}
+                </span>
                 <span className="text-white">
                   {formatFullDate(viewCheckpoint.created_at)} ·{" "}
                   {formatTime(viewCheckpoint.created_at)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">User</span>
+                <span className="text-slate-400">
+                  {t("timeline.colUser")}
+                </span>
                 <span className="text-white">{viewCheckpoint.user_name}</span>
               </div>
               {viewCheckpoint.notes && (
                 <div className="flex justify-between text-sm gap-4">
-                  <span className="text-slate-400">Notes</span>
-                  <span className="text-white italic text-right">
+                  <span className="text-slate-400">
+                    {t("timeline.colNotes")}
+                  </span>
+                  <span className="text-white italic text-end">
                     {viewCheckpoint.notes}
                   </span>
                 </div>
@@ -828,9 +842,11 @@ export default function CheckpointTimeline() {
             <div className="flex-1 min-h-0 overflow-y-auto p-6 pt-4">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs text-slate-400 uppercase tracking-wide">
-                  Amounts
+                  {t("details.amounts")}
                 </p>
-                <p className="text-[11px] text-slate-500">Expected → Counted</p>
+                <p className="text-[11px] text-slate-500">
+                  {t("details.expectedToCounted")}
+                </p>
               </div>
               {(() => {
                 // Every amount line, counted zeros included. Lines at 0 → 0
@@ -850,7 +866,7 @@ export default function CheckpointTimeline() {
                 if (entries.length === 0) {
                   return (
                     <p className="text-sm text-slate-500 italic">
-                      No amounts recorded
+                      {t("details.noAmounts")}
                     </p>
                   );
                 }
@@ -900,7 +916,7 @@ export default function CheckpointTimeline() {
                                   <span className="text-sm text-slate-500 truncate">
                                     {formatCurrencyAmount(expected, code)}
                                   </span>
-                                  <span className="text-slate-600">→</span>
+                                  <span className="inline-block text-slate-600 rtl:-scale-x-100">→</span>
                                   <span className="text-base text-white font-semibold truncate">
                                     {formatCurrencyAmount(amount, code)}
                                   </span>
@@ -909,7 +925,7 @@ export default function CheckpointTimeline() {
                                 {/* Variance badge */}
                                 {matched ? (
                                   <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                                    <Check className="w-3.5 h-3.5" /> Matched
+                                    <Check className="w-3.5 h-3.5" /> {t("details.matched")}
                                   </span>
                                 ) : (
                                   <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
@@ -937,10 +953,10 @@ export default function CheckpointTimeline() {
                 <div className="border-t border-slate-700 pt-4 mt-4">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-xs text-slate-400 uppercase tracking-wide">
-                      Carrier Lines
+                      {t("details.carrierLines")}
                     </p>
                     <p className="text-[11px] text-slate-500">
-                      Expected → Counted
+                      {t("details.expectedToCounted")}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -962,9 +978,9 @@ export default function CheckpointTimeline() {
                             <span className="text-xs font-bold text-slate-300 uppercase">
                               {line.carrier}
                             </span>
-                            <span className="text-xs text-slate-400 font-mono">
+                            <Ltr className="text-xs text-slate-400 font-mono">
                               {line.phone_number}
-                            </span>
+                            </Ltr>
                             {line.label && (
                               <span className="text-[11px] text-slate-500 truncate">
                                 {line.label}
@@ -974,7 +990,7 @@ export default function CheckpointTimeline() {
 
                           <div className="flex items-center gap-3">
                             <span className="flex-shrink-0 w-16 text-[11px] text-slate-500">
-                              Credits
+                              {t("card.credits")}
                             </span>
                             <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
                               <span className="text-sm text-slate-500 truncate">
@@ -983,7 +999,7 @@ export default function CheckpointTimeline() {
                                   "USD",
                                 )}
                               </span>
-                              <span className="text-slate-600">→</span>
+                              <span className="inline-block text-slate-600 rtl:-scale-x-100">→</span>
                               <span className="text-sm text-white font-semibold truncate">
                                 {formatCurrencyAmount(
                                   line.counted_credits,
@@ -993,7 +1009,7 @@ export default function CheckpointTimeline() {
                             </div>
                             {credits.status === "match" ? (
                               <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                                <Check className="w-3.5 h-3.5" /> Matched
+                                <Check className="w-3.5 h-3.5" /> {t("details.matched")}
                               </span>
                             ) : (
                               <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
@@ -1006,20 +1022,20 @@ export default function CheckpointTimeline() {
 
                           <div className="flex items-center gap-3">
                             <span className="flex-shrink-0 w-16 text-[11px] text-slate-500">
-                              Validity
+                              {t("card.validity")}
                             </span>
                             <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
                               <span className="text-sm text-slate-500 truncate">
-                                {line.expected_expires_at ?? "not set"}
+                                {line.expected_expires_at ?? t("details.notSet")}
                               </span>
-                              <span className="text-slate-600">→</span>
+                              <span className="inline-block text-slate-600 rtl:-scale-x-100">→</span>
                               <span className="text-sm text-white font-semibold truncate">
-                                {line.counted_expires_at ?? "not counted"}
+                                {line.counted_expires_at ?? t("details.notCounted")}
                               </span>
                             </div>
                             {validity.status === "match" ? (
                               <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-                                <Check className="w-3.5 h-3.5" /> Matched
+                                <Check className="w-3.5 h-3.5" /> {t("details.matched")}
                               </span>
                             ) : (
                               <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
@@ -1041,7 +1057,7 @@ export default function CheckpointTimeline() {
                 onClick={() => setViewCheckpoint(null)}
                 className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
               >
-                Close
+                {tc("actions.close")}
               </button>
             </div>
           </div>

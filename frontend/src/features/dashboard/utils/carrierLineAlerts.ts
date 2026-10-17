@@ -7,6 +7,7 @@
  * it at all, so it belongs here regardless.
  */
 
+import type { TFunction } from "i18next";
 import type { CarrierLineEntity } from "@liratek/ui";
 import { daysRemaining } from "@/shared/utils/daysRemaining";
 import { classifyLineValidity, LINE_REVIVAL_GRACE_DAYS } from "@liratek/core";
@@ -105,22 +106,40 @@ export function computeCarrierLineAlerts(
   return alerts;
 }
 
-export function carrierLineAlertText(alert: CarrierLineAlert): string {
+/**
+ * The banner text for one alert, in the displayed language. Takes `t` (no
+ * hooks here); the alert itself stays language-free data (`kind`, codes,
+ * numbers), so nothing ever compares a translated label.
+ */
+export function carrierLineAlertText(
+  alert: CarrierLineAlert,
+  t: TFunction<"dashboard">,
+): string {
+  const carrier = CARRIER_LABELS[alert.carrier];
   if (alert.kind === "missing") {
-    return `${CARRIER_LABELS[alert.carrier]} has no active line`;
+    return t("carrierLines.missing", { carrier });
   }
   if (alert.kind === "sold-ahead") {
     const deadline =
       alert.deadlineDays > 0
-        ? `recharge within ${alert.deadlineDays}d to deliver them`
-        : "recharge NOW to deliver them";
-    return `${CARRIER_LABELS[alert.carrier]} — ${alert.lineLabel} has ${alert.daysOwed} days sold ahead — ${deadline}`;
+        ? t("carrierLines.deadlineWithin", { n: alert.deadlineDays })
+        : t("carrierLines.deadlineNow");
+    return t("carrierLines.soldAhead", {
+      carrier,
+      line: alert.lineLabel,
+      n: alert.daysOwed,
+      deadline,
+    });
   }
   const status =
     alert.daysLeft < 0
-      ? `expired ${Math.abs(alert.daysLeft)}d ago`
+      ? t("carrierLines.expiredAgo", { n: Math.abs(alert.daysLeft) })
       : alert.daysLeft === 0
-        ? "expires today"
-        : `expires in ${alert.daysLeft}d`;
-  return `${CARRIER_LABELS[alert.carrier]} — ${alert.lineLabel} ${status}`;
+        ? t("carrierLines.expiresToday")
+        : t("carrierLines.expiresIn", { n: alert.daysLeft });
+  return t("carrierLines.expiring", {
+    carrier,
+    line: alert.lineLabel,
+    status,
+  });
 }

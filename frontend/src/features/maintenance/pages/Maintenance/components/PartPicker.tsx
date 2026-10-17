@@ -3,6 +3,7 @@ import { Search, Plus, Minus, Trash2 } from "lucide-react";
 import { DecimalInput, useApi } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
 import { PriceChangeWarning } from "@/shared/components/PriceChangeWarning";
+import { useTranslation } from "react-i18next";
 
 /**
  * A part line as edited by this component. `product_name` is display-only
@@ -31,6 +32,7 @@ export interface PartLine {
   catalog_price_usd?: number | null;
 }
 
+// i18n-exempt: inventory category name sent to getProducts as a filter
 const PARTS_CATEGORY = "Parts";
 
 interface PartPickerProps {
@@ -52,6 +54,7 @@ export default function PartPicker({
   disabled = false,
 }: PartPickerProps) {
   const api = useApi();
+  const { t } = useTranslation("maintenance");
   const [search, setSearch] = useState("");
   const [searchAllCategories, setSearchAllCategories] = useState(false);
   const [results, setResults] = useState<Product[]>([]);
@@ -129,7 +132,7 @@ export default function PartPicker({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-400">Parts</span>
+        <span className="text-xs text-slate-400">{t("parts.title")}</span>
         {!disabled && (
           <label className="flex items-center gap-1.5 text-[10px] text-slate-500 cursor-pointer">
             <input
@@ -138,7 +141,7 @@ export default function PartPicker({
               onChange={(e) => setSearchAllCategories(e.target.checked)}
               className="accent-violet-600"
             />
-            Search all categories
+            {t("parts.searchAll")}
           </label>
         )}
       </div>
@@ -146,7 +149,7 @@ export default function PartPicker({
       {!disabled && (
         <div className="relative">
           <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+            className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500"
             size={14}
           />
           <input
@@ -154,19 +157,21 @@ export default function PartPicker({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={
-              searchAllCategories ? "Search all products..." : "Search parts..."
+              searchAllCategories
+                ? t("parts.searchAllPlaceholder")
+                : t("parts.searchPlaceholder")
             }
-            className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-8 pr-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
+            className="w-full bg-slate-900 border border-slate-600 rounded-lg ps-8 pe-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
           />
           {search.trim() && (
             <div className="absolute z-20 mt-1 w-full max-h-48 overflow-auto bg-slate-800 border border-slate-600 rounded-lg shadow-xl custom-scrollbar">
               {loading ? (
                 <div className="px-3 py-2 text-xs text-slate-500">
-                  Searching...
+                  {t("parts.searching")}
                 </div>
               ) : results.length === 0 ? (
                 <div className="px-3 py-2 text-xs text-slate-500">
-                  No products found
+                  {t("parts.noProducts")}
                 </div>
               ) : (
                 results.map((product) => {
@@ -176,19 +181,21 @@ export default function PartPicker({
                       key={product.id}
                       type="button"
                       onClick={() => addPart(product)}
-                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-slate-700/70 border-b border-slate-700/40 last:border-0"
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-start hover:bg-slate-700/70 border-b border-slate-700/40 last:border-0"
                     >
                       <div className="min-w-0">
                         <div className="text-xs font-medium text-white truncate flex items-center gap-1.5">
                           {product.name}
                           {outOfStock && (
                             <span className="text-[9px] px-1 py-0.5 rounded bg-red-500/20 text-red-400 shrink-0">
-                              Out of stock
+                              {t("parts.outOfStock")}
                             </span>
                           )}
                         </div>
                         <div className="text-[10px] text-slate-500">
-                          Stock: {product.stock_quantity ?? 0}
+                          {t("parts.stock", {
+                            qty: product.stock_quantity ?? 0,
+                          })}
                         </div>
                       </div>
                       <span className="text-xs font-mono text-emerald-400 shrink-0">
@@ -242,7 +249,7 @@ export default function PartPicker({
                   </button>
                 </div>
                 <div className="relative w-20 shrink-0">
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">
+                  <span className="absolute start-2 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">
                     $
                   </span>
                   <DecimalInput
@@ -251,7 +258,7 @@ export default function PartPicker({
                     disabled={disabled}
                     decimals={2}
                     data-testid={`part-unit-price-${part.product_id}`}
-                    className="w-full bg-slate-800 border border-slate-600 rounded pl-4 pr-1.5 py-1 text-white text-xs font-mono focus:outline-none focus:border-orange-500 disabled:opacity-50"
+                    className="w-full bg-slate-800 border border-slate-600 rounded ps-4 pe-1.5 py-1 text-white text-xs font-mono focus:outline-none focus:border-orange-500 disabled:opacity-50"
                   />
                 </div>
                 {!disabled && (
@@ -259,7 +266,7 @@ export default function PartPicker({
                     type="button"
                     onClick={() => removeLine(index)}
                     className="p-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 shrink-0"
-                    title="Remove part"
+                    title={t("parts.remove")}
                   >
                     <Trash2 size={12} />
                   </button>

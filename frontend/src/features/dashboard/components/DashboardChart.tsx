@@ -8,6 +8,8 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { useTranslation } from "react-i18next";
+import { useLanguage } from "@/contexts/LanguageContext";
 // DC-5/DC-6 helpers live in a plain (non-component) module — see that
 // file's doc comment for why (LINT-1, round-2 verifier finding: a
 // component file cannot also export plain functions under
@@ -51,6 +53,10 @@ export default function DashboardChart({
   getSymbol: _getSymbol,
   formatAmount,
 }: DashboardChartProps) {
+  const { t } = useTranslation("dashboard");
+  // LIRA-331: a time axis reads right-to-left in Arabic (oldest day on the
+  // right, today on the left).
+  const { dir } = useLanguage();
   return (
     <ResponsiveContainer
       width="100%"
@@ -62,7 +68,12 @@ export default function DashboardChart({
         margin={{ top: 5, right: 16, left: 8, bottom: 5 }}
       >
         <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
-        <XAxis dataKey="date" tick={{ fill: "#94a3b8" }} fontSize={12} />
+        <XAxis
+          dataKey="date"
+          tick={{ fill: "#94a3b8" }}
+          fontSize={12}
+          reversed={dir === "rtl"}
+        />
         {chartType === "Sales" ? (
           <>
             <YAxis
@@ -140,7 +151,7 @@ export default function DashboardChart({
               yAxisId="left"
               type="monotone"
               dataKey="usd"
-              name="Product & Telecom Sales (USD)"
+              name={t("chart.seriesSalesUsd")}
               stroke="#34d399"
               strokeWidth={2}
             />
@@ -148,7 +159,7 @@ export default function DashboardChart({
               yAxisId="right"
               type="monotone"
               dataKey="lbp"
-              name="Product & Telecom Sales (LBP)"
+              name={t("chart.seriesSalesLbp")}
               stroke="#8b5cf6"
               strokeWidth={2}
             />
@@ -159,7 +170,7 @@ export default function DashboardChart({
               yAxisId="left"
               type="monotone"
               dataKey="profit"
-              name="Profit (USD)"
+              name={t("chart.seriesProfitUsd")}
               stroke="#34d399"
               strokeWidth={2}
             />
@@ -167,7 +178,7 @@ export default function DashboardChart({
               yAxisId="right"
               type="monotone"
               dataKey="lbp"
-              name="Profit (LBP)"
+              name={t("chart.seriesProfitLbp")}
               stroke="#8b5cf6"
               strokeWidth={2}
             />

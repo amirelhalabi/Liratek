@@ -110,7 +110,10 @@ describe("splitBasketCashSides", () => {
 });
 
 describe("splitBasketCashSides — systemPayoutUsd/systemPayoutLbp (owner decision #11-A)", () => {
-  const omtSystemReceive = (payout: number, currency: "USD" | "LBP"): Split => ({
+  const omtSystemReceive = (
+    payout: number,
+    currency: "USD" | "LBP",
+  ): Split => ({
     module: "omt_system",
     amount: -payout,
     currency,

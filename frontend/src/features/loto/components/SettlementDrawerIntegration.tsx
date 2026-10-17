@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { formatNumber } from "@liratek/ui/i18n/format";
 import { appEvents, useApi, Select } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import {
@@ -40,6 +42,8 @@ export function SettlementDrawerIntegration({
   onClose,
 }: SettlementDrawerIntegrationProps) {
   const api = useApi();
+  const { t } = useTranslation("loto");
+  const { t: tc } = useTranslation("common");
   const { methods } = usePaymentMethods();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,11 +86,11 @@ export function SettlementDrawerIntegration({
           : baseArgs,
       );
 
-      if (!result.success) throw new Error(result.error ?? "Settlement failed");
+      if (!result.success) throw new Error(result.error ?? t("drawerSettle.failed"));
 
       appEvents.emit(
         "notification:show",
-        "Loto settlement completed successfully",
+        t("drawerSettle.completedToast"),
         "success",
       );
       setSuccess(true);
@@ -95,7 +99,7 @@ export function SettlementDrawerIntegration({
       }, 1500);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to complete settlement",
+        err instanceof Error ? err.message : t("settle.failedComplete"),
       );
     } finally {
       setIsProcessing(false);
@@ -111,10 +115,10 @@ export function SettlementDrawerIntegration({
               <CheckCircle className="w-8 h-8 text-green-500" />
               <div>
                 <h3 className="text-xl font-bold text-white">
-                  Settlement Complete!
+                  {t("drawerSettle.completeTitle")}
                 </h3>
                 <p className="text-slate-300 mt-2">
-                  All checkpoints have been settled and drawer balances updated.
+                  {t("drawerSettle.completeBody")}
                 </p>
               </div>
             </div>
@@ -131,7 +135,7 @@ export function SettlementDrawerIntegration({
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
               <Wallet className="w-5 h-5 text-blue-500" />
-              Loto Settlement - Drawer Integration
+              {t("drawerSettle.title")}
             </h3>
             <button
               onClick={onClose}
@@ -146,7 +150,7 @@ export function SettlementDrawerIntegration({
             <div className="bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-lg mb-6 flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
               <div>
-                <strong>Error:</strong> {error}
+                <strong>{t("settle.errorLabel")}</strong> {error}
               </div>
             </div>
           )}
@@ -154,34 +158,34 @@ export function SettlementDrawerIntegration({
           {/* Settlement Summary */}
           <div className="bg-slate-900 rounded-lg p-4 border border-slate-700 mb-6">
             <h4 className="text-lg font-semibold text-white mb-4">
-              Settlement Summary
+              {t("drawerSettle.summary")}
             </h4>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
                 <div className="flex items-center gap-2">
                   <TrendingDown className="w-5 h-5 text-red-400" />
-                  <span className="text-slate-300">Amount We Owe</span>
+                  <span className="text-slate-300">{t("drawerSettle.weOwe")}</span>
                 </div>
                 <span className="text-lg font-bold text-red-400">
-                  {claimedTotalSales.toLocaleString()} LBP
+                  {formatNumber(claimedTotalSales)} LBP
                 </span>
               </div>
 
               <div className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-green-400" />
-                  <span className="text-slate-300">Commission We Earn</span>
+                  <span className="text-slate-300">{t("drawerSettle.weEarn")}</span>
                 </div>
                 <span className="text-lg font-bold text-green-400">
-                  {claimedTotalCommission.toLocaleString()} LBP
+                  {formatNumber(claimedTotalCommission)} LBP
                 </span>
               </div>
             </div>
 
             <div className="border-t border-slate-700 pt-4 mt-4">
               <div className="flex justify-between items-center">
-                <span className="text-lg text-slate-300">Net Settlement</span>
+                <span className="text-lg text-slate-300">{t("drawerSettle.net")}</span>
                 <span
                   className={`text-2xl font-bold ${
                     claimedNetSettlement >= 0
@@ -190,13 +194,13 @@ export function SettlementDrawerIntegration({
                   }`}
                 >
                   {claimedNetSettlement >= 0 ? "+" : ""}
-                  {claimedNetSettlement.toLocaleString()} LBP
+                  {formatNumber(claimedNetSettlement)} LBP
                 </span>
               </div>
               <p className="text-sm text-slate-400 mt-2 text-center">
                 {weOweSupplier
-                  ? "We owe this amount to the Loto guy"
-                  : "The Loto guy owes us this amount (our commission)"}
+                  ? t("drawerSettle.weOweHint")
+                  : t("drawerSettle.theyOweHint")}
               </p>
             </div>
           </div>
@@ -204,12 +208,12 @@ export function SettlementDrawerIntegration({
           {/* Drawer Selection */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Payment Method & Drawer
+              {t("drawerSettle.methodAndDrawer")}
             </label>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-slate-400 mb-1">
-                  Payment Method
+                  {t("drawerSettle.method")}
                 </label>
                 <Select
                   value={paymentMethod}
@@ -224,15 +228,15 @@ export function SettlementDrawerIntegration({
               </div>
               <div>
                 <label className="block text-xs text-slate-400 mb-1">
-                  Drawer
+                  {t("drawerSettle.drawer")}
                 </label>
                 <Select
                   value={drawerName}
                   onChange={(v) => setDrawerName(v)}
                   options={[
-                    { value: "Loto", label: "Loto Drawer" },
-                    { value: "General", label: "General Drawer" },
-                    { value: "OMT_System", label: "OMT System" },
+                    { value: "Loto", label: t("drawerSettle.drawerLoto") },
+                    { value: "General", label: t("drawerSettle.drawerGeneral") },
+                    { value: "OMT_System", label: t("drawerSettle.drawerOmt") },
                   ]}
                   buttonClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={isProcessing}
@@ -248,7 +252,7 @@ export function SettlementDrawerIntegration({
               disabled={isProcessing}
               className="flex-1 py-3 px-4 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 text-white rounded-lg transition-colors"
             >
-              Cancel
+              {tc("actions.cancel")}
             </button>
             <button
               onClick={handleSettlement}
@@ -258,12 +262,12 @@ export function SettlementDrawerIntegration({
               {isProcessing ? (
                 <span className="flex items-center gap-2">
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Processing...
+                  {t("settle.processing")}
                 </span>
               ) : (
                 <span className="flex items-center gap-2">
                   <CheckCircle className="w-5 h-5" />
-                  <span>Complete Settlement</span>
+                  <span>{t("drawerSettle.complete")}</span>
                 </span>
               )}
             </button>

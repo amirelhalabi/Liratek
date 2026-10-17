@@ -100,7 +100,10 @@ jest.mock("@liratek/ui", () => ({
           onClick={() =>
             (
               props.onWaiveRemaining as
-                | ((a: number, m: Array<{ currency: string; amount: number }>) => void)
+                | ((
+                    a: number,
+                    m: Array<{ currency: string; amount: number }>,
+                  ) => void)
                 | undefined
             )?.(3, [{ currency: "USD", amount: 3 }])
           }
@@ -176,9 +179,9 @@ describe("SessionCheckoutModal — Waive (LIRA-310)", () => {
     fireEvent.click(screen.getByTestId("tender-17"));
     expect(confirmButton()).toBeDisabled();
     fireEvent.click(screen.getByTestId("waive"));
-    expect(JSON.parse(screen.getByTestId("mpi-totals").textContent ?? "[]")).toEqual([
-      { amount: 17, currency: "USD" },
-    ]);
+    expect(
+      JSON.parse(screen.getByTestId("mpi-totals").textContent ?? "[]"),
+    ).toEqual([{ amount: 17, currency: "USD" }]);
     expect(confirmButton()).not.toBeDisabled();
   });
 
@@ -200,9 +203,9 @@ describe("SessionCheckoutModal — Waive (LIRA-310)", () => {
     // The customer finds another dollar: the gap is now $2, not the $3
     // waived — the waive is dropped and the full total is due again.
     fireEvent.click(screen.getByTestId("tender-18"));
-    expect(JSON.parse(screen.getByTestId("mpi-totals").textContent ?? "[]")).toEqual([
-      { amount: 20, currency: "USD" },
-    ]);
+    expect(
+      JSON.parse(screen.getByTestId("mpi-totals").textContent ?? "[]"),
+    ).toEqual([{ amount: 20, currency: "USD" }]);
     expect(confirmButton()).toBeDisabled();
   });
 
