@@ -16,10 +16,7 @@ import { verifyUserEmail } from "@/api/backendApi";
 import { messageFrom } from "@/api/apiError";
 import { useTheme } from "@/contexts/ThemeContext";
 import logger from "@/utils/logger";
-
-const INVALID_FALLBACK =
-  "This link is not valid. Ask for a new verification email.";
-const UNREACHABLE = "Could not reach the server. Please try again.";
+import { useTranslation } from "react-i18next";
 
 type State =
   | { kind: "loading" }
@@ -27,6 +24,9 @@ type State =
   | { kind: "invalid"; message: string };
 
 export default function VerifyEmail() {
+  const { t } = useTranslation("auth");
+  const INVALID_FALLBACK = t("verify.invalid");
+  const UNREACHABLE = t("shared.unreachable");
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [searchParams] = useSearchParams();
@@ -48,14 +48,17 @@ export default function VerifyEmail() {
         setState(
           res.success
             ? { kind: "verified" }
-            : { kind: "invalid", message: messageFrom(res.error, INVALID_FALLBACK) },
+            : {
+                kind: "invalid",
+                message: messageFrom(res.error, INVALID_FALLBACK),
+              },
         );
       })
       .catch((err: unknown) => {
         logger.error("Email verification failed:", err);
         setState({ kind: "invalid", message: messageFrom(err, UNREACHABLE) });
       });
-  }, [token]);
+  }, [token, INVALID_FALLBACK, UNREACHABLE]);
 
   const pageClass = clsx(
     "min-h-screen flex items-center justify-center p-6",
@@ -69,12 +72,15 @@ export default function VerifyEmail() {
     "text-2xl font-bold mb-2",
     dark ? "text-white" : "text-gray-900",
   );
-  const subtleClass = clsx("text-sm", dark ? "text-slate-400" : "text-gray-600");
+  const subtleClass = clsx(
+    "text-sm",
+    dark ? "text-slate-400" : "text-gray-600",
+  );
 
   const signIn = (
     <p className={clsx("mt-4", subtleClass)}>
       <Link to="/login" className="text-orange-500 hover:text-orange-400">
-        Go to sign in
+        {t("shared.goToSignIn")}
       </Link>
     </p>
   );
@@ -83,7 +89,7 @@ export default function VerifyEmail() {
     return (
       <div className={pageClass}>
         <div className={cardClass}>
-          <p className={subtleClass}>Confirming your email...</p>
+          <p className={subtleClass}>{t("verify.confirming")}</p>
         </div>
       </div>
     );
@@ -94,11 +100,8 @@ export default function VerifyEmail() {
       <div className={pageClass}>
         <div className={cardClass}>
           <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
-          <h1 className={headingClass}>Email confirmed</h1>
-          <p className={subtleClass}>
-            Thank you. This email address is now confirmed on your LiraTek
-            account.
-          </p>
+          <h1 className={headingClass}>{t("verify.confirmed")}</h1>
+          <p className={subtleClass}>{t("verify.thanks")}</p>
           {signIn}
         </div>
       </div>
@@ -108,10 +111,10 @@ export default function VerifyEmail() {
   return (
     <div className={pageClass}>
       <div className={cardClass}>
-        <h1 className={headingClass}>Confirm your email</h1>
+        <h1 className={headingClass}>{t("verify.title")}</h1>
         <div
           role="alert"
-          className="mt-2 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-500 text-left"
+          className="mt-2 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-500 text-start"
         >
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>{state.message}</span>

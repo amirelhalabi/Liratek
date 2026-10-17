@@ -34,8 +34,7 @@ import { messageFrom } from "@/api/apiError";
 import PasswordInput from "@/shared/components/PasswordInput";
 import { useTheme } from "@/contexts/ThemeContext";
 import logger from "@/utils/logger";
-
-const UNREACHABLE = "Could not reach the server. Please try again.";
+import { useTranslation } from "react-i18next";
 
 type Entry =
   | { kind: "loading" }
@@ -43,6 +42,9 @@ type Entry =
   | { kind: "invalid"; message: string };
 
 export default function ResetPassword() {
+  const { t } = useTranslation("auth");
+  const { t: tc } = useTranslation("common");
+  const UNREACHABLE = t("shared.unreachable");
   const { theme } = useTheme();
   const dark = theme === "dark";
   const desktop = isElectron();
@@ -85,7 +87,7 @@ export default function ResetPassword() {
         logger.error("Reset link check failed:", err);
         setEntry({ kind: "invalid", message: messageFrom(err, UNREACHABLE) });
       });
-  }, [desktop, token]);
+  }, [desktop, token, UNREACHABLE]);
 
   const policy = validatePasswordComplexity(password);
   const mismatch = confirm.length > 0 && confirm !== password;
@@ -162,11 +164,8 @@ export default function ResetPassword() {
     return (
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
-          <h1 className={clsx(headingClass, "mb-2")}>Reset password</h1>
-          <p className={subtleClass}>
-            Reset links work in the web app only. Ask your shop admin to set a
-            new password in Settings → Users.
-          </p>
+          <h1 className={clsx(headingClass, "mb-2")}>{t("reset.title")}</h1>
+          <p className={subtleClass}>{t("reset.desktopOnly")}</p>
         </div>
       </div>
     );
@@ -177,11 +176,10 @@ export default function ResetPassword() {
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
           <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
-          <h1 className={clsx(headingClass, "mb-2")}>Password changed</h1>
-          <p className={clsx(subtleClass, "mb-6")}>
-            Your password has been changed. Every device that was signed in to
-            this account has been signed out.
-          </p>
+          <h1 className={clsx(headingClass, "mb-2")}>
+            {t("reset.changedTitle")}
+          </h1>
+          <p className={clsx(subtleClass, "mb-6")}>{t("reset.changedBody")}</p>
           {/* The shop's own address when the server knows it: a full page
               load to that origin, not a router link. */}
           {done.loginUrl ? (
@@ -189,14 +187,14 @@ export default function ResetPassword() {
               href={`${done.loginUrl}/#/login`}
               className="block w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors text-center"
             >
-              Go to sign in
+              {t("shared.goToSignIn")}
             </a>
           ) : (
             <Link
               to="/login"
               className="block w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg transition-colors text-center"
             >
-              Go to sign in
+              {t("shared.goToSignIn")}
             </Link>
           )}
         </div>
@@ -208,7 +206,7 @@ export default function ResetPassword() {
     return (
       <div className={pageClass}>
         <div className={clsx(cardClass, "text-center")}>
-          <p className={subtleClass}>Loading...</p>
+          <p className={subtleClass}>{tc("state.loading")}</p>
         </div>
       </div>
     );
@@ -218,14 +216,14 @@ export default function ResetPassword() {
     return (
       <div className={pageClass}>
         <div className={cardClass}>
-          <h1 className={clsx(headingClass, "mb-4")}>Reset password</h1>
+          <h1 className={clsx(headingClass, "mb-4")}>{t("reset.title")}</h1>
           {errorBox(entry.message)}
           <p className={clsx("mt-4 text-center", subtleClass)}>
             <Link
               to="/forgot-password"
               className="text-orange-500 hover:text-orange-400"
             >
-              Ask for a new link
+              {t("reset.askNewLink")}
             </Link>
           </p>
         </div>
@@ -238,12 +236,13 @@ export default function ResetPassword() {
       <form onSubmit={handleSubmit} className={cardClass}>
         <h1 className={clsx(headingClass, "mb-1")}>
           {entry.target.hasPassword === false
-            ? "Set a password"
-            : "Choose a new password"}
+            ? t("reset.setPassword")
+            : t("reset.chooseNew")}
         </h1>
         <p className={clsx(subtleClass, "mb-6")}>
-          For <strong>{entry.target.username}</strong> at{" "}
-          <strong>{entry.target.shopName}</strong>.
+          {t("reset.for")} <strong>{entry.target.username}</strong>{" "}
+          {t("reset.at")} <strong>{entry.target.shopName}</strong>
+          {t("reset.end")}
         </p>
 
         {error && errorBox(error)}
@@ -251,7 +250,7 @@ export default function ResetPassword() {
         <div className="space-y-4">
           <div>
             <PasswordInput
-              label="New password *"
+              label={t("reset.newPassword")}
               id="new-password"
               name="new-password"
               testId="reset-password"
@@ -264,22 +263,20 @@ export default function ResetPassword() {
               required
             />
             {password.length > 0 && !policy.valid ? (
-              <ul className={clsx(hintClass, "list-disc pl-4")}>
+              <ul className={clsx(hintClass, "list-disc ps-4")}>
                 {policy.errors.map((message) => (
                   <li key={message}>{message}</li>
                 ))}
               </ul>
             ) : (
               <p className={hintClass}>
-                At least {PASSWORD_REQUIREMENTS.minLength} characters, with an
-                uppercase letter, a lowercase letter, a number and a symbol (for
-                example - _ . @ ! #).
+                {t("reset.rule", { min: PASSWORD_REQUIREMENTS.minLength })}
               </p>
             )}
           </div>
           <div>
             <PasswordInput
-              label="Confirm new password *"
+              label={t("reset.confirmPassword")}
               id="confirm-password"
               name="confirm-password"
               testId="reset-confirm"
@@ -292,9 +289,7 @@ export default function ResetPassword() {
               required
             />
             {mismatch && (
-              <p className="mt-1 text-xs text-red-500">
-                The passwords do not match.
-              </p>
+              <p className="mt-1 text-xs text-red-500">{t("reset.mismatch")}</p>
             )}
           </div>
         </div>
@@ -309,7 +304,7 @@ export default function ResetPassword() {
               : "bg-slate-600 cursor-not-allowed opacity-70",
           )}
         >
-          {saving ? "Saving..." : "Set new password"}
+          {saving ? tc("state.saving") : t("reset.submit")}
         </button>
       </form>
     </div>
