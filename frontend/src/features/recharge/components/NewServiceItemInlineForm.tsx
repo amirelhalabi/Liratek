@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
 import { DecimalInput } from "@liratek/ui";
 import type { NewServiceItemForm } from "../utils/catalogNames";
 
@@ -105,9 +106,18 @@ export function NewServiceItemInlineForm({
             {t("newItem.order")}
           </label>
           <input
-            type="number"
+            type="text"
+            inputMode="numeric"
             value={form.sort_order}
-            onChange={(e) => onChange({ ...form, sort_order: e.target.value })}
+            onChange={(e) =>
+              onChange({
+                ...form,
+                sort_order: normalizeDigits(e.target.value).replace(
+                  /[^0-9-]/g,
+                  "",
+                ),
+              })
+            }
             className={INPUT_CLASS}
           />
         </div>

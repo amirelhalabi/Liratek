@@ -479,6 +479,7 @@ const ItemCard = memo(function ItemCard({
         {selfChargeEligible && (
           <button
             type="button"
+            data-testid="katsh-self-charge"
             onClick={() => onSelfCharge(item)}
             disabled={!selfChargeTargetLine}
             title={
@@ -524,18 +525,13 @@ const ItemCard = memo(function ItemCard({
                     <span className="text-xs text-slate-400 whitespace-nowrap">
                       {t("katsh.credits")}
                     </span>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      max={parseFloat(item.label) || 0}
+                    <DecimalInput
+                      data-testid="katsh-onlydays-credits"
+                      aria-label={t("katsh.credits")}
                       value={returnedCreditsUsd}
-                      onChange={(e) =>
-                        onReturnedCreditsChange(
-                          item,
-                          parseFloat(e.target.value) || 0,
-                        )
-                      }
+                      onChange={(n) => onReturnedCreditsChange(item, n)}
+                      decimals={2}
+                      zeroAsEmpty={false}
                       className={`w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none ${brand.focusBorder}`}
                     />
                   </div>
@@ -2796,6 +2792,7 @@ function KatshFormInner({
                 <div className="flex gap-2 pt-2">
                   <button
                     type="button"
+                    data-testid="katsh-self-charge-confirm"
                     onClick={handleConfirmSelfCharge}
                     disabled={
                       selfChargeSubmitting ||

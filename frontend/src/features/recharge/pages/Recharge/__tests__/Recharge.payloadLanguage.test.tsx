@@ -11,6 +11,11 @@
  * build their own payloads (Katsh / iPick, OMT App / Whish App, For Partner)
  * are walked in components/__tests__/recharge.payloadLanguage.test.tsx.
  *
+ * Also walked (added with the conversion, T051/T052): the four Top-Up
+ * confirm handlers (drawer transfer, supplier credit, partner, client) and
+ * the OMT App "Cash Out to OMT" handler, with the TopUpModal and cash-out
+ * modal stubbed to hand the page fixed data.
+ *
  * Every selector is a data-testid on the stubs, so the test drives the page
  * identically in both languages.
  *
@@ -37,6 +42,11 @@ const mockAddOMTTransaction = jest
   .fn()
   .mockResolvedValue({ success: true, id: 2 });
 const mockAddToCart = jest.fn();
+const mockTopUpApp = jest.fn().mockResolvedValue({ success: true });
+const mockTopUpFromSupplier = jest.fn().mockResolvedValue({ success: true });
+const mockTopUpFromPartner = jest.fn().mockResolvedValue({ success: true });
+const mockTopUpFromClient = jest.fn().mockResolvedValue({ success: true });
+const mockCashoutToSupplier = jest.fn().mockResolvedValue({ success: true });
 const mockGetAllSettings = jest.fn().mockResolvedValue([]);
 
 // One stable api object (rule 25).
@@ -50,6 +60,12 @@ const mockApi = {
   getClients: jest.fn().mockResolvedValue([]),
   processRecharge: mockProcessRecharge,
   addOMTTransaction: mockAddOMTTransaction,
+  topUpApp: mockTopUpApp,
+  topUpFromSupplier: mockTopUpFromSupplier,
+  topUpFromPartner: mockTopUpFromPartner,
+  topUpFromClient: mockTopUpFromClient,
+  cashoutToSupplier: mockCashoutToSupplier,
+  getRechargeDrawerBalances: jest.fn().mockResolvedValue([]),
   getActiveCarrierLines: jest.fn().mockResolvedValue([]),
   getRechargeHistory: jest.fn().mockResolvedValue([]),
   getRechargeTodayStats: jest.fn().mockResolvedValue({
@@ -60,9 +76,78 @@ const mockApi = {
   }),
 };
 
+type TopUpStubProps = {
+  isOpen: boolean;
+  onConfirm: (d: {
+    amount: number;
+    currency: "USD" | "LBP";
+    sourceDrawer: string;
+  }) => Promise<void>;
+  onConfirmSupplier?: (d: {
+    amount: number;
+    currency: "USD" | "LBP";
+  }) => Promise<void>;
+  onConfirmPartner?: (d: {
+    partnerId: number;
+    amount: number;
+    currency: "USD" | "LBP";
+  }) => Promise<void>;
+  onConfirmClient?: (d: {
+    amount: number;
+    currency: "USD" | "LBP";
+    fee: number;
+    payments: { method: string; currencyCode: string; amount: number }[];
+    clientId: number;
+  }) => Promise<void>;
+};
+
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
   useApi: () => mockApi,
+  // Hands the page the same fixed data in both languages.
+  TopUpModal: (p: TopUpStubProps) =>
+    p.isOpen ? (
+      <div>
+        <button
+          data-testid="stub-topup-drawer"
+          onClick={() =>
+            void p.onConfirm({
+              amount: 100,
+              currency: "USD",
+              sourceDrawer: "General",
+            })
+          }
+        />
+        <button
+          data-testid="stub-topup-supplier"
+          onClick={() =>
+            void p.onConfirmSupplier?.({ amount: 50, currency: "USD" })
+          }
+        />
+        <button
+          data-testid="stub-topup-partner"
+          onClick={() =>
+            void p.onConfirmPartner?.({
+              partnerId: 7,
+              amount: 2_000_000,
+              currency: "LBP",
+            })
+          }
+        />
+        <button
+          data-testid="stub-topup-client"
+          onClick={() =>
+            void p.onConfirmClient?.({
+              amount: 20,
+              currency: "USD",
+              fee: 1,
+              payments: [{ method: "CASH", currencyCode: "USD", amount: 19 }],
+              clientId: 7,
+            })
+          }
+        />
+      </div>
+    ) : null,
 }));
 
 (globalThis as unknown as { window: { api: unknown } }).window = {
@@ -116,7 +201,16 @@ jest.mock("../../../components", () => ({
   FinancialForm: () => null,
   KatshForm: () => null,
   OmtWhishAppTransferForm: () => null,
-  OmtAppCashoutModal: () => null,
+  OmtAppCashoutModal: (p: {
+    isOpen: boolean;
+    onConfirm: (d: { amount: number; currency: "USD" | "LBP" }) => void;
+  }) =>
+    p.isOpen ? (
+      <button
+        data-testid="stub-cashout-confirm"
+        onClick={() => p.onConfirm({ amount: 1_500_000, currency: "LBP" })}
+      />
+    ) : null,
   ProviderTabs: ({
     onSelectProvider,
   }: {
@@ -128,6 +222,18 @@ jest.mock("../../../components", () => ({
       <button
         data-testid="tab-BINANCE"
         onClick={() => onSelectProvider("BINANCE")}
+      />
+      <button
+        data-testid="tab-OMT_APP"
+        onClick={() => onSelectProvider("OMT_APP")}
+      />
+      <button
+        data-testid="tab-WHISH_APP"
+        onClick={() => onSelectProvider("WHISH_APP")}
+      />
+      <button
+        data-testid="tab-Katsh"
+        onClick={() => onSelectProvider("Katsh")}
       />
     </div>
   ),
@@ -288,44 +394,48 @@ jest.mock("@/utils/logger", () => ({
 // The page alerts on a refusal; a scenario that alerts is a broken scenario.
 const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
 
-type Captured = {
-  processRecharge: unknown[];
-  addOMTTransaction: unknown[];
-  addToCart: unknown[];
+const CALLS = {
+  processRecharge: mockProcessRecharge,
+  addOMTTransaction: mockAddOMTTransaction,
+  addToCart: mockAddToCart,
+  topUpApp: mockTopUpApp,
+  topUpFromSupplier: mockTopUpFromSupplier,
+  topUpFromPartner: mockTopUpFromPartner,
+  topUpFromClient: mockTopUpFromClient,
+  cashoutToSupplier: mockCashoutToSupplier,
 };
+type CallName = keyof typeof CALLS;
+type Tab = "MTC" | "Alfa" | "BINANCE" | "OMT_APP" | "WHISH_APP" | "Katsh";
+type Captured = Record<CallName, unknown[]>;
 
 /** The clock is pinned so `client_day` and any time-derived value agree. */
 const NOW = new Date("2026-10-17T10:00:00");
 
 async function runScenario(
-  tab: "MTC" | "Alfa" | "BINANCE",
+  tab: Tab,
   steps: string[],
-  expectCall: "processRecharge" | "addOMTTransaction" | "addToCart",
+  expectCall: CallName,
 ): Promise<Captured> {
-  mockProcessRecharge.mockClear();
-  mockAddOMTTransaction.mockClear();
-  mockAddToCart.mockClear();
+  for (const m of Object.values(CALLS)) m.mockClear();
 
   render(<MobileRecharge />);
   await waitFor(() => expect(mockGetAllSettings).toHaveBeenCalled());
   fireEvent.click(screen.getByTestId(`tab-${tab}`));
   await screen.findByTestId(
-    tab === "BINANCE" ? "stub-crypto-form" : "stub-telecom-form",
+    tab === "BINANCE"
+      ? "stub-crypto-form"
+      : tab === "MTC" || tab === "Alfa"
+        ? "stub-telecom-form"
+        : "recharge-topup-button",
   );
-  for (const id of steps) fireEvent.click(screen.getByTestId(id));
+  // A step may only appear after the previous one (a modal opening).
+  for (const id of steps) fireEvent.click(await screen.findByTestId(id));
 
-  const target = {
-    processRecharge: mockProcessRecharge,
-    addOMTTransaction: mockAddOMTTransaction,
-    addToCart: mockAddToCart,
-  }[expectCall];
-  await waitFor(() => expect(target).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(CALLS[expectCall]).toHaveBeenCalledTimes(1));
 
-  const captured: Captured = {
-    processRecharge: mockProcessRecharge.mock.calls.map((c) => c[0]),
-    addOMTTransaction: mockAddOMTTransaction.mock.calls.map((c) => c[0]),
-    addToCart: mockAddToCart.mock.calls.map((c) => c[0]),
-  };
+  const captured = Object.fromEntries(
+    Object.entries(CALLS).map(([k, m]) => [k, m.mock.calls.map((c) => c[0])]),
+  ) as Captured;
   cleanup();
   return captured;
 }
@@ -356,10 +466,10 @@ afterEach(async () => {
 
 const SCENARIOS: {
   name: string;
-  tab: "MTC" | "Alfa" | "BINANCE";
+  tab: Tab;
   session: boolean;
   steps: string[];
-  call: "processRecharge" | "addOMTTransaction" | "addToCart";
+  call: CallName;
 }[] = [
   {
     name: "MTC credit, walk-in, USD paid with LBP change, discount + extra",
@@ -423,6 +533,41 @@ const SCENARIOS: {
     session: true,
     steps: ["crypto-send", "crypto-confirm"],
     call: "addToCart",
+  },
+  {
+    name: "Katsh top-up from a drawer",
+    tab: "Katsh",
+    session: false,
+    steps: ["recharge-topup-button", "stub-topup-drawer"],
+    call: "topUpApp",
+  },
+  {
+    name: "OMT App top-up on OMT credit (supplier)",
+    tab: "OMT_APP",
+    session: false,
+    steps: ["recharge-topup-button", "stub-topup-supplier"],
+    call: "topUpFromSupplier",
+  },
+  {
+    name: "Whish App top-up from a partner",
+    tab: "WHISH_APP",
+    session: false,
+    steps: ["recharge-topup-button", "stub-topup-partner"],
+    call: "topUpFromPartner",
+  },
+  {
+    name: "Whish App top-up bought from a client",
+    tab: "WHISH_APP",
+    session: false,
+    steps: ["recharge-topup-button", "stub-topup-client"],
+    call: "topUpFromClient",
+  },
+  {
+    name: "OMT App cash-out to OMT",
+    tab: "OMT_APP",
+    session: false,
+    steps: ["omt-app-cashout-button", "stub-cashout-confirm"],
+    call: "cashoutToSupplier",
   },
 ];
 

@@ -2105,6 +2105,7 @@ export default function MobileRecharge() {
                 activeConfig.key === "iPick" ||
                 activeConfig.key === "Katsh") && (
                 <ExpandingIconButton
+                  data-testid="recharge-topup-button"
                   icon={CirclePlus}
                   label={t("page.topUp")}
                   onClick={handleTopUpClick}

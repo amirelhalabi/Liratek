@@ -328,7 +328,7 @@ describe("KatshForm gross-cost B1/B2 (LIRA-090)", () => {
     await enableOnlyDays();
 
     // Simulate operator changing the credits field to 70
-    const creditsInput = screen.getByRole("spinbutton");
+    const creditsInput = screen.getByTestId("katsh-onlydays-credits");
     fireEvent.change(creditsInput, { target: { value: "70" } });
 
     await openSheet();
@@ -353,7 +353,7 @@ describe("KatshForm gross-cost B1/B2 (LIRA-090)", () => {
     await addItemToCart("50");
     await enableOnlyDays();
 
-    const creditsInput = screen.getByRole("spinbutton");
+    const creditsInput = screen.getByTestId("katsh-onlydays-credits");
     fireEvent.change(creditsInput, { target: { value: "45" } });
 
     await openSheet();

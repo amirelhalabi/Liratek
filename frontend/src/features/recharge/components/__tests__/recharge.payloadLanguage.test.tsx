@@ -17,7 +17,9 @@
  *  - added with the conversion (T052): Whish App bills in USD mode and in a
  *    session, Katsh BILL walk-in and in a session, OMT App receive, Whish App
  *    send walk-in, Whish App receive For Partner, the wallet exchange
- *    (WalletExchangePanel) and the OMT App cash-out modal.
+ *    (WalletExchangePanel), the OMT App cash-out modal, the shop-line
+ *    self-charge (KatshForm), Binance cash-out For Partner, OMT App / Whish
+ *    App receive in a session, and iPick BILL walk-in.
  *
  * Selectors never depend on the language: data-testids, element ids, the
  * catalog items' own labels (data), and a ServiceTypeTabs stub keyed by the
@@ -72,6 +74,12 @@ const mockWalletExchangeCreate = jest
   .fn()
   .mockResolvedValue({ success: true, amountOut: 8_950_000 });
 const mockCashoutConfirm = jest.fn().mockResolvedValue(undefined);
+const mockSelfChargeTelecomItem = jest.fn().mockResolvedValue({
+  success: true,
+  data: { costLbp: 3_000_000, creditsAdded: 30, validityDaysAdded: 365 },
+});
+/** The shop's primary MTC line; only the self-charge scenario sets one. */
+const mockPrimary: { mtc: Record<string, unknown> | null } = { mtc: null };
 
 const mockApi = {
   addOMTTransaction: mockAddOMTTransaction,
@@ -83,9 +91,11 @@ const mockApi = {
   getActiveCarrierLines: jest.fn().mockResolvedValue([]),
   getClients: jest.fn().mockResolvedValue([]),
   getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
-  getPrimaryCarrierLine: jest
-    .fn()
-    .mockResolvedValue({ success: true, data: null }),
+  getPrimaryCarrierLine: jest.fn(async (carrier: string) => ({
+    success: true,
+    data: carrier === "mtc" ? mockPrimary.mtc : null,
+  })),
+  selfChargeTelecomItem: mockSelfChargeTelecomItem,
   createMobileServiceItem: jest.fn().mockResolvedValue({ success: true }),
   getPendingCarrierLineOwedDeliveries: jest
     .fn()
@@ -424,13 +434,13 @@ function TelecomPage() {
   );
 }
 
-function CryptoPage() {
+function CryptoPage({ type = "SEND" }: { type?: "SEND" | "RECEIVE" } = {}) {
   const config = PROVIDER_CONFIGS.find((c) => c.key === "BINANCE");
   if (!config) throw new Error("BINANCE provider config missing");
   return (
     <CryptoForm
       activeConfig={config}
-      cryptoType="SEND"
+      cryptoType={type}
       setCryptoType={noop}
       cryptoAmount="100"
       setCryptoAmount={noop}
@@ -464,6 +474,59 @@ function CryptoPage() {
   );
 }
 
+const SHOP_MTC_LINE = {
+  id: 1,
+  carrier: "mtc",
+  phone_number: "03999999",
+  label: "Shop MTC",
+  credits: 100,
+  validity_expires_at: "2026-12-31",
+  days_owed: 0,
+  is_primary: 1,
+  is_active: 1,
+};
+const MTC_CARD: ServiceItem = {
+  id: 11,
+  key: "iPick/mtc/Prepaid/365",
+  provider: "iPick",
+  category: "mtc",
+  subcategory: "Prepaid",
+  label: "365",
+  catalogCost: 3_000_000,
+  catalogSellPrice: 3_400_000,
+  sortOrder: 0,
+  validityDays: 365,
+  credits: 30,
+};
+
+/** iPick with one MTC card the shop can charge to its own line. */
+function SelfChargePage() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return (
+    <QueryClientProvider client={queryClient}>
+      <RechargeBasketProvider>
+        <KatshForm
+          activeConfig={catalogConfig("iPick")}
+          activeProvider="iPick"
+          getCategoriesForProvider={() => ["mtc"]}
+          getServiceItems={(p, c) =>
+            p === "iPick" && c === "mtc" ? [MTC_CARD] : []
+          }
+          methods={[{ code: "CASH", label: "Cash" }]}
+          loadFinancialData={jest.fn()}
+          formatAmount={(v) => String(v)}
+          alfaCreditSellRate={100_000}
+          exchangeRate={89_500}
+          showHistory={false}
+          setShowHistory={jest.fn()}
+        />
+      </RechargeBasketProvider>
+    </QueryClientProvider>
+  );
+}
+
 // ── Steps (all language-independent) ────────────────────────────────────────
 
 const click = (testId: string) => fireEvent.click(screen.getByTestId(testId));
@@ -482,6 +545,7 @@ async function payExactAndConfirm() {
 }
 
 const CALLS = {
+  selfChargeTelecomItem: mockSelfChargeTelecomItem,
   walletExchangeCreate: mockWalletExchangeCreate,
   cashoutConfirm: mockCashoutConfirm,
   addOMTTransaction: mockAddOMTTransaction,
@@ -743,6 +807,69 @@ const SCENARIOS: Scenario[] = [
     call: "cashoutConfirm",
   },
   {
+    name: "iPick card charged to the shop's own MTC line",
+    render: () => {
+      mockPrimary.mtc = SHOP_MTC_LINE;
+      return <SelfChargePage />;
+    },
+    drive: async () => {
+      fireEvent.click(await screen.findByTestId("katsh-self-charge"));
+      await waitFor(() =>
+        expect(screen.getByTestId("katsh-self-charge-confirm")).toBeEnabled(),
+      );
+      click("katsh-self-charge-confirm");
+    },
+    call: "selfChargeTelecomItem",
+  },
+  {
+    name: "iPick BILL, walk-in",
+    render: () => <CatalogPage />,
+    drive: async () => {
+      click("tab-iPick");
+      await screen.findAllByText("100 Diamonds");
+      fireEvent.change(screen.getByTestId("katsh-bill-amount"), {
+        target: { value: "12.5" },
+      });
+      click("katsh-add-bill");
+      click("katsh-proceed");
+      await payExactAndConfirm();
+    },
+    call: "addOMTTransaction",
+  },
+  {
+    name: "OMT App receive, session basket",
+    session: true,
+    render: () => <TransferPage provider="OMT_APP" />,
+    drive: async () => {
+      click("opt-RECEIVE");
+      typeInto("transfer-amount", "75");
+      click("transfer-proceed");
+    },
+    call: "addToCart",
+  },
+  {
+    name: "Whish App receive, session basket",
+    session: true,
+    render: () => <TransferPage provider="WHISH_APP" />,
+    drive: async () => {
+      click("opt-RECEIVE");
+      typeInto("transfer-amount", "50");
+      typeInto("transfer-fee", "1");
+      click("transfer-proceed");
+    },
+    call: "addToCart",
+  },
+  {
+    name: "Binance cash-out, For Partner",
+    render: () => <CryptoPage type="RECEIVE" />,
+    drive: async () => {
+      click("crypto-for-partner-toggle");
+      click("stub-pick-partner");
+      click("crypto-proceed");
+    },
+    call: "addOMTTransaction",
+  },
+  {
     name: "MTC credit, For Partner",
     render: () => <TelecomPage />,
     drive: async () => {
@@ -804,6 +931,7 @@ beforeEach(() => {
 afterEach(async () => {
   jest.useRealTimers();
   mockSession.activeSession = null;
+  mockPrimary.mtc = null;
   await switchLanguage("en");
 });
 
