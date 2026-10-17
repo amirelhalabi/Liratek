@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import logger from "@/utils/logger";
 import { Plus, History, Package, X } from "lucide-react";
 import {
@@ -16,7 +17,11 @@ import {
   DecimalInput,
   type PaymentLine,
 } from "@liratek/ui";
+import { formatNumber } from "@liratek/ui/i18n/format";
+import { normalizeDigits } from "@liratek/ui/i18n/digits";
+import { Ltr } from "@liratek/ui/components/ui/Ltr";
 import { HistoryModal } from "./components/HistoryModal";
+import { expenseCategoryLabel } from "./expenseCategoryLabel";
 import { StockUsePicker, type StockPick } from "./components/StockUsePicker";
 import { StatsCards } from "../../components/StatsCards";
 import { usdLbpTotals } from "@/shared/utils/usdLbpTotals";
@@ -64,6 +69,7 @@ const MANUAL_EXPENSE_CATEGORIES = EXPENSE_CATEGORIES.filter(
 
 export default function Expenses() {
   const api = useApi();
+  const { t } = useTranslation("expenses");
   // Expenses are a Money-OUT flow (shop pays out) — buy rate.
   const { buyRate: exchangeRate } = useSellRate();
   // An expense is the shop paying out of one of its drawers, so the payment
@@ -196,17 +202,17 @@ export default function Expenses() {
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Wrong number recorded — enter the credits sent back from Transactions",
+          t("toast.wrongNumber"),
           "success",
         );
         resetForm();
         loadTodayExpenses();
       } else {
-        alert("Error: " + result.error);
+        alert(t("errors.withReason", { error: result.error }));
       }
     } catch (error) {
       logger.error("Operation failed", { error });
-      alert(getApiErrorMessage(error, "Failed to record the wrong number"));
+      alert(getApiErrorMessage(error, t("errors.wrongNumberFailed")));
     }
   };
 
@@ -215,7 +221,7 @@ export default function Expenses() {
   const handleAddStockExpense = async (pick: StockPick) => {
     const quantity = Number(stockQty);
     if (!Number.isInteger(quantity) || quantity <= 0) {
-      alert("Please enter a whole quantity of 1 or more.");
+      alert(t("errors.wholeQuantity"));
       return;
     }
     const payload: CreateStockExpenseInput = {
@@ -232,17 +238,17 @@ export default function Expenses() {
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Shop use recorded — taken out at cost",
+          t("toast.stockUse"),
           "success",
         );
         resetForm();
         loadTodayExpenses();
       } else {
-        alert("Error: " + result.error);
+        alert(t("errors.withReason", { error: result.error }));
       }
     } catch (error) {
       logger.error("Operation failed", { error });
-      alert(getApiErrorMessage(error, "Failed to record shop use"));
+      alert(getApiErrorMessage(error, t("errors.stockUseFailed")));
     }
   };
 
@@ -256,13 +262,13 @@ export default function Expenses() {
       return;
     }
     if (!formData.description.trim()) {
-      alert("Please fill in description.");
+      alert(t("errors.description"));
       return;
     }
 
     const bill = Number(billAmount);
     if (!Number.isFinite(bill) || bill <= 0) {
-      alert("Please enter the bill amount.");
+      alert(t("errors.billAmount"));
       return;
     }
 
@@ -270,7 +276,7 @@ export default function Expenses() {
     const firstLine = paymentLines[0];
     const handedLines = paymentLines.filter((line) => line.amount > 0);
     if (!firstLine || handedLines.length === 0) {
-      alert("Please enter the cash handed.");
+      alert(t("errors.cashHanded"));
       return;
     }
     const rate = tenderRate ?? exchangeRate;
@@ -281,7 +287,7 @@ export default function Expenses() {
       0,
     );
     if (handedUsd < toUsd(bill, billCurrency) - 0.05) {
-      alert("The cash handed is less than the bill.");
+      alert(t("errors.cashLess"));
       return;
     }
 
@@ -327,13 +333,13 @@ export default function Expenses() {
       if (result.success) {
         appEvents.emit(
           "notification:show",
-          "Expense recorded successfully",
+          t("toast.recorded"),
           "success",
         );
         resetForm();
         loadTodayExpenses();
       } else {
-        alert("Error: " + result.error);
+        alert(t("errors.withReason", { error: result.error }));
       }
     } catch (error) {
       logger.error("Operation failed", { error });
@@ -341,12 +347,12 @@ export default function Expenses() {
       // `{status,message,details}` — NOT an `Error` instance) used to be
       // discarded here in favor of this hardcoded string, hiding the real
       // reason (a role refusal, a business-rule error, anything).
-      alert(getApiErrorMessage(error, "Failed to add expense"));
+      alert(getApiErrorMessage(error, t("errors.addFailed")));
     }
   };
 
   const handleVoid = async (id: number) => {
-    if (!confirm("Void this expense? Drawer balance will be restored.")) return;
+    if (!confirm(t("confirm.void"))) return;
     try {
       const result = await api.deleteExpense(id);
       if (result.success) {
@@ -358,14 +364,14 @@ export default function Expenses() {
         // handleAddExpense's existing failure branch above so a refusal
         // (e.g. an already-voided expense) is surfaced instead of silently
         // leaving the row in the list with no feedback.
-        alert("Error: " + result.error);
+        alert(t("errors.withReason", { error: result.error }));
       }
     } catch (error) {
       logger.error("Operation failed", { error });
       // LIRA-247: a thrown ApiError (e.g. a web 403 role refusal) used to be
       // discarded here in favor of this hardcoded string, mirroring the same
       // fix already applied to handleAddExpense above.
-      alert(getApiErrorMessage(error, "Failed to void expense"));
+      alert(getApiErrorMessage(error, t("errors.voidFailed")));
     }
   };
 
@@ -384,7 +390,7 @@ export default function Expenses() {
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       {/* Header with Stats and History */}
       <PageHeader
-        title="Expenses"
+        title={t("page.title")}
         actions={
           <div className="flex items-center gap-2">
             <StatsCards totalUSD={totalUSD} totalLBP={totalLBP} />
@@ -396,7 +402,7 @@ export default function Expenses() {
               className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
             >
               <History size={16} />
-              <span className="font-medium">History</span>
+              <span className="font-medium">{t("page.history")}</span>
             </button>
           </div>
         }
@@ -407,15 +413,15 @@ export default function Expenses() {
         <div className="w-full bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden flex-1 min-h-0">
           <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
             <Plus className="text-orange-500" size={20} />
-            Add New Expense
+            {t("form.title")}
           </h2>
 
-          <div className="space-y-4 flex-1 overflow-auto pr-2 custom-scrollbar">
+          <div className="space-y-4 flex-1 overflow-auto pe-2 custom-scrollbar">
             {/* LIRA-262 — use an item from the shop's own stock */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                <Package size={12} className="inline mr-1" />
-                Use an item from stock (optional)
+                <Package size={12} className="inline me-1" />
+                {t("form.stockUse")}
               </label>
               {stockPick ? (
                 <div
@@ -432,7 +438,7 @@ export default function Expenses() {
                     </span>
                     <button
                       type="button"
-                      aria-label="Remove item"
+                      aria-label={t("form.removeItem")}
                       onClick={() => {
                         setStockPick(null);
                         setStockQty("1");
@@ -449,30 +455,37 @@ export default function Expenses() {
                       htmlFor="expense-stock-qty"
                       className="text-xs text-slate-400 uppercase tracking-wider"
                     >
-                      Quantity
+                      {t("form.quantity")}
                     </label>
                     <input
                       id="expense-stock-qty"
-                      type="number"
-                      min={1}
-                      step={1}
+                      // LIRA-331 (R13): a number input drops Arabic-Indic
+                      // digits; a text field normalised to 0-9 keeps them.
+                      type="text"
+                      inputMode="numeric"
                       value={stockQty}
-                      onChange={(e) => setStockQty(e.target.value)}
+                      onChange={(e) =>
+                        setStockQty(normalizeDigits(e.target.value))
+                      }
                       // LIRA-312 — a wrong number is always one card.
                       disabled={wrongNumberTick}
                       className="w-24 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:border-orange-500 outline-none disabled:opacity-50"
                     />
                     <span className="text-xs text-slate-400">
-                      Approx. cost{" "}
-                      {stockPick.currency === "USD"
-                        ? `$${(stockPick.unitCost * (Number(stockQty) || 0)).toFixed(2)}`
-                        : `${(stockPick.unitCost * (Number(stockQty) || 0)).toLocaleString()} LBP`}
+                      {t("form.approxCost")}{" "}
+                      <Ltr>
+                        {stockPick.currency === "USD"
+                          ? `$${(stockPick.unitCost * (Number(stockQty) || 0)).toFixed(2)}`
+                          : `${formatNumber(stockPick.unitCost * (Number(stockQty) || 0))} LBP`}
+                      </Ltr>
                     </span>
                   </div>
                   <p className="text-xs text-slate-400">
                     {stockPick.source === "INVENTORY"
-                      ? "Comes out of stock at its cost. No cash moves."
-                      : `Comes out of the ${stockPick.sourceLabel} balance at its cost. No cash moves.`}
+                      ? t("form.stockNoCash")
+                      : t("form.catalogNoCash", {
+                          source: stockPick.sourceLabel,
+                        })}
                   </p>
                   {stockPick.carrier && (
                     <div className="space-y-2" data-testid="expense-wrong-number">
@@ -485,7 +498,7 @@ export default function Expenses() {
                             if (e.target.checked) setStockQty("1");
                           }}
                         />
-                        Wrong number — this card was recharged onto the wrong number
+                        {t("form.wrongNumberTick")}
                       </label>
                       {wrongNumberTick && (
                         <div>
@@ -493,7 +506,7 @@ export default function Expenses() {
                             htmlFor="expense-wrong-number"
                             className="text-xs text-slate-400 block mb-1"
                           >
-                            Wrong number (optional)
+                            {t("form.wrongNumberLabel")}
                           </label>
                           <input
                             id="expense-wrong-number"
@@ -503,8 +516,7 @@ export default function Expenses() {
                             className="w-48 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:border-orange-500 outline-none"
                           />
                           <p className="text-xs text-slate-400 mt-1">
-                            One card. Credits sent back can be entered later
-                            from the Transactions page.
+                            {t("form.wrongNumberHint")}
                           </p>
                         </div>
                       )}
@@ -527,7 +539,9 @@ export default function Expenses() {
                 htmlFor="expense-description"
                 className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
               >
-                {stockPick ? "Description (optional)" : "Description *"}
+                {stockPick
+                  ? t("form.descriptionOptional")
+                  : t("form.descriptionRequired")}
               </label>
               <input
                 id="expense-description"
@@ -538,7 +552,7 @@ export default function Expenses() {
                   setFormData({ ...formData, description: e.target.value })
                 }
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/50 outline-none transition-all"
-                placeholder="e.g., Shop rent, Coffee, Repair"
+                placeholder={t("form.descriptionPlaceholder")}
               />
             </div>
 
@@ -548,7 +562,7 @@ export default function Expenses() {
                 htmlFor="expense-category"
                 className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
               >
-                Category
+                {t("form.category")}
               </label>
               <Select
                 value={formData.category}
@@ -557,7 +571,7 @@ export default function Expenses() {
                 }
                 options={MANUAL_EXPENSE_CATEGORIES.map((cat) => ({
                   value: cat,
-                  label: cat.replace(/_/g, " "),
+                  label: expenseCategoryLabel(cat, t),
                 }))}
                 ringColor="ring-orange-500"
                 buttonClassName="text-sm"
@@ -571,7 +585,7 @@ export default function Expenses() {
                   htmlFor="expense-bill-amount"
                   className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
                 >
-                  Bill amount *
+                  {t("form.billAmount")}
                 </label>
                 <div className="flex gap-2">
                   {/* The app's one amount input: shows 100,000 while the
@@ -587,7 +601,7 @@ export default function Expenses() {
                   />
                   <div
                     role="group"
-                    aria-label="Bill currency"
+                    aria-label={t("form.billCurrency")}
                     className="flex rounded-lg border border-slate-700 overflow-hidden"
                   >
                     {(["USD", "LBP"] as const).map((code) => (
@@ -642,7 +656,7 @@ export default function Expenses() {
                   { code: "LBP", symbol: "LBP" },
                 ]}
                 exchangeRate={exchangeRate}
-                label="Cash handed"
+                label={t("form.cashHanded")}
                 showDiscount={false}
                 showPmFee={false}
                 // LIRA-185: split stays off — an expense is paid with ONE
@@ -659,7 +673,7 @@ export default function Expenses() {
                 htmlFor="expense-date"
                 className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
               >
-                Date
+                {t("form.date")}
               </label>
               <input
                 id="expense-date"
@@ -683,10 +697,11 @@ export default function Expenses() {
           )}
 
           <button
+            data-testid="expense-record"
             onClick={handleAddExpense}
             className="w-full py-4 mt-6 rounded-xl font-bold text-lg bg-orange-600 hover:bg-orange-500 text-white shadow-lg shadow-orange-900/20 active:scale-95 transition-all flex items-center justify-center gap-2"
           >
-            Record Expense
+            {t("form.record")}
           </button>
         </div>
       </div>
