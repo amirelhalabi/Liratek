@@ -65,7 +65,7 @@ test("convertSource rewrites class strings in code and reports the count", () =>
   const src = `
     const A = () => <div className="ml-2 text-left">{x}</div>;
     const b = cn("pr-4", active && "border-l-2");
-    const c = \`p-2 \${y ? "mr-1" : ""}\`;
+    const C = () => <i className={\`p-2 \${y ? "mr-1" : ""}\`} />;
     import x from "./left-panel";
   `;
   const out = convertSource(src);
@@ -74,4 +74,27 @@ test("convertSource rewrites class strings in code and reports the count", () =>
   assert.match(out.text, /"me-1"/);
   assert.match(out.text, /"\.\/left-panel"/);
   assert.equal(out.changes, 5);
+});
+
+test("never renames a lone data value outside a class context (stored settings, comparisons)", () => {
+  const src = `
+    const mode = localStorage.getItem("layout_mode") || "left-panel";
+    if (mode === "left-panel") handleLayoutChange("left-panel");
+    const align = { side: "right-0" };
+  `;
+  const out = convertSource(src);
+  assert.equal(out.text, src);
+  assert.equal(out.changes, 0);
+});
+
+test("a class list outside JSX is still converted: two or more class tokens, or a *class* name", () => {
+  const src = `
+    const BASE = "flex ml-2";
+    const activeClass = "pl-4";
+    const styles = { buttonClassName: "text-left" };
+  `;
+  const out = convertSource(src);
+  assert.match(out.text, /"flex ms-2"/);
+  assert.match(out.text, /activeClass = "ps-4"/);
+  assert.match(out.text, /buttonClassName: "text-start"/);
 });

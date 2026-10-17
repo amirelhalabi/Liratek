@@ -1,8 +1,10 @@
 /**
  * LIRA-331 T030 — My account → Language, for every role. The choice is saved
  * for the signed-in user through setMyLanguage, with the field name taken
- * from setMyLanguageSchema (rule 24). العربية is not offered while Arabic is
- * hidden (OD-4) unless this device has the owner preview flag.
+ * from setMyLanguageSchema (rule 24).
+ *
+ * Arabic ships dark (OD-4): without the owner preview flag the section is not
+ * shown at all, so shops see no change until Arabic is released.
  *
  * `useApi` returns ONE module-level object (rule 25).
  */
@@ -46,10 +48,10 @@ beforeEach(async () => {
   await i18n.changeLanguage("en");
 });
 
-it("hides العربية while Arabic is not ready (OD-4)", async () => {
+it("is not shown while Arabic is hidden (OD-4)", async () => {
   renderIt();
   await waitFor(() => expect(mockGetMyPreferences).toHaveBeenCalled());
-  expect(screen.getByRole("radio", { name: "English" })).toBeChecked();
+  expect(screen.queryByRole("radiogroup")).toBeNull();
   expect(screen.queryByRole("radio", { name: "العربية" })).toBeNull();
 });
 
@@ -57,6 +59,7 @@ it("with the preview flag, choosing العربية saves it for the user", async
   localStorage.setItem("liratek_arabic_preview", "1");
   renderIt();
   await waitFor(() => expect(mockGetMyPreferences).toHaveBeenCalled());
+  expect(screen.getByRole("radio", { name: "English" })).toBeChecked();
   fireEvent.click(screen.getByRole("radio", { name: "العربية" }));
   const expected = setMyLanguageSchema.parse({ language: "ar" });
   await waitFor(() => expect(mockSetMyLanguage).toHaveBeenCalledWith(expected));

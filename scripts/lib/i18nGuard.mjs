@@ -92,6 +92,69 @@ export function physicalClassTokens(classString) {
   return hits;
 }
 
+// ---------------------------------------------------------------------------
+// Class context: only class lists are checked/renamed, never data values
+// such as a stored "left-panel" setting or a comparison against it.
+// ---------------------------------------------------------------------------
+
+const CLASS_LIKE_TOKEN = /^[a-z0-9!:\-./[\]#%_()&>*,=]+$/;
+const CLASS_FNS = new Set(["clsx", "cn", "cx", "twMerge", "twJoin", "classNames"]);
+const PASS_THROUGH_BINARY = new Set([
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.QuestionQuestionToken,
+  ts.SyntaxKind.PlusToken,
+]);
+
+function nameText(name) {
+  return name && (ts.isIdentifier(name) || ts.isStringLiteral(name)) ? name.text : "";
+}
+
+/**
+ * True when a string (or template part) is a class list: it has two or more
+ * class-like tokens, or it sits in a class context — a `className` /
+ * `*ClassName` JSX value, an argument to clsx/cn/cx/twMerge/classNames, or
+ * a variable/property whose name contains "class" (through ternary branches,
+ * `&&`/`||`/`??`/`+`, parentheses, arrays and templates).
+ */
+export function isClassContext(node, text) {
+  const tokens = text.split(/\s+/).filter(Boolean);
+  if (tokens.length >= 2 && tokens.every((t) => CLASS_LIKE_TOKEN.test(t))) return true;
+  let cur = node;
+  if (ts.isTemplateHead(cur)) cur = cur.parent;
+  else if (ts.isTemplateMiddle(cur) || ts.isTemplateTail(cur)) cur = cur.parent.parent;
+  for (let p = cur.parent; p; cur = p, p = p.parent) {
+    if (ts.isJsxAttribute(p)) return /classname$/i.test(p.name.getText());
+    if (ts.isCallExpression(p)) {
+      return ts.isIdentifier(p.expression) && CLASS_FNS.has(p.expression.text);
+    }
+    if (ts.isVariableDeclaration(p)) return /class/i.test(nameText(p.name));
+    if (ts.isPropertyAssignment(p)) {
+      return p.initializer === cur && /class/i.test(nameText(p.name));
+    }
+    if (ts.isConditionalExpression(p)) {
+      if (p.condition === cur) return false;
+      continue;
+    }
+    if (ts.isBinaryExpression(p)) {
+      if (!PASS_THROUGH_BINARY.has(p.operatorToken.kind)) return false;
+      continue;
+    }
+    if (
+      ts.isParenthesizedExpression(p) ||
+      ts.isJsxExpression(p) ||
+      ts.isTemplateSpan(p) ||
+      ts.isTemplateExpression(p) ||
+      ts.isArrayLiteralExpression(p) ||
+      ts.isAsExpression(p)
+    ) {
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
+
 const PHYSICAL_STYLE_PROP = /^((margin|padding|border)(Left|Right)\w*|left|right)$/;
 
 // ---------------------------------------------------------------------------
@@ -151,6 +214,7 @@ export function analyzeSource(fileName, source, { brandNames = [] } = {}) {
   };
 
   const checkClassString = (node, text) => {
+    if (!isClassContext(node, text)) return;
     for (const token of physicalClassTokens(text)) push("g2", node, token);
   };
 

@@ -17,9 +17,11 @@
  * class list that also uses `translate-x` — the centring trick breaks when
  * only one half flips.
  *
- * Only string literals and template text in .ts/.tsx are rewritten; import
- * paths are skipped, and a string with an upper-case letter is treated as
- * text, not a class list.
+ * Only class lists are rewritten: a `className`/`*ClassName` value, a
+ * clsx/cn/twMerge argument, a variable/property named *class*, or a string
+ * of two or more class-like tokens (scripts/lib/i18nGuard.mjs
+ * isClassContext, shared with guard G2). A lone data value such as a stored
+ * "left-panel" setting is never touched; import paths are skipped.
  *
  * Usage: node scripts/i18n-logical-classes.mjs <dir-or-file> [...]  (writes)
  *        node scripts/i18n-logical-classes.mjs --dry <dir-or-file>   (report)
@@ -28,6 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { isClassContext } from "./lib/i18nGuard.mjs";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
@@ -91,9 +94,12 @@ export function convertSource(source, fileName = "x.tsx") {
   const review = [];
   let changes = 0;
 
-  const consider = (start, end) => {
+  const consider = (node, start, end) => {
     const inner = source.slice(start, end);
     if (!looksLikeClassList(inner.trim())) return;
+    // The same rule as guard G2: a class context, or 2+ class tokens. A lone
+    // data value ("left-panel" stored in localStorage) is never renamed.
+    if (!isClassContext(node, inner)) return;
     const result = convertClassString(inner);
     review.push(...result.review);
     if (result.changes > 0) {
@@ -108,11 +114,11 @@ export function convertSource(source, fileName = "x.tsx") {
     const start = node.getStart(sf);
     const end = node.getEnd();
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      consider(start + 1, end - 1);
+      consider(node, start + 1, end - 1);
     } else if (ts.isTemplateHead(node) || ts.isTemplateMiddle(node)) {
-      consider(start + 1, end - 2);
+      consider(node, start + 1, end - 2);
     } else if (ts.isTemplateTail(node)) {
-      consider(start + 1, end - 1);
+      consider(node, start + 1, end - 1);
     }
     ts.forEachChild(node, visit);
   };

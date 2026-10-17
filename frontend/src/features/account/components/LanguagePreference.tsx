@@ -3,8 +3,8 @@
  * to the signed-in user (saved through setMyLanguage on desktop and web) and
  * applies at once, without a reload (FR-002).
  *
- * العربية is offered only when the OD-4 gate allows it on this device
- * (`arabicAvailable`); until then the section shows English alone.
+ * The section is shown only when the OD-4 gate allows Arabic on this device
+ * (`arabicAvailable`); until then it renders nothing.
  * Texts come from the `common` namespace, so the rest of the account module
  * is not yet guarded (its own conversion is a module task).
  */
@@ -15,7 +15,10 @@ import { useLanguage } from "@/contexts/LanguageContext";
 export default function LanguagePreference() {
   const { t } = useTranslation("common");
   const { language, setLanguage, arabicAvailable } = useLanguage();
-  const options: Language[] = arabicAvailable ? ["en", "ar"] : ["en"];
+  // OD-4: nothing to choose until Arabic is released (or previewed here), so
+  // shops see no change before then.
+  if (!arabicAvailable) return null;
+  const options: Language[] = ["en", "ar"];
 
   return (
     <section

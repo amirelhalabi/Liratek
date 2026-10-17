@@ -111,6 +111,16 @@ test("G2 scans className literals and template text in source", () => {
   assert.equal(hits[0].text, "ml-2");
 });
 
+test("G2 ignores a lone data value outside a class context", () => {
+  const src = `
+    const mode = localStorage.getItem("layout_mode") || "left-panel";
+    if (mode === "left-panel") handleLayoutChange("left-panel");
+  `;
+  assert.deepEqual(g(src).g2, []);
+  assert.equal(g(`const BASE = "flex ml-2";`).g2.length, 1);
+  assert.equal(g(`const x = cn("pr-4", a && "border-l-2");`).g2.length, 2);
+});
+
 // ---------------------------------------------------------------------------
 // G3 — machine-locale formatting
 // ---------------------------------------------------------------------------

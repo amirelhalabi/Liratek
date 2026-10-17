@@ -19,14 +19,13 @@ import { useTranslation } from "react-i18next";
 import { isArabicAvailable } from "@/i18n/arabicGate";
 
 /**
- * LIRA-331: the languages a language select offers. Arabic only when the
- * OD-4 gate allows it on this device — but a value already stored (e.g. by a
- * signup from the Arabic landing) is always listed, so saving the form never
- * silently rewrites it.
+ * LIRA-331: the two language selects are shown only when the OD-4 gate allows
+ * Arabic on this device, so shops see no change before Arabic is released.
+ * A language key is written only when the admin changed it — saving the form
+ * never rewrites a stored value (e.g. Arabic from a signup on the Arabic
+ * landing) or adds rows for shops that never touched it.
  */
-function languageOptions(current: Language): Language[] {
-  return isArabicAvailable() || current === "ar" ? ["en", "ar"] : ["en"];
-}
+const LANGUAGE_OPTIONS: Language[] = ["en", "ar"];
 
 export default function ShopConfig() {
   const api = useApi();
@@ -35,6 +34,10 @@ export default function ShopConfig() {
   // LIRA-331: shop default UI language and receipt language (missing = en).
   const [uiDefaultLanguage, setUiDefaultLanguage] = useState<Language>("en");
   const [receiptLanguage, setReceiptLanguage] = useState<Language>("en");
+  const loadedLanguagesRef = useRef<{ ui: Language; receipt: Language }>({
+    ui: "en",
+    receipt: "en",
+  });
   const [shopName, setShopName] = useState("");
   const [shopPhone, setShopPhone] = useState("");
   const [shopLocation, setShopLocation] = useState("");
@@ -90,6 +93,10 @@ export default function ShopConfig() {
       setUiDefaultLanguage(isLanguage(uiLang) ? uiLang : "en");
       const receiptLang = map.get(RECEIPT_LANGUAGE_SETTING_KEY);
       setReceiptLanguage(isLanguage(receiptLang) ? receiptLang : "en");
+      loadedLanguagesRef.current = {
+        ui: isLanguage(uiLang) ? uiLang : "en",
+        receipt: isLanguage(receiptLang) ? receiptLang : "en",
+      };
       setSessionMgmt(map.get("feature_session_management") !== "disabled");
       setCustomerSessions(map.get("feature_customer_sessions") !== "disabled");
       setAutoCheckUpdates(map.get("auto_check_updates") !== "0");
@@ -179,8 +186,17 @@ export default function ShopConfig() {
         api.updateSetting("receipt_header_text", receiptHeaderText),
         api.updateSetting(WARRANTY_TERMS_SETTING_KEY, warrantyTermsText),
         api.updateSetting("receipt_logo", receiptLogo),
-        api.updateSetting(UI_DEFAULT_LANGUAGE_SETTING_KEY, uiDefaultLanguage),
-        api.updateSetting(RECEIPT_LANGUAGE_SETTING_KEY, receiptLanguage),
+        ...(uiDefaultLanguage !== loadedLanguagesRef.current.ui
+          ? [
+              api.updateSetting(
+                UI_DEFAULT_LANGUAGE_SETTING_KEY,
+                uiDefaultLanguage,
+              ),
+            ]
+          : []),
+        ...(receiptLanguage !== loadedLanguagesRef.current.receipt
+          ? [api.updateSetting(RECEIPT_LANGUAGE_SETTING_KEY, receiptLanguage)]
+          : []),
         api.updateSetting(
           "feature_session_management",
           sessionMgmt ? "enabled" : "disabled",
@@ -344,58 +360,62 @@ export default function ShopConfig() {
 
       {/* LIRA-331 — the shop's default UI language (for anyone who has not
           chosen one in My account) and the language receipts print in. */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label
-            htmlFor="shop-ui-default-language"
-            className="block text-sm text-slate-400 mb-2"
-          >
-            {t("language.shopDefault")}
-          </label>
-          <select
-            id="shop-ui-default-language"
-            value={uiDefaultLanguage}
-            onChange={(e) => {
-              if (isLanguage(e.target.value)) setUiDefaultLanguage(e.target.value);
-            }}
-            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
-          >
-            {languageOptions(uiDefaultLanguage).map((code) => (
-              <option key={code} value={code}>
-                {t(`language.${code}`)}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-slate-500 mt-1">
-            {t("language.shopDefaultHint")}
-          </p>
+      {isArabicAvailable() && (
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label
+              htmlFor="shop-ui-default-language"
+              className="block text-sm text-slate-400 mb-2"
+            >
+              {t("language.shopDefault")}
+            </label>
+            <select
+              id="shop-ui-default-language"
+              value={uiDefaultLanguage}
+              onChange={(e) => {
+                if (isLanguage(e.target.value))
+                  setUiDefaultLanguage(e.target.value);
+              }}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+            >
+              {LANGUAGE_OPTIONS.map((code) => (
+                <option key={code} value={code}>
+                  {t(`language.${code}`)}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              {t("language.shopDefaultHint")}
+            </p>
+          </div>
+          <div>
+            <label
+              htmlFor="shop-receipt-language"
+              className="block text-sm text-slate-400 mb-2"
+            >
+              {t("language.receipt")}
+            </label>
+            <select
+              id="shop-receipt-language"
+              value={receiptLanguage}
+              onChange={(e) => {
+                if (isLanguage(e.target.value))
+                  setReceiptLanguage(e.target.value);
+              }}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+            >
+              {LANGUAGE_OPTIONS.map((code) => (
+                <option key={code} value={code}>
+                  {t(`language.${code}`)}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              {t("language.receiptHint")}
+            </p>
+          </div>
         </div>
-        <div>
-          <label
-            htmlFor="shop-receipt-language"
-            className="block text-sm text-slate-400 mb-2"
-          >
-            {t("language.receipt")}
-          </label>
-          <select
-            id="shop-receipt-language"
-            value={receiptLanguage}
-            onChange={(e) => {
-              if (isLanguage(e.target.value)) setReceiptLanguage(e.target.value);
-            }}
-            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
-          >
-            {languageOptions(receiptLanguage).map((code) => (
-              <option key={code} value={code}>
-                {t(`language.${code}`)}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-slate-500 mt-1">
-            {t("language.receiptHint")}
-          </p>
-        </div>
-      </div>
+      )}
 
       {/* LIRA-296 — warranty terms, printed under the items on any receipt
           that has a warranty line. */}
