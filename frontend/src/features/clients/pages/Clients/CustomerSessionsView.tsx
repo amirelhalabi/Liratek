@@ -200,7 +200,7 @@ export default function CustomerSessionsView({
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
-                        <div className="text-right">
+                        <div className="text-end">
                           <p className="text-sm text-slate-400">Total Spent</p>
                           <p className="text-lg font-bold text-emerald-400">
                             {formatCurrency(sessionData.total_usd, "USD")}
@@ -269,7 +269,7 @@ export default function CustomerSessionsView({
                                   </p>
                                 </div>
                               </div>
-                              <div className="text-right">
+                              <div className="text-end">
                                 <p className="text-white font-medium">
                                   {formatCurrency(
                                     Math.abs(txn.amount_usd),

@@ -264,7 +264,7 @@ export default function ShopConfig() {
         {loadSlow && (
           <span
             data-testid="shop-config-slow"
-            className="ml-2 inline-flex items-center gap-2 text-sm"
+            className="ms-2 inline-flex items-center gap-2 text-sm"
           >
             This is taking longer than usual.
             <button

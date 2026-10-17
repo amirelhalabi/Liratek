@@ -116,7 +116,7 @@ export function DefectiveItems() {
               {["Item", "Serial", "Cost", "Claim", "Status", ""].map((h) => (
                 <th
                   key={h}
-                  className="text-left text-xs text-slate-400 px-4 py-3"
+                  className="text-start text-xs text-slate-400 px-4 py-3"
                 >
                   {h}
                 </th>
@@ -142,18 +142,18 @@ export function DefectiveItems() {
                 <td className="px-4 py-3 text-sm text-slate-300">
                   {STATUS_LABEL[d.status] ?? d.status}
                 </td>
-                <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
+                <td className="px-4 py-3 text-sm text-end whitespace-nowrap">
                   {d.status === "HELD" && (
                     <>
                       <button
                         onClick={() => void resolve(d, "WRITE_OFF")}
-                        className="text-red-300 hover:text-red-200 mr-3"
+                        className="text-red-300 hover:text-red-200 me-3"
                       >
                         Write off
                       </button>
                       <button
                         onClick={() => void resolve(d, "NOT_FAULTY")}
-                        className="text-emerald-300 hover:text-emerald-200 mr-3"
+                        className="text-emerald-300 hover:text-emerald-200 me-3"
                       >
                         Not faulty
                       </button>

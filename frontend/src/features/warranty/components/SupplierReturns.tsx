@@ -185,7 +185,7 @@ export function SupplierReturns() {
                 (h) => (
                   <th
                     key={h}
-                    className="text-left text-xs text-slate-400 px-4 py-3"
+                    className="text-start text-xs text-slate-400 px-4 py-3"
                   >
                     {h}
                   </th>
@@ -226,7 +226,7 @@ export function SupplierReturns() {
                 <td className="px-4 py-3 text-sm text-slate-300">
                   {money(r)}
                 </td>
-                <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
+                <td className="px-4 py-3 text-sm text-end whitespace-nowrap">
                   {r.status === "SENT" && closing !== r.id && (
                     <button
                       onClick={() => setClosing(r.id)}

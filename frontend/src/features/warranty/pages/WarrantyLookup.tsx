@@ -139,7 +139,7 @@ export default function WarrantyLookup() {
             <div className="relative flex-1 min-w-[16rem]">
               <Search
                 size={18}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+                className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500"
               />
               <input
                 type="search"
@@ -148,7 +148,7 @@ export default function WarrantyLookup() {
                 placeholder={SEARCH_HINT}
                 aria-label="Search warranties"
                 maxLength={100}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-10 pr-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg ps-10 pe-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
             <div>
@@ -194,28 +194,28 @@ export default function WarrantyLookup() {
             >
               <thead className="bg-slate-900">
                 <tr>
-                  <th className="text-left text-xs text-slate-400 px-4 py-3">
+                  <th className="text-start text-xs text-slate-400 px-4 py-3">
                     Product
                   </th>
-                  <th className="text-left text-xs text-slate-400 px-4 py-3">
+                  <th className="text-start text-xs text-slate-400 px-4 py-3">
                     Customer
                   </th>
-                  <th className="text-left text-xs text-slate-400 px-4 py-3">
+                  <th className="text-start text-xs text-slate-400 px-4 py-3">
                     Sold on
                   </th>
-                  <th className="text-left text-xs text-slate-400 px-4 py-3">
+                  <th className="text-start text-xs text-slate-400 px-4 py-3">
                     Receipt
                   </th>
-                  <th className="text-left text-xs text-slate-400 px-4 py-3">
+                  <th className="text-start text-xs text-slate-400 px-4 py-3">
                     Warranty until
                   </th>
-                  <th className="text-left text-xs text-slate-400 px-4 py-3">
+                  <th className="text-start text-xs text-slate-400 px-4 py-3">
                     State
                   </th>
-                  <th className="text-left text-xs text-slate-400 px-4 py-3">
+                  <th className="text-start text-xs text-slate-400 px-4 py-3">
                     Covered
                   </th>
-                  <th className="text-left text-xs text-slate-400 px-4 py-3" />
+                  <th className="text-start text-xs text-slate-400 px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700">
@@ -266,7 +266,7 @@ export default function WarrantyLookup() {
                       {`${row.coveredQuantity} of ${row.quantity}`}
                     </td>
                     <td
-                      className="px-4 py-3 text-sm text-right whitespace-nowrap"
+                      className="px-4 py-3 text-sm text-end whitespace-nowrap"
                       onClick={(e) => e.stopPropagation()}
                     >
                       {row.state !== "VOID" && (
@@ -284,7 +284,7 @@ export default function WarrantyLookup() {
                                 .map((u) => ({ id: u.id, serial: u.serial })),
                             })
                           }
-                          className="text-violet-300 hover:text-violet-100 mr-3"
+                          className="text-violet-300 hover:text-violet-100 me-3"
                         >
                           Claim
                         </button>

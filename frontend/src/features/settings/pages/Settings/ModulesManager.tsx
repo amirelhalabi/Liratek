@@ -436,12 +436,12 @@ export default function ModulesManager() {
             </button>
             <button
               onClick={() => setSelectedKey(null)}
-              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs ml-1"
+              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs ms-1"
             >
               Deselect
             </button>
             {saving && (
-              <span className="text-xs text-slate-500 ml-2">Saving...</span>
+              <span className="text-xs text-slate-500 ms-2">Saving...</span>
             )}
           </div>
         )}
@@ -454,7 +454,7 @@ export default function ModulesManager() {
           tableRef={tableRef}
           rowCount={modules.length + providerCurrencies.length}
         />
-        <table ref={tableRef} className="w-full text-sm text-left">
+        <table ref={tableRef} className="w-full text-sm text-start">
           <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
             <tr>
               <th className="py-2 px-2 w-8"></th>
@@ -577,7 +577,7 @@ export default function ModulesManager() {
                         className="border-t-2 border-slate-600 bg-slate-800/10"
                       >
                         <td className="py-1.5 px-2 w-8"></td>
-                        <td className="py-1.5 px-3 pl-8 text-slate-300 text-sm">
+                        <td className="py-1.5 px-3 ps-8 text-slate-300 text-sm">
                           {m.label}
                         </td>
                         <td className="py-1.5 px-3 text-slate-500 font-mono text-xs">

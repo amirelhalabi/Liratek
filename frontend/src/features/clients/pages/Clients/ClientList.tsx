@@ -99,13 +99,13 @@ export default function ClientList() {
       {/* Toolbar */}
       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-2.5 text-slate-500 h-5 w-5" />
+          <Search className="absolute start-3 top-2.5 text-slate-500 h-5 w-5" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name or phone..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg ps-10 pe-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
           />
         </div>
       </div>
@@ -128,7 +128,7 @@ export default function ClientList() {
             { header: "Notes", className: "p-4 border-b border-slate-700" },
             {
               header: "Actions",
-              className: "p-4 border-b border-slate-700 text-right",
+              className: "p-4 border-b border-slate-700 text-end",
             },
           ]}
           data={clients}
@@ -137,7 +137,7 @@ export default function ClientList() {
           exportExcel
           exportPdf
           exportFilename="clients"
-          className="w-full text-left border-collapse"
+          className="w-full text-start border-collapse"
           theadClassName="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold"
           tbodyClassName="divide-y divide-slate-700 text-sm"
           renderRow={(client) => (
@@ -161,7 +161,7 @@ export default function ClientList() {
               <td className="p-4 text-slate-400 italic">
                 {client.notes || "-"}
               </td>
-              <td className="p-4 text-right">
+              <td className="p-4 text-end">
                 <div className="flex items-center justify-end gap-2">
                   <button
                     onClick={() => handleViewSessions(client)}

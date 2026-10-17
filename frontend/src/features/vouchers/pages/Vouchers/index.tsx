@@ -306,7 +306,7 @@ export function VouchersPage() {
               ) : (
                 <div className="space-y-2">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                     <input
                       type="text"
                       value={clientQuery}
@@ -314,7 +314,7 @@ export function VouchersPage() {
                       onFocus={() =>
                         clientResults.length && setShowResults(true)
                       }
-                      className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-9 pr-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                      className="w-full bg-slate-900 border border-slate-600 rounded-lg ps-9 pe-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
                       placeholder="Search or enter client name"
                     />
                     {showResults && clientResults.length > 0 && (
@@ -324,7 +324,7 @@ export function VouchersPage() {
                             key={c.id}
                             type="button"
                             onClick={() => selectClient(c)}
-                            className="w-full text-left px-3 py-2 hover:bg-slate-700/60 transition-colors"
+                            className="w-full text-start px-3 py-2 hover:bg-slate-700/60 transition-colors"
                           >
                             <p className="text-sm text-white">{c.full_name}</p>
                             {c.phone_number && (
@@ -380,14 +380,14 @@ export function VouchersPage() {
               </div>
               <div className="relative">
                 {currency === "USD" && (
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                  <span className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
                     $
                   </span>
                 )}
                 <DecimalInput
                   value={parseFloat(amount) || 0}
                   onChange={(n) => setAmount(n ? String(n) : "")}
-                  className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500`}
+                  className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "ps-7" : "ps-3"} pe-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500`}
                   placeholder={currency === "USD" ? "0.00" : "0"}
                 />
               </div>
@@ -399,12 +399,12 @@ export function VouchersPage() {
                 Expiry date (optional)
               </label>
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <Calendar className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                 <input
                   type="date"
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-9 pr-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg ps-9 pe-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
                 />
               </div>
             </div>
@@ -475,7 +475,7 @@ export function VouchersPage() {
                     }`}
                   >
                     {tab.label}
-                    <span className="ml-1.5 opacity-70">{count}</span>
+                    <span className="ms-1.5 opacity-70">{count}</span>
                   </button>
                 );
               })}
@@ -499,7 +499,7 @@ export function VouchersPage() {
                 {filteredVouchers.map((v) => (
                   <div
                     key={v.id}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all hover:bg-slate-700/70 bg-slate-900/50 border border-slate-700/40"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-start transition-all hover:bg-slate-700/70 bg-slate-900/50 border border-slate-700/40"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">

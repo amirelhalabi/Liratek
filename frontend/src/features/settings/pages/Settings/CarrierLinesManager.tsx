@@ -180,7 +180,7 @@ export default function CarrierLinesManager() {
       )}
 
       <div className="border border-slate-700 rounded-lg overflow-hidden">
-        <table className="w-full text-sm text-left">
+        <table className="w-full text-sm text-start">
           <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
             <tr>
               <th className="py-2 px-3">Carrier</th>
