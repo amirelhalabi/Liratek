@@ -434,6 +434,33 @@ function webApiShimBody(): void {
         `/api/suppliers/${(data as { supplier_id: number }).supplier_id}/settle`,
         data,
       ),
+    // LIRA-189 account settle: IPC carries account_supplier_id in the
+    // payload; REST takes it from the URL (backendApi.settleSupplierAccount).
+    "suppliers.settleAccount": async ([data]) => {
+      const { account_supplier_id, ...body } = data as {
+        account_supplier_id: number;
+      } & Record<string, unknown>;
+      return rest(
+        "POST",
+        `/api/suppliers/${account_supplier_id}/settle-account`,
+        body,
+      );
+    },
+    // LIRA-256: IPC returns the statement raw (and throws on a refused
+    // choice); REST wraps it as { statement }.
+    "suppliers.getAccountExpectedStatement": async ([id, covered]) => {
+      const query = Array.isArray(covered)
+        ? `?covered=${encodeURIComponent((covered as string[]).join(","))}`
+        : "";
+      const res = await rest(
+        "GET",
+        `/api/suppliers/${id}/account-expected-statement${query}`,
+      );
+      if (res.success === false) {
+        throw new Error(res.error ?? "account-expected-statement failed");
+      }
+      return res.statement;
+    },
     "recharge.topUpFromSupplier": async ([payload]) =>
       rest("POST", "/api/recharge/top-up-from-supplier", payload),
     "recharge.cashoutToSupplier": async ([payload]) =>
@@ -786,6 +813,10 @@ function webApiShimBody(): void {
       rest("PUT", `/api/carrier-lines/${id}/set-primary`),
     "carrierLines.recordUsage": async ([data]) =>
       rest("POST", "/api/carrier-lines/record-usage", data),
+    // IPC is positional (id, data); REST puts the id in the URL
+    // (backendApi.updateCarrierLineBalance).
+    "carrierLines.updateBalance": async ([id, data]) =>
+      rest("PUT", `/api/carrier-lines/${id}/balance`, data),
     "financial.selfChargeTelecomItem": async ([data]) =>
       rest("POST", "/api/services/self-charge", data),
     // Profits gate (fixtures' ensureProfitsUnlocked). passwordStatus is a

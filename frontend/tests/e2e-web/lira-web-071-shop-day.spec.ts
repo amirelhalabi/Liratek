@@ -425,7 +425,8 @@ test.describe.serial("lira-web-071 Shop Day", () => {
         expect(last.success, JSON.stringify(last)).toBeTruthy();
       }
       // After the 2nd IMEI the units match the stock count.
-      expect(last).toMatchObject({ drift: { matches: true } });
+      // REST envelope: { success, data: { units, drift } }.
+      expect(last).toMatchObject({ data: { drift: { matches: true } } });
       await page.getByRole("button", { name: "Done" }).click();
     }
   }
@@ -554,7 +555,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
       .first()
       .click();
     const modal = topModal(page);
-    await modal.getByRole("button", { name: "Via Partner" }).click();
+    await modal
+      .getByRole("button", { name: "Via Partner", exact: true })
+      .click();
     await modal
       .getByRole("button", { name: /Direct \(no partner\)|Select partner/ })
       .first()
@@ -740,7 +743,9 @@ test.describe.serial("lira-web-071 Shop Day", () => {
     );
     await payMethod(modal, 0).selectOption("CASH");
     await modal.getByTestId("discount-mode-discount").click();
-    await modal.getByLabel("Discount", { exact: true }).fill("2");
+    // POS's discount field has no label of its own (DiscountLine draws the
+    // word beside it); use its testid.
+    await modal.getByTestId("checkout-discount-input").fill("2");
     await payAmount(modal, 0).fill("20");
     await modal.getByTestId("return-usd").fill("5");
     const sale = waitPost(page, "/api/sales/process");
